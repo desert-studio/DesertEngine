@@ -1,3 +1,4 @@
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
@@ -23,7 +24,11 @@ namespace Desert::Graphic::API::Vulkan
     {
         std::filesystem::path PipelineCacheDiskPath()
         {
-            return Common::Constants::Path::COOKED_PATH / "PipelineCache.bin";
+            // One blob per DDC: its validity is the DRIVER's call (the header carries vendor, device and
+            // pipelineCacheUUID and a mismatch is discarded), so there is no payload to hash here.
+            constexpr Common::DDC::Deriver kPipelineDeriver{ "PipelineCache", ".bin",
+                                                             { 0xc83f1a6d29e7054bULL, 0x76b2e9f04a1d3c85ULL } };
+            return Common::DDC::PathFor( kPipelineDeriver, Common::DDC::MakeKey( kPipelineDeriver, 0, nullptr, 0 ) );
         }
     } // namespace
 
@@ -550,7 +555,7 @@ namespace Desert::Graphic::API::Vulkan
             // exists). Same-GPU installs seed from it; the driver's header check discards it anywhere
             // else — exactly the harmlessness contract above.
             if ( initial.empty() )
-                if ( auto packed = Common::Utils::VFS::ReadFile( path ) )
+                if ( auto packed = Common::Utils::VFS::ReadFile( Common::DDC::PackagedPath( path ) ) )
                     initial.assign( packed->begin(), packed->end() );
         }
 

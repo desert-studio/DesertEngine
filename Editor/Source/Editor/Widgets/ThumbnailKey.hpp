@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 
@@ -124,7 +125,7 @@ namespace Desert::Editor::ThumbnailKey
         // decision — which files have no picture — is exactly the kind of thing this header exists to
         // keep reachable by a test rather than only by launching the editor. ThumbnailCache keeps what
         // genuinely needs the device: decoding a PNG into an Image2D.
-        return ( Common::Constants::Path::COOKED_PATH / ( "Thumbnails/v" + std::to_string( CacheVersion() ) ) /
+        return ( Common::DDC::BucketDir( "Thumbnails" ) / ( "v" + std::to_string( CacheVersion() ) ) /
                  FileName( assetPath ) )
              .string();
     }

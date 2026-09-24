@@ -13,6 +13,7 @@
 
 #include <Editor/Import/TextureImporter.hpp>
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -89,6 +90,7 @@ namespace Desert::Editor
                     {
                         const uint64_t key =
                              Core::ComputeShaderCacheKeyForProfile( stage, source, file, spirvDebugInfo );
+                        stats.DerivedEntries.push_back( Core::SpirvCachePathForKey( key ) );
                         if ( Core::TryLoadCachedSpirv( key ) )
                         {
                             ++stats.ShadersCached;
@@ -154,6 +156,7 @@ namespace Desert::Editor
                     // different glyph set is a different key by design); the shipped default covers
                     // the common case and the default font.
                     const uint64_t  key = Text::FontCacheKey( ttf, Text::kDefaultBakePixelHeight, {} );
+                    stats.DerivedEntries.push_back( Text::FontCachePath( key ) );
                     Text::BakedFont existing;
                     if ( Text::TryLoadBakedFont( Text::FontCachePath( key ), existing ) )
                     {
@@ -207,6 +210,7 @@ namespace Desert::Editor
                     }
 
                     const uint64_t    key = Vector::IconCacheKey( svg );
+                    stats.DerivedEntries.push_back( Vector::IconCachePath( key ) );
                     Vector::BakedIcon existing;
                     if ( Vector::TryLoadBakedIcon( Vector::IconCachePath( key ), existing ) )
                     {
@@ -264,6 +268,46 @@ namespace Desert::Editor
                 }
             }
         }
+
+        // Copies one DDC entry to the same relative place under `cooked`. False only when it exists in the
+        // DDC and could not be copied — a missing entry is a failure the cook already counted.
+        bool StageEntry( const fs::path& entry, const fs::path& ddcRoot, const fs::path& cooked )
+        {
+            std::error_code ec;
+            if ( !fs::is_regular_file( entry, ec ) )
+                return true;
+            const fs::path target = cooked / entry.lexically_normal().lexically_relative( ddcRoot );
+            fs::create_directories( target.parent_path(), ec );
+            fs::copy_file( entry, target, fs::copy_options::overwrite_existing, ec );
+            if ( ec )
+            {
+                LOG_ERROR( "[PackageCook] could not stage {} into {}: {}", entry.string(), target.string(),
+                           ec.message() );
+                return false;
+            }
+            return true;
+        }
+
+        void StageCookedEntries( CookStats& stats )
+        {
+            const fs::path  cooked  = Common::DDC::PlatformCookedDir();
+            const fs::path  ddcRoot = Common::DDC::Root();
+            std::error_code ec;
+            fs::remove_all( cooked, ec );
+            fs::create_directories( cooked, ec );
+
+            for ( const fs::path& entry : stats.DerivedEntries )
+                if ( !StageEntry( entry, ddcRoot, cooked ) )
+                    ++stats.StoreFailures;
+
+            // The pipeline blob is keyed by the driver, not by content the cook can enumerate: every blob
+            // this machine holds ships, and a player's driver discards the ones that are not its own.
+            const fs::path pipelines = Common::DDC::BucketDir( "PipelineCache" );
+            if ( fs::is_directory( pipelines, ec ) )
+                for ( const auto& file : fs::recursive_directory_iterator( pipelines, ec ) )
+                    if ( file.is_regular_file( ec ) && !StageEntry( file.path(), ddcRoot, cooked ) )
+                        ++stats.StoreFailures;
+        }
     } // namespace
 
     CookStats CookContentCaches( bool spirvDebugInfo )
@@ -273,6 +317,7 @@ namespace Desert::Editor
         CookFonts( stats );
         CookIcons( stats );
         CookTextures( stats );
+        StageCookedEntries( stats );
 
         LOG_INFO( "[PackageCook] shaders {} compiled / {} cached, fonts {} baked / {} cached, icons {} "
                   "baked / {} cached, textures {} cooked / {} cached, {} failure(s), {} unwritten",

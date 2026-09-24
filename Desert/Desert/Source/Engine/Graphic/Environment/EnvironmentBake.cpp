@@ -1,5 +1,6 @@
 #include "EnvironmentBake.hpp"
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -87,9 +88,12 @@ namespace Desert::Graphic
 
     std::filesystem::path EnvironmentBakePath( const uint64_t sourceSignature, const uint64_t bakeSignature )
     {
-        const uint64_t parts[2] = { sourceSignature, bakeSignature };
-        return Common::Constants::Path::COOKED_PATH / "EnvironmentCache" /
-               fmt::format( "{:016x}.tex", Fnv1a( parts, sizeof( parts ) ) );
+        // Payload = the panorama's own signature; setting = the cube's shape (which cube, size, mips).
+        constexpr Common::DDC::Deriver kEnvironmentDeriver{ "EnvironmentCache", ".tex",
+                                                            { 0x5e0b8d3712f4a6c9ULL, 0xe47a2c9150b3d68fULL } };
+        return Common::DDC::PathFor( kEnvironmentDeriver, Common::DDC::MakeKey( kEnvironmentDeriver, sourceSignature,
+                                                                                &bakeSignature,
+                                                                                sizeof( bakeSignature ) ) );
     }
 
     Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr )

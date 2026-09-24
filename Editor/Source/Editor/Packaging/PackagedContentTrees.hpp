@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 
@@ -26,16 +27,20 @@ namespace Desert::Editor
         const std::filesystem::path* Tree;   // the live constant — follows SetProjectRoot remaps
         const char*                  PakKey; // archive key prefix the tree's files are stored under
         bool                         StripRawMeshSources;
+        // Where the files are READ from when packing. Equal to *Tree for every tree but one: the packager's
+        // own cook output (Saved/Cooked/<Platform>) is packed under the key of the directory the runtime
+        // LOOKS in (COOKED_PATH), because a DDC reader's fallback is DDC::PackagedPath — COOKED_PATH/<rel>.
+        std::filesystem::path Source;
     };
 
     // AssetsRoot the regenerated .deproj declares. Opening it in the packaged game remaps ASSETS_PATH
     // to <package>/Assets/, which is why that tree's PakKey is this string and not its dev-time path.
     inline constexpr const char* kPackagedAssetsRoot = "Assets";
 
-    inline std::array<PackagedTree, 5> PackagedContentTrees()
+    inline std::array<PackagedTree, 6> PackagedContentTrees()
     {
         namespace P = Common::Constants::Path;
-        return { {
+        std::array<PackagedTree, 6> trees = { {
              // Project assets, raw mesh sources stripped — the runtime reads cooked meshes only.
              { &P::ASSETS_PATH, kPackagedAssetsRoot, /*StripRawMeshSources=*/true },
              { &P::COOKED_PATH, "Cooked", false },
@@ -43,7 +48,13 @@ namespace Desert::Editor
              { &P::SHADERDIR_PATH, "Resources/Shaders", false },
              { &P::FONTS_PATH, "Resources/Fonts", false },
              { &P::ICONS_PATH, "Resources/Icons", false },
+             // The packager's cook of the DerivedDataCache (PackageCook.cpp StageCookedEntries).
+             { &P::COOKED_PATH, "Cooked", false, Common::DDC::PlatformCookedDir() },
         } };
+        for ( PackagedTree& tree : trees )
+            if ( tree.Source.empty() )
+                tree.Source = *tree.Tree;
+        return trees;
     }
 
     // THE DESCRIPTOR A PACKAGE SHIPS, derived from the project's own rather than copied verbatim: the

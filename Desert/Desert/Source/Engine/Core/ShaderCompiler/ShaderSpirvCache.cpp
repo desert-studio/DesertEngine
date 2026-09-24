@@ -1,72 +1,43 @@
 #include "ShaderSpirvCache.hpp"
 
-#include <Common/Core/Constants.hpp>
-#include <Common/Utilities/FileSystem.hpp>
-#include <Common/Utilities/VFS.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
 
 #include <cstring>
 #include <format>
-#include <fstream>
 
 namespace Desert::Core
 {
+    namespace
+    {
+        // The payload hash handed in is ComputeShaderCacheKeyForProfile's, which already folds the
+        // source, every include, the stage, the variant and the compile profile; the DDC key wraps it
+        // so a change to the COMPILER's output for identical inputs is one GUID edit here.
+        constexpr Common::DDC::Deriver kSpirvDeriver{ "ShaderCache", ".spv",
+                                                      { 0x6a1f3c0e9b2d4e71ULL, 0x8c5b0a3f17e2d964ULL } };
+    } // namespace
+
     std::filesystem::path SpirvCachePathForKey( uint64_t key )
     {
-        return Common::Constants::Path::COOKED_PATH / "ShaderCache" / std::format( "{:016x}.spv", key );
+        return Common::DDC::PathFor( kSpirvDeriver, Common::DDC::MakeKey( kSpirvDeriver, key, nullptr, 0 ) );
     }
 
     std::optional<std::vector<uint32_t>> TryLoadCachedSpirv( uint64_t key )
     {
-        const auto path = SpirvCachePathForKey( key );
-
-        // A whole number of 32-bit words or it is not SPIR-V. Checked for both halves below.
-        const auto toWords = []( const char* bytes, size_t size ) -> std::optional<std::vector<uint32_t>>
-        {
-            if ( size == 0 || ( size % sizeof( uint32_t ) ) != 0 )
-                return std::nullopt;
-            std::vector<uint32_t> words( size / sizeof( uint32_t ) );
-            std::memcpy( words.data(), bytes, size );
-            return words;
-        };
-
-        // Loose file first — the dev override, and where this very run's compiles land.
-        {
-            std::error_code ec;
-            const auto      size = std::filesystem::file_size( path, ec );
-            if ( !ec && size > 0 )
-            {
-                std::ifstream in( path, std::ios::binary );
-                if ( in )
-                {
-                    std::vector<char> bytes( static_cast<size_t>( size ) );
-                    in.read( bytes.data(), static_cast<std::streamsize>( size ) );
-                    if ( in )
-                        return toWords( bytes.data(), bytes.size() );
-                }
-            }
-        }
-
-        // Then the mounted archive — a packaged game's cooked artifacts live ONLY here. Not routed
-        // through FileSystem::ReadByteFileContent on purpose: that primitive logs an error for a
-        // missing file, and a cache miss is not an error, it is the normal cold-start case.
-        if ( auto packed = Common::Utils::VFS::ReadFile( path ) )
-            return toWords( packed->data(), packed->size() );
-
-        return std::nullopt;
+        // A whole number of 32-bit words or it is not SPIR-V. The DDC reads the loose entry first (this
+        // run's compiles, the dev override) and then the mounted archive, where a packaged game's live.
+        const auto bytes = Common::DDC::Get( kSpirvDeriver, Common::DDC::MakeKey( kSpirvDeriver, key, nullptr, 0 ) );
+        if ( !bytes || bytes->empty() || ( bytes->size() % sizeof( uint32_t ) ) != 0 )
+            return std::nullopt;
+        std::vector<uint32_t> words( bytes->size() / sizeof( uint32_t ) );
+        std::memcpy( words.data(), bytes->data(), bytes->size() );
+        return words;
     }
 
     bool StoreCachedSpirv( uint64_t key, const std::vector<uint32_t>& spirv )
     {
-        const auto      path = SpirvCachePathForKey( key );
-        std::error_code ec;
-        std::filesystem::create_directories( path.parent_path(), ec );
-
-        // Write-then-rename (И2): a cache entry is either the whole artifact or absent. A truncating
-        // write killed halfway leaves a torn .spv under a key that says it is valid, and the next run
-        // loads it — the word-count check catches a wrong LENGTH but not a whole number of wrong
-        // words. Returns false on any failure, having logged which step failed and where.
-        const std::string bytes( reinterpret_cast<const char*>( spirv.data() ),
-                                 spirv.size() * sizeof( uint32_t ) );
-        return Common::Utils::FileSystem::WriteContentToFileAtomic( path, bytes ).IsSuccess();
+        // Write-then-rename (И2) inside DDC::Put: a torn .spv under a key that says it is valid would load
+        // next run — the word-count check catches a wrong LENGTH but not a whole number of wrong words.
+        const std::string_view bytes( reinterpret_cast<const char*>( spirv.data() ), spirv.size() * sizeof( uint32_t ) );
+        return Common::DDC::Put( kSpirvDeriver, Common::DDC::MakeKey( kSpirvDeriver, key, nullptr, 0 ), bytes );
     }
 } // namespace Desert::Core

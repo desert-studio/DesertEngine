@@ -380,6 +380,8 @@ namespace
          { "MeshLOD", Owner::Machine, kSceneRendererImpl },
          { "TextureFilterMode", Owner::Machine, kSceneRendererImpl },
          { "Anisotropy", Owner::Machine, kSceneRendererImpl },
+         // AF5: which disk holds the rebuildable cache is a machine's answer, never the project's.
+         { "DerivedDataCachePath", Owner::Machine, "Desert/Common/Source/Common/Content/DerivedDataCache.cpp" },
          { "CloudQualityTier", Owner::Machine, kSceneRendererImpl },
     };
 

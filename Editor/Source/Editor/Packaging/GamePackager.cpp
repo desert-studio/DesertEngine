@@ -402,7 +402,7 @@ namespace Desert::Editor
         std::string                                      divisionSummary;
         {
             for ( const PackagedTree& tree : PackagedContentTrees() )
-                if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
+                if ( !CollectTree( tree.Source, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
                                    error ) )
                     return { false, error, "" };
 
@@ -685,7 +685,7 @@ namespace Desert::Editor
         std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
         for ( const PackagedTree& tree : PackagedContentTrees() )
-            if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
+            if ( !CollectTree( tree.Source, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
                 return { false, error, "" };
 
         if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
