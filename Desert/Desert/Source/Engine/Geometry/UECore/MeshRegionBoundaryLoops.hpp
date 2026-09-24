@@ -4,12 +4,14 @@
 // Core via UECore.hpp, namespace Desert::Geometry, FIndexFlagSet is a TArray<bool> over the ID range. Bowtie
 // vertices (a region vertex touching more than two region boundary edges) are refused with a named error instead
 // of being split by UE's FindLeftTurnEdge/TryExtractSubloops: no Modeling mesh the editor produces has one, and a
-// refused region is reported, never mis-walked.
+// refused region is reported, never mis-walked. The loop overlay map (ElementIDAndValue, VidOverlayMap,
+// GetLoopOverlayMap, UpdateLoopOverlayMapValidity; header :76-106) is UE's, instantiated for UV layers as UE does.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshOverlay.hpp"
 
 #include <string>
 
@@ -63,6 +65,31 @@ namespace Desert::Geometry
                                   bool bAutoCompute = true );
 
         bool Compute();
+
+        template <typename ElementType>
+        using ElementIDAndValue = TPair<int32, ElementType>;
+        template <typename ElementType>
+        using VidOverlayMap = TMap<int32, ElementIDAndValue<ElementType>>;
+
+        /**
+         * Maps each loop vertex to the overlay element (ID and value) it has in the region triangle whose edge
+         * leaves that vertex in loop direction, so the triangles inside the loop can be deleted and replaced while
+         * the border keeps its UVs. Adds to LoopVidsToOverlayElementsOut without clearing it, so several loops can
+         * share one map.
+         * @return false if the loop edge is not on this region's boundary or the overlay has no element there.
+         */
+        template <typename StorageType, int ElementSize, typename ElementType>
+        bool GetLoopOverlayMap( const FEdgeLoop&                                     LoopIn,
+                                const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay,
+                                VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const;
+
+        /**
+         * After the loop's inner triangles are deleted, marks InvalidID every mapped element the overlay no longer
+         * holds (the vertex sat on a seam, so only the deleted triangles referenced that element).
+         */
+        template <typename StorageType, int ElementSize, typename ElementType>
+        static void UpdateLoopOverlayMapValidity( VidOverlayMap<ElementType>& LoopVidsToOverlayElements,
+                                                  const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay );
 
     private:
         TArray<bool> Triangles; // membership over [0, MaxTriangleID)

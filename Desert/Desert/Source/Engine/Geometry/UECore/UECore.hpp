@@ -521,6 +521,15 @@ namespace Desert::Geometry
             UE_CHECK( Found != nullptr );
             return *Found;
         }
+        // Entries are std::pair (first/second), not UE's TPair (Key/Value): the map's own storage type.
+        auto begin()
+        {
+            return Data.begin();
+        }
+        auto end()
+        {
+            return Data.end();
+        }
         auto begin() const
         {
             return Data.begin();
@@ -532,6 +541,19 @@ namespace Desert::Geometry
 
     private:
         std::unordered_map<K, V> Data;
+    };
+
+    // UE TPair (Templates/Tuple.h) with its member names, for values UE stores as pairs.
+    template <typename K, typename V>
+    struct TPair
+    {
+        K Key{};
+        V Value{};
+
+        TPair() = default;
+        TPair( const K& InKey, const V& InValue ) : Key( InKey ), Value( InValue )
+        {
+        }
     };
 
     // UE::Math::TVector / TVector2 with UE's member names (X, Y, Z); positions are double

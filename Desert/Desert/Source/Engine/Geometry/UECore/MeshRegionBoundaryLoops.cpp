@@ -1,7 +1,8 @@
-// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/MeshRegionBoundaryLoops.cpp:14-306 and
+// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/MeshRegionBoundaryLoops.cpp:14-306, 483-537 and
 // Engine/Source/Runtime/GeometryCore/Private/EdgeSpan.cpp (InitializeFromVertices/InitializeFromEdges), adapted:
 // UE Core via UECore.hpp, namespace Desert::Geometry, FIndexFlagSet is TArray<bool>; a bowtie vertex fails Compute
 // with FailureReason (see the header) instead of entering FindLeftTurnEdge/TryExtractSubloops.
+// GetLoopOverlayMap returns false where UE checks that the loop edge has an inside triangle.
 #include "Engine/Geometry/UECore/MeshRegionBoundaryLoops.hpp"
 
 #include "Engine/Geometry/UECore/IndexUtil.hpp"
@@ -227,3 +228,63 @@ int FMeshRegionBoundaryLoops::GetVertexBoundaryEdges( int Vid, int& E0, int& E1 
     }
     return Count;
 }
+
+template <typename StorageType, int ElementSize, typename ElementType>
+bool FMeshRegionBoundaryLoops::GetLoopOverlayMap( const FEdgeLoop&                                     LoopIn,
+                                                  const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay,
+                                                  VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const
+{
+    for ( int32 i = 0; i < LoopIn.Vertices.Num(); ++i )
+    {
+        const int32 Vid = LoopIn.Vertices[i];
+
+        // the inner triangle of the edge going forward from this vertex
+        int32 TidInside  = IndexConstants::InvalidID;
+        int32 TidOutside = IndexConstants::InvalidID;
+        if ( !IsEdgeOnBoundary( LoopIn.Edges[i], TidInside, TidOutside ) ||
+             TidInside == IndexConstants::InvalidID )
+        {
+            return false;
+        }
+
+        const FIndex3i TriangleVerts = Mesh->GetTriangle( TidInside );
+        const int32    VidTriIndex   = TriangleVerts.IndexOf( Vid );
+        if ( VidTriIndex < 0 )
+        {
+            return false;
+        }
+
+        const FIndex3i TriangleElements = Overlay.GetTriangle( TidInside );
+        const int32    UVElementID      = TriangleElements[VidTriIndex];
+        if ( !Overlay.IsElement( UVElementID ) )
+        {
+            return false;
+        }
+
+        ElementType Element;
+        Overlay.GetElement( UVElementID, Element );
+        LoopVidsToOverlayElementsOut.Add( Vid, ElementIDAndValue<ElementType>( UVElementID, Element ) );
+    }
+    return true;
+}
+
+template <typename StorageType, int ElementSize, typename ElementType>
+void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity(
+     VidOverlayMap<ElementType>&                          LoopVidsToOverlayElements,
+     const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay )
+{
+    for ( auto& Entry : LoopVidsToOverlayElements )
+    {
+        if ( !Overlay.IsElement( Entry.second.Key ) )
+        {
+            Entry.second.Key = IndexConstants::InvalidID;
+        }
+    }
+}
+
+// UV layers are the only overlays these are used for, as in UE; another layer type needs its instantiation here.
+template bool FMeshRegionBoundaryLoops::GetLoopOverlayMap<float, 2, FVector2f>(
+     const FEdgeLoop& LoopIn, const TDynamicMeshOverlay<float, 2>& Overlay,
+     VidOverlayMap<FVector2f>& LoopVidsToOverlayElementsOut ) const;
+template void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity<float, 2, FVector2f>(
+     VidOverlayMap<FVector2f>& LoopVidsToOverlayElements, const TDynamicMeshOverlay<float, 2>& Overlay );
