@@ -4309,6 +4309,42 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // CREATE SHAPE (Modeling Mode -> Create). One entry per shape, and the placement a click makes, at the
+        // viewport centre: placing is the whole tool, and a capability the channel cannot reach does not exist
+        // for an unattended check.
+        for ( const Core::ModelingState::Shape shape : Core::ModelingState::kShapes )
+        {
+            commands.push_back( { "Modeling",
+                                  std::string( "Create shape tool: " ) + Core::ModelingState::ShapeName( shape ),
+                                  [shape]
+                                  {
+                                      auto& ms            = Core::ModelingState::Get();
+                                      ms.ActiveTool       = Core::ModelingState::Tool::CreateShape;
+                                      ms.CreateShape.Kind = shape;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        commands.push_back( { "Modeling", "Create shape: place at the viewport centre", []
+                              {
+                                  auto& ms = Core::ModelingState::Get();
+                                  if ( ms.ActiveTool != Core::ModelingState::Tool::CreateShape )
+                                      return PaletteCommandOutcome( false, "the Create Shape tool is not active" );
+                                  ms.ReqPlaceCentre = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // ADD SHAPE: the outliner's Add > Shapes, one entry per authorable primitive, through the same spawn.
+        for ( const Geometry::PrimitiveType type : Geometry::kAuthorablePrimitives )
+        {
+            commands.push_back( { "Scene", std::string( "Add shape: " ) + Geometry::PrimitiveTypeName( type ),
+                                  [this, type]
+                                  {
+                                      if ( !m_MainScene )
+                                          return PaletteCommandOutcome( false, "no scene is open" );
+                                      Editor::SceneHierarchyPanel::SpawnPrimitive( *m_MainScene, type );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         for ( const Geometry::ElementMode mode :
               { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
                 Geometry::ElementMode::PolyGroup } )

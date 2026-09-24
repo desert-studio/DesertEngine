@@ -118,9 +118,12 @@ namespace Desert::Core
                 for ( const auto& sm : mesh->GetSubmeshes() )
                 {
                     float t = 0.0f;
-                    if ( localRay.IntersectsAABB( sm.BoundingBox, t ) && t > 0.0f && t < closest )
+                    if ( !localRay.IntersectsAABB( sm.BoundingBox, t ) || t <= 0.0f )
+                        continue;
+                    // Compared in WORLD units: a local t is in the entity's own (scaled) units.
+                    if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
                     {
-                        closest    = t;
+                        closest    = d;
                         bestXf     = xf;
                         bestAABB   = sm.BoundingBox;
                         bestLocal  = localRay;
@@ -147,9 +150,11 @@ namespace Desert::Core
 
                 const Common::Math::AABB bounds = SkinnedLocalBounds( *sk, skin );
                 float                    t      = 0.0f;
-                if ( localRay.IntersectsAABB( bounds, t ) && t > 0.0f && t < closest )
+                if ( !localRay.IntersectsAABB( bounds, t ) || t <= 0.0f )
+                    continue;
+                if ( const float d = ray.WorldDistanceOf( localRay, t, xf ); d > 0.0f && d < closest )
                 {
-                    closest    = t;
+                    closest    = d;
                     bestXf     = xf;
                     bestAABB   = bounds;
                     bestLocal  = localRay;

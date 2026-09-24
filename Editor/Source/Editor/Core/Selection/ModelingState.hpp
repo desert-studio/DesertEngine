@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Geometry/ShapeGenerators.hpp>
+
 #include <glm/glm.hpp>
 
 namespace Desert::Editor::Core
@@ -17,6 +19,72 @@ namespace Desert::Editor::Core
             CubeGrid,
             PolyEdit,
             ElementSelect, // mesh element selection (MeshElementSelection)
+            CreateShape,   // place a parametric shape (CreateShapeTool, UE's Add Primitive tools)
+        };
+
+        // The shapes the Create tool places. Plane is not here: it is a card for the scene's Add menu, not
+        // a solid anyone models from.
+        enum class Shape
+        {
+            Box,
+            Sphere,
+            Cylinder,
+            Cone,
+            Capsule,
+            Pyramid,
+            Stairs,
+        };
+        static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder, Shape::Cone,
+                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs };
+
+        static constexpr const char* ShapeName( Shape shape )
+        {
+            switch ( shape )
+            {
+                case Shape::Box:
+                    return "Box";
+                case Shape::Sphere:
+                    return "Sphere";
+                case Shape::Cylinder:
+                    return "Cylinder";
+                case Shape::Cone:
+                    return "Cone";
+                case Shape::Capsule:
+                    return "Capsule";
+                case Shape::Pyramid:
+                    return "Pyramid";
+                case Shape::Stairs:
+                    return "Stairs";
+            }
+            return "Box";
+        }
+
+        // Where a click puts the shape: on the ground plane (Y = 0), or on whatever scene surface is under
+        // the cursor, falling back to the ground where there is none (UE's placement Ground / On Scene).
+        enum class Placement
+        {
+            Ground,
+            OnScene,
+        };
+
+        // Every field moves the shape it is shown for (ModelingPanel shows only those). Centimetres.
+        struct ShapeSettings
+        {
+            Shape                        Kind         = Shape::Box;
+            float                        Width        = 100.0f; // X extent; the diameter of a round shape
+            float                        Depth        = 100.0f; // Z extent (Box, Pyramid)
+            float                        Height       = 100.0f; // Y extent (all but Sphere and Stairs)
+            int                          Subdivisions = 1;      // Box: quads along each edge
+            int                          Slices       = 24;     // round shapes: segments around the axis
+            int                          Stacks       = 16;     // Sphere, Capsule: segments pole to pole
+            int                          Steps        = 8;      // Stairs
+            float                        StepDepth    = 30.0f;  // Stairs
+            float                        StepHeight   = 20.0f;  // Stairs
+            Geometry::ShapePolygroupMode Groups       = Geometry::ShapePolygroupMode::PerFace;
+            Geometry::ShapePivot         Pivot        = Geometry::ShapePivot::Base;
+            Placement                    Place        = Placement::OnScene;
+
+            bool operator==( const ShapeSettings& ) const = default;
         };
 
         static ModelingState& Get()
@@ -68,6 +136,11 @@ namespace Desert::Editor::Core
         // panel's field, the Alt hotkeys and the palette entries all read this one value). Push/Pull and
         // Offset take its sign; the others refuse a negative one.
         float ElementOpDistance = 20.0f;
+
+        // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
+        // looks (the palette's way to place without a mouse).
+        ShapeSettings CreateShape;
+        bool          ReqPlaceCentre = false;
         // Tool -> panel (read-only stats for the properties panel)
         int  Cubes      = 0;
         bool CornerMode = false; // the tool is currently in Corner Mode

@@ -13,7 +13,10 @@
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
+#include <Common/Core/Math/Ray.hpp>
+
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <functional>
 #include <set>
@@ -24,6 +27,7 @@ namespace
 {
     using namespace Desert::Geometry;
     using Desert::Index;
+    using Desert::Submesh;
     using Desert::Vertex;
 
     struct ShapeCase
@@ -181,6 +185,35 @@ TEST( ShapeGenerators, PolygroupsFollowTheModeFormula )
     }
 }
 
+// What the entity draws is the same outward shell: the render mesh SetEditableMesh builds from the EditMesh
+// (ToRenderMesh) has the shape's triangle count and its signed volume.
+TEST( ShapeGenerators, TheEditMeshRendersTheSameShell )
+{
+    for ( const ShapeCase& c : Cases() )
+    {
+        SCOPED_TRACE( c.Name );
+        const ShapeMesh m         = c.Make( {} );
+        auto            converted = ShapeToEditMesh( m );
+        ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
+        auto render = ToRenderMesh( converted.GetValue() );
+        ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
+        ShapeMesh drawn;
+        drawn.Vertices = render.GetValue().Vertices;
+        for ( const Submesh& sub : render.GetValue().Submeshes )
+            for ( uint32_t k = 0; k < sub.IndexCount / 3; ++k )
+            {
+                Index t = render.GetValue().Indices[sub.IndexOffset / 3 + k];
+                t.V1 += sub.VertexOffset;
+                t.V2 += sub.VertexOffset;
+                t.V3 += sub.VertexOffset;
+                drawn.Indices.push_back( t );
+            }
+        EXPECT_EQ( drawn.Indices.size(), m.Indices.size() );
+        if ( c.Closed )
+            EXPECT_NEAR( SignedVolume( drawn ) / SignedVolume( m ), 1.0, 1e-4 );
+    }
+}
+
 // Base puts the bottom on Y = 0, Centre the middle, Top the top; X and Z stay centred.
 TEST( ShapeGenerators, PivotIsWhereItWasAsked )
 {
@@ -282,6 +315,26 @@ TEST( ShapeGenerators, EveryAuthorablePrimitiveIsDrawn )
         if ( type != PrimitiveType::Plane )
             EXPECT_GT( SignedVolume( *shape ), 0.0 );
     }
+}
+
+// PLACEMENT ON A SCALED SURFACE. The Create tool puts a shape where Scene::Raycast says the scene is, and
+// the ground of a scene is a Cube scaled flat (24 x 0.2 x 24). The box test runs in the entity's space,
+// where the ray's direction is renormalised, so its t is in the entity's units; Scene::Raycast used that t
+// as the world distance, and a shape aimed at the ground landed 370 cm under it. The hit's world distance
+// is what puts the point on the surface.
+TEST( ShapeGenerators, AHitOnAScaledBoxIsMeasuredInWorldUnits )
+{
+    const glm::mat4 ground = glm::scale( glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, -10.0f, 0.0f ) ),
+                                         glm::vec3( 24.0f, 0.2f, 24.0f ) );
+    const Common::Math::AABB unit{ glm::vec3( -50.0f ), glm::vec3( 50.0f ) };
+    const Common::Math::Ray  ray( glm::vec3( 0.0f, 300.0f, 1000.0f ), glm::vec3( 0.0f, -0.5f, -1.0f ) );
+    const Common::Math::Ray  local = ray.ToLocalSpace( ground );
+    float                    t     = 0.0f;
+    ASSERT_TRUE( local.IntersectsAABB( unit, t ) );
+    const glm::vec3 onSurface = ray.GetPoint( ray.WorldDistanceOf( local, t, ground ) );
+    EXPECT_NEAR( onSurface.y, 0.0f, 1e-2f ) << "the top of the ground box is Y = 0";
+    EXPECT_NEAR( onSurface.z, 400.0f, 1e-2f );
+    EXPECT_GT( std::abs( ray.GetPoint( t ).y ), 100.0f ) << "the local t is not a world distance under a scale";
 }
 
 int main( int argc, char** argv )
