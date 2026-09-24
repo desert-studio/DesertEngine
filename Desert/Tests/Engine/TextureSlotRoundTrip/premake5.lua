@@ -21,6 +21,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- TextureBinary's BlockCompressChain encodes through it
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
         -- The cooked asset registry, which is where the write side gets its answer since T2.4, is NOT
         -- listed here and does not need to be: it is header-only, for the reason AssetManager's own
         -- header gives. It had a `.cpp` for about an hour, and seven suites stopped linking.
