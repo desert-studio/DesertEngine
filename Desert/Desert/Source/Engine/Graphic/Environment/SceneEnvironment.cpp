@@ -118,7 +118,7 @@ namespace Desert::Graphic
             // samples level 0 alone (`PanoramaToCubemap` in a compute stage, `DiffuseIrradiance` with an
             // explicit LOD 0), so the chain the cook built on the CPU and the one the old path blitted on
             // the GPU cannot disagree anywhere the bake looks.
-            auto panorama = Texture2D::CreateFromCooked( panoramaPath );
+            auto panorama = Texture2D::CreateFromAsset( panoramaPath );
             if ( !panorama )
             {
                 LOG_ERROR( "[SceneEnvironment] the cooked panorama '{}' of skybox '{}' did not load, so this "

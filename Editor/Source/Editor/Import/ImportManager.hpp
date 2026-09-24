@@ -20,11 +20,11 @@ namespace Desert::Editor
         void         ImportAllFromDirectory( const std::filesystem::path& root, bool force = false );
         Common::UUID ImportTexture( const std::filesystem::path& path );
 
-        /// Cook every texture source under `LooseTextureRoots()` whose cooked form is missing or stale.
+        /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
-        LooseTextureCookStats CookLooseTextures();
+        size_t ImportLooseTextures();
 
-        // Cook a source texture into Cooked/Textures/*.tex, create+register a TextureAsset, and return its
+        // Import a source texture into its `.detex` asset, create+register a TextureAsset, and return its
         // handle (the same handle TextureService keys by). Returns a zero handle on failure. Drives the
         // import-on-demand drag-drop path (see Editor::TextureDnD).
         Assets::AssetHandle ImportAndRegisterTexture( Assets::AssetManager&         mgr,

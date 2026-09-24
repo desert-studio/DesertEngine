@@ -66,8 +66,8 @@ namespace Common
 
         // The roots an asset can live under, each with the TAG its relative paths are hashed behind.
         //
-        // Why a TAG and not the bare relative path: `Cooked/Textures/T.tex` and
-        // `Resources/Assets/Textures/T.tex` both reduce to `Textures/T.tex`, so without a tag a cooked
+        // Why a TAG and not the bare relative path: `Cooked/Meshes/T.stmesh` and
+        // `Resources/Assets/Meshes/T.stmesh` both reduce to `Meshes/T.stmesh`, so without a tag a cooked
         // asset and a content asset that happen to sit at mirrored offsets would share one handle. The
         // tag is part of the hashed key, never of any path on disk.
         //

@@ -31,14 +31,6 @@ namespace Desert::Editor
         TextureCookOutcome Outcome = TextureCookOutcome::Failed;
     };
 
-    struct LooseTextureCookStats
-    {
-        size_t Cooked    = 0;
-        size_t Fresh     = 0;
-        size_t Failed    = 0;
-        size_t Unwritten = 0;
-    };
-
     // THE DIRECTORIES WHOSE IMAGE FILES ARE COOKED WITHOUT A MESH ASKING FOR THEM — one list, read by the
     // editor's startup cook, its "Rebuild Cooked Assets" command AND the packager. It used to be spelled at
     // each editor site as a pair of calls, and the packager did not spell it at all: a package carried only
@@ -48,7 +40,7 @@ namespace Desert::Editor
     // when the mesh itself is re-imported.
     std::array<const std::filesystem::path*, 2> LooseTextureRoots();
 
-    // Every texture source under `LooseTextureRoots()` — the files `TextureImporter::CookLooseTextures`
+    // Every texture source under `LooseTextureRoots()` — the files `ImportManager::ImportLooseTextures`
     // cooks, in the order it cooks them. Public so a gate can ask "is this referenced texture one the
     // cook reaches" of the cook's own enumeration rather than of a copy of its filter.
     std::vector<std::filesystem::path> LooseTextureSources();
@@ -68,14 +60,12 @@ namespace Desert::Editor
         // the asset's path. `Cook` calls it for any non-asset path; the migration calls it directly.
         static Common::ResultStr<std::filesystem::path> ImportSourceAsset( const std::filesystem::path& source );
 
-        // Cooks every texture source under `LooseTextureRoots()`. THERE IS NO `force` PARAMETER, and
-        // there must not be one: freshness is a fact about the source's bytes, so "force" would mean
-        // "re-cook things that are already correct".
-        LooseTextureCookStats CookLooseTextures();
+        // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
+        // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
+        // The texture asset a source image is imported into (`<stem>.detex` beside it); an asset path is its own.
+        static std::filesystem::path AssetPathFor( const std::filesystem::path& source );
 
-        // The cooked metadata (.tex) path a given source texture is cooked into (Cooked/Textures/...).
-        // Public so callers can CreateAsset<TextureAsset>() on it right after Import().
-        static std::filesystem::path CookedMetaPath( const std::filesystem::path& source );
+        static Common::ResultStr<std::string> BuildPlatformData( const std::filesystem::path& asset );
 
     private:
         std::unordered_map<std::string, Common::UUID> m_Cache;

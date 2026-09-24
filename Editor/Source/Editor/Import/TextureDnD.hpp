@@ -9,7 +9,7 @@
 namespace Desert::Editor::TextureDnD
 {
     // Drag-and-drop / import glue for textures. The File Explorer emits SOURCE paths
-    // (Resources/Textures/foo.png) but textures are registered from Cooked/Textures/*.tex, so a path
+    // (Resources/Textures/foo.png) but textures are registered from their `.detex` assets, so a path
     // match misses — these helpers bridge source paths to registered runtime-texture handles.
 
     // Resolve a dropped source path to an ALREADY-registered texture handle (exact path, then filename
@@ -17,7 +17,7 @@ namespace Desert::Editor::TextureDnD
     // never triggers a cook).
     Assets::AssetHandle ResolveExisting( const Assets::AssetManager& mgr, const std::string& sourcePath );
 
-    // Resolve, or IMPORT-on-demand if not yet registered: cook the source into Cooked/Textures/*.tex,
+    // Resolve, or IMPORT-on-demand if not yet registered: import the source into its `.detex` asset,
     // create+register the TextureAsset, and return its handle. Returns a zero handle on failure. Used by
     // the drag-drop assignment target and the Import button.
     Assets::AssetHandle ResolveOrImport( Assets::AssetManager& mgr, const std::string& sourcePath );

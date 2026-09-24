@@ -2,6 +2,7 @@
 #include <Engine/Graphic/RendererAPI.hpp>
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
@@ -9,9 +10,9 @@
 namespace Desert::Graphic
 {
     Common::ResultStr<std::shared_ptr<Texture2D>>
-    Texture2D::CreateFromCooked( const std::filesystem::path& cookedPath )
+    Texture2D::CreateFromAsset( const std::filesystem::path& cookedPath )
     {
-        const auto raw = Common::Utils::FileSystem::ReadFileContent( cookedPath );
+        const auto raw = Assets::LoadTexturePlatformData( cookedPath );
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::shared_ptr<Texture2D>>( raw.GetError() );
 

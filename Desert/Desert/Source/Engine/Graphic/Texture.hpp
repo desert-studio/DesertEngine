@@ -47,14 +47,14 @@ namespace Desert::Graphic
         // the editor's `TextureImporter` is the one place that decodes, and everything at run time reads
         // the container it writes. Desert/Tests/Engine/RuntimeSourceDecoders keeps it that way.
 
-        /// Builds a texture from a cooked `.tex` container: its pixels and its whole mip chain are read
-        /// out of the file and uploaded as they are. No image decoder runs, and no blit chain is built.
+        /// Builds a texture from a texture ASSET (`.detex`): its platform data -- pixels and the whole mip
+        /// chain -- comes out of the DDC under the key the asset describes (`LoadTexturePlatformData`) and
+        /// is uploaded as it is. No image decoder runs here, and no blit chain is built.
         ///
         /// The refusal names the file and the reason — a stale JSON manifest, a truncated container, a
         /// level table that does not describe the file — because "the texture is missing" with no
         /// sentence attached is the most expensive kind of missing.
-        static Common::ResultStr<std::shared_ptr<Texture2D>>
-        CreateFromCooked( const std::filesystem::path& cookedPath );
+        static Common::ResultStr<std::shared_ptr<Texture2D>> CreateFromAsset( const std::filesystem::path& asset );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).

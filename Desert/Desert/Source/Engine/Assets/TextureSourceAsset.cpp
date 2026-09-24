@@ -14,6 +14,7 @@
 #include <Common/Utilities/PakFile.hpp>
 
 #include <fstream>
+#include <mutex>
 #include <utility>
 
 namespace Desert::Assets
@@ -256,5 +257,90 @@ namespace Desert::Assets
     {
         const std::vector<std::byte> image = SerializeTextureSettingsForKey( settings );
         return Common::DDC::MakeKey( deriver, sourceHash, image.data(), image.size() );
+    }
+
+    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset )
+    {
+        // THE PREFIX, NOT THE FILE: a `.detex` is mostly its SRCE section (megabytes of png), and the key
+        // needs the header, the TOC and the ~100-byte IMPT that precedes the source.
+        constexpr std::size_t kPrefixBytes = 4096;
+        auto                  prefix = Common::Utils::FileSystem::ReadFileContentPrefix( asset, kPrefixBytes );
+        if ( !prefix.IsSuccess() )
+            return Common::MakeError<TextureAssetKey>( prefix.GetError() );
+        const auto asBytes = []( const std::string& s )
+        { return std::span<const std::byte>( reinterpret_cast<const std::byte*>( s.data() ), s.size() ); };
+        auto header = CC::ReadEnvelopeHeader( asBytes( prefix.GetValue() ), CC::AssetHeaderReadContext{ kKnown } );
+        if ( !header.IsSuccess() )
+            return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), header.GetError() );
+        const CC::EnvelopeHeader& h = header.GetValue();
+        if ( h.Asset.Kind != CC::ContentKind::Texture && h.Asset.Kind != CC::ContentKind::Skybox )
+            return Common::MakeFormattedError<TextureAssetKey>( "'{}' is kind '{}', not a texture", asset.string(),
+                                                                CC::KindName( h.Asset.Kind ) );
+        const auto impt = h.Find( CC::EnvelopeSection::ImportInfo );
+        if ( !impt || impt->Codec != CC::EnvelopeCodec::Stored )
+            return Common::MakeFormattedError<TextureAssetKey>(
+                 "'{}' has no stored ImportInfo section, so its platform data has no key", asset.string() );
+        const uint64_t end = impt->Offset + impt->Size;
+        if ( end > prefix.GetValue().size() )
+        {
+            prefix = Common::Utils::FileSystem::ReadFileContentPrefix( asset, static_cast<std::size_t>( end ) );
+            if ( !prefix.IsSuccess() )
+                return Common::MakeError<TextureAssetKey>( prefix.GetError() );
+            if ( end > prefix.GetValue().size() )
+                return Common::MakeFormattedError<TextureAssetKey>(
+                     "'{}' is truncated: its ImportInfo ends at byte {} of {}", asset.string(), end,
+                     prefix.GetValue().size() );
+        }
+        const auto bytes =
+             asBytes( prefix.GetValue() )
+                  .subspan( static_cast<std::size_t>( impt->Offset ), static_cast<std::size_t>( impt->Size ) );
+        if ( Common::Utils::PakContentHash( bytes.data(), bytes.size() ) != impt->Hash )
+            return Common::MakeFormattedError<TextureAssetKey>( "'{}': the ImportInfo section fails its hash",
+                                                                asset.string() );
+        auto info = DecodeImportInfo( bytes );
+        if ( !info.IsSuccess() )
+            return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), info.GetError() );
+
+        TextureAssetKey key;
+        key.Kind           = h.Asset.Kind;
+        key.Handle         = Common::UUID( h.Asset.Guid.Hi );
+        key.Import         = info.ExtractValue();
+        key.DerivedDataKey = TextureDerivedDataKey(
+             key.Import.SourceHash, TextureBuildSettings{ key.Import.Settings, kTextureBlockEncoderVersion } );
+        return Common::MakeSuccess( std::move( key ) );
+    }
+
+    namespace
+    {
+        std::mutex                 s_BuilderMutex;
+        TexturePlatformDataBuilder s_Builder;
+    } // namespace
+
+    void SetTexturePlatformDataBuilder( TexturePlatformDataBuilder builder )
+    {
+        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+        s_Builder = std::move( builder );
+    }
+
+    Common::ResultStr<std::string> LoadTexturePlatformData( const std::filesystem::path& asset )
+    {
+        const auto key = ReadTextureAssetKey( asset );
+        if ( !key.IsSuccess() )
+            return Common::MakeError<std::string>( key.GetError() );
+        if ( auto hit = Common::DDC::Get( kTextureDeriver, key.GetValue().DerivedDataKey ); hit.has_value() )
+            return Common::MakeSuccess( std::move( *hit ) );
+
+        TexturePlatformDataBuilder builder;
+        {
+            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+            builder = s_Builder;
+        }
+        if ( !builder )
+            return Common::MakeFormattedError<std::string>(
+                 "texture asset '{}' has no platform data under DDC key {:016x} ({}), and this build cannot "
+                 "derive it: the package was cooked without it",
+                 asset.string(), key.GetValue().DerivedDataKey,
+                 Common::DDC::RelativePath( kTextureDeriver, key.GetValue().DerivedDataKey ).generic_string() );
+        return builder( asset );
     }
 } // namespace Desert::Assets

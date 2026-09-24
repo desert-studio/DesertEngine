@@ -785,11 +785,10 @@ namespace Desert::Core::Serialize
                 // exactly the kind of name a human cannot search for, so the message has to carry the
                 // search: where cooked textures come from, and what actually mints the number.
                 LOG_ERROR( "[Textures] Texture handle {0} named by a component resolves to no registered "
-                           "texture, so the slot stays EMPTY. Cooked textures are scanned from '{1}'; a "
-                           "texture's handle is AssetHandle::FromCookedPath of its SOURCE image, so a "
-                           "handle that has stopped resolving usually means the image was renamed or moved "
-                           "since this was saved. Re-point the slot at the texture in its new place.",
-                           guid, Common::Constants::Path::TEXTURE_PATH_COOKED.string() );
+                           "texture, so the slot stays EMPTY. Texture assets (.detex) are scanned from '{1}' and "
+                           "each carries its handle in its header, so a handle that has stopped resolving "
+                           "means that asset was deleted or is outside the scanned root. Re-point the slot.",
+                           guid, Common::Constants::Path::ASSETS_PATH.string() );
                 return 0;
             }
             if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" )

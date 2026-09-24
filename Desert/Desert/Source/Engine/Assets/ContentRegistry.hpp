@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentScan.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
@@ -327,6 +328,10 @@ namespace Desert::Assets
             const std::string ext = Detail::LowerExtension( file );
             if ( ext.empty() )
                 return std::nullopt;
+            // Inside a content root the scan's rule decides (longest root wins -- Texture and Skybox share
+            // `.detex`); a file outside every root is classified by its extension, as it always was.
+            if ( const auto scanned = Common::Content::KindOfContentFile( file ) )
+                return scanned;
 
             for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
             {

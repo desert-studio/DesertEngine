@@ -36,7 +36,7 @@ namespace Desert::Editor
     // never ships and the editor never reads Saved/Cooked.
     //
     // AND IT COOKS THE TEXTURES — every source under `LooseTextureRoots()`, through the editor's own
-    // `TextureImporter` (not a copy of it), into Cooked/Textures/. A texture is the one asset the runtime
+    // `TextureImporter` (not a copy of it), into the DDC's Texture bucket. A texture is the one asset the runtime
     // CANNOT produce for itself: it holds no image decoder (T3.3 removed the last one, the sky
     // panorama's), so a package without the `.tex` is a floor with no checkerboard and a sky with no
     // panorama, with nothing on the player's machine able to repair it. Before this, a package carried

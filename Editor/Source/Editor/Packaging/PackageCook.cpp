@@ -241,12 +241,28 @@ namespace Desert::Editor
             // file, the freshness key and the path formula all live in TextureImporter; a packager copy
             // of any of them would be a second opinion on what a shipped texture is. Each failure was
             // logged where it happened, with the file's name.
-            TextureImporter             importer;
-            const LooseTextureCookStats textures = importer.CookLooseTextures();
-            stats.TexturesCooked += textures.Cooked;
-            stats.TexturesCached += textures.Fresh;
-            stats.Failures += textures.Failed;
-            stats.StoreFailures += textures.Unwritten;
+            // Every texture asset the package carries gets its platform data into the DDC here; the
+            // Texture bucket is then staged like every other (StageCookedEntries), and the game reads it
+            // there -- it has no builder, so an entry missing now is a load error in the game.
+            TextureImporter importer;
+            for ( const fs::path& source : LooseTextureSources() )
+            {
+                switch ( importer.Cook( source ).Outcome )
+                {
+                    case TextureCookOutcome::Cooked:
+                        ++stats.TexturesCooked;
+                        break;
+                    case TextureCookOutcome::Fresh:
+                        ++stats.TexturesCached;
+                        break;
+                    case TextureCookOutcome::Failed:
+                        ++stats.Failures;
+                        break;
+                    case TextureCookOutcome::Unwritten:
+                        ++stats.StoreFailures;
+                        break;
+                }
+            }
 
             // THE ROWS GO WHERE THE RUNTIME READS THEM. The texture cook entered every `.tex` into the
             // content registry as it went (WriteCookedBytes on a write, NoteFile on a fresh one), and the
@@ -272,8 +288,8 @@ namespace Desert::Editor
         // is keyed by the driver, which no cook can enumerate. Thumbnails are the editor's alone and stay.
         void StageCookedEntries( CookStats& stats )
         {
-            constexpr std::string_view kShippedBuckets[] = { "ShaderCache", "FontCache", "IconCache",
-                                                             "EnvironmentCache", "PipelineCache" };
+            constexpr std::string_view kShippedBuckets[] = { "ShaderCache",      "FontCache",     "IconCache",
+                                                             "EnvironmentCache", "PipelineCache", "Texture" };
             const fs::path             cooked            = Common::DDC::PlatformCookedDir();
             const fs::path             ddcRoot           = Common::DDC::Root();
             std::error_code            ec;

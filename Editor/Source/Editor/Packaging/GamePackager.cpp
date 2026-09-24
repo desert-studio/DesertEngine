@@ -300,7 +300,7 @@ namespace Desert::Editor
         // textures the runtime has no decoder for — is paid here, once, into the project's Cooked/
         // tree, so the census below ships the artifacts and the player's first launch reads instead
         // of rebuilding. The texture cook enters or updates a registry row per `.tex`; checking the
-        // registry against the disk BEFORE it would compare against a Cooked/Textures/ the cook is
+        // registry against the disk BEFORE it would compare against a texture set the cook is
         // about to change, and refuse a project the cook would have made consistent. It writes only
         // into the project's own cache, never into the output directory, so the rule below still holds.
         // Cooked for the TARGET runtime's profile (options.Config), not this editor's: a Debug editor

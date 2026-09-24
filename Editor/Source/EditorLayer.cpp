@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
@@ -9,6 +10,8 @@
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
+
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <functional>
 
@@ -365,14 +368,20 @@ namespace Desert::Editor
         // mtimes.
         //
         // AND THE TEXTURES THAT LIVE BESIDE A MESH. `Assets/Meshes/*.png` cook to
-        // `Cooked/Textures/Assets/Meshes/*.tex`, and they are written only when the MESH is re-imported --
+        // their `.detex` assets beside the mesh, and they were written only when the MESH was re-imported --
         // which the boot scan skips whenever the `.stmesh` is newer than its source. So a container version
         // bump left four of them stranded at version 1 and every launch printed four load failures that no
         // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
-        m_StartupStages.push_back(
-             { "Cooking textures...", [this] { (void)m_ImportManager->CookLooseTextures(); } } );
+        m_StartupStages.push_back( { "Importing textures...", [this]
+                                     {
+                                         // The editor derives texture platform data on a DDC miss; a packaged game
+                                         // has no builder.
+                                         Assets::SetTexturePlatformDataBuilder(
+                                              &TextureImporter::BuildPlatformData );
+                                         (void)m_ImportManager->ImportLooseTextures();
+                                     } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
                                      [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
         m_StartupStages.push_back(
@@ -5533,7 +5542,7 @@ namespace Desert::Editor
             // Cooked Assets" could not rebuild. Found the day the container's version moved: the menu
             // entry whose whole job is "the cooked form is stale, make it again" left `T_Checker.tex`
             // stale, and the only remedy left was to drag the file back into the editor.
-            (void)m_ImportManager->CookLooseTextures();
+            (void)m_ImportManager->ImportLooseTextures();
         }
 
         if ( m_AssetPreloader )

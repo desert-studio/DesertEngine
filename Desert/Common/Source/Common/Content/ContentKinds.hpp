@@ -96,7 +96,13 @@ namespace Common::Content
              /* SkinnedMesh          */ { "SkinnedMesh", E::SKINNED_MESH, &P::MESH_PATH_COOKED },
              /* Skeleton             */ { "Skeleton", ".skeleton", &P::MESH_PATH_COOKED },
              /* Animation            */ { "Animation", ".anim", &P::MESH_PATH_COOKED },
-             /* Texture              */ { "Texture", ".tex", &P::TEXTURE_PATH_COOKED },
+             // Texture assets (.detex, AF3) sit anywhere under the assets root -- loose, beside a mesh, in a
+             // pack -- and the Skybox root nests inside it: the two kinds share an extension and are told
+             // apart by the longest root that contains the file (ContentScan's KindOfContentFile).
+             // NOT A TEXTURE: the painted cloud masks (Clouds/Layouts/*.png) stay plain PNGs, because a
+             // .dclayout reads their texels on the CPU at bake time (CloudLayoutAsset) -- they are the
+             // layout's source data, never sampled on the GPU, so there is no platform data to derive.
+             /* Texture              */ { "Texture", ".detex", &P::ASSETS_PATH },
              // Materials are editable CONTENT (the project's Materials/ dir): imported per-mesh
              // subfolders and editor-created files both land there, in the unified .demat format.
              /* Material             */ { "Material", E::MATERIAL_EXTENSION, &P::MATERIAL_PATH },

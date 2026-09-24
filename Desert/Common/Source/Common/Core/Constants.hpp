@@ -70,7 +70,6 @@ namespace Common::Constants
             Retarget,
             Cooked,
             MeshCooked,
-            TextureCooked,
             COUNT
         };
 
@@ -146,7 +145,6 @@ namespace Common::Constants
              /* Retarget      */ { "Retargets/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
              /* MeshCooked    */ { "Meshes/", DirRoot::Cooked },
-             /* TextureCooked */ { "Textures/", DirRoot::Cooked },
         } };
 
         // --- Compile-time guards over the census (relations, not values — the Д27 pattern) ---
@@ -199,8 +197,7 @@ namespace Common::Constants
                        .Rel.starts_with( Detail::Spec( ContentDir::CloudNoise ).Rel ),
              "cloud types, sculpted volumes and painted layouts are one body of content and must "
              "stay inside the cloud noise volumes' folder" );
-        static_assert( Detail::Spec( ContentDir::MeshCooked ).Root == DirRoot::Cooked &&
-                            Detail::Spec( ContentDir::TextureCooked ).Root == DirRoot::Cooked,
+        static_assert( Detail::Spec( ContentDir::MeshCooked ).Root == DirRoot::Cooked,
                        "cooked twins are generated intermediates and must stay under the Cooked root, or a "
                        "content scan will offer them as authorable assets" );
 
@@ -367,7 +364,6 @@ namespace Common::Constants
         inline const std::filesystem::path& RETARGET_PATH       = Dir( ContentDir::Retarget );
         inline const std::filesystem::path& COOKED_PATH         = Dir( ContentDir::Cooked );
         inline const std::filesystem::path& MESH_PATH_COOKED    = Dir( ContentDir::MeshCooked );
-        inline const std::filesystem::path& TEXTURE_PATH_COOKED = Dir( ContentDir::TextureCooked );
     } // namespace Path
 
     namespace Extensions

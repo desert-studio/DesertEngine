@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -108,4 +109,32 @@ namespace Desert::Assets
     // Source.GetIdString(), not the package name).
     uint64_t TextureDerivedDataKey( uint64_t sourceHash, const TextureBuildSettings& settings,
                                     const Common::DDC::Deriver& deriver = kTextureDeriver );
+
+    // The block encoder's own version -- an input of every texture key, so it lives beside the deriver and
+    // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
+    inline constexpr uint32_t kTextureBlockEncoderVersion = 1;
+
+    // What the runtime needs from a `.detex` to find its platform data: the header and the IMPT section,
+    // never the SRCE bytes (UE: the package summary + FTextureSource id, not the bulk data).
+    struct TextureAssetKey
+    {
+        Common::Content::ContentKind Kind = Common::Content::ContentKind::Texture;
+        Common::UUID                 Handle;
+        TextureImportInfo            Import;
+        uint64_t                     DerivedDataKey = 0;
+    };
+    // Reads a prefix of the file (header + TOC + IMPT), not the source it carries.
+    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset );
+
+    // -- ASSET -> DDC -> GPU ------------------------------------------------------------------------
+    // UE FTexturePlatformData::Cache: the runtime asks the DDC for the key the asset describes. A miss is
+    // built only where a builder exists -- the editor registers one (its importer decodes and encodes, then
+    // Puts); a packaged game registers none, so a miss there is an error naming the asset, because the
+    // package was supposed to carry the entry (the packager stages the Texture bucket).
+    using TexturePlatformDataBuilder =
+         std::function<Common::ResultStr<std::string>( const std::filesystem::path& asset )>;
+    void SetTexturePlatformDataBuilder( TexturePlatformDataBuilder builder );
+
+    // The `.tex` container bytes (TextureBinary) of the asset's platform data.
+    Common::ResultStr<std::string> LoadTexturePlatformData( const std::filesystem::path& asset );
 } // namespace Desert::Assets

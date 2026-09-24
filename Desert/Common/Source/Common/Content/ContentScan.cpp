@@ -198,7 +198,9 @@ namespace Common::Content
             // and a packaged game scanned nothing.
             for ( const std::filesystem::path& candidate : Utils::FileSystem::ListFilesRecursive( *spec.Root ) )
             {
-                if ( LowerExtension( candidate ) != spec.Extension )
+                // Kinds may share an extension under nested roots (Texture/Skybox): a file belongs to the
+                // kind whose root is the LONGEST that contains it, never to whichever row was walked first.
+                if ( LowerExtension( candidate ) != spec.Extension || KindOfContentFile( candidate ) != kind )
                     continue;
 
                 const std::string key = AssetHandle::StableKeyForPath( candidate );
