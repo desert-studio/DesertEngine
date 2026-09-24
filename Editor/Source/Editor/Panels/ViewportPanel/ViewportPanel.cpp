@@ -1575,8 +1575,11 @@ namespace Desert::Editor
                 const auto centreRay = Common::Math::Ray::FromScreenPosition(
                      { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
                      camera->GetViewMatrix(), camera->GetPosition(), width, height );
-                m_LandscapeTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
-                                        ImGui::GetIO().DeltaTime );
+                if ( Core::LandscapeSculptState::Get().Mode == Core::LandscapeEdMode::Paint )
+                    m_LandscapePaintTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
+                else
+                    m_LandscapeTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
+                                            ImGui::GetIO().DeltaTime );
             }
         }
 

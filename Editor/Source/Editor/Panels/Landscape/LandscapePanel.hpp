@@ -2,6 +2,12 @@
 
 #include "../IPanel.hpp"
 
+#include <Engine/ECS/Components.hpp>
+
+#include <memory>
+#include <optional>
+#include <vector>
+
 namespace Desert::Editor
 {
     /**
@@ -23,10 +29,21 @@ namespace Desert::Editor
             return true;
         }
         bool IsRelevant() const override;
+        void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override
+        {
+            m_Scene = scene;
+        }
 
     private:
         void DrawToolStrip();
         void DrawToolSettings();
         void DrawBrushSettings();
+        void DrawPaintSettings();
+        void DrawTargetLayers();
+
+        /// The scene the Target Layers list edits (EditorLayer rebinds it to the focused viewport's scene).
+        std::weak_ptr<Desert::Core::Scene> m_Scene;
+        /// The layer list as it was when the current widget edit began; one undo entry per finished edit.
+        std::optional<std::vector<ECS::LandscapeLayerInfo>> m_LayersEditStart;
     };
 } // namespace Desert::Editor

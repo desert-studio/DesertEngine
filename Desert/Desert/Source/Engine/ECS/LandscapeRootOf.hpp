@@ -41,6 +41,20 @@ namespace Desert::ECS
         return rules;
     }
 
+    /// The root entity (the one holding the LandscapeComponent) whose UUID is @p id; entt::null when none is
+    /// loaded.
+    inline entt::entity FindLandscapeRootEntity( entt::registry& registry, const Common::UUID& id )
+    {
+        if ( id == Common::UUID::Null() )
+            return entt::null;
+        for ( const auto entity : registry.view<LandscapeComponent, UUIDComponent>() )
+        {
+            if ( registry.get<UUIDComponent>( entity ).UUID == id )
+                return entity;
+        }
+        return entt::null;
+    }
+
     /// The root entity whose UUID is @p id, or nullopt when no loaded entity with a LandscapeComponent has it.
     inline std::optional<World::Landscape::LandscapeRoot> FindLandscapeRoot( entt::registry&     registry,
                                                                              const Common::UUID& id )

@@ -64,7 +64,10 @@
 #include "Editor/Core/Selection/ViewportMode.hpp" // the editor-mode rail
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
+#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Packaging/GamePackager.hpp"
 #include "Editor/Core/ProjectContext.hpp"
@@ -4403,8 +4406,60 @@ namespace Desert::Editor
         commands.push_back( { "Landscape", "Sculpt mode", []
                               {
                                   Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Sculpt;
                                   return PaletteCommandDone();
                               } } );
+        // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
+        // Layers list, so a frame can show a list and a stroke unattended.
+        for ( const char* label : { "Paint mode", "Tool: Paint" } )
+        {
+            commands.push_back( { "Landscape", label, []
+                                  {
+                                      Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                      Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Paint;
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        commands.push_back( { "Landscape", "Add layer", [this]
+                              {
+                                  auto added = Commands::AddLandscapeLayer( m_MainScene );
+                                  if ( !added.IsSuccess() )
+                                      return PaletteCommandOutcome( false, added.GetError() );
+                                  auto& paint = Core::LandscapeSculptState::Get().Paint;
+                                  if ( paint.Layer.empty() )
+                                      paint.Layer = added.GetValue();
+                                  return PaletteCommandDone();
+                              } } );
+        if ( m_MainScene )
+        {
+            auto&      registry  = m_MainScene->GetRegistry();
+            const auto landscape = ECS::FirstLandscape( registry );
+            const auto root =
+                 landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+            if ( root != entt::null )
+            {
+                for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).Layers )
+                {
+                    commands.push_back( { "Landscape", "Target layer: " + layer.Name, [this, name = layer.Name]
+                                          {
+                                              auto&      reg   = m_MainScene->GetRegistry();
+                                              const auto id    = ECS::FirstLandscape( reg );
+                                              const auto r     = id ? ECS::FindLandscapeRootEntity( reg, *id )
+                                                                    : entt::entity( entt::null );
+                                              bool       found = false;
+                                              if ( r != entt::null )
+                                                  for ( const auto& l :
+                                                        reg.get<ECS::LandscapeComponent>( r ).Layers )
+                                                      found = found || l.Name == name;
+                                              if ( !found )
+                                                  return PaletteCommandOutcome( false, "landscape layer '" + name +
+                                                                                            "' no longer exists" );
+                                              Core::LandscapeSculptState::Get().Paint.Layer = name;
+                                              return PaletteCommandDone();
+                                          } } );
+                }
+            }
+        }
         for ( auto& control : Core::LandscapeToolControls() )
         {
             if ( control.Request != Core::LandscapeStrokeRequest::None )

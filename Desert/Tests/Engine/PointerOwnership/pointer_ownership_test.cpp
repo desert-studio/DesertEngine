@@ -498,11 +498,13 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   400 / 343 / 131 / 39 = 913.
     //   L8 (2026-09-24) +6 Raw: LandscapeTileSlot::Data (the edit cache) and five Landscape-mode editor members
     //   the scan had not been given rows for (four string literals, the stroke command's scene): 406 / 919.
-    EXPECT_EQ( CountOf( Form::Raw ), 406 );
+    //   L8d +1 Raw (LandscapePaintCommand::m_Scene) +2 Weak (LandscapeLayersCommand and LandscapePanel hold the
+    //   scene weakly: a closed scene refuses the edit instead of dangling): 407 / 343 / 131 / 41 = 922.
+    EXPECT_EQ( CountOf( Form::Raw ), 407 );
     EXPECT_EQ( CountOf( Form::Shared ), 343 );
     EXPECT_EQ( CountOf( Form::Unique ), 131 );
-    EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 919 )
+    EXPECT_EQ( CountOf( Form::Weak ), 41 );
+    EXPECT_EQ( (int)Members().size(), 922 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/World/Landscape/LandscapePaint.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
 #include <algorithm>
@@ -230,9 +231,20 @@ namespace Desert::Editor::Core
         Paste,
     };
 
+    /// UE's Landscape mode tabs: Paint is a MODE with its own tool, not one more sculpt tool, so the sculpt tool
+    /// the user had picked survives a trip to Paint and back.
+    enum class LandscapeEdMode : uint8_t
+    {
+        Sculpt,
+        Paint,
+    };
+
     struct LandscapeSculptState
     {
+        LandscapeEdMode         Mode = LandscapeEdMode::Sculpt;
         LandscapeSculptSettings Settings;
+        /// The Paint tool's settings; the brush (Settings.Brush) is shared with the sculpt tools, as in UE.
+        World::Landscape::LandscapePaintSettings Paint;
         LandscapeStrokeRequest  Request = LandscapeStrokeRequest::None;
         /// UE's FLandscapeToolRamp::Points, in world cm; applying keeps them, as UE does until the tool is reset.
         std::optional<glm::vec3> RampStart;

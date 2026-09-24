@@ -3,14 +3,21 @@
 // grid become ImGui buttons and the editor's property rows; UObject meta (ShowForTools, UIMin/UIMax, ClampMin/
 // ClampMax) comes from LandscapeToolProperties(); the tool order is LandscapeEdMode.cpp:216-269's Sculpt mode.
 //
-// NOT PORTED, each for a stated reason. Manage and Paint mode tabs and the Target Layers section: this landscape
-// has no weightmap layers (painting is LS-14) and no manage tools (new / resize / components), and an empty tab
-// is a button that opens onto nothing (owner's decision, same as the Modeling rail). Alpha / Pattern / Component
-// brush sets: the stroke maths has only UE's circle brush, so the brush row shows the one set that exists.
+// Paint mode and its Target Layers section follow SLandscapeEditor's Paint tab and
+// LandscapeEditorDetailCustomization_TargetLayers (list, current target, "+", Hardness / NoWeightBlend).
+// NOT PORTED, each for a stated reason. The Manage tab: there are no manage tools (new / resize / components),
+// and an empty tab is a button that opens onto nothing (owner's decision, same as the Modeling rail). Alpha /
+// Pattern / Component brush sets: the stroke maths has only UE's circle brush, so the brush row shows the one set
+// that exists.
 
 #include "LandscapePanel.hpp"
 
+#include <Editor/Core/Commands/LandscapeLayerCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/ToastManager.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
@@ -131,14 +138,30 @@ namespace Desert::Editor
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 5.0f ) );
 
-        // UE's mode row (Manage / Sculpt / Paint): only the mode with tools behind it is offered.
-        AccentButton( ICON_MDI_TERRAIN "  Sculpt", true, ImVec2( 0.0f, 0.0f ) );
+        // UE's mode row (Manage / Sculpt / Paint): the modes with tools behind them are offered.
+        auto& state = Core::LandscapeSculptState::Get();
+        if ( AccentButton( ICON_MDI_TERRAIN "  Sculpt", state.Mode == Core::LandscapeEdMode::Sculpt,
+                           ImVec2( 0.0f, 0.0f ) ) )
+            state.Mode = Core::LandscapeEdMode::Sculpt;
+        ImGui::SameLine();
+        if ( AccentButton( ICON_MDI_BRUSH "  Paint", state.Mode == Core::LandscapeEdMode::Paint,
+                           ImVec2( 0.0f, 0.0f ) ) )
+            state.Mode = Core::LandscapeEdMode::Paint;
         ImGui::Separator();
 
-        DrawToolStrip();
-        ImGui::Spacing();
-        DrawToolSettings();
-        DrawBrushSettings();
+        if ( state.Mode == Core::LandscapeEdMode::Paint )
+        {
+            DrawPaintSettings();
+            DrawTargetLayers();
+            DrawBrushSettings();
+        }
+        else
+        {
+            DrawToolStrip();
+            ImGui::Spacing();
+            DrawToolSettings();
+            DrawBrushSettings();
+        }
 
         ImGui::PopStyleVar( 2 );
     }
@@ -275,5 +298,93 @@ namespace Desert::Editor
         if ( ImGui::SliderFloat( "##falloff", &brush.FalloffFraction, 0.0f, 1.0f, "%.2f" ) )
             brush.FalloffFraction = std::clamp( brush.FalloffFraction, 0.0f, 1.0f );
         ImGuiUtilities::EndPropertyRow();
+    }
+    void LandscapePanel::DrawPaintSettings()
+    {
+        auto& paint = Core::LandscapeSculptState::Get().Paint;
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_COG "  Tool Settings", true, "Paint" ) )
+            return;
+        ImGuiUtilities::ResetPropertyRows();
+        ImGuiUtilities::BeginPropertyRow( "Use Target Value" );
+        ImGui::Checkbox( "##useTarget", &paint.UseTargetValue );
+        ImGuiUtilities::EndPropertyRow();
+        if ( paint.UseTargetValue )
+        {
+            ImGuiUtilities::BeginPropertyRow( "Target Value" );
+            ImGui::SetNextItemWidth( -FLT_MIN );
+            ImGui::SliderFloat( "##targetValue", &paint.TargetValue, 0.0f, 1.0f, "%.3f",
+                                ImGuiSliderFlags_AlwaysClamp );
+            ImGuiUtilities::EndPropertyRow();
+        }
+        ImGuiUtilities::BeginPropertyRow( "Disable Startup Slowdown" );
+        ImGui::Checkbox( "##noSlowdown", &paint.DisableStartupSlowdown );
+        ImGuiUtilities::EndPropertyRow();
+    }
+
+    void LandscapePanel::DrawTargetLayers()
+    {
+        if ( !ImGuiUtilities::SectionHeader( ICON_MDI_LAYERS "  Target Layers", true, "" ) )
+            return;
+        const auto scene = m_Scene.lock();
+        if ( !scene )
+        {
+            ImGui::TextDisabled( "no scene" );
+            return;
+        }
+        auto&      registry  = scene->GetRegistry();
+        const auto landscape = ECS::FirstLandscape( registry );
+        const auto root =
+             landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+        if ( root == entt::null )
+        {
+            ImGui::TextDisabled( "the scene has no loaded landscape" );
+            return;
+        }
+        auto&      layers = registry.get<ECS::LandscapeComponent>( root ).Layers;
+        auto&      paint  = Core::LandscapeSculptState::Get().Paint;
+        const auto before = layers;
+
+        if ( ImGui::Button( ICON_MDI_PLUS "  Add layer" ) )
+        {
+            auto added = Commands::AddLandscapeLayer( scene );
+            if ( !added.IsSuccess() )
+                ToastManager::Push( added.GetError(), ToastLevel::Error, 6.0f );
+            else if ( paint.Layer.empty() )
+                paint.Layer = added.GetValue();
+            return; // the command already recorded this change
+        }
+        if ( layers.empty() )
+            ImGui::TextDisabled( "no target layers: add one to paint" );
+
+        for ( size_t i = 0; i < layers.size(); ++i )
+        {
+            auto& layer = layers[i];
+            ImGui::PushID( static_cast<int>( i ) );
+            ImGui::ColorEdit3( "##swatch", &layer.Color.x, ImGuiColorEditFlags_NoInputs );
+            ImGui::SameLine();
+            if ( ImGui::Selectable( layer.Name.c_str(), paint.Layer == layer.Name ) )
+                paint.Layer = layer.Name;
+            ImGuiUtilities::ResetPropertyRows();
+            ImGuiUtilities::BeginPropertyRow( "Hardness" );
+            ImGui::SetNextItemWidth( -FLT_MIN );
+            ImGui::SliderFloat( "##hardness", &layer.Hardness, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGuiUtilities::EndPropertyRow();
+            ImGuiUtilities::BeginPropertyRow( "No Weight Blend" );
+            ImGui::Checkbox( "##noBlend", &layer.NoWeightBlend );
+            ImGuiUtilities::EndPropertyRow();
+            ImGui::PopID();
+        }
+
+        // One undo entry per finished edit: a slider drag changes the list every frame, so the entry is recorded
+        // when no widget is active any more, from the list as it was when the edit began.
+        if ( !m_LayersEditStart && !Commands::SameLandscapeLayers( before, layers ) )
+            m_LayersEditStart = before;
+        if ( m_LayersEditStart && !ImGui::IsAnyItemActive() )
+        {
+            if ( !Commands::SameLandscapeLayers( *m_LayersEditStart, layers ) )
+                Commands::RecordLandscapeLayersEdit( scene, *landscape, std::move( *m_LayersEditStart ), layers,
+                                                     "Edit landscape layers" );
+            m_LayersEditStart.reset();
+        }
     }
 } // namespace Desert::Editor
