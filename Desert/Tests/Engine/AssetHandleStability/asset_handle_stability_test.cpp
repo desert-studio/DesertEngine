@@ -1379,3 +1379,36 @@ TEST( AssetHandleStability, AThemeHandleIsHandleForGuidOfItsHeader )
     ExpectHeaderGuidIdentity<Desert::Assets::UIThemeAsset>( file, Common::Content::ContentKind::UITheme );
     fs::remove_all( dir );
 }
+
+// A CONTROL RIG'S AND A RETARGET'S HANDLE IS HandleForGuid OF THEIR HEADER GUID (T7c, format 2): the
+// migrated corpus files (suites run from the tree root), copied out so the rename probe writes nothing
+// into the tree.
+namespace
+{
+    std::filesystem::path CopyCorpusFile( const char* relative, const char* dirName )
+    {
+        namespace fs       = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / dirName;
+        fs::remove_all( dir );
+        fs::create_directories( dir );
+        const fs::path source( relative );
+        const fs::path file = dir / source.filename();
+        fs::copy_file( source, file, fs::copy_options::overwrite_existing );
+        return file;
+    }
+} // namespace
+
+TEST( AssetHandleStability, AControlRigHandleIsHandleForGuidOfItsHeader )
+{
+    const auto file = CopyCorpusFile( "Editor/Resources/Assets/Rigs/IKProbe_Arm.derig", "T7cRigHandle" );
+    ExpectHeaderGuidIdentity<Desert::Assets::ControlRigAsset>( file, Common::Content::ContentKind::ControlRig );
+    std::filesystem::remove_all( file.parent_path() );
+}
+
+TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
+{
+    const auto file =
+         CopyCorpusFile( "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", "T7cRetargetHandle" );
+    ExpectHeaderGuidIdentity<Desert::Assets::RetargetAsset>( file, Common::Content::ContentKind::Retarget );
+    std::filesystem::remove_all( file.parent_path() );
+}

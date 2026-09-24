@@ -34,6 +34,12 @@ namespace Desert::Assets
     // A .detheme: the UI theme file layout, stated in the header since v2 (T7b; v1 as the string table's).
     inline constexpr uint32_t kUIThemeSchemaTag     = Common::Content::FourCC( "UITH" );
     inline constexpr uint32_t kUIThemeSchemaVersion = 2;
+    // A .derig: the control rig file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
+    inline constexpr uint32_t kControlRigSchemaVersion = 2;
+    // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
+    inline constexpr uint32_t kRetargetSchemaVersion = 2;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

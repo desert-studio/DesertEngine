@@ -1,4 +1,5 @@
 #include <Engine/Assets/Serialization/ControlRig.hpp>
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
@@ -749,24 +750,10 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ControlRigData>( "the file is empty" );
         }
 
-        // THE VERSION IS READ FIRST, ON ITS OWN, as an untyped tree — see the header. A struct imposes the
-        // rest of the schema on a document whose whole problem may be that it does not match the schema.
-        if ( const auto tree = rfl::json::read<rfl::Generic>( text ); tree )
+        // A version-1 file (top-level FormatVersion, absent meaning 1, no header) is refused by name.
+        if ( auto headed = Assets::RefuseTextWithoutHeader( text, kControlRigVersion, 1 ); !headed )
         {
-            if ( const auto fields = tree.value().to_object(); fields )
-            {
-                if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
-                {
-                    const auto number = stated.value().to_int();
-                    if ( number.has_value() && number.value() != kControlRigVersion )
-                    {
-                        return Common::MakeFormattedError<ControlRigData>(
-                             "control rig format version {} was written by a different build; this one reads "
-                             "version {}",
-                             number.value(), kControlRigVersion );
-                    }
-                }
-            }
+            return Common::MakeFormattedError<ControlRigData>( "control rig {}", headed.GetError() );
         }
 
         const auto parsed = rfl::json::read<ControlRigData>( text );
@@ -777,12 +764,12 @@ namespace Desert::Assets::Serialization
 
         ControlRigData data = parsed.value();
 
-        const int32_t version = data.FormatVersion.value_or( kControlRigVersion );
-        if ( version != kControlRigVersion )
+        if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::ControlRig,
+                                                      Assets::kControlRigSchemaTag, kControlRigVersion,
+                                                      ControlRigTextSubsystems() );
+             !header )
         {
-            return Common::MakeFormattedError<ControlRigData>(
-                 "control rig format version {} was written by a different build; this one reads version {}",
-                 version, kControlRigVersion );
+            return Common::MakeFormattedError<ControlRigData>( "control rig {}", header.GetError() );
         }
 
         if ( auto valid = ValidateControlRigData( data ); !valid )
@@ -790,14 +777,14 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ControlRigData>( "{}", valid.GetError() );
         }
 
-        data.FormatVersion = kControlRigVersion;
         return Common::MakeSuccess( std::move( data ) );
     }
 
     std::string WriteControlRig( const ControlRigData& data )
     {
         ControlRigData out = data;
-        out.FormatVersion  = kControlRigVersion;
+        out.Header         = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::ControlRig,
+                                                      ControlRigTextSubsystems() );
         return rfl::json::write( out, YYJSON_WRITE_PRETTY );
     }
 
@@ -1047,8 +1034,7 @@ namespace Desert::Assets::Serialization
         const Animation::ControlHierarchy& hierarchy = rig.GetHierarchy();
 
         ControlRigData data;
-        data.FormatVersion = kControlRigVersion;
-        data.Name          = name;
+        data.Name = name;
         data.Controls.reserve( hierarchy.Size() );
 
         const auto boneName = [&skeleton]( uint32_t index ) -> Common::ResultStr<std::string>

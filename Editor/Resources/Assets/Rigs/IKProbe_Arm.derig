@@ -1,54 +1,75 @@
 {
-  "FormatVersion": 1,
-  "Name": "IKProbe Arm",
-  "Controls": [
-    {
-      "Name": "Elbow_CTRL",
-      "ShapeName": "Diamond",
-      "ShapeTransform": {
-        "Translation": [0.0, 0.0, 0.0],
-        "Rotation": [1.0, 0.0, 0.0, 0.0],
-        "Scale": [10.0, 10.0, 10.0]
-      },
-      "Offset": {
-        "Translation": [-70.0, 0.0, 0.0],
-        "Rotation": [1.0, 0.0, 0.0, 0.0],
-        "Scale": [1.0, 1.0, 1.0]
-      },
-      "Pose": {
-        "Translation": [0.0, 0.0, 0.0],
-        "Rotation": [1.0, 0.0, 0.0, 0.0],
-        "Scale": [1.0, 1.0, 1.0]
-      },
-      "Parents": [
-        { "Kind": "Bone", "Target": "IK_Shoulder", "Weight": 1.0 }
-      ]
+    "Header": {
+        "Kind": "ControlRig",
+        "Guid": "092a1d74c2ca197f56f75bd78ae8fdda",
+        "Versions": {
+            "CRIG": 2
+        },
+        "Dependencies": []
     },
-    {
-      "Name": "Hand_CTRL",
-      "ShapeName": "CircleXY",
-      "ShapeTransform": {
-        "Translation": [0.0, 0.0, 0.0],
-        "Rotation": [1.0, 0.0, 0.0, 0.0],
-        "Scale": [18.0, 18.0, 18.0]
-      },
-      "Offset": {
-        "Translation": [-140.0, 170.0, 0.0],
-        "Rotation": [1.0, 0.0, 0.0, 0.0],
-        "Scale": [1.0, 1.0, 1.0]
-      },
-      "Pose": {
-        "Translation": [0.0, 0.0, 0.0],
-        "Rotation": [1.0, 0.0, 0.0, 0.0],
-        "Scale": [1.0, 1.0, 1.0]
-      },
-      "Parents": [
-        { "Kind": "Component", "Target": "", "Weight": 1.0 }
-      ]
-    }
-  ],
-  "Drives": [
-    { "Control": "Elbow_CTRL", "Bone": "IK_Elbow" },
-    { "Control": "Hand_CTRL", "Bone": "IK_Hand" }
-  ]
+    "Name": "IKProbe Arm",
+    "Controls": [
+        {
+            "Name": "Elbow_CTRL",
+            "ShapeName": "Diamond",
+            "ShapeTransform": {
+                "Translation": [0.0, 0.0, 0.0],
+                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                "Scale": [10.0, 10.0, 10.0]
+            },
+            "Offset": {
+                "Translation": [-70.0, 0.0, 0.0],
+                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                "Scale": [1.0, 1.0, 1.0]
+            },
+            "Pose": {
+                "Translation": [0.0, 0.0, 0.0],
+                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                "Scale": [1.0, 1.0, 1.0]
+            },
+            "Parents": [
+                {
+                    "Kind": "Bone",
+                    "Target": "IK_Shoulder",
+                    "Weight": 1.0
+                }
+            ]
+        },
+        {
+            "Name": "Hand_CTRL",
+            "ShapeName": "CircleXY",
+            "ShapeTransform": {
+                "Translation": [0.0, 0.0, 0.0],
+                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                "Scale": [18.0, 18.0, 18.0]
+            },
+            "Offset": {
+                "Translation": [-140.0, 170.0, 0.0],
+                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                "Scale": [1.0, 1.0, 1.0]
+            },
+            "Pose": {
+                "Translation": [0.0, 0.0, 0.0],
+                "Rotation": [1.0, 0.0, 0.0, 0.0],
+                "Scale": [1.0, 1.0, 1.0]
+            },
+            "Parents": [
+                {
+                    "Kind": "Component",
+                    "Target": "",
+                    "Weight": 1.0
+                }
+            ]
+        }
+    ],
+    "Drives": [
+        {
+            "Control": "Elbow_CTRL",
+            "Bone": "IK_Elbow"
+        },
+        {
+            "Control": "Hand_CTRL",
+            "Bone": "IK_Hand"
+        }
+    ]
 }

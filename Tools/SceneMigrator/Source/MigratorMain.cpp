@@ -109,8 +109,8 @@ namespace
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (container 1 -> 2, IsCloudLayout).
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",  ".decloudtype",
-                                                ".destrings",  ".detheme", ".skeleton" };
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
+                                                ".detheme",    ".derig",  ".retarget",    ".skeleton" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -264,6 +264,12 @@ namespace
          // .detheme 1 -> 2 (T7b).
          TextHeaderRaise{ ".detheme", Common::Content::ContentKind::UITheme, Desert::Assets::kUIThemeSchemaTag, 1,
                           Desert::Assets::kUIThemeSchemaVersion, "FormatVersion", true },
+         // .derig 1 -> 2 (T7c).
+         TextHeaderRaise{ ".derig", Common::Content::ContentKind::ControlRig, Desert::Assets::kControlRigSchemaTag,
+                          1, Desert::Assets::kControlRigSchemaVersion, "FormatVersion", true },
+         // .retarget 1 -> 2 (T7c).
+         TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
+                          1, Desert::Assets::kRetargetSchemaVersion, "FormatVersion", true },
     };
 
     const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )

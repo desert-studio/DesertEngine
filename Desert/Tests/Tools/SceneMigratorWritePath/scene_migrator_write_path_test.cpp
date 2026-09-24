@@ -615,3 +615,16 @@ TEST( SceneMigratorWritePath, AMatl2NumberNamingAnAssetOfAnotherKindIsRefused )
     EXPECT_EQ( ReadRaw( file ), before );
     fs::remove_all( root.Dir );
 }
+
+// THE CONTROL RIG AND RETARGET PASSES (T7c, 1 -> 2): two more rows of the same step.
+TEST( SceneMigratorWritePath, AControlRigGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    ExpectTextKindRaisedOnce( ".derig", Common::Content::ContentKind::ControlRig,
+                              R"("Name":"R","Controls":[],"Drives":[])" );
+}
+
+TEST( SceneMigratorWritePath, ARetargetGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    ExpectTextKindRaisedOnce( ".retarget", Common::Content::ContentKind::Retarget,
+                              R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton")" );
+}

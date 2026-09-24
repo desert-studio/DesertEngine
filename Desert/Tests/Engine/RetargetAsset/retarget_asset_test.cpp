@@ -466,25 +466,28 @@ TEST( RetargetAssetTest, TheFileSurvivesTheDiskAndTheRefusalNamesTheFile )
 
 TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirections )
 {
-    File::RetargetAssetData future = ShippedRetarget();
-    future.FormatVersion           = File::kRetargetVersion + 1;
-    const auto forward             = File::ParseRetarget( rfl::json::write( future ) );
+    // WriteRetarget stamps the CURRENT version, so a future one is provoked through the text.
+    std::string       text   = File::WriteRetarget( ShippedRetarget() );
+    const std::string stated = "\"RTGT\": " + std::to_string( File::kRetargetVersion );
+    const auto        at     = text.find( stated );
+    ASSERT_NE( at, std::string::npos ) << text;
+    text.replace( at, stated.size(), "\"RTGT\": 42" );
+    const auto forward = File::ParseRetarget( text );
     ASSERT_FALSE( forward.IsSuccess() );
-    EXPECT_NE( forward.GetError().find( "version" ), std::string::npos ) << forward.GetError();
+    EXPECT_NE( forward.GetError().find( "42" ), std::string::npos ) << forward.GetError();
 
+    // A VERSION-1 FILE - no header, FormatVersion stated or left out (absent meant 1) - is refused by name,
+    // pointing at the migrator (T7c).
     File::RetargetAssetData past = ShippedRetarget();
-    past.FormatVersion           = File::kRetargetVersion - 1;
-    const auto backward          = File::ParseRetarget( rfl::json::write( past ) );
-    ASSERT_FALSE( backward.IsSuccess() );
-    EXPECT_NE( backward.GetError().find( "version" ), std::string::npos ) << backward.GetError();
-
-    // AND AN ABSENT ONE IS READ AS THIS GENERATION, which is what makes the field optional rather than
-    // required: a hand-written file that omits it is legal and means "whatever this build reads".
-    File::RetargetAssetData silent = ShippedRetarget();
-    silent.FormatVersion.reset();
-    const auto implied = File::ParseRetarget( rfl::json::write( silent ) );
-    ASSERT_TRUE( implied.IsSuccess() ) << implied.GetError();
-    EXPECT_EQ( implied.GetValue().FormatVersion.value_or( -1 ), File::kRetargetVersion );
+    past.Header.reset();
+    for ( const std::string& v1 :
+          { rfl::json::write( past ), "{\"FormatVersion\":1," + rfl::json::write( past ).substr( 1 ) } )
+    {
+        const auto backward = File::ParseRetarget( v1 );
+        ASSERT_FALSE( backward.IsSuccess() ) << v1;
+        EXPECT_NE( backward.GetError().find( "format version 1" ), std::string::npos ) << backward.GetError();
+        EXPECT_NE( backward.GetError().find( "SceneMigrator" ), std::string::npos ) << backward.GetError();
+    }
 }
 
 TEST( RetargetAssetTest, EveryShapeOfUnusableRetargetIsRefusedAndTheMessageNamesTheRow )

@@ -1109,7 +1109,6 @@ namespace
     Serialization::ControlRigData RigWithGraph()
     {
         Serialization::ControlRigData data;
-        data.FormatVersion = Serialization::kControlRigVersion;
         data.Name          = "Graphed Arm";
 
         Serialization::ControlElementData hand;
@@ -1166,7 +1165,11 @@ TEST( RigGraphTest, ARigWithAGraphRoundTripsByValueThroughTextAndThroughTheRunti
     const std::string text   = Serialization::WriteControlRig( source );
     const auto        parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    EXPECT_TRUE( parsed.GetValue() == source ) << "the text round trip lost or invented a field";
+    // The writer stamps a header (a GUID minted for a rig that had none, T7c); the rest must be the source.
+    ASSERT_TRUE( parsed.GetValue().Header.has_value() );
+    Serialization::ControlRigData stamped = source;
+    stamped.Header                        = parsed.GetValue().Header;
+    EXPECT_TRUE( parsed.GetValue() == stamped ) << "the text round trip lost or invented a field";
 
     // AND THROUGH THE RUNTIME, which is where a name could silently become an index and back again.
     ControlRigStage stage;
@@ -1227,7 +1230,7 @@ TEST( RigGraphTest, ARigWithoutAGraphDoesNotGainTheFieldAndStillLoadsAsTheIdenti
     // `kControlRigVersion` staying at 1: a generation-1 file has no Graph, and no Graph means what it has
     // always meant.
     EXPECT_EQ( text.find( "\"Graph\"" ), std::string::npos ) << text;
-    EXPECT_NE( text.find( "\"FormatVersion\": 1" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "\"CRIG\": 2" ), std::string::npos ) << text;
 
     const auto parsed = Serialization::ParseControlRig( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();

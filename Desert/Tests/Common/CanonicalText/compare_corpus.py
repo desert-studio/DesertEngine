@@ -12,8 +12,8 @@ and every GUID is a .demat header's. MATL 2 -> 3 (T6c3) replaces each Textures s
 locator, routed by slot name into Textures / CloudAssets / ShaderRefs, states those GUIDs as Dependencies, and
 re-spells Params through MaterialData's float storage; that is normalised away only when every slot number pairs
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
-it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b) swap
-FormatVersion for the header alone.
+it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b),
+.derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -30,7 +30,7 @@ import subprocess
 import sys
 
 TEXT_EXTENSIONS = (".desce", ".deprefab", ".demat", ".anim", ".danimgraph", ".dgraph", ".decloudtype",
-                   ".destrings", ".detheme", ".skeleton")
+                   ".destrings", ".detheme", ".derig", ".retarget", ".skeleton")
 SCENE_V25 = {"SceneVersion": 25}  # the version AF6c raised scenes and prefabs to
 
 
@@ -307,6 +307,8 @@ TEXT_HEADER_RAISES = {
     ".decloudtype": ("CloudType", "CLTY", 3, 4, False),  # AF7v
     ".destrings": ("StringTable", "STRT", 1, 2, True),  # T7b
     ".detheme": ("UITheme", "UITH", 1, 2, True),  # T7b
+    ".derig": ("ControlRig", "CRIG", 1, 2, True),  # T7c
+    ".retarget": ("Retarget", "RTGT", 1, 2, True),  # T7c
 }
 
 
