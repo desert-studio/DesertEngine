@@ -1,1 +1,151 @@
-{"Name":"MatProbeUnlit","NextId":23,"Domain":0,"Lit":false,"Nodes":[{"Id":1,"Kind":"ColorParam","ParamName":"TintA","Value":[0.8999999761581421,0.11999999731779099,0.07999999821186066,1.0],"X":0.0,"Y":0.0,"Inputs":[],"Outputs":[{"Id":2,"Name":"Color","Type":2}]},{"Id":3,"Kind":"ColorParam","ParamName":"TintB","Value":[0.07999999821186066,0.25,0.949999988079071,1.0],"X":0.0,"Y":140.0,"Inputs":[],"Outputs":[{"Id":4,"Name":"Color","Type":2}]},{"Id":5,"Kind":"FloatParam","ParamName":"Blend","Value":[0.0,0.0,0.0,0.0],"X":0.0,"Y":280.0,"Inputs":[],"Outputs":[{"Id":6,"Name":"Value","Type":0}]},{"Id":7,"Kind":"Lerp","ParamName":"","Value":[1.0,1.0,1.0,1.0],"X":300.0,"Y":120.0,"Inputs":[{"Id":8,"Name":"A","Type":2},{"Id":9,"Name":"B","Type":2},{"Id":10,"Name":"T","Type":0}],"Outputs":[{"Id":11,"Name":"Out","Type":2}]},{"Id":12,"Kind":"SurfaceOutput","ParamName":"","Value":[1.0,1.0,1.0,1.0],"X":600.0,"Y":120.0,"Inputs":[{"Id":13,"Name":"Albedo","Type":2},{"Id":14,"Name":"Emission","Type":2},{"Id":15,"Name":"Alpha","Type":0},{"Id":20,"Name":"Metallic","Type":0},{"Id":21,"Name":"Roughness","Type":0},{"Id":22,"Name":"Occlusion","Type":0}],"Outputs":[]}],"Links":[{"Id":16,"From":2,"To":8},{"Id":17,"From":4,"To":9},{"Id":18,"From":6,"To":10},{"Id":19,"From":11,"To":13}]}
+{
+    "Name": "MatProbeUnlit",
+    "NextId": 23,
+    "Domain": 0,
+    "Lit": false,
+    "Nodes": [
+        {
+            "Id": 1,
+            "Kind": "ColorParam",
+            "ParamName": "TintA",
+            "Value": [0.8999999761581421, 0.11999999731779099, 0.07999999821186066, 1.0],
+            "X": 0.0,
+            "Y": 0.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 2,
+                    "Name": "Color",
+                    "Type": 2
+                }
+            ]
+        },
+        {
+            "Id": 3,
+            "Kind": "ColorParam",
+            "ParamName": "TintB",
+            "Value": [0.07999999821186066, 0.25, 0.949999988079071, 1.0],
+            "X": 0.0,
+            "Y": 140.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 4,
+                    "Name": "Color",
+                    "Type": 2
+                }
+            ]
+        },
+        {
+            "Id": 5,
+            "Kind": "FloatParam",
+            "ParamName": "Blend",
+            "Value": [0.0, 0.0, 0.0, 0.0],
+            "X": 0.0,
+            "Y": 280.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 6,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 7,
+            "Kind": "Lerp",
+            "ParamName": "",
+            "Value": [1.0, 1.0, 1.0, 1.0],
+            "X": 300.0,
+            "Y": 120.0,
+            "Inputs": [
+                {
+                    "Id": 8,
+                    "Name": "A",
+                    "Type": 2
+                },
+                {
+                    "Id": 9,
+                    "Name": "B",
+                    "Type": 2
+                },
+                {
+                    "Id": 10,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 11,
+                    "Name": "Out",
+                    "Type": 2
+                }
+            ]
+        },
+        {
+            "Id": 12,
+            "Kind": "SurfaceOutput",
+            "ParamName": "",
+            "Value": [1.0, 1.0, 1.0, 1.0],
+            "X": 600.0,
+            "Y": 120.0,
+            "Inputs": [
+                {
+                    "Id": 13,
+                    "Name": "Albedo",
+                    "Type": 2
+                },
+                {
+                    "Id": 14,
+                    "Name": "Emission",
+                    "Type": 2
+                },
+                {
+                    "Id": 15,
+                    "Name": "Alpha",
+                    "Type": 0
+                },
+                {
+                    "Id": 20,
+                    "Name": "Metallic",
+                    "Type": 0
+                },
+                {
+                    "Id": 21,
+                    "Name": "Roughness",
+                    "Type": 0
+                },
+                {
+                    "Id": 22,
+                    "Name": "Occlusion",
+                    "Type": 0
+                }
+            ],
+            "Outputs": []
+        }
+    ],
+    "Links": [
+        {
+            "Id": 16,
+            "From": 2,
+            "To": 8
+        },
+        {
+            "Id": 17,
+            "From": 4,
+            "To": 9
+        },
+        {
+            "Id": 18,
+            "From": 6,
+            "To": 10
+        },
+        {
+            "Id": 19,
+            "From": 11,
+            "To": 13
+        }
+    ]
+}

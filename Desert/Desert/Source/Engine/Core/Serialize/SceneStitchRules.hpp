@@ -244,7 +244,8 @@ namespace Desert::Core::Rules
     }
 
     // ONE ATTACH OF A LOAD: `Child` hangs off `Parent`, at the place `SiblingIndex` names (a record without
-    // one - older than scene v25 - carries the maximum, and keeps the order it was collected in).
+    // one - older than scene v25 - carries the maximum, and keeps the order it was collected in). A
+    // default-constructed `Parent` (the null entity) makes `Child` a root, placed among the roots the same way.
     template <typename Handle>
     struct PendingAttach
     {
@@ -257,7 +258,8 @@ namespace Desert::Core::Rules
     // pass 3 the prefab instances; attaching each where it was found put every prefab instance after all
     // of its ordinary siblings, so an ordinary child saved AFTER a prefab sibling came back before it.
     // Collected from both passes (pass 2's first) and stably sorted here, each parent's children arrive
-    // in the order the file states - and a file with no indices keeps the v24 order exactly.
+    // in the order the file states - and a file with no indices keeps the v24 order exactly. Roots too: a
+    // prefab root is instantiated after every ordinary root, and without its attach it loaded last.
     template <typename Handle>
     void OrderAttaches( std::vector<PendingAttach<Handle>>& attaches )
     {

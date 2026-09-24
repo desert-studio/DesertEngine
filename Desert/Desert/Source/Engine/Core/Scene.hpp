@@ -329,6 +329,10 @@ namespace Desert::Core
         // Removes the child from its parent (if any) and makes it a root entity.
         void Detach( ECS::Entity child );
 
+        // The root order is the entity order (the saver counts roots in it): puts @p roots in the given
+        // order, each into a slot one of them holds now. See SceneEntityIndex::Arrange.
+        void ArrangeRoots( const std::vector<ECS::Entity>& roots );
+
         void DestroyEntity( ECS::Entity entity );
 
         // Sets VisibilityComponent on the entity and its entire subtree (UE-like hierarchical visibility).

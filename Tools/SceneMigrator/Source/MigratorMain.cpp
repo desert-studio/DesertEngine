@@ -40,8 +40,8 @@
 // only this one left every prefab in the tree at the old number, refused by the loader and by its own
 // migrator alike. One number, one chain (Source/SceneMigration.cpp), one command.
 //
-//   SceneMigrator <path>...          .desce, .demat and .deprefab files, or directories searched
-//                                    recursively
+//   SceneMigrator <path>...          .desce, .demat, .deprefab and .anim files (and, for their layout
+//                                    only, the other text assets), or directories searched recursively
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include "MigratorMain.hpp"
@@ -58,6 +58,8 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -92,9 +94,23 @@ namespace
     // version field is generation 0, never "already current".
     constexpr const char* kClipExtension = ".anim";
 
+    // THE OTHER TEXT ASSETS ARE COLLECTED FOR THEIR LAYOUT ONLY (AF6e). Their content has no step in this
+    // tool - each is versioned by its own loader - but their text is written by the canonical writer, so a
+    // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
+    // diffs only in what the save changed. `.dclayout` is not here: it is binary (a "DCLY" header).
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",  ".decloudtype",
+                                                ".destrings",  ".detheme", ".skeleton" };
+
+    bool IsLayoutOnly( const std::filesystem::path& path )
+    {
+        const std::string ext = path.extension().string();
+        return std::find( kLayoutOnlyExtensions.begin(), kLayoutOnlyExtensions.end(), ext ) !=
+               kLayoutOnlyExtensions.end();
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
-                  std::vector<std::filesystem::path>& clips )
+                  std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -113,6 +129,8 @@ namespace
                 {
                     clips.push_back( entry.path() );
                 }
+                else if ( IsLayoutOnly( entry.path() ) )
+                    texts.push_back( entry.path() );
             }
             return;
         }
@@ -125,6 +143,8 @@ namespace
         {
             clips.push_back( root );
         }
+        else if ( IsLayoutOnly( root ) )
+            texts.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -754,13 +774,14 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> materials;
         std::vector<std::filesystem::path> prefabs;
         std::vector<std::filesystem::path> clips;
+        std::vector<std::filesystem::path> texts;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips );
+            Collect( root, scenes, materials, prefabs, clips, texts );
 
-        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() )
+        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
-                << kPrefabExtension << " or " << kClipExtension << " files found\n";
+                << kPrefabExtension << ", " << kClipExtension << " or other text asset files found\n";
             return 2;
         }
 
@@ -1182,12 +1203,20 @@ namespace Desert::Migration
             ++prefabsChanged;
         }
 
+        for ( const auto& path : texts )
+        {
+            if ( const Layout layout = RelayOutIfNeeded( path, ReadAll( path ), check, out, err );
+                 layout != Layout::Canonical )
+                ++( layout == Layout::Failed ? failed : relaid );
+        }
+
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
             << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s) of which " << clipsChanged
             << ( check ? " would change, " : " raised, " ) << materials.size() << " material(s), "
             << materialsChanged << ( check ? " would change, " : " raised, " ) << prefabs.size() << " prefab(s), "
-            << prefabsChanged << ( check ? " would change, " : " raised, " ) << relaid
-            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << failed << " failed\n";
+            << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
+            << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
+            << failed << " failed\n";
 
         if ( failed > 0 )
             return 1;

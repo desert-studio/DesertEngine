@@ -1,1 +1,33 @@
-{"Name":"OneBoneBlend","Entry":"Hover","Parameters":[],"States":[{"Name":"Hover","Clip":"SkinProbe_Hover","Loop":true,"Speed":1.0,"X":0.0,"Y":0.0,"Transitions":[{"To":"Tilt","Blend":2.0,"HasExitTime":true,"ExitTime":0.25,"Conditions":[]}]},{"Name":"Tilt","Clip":"SkinProbe_Tilt","Loop":true,"Speed":1.0,"X":260.0,"Y":0.0,"Transitions":[]}]}
+{
+    "Name": "OneBoneBlend",
+    "Entry": "Hover",
+    "Parameters": [],
+    "States": [
+        {
+            "Name": "Hover",
+            "Clip": "SkinProbe_Hover",
+            "Loop": true,
+            "Speed": 1.0,
+            "X": 0.0,
+            "Y": 0.0,
+            "Transitions": [
+                {
+                    "To": "Tilt",
+                    "Blend": 2.0,
+                    "HasExitTime": true,
+                    "ExitTime": 0.25,
+                    "Conditions": []
+                }
+            ]
+        },
+        {
+            "Name": "Tilt",
+            "Clip": "SkinProbe_Tilt",
+            "Loop": true,
+            "Speed": 1.0,
+            "X": 260.0,
+            "Y": 0.0,
+            "Transitions": []
+        }
+    ]
+}

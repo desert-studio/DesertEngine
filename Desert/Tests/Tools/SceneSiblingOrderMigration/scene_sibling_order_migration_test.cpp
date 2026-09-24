@@ -38,8 +38,8 @@ namespace
 
     // The hierarchy the loader builds from these records, in the order it builds it: pass 2 collects the
     // plan's Loads, pass 3 the prefab instances (each to a parent made before it), and the attaches are
-    // then made together in Rules::OrderAttaches order (SceneSerializer::InstantiateRecords). Roots are
-    // listed in creation order.
+    // then made together in Rules::OrderAttaches order (SceneSerializer::InstantiateRecords). A root is an
+    // attach to parent 0 (the loader's null entity), ordered with the rest and listed under tree[0].
     Hierarchy Loaded( const Records& records )
     {
         uint64_t   minted = 1ull << 62;
@@ -57,7 +57,7 @@ namespace
             const uint64_t id = static_cast<uint64_t>( plan.Created[slot].Id );
             made.insert( id );
             if ( load.Parent == Rules::kNoSlot )
-                tree[0].push_back( id );
+                attaches.push_back( { 0, id, Rules::SiblingIndexOf( records[load.Record] ) } );
             else
                 attaches.push_back( { static_cast<uint64_t>( plan.Created[load.Parent].Id ), id,
                                       Rules::SiblingIndexOf( records[load.Record] ) } );
@@ -68,11 +68,8 @@ namespace
             const uint64_t id     = IdOf( record );
             const bool     hangs =
                  record.parent.has_value() && made.contains( static_cast<uint64_t>( *record.parent ) );
-            if ( hangs )
-                attaches.push_back(
-                     { static_cast<uint64_t>( *record.parent ), id, Rules::SiblingIndexOf( record ) } );
-            else
-                tree[0].push_back( id );
+            attaches.push_back(
+                 { hangs ? static_cast<uint64_t>( *record.parent ) : 0, id, Rules::SiblingIndexOf( record ) } );
             if ( id != 0 )
                 made.insert( id );
         }
@@ -194,6 +191,33 @@ TEST( SceneSiblingOrderMigration, AnOrdinaryChildAfterAPrefabSiblingStaysAfterIt
     {
         std::shuffle( shuffled.begin(), shuffled.end(), shuffle );
         EXPECT_EQ( Loaded( shuffled ).at( 90 ), ( std::vector<uint64_t>{ 7, 80, 3 } ) );
+    }
+}
+
+// The same defect one level up: a prefab root is instantiated after every ordinary root, so before the roots
+// took their place by siblingIndex a prefab saved between two ordinary roots loaded after both.
+TEST( SceneSiblingOrderMigration, APrefabRootBetweenOrdinaryRootsStaysBetweenThem )
+{
+    constexpr const char*       kV25Scene = R"({"SceneName":"S","Entities":[
+        {"id":3,"Tag":"R3","siblingIndex":3},
+        {"id":80,"PrefabPath":"Prefabs/P.deprefab","siblingIndex":1},
+        {"id":7,"Tag":"R0","siblingIndex":0},
+        {"id":81,"PrefabPath":"Prefabs/Q.deprefab","siblingIndex":4},
+        {"id":5,"Tag":"R2","siblingIndex":2},
+        {"id":6,"parent":5,"Tag":"Child","siblingIndex":0}],
+        "UnitVersion":1,"SceneVersion":25})";
+    const auto                  scene     = rfl::json::read<Desert::Core::SceneSerialized>( kV25Scene ).value();
+    const std::vector<uint64_t> expected{ 7, 80, 5, 3, 81 };
+    EXPECT_EQ( Loaded( scene.Entities ).at( 0 ), expected );
+
+    auto         shuffled = scene.Entities;
+    std::mt19937 shuffle( 27 );
+    for ( int round = 0; round < 8; ++round )
+    {
+        std::shuffle( shuffled.begin(), shuffled.end(), shuffle );
+        const auto tree = Loaded( shuffled );
+        EXPECT_EQ( tree.at( 0 ), expected );
+        EXPECT_EQ( tree.at( 5 ), ( std::vector<uint64_t>{ 6 } ) );
     }
 }
 

@@ -569,14 +569,18 @@ namespace Desert::Core
 
         // Pass 2 — deserialize normal entities; their parent links are collected, and made after pass 3
         std::vector<Rules::PendingAttach<ECS::Entity>> attaches;
-        for ( const auto& load : plan.Loads )
+        for ( size_t slot = 0; slot < plan.Loads.size(); ++slot )
         {
+            const auto& load   = plan.Loads[slot];
             ECS::Entity entity = created[load.Target];
             Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, *m_AssetManager );
 
+            // A root is an attach to no parent; a shadowed record's root is its target's, placed once.
             if ( load.Parent != Rules::kNoSlot )
                 attaches.push_back(
                      { created[load.Parent], entity, Rules::SiblingIndexOf( records[load.Record] ) } );
+            else if ( load.Target == slot )
+                attaches.push_back( { ECS::Entity{}, entity, Rules::SiblingIndexOf( records[load.Record] ) } );
         }
         if ( phases != nullptr )
             phases->Lap( "deserialize components and attach", plan.Loads.size() );
@@ -646,21 +650,28 @@ namespace Desert::Core
             if ( entityData->id.has_value() && !entityData->id->IsNull() )
                 entityMap[*entityData->id] = prefabRoot;
 
-            // Attach to parent if one exists (e.g. prefab nested under a regular entity)
+            // Attach to parent if one exists (e.g. prefab nested under a regular entity); otherwise it is a
+            // root, and takes its place among the other roots in pass 4.
+            ECS::Entity parent;
             if ( entityData->parent.has_value() && !entityData->parent->IsNull() )
-            {
-                auto parentIt = entityMap.find( *entityData->parent );
-                if ( parentIt != entityMap.end() )
-                    attaches.push_back( { parentIt->second, prefabRoot, Rules::SiblingIndexOf( *entityData ) } );
-            }
+                if ( const auto parentIt = entityMap.find( *entityData->parent ); parentIt != entityMap.end() )
+                    parent = parentIt->second;
+            attaches.push_back( { parent, prefabRoot, Rules::SiblingIndexOf( *entityData ) } );
         }
         if ( phases != nullptr )
             phases->Lap( "instantiate prefabs", plan.PrefabRecords.size() );
 
         // Pass 4 — the hierarchy, every parent link at once in sibling order (Rules::OrderAttaches).
         Rules::OrderAttaches( attaches );
+        std::vector<ECS::Entity> roots;
         for ( const auto& attach : attaches )
-            m_Scene->Attach( attach.Parent, attach.Child );
+        {
+            if ( attach.Parent )
+                m_Scene->Attach( attach.Parent, attach.Child );
+            else
+                roots.push_back( attach.Child );
+        }
+        m_Scene->ArrangeRoots( roots );
         if ( phases != nullptr )
             phases->Lap( "attach in sibling order", attaches.size() );
 

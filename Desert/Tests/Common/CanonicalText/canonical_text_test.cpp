@@ -253,15 +253,13 @@ namespace
                             "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp" },
          CanonicalAtSource{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp",
                             "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp" },
-         CanonicalAtSource{ "Editor/Source/Editor/Core/Commands/SceneCommands.cpp",
+         CanonicalAtSource{ "Desert/Desert/Source/Engine/Assets/Prefab/PrefabAsset.cpp",
                             "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
          CanonicalAtSource{ "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
                             "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
          CanonicalAtSource{
               "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/PrefabComponentWidget.cpp",
               "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
-         CanonicalAtSource{ "Editor/Source/Editor/Panels/SceneHierarchy/SceneHierarchyPanel.cpp",
-                            "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
     };
 
     // Files that serialize and write, but what they write is not an authored text asset: machine and editor
