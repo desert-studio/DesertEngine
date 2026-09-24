@@ -21,6 +21,7 @@
 #include <Engine/Assets/CloudTypeData.hpp>
 
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -2717,7 +2718,22 @@ namespace Desert::Migration
             // tool twice.
             MigrateCloudMaterialAlbedoToColour( material );
 
-            report.Materials.push_back( { relPath, rfl::json::write( material ) } );
+            // The one .demat writer (MaterialFormat.hpp), so the file opens with its text header like every
+            // other material. Its GUID is the migration's, keyed on the path under the assets root - the same
+            // derivation step 26 gives a headerless file - so re-running the tool writes the same bytes.
+            material.Header = Assets::StampTextHeader(
+                 Common::Content::TextAssetHeaderSerialized{
+                      .Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relPath ) ) },
+                 Common::Content::ContentKind::Material, Assets::MaterialTextSubsystems() );
+            auto text = Assets::WriteMaterialJson( material );
+            if ( !text )
+            {
+                report.Rejected += 1;
+                report.RejectedNames.push_back( relPath + ": the material could not be written - " +
+                                                text.GetError() );
+                continue;
+            }
+            report.Materials.push_back( { relPath, std::move( text.GetValue() ) } );
 
             entity.Components["VolumetricCloud"] = rfl::Generic( std::move( kept ) );
             report.Entities += 1;
