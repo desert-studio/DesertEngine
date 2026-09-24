@@ -78,7 +78,7 @@ namespace
     {
         const float     freq = std::max( frequency, 0.0001f );
         const glm::vec2 s( static_cast<float>( seed ) * 0.137f, static_cast<float>( seed ) * 0.911f );
-        const glm::vec2 p = xz * freq + s;
+        const glm::vec2 p   = xz * freq + s;
         float           sum = 0.0f, amp = 0.5f, f = 1.0f;
         for ( int i = 0; i < 5; ++i )
         {
@@ -175,13 +175,13 @@ namespace
                 for ( uint32_t sz = 0; sz < side; ++sz )
                     for ( uint32_t sx = 0; sx < side; ++sx )
                     {
-                        const float gx  = static_cast<float>( tx * grid.QuadsPerTile + sx );
-                        const float gz  = static_cast<float>( tz * grid.QuadsPerTile + sz );
+                        const float     gx  = static_cast<float>( tx * grid.QuadsPerTile + sx );
+                        const float     gz  = static_cast<float>( tz * grid.QuadsPerTile + sz );
                         const glm::vec2 at  = glm::vec2( gx, gz ) * cell;
-                        const float     ref = TerrainHeightRef( at - glm::vec2( t.Size * 0.5f ),
-                                                            t.NoiseFrequency, t.Seed, t.HeightScale );
-                        const float got = Landscape::LandscapeHeightCm( tile.Samples()[sz * side + sx], z );
-                        worst           = std::max( worst, std::abs( got - ref ) );
+                        const float     ref = TerrainHeightRef( at - glm::vec2( t.Size * 0.5f ), t.NoiseFrequency,
+                                                                t.Seed, t.HeightScale );
+                        const float     got = Landscape::LandscapeHeightCm( tile.Samples()[sz * side + sx], z );
+                        worst               = std::max( worst, std::abs( got - ref ) );
                     }
             }
         return worst;
@@ -245,7 +245,8 @@ TEST( SceneProceduralTerrainMigration, EverySampleIsTheFbmToHalfAStep )
         const float worst = MaxHeightError( t, b );
         std::printf( "[ heights  ] Size %.0f HeightScale %.0f: %u x %u tiles of %u quads, max |h - fBm| = %.4f cm "
                      "(half step %.4f cm)\n",
-                     t.Size, t.HeightScale, grid.TilesPerSide, grid.TilesPerSide, grid.QuadsPerTile, worst, step * 0.5f );
+                     t.Size, t.HeightScale, grid.TilesPerSide, grid.TilesPerSide, grid.QuadsPerTile, worst,
+                     step * 0.5f );
         EXPECT_LE( worst, step * 0.5f + 1.0e-3f );
     }
 }
@@ -263,7 +264,7 @@ TEST( SceneProceduralTerrainMigration, TheGridReproducesTheRenderersFinestSpacin
     EXPECT_EQ( small.QuadsPerTile, 15u );
     for ( int resolution = 1; resolution <= 64; ++resolution )
     {
-        const auto any = Migration::ProceduralTerrainGridFor( 1000.0f, resolution );
+        const auto                              any = Migration::ProceduralTerrainGridFor( 1000.0f, resolution );
         Desert::World::Landscape::LandscapeRoot root;
         root.QuadsPerTile = any.QuadsPerTile;
         root.SpacingCm    = any.SpacingCm;
@@ -287,7 +288,8 @@ TEST( SceneProceduralTerrainMigration, NeighbouringTilesShareTheirEdgeSamples )
             const auto& west = b.Tiles[tz * grid.TilesPerSide + tx].Samples();
             const auto& east = b.Tiles[tz * grid.TilesPerSide + tx + 1].Samples();
             for ( uint32_t z = 0; z < side; ++z )
-                ASSERT_EQ( west[z * side + side - 1u], east[z * side] ) << "tile " << tx << "," << tz << " row " << z;
+                ASSERT_EQ( west[z * side + side - 1u], east[z * side] )
+                     << "tile " << tx << "," << tz << " row " << z;
         }
 }
 
@@ -313,7 +315,8 @@ TEST( SceneProceduralTerrainMigration, TheRootSitsAtSampleZeroAndEveryTileNamesI
     EXPECT_FLOAT_EQ( static_cast<float>( Number( frame, "ZScale" ) ), 900.0f / 256.0f );
 
     const auto tile = Block( b.Entities[1], "LandscapeTile" ).value();
-    EXPECT_EQ( tile.get( "Landscape" ).value().to_string().value(), "4242" ) << "a save spells an id as a decimal string";
+    EXPECT_EQ( tile.get( "Landscape" ).value().to_string().value(), "4242" )
+         << "a save spells an id as a decimal string";
     EXPECT_EQ( Number( tile, "TileX" ), 0.0 );
     const std::string file = tile.get( "HeightFile" ).value().to_string().value();
     const std::string want =
@@ -326,7 +329,8 @@ TEST( SceneProceduralTerrainMigration, TheRootSitsAtSampleZeroAndEveryTileNamesI
 
 TEST( SceneProceduralTerrainMigration, TheLayerModesAreTheReflectedEnumsOwnValues )
 {
-    ASSERT_TRUE( ReflectedLayerMode( "Auto" ).has_value() ) << "LandscapeMaterialData reflects no LandscapeLayerMode";
+    ASSERT_TRUE( ReflectedLayerMode( "Auto" ).has_value() )
+         << "LandscapeMaterialData reflects no LandscapeLayerMode";
     ASSERT_TRUE( ReflectedLayerMode( "Off" ).has_value() );
 
     V22Terrain t{ 5000.0f, 8, 900.0f, 0.004f, 111, "" };
@@ -393,8 +397,7 @@ TEST( SceneProceduralTerrainMigration, NoTrackedSceneOrPrefabStatesATerrainBlock
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     int checked = 0;
-    for ( const auto& entry :
-          std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets" ) )
+    for ( const auto& entry : std::filesystem::recursive_directory_iterator( root + "Editor/Resources/Assets" ) )
     {
         const auto ext = entry.path().extension();
         if ( ext != ".desce" && ext != ".deprefab" )
@@ -416,9 +419,9 @@ TEST( SceneProceduralTerrainMigration, NoSourceNamesTheRetiredPath )
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
     const std::array<const char*, 11> retired = {
-         "TerrainComponent", "TerrainData",       "TerrainLayerMode", "TerrainECSSystem",
-         "DrawTerrainCommand", "SubmitTerrain",   "TerrainMeshFactory", "TerrainPaintTool",
-         "u_SplatMap",       "FBm(",              "kTerrainHeightSource",
+         "TerrainComponent",   "TerrainData",   "TerrainLayerMode",     "TerrainECSSystem",
+         "DrawTerrainCommand", "SubmitTerrain", "TerrainMeshFactory",   "TerrainPaintTool",
+         "u_SplatMap",         "FBm(",          "kTerrainHeightSource",
     };
     int scanned = 0;
     for ( const char* dir : { "Desert/Desert/Source", "Desert/Common/Source", "Editor/Source", "Runtime/Source",

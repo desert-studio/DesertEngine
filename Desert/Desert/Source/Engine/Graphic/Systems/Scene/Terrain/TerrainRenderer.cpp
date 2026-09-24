@@ -63,8 +63,7 @@ namespace Desert::Graphic::System
             TerrainInstance instance;
             instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm,
                                                  static_cast<float>( gridDim ), 256.0f * l.ZScale, tessLevel );
-            instance.Params2 =
-                 glm::vec4( 0.0f, 0.0f, 0.0f, static_cast<float>( l.NeighbourMask ) );
+            instance.Params2        = glm::vec4( 0.0f, 0.0f, 0.0f, static_cast<float>( l.NeighbourMask ) );
             instance.LayerModes     = glm::vec4( t.LayerModes, 0.0f );
             instance.LandscapeFrame = glm::vec4( l.OriginX, l.BaseY, l.OriginZ, l.SpacingCm );
             instance.LandscapeTile =
@@ -195,8 +194,8 @@ namespace Desert::Graphic::System
 
         for ( const auto& t : m_Queue )
         {
-            const auto [it, inserted] = groupIndex.try_emplace(
-                 TerrainTextureKey( t.Overrides, t.Heightmap ), m_FrameGroups.size() );
+            const auto [it, inserted] =
+                 groupIndex.try_emplace( TerrainTextureKey( t.Overrides, t.Heightmap ), m_FrameGroups.size() );
             ProgramMaterials& materials = m_Materials[it->first];
             if ( inserted )
             {

@@ -349,11 +349,9 @@ TEST( SceneViewCost, NoRenderCommandHandsItsPayloadAwayWhenItExecutes )
     // count pinned instead of the rows can be satisfied by editing the count.
     const std::string              dir      = "Desert/Desert/Source/Engine/Graphic/Render/Commands/";
     const std::vector<std::string> commands = {
-         "DrawGenericMeshCommand.hpp", "DrawMeshCommand.hpp",
-         "DrawSkinnedMeshCommand.hpp", "DrawSlotMaterialMeshCommand.hpp",
-         "HeightFogCommand.hpp",
-         "PointLightCommand.hpp",      "ProceduralSkyCommand.hpp",
-         "SkyboxCommand.hpp",          "SpotLightCommand.hpp",
+         "DrawGenericMeshCommand.hpp",      "DrawMeshCommand.hpp",  "DrawSkinnedMeshCommand.hpp",
+         "DrawSlotMaterialMeshCommand.hpp", "HeightFogCommand.hpp", "PointLightCommand.hpp",
+         "ProceduralSkyCommand.hpp",        "SkyboxCommand.hpp",    "SpotLightCommand.hpp",
          "VolumetricCloudCommand.hpp",
     };
 

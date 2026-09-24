@@ -1267,7 +1267,8 @@ namespace Desert::Migration
     // One `.dlht` the v22 -> v23 step produced: where it goes and what it holds, for the tool to write.
     struct LandscapeTileFile
     {
-        std::filesystem::path      Path;  // on disk, as the tool sees it: the source file's directory + "<stem>_Landscape/"
+        std::filesystem::path
+             Path; // on disk, as the tool sees it: the source file's directory + "<stem>_Landscape/"
         std::vector<unsigned char> Bytes; // EncodeLandscapeTile's output — the whole file
     };
 
@@ -1323,8 +1324,8 @@ namespace Desert::Migration
     // is spelled the way the engine's own save spells it - under Common::Constants::Path::ASSETS_PATH -
     // from the file's place under `assetsRoot`. PURE apart from reading those two paths.
     ProceduralTerrainMigrationReport MigrateProceduralTerrainV22ToV23( std::vector<Assets::EntityData>& entities,
-                                                                      const std::filesystem::path& sourceFile,
-                                                                      const std::filesystem::path& assetsRoot );
+                                                                       const std::filesystem::path&     sourceFile,
+                                                                       const std::filesystem::path& assetsRoot );
 
     // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
     struct AnimGraphMigrationReport

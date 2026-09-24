@@ -278,8 +278,7 @@ namespace Desert::Editor
     // The combo went with the schema table: there is exactly one Terrain-domain shader, so "which shader"
     // was a control with one entry. A landscape material is created with that shader already chosen.
     static void DrawLandscapeMaterialRow( ::Desert::ECS::LandscapeMaterialData& landscape,
-                                          const std::string&                     entityName,
-                                          ::Desert::Assets::AssetManager*        assetMgr )
+                                          const std::string& entityName, ::Desert::Assets::AssetManager* assetMgr )
     {
         namespace ImGui = ::ImGui;
 
@@ -903,8 +902,7 @@ namespace Desert::Editor
             PropertyEditorBuilder::Draw( &c.Data, "LandscapeMaterialData", ctx.AssetMgr(), ctx.UIHelper );
 
             ::ImGui::Separator();
-            DrawLandscapeMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag,
-                                      ctx.AssetMgr() );
+            DrawLandscapeMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag, ctx.AssetMgr() );
         };
         return e;
     }
@@ -1958,9 +1956,8 @@ namespace
 
     const int _desert_collider_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeColliderEntry() );
-    const int _desert_landscape_material_component_reg =
-         ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
-              ::Desert::Editor::MakeLandscapeMaterialEntry() );
+    const int _desert_landscape_material_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeLandscapeMaterialEntry() );
 
     const int _desert_volumetric_cloud_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeVolumetricCloudEntry() );

@@ -25,8 +25,8 @@ namespace Desert::Graphic::Render
         glm::vec3                 LayerModes;
         MaterialOverrides         Overrides;
 
-        DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile, const glm::vec3& layerModes,
-                                  MaterialOverrides overrides )
+        DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile,
+                                  const glm::vec3& layerModes, MaterialOverrides overrides )
              : Heightmap( heightmap ), Tile( tile ), LayerModes( layerModes ), Overrides( std::move( overrides ) )
         {
         }

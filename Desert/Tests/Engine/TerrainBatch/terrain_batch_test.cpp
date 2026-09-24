@@ -54,10 +54,8 @@ TEST( TerrainTextureKey, TheSameTexturesInAnotherOrderShareOneMaterial )
     // Two terrains naming the same set in a different order are the same texture set. Failing this
     // direction is quieter than the other — it only allocates a redundant material — but it is the
     // exact drift MeshRenderer's GenericTextureKey sorts against, and the two keys follow one rule.
-    const auto ab =
-         TerrainTextureKey( WithTextures( { { "u_GrassTex", 7 }, { "u_RockTex", 9 } } ), nullptr );
-    const auto ba =
-         TerrainTextureKey( WithTextures( { { "u_RockTex", 9 }, { "u_GrassTex", 7 } } ), nullptr );
+    const auto ab = TerrainTextureKey( WithTextures( { { "u_GrassTex", 7 }, { "u_RockTex", 9 } } ), nullptr );
+    const auto ba = TerrainTextureKey( WithTextures( { { "u_RockTex", 9 }, { "u_GrassTex", 7 } } ), nullptr );
     EXPECT_EQ( ab, ba );
 }
 

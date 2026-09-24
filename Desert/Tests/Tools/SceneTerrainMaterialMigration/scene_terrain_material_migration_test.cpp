@@ -386,8 +386,9 @@ TEST( SceneTerrainMaterialMigration, AFileFromBeforeEveryStepStillComesOutAtTheH
 TEST( SceneTerrainMaterialMigration, TheLandscapeNamesItsMaterialAsAMaterialAssetHandle )
 {
     const auto* field = FindField( "LandscapeMaterialData", "Material" );
-    ASSERT_NE( field, nullptr ) << "LandscapeMaterialData has no 'Material' field — the v6 -> v7 migration removes the "
-                                   "terrain's inline material on the promise that this field replaced it.";
+    ASSERT_NE( field, nullptr )
+         << "LandscapeMaterialData has no 'Material' field — the v6 -> v7 migration removes the "
+            "terrain's inline material on the promise that this field replaced it.";
 
     EXPECT_EQ( field->Type, Desert::Reflection::FieldType::AssetHandle );
     EXPECT_TRUE( field->Meta.IsAsset );
@@ -396,9 +397,9 @@ TEST( SceneTerrainMaterialMigration, TheLandscapeNamesItsMaterialAsAMaterialAsse
     // reference would not survive a rename or a machine.
     EXPECT_EQ( field->Meta.AssetType, "MaterialAsset" );
 
-    // Hidden from the auto-built Details on purpose — the Landscape Material entry draws the row itself, with an Edit
-    // button that opens the Material Editor window. If this ever stops being Hidden the panel grows a
-    // SECOND material control beside the first, which is the exact duplication M3 removed.
+    // Hidden from the auto-built Details on purpose — the Landscape Material entry draws the row itself, with an
+    // Edit button that opens the Material Editor window. If this ever stops being Hidden the panel grows a SECOND
+    // material control beside the first, which is the exact duplication M3 removed.
     EXPECT_TRUE( field->Meta.Hidden );
 }
 

@@ -1244,8 +1244,7 @@ namespace Desert::Editor
                  // the landscape root owns the rendered tiles; a marker on it would sit in the ground
                  entity.HasComponent<ECS::LandscapeComponent>() ||
                  entity.HasComponent<ECS::LandscapeTileComponent>() ||
-                 entity.HasComponent<ECS::FoliageComponent>() ||
-                 entity.HasComponent<ECS::PointLightComponent>() ||
+                 entity.HasComponent<ECS::FoliageComponent>() || entity.HasComponent<ECS::PointLightComponent>() ||
                  entity.HasComponent<ECS::SpotLightComponent>() ||
                  entity.HasComponent<ECS::DirectionLightComponent>() ||
                  entity.HasComponent<ECS::CameraComponent>() || entity.HasComponent<ECS::SkyboxComponent>() ||

@@ -1354,7 +1354,10 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-             ->Submit( { .Heightmap = heightmap, .Landscape = tile, .LayerModes = layerModes, .Overrides = overrides } );
+             ->Submit( { .Heightmap  = heightmap,
+                         .Landscape  = tile,
+                         .LayerModes = layerModes,
+                         .Overrides  = overrides } );
     }
 
     void SceneRenderer::SubmitGenericMesh( const Mesh* mesh, const glm::mat4& transform,

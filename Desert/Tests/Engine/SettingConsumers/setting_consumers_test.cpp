@@ -1216,13 +1216,13 @@ TEST( SettingConsumers, EveryNamedConsumerActuallyReadsTheFieldItClaims )
 // THE GAP BETWEEN "SOMEBODY READ IT" AND "IT REACHED THE FRAME".
 //
 // Both halves of this are new in Г26 and both come from one measured defect. The procedural terrain's RockMode
-// (retired in v23) was WIRED to its ECS system and the row was TRUE: the system did read the field and packed it into
-// the draw command's LayerModes.y. Terrain.shader then read LayerModes.x and LayerModes.z and never .y,
-// and never sampled the green splat channel — so the editor's `Rock (G)` brush, whose own overlay tells
-// the user to "set the layer to 'Manual' in Details to see painted weights", painted a channel no pixel
-// was computed from. This suite was green the whole time, because it asks about the FIRST link of the
-// chain and the defect was in the LAST one. Г25 had fixed the identical defect one channel over
-// (GrassMode / LayerModes.x) without the census noticing either.
+// (retired in v23) was WIRED to its ECS system and the row was TRUE: the system did read the field and packed it
+// into the draw command's LayerModes.y. Terrain.shader then read LayerModes.x and LayerModes.z and never .y, and
+// never sampled the green splat channel — so the editor's `Rock (G)` brush, whose own overlay tells the user to
+// "set the layer to 'Manual' in Details to see painted weights", painted a channel no pixel was computed from.
+// This suite was green the whole time, because it asks about the FIRST link of the chain and the defect was in the
+// LAST one. Г25 had fixed the identical defect one channel over (GrassMode / LayerModes.x) without the census
+// noticing either.
 //
 // So a row may state where the value must END UP, and here that statement is checked.
 namespace

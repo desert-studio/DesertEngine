@@ -2761,8 +2761,8 @@ namespace Desert::Migration
         // Hash / ValueNoise / FBm of the v22 TerrainTessEval.glslh, component by component.
         float LatticeHash( float px, float pz )
         {
-            px = Fract( px * 123.34f );
-            pz = Fract( pz * 456.21f );
+            px             = Fract( px * 123.34f );
+            pz             = Fract( pz * 456.21f );
             const float dx = px * ( px + 45.32f );
             const float dz = pz * ( pz + 45.32f );
             const float d  = dx + dz;
@@ -2773,10 +2773,10 @@ namespace Desert::Migration
 
         float ValueNoise( float px, float pz )
         {
-            const float ix = std::floor( px );
-            const float iz = std::floor( pz );
-            const float fx = px - ix;
-            const float fz = pz - iz;
+            const float ix   = std::floor( px );
+            const float iz   = std::floor( pz );
+            const float fx   = px - ix;
+            const float fz   = pz - iz;
             const float twoX = 2.0f * fx;
             const float twoZ = 2.0f * fz;
             const float ux   = fx * fx * ( 3.0f - twoX );
@@ -2808,10 +2808,11 @@ namespace Desert::Migration
         // bakes to the same entity ids and file names. Zero is "no id" and is stepped over.
         uint64_t TileId( uint64_t rootId, uint32_t tileX, uint32_t tileZ )
         {
-            uint64_t z = rootId + 0x9E3779B97F4A7C15ull * ( 1ull + ( static_cast<uint64_t>( tileX ) << 32u ) + tileZ );
-            z          = ( z ^ ( z >> 30u ) ) * 0xBF58476D1CE4E5B9ull;
-            z          = ( z ^ ( z >> 27u ) ) * 0x94D049BB133111EBull;
-            z          = z ^ ( z >> 31u );
+            uint64_t z =
+                 rootId + 0x9E3779B97F4A7C15ull * ( 1ull + ( static_cast<uint64_t>( tileX ) << 32u ) + tileZ );
+            z = ( z ^ ( z >> 30u ) ) * 0xBF58476D1CE4E5B9ull;
+            z = ( z ^ ( z >> 27u ) ) * 0x94D049BB133111EBull;
+            z = z ^ ( z >> 31u );
             return z == 0u ? 1u : z;
         }
 
@@ -2860,8 +2861,8 @@ namespace Desert::Migration
     }
 
     ProceduralTerrainMigrationReport MigrateProceduralTerrainV22ToV23( std::vector<Assets::EntityData>& entities,
-                                                                      const std::filesystem::path& sourceFile,
-                                                                      const std::filesystem::path& assetsRoot )
+                                                                       const std::filesystem::path&     sourceFile,
+                                                                       const std::filesystem::path& assetsRoot )
     {
         ProceduralTerrainMigrationReport report;
         std::vector<Assets::EntityData>  created;
@@ -2941,14 +2942,13 @@ namespace Desert::Migration
                 continue;
             }
 
-            const ProceduralTerrainGrid grid       = ProceduralTerrainGridFor( terrain.Size, terrain.Resolution );
-            const uint32_t              quads      = grid.TilesPerSide * grid.QuadsPerTile;
-            const float                 cell       = terrain.Size / static_cast<float>( quads );
-            const float                 half       = terrain.Size * 0.5f;
-            const float                 heightCm   = terrain.HeightScale * scale.y;
-            const float                 zScale     = heightCm > 0.0f ? heightCm / 256.0f
-                                                                     : World::Landscape::kLandscapeDefaultZScale;
-            const uint32_t              rowSamples = quads + 1u;
+            const ProceduralTerrainGrid grid     = ProceduralTerrainGridFor( terrain.Size, terrain.Resolution );
+            const uint32_t              quads    = grid.TilesPerSide * grid.QuadsPerTile;
+            const float                 cell     = terrain.Size / static_cast<float>( quads );
+            const float                 half     = terrain.Size * 0.5f;
+            const float                 heightCm = terrain.HeightScale * scale.y;
+            const float zScale = heightCm > 0.0f ? heightCm / 256.0f : World::Landscape::kLandscapeDefaultZScale;
+            const uint32_t rowSamples = quads + 1u;
 
             // The whole landscape's samples once; the tiles copy their window (edges are shared samples).
             std::vector<uint16_t> all( static_cast<size_t>( rowSamples ) * rowSamples );
@@ -2965,11 +2965,12 @@ namespace Desert::Migration
                                                                  terrain.HeightScale ) *
                                     scale.y;
                     maxAbs = std::max( maxAbs, std::abs( h ) );
-                    all[static_cast<size_t>( z ) * rowSamples + x] = World::Landscape::LandscapeSampleFromLocal( h / zScale );
+                    all[static_cast<size_t>( z ) * rowSamples + x] =
+                         World::Landscape::LandscapeSampleFromLocal( h / zScale );
                 }
 
-            const uint64_t rootId = static_cast<uint64_t>( entity.id.value() );
-            bool           failed = false;
+            const uint64_t                  rootId = static_cast<uint64_t>( entity.id.value() );
+            bool                            failed = false;
             std::vector<Assets::EntityData> tiles;
             std::vector<LandscapeTileFile>  files;
             for ( uint32_t tz = 0; tz < grid.TilesPerSide && !failed; ++tz )
@@ -2982,16 +2983,18 @@ namespace Desert::Migration
                             samples[static_cast<size_t>( z ) * side + x] =
                                  all[static_cast<size_t>( tz * grid.QuadsPerTile + z ) * rowSamples +
                                      tx * grid.QuadsPerTile + x];
-                    auto tile = World::Landscape::LandscapeTileData::FromSamples( side, side, std::move( samples ) );
+                    auto tile =
+                         World::Landscape::LandscapeTileData::FromSamples( side, side, std::move( samples ) );
                     if ( !tile )
                     {
-                        reject( "tile (" + std::to_string( tx ) + ", " + std::to_string( tz ) + "): " + tile.GetError() );
+                        reject( "tile (" + std::to_string( tx ) + ", " + std::to_string( tz ) +
+                                "): " + tile.GetError() );
                         failed = true;
                         break;
                     }
 
-                    const uint64_t              id   = TileId( rootId, tx, tz );
-                    const std::filesystem::path disk = World::Landscape::LandscapeTileBlobPath( sourceFile, id );
+                    const uint64_t              id    = TileId( rootId, tx, tz );
+                    const std::filesystem::path disk  = World::Landscape::LandscapeTileBlobPath( sourceFile, id );
                     const std::filesystem::path under = disk.lexically_relative( assetsRoot );
                     if ( under.empty() || *under.begin() == ".." )
                     {
@@ -3010,9 +3013,10 @@ namespace Desert::Migration
                     block.HeightFile = ( Common::Constants::Path::ASSETS_PATH / under ).generic_string();
 
                     Assets::EntityData tileEntity;
-                    tileEntity.id                          = Common::UUID( id );
-                    tileEntity.Tag                         = tag + " Tile " + std::to_string( tx ) + "_" + std::to_string( tz );
-                    tileEntity.Components["LandscapeTile"] = rfl::Generic( Core::Serialize::WriteComponent( block ) );
+                    tileEntity.id  = Common::UUID( id );
+                    tileEntity.Tag = tag + " Tile " + std::to_string( tx ) + "_" + std::to_string( tz );
+                    tileEntity.Components["LandscapeTile"] =
+                         rfl::Generic( Core::Serialize::WriteComponent( block ) );
                     tiles.push_back( std::move( tileEntity ) );
                     files.push_back( { disk, World::Landscape::EncodeLandscapeTile( tile.GetValue() ) } );
                 }
@@ -3032,8 +3036,9 @@ namespace Desert::Migration
                 const auto mode = value.value().to_int64();
                 if ( mode.has_value() && mode.value() == kLegacyLayerManual )
                     notes.push_back( std::string( key ) + " Manual -> Auto (the splat map was never saved)" );
-                material[key] = rfl::Generic( mode.has_value() && mode.value() == kLegacyLayerOff ? kLandscapeLayerOff
-                                                                                                   : kLandscapeLayerAuto );
+                material[key] =
+                     rfl::Generic( mode.has_value() && mode.value() == kLegacyLayerOff ? kLandscapeLayerOff
+                                                                                       : kLandscapeLayerAuto );
             }
 
             ECS::LandscapeComponent root;
@@ -3063,10 +3068,10 @@ namespace Desert::Migration
 
             report.Entities += 1;
             report.Tiles += static_cast<int>( tiles.size() );
-            std::string line = tag + ": " + std::to_string( quads ) + " x " + std::to_string( quads ) + " quads in " +
-                               std::to_string( grid.TilesPerSide ) + " x " + std::to_string( grid.TilesPerSide ) +
-                               " tiles, " + std::to_string( root.SpacingCm ) + " cm spacing, max |h| " +
-                               std::to_string( maxAbs ) + " cm";
+            std::string line =
+                 tag + ": " + std::to_string( quads ) + " x " + std::to_string( quads ) + " quads in " +
+                 std::to_string( grid.TilesPerSide ) + " x " + std::to_string( grid.TilesPerSide ) + " tiles, " +
+                 std::to_string( root.SpacingCm ) + " cm spacing, max |h| " + std::to_string( maxAbs ) + " cm";
             for ( const auto& note : notes )
                 line += "; " + note;
             report.ConvertedNames.push_back( std::move( line ) );

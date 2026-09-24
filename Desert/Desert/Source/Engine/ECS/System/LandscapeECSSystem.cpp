@@ -132,14 +132,15 @@ namespace Desert::ECS
                 if ( registry.get<UUIDComponent>( entity ).UUID != rootId )
                     continue;
                 const LandscapeMaterialData& look = registry.get<LandscapeMaterialComponent>( entity ).Data;
-                it->second.LayerModes = glm::vec3( static_cast<float>( look.GrassMode ),
-                                                   static_cast<float>( look.RockMode ),
-                                                   static_cast<float>( look.SnowMode ) );
+                it->second.LayerModes =
+                     glm::vec3( static_cast<float>( look.GrassMode ), static_cast<float>( look.RockMode ),
+                                static_cast<float>( look.SnowMode ) );
                 const auto raw = static_cast<uint64_t>( look.Material );
                 if ( raw == 0 )
                     break;
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-                if ( ( materials == nullptr || !materials->ResolveOverrides( look.Material, it->second.Overrides ) ) &&
+                if ( ( materials == nullptr ||
+                       !materials->ResolveOverrides( look.Material, it->second.Overrides ) ) &&
                      m_WarnedMaterials.insert( raw ).second )
                 {
                     // Not a silent default: the scene names a material the asset database does not have, and
@@ -212,9 +213,8 @@ namespace Desert::ECS
             draw.QuadsPerTile  = root.QuadsPerTile;
             draw.NeighbourMask = mask;
             const Surface& surface = surfaceOf( Common::UUID( tileComp.Landscape ) );
-            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>( gpu.Heightmap.get(), draw,
-                                                                                  surface.LayerModes,
-                                                                                  surface.Overrides );
+            renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeTileCommand>(
+                 gpu.Heightmap.get(), draw, surface.LayerModes, surface.Overrides );
         }
 
         // Release: the entity is gone, lost its tile component, or its heights were unloaded.
