@@ -146,7 +146,11 @@ namespace Desert::Editor
     void LandscapePanel::DrawToolStrip()
     {
         auto&        settings = Core::LandscapeSculptState::Get().Settings;
-        const ImVec2 size( 72.0f, 50.0f );
+        // Every button is as wide as the widest name, so "Hydro Erosion" and "Copy/Paste" are not clipped.
+        float widest = 0.0f;
+        for ( const auto& button : kSculptTools )
+            widest = std::max( widest, ImGui::CalcTextSize( Core::LandscapeToolName( button.Tool ) ).x );
+        const ImVec2 size( std::max( 72.0f, widest + 2.0f * ImGui::GetStyle().FramePadding.x ), 50.0f );
         const float  right   = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
         const float  spacing = ImGui::GetStyle().ItemSpacing.x;
         for ( size_t i = 0; i < kSculptTools.size(); ++i )
@@ -216,9 +220,12 @@ namespace Desert::Editor
                 state.Request = control.Request;
             ImGui::PopID();
         }
-        ImGui::TextDisabled( settings.Tool == Core::LandscapeTool::Ramp
-                                  ? "LMB sets the start, then the end; Apply builds the ramp"
-                                  : "LMB applies the tool, Shift+LMB inverts it" );
+        // Wrapped: the Ramp hint is wider than the default dock column.
+        ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled] );
+        ImGui::TextWrapped( "%s", settings.Tool == Core::LandscapeTool::Ramp
+                                      ? "LMB sets the start, then the end; Apply builds the ramp"
+                                      : "LMB applies the tool, Shift+LMB inverts it" );
+        ImGui::PopStyleColor();
     }
 
     void LandscapePanel::DrawBrushSettings()
@@ -236,10 +243,15 @@ namespace Desert::Editor
         ImGuiUtilities::EndPropertyRow();
 
         ImGuiUtilities::BeginPropertyRow( "Brush Falloff Type" );
-        int id = 0;
+        int         id      = 0;
+        const float right   = ImGui::GetWindowPos().x + ImGui::GetContentRegionMax().x;
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
         for ( const auto shape : Core::LandscapeFalloffShapes() )
         {
-            if ( id > 0 )
+            // Wrap inside the value column: four names do not fit one line of the default dock width.
+            const float width = ImGui::CalcTextSize( Core::LandscapeFalloffName( shape ) ).x +
+                                2.0f * ImGui::GetStyle().FramePadding.x;
+            if ( id > 0 && ImGui::GetItemRectMax().x + spacing + width <= right )
                 ImGui::SameLine();
             ImGui::PushID( id++ );
             if ( AccentButton( Core::LandscapeFalloffName( shape ), brush.Shape == shape, ImVec2( 0.0f, 0.0f ) ) )

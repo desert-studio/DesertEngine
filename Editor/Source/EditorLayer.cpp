@@ -3595,6 +3595,7 @@ namespace Desert::Editor
                 // of the well existing. A line here would also name a window that no longer exists under
                 // that title: a document's ImGui id is "###doc<subject>", so it could never have matched.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Modeling" ).c_str(), left );
+                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Landscape" ).c_str(), left );
 
                 // The well itself. It is what makes the document node FINDABLE: a dock node with nothing in
                 // it is not drawn at all, so without a permanent occupant the area would exist in the
