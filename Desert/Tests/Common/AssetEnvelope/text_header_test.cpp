@@ -55,8 +55,8 @@ TEST( TextAssetHeader, IsTheSecondRegisteredFormatAfterTheBinaryEnvelope )
 {
     // The registry is pinned by NAME: a format added or dropped fails here with the list, not with a count
     // that can be edited to match.
-    const std::vector<const IAssetHeaderFormat*> expected = {
-         &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(), &MeshBinaryHeaderFormat() };
+    const std::vector<const IAssetHeaderFormat*> expected = { &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(),
+                                                              &MeshBinaryHeaderFormat() };
     const auto formats = AssetHeaderFormats();
     EXPECT_EQ( std::vector<const IAssetHeaderFormat*>( formats.begin(), formats.end() ), expected );
 }
