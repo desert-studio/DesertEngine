@@ -9,7 +9,8 @@ namespace Desert::Editor::Core
     {
         Select = 0,
         Foliage,
-        Modeling
+        Modeling,
+        Landscape
     };
 
     class ViewportMode final

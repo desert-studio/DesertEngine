@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::World::Landscape
@@ -177,8 +179,33 @@ namespace Desert::World::Landscape
     {
         Gpu,     ///< LandscapeECSSystem: the R16 heightmap copy.
         Physics, ///< LandscapeCollision: the Jolt heightfield.
+        Weights, ///< LandscapeECSSystem: the RGBA8 weightmap copy. Told about weight writes ONLY — a paint
+                 ///< stroke changes no height, so neither the R16 copy nor the heightfield is re-sent for it.
     };
-    inline constexpr size_t kLandscapeDirtyConsumerCount = 2u;
+    inline constexpr size_t kLandscapeDirtyConsumerCount = 3u;
+
+    /// How many weightmap layers one tile carries. UE packs a component's layers four to an RGBA8 weightmap
+    /// texture and adds textures as layers are added; we carry ONE texture a tile, so four layers. A fifth is
+    /// refused by name (AddWeightLayer, DecodeLandscapeTile), never dropped.
+    inline constexpr uint32_t kLandscapeMaxWeightLayers = 4u;
+
+    /// Longest weight-layer name a tile blob carries. Exists because the length comes from a file.
+    inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;
+
+    /**
+     * @brief One layer's weights on one tile — UE's FWeightmapLayerAllocationInfo plus its channel of the
+     * component's weightmap texture, stored as its own plane.
+     *
+     * The layer is named, not numbered: the name is the key into LandscapeRootComponent::Layers (UE's
+     * ULandscapeLayerInfoObject), so reordering or removing a layer in the root never re-colours a tile. A
+     * tile holds only the layers painted on it (UE allocates a layer to a component on first paint), and a
+     * layer the root no longer names is kept and reported, not dropped.
+     */
+    struct LandscapeWeightLayer
+    {
+        std::string          Name;
+        std::vector<uint8_t> Weights; ///< Row-major, X fastest, SamplesX * SamplesZ entries, 0..255.
+    };
 
     class LandscapeTileData
     {
@@ -260,25 +287,57 @@ namespace Desert::World::Landscape
         /// Hands @p consumer its dirty list and clears it; the other consumers' lists are untouched.
         std::vector<LandscapeRect> TakeDirtyRects( LandscapeDirtyConsumer consumer );
 
+        // ── Weightmap layers ──────────────────────────────────────────────────────────────────────────
+
+        const std::vector<LandscapeWeightLayer>& WeightLayers() const
+        {
+            return m_WeightLayers;
+        }
+
+        /// The index of the layer named @p name on this tile, or nullopt when the tile carries none.
+        std::optional<size_t> FindWeightLayer( std::string_view name ) const;
+
+        /// Allocates @p name on this tile with every weight zero and returns its index (UE: a component gets
+        /// a layer allocation on the first stroke that paints it). Adding a name already present returns
+        /// that index. Refuses an empty or over-long name and a fifth layer, naming them.
+        Common::ResultStr<size_t> AddWeightLayer( std::string name );
+
+        /// One weight. Out of range is a caller defect and is asserted.
+        uint8_t Weight( size_t layer, uint32_t x, uint32_t z ) const;
+
+        /// Copies layer @p layer's weights in @p rect out, row-major. Refuses a bad layer or rectangle.
+        Common::ResultStr<std::vector<uint8_t>> ReadWeightRegion( size_t layer, const LandscapeRect& rect ) const;
+
+        /// Writes @p values into layer @p layer over @p rect and marks the rectangle dirty for the Weights
+        /// consumer only. Same refusal and no-change rules as WriteRegion.
+        Common::BoolResultStr WriteWeightRegion( size_t layer, const LandscapeRect& rect,
+                                                 std::span<const uint8_t> values );
+
+        /// Replaces every weight layer at once (a paint stroke's undo/redo) and marks the whole tile dirty for
+        /// the Weights consumer. Refuses planes of the wrong size, a bad or repeated name, or a fifth layer.
+        Common::BoolResultStr SetWeightLayers( std::vector<LandscapeWeightLayer> layers );
+
     private:
         LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples );
 
-        void MarkDirty( LandscapeRect rect );
+        /// Marks @p rect dirty for every consumer in @p consumers (a bit per LandscapeDirtyConsumer).
+        void MarkDirty( LandscapeRect rect, uint32_t consumers );
 
         uint32_t                   m_SamplesX = 0u;
         uint32_t                   m_SamplesZ = 0u;
         std::vector<uint16_t>      m_Samples;
         std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;
+        std::vector<LandscapeWeightLayer>                                    m_WeightLayers;
     };
 
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
 
     /**
-     * @brief World height (cm) at world (x, z), bilinear between the four surrounding samples.
+     * @brief World height (cm) at world (x, z) on the cell's triangle (LandscapeTriangle).
      *
-     * BILINEAR because that is what the GPU's R16 fetch in the tessellation stage returns, and the CPU
-     * answer must agree with the surface on screen; a triangle split would disagree with it by up to a
-     * quarter of the cell's twist.
+     * The ONE landscape surface: two planar triangles per cell on Jolt's (x, z)-(x+1, z+1) diagonal — what
+     * the terrain vertex stage places every LOD-0 vertex on, what the ray (LandscapeRaycast) hits and what the
+     * heightfield body collides with, so an object placed at this height rests where it is drawn.
      *
      * The tile covers [OriginX, OriginX + (SamplesX-1)·Spacing] × the same in Z, BOTH edges inclusive:
      * the last row of one tile is the first row of the next (neighbouring tiles share their edge samples,
@@ -347,7 +406,13 @@ namespace Desert::World::Landscape
     /// The checksum covers the header too, and sits at the end so it can: a flipped bit in a dimension
     /// that keeps the product (4 x 3 read as 3 x 4) passes every length check and decodes as a valid tile
     /// with its rows sheared — a terrain, not an error. Only a checksum over the header can refuse it.
-    inline constexpr uint32_t kLandscapeTileContainerVersion = 1u;
+    /// 2 — v1, then between the samples and the trailer the weightmap section: layer count (u32, at most
+    ///     kLandscapeMaxWeightLayers), and per layer its name length (u32), the name's bytes, and
+    ///     SamplesX·SamplesZ weights, one byte each, row-major. The header's payload length still counts the
+    ///     height samples only. A v1 blob is read as a tile with no weight layers — that is exactly what it
+    ///     describes — and the next save writes it as v2.
+    inline constexpr uint32_t kLandscapeTileContainerVersion   = 2u;
+    inline constexpr uint32_t kLandscapeTileContainerVersionV1 = 1u;
 
     /// Byte lengths of the v1 header and trailer. Exposed so the round-trip test can assert the total
     /// size: a header that grew without this constant moving would pass a test that meant nothing.
@@ -355,8 +420,8 @@ namespace Desert::World::Landscape
     inline constexpr size_t kLandscapeTileTrailerSize = 4u;
 
     /// Serialises a tile's samples. An empty (default-constructed) tile is a caller defect and verified. The
-    /// result is exactly header + 2·SamplesX·SamplesZ + trailer bytes. Dirty state is not part of the blob — it
-    /// describes the GPU copy, not the terrain.
+    /// result is exactly header + 2·SamplesX·SamplesZ + the weight section + trailer bytes. Dirty state is not
+    /// part of the blob — it describes the GPU copy, not the terrain.
     std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile );
 
     /**

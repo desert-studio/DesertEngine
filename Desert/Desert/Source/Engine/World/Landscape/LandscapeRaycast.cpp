@@ -1,10 +1,13 @@
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
+#include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <glm/common.hpp>
 #include <glm/geometric.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -13,8 +16,17 @@ namespace Desert::World::Landscape
 {
     namespace
     {
-        // The ray in one tile's grid space: g(t) = G0 + U·t, in samples; Y relative to the tile's base.
-        struct GridRay
+        // Shaders/Common/LandscapeHeight.glslh COMPILED AS C++, for LandscapeInUpperTriangle: the ray picks
+        // a cell's triangle by the rule the shader and SampleLandscapeHeight pick it by.
+        using glm::floor;
+        using glm::min;
+
+        DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
+#include <Common/LandscapeHeight.glslh>
+             DESERT_GLSL_AS_CPP_END
+
+             // The ray in one tile's grid space: g(t) = G0 + U·t, in samples; Y relative to the tile's base.
+             struct GridRay
         {
             double Gx0 = 0.0;
             double Gz0 = 0.0;
@@ -56,31 +68,14 @@ namespace Desert::World::Landscape
             }
         }
 
-        // Smallest root of a·s² + b·s + c in [lo, hi]. The two roots come from the cancellation-free form
-        // (q, then q/a and c/q), which also degrades gracefully as a → 0 — the flat-twist cell, where the
-        // bilinear patch is a plane and the equation is linear.
-        std::optional<double> FirstRoot( double a, double b, double c, double lo, double hi )
+        // The root of c + b·s in [lo, hi], if there is one. b == 0 is a ray running parallel to the
+        // triangle: it hits only if it lies in it, and then at the start of the piece.
+        std::optional<double> LinearRoot( double b, double c, double lo, double hi )
         {
-            if ( a == 0.0 )
-            {
-                if ( b == 0.0 )
-                    return c == 0.0 ? std::optional<double>( lo ) : std::nullopt;
-                const double s = -c / b;
-                return ( s >= lo && s <= hi ) ? std::optional<double>( s ) : std::nullopt;
-            }
-            const double disc = b * b - 4.0 * a * c;
-            if ( disc < 0.0 )
-                return std::nullopt;
-            const double q  = -0.5 * ( b + std::copysign( std::sqrt( disc ), b ) );
-            double       r1 = q / a;
-            double       r2 = q != 0.0 ? c / q : r1;
-            if ( r1 > r2 )
-                std::swap( r1, r2 );
-            if ( r1 >= lo && r1 <= hi )
-                return r1;
-            if ( r2 >= lo && r2 <= hi )
-                return r2;
-            return std::nullopt;
+            if ( b == 0.0 )
+                return c == 0.0 ? std::optional<double>( lo ) : std::nullopt;
+            const double s = -c / b;
+            return ( s >= lo && s <= hi ) ? std::optional<double>( s ) : std::nullopt;
         }
 
         struct TileHit
@@ -88,6 +83,8 @@ namespace Desert::World::Landscape
             double   T     = 0.0;
             double   Fx    = 0.0; // within the cell, [0, 1]
             double   Fz    = 0.0;
+            double   DhDfx = 0.0; // the hit triangle's slope, cm per cell
+            double   DhDfz = 0.0;
             uint32_t CellX = 0u;
             uint32_t CellZ = 0u;
         };
@@ -106,7 +103,7 @@ namespace Desert::World::Landscape
             { return static_cast<double>( LandscapeHeightCm( tile.Sample( x, z ), frame.ZScale ) ); };
 
             // The vertical slab bounds the traversal to where the ray is between the tile's lowest and
-            // highest sample: the bilinear patch never leaves the range of its four corners.
+            // highest sample: a cell's triangles never leave the range of its four corners.
             const auto [lowIt, highIt] = std::minmax_element( tile.Samples().begin(), tile.Samples().end() );
             const auto low             = static_cast<double>( LandscapeHeightCm( *lowIt, frame.ZScale ) );
             const auto high            = static_cast<double>( LandscapeHeightCm( *highIt, frame.ZScale ) );
@@ -137,32 +134,55 @@ namespace Desert::World::Landscape
                 const auto   cz  = static_cast<uint32_t>( czd );
 
                 const double h00 = h( cx, cz );
-                const double e   = h( cx + 1u, cz ) - h00;
-                const double f   = h( cx, cz + 1u ) - h00;
-                const double k   = h00 + h( cx + 1u, cz + 1u ) - h( cx + 1u, cz ) - h( cx, cz + 1u );
+                const double h10 = h( cx + 1u, cz );
+                const double h01 = h( cx, cz + 1u );
+                const double h11 = h( cx + 1u, cz + 1u );
 
-                // Re-origined at ta so s stays small and the quadratic well conditioned.
-                const double ax = ray.Gx0 + ray.Ux * ta - cxd;
-                const double az = ray.Gz0 + ray.Uz * ta - czd;
-                const double y0 = ray.Y0 + ray.Dy * ta;
-                // height(s) - y(s), with height = h00 + e·fx + f·fz + k·fx·fz and fx = ax + Ux·s, fz = az + Uz·s.
-                const double qa = k * ray.Ux * ray.Uz;
-                const double qb = e * ray.Ux + f * ray.Uz + k * ( ax * ray.Uz + az * ray.Ux ) - ray.Dy;
-                const double qc = h00 + e * ax + f * az + k * ax * az - y0;
+                // Re-origined at ta so s stays small.
+                const double ax  = ray.Gx0 + ray.Ux * ta - cxd;
+                const double az  = ray.Gz0 + ray.Uz * ta - czd;
+                const double y0  = ray.Y0 + ray.Dy * ta;
+                const double len = tb - ta;
 
-                // A root on the shared edge belongs to both cells and both give the same height there, so a
+                // The cell's diagonal fx = fz cuts the segment at most once; each piece lies in one triangle,
+                // found — like the cell — from its midpoint, by the shader's own rule.
+                std::array<double, 3> cuts{ 0.0, len, len };
+                size_t                pieces = 1u;
+                if ( ray.Ux != ray.Uz )
+                {
+                    const double sd = -( ax - az ) / ( ray.Ux - ray.Uz );
+                    if ( sd > 0.0 && sd < len )
+                    {
+                        cuts   = { 0.0, sd, len };
+                        pieces = 2u;
+                    }
+                }
+                // A root on a shared edge belongs to both sides and both give the same height there, so a
                 // hair of slack at either end loses nothing and keeps rounding from dropping it between them.
                 const double slack = 1e-9 * std::max( 1.0, std::abs( tb ) );
-                const auto   s     = FirstRoot( qa, qb, qc, -slack, ( tb - ta ) + slack );
-                if ( !s )
-                    continue;
-                TileHit hit;
-                hit.T     = std::clamp( ta + *s, tMin, tMax );
-                hit.Fx    = std::clamp( ax + ray.Ux * *s, 0.0, 1.0 );
-                hit.Fz    = std::clamp( az + ray.Uz * *s, 0.0, 1.0 );
-                hit.CellX = cx;
-                hit.CellZ = cz;
-                return hit;
+                for ( size_t p = 0; p < pieces; ++p )
+                {
+                    const double sm    = 0.5 * ( cuts[p] + cuts[p + 1u] );
+                    const bool   upper = LandscapeInUpperTriangle( static_cast<float>( ax + ray.Ux * sm ),
+                                                                   static_cast<float>( az + ray.Uz * sm ) );
+                    // height = h00 + A·fx + B·fz on the triangle (LandscapeTriangle's two planes).
+                    const double A = upper ? h11 - h01 : h10 - h00;
+                    const double B = upper ? h01 - h00 : h11 - h10;
+                    const double c = h00 + A * ax + B * az - y0;
+                    const double b = A * ray.Ux + B * ray.Uz - ray.Dy;
+                    const auto   s = LinearRoot( b, c, cuts[p] - slack, cuts[p + 1u] + slack );
+                    if ( !s )
+                        continue;
+                    TileHit hit;
+                    hit.T     = std::clamp( ta + *s, tMin, tMax );
+                    hit.Fx    = std::clamp( ax + ray.Ux * *s, 0.0, 1.0 );
+                    hit.Fz    = std::clamp( az + ray.Uz * *s, 0.0, 1.0 );
+                    hit.DhDfx = A;
+                    hit.DhDfz = B;
+                    hit.CellX = cx;
+                    hit.CellZ = cz;
+                    return hit;
+                }
             }
             return std::nullopt;
         }
@@ -205,16 +225,9 @@ namespace Desert::World::Landscape
             if ( !hit || ( best && hit->T >= static_cast<double>( best->Distance ) ) )
                 continue;
 
-            const auto h = [&]( uint32_t x, uint32_t z ) -> double
-            { return static_cast<double>( LandscapeHeightCm( entry.Heights->Sample( x, z ), frame.ZScale ) ); };
-            const double h00 = h( hit->CellX, hit->CellZ );
-            const double h10 = h( hit->CellX + 1u, hit->CellZ );
-            const double h01 = h( hit->CellX, hit->CellZ + 1u );
-            const double h11 = h( hit->CellX + 1u, hit->CellZ + 1u );
-            const double k   = h00 - h10 - h01 + h11;
-            // Slope per centimetre along X and Z: the bilinear patch's own partial derivatives.
-            const double dhdx = ( ( h10 - h00 ) + k * hit->Fz ) / spacing;
-            const double dhdz = ( ( h01 - h00 ) + k * hit->Fx ) / spacing;
+            // Slope per centimetre along X and Z: the hit triangle's own plane.
+            const double dhdx = hit->DhDfx / spacing;
+            const double dhdz = hit->DhDfz / spacing;
 
             LandscapeRayHit out;
             out.Distance = static_cast<float>( hit->T );

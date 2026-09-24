@@ -5,8 +5,10 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,7 +22,7 @@ namespace Desert::Graphic::System
     // illegal without update-after-bind). So nothing that varies per terrain may travel through the
     // shared material's uniform block or its descriptors:
     //
-    //   - PER-DRAW DATA (Model, sizes, heights, seed, layer modes) rides as a row of the
+    //   - PER-DRAW DATA (sizes, LODs, frame, layer modes) rides as a row of the
     //     `TerrainInstances[]` storage buffer below, named per draw by the same push-constant index
     //     that names the material param row. This is the transport the param fix already used
     //     (Engine/Core/Formats/MaterialParamRow.hpp); TerrainUB simply had not moved with it, and on a
@@ -37,31 +39,35 @@ namespace Desert::Graphic::System
     // instead of one checked).
     struct TerrainInstance
     {
-        glm::mat4 Model{ 1.0f };
-        glm::vec4 Params{ 0.0f }; // x = tile extent (cm), y = gridDim, z = height range (cm), w = tessLevel
-        // w = the tile's LandscapeNeighbourMask (which sides have their ring row in the heightmap). x/y/z are
-        // std430 padding: they held the procedural terrain's frequency, seed and height-source switch until
-        // v23 baked that terrain into landscapes (LS-6), and the slot stays so the layout below stays.
+        // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = height range
+        // (cm), w = the LOD whose grid the tile is drawn with (floor of y; the vertex count is that grid's).
+        glm::vec4 Params{ 0.0f };
+        // x = 1 / LOD blend range (UE's InvLODBlendRange), y/z = std430 padding, w = the tile's
+        // LandscapeNeighbourMask (which sides have their ring row in the heightmap).
         glm::vec4 Params2{ 0.0f };
         // x = grass, y = rock, z = snow (ECS::LandscapeLayerMode: 0=Auto, 1=Off). w is std430 padding: a
         // vec3 here would still occupy 16 bytes and a glm::vec3 member would occupy 12, which is how a
-        // C++/GLSL mirror silently shears. .w carried the grass ENABLE flag until Г25 cut the generator.
+        // C++/GLSL mirror silently shears.
         glm::vec4 LayerModes{ 0.0f };
-        // Landscape tiles only (height source = heightmap), see LandscapeTileDraw: x/z = the ROOT's origin,
-        // y = its base height, w = spacing (cm between samples).
+        // x/z = the ROOT's origin, y = its base height, w = spacing (cm between samples), see LandscapeTileDraw.
         glm::vec4 LandscapeFrame{ 0.0f };
         // x/y = this tile's first sample in the landscape's global sample grid, z = quads per tile side,
         // w = vertical scale (cm per local height unit).
         glm::vec4 LandscapeTile{ 0.0f };
+        // The LOD a vertex on each border takes: max(tile, neighbour) for West, East, South, North.
+        glm::vec4 LodEdges{ 0.0f };
+        // ...and on each corner: the max of the four tiles sharing it, at (-x,-z), (+x,-z), (-x,+z), (+x,+z).
+        glm::vec4 LodCorners{ 0.0f };
     };
 
-    static_assert( sizeof( TerrainInstance ) == 9 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay nine 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+    static_assert( sizeof( TerrainInstance ) == 7 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay seven 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
                    "reads these offsets" );
-    static_assert( offsetof( TerrainInstance, Params ) == 64 && offsetof( TerrainInstance, Params2 ) == 80 &&
-                        offsetof( TerrainInstance, LayerModes ) == 96 &&
-                        offsetof( TerrainInstance, LandscapeFrame ) == 112 &&
-                        offsetof( TerrainInstance, LandscapeTile ) == 128,
+    static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, LayerModes ) == 32 &&
+                        offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
+                        offsetof( TerrainInstance, LandscapeTile ) == 64 &&
+                        offsetof( TerrainInstance, LodEdges ) == 80 &&
+                        offsetof( TerrainInstance, LodCorners ) == 96,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first
@@ -82,21 +88,121 @@ namespace Desert::Graphic::System
         uint32_t NeighbourMask = 0u;
     };
 
-    // The most heightmap quads one tessellated patch spans. It equals the pass's maximum tessellation
-    // level, so a near patch places a vertex on every sample and a far one halves them — more would
-    // tessellate between samples the bilinear surface has nothing to say about.
-    inline constexpr uint32_t kLandscapeMaxQuadsPerPatch = 16u;
+    // ── Landscape LOD ───────────────────────────────────────────────────────────────────────────────
+    //
+    // Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/LandscapeRender.cpp:575-589
+    // (FLandscapeRenderSystem::ComputeLODFromScreenSize) and :1547-1593 (the per-LOD screen-size ratios of
+    // FLandscapeComponentSceneProxy), and Engine/Source/Runtime/Engine/Public/SceneManagement.h
+    // (ComputeBoundsScreenRadiusSquared), adapted: the UE proxy's LOD0ScreenSize / LOD0DistributionSetting /
+    // LODDistributionSetting / LODBlendRange are UE's defaults as constants (no per-landscape override yet),
+    // no r.StaticMeshLODDistanceScale, and MaxLOD is the last stride-2^L grid of the tile (LandscapeLod.glslh)
+    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD, from the main camera,
+    // for every pass — the cascades draw the camera's vertices, so a shadow cannot swim against its caster.
+    inline constexpr float kLandscapeLod0ScreenSize   = 0.5f;
+    inline constexpr float kLandscapeLod0Distribution = 1.25f;
+    inline constexpr float kLandscapeLodDistribution  = 3.0f;
+    inline constexpr float kLandscapeLodBlendRange    = 1.0f;
 
-    // Patches per tile side: the fewest that divide the tile's quads evenly with at most
-    // kLandscapeMaxQuadsPerPatch quads each. EVENLY, because a patch corner must sit on a sample — a corner
-    // between samples would be an edge the neighbouring tile does not have. 63 quads -> 7 patches of 9;
-    // a prime count degrades to one quad per patch, which is still exact, only more patches.
-    inline uint32_t LandscapePatchesPerSide( uint32_t quadsPerTile )
+    // The coarsest grid LOD of a tile: its stride is the largest power of two below the tile's samples, so
+    // the next grid (the morph target) is the tile's four corners.
+    inline uint32_t LandscapeMaxLod( uint32_t quadsPerTile )
     {
-        for ( uint32_t patches = 1u; patches <= quadsPerTile; ++patches )
-            if ( quadsPerTile % patches == 0u && quadsPerTile / patches <= kLandscapeMaxQuadsPerPatch )
-                return patches;
-        return quadsPerTile; // quadsPerTile == 0: no patches, and no draw
+        uint32_t lod = 0u;
+        while ( ( 2u << lod ) < quadsPerTile + 1u )
+            ++lod;
+        return lod;
+    }
+
+    struct LandscapeLodSettings
+    {
+        float LOD0ScreenSizeSquared               = 0.0f;
+        float LOD1ScreenSizeSquared               = 0.0f;
+        float LODOnePlusDistributionScalarSquared = 0.0f;
+        float LastLODScreenSizeSquared            = 0.0f;
+        float LastLODIndex                        = 0.0f;
+    };
+
+    inline LandscapeLodSettings MakeLandscapeLodSettings( uint32_t quadsPerTile )
+    {
+        LandscapeLodSettings settings;
+        const uint32_t       maxLod    = LandscapeMaxLod( quadsPerTile );
+        float                divider   = std::max( kLandscapeLod0Distribution, 1.01f );
+        float                ratio     = kLandscapeLod0ScreenSize;
+        settings.LOD0ScreenSizeSquared = ratio * ratio;
+        ratio /= divider;
+        settings.LOD1ScreenSizeSquared               = ratio * ratio;
+        divider                                      = std::max( kLandscapeLodDistribution, 1.01f );
+        settings.LODOnePlusDistributionScalarSquared = divider * divider;
+        float last                                   = settings.LOD0ScreenSizeSquared;
+        for ( uint32_t lod = 1u; lod <= maxLod; ++lod )
+        {
+            last = ratio * ratio;
+            ratio /= divider;
+        }
+        settings.LastLODScreenSizeSquared = last;
+        settings.LastLODIndex             = static_cast<float>( maxLod );
+        return settings;
+    }
+
+    inline float LandscapeLodFromScreenSize( const LandscapeLodSettings& settings, float screenSizeSquared )
+    {
+        if ( screenSizeSquared <= settings.LastLODScreenSizeSquared )
+            return settings.LastLODIndex;
+        if ( screenSizeSquared > settings.LOD1ScreenSizeSquared )
+            return ( settings.LOD0ScreenSizeSquared -
+                     std::min( screenSizeSquared, settings.LOD0ScreenSizeSquared ) ) /
+                   ( settings.LOD0ScreenSizeSquared - settings.LOD1ScreenSizeSquared );
+        // No longer a linear fraction (UE's words): log base (distribution^2) of the size ratio.
+        return std::min( settings.LastLODIndex,
+                         1.0f + std::log( settings.LOD1ScreenSizeSquared / screenSizeSquared ) /
+                                     std::log( settings.LODOnePlusDistributionScalarSquared ) );
+    }
+
+    // The squared screen radius of a bounding sphere: a fraction of the screen, from the projection's focal
+    // scale. abs(): a Vulkan projection flips Y, UE's does not.
+    inline float LandscapeScreenRadiusSquared( const glm::vec3& center, float radius, const glm::vec3& viewOrigin,
+                                               const glm::mat4& projection )
+    {
+        const glm::vec3 d      = center - viewOrigin;
+        const float     distSq = glm::dot( d, d );
+        const float     multiple =
+             std::max( 0.5f * std::abs( projection[0][0] ), 0.5f * std::abs( projection[1][1] ) );
+        return ( multiple * radius ) * ( multiple * radius ) / std::max( 1.0f, distSq );
+    }
+
+    // A tile's LOD and what its borders and corners take. `lodAt(dx, dz)` is the continuous LOD of the tile
+    // at that offset from this one, or nullopt where there is none (the landscape's own edge: nothing to
+    // agree with there, so the tile's own LOD). max() on both sides of a border is what makes it one value.
+    struct LandscapeTileLod
+    {
+        float     Center = 0.0f;
+        glm::vec4 Edges{ 0.0f };
+        glm::vec4 Corners{ 0.0f };
+    };
+
+    template <class LodAt>
+    LandscapeTileLod LandscapeTileLods( float center, LodAt&& lodAt )
+    {
+        const auto at = [&]( int dx, int dz )
+        {
+            const std::optional<float> lod = lodAt( dx, dz );
+            return std::max( center, lod.value_or( center ) );
+        };
+        const auto corner = [&]( int dx, int dz )
+        { return std::max( { at( dx, 0 ), at( 0, dz ), at( dx, dz ) } ); };
+        LandscapeTileLod result;
+        result.Center  = center;
+        result.Edges   = glm::vec4( at( -1, 0 ), at( 1, 0 ), at( 0, -1 ), at( 0, 1 ) );
+        result.Corners = glm::vec4( corner( -1, -1 ), corner( 1, -1 ), corner( -1, 1 ), corner( 1, 1 ) );
+        return result;
+    }
+
+    // Vertices of a tile's draw at grid LOD `gridLod`: six per cell (LandscapeLod.glslh decodes them).
+    inline uint32_t LandscapeLodVertexCount( uint32_t quadsPerTile, uint32_t gridLod )
+    {
+        const uint32_t stride = 1u << gridLod;
+        const uint32_t cells  = ( quadsPerTile + stride - 1u ) / stride;
+        return cells * cells * 6u;
     }
 
     // The texture half of a terrain material's identity. Two terrains may share one material only if

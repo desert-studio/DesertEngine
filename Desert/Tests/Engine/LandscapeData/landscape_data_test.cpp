@@ -8,8 +8,8 @@
 //      decode -> encode. The reference here is UE's two formulas TRANSCRIBED into this file with their
 //      own literals, not a call back into the code under test — an encoder checked against itself agrees
 //      with any constant.
-//   2. SAMPLING AGREES WITH ANALYTIC SURFACES. A plane is reproduced exactly (bilinear is exact on it),
-//      its normal exactly; a sine is reproduced within the bound bilinear interpolation and quantisation
+//   2. SAMPLING AGREES WITH ANALYTIC SURFACES. A plane is reproduced exactly (both triangles lie in it),
+//      its normal exactly; a sine is reproduced within the bound linear interpolation and quantisation
 //      together allow, and that bound is shown to be TIGHT enough to fail a wrong interpolation.
 //      Placement (origin, base, spacing) moves the answer; both tile edges are inclusive, off the tile is
 //      nullopt, and two tiles sharing an edge answer the seam identically.
@@ -181,25 +181,28 @@ TEST( LandscapeSampling, PlaneIsExactHeightAndNormal )
     }
 }
 
-TEST( LandscapeSampling, InteriorOfACellIsBilinearNotNearestOrTriangle )
+TEST( LandscapeSampling, InteriorOfACellIsJoltsTriangleNotBilinearOrTheOtherSplit )
 {
-    // One cell whose four corners are 0, 0, 0, 128 cm (a saddle-free twist). Bilinear gives 32 at the
-    // centre; either triangle split gives 0 or 64, nearest-sample gives one of the corners. This is the
-    // case the plane cannot tell apart, because every scheme is exact on a plane.
+    // One cell whose four corners are 0, 0, 0, 128 cm. Its centre lies on the (0,0)-(1,1) diagonal, the
+    // split Jolt's heightfield makes: 64 there. Bilinear gives 32, the other split 0, nearest-sample a
+    // corner. This is the case the plane cannot tell apart, because every scheme is exact on a plane.
     LandscapeFrame frame;
     frame.ZScale = 128.0f;
     auto tile    = MakeTile( 2u, 2u );
     tile.SetSample( 1u, 1u, static_cast<uint16_t>( kLandscapeMidSample + 128u ) );
     const auto h = SampleLandscapeHeight( tile, frame, 50.0f, 50.0f );
     ASSERT_TRUE( h.has_value() );
-    EXPECT_FLOAT_EQ( *h, 32.0f );
-    // The raised corner at (1, 1) weighs fx·fz, which is symmetric in the two fractions; a raised corner
-    // at (1, 0) weighs fx·(1 - fz), which is not — so this is the probe that sees X and Z swapped.
+    EXPECT_FLOAT_EQ( *h, 64.0f );
+    // A raised corner at (1, 0) belongs only to the lower triangle (fx > fz): at (0.25, 0.75) the point is
+    // in the upper one and reads 0, at (0.75, 0.25) it reads 128 * (fx - fz) = 64. Swapped fractions trade
+    // the two answers, so this is also the probe that sees X and Z swapped.
     auto skew = MakeTile( 2u, 2u );
     skew.SetSample( 1u, 0u, static_cast<uint16_t>( kLandscapeMidSample + 128u ) );
-    const auto q = SampleLandscapeHeight( skew, frame, 25.0f, 75.0f );
-    ASSERT_TRUE( q.has_value() );
-    EXPECT_FLOAT_EQ( *q, 128.0f * 0.25f * 0.25f ) << "the X and Z fractions must not be swapped or shared";
+    const auto upper = SampleLandscapeHeight( skew, frame, 25.0f, 75.0f );
+    const auto lower = SampleLandscapeHeight( skew, frame, 75.0f, 25.0f );
+    ASSERT_TRUE( upper.has_value() && lower.has_value() );
+    EXPECT_FLOAT_EQ( *upper, 0.0f ) << "the X and Z fractions must not be swapped, and the split is Jolt's";
+    EXPECT_FLOAT_EQ( *lower, 64.0f ) << "the X and Z fractions must not be swapped, and the split is Jolt's";
 }
 
 TEST( LandscapeSampling, SineIsWithinTheInterpolationAndQuantisationBound )
@@ -478,11 +481,11 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
     const auto bytes = EncodeLandscapeTile( tile );
     ASSERT_EQ( kLandscapeTileHeaderSize, 28u );
     ASSERT_EQ( kLandscapeTileTrailerSize, 4u );
-    ASSERT_EQ( bytes.size(), 28u + 2u * 6u + 4u );
+    ASSERT_EQ( bytes.size(), 28u + 2u * 6u + 4u + 4u ); // + the v2 weight-layer count (zero)
 
     const unsigned char header[28] = {
          'D', 'L', 'H', 'T',             //
-         1,   0,   0,   0,               // container version
+         2,   0,   0,   0,               // container version
          2,   0,   0,   0,               // samplesX
          3,   0,   0,   0,               // samplesZ
          0,   0,   0,   0,               // edit layers
@@ -494,10 +497,14 @@ TEST( LandscapeBlob, LayoutIsPinnedByteByByte )
     const unsigned char payload[12] = { 0x00, 0x80, 0x34, 0x12, 0x00, 0x80, 0x00, 0x80, 0xCD, 0xAB, 0x00, 0x80 };
     EXPECT_EQ( std::memcmp( bytes.data() + 28, payload, sizeof( payload ) ), 0 );
 
-    // Trailer: CRC-32C over header AND payload, little-endian.
-    const uint32_t crc = Common::Utils::Crc32c( bytes.data(), 40u );
+    // v2 weight section: a zero layer count.
     for ( size_t i = 0; i < 4u; ++i )
-        EXPECT_EQ( bytes[40u + i], static_cast<unsigned char>( ( crc >> ( 8u * i ) ) & 0xFFu ) ) << "byte " << i;
+        EXPECT_EQ( bytes[40u + i], 0u ) << "weight count byte " << i;
+
+    // Trailer: CRC-32C over header, payload AND weight section, little-endian.
+    const uint32_t crc = Common::Utils::Crc32c( bytes.data(), 44u );
+    for ( size_t i = 0; i < 4u; ++i )
+        EXPECT_EQ( bytes[44u + i], static_cast<unsigned char>( ( crc >> ( 8u * i ) ) & 0xFFu ) ) << "byte " << i;
 }
 
 TEST( LandscapeBlob, RoundTripIsByteIdentical )
@@ -513,7 +520,7 @@ TEST( LandscapeBlob, RoundTripIsByteIdentical )
         ASSERT_TRUE( made.IsSuccess() );
         const auto tile  = made.ExtractValue();
         const auto first = EncodeLandscapeTile( tile );
-        ASSERT_EQ( first.size(), kLandscapeTileHeaderSize + 2u * samples.size() + kLandscapeTileTrailerSize );
+        ASSERT_EQ( first.size(), kLandscapeTileHeaderSize + 2u * samples.size() + 4u + kLandscapeTileTrailerSize );
 
         auto decoded = DecodeLandscapeTile( first );
         ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
@@ -537,7 +544,7 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
     auto tile = MakeTile( 4u, 3u );
     tile.SetSample( 2u, 1u, 777u );
     const auto good = EncodeLandscapeTile( tile );
-    ASSERT_EQ( good.size(), 56u );
+    ASSERT_EQ( good.size(), 60u );
     ASSERT_TRUE( DecodeLandscapeTile( good ).IsSuccess() );
     ASSERT_TRUE( DecodeLandscapeTile( Reseal( good ) ).IsSuccess() ) << "Reseal must be a no-op on a good blob";
 
@@ -554,7 +561,7 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
         b[0]   = 'X';
         refuse( b, "58", "bad magic" ); // 'X' = 0x58
     }
-    refuse( Reseal( PatchU32( good, 4, 2u ) ), "version 2", "future version" );
+    refuse( Reseal( PatchU32( good, 4, 3u ) ), "version 3", "future version" );
 
     // Field checks, each reached past a valid checksum.
     refuse( Reseal( PatchU32( good, 8, 1u ) ), "1 x 3", "one-sample side" );
@@ -565,13 +572,13 @@ TEST( LandscapeBlob, EveryWrongBlobIsRefusedWithItsNumber )
         std::vector<unsigned char> b( good.begin(), good.end() - 4 );
         b.pop_back(); // one payload byte short
         b.insert( b.end(), 4u, 0u );
-        refuse( Reseal( b ), "55 bytes", "truncated payload" );
+        refuse( Reseal( b ), "59 bytes", "truncated payload" );
     }
     {
         std::vector<unsigned char> b( good.begin(), good.end() - 4 );
         b.push_back( 0u ); // one payload byte over
         b.insert( b.end(), 4u, 0u );
-        refuse( Reseal( b ), "57 bytes", "trailing byte" );
+        refuse( Reseal( b ), "1 bytes after", "trailing byte" );
     }
 
     // Corruption: refused by the checksum, wherever it lands.

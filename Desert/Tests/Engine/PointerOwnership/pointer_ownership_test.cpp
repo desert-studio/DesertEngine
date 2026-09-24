@@ -507,11 +507,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   here); Shared +3 and Weak +1, EditMeshBridge's view cache (weak key, shared EditMesh view) and the
     //   EditMesh views the selection tools hold. Members retyped from EditMesh to FDynamicMesh3 do not move.
     //   From the merge-base: 412 / 348 / 138 / 40 = 938.
-    EXPECT_EQ( CountOf( Form::Raw ), 412 );
+    //   L8 (2026-09-24) +6 Raw: LandscapeTileSlot::Data (the edit cache) and five Landscape-mode editor members
+    //   the scan had not been given rows for (four string literals, the stroke command's scene): 406 / 919.
+    //   L8d +1 Raw (LandscapePaintCommand::m_Scene) +2 Weak (LandscapeLayersCommand and LandscapePanel hold the
+    //   scene weakly: a closed scene refuses the edit instead of dangling): 407 / 343 / 131 / 41 = 922.
+    //   Merged with P8a (L8 +7 Raw +2 Weak on top of 412 / 348 / 138 / 40): 419 / 348 / 138 / 42 = 947.
+    EXPECT_EQ( CountOf( Form::Raw ), 419 );
     EXPECT_EQ( CountOf( Form::Shared ), 348 );
     EXPECT_EQ( CountOf( Form::Unique ), 138 );
-    EXPECT_EQ( CountOf( Form::Weak ), 40 );
-    EXPECT_EQ( (int)Members().size(), 938 )
+    EXPECT_EQ( CountOf( Form::Weak ), 42 );
+    EXPECT_EQ( (int)Members().size(), 947 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -1003,4 +1008,56 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
+{
+    // A PANEL THAT FOLLOWS THE ACTIVE SCENE MUST BE BORN WITH ONE (L8e). IPanel::SetScene is called only
+    // by EditorLayer::SetActiveScene, which returns early when the scene asked for is already active -- and
+    // the primary scene IS active when the panels are registered. So a panel that overrides SetScene but is
+    // constructed without m_MainScene holds no scene until the user focuses a second view and comes back.
+    // LandscapePanel was registered that way and drew "no scene" in every normal session, while every
+    // palette command (which reads the scene directly) answered ok. The fact is a relation between two
+    // files, so it is asserted over both rather than trusted.
+    namespace fs           = std::filesystem;
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    ASSERT_FALSE( layer.empty() );
+
+    std::map<std::string, std::string> headers; // panel class -> header text
+    for ( const auto& entry :
+          fs::recursive_directory_iterator( fs::path( root ) / "Editor/Source/Editor/Panels" ) )
+    {
+        if ( entry.path().extension() != ".hpp" )
+            continue;
+        std::ifstream      in( entry.path() );
+        std::ostringstream text;
+        text << in.rdbuf();
+        headers[entry.path().stem().string()] = text.str();
+    }
+
+    const std::string marker       = "m_Panels.Add<Editor::";
+    int               checked      = 0;
+    bool              sawLandscape = false;
+    for ( std::size_t at = layer.find( marker ); at != std::string::npos; at = layer.find( marker, at + 1 ) )
+    {
+        const std::size_t nameBegin = at + marker.size();
+        const std::size_t nameEnd   = layer.find( '>', nameBegin );
+        const std::size_t callEnd   = layer.find( ';', nameEnd );
+        ASSERT_NE( callEnd, std::string::npos );
+        const std::string panel = layer.substr( nameBegin, nameEnd - nameBegin );
+        const auto        it    = headers.find( panel );
+        if ( it == headers.end() || it->second.find( "void SetScene(" ) == std::string::npos )
+            continue;
+        ++checked;
+        sawLandscape = sawLandscape || panel == "LandscapePanel";
+        EXPECT_NE( layer.substr( nameEnd, callEnd - nameEnd ).find( "m_MainScene" ), std::string::npos )
+             << panel << " overrides SetScene but EditorLayer registers it without m_MainScene; SetActiveScene "
+             << "skips the already-active primary scene, so the panel has NO scene until the user switches "
+             << "views. Pass m_MainScene to its constructor.";
+    }
+    // Negative control: the census must actually see the panel whose defect it was written for.
+    EXPECT_TRUE( sawLandscape ) << "the census no longer finds LandscapePanel's registration";
+    EXPECT_GE( checked, 3 ) << "fewer scene-following panels found than exist today; the search is broken";
 }

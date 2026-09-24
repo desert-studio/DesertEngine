@@ -1,19 +1,20 @@
 // One terrain draw's per-draw data — a row of TerrainInstances[] (binding 8), named by the push-constant
 // MaterialIndex. The C++ statement of the same layout is TerrainInstance in
 // Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp, and the ShaderCacheKey suite asserts the stride of
-// this one against it. Included by all four Terrain stages so the layout is written once on this side too.
+// this one against it. Included by the Terrain vertex and fragment stages so the layout is written once on this side too.
 
 #ifndef TERRAIN_INSTANCE_GLSLH
 #define TERRAIN_INSTANCE_GLSLH
 
 struct TerrainInstance
 {
-    mat4 Model;
-    vec4 Params;         // x = tile extent (cm), y = gridDim (patches/side), z = height range (cm), w = tessLevel (MAX/near)
-    vec4 Params2;        // xyz = std430 padding (see TerrainBatch.hpp), w = neighbour mask
+    vec4 Params;         // x = tile extent (cm), y = continuous LOD, z = height range (cm), w = grid LOD
+    vec4 Params2;        // x = 1 / LOD blend range, yz = std430 padding, w = neighbour mask
     vec4 LayerModes;     // x = grass, y = rock, z = snow (0=Auto,1=Off), w = std430 padding
     vec4 LandscapeFrame; // x = root origin X, y = base height, z = root origin Z, w = spacing
     vec4 LandscapeTile;  // xy = first global sample, z = quads per tile side, w = Z scale
+    vec4 LodEdges;       // LOD on the West, East, South, North border: max(tile, neighbour)
+    vec4 LodCorners;     // LOD on the (-x,-z), (+x,-z), (-x,+z), (+x,+z) corner: max of the four tiles
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH

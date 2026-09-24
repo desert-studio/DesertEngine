@@ -110,10 +110,22 @@ namespace Desert::World::Landscape
         }
     } // namespace
 
+    namespace
+    {
+        constexpr uint32_t ConsumerBit( LandscapeDirtyConsumer c )
+        {
+            return 1u << static_cast<uint32_t>( c );
+        }
+        constexpr uint32_t kHeightConsumers =
+             ConsumerBit( LandscapeDirtyConsumer::Gpu ) | ConsumerBit( LandscapeDirtyConsumer::Physics );
+        constexpr uint32_t kWeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Weights );
+        constexpr uint32_t kAllConsumers    = ( 1u << kLandscapeDirtyConsumerCount ) - 1u;
+    } // namespace
+
     LandscapeTileData::LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples )
          : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
     {
-        MarkDirty( Bounds() );
+        MarkDirty( Bounds(), kAllConsumers );
     }
 
     Common::ResultStr<LandscapeTileData> LandscapeTileData::Create( uint32_t samplesX, uint32_t samplesZ )
@@ -152,7 +164,7 @@ namespace Desert::World::Landscape
         if ( slot == value )
             return;
         slot = value;
-        MarkDirty( { x, z, x + 1u, z + 1u } );
+        MarkDirty( { x, z, x + 1u, z + 1u }, kHeightConsumers );
     }
 
     Common::ResultStr<std::vector<uint16_t>> LandscapeTileData::ReadRegion( const LandscapeRect& rect ) const
@@ -189,7 +201,87 @@ namespace Desert::World::Landscape
             }
         }
         if ( changed )
-            MarkDirty( rect );
+            MarkDirty( rect, kHeightConsumers );
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<size_t> LandscapeTileData::FindWeightLayer( std::string_view name ) const
+    {
+        for ( size_t i = 0; i < m_WeightLayers.size(); ++i )
+            if ( m_WeightLayers[i].Name == name )
+                return i;
+        return std::nullopt;
+    }
+
+    Common::ResultStr<size_t> LandscapeTileData::AddWeightLayer( std::string name )
+    {
+        if ( name.empty() || name.size() > kLandscapeMaxWeightLayerName )
+            return Common::MakeFormattedError<size_t>( "Landscape weight layer name '{}' must be 1..{} bytes",
+                                                       name, kLandscapeMaxWeightLayerName );
+        if ( const auto existing = FindWeightLayer( name ) )
+            return Common::MakeSuccess( *existing );
+        if ( m_WeightLayers.size() >= kLandscapeMaxWeightLayers )
+            return Common::MakeFormattedError<size_t>( "Landscape tile already carries {} weight layers; '{}' "
+                                                       "would be one more than the {} a tile holds",
+                                                       m_WeightLayers.size(), name, kLandscapeMaxWeightLayers );
+        m_WeightLayers.push_back(
+             { std::move( name ), std::vector<uint8_t>( static_cast<size_t>( m_SamplesX ) * m_SamplesZ, 0u ) } );
+        MarkDirty( Bounds(), kWeightConsumers );
+        return Common::MakeSuccess( m_WeightLayers.size() - 1u );
+    }
+
+    uint8_t LandscapeTileData::Weight( size_t layer, uint32_t x, uint32_t z ) const
+    {
+        DESERT_VERIFY( layer < m_WeightLayers.size() && x < m_SamplesX && z < m_SamplesZ,
+                       "Landscape weight {} ({}, {}) outside {} layers of {} x {}", layer, x, z,
+                       m_WeightLayers.size(), m_SamplesX, m_SamplesZ );
+        return m_WeightLayers[layer].Weights[static_cast<size_t>( z ) * m_SamplesX + x];
+    }
+
+    Common::ResultStr<std::vector<uint8_t>> LandscapeTileData::ReadWeightRegion( size_t               layer,
+                                                                                 const LandscapeRect& rect ) const
+    {
+        if ( layer >= m_WeightLayers.size() )
+            return Common::MakeFormattedError<std::vector<uint8_t>>( "Landscape weight layer {} of {}", layer,
+                                                                     m_WeightLayers.size() );
+        if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
+            return Common::MakeError<std::vector<uint8_t>>( valid.GetError() );
+        const std::vector<uint8_t>& plane = m_WeightLayers[layer].Weights;
+        std::vector<uint8_t>        out;
+        out.reserve( static_cast<size_t>( rect.Area() ) );
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+        {
+            const auto row = plane.begin() + static_cast<ptrdiff_t>( static_cast<size_t>( z ) * m_SamplesX );
+            out.insert( out.end(), row + rect.X0, row + rect.X1 );
+        }
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteWeightRegion( size_t layer, const LandscapeRect& rect,
+                                                                std::span<const uint8_t> values )
+    {
+        if ( layer >= m_WeightLayers.size() )
+            return Common::MakeFormattedError<bool>( "Landscape weight layer {} of {}", layer,
+                                                     m_WeightLayers.size() );
+        if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
+            return valid;
+        if ( values.size() != rect.Area() )
+            return Common::MakeFormattedError<bool>( "Landscape weight region {} x {} needs {} values, got {}",
+                                                     rect.Width(), rect.Depth(), rect.Area(), values.size() );
+        std::vector<uint8_t>& plane   = m_WeightLayers[layer].Weights;
+        bool                  changed = false;
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+        {
+            uint8_t*       row = plane.data() + static_cast<size_t>( z ) * m_SamplesX + rect.X0;
+            const uint8_t* src = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
+            for ( uint32_t i = 0; i < rect.Width(); ++i )
+            {
+                changed = changed || row[i] != src[i];
+                row[i]  = src[i];
+            }
+        }
+        if ( changed )
+            MarkDirty( rect, kWeightConsumers );
         return Common::MakeSuccess( true );
     }
 
@@ -198,13 +290,40 @@ namespace Desert::World::Landscape
         return std::exchange( m_Dirty[static_cast<size_t>( consumer )], {} );
     }
 
-    void LandscapeTileData::MarkDirty( LandscapeRect rect )
+    Common::BoolResultStr LandscapeTileData::SetWeightLayers( std::vector<LandscapeWeightLayer> layers )
+    {
+        if ( layers.size() > kLandscapeMaxWeightLayers )
+            return Common::MakeFormattedError<bool>( "Landscape tile given {} weight layers, at most {}",
+                                                     layers.size(), kLandscapeMaxWeightLayers );
+        const size_t plane = static_cast<size_t>( m_SamplesX ) * m_SamplesZ;
+        for ( size_t i = 0; i < layers.size(); ++i )
+        {
+            if ( layers[i].Name.empty() || layers[i].Name.size() > kLandscapeMaxWeightLayerName ||
+                 layers[i].Weights.size() != plane )
+                return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' has {} weights, the tile "
+                                                         "needs {} (and a 1..{}-byte name)",
+                                                         layers[i].Name, layers[i].Weights.size(), plane,
+                                                         kLandscapeMaxWeightLayerName );
+            for ( size_t j = 0; j < i; ++j )
+                if ( layers[j].Name == layers[i].Name )
+                    return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' given twice",
+                                                             layers[i].Name );
+        }
+        m_WeightLayers = std::move( layers );
+        MarkDirty( Bounds(), kWeightConsumers );
+        return Common::MakeSuccess( true );
+    }
+
+    void LandscapeTileData::MarkDirty( LandscapeRect rect, uint32_t consumers )
     {
         // Absorbing one rectangle can make the grown one touch another that it did not touch before, so the
         // scan restarts until a pass absorbs nothing. The list stays tiny (disjoint, non-touching boxes on
         // one tile), so the quadratic worst case is a handful of comparisons.
-        for ( auto& list : m_Dirty )
+        for ( size_t c = 0; c < m_Dirty.size(); ++c )
         {
+            if ( ( consumers & ( 1u << c ) ) == 0u )
+                continue;
+            auto&         list     = m_Dirty[c];
             LandscapeRect grown    = rect;
             bool          absorbed = true;
             while ( absorbed )
@@ -341,10 +460,10 @@ namespace Desert::World::Landscape
         const auto p = Locate( tile, frame, worldX, worldZ );
         if ( !p )
             return std::nullopt;
-        const float h = Bilinear( HeightAt( tile, frame, p->CellX, p->CellZ ),
-                                  HeightAt( tile, frame, p->CellX + 1u, p->CellZ ),
-                                  HeightAt( tile, frame, p->CellX, p->CellZ + 1u ),
-                                  HeightAt( tile, frame, p->CellX + 1u, p->CellZ + 1u ), p->Fx, p->Fz );
+        const float h = LandscapeTriangle( HeightAt( tile, frame, p->CellX, p->CellZ ),
+                                           HeightAt( tile, frame, p->CellX + 1u, p->CellZ ),
+                                           HeightAt( tile, frame, p->CellX, p->CellZ + 1u ),
+                                           HeightAt( tile, frame, p->CellX + 1u, p->CellZ + 1u ), p->Fx, p->Fz );
         return frame.BaseY + h;
     }
 
@@ -408,6 +527,13 @@ namespace Desert::World::Landscape
             out.push_back( static_cast<unsigned char>( s & 0xFFu ) );
             out.push_back( static_cast<unsigned char>( ( s >> 8 ) & 0xFFu ) );
         }
+        Assets::WriteU32( out, static_cast<uint32_t>( tile.WeightLayers().size() ) );
+        for ( const LandscapeWeightLayer& layer : tile.WeightLayers() )
+        {
+            Assets::WriteU32( out, static_cast<uint32_t>( layer.Name.size() ) );
+            out.insert( out.end(), layer.Name.begin(), layer.Name.end() );
+            out.insert( out.end(), layer.Weights.begin(), layer.Weights.end() );
+        }
         Assets::WriteU32( out, Common::Utils::Crc32c( out.data(), out.size() ) );
         return out;
     }
@@ -426,9 +552,11 @@ namespace Desert::World::Landscape
                                                        "expected 'DLHT'",
                                                        at[0], at[1], at[2], at[3] );
         const uint32_t version = Assets::ReadU32( at + 4 );
-        if ( version != kLandscapeTileContainerVersion )
-            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not the supported {}",
-                                                       version, kLandscapeTileContainerVersion );
+        if ( version != kLandscapeTileContainerVersion && version != kLandscapeTileContainerVersionV1 )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not one of the "
+                                                       "supported {} and {}",
+                                                       version, kLandscapeTileContainerVersionV1,
+                                                       kLandscapeTileContainerVersion );
 
         // The checksum before any field is believed: a header bit flip that keeps every length consistent
         // is exactly what the checks below cannot see.
@@ -455,7 +583,9 @@ namespace Desert::World::Landscape
             return Common::MakeFormattedError<Result>( "Landscape tile blob of {} x {} states {} payload bytes, "
                                                        "the dimensions need {}",
                                                        samplesX, samplesZ, payloadBytes, expected );
-        if ( covered != kLandscapeTileHeaderSize + expected )
+        const bool hasWeights = version >= 2u;
+        if ( hasWeights ? covered < kLandscapeTileHeaderSize + expected + 4u
+                        : covered != kLandscapeTileHeaderSize + expected )
             return Common::MakeFormattedError<Result>(
                  "Landscape tile blob is {} bytes, header + payload + trailer "
                  "is {}",
@@ -465,6 +595,47 @@ namespace Desert::World::Landscape
         std::vector<uint16_t> samples( static_cast<size_t>( samplesX ) * samplesZ );
         for ( size_t i = 0; i < samples.size(); ++i )
             samples[i] = static_cast<uint16_t>( payload[2u * i] | ( payload[2u * i + 1u] << 8 ) );
-        return LandscapeTileData::FromSamples( samplesX, samplesZ, std::move( samples ) );
+        auto tile = LandscapeTileData::FromSamples( samplesX, samplesZ, std::move( samples ) );
+        if ( !tile || !hasWeights )
+            return tile;
+
+        // The weight section: every length is checked against the bytes that remain before it is used.
+        LandscapeTileData    result = std::move( tile.GetValue() );
+        const unsigned char* cursor = payload + expected;
+        const unsigned char* end    = at + covered;
+        const uint32_t       count  = Assets::ReadU32( cursor );
+        cursor += 4;
+        if ( count > kLandscapeMaxWeightLayers )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob carries {} weight layers, at most {}",
+                                                       count, kLandscapeMaxWeightLayers );
+        const size_t plane = static_cast<size_t>( samplesX ) * samplesZ;
+        for ( uint32_t l = 0; l < count; ++l )
+        {
+            if ( end - cursor < 4 )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob ends inside weight layer {}", l );
+            const uint32_t nameLength = Assets::ReadU32( cursor );
+            cursor += 4;
+            if ( nameLength == 0u || nameLength > kLandscapeMaxWeightLayerName ||
+                 static_cast<size_t>( end - cursor ) < nameLength + plane )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob weight layer {} states a {}-byte "
+                                                           "name and {} weights; {} bytes remain",
+                                                           l, nameLength, plane, end - cursor );
+            std::string name( reinterpret_cast<const char*>( cursor ), nameLength );
+            cursor += nameLength;
+            auto index = result.AddWeightLayer( name );
+            if ( !index )
+                return Common::MakeError<Result>( index.GetError() );
+            if ( index.GetValue() != l )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob names weight layer '{}' twice",
+                                                           name );
+            auto written = result.WriteWeightRegion( l, result.Bounds(), std::span( cursor, plane ) );
+            if ( !written )
+                return Common::MakeError<Result>( written.GetError() );
+            cursor += plane;
+        }
+        if ( cursor != end )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob has {} bytes after its weight layers",
+                                                       end - cursor );
+        return Common::MakeSuccess( std::move( result ) );
     }
 } // namespace Desert::World::Landscape

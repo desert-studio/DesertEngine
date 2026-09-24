@@ -71,7 +71,10 @@
 #include "Editor/Core/Selection/ViewportMode.hpp" // the editor-mode rail
 #include <Engine/Geometry/MeshStats.hpp>
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
+#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Packaging/GamePackager.hpp"
 #include "Editor/Core/ProjectContext.hpp"
@@ -100,6 +103,7 @@
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
+#include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
@@ -148,6 +152,7 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
@@ -784,6 +789,7 @@ namespace Desert::Editor
             m_Panels.Adopt( std::move( fileExplorer ) );
         }
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
+        m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
@@ -3672,6 +3678,7 @@ namespace Desert::Editor
                 // of the well existing. A line here would also name a window that no longer exists under
                 // that title: a document's ImGui id is "###doc<subject>", so it could never have matched.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Modeling" ).c_str(), left );
+                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Landscape" ).c_str(), left );
 
                 // The well itself. It is what makes the document node FINDABLE: a dock node with nothing in
                 // it is not drawn at all, so without a permanent occupant the area would exist in the
@@ -4473,6 +4480,101 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // LANDSCAPE SCULPT. Every setting of the Landscape panel is stepped by a row of LandscapeToolControls(),
+        // offered here from that same table; the stroke itself is the click a hand would make at the viewport
+        // centre, because PaletteCommand::Run takes no coordinates -- aim the camera, then stroke.
+        commands.push_back( { "Landscape", "Sculpt mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                  Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Sculpt;
+                                  return PaletteCommandDone();
+                              } } );
+        // LANDSCAPE PAINT (UE's Paint tab): the mode, its one tool, the target layer and the "+" of the Target
+        // Layers list, so a frame can show a list and a stroke unattended.
+        for ( const char* label : { "Paint mode", "Tool: Paint" } )
+        {
+            commands.push_back( { "Landscape", label, []
+                                  {
+                                      Core::ViewportMode::Set( Core::EditorMode::Landscape );
+                                      Core::LandscapeSculptState::Get().Mode = Core::LandscapeEdMode::Paint;
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        commands.push_back( { "Landscape", "Add layer", [this]
+                              {
+                                  auto added = Commands::AddLandscapeLayer( m_MainScene );
+                                  if ( !added.IsSuccess() )
+                                      return PaletteCommandOutcome( false, added.GetError() );
+                                  auto& paint = Core::LandscapeSculptState::Get().Paint;
+                                  if ( paint.Layer.empty() )
+                                      paint.Layer = added.GetValue();
+                                  return PaletteCommandDone();
+                              } } );
+        if ( m_MainScene )
+        {
+            auto&      registry  = m_MainScene->GetRegistry();
+            const auto landscape = ECS::FirstLandscape( registry );
+            const auto root =
+                 landscape ? ECS::FindLandscapeRootEntity( registry, *landscape ) : entt::entity( entt::null );
+            if ( root != entt::null )
+            {
+                for ( const auto& layer : registry.get<ECS::LandscapeComponent>( root ).Layers )
+                {
+                    commands.push_back( { "Landscape", "Target layer: " + layer.Name, [this, name = layer.Name]
+                                          {
+                                              auto&      reg   = m_MainScene->GetRegistry();
+                                              const auto id    = ECS::FirstLandscape( reg );
+                                              const auto r     = id ? ECS::FindLandscapeRootEntity( reg, *id )
+                                                                    : entt::entity( entt::null );
+                                              bool       found = false;
+                                              if ( r != entt::null )
+                                                  for ( const auto& l :
+                                                        reg.get<ECS::LandscapeComponent>( r ).Layers )
+                                                      found = found || l.Name == name;
+                                              if ( !found )
+                                                  return PaletteCommandOutcome( false, "landscape layer '" + name +
+                                                                                            "' no longer exists" );
+                                              Core::LandscapeSculptState::Get().Paint.Layer = name;
+                                              return PaletteCommandDone();
+                                          } } );
+                }
+            }
+        }
+        for ( auto& control : Core::LandscapeToolControls() )
+        {
+            if ( control.Request != Core::LandscapeStrokeRequest::None )
+            {
+                commands.push_back( { "Landscape", control.Label, [request = control.Request]
+                                      {
+                                          if ( Core::ViewportMode::Get() != Core::EditorMode::Landscape )
+                                              return PaletteCommandOutcome( false,
+                                                                            "the Landscape mode is not active; "
+                                                                            "run 'Landscape: Sculpt mode' first" );
+                                          Core::LandscapeSculptState::Get().Request = request;
+                                          return PaletteCommandDone();
+                                      } } );
+                continue;
+            }
+            commands.push_back( { "Landscape", control.Label, [apply = control.Apply]
+                                  {
+                                      apply( Core::LandscapeSculptState::Get().Settings );
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        for ( const bool lower : { false, true } )
+        {
+            commands.push_back(
+                 { "Landscape",
+                   lower ? "Stroke at the viewport centre, lowering" : "Stroke at the viewport centre", [lower]
+                   {
+                       if ( Core::ViewportMode::Get() != Core::EditorMode::Landscape )
+                           return PaletteCommandOutcome( false, "the Landscape mode is not active; "
+                                                                "run 'Landscape: Sculpt mode' first" );
+                       Core::LandscapeSculptState::Get().Request =
+                            lower ? Core::LandscapeStrokeRequest::Lower : Core::LandscapeStrokeRequest::Raise;
+                       return PaletteCommandDone();
+                   } } );
+        }
         // CREATE SHAPE (Modeling Mode -> Create). One entry per shape, and the placement a click makes, at the
         // viewport centre: placing is the whole tool, and a capability the channel cannot reach does not exist
         // for an unattended check.
