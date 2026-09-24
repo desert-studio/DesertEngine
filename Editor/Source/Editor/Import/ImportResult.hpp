@@ -21,6 +21,9 @@ namespace Desert::Editor
         std::string             Name;
         Assets::PBRSurfaceParams   Data;
         Common::Content::AssetGuid Guid;
+        // The texture slots, by each texture asset's header GUID (MATL 3). Data's typed texture handles cannot
+        // say this: a handle is a fold of a GUID, not a way back to it.
+        std::vector<Assets::MaterialAssetRef> Textures;
     };
 
     struct ImportResult

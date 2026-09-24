@@ -7,6 +7,7 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <rflcpp/rfl/json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/TextureAsset.hpp>
 
 #include "CollectionsPanel.hpp"
 
@@ -268,6 +269,25 @@ namespace Desert::Editor
                 p.AlphaCutoff      = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
 
                 Assets::MaterialData data = p.ToMaterialData();
+                // The texture slots, by each imported asset's header GUID (MATL 3): the typed view's handles
+                // are folds of those GUIDs and cannot be turned back into them.
+                const auto stateTexture = [&]( const char* sampler, const Assets::AssetHandle& handle )
+                {
+                    if ( static_cast<uint64_t>( handle ) == 0 )
+                        return;
+                    if ( const auto tex = mgr.FindByHandle<Assets::TextureAsset>( handle ); tex && !tex->Guid().IsNull() )
+                        data.SetTexture( sampler, tex->Guid(),
+                                         Common::AssetHandle::StableKeyForPath( tex->GetMetadata().Filepath ) );
+                    else
+                        LOG_ERROR( "[Collections] texture {} for slot '{}' states no header GUID; the slot stays empty",
+                                   static_cast<uint64_t>( handle ), sampler );
+                };
+                stateTexture( "u_AlbedoTexture", albedo );
+                stateTexture( "u_NormalTexture", normal );
+                stateTexture( "u_RoughnessTexture", roughness );
+                stateTexture( "u_MetallicTexture", metallic );
+                stateTexture( "u_AOTexture", ao );
+                stateTexture( "u_OpacityTexture", opacity );
                 data.Header               = header;
                 data                      = Assets::StampMaterialHeader( std::move( data ) );
                 auto text                 = Assets::WriteMaterialJson( data );

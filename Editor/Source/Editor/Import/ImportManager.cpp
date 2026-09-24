@@ -311,6 +311,7 @@ namespace Desert::Editor
         // Typed extraction -> unified canon (the only on-disk material format), under the GUID the importer
         // derived, so the file states the identity the mesh's submeshes already reference.
         auto data       = material.Data.ToMaterialData();
+        data.Textures   = material.Textures;
         data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                            Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );

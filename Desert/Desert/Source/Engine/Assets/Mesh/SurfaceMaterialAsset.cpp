@@ -52,41 +52,6 @@ namespace Desert::Assets
         return copy;
     }
 
-    const char* SurfaceMaterialAsset::SamplerNameForType( TextureAsset::Type type )
-    {
-        switch ( type )
-        {
-            case TextureAsset::Type::Albedo:    return "u_AlbedoTexture";
-            case TextureAsset::Type::Normal:    return "u_NormalTexture";
-            case TextureAsset::Type::Metallic:  return "u_MetallicTexture";
-            case TextureAsset::Type::Roughness: return "u_RoughnessTexture";
-            case TextureAsset::Type::AO:        return "u_AOTexture";
-            case TextureAsset::Type::Emissive:  return "u_EmissiveTexture";
-            default:                            return nullptr;
-        }
-    }
-
-    std::optional<Assets::AssetHandle> SurfaceMaterialAsset::GetTextureHandle( TextureAsset::Type type ) const
-    {
-        const char* name = SamplerNameForType( type );
-        if ( !name )
-            return std::nullopt;
-        const uint64_t h = m_Data.GetTexture( name );
-        if ( h == 0 )
-            return std::nullopt;
-        return Assets::AssetHandle( h );
-    }
-
-    bool SurfaceMaterialAsset::AddTexture( const Assets::AssetHandle& handle, TextureAsset::Type type,
-                                           const glm::vec4& /*defaultColor*/ )
-    {
-        const char* name = SamplerNameForType( type );
-        if ( !name )
-            return false;
-        m_Data.SetTexture( name, static_cast<uint64_t>( handle ) );
-        return true;
-    }
-
     void SurfaceMaterialAsset::AdoptStableHandle()
     {
         // Asset-database identity: the internal handle must be STABLE across editor runs so handle-based

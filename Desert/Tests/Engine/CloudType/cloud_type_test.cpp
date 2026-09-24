@@ -1547,10 +1547,7 @@ TEST( CloudTypeLibrary, AShippedCloudMaterialsTypeSlotNamesARegisteredType )
     const auto        parsed = rfl::json::read<MaterialData>( text );
     ASSERT_TRUE( parsed ) << parsed.error().what();
 
-    uint64_t slot = 0;
-    for ( const auto& texture : parsed.value().Textures )
-        if ( texture.Name == "CloudType1" )
-            slot = texture.TextureHandle;
+    const uint64_t slot = parsed.value().GetCloudAsset( "CloudType1" );
     ASSERT_NE( slot, 0u ) << material.string() << " no longer authors CloudType1; pick a material that does";
 
     // The handles the service would hold: one per shipped type, derived as the asset derives it.

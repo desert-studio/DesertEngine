@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
@@ -9,7 +10,7 @@
 
 using Desert::Assets::MaterialData;
 using Desert::Assets::MaterialShaderParam;
-using Desert::Assets::MaterialShaderTexture;
+using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::PBRSurfaceParams;
 
 // ─── The unified protocol: MaterialData is the ONLY material storage ─────────────────────
@@ -43,12 +44,17 @@ TEST( MaterialData, ParamAndTextureAccessors )
     EXPECT_FLOAT_EQ( m.GetFloat( "RoughnessFactor" ), 0.75f );
     ASSERT_EQ( m.Params.size(), 1u );
 
+    const Common::Content::AssetGuid a{ 0x0102030405060708ull, 0x1112131415161718ull };
+    const Common::Content::AssetGuid b{ 0x2122232425262728ull, 0x3132333435363738ull };
     EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), 0ull );
-    m.SetTexture( "u_AlbedoTexture", 777ull );
-    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), 777ull );
-    m.SetTexture( "u_AlbedoTexture", 888ull );
-    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), 888ull );
+    m.SetTexture( "u_AlbedoTexture", a, "assets:Textures/A.detex" );
+    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), static_cast<uint64_t>( Common::Content::HandleForGuid( a ) ) );
+    m.SetTexture( "u_AlbedoTexture", b, "assets:Textures/B.detex" );
+    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), static_cast<uint64_t>( Common::Content::HandleForGuid( b ) ) );
     ASSERT_EQ( m.Textures.size(), 1u );
+    m.SetTexture( "u_AlbedoTexture", {}, "ignored" ); // an authored empty slot: no GUID, no locator
+    EXPECT_EQ( m.GetTexture( "u_AlbedoTexture" ), 0ull );
+    EXPECT_TRUE( m.Textures[0].Path.empty() );
 }
 
 TEST( MaterialData, JsonRoundTrip )
@@ -56,7 +62,8 @@ TEST( MaterialData, JsonRoundTrip )
     MaterialData m;
     m.ShaderName = "Unlit";
     m.SetParam( "Color", glm::vec4( 0.1f, 0.2f, 0.3f, 1.0f ) );
-    m.SetTexture( "u_AlbedoTex", 12345ull );
+    const Common::Content::AssetGuid tex{ 0xa1a2a3a4a5a6a7a8ull, 0xb1b2b3b4b5b6b7b8ull };
+    m.SetTexture( "u_AlbedoTex", tex, "assets:Textures/T.detex" );
     const Common::Content::AssetGuid parent{ 0x1122334455667788ull, 0x99aabbccddeeff00ull };
     m.SetParent( parent );
 
@@ -67,7 +74,7 @@ TEST( MaterialData, JsonRoundTrip )
     const MaterialData& r = back.value();
     EXPECT_TRUE( r.UsesCustomShader() );
     EXPECT_FLOAT_EQ( r.GetParam( "Color" ).y, 0.2f );
-    EXPECT_EQ( r.GetTexture( "u_AlbedoTex" ), 12345ull );
+    EXPECT_EQ( r.GetTexture( "u_AlbedoTex" ), static_cast<uint64_t>( Common::Content::HandleForGuid( tex ) ) );
     EXPECT_EQ( r.ParentGuid(), parent );
 }
 
@@ -98,7 +105,8 @@ TEST( PBRSurfaceParams, TypedViewToCanonAndBack )
     EXPECT_FLOAT_EQ( canon.GetFloat( "RoughnessFactor" ), 0.33f );
     EXPECT_FLOAT_EQ( canon.GetParam( "GlassTint" ).w, 0.5f );
     EXPECT_FLOAT_EQ( canon.GetParam( "UVTiling" ).y, 5.0f );
-    EXPECT_EQ( canon.GetTexture( "u_AlbedoTexture" ), 777ull );
+    // The typed view's handle is a fold, not an identity: it is NOT written back (MATL 3 names by GUID).
+    EXPECT_TRUE( canon.Textures.empty() );
 
     const PBRSurfaceParams back = PBRSurfaceParams::FromMaterialData( canon );
     EXPECT_FLOAT_EQ( back.AlbedoColor.y, 0.4f );
@@ -106,7 +114,7 @@ TEST( PBRSurfaceParams, TypedViewToCanonAndBack )
     EXPECT_FLOAT_EQ( back.GlassTint.w, 0.5f );
     ASSERT_TRUE( back.UVTiling.has_value() );
     EXPECT_FLOAT_EQ( back.UVTiling->y, 5.0f );
-    EXPECT_EQ( static_cast<uint64_t>( back.AlbedoTexture ), 777ull );
+    EXPECT_EQ( static_cast<uint64_t>( back.AlbedoTexture ), 0ull );
 }
 
 TEST( PBRSurfaceParams, FromCanonUsesDefaultsForMissingParams )
@@ -136,6 +144,101 @@ TEST( Migration, LegacyTypedJsonIsNotValidCanon )
 
     auto asCanon = rfl::json::read<MaterialData>( legacyJson );
     EXPECT_FALSE( asCanon.has_value() );
+}
+
+
+// ─── MATL 3: every asset slot by header GUID + a path locator ────────────────────────────
+
+namespace
+{
+    const Common::Content::AssetGuid kTexGuid{ 0x0a0b0c0d0e0f1011ull, 0x1213141516171819ull };
+    const Common::Content::AssetGuid kTypeGuid{ 0x2021222324252627ull, 0x28292a2b2c2d2e2full };
+    const Common::Content::AssetGuid kLayoutGuid{ 0x3031323334353637ull, 0x38393a3b3c3d3e3full };
+
+    uint64_t Fold( const Common::Content::AssetGuid& g )
+    {
+        return static_cast<uint64_t>( Common::Content::HandleForGuid( g ) );
+    }
+} // namespace
+
+TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuidADependency )
+{
+    MaterialData m;
+    m.ShaderName = "CloudRaymarch";
+    m.SetTexture( "u_AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
+    m.SetCloudAsset( "CloudType1", kTypeGuid, "assets:Clouds/Types/Cu.decloudtype" );
+    m.SetCloudAsset( "LayoutPattern", kLayoutGuid, "assets:Clouds/Layouts/L.dclayout" );
+    m.SetCloudAsset( "LayoutMask", kLayoutGuid, "assets:Clouds/Layouts/L.dclayout" );
+    m.SetShaderRef( "Medium", "assets:Shaders/Medium.shader" );
+
+    const auto text = Desert::Assets::WriteMaterialJson( m );
+    ASSERT_TRUE( text ) << text.GetError();
+    EXPECT_EQ( text.GetValue().find( "TextureHandle" ), std::string::npos ) << "no path-derived number is written";
+
+    const auto back = Desert::Assets::ParseMaterialJson( "v3.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    const MaterialData& r = back.GetValue();
+    EXPECT_EQ( r.GetTexture( "u_AlbedoTexture" ), Fold( kTexGuid ) );
+    EXPECT_EQ( r.GetCloudAsset( "CloudType1" ), Fold( kTypeGuid ) );
+    EXPECT_EQ( r.GetCloudAsset( "LayoutMask" ), Fold( kLayoutGuid ) );
+    EXPECT_EQ( r.GetTexture( "CloudType1" ), 0ull ) << "cloud slots live in their own list, not in Textures";
+    ASSERT_EQ( r.Textures.size(), 1u );
+    EXPECT_EQ( r.Textures[0].Path, "assets:Textures/T.detex" );
+    EXPECT_EQ( r.GetShaderRef( "Medium" ),
+               static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( "assets:Shaders/Medium.shader" ) ) );
+    // Three distinct GUIDs, the shared layout stated once.
+    EXPECT_EQ( Desert::Assets::StatedVersion( r.Header, Desert::Assets::kMaterialSchemaTag ), 3 );
+    ASSERT_TRUE( r.Header.has_value() );
+    EXPECT_EQ( r.Header->Dependencies.size(), 3u );
+}
+
+TEST( MaterialFormatV3, AVersion2FileIsRefusedByNameAndPointsAtTheMigrator )
+{
+    const std::string v2 = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
+                           R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],)"
+                           R"("Textures":[{"Name":"CloudType1","TextureHandle":14207433254880240939}]})";
+    const auto parsed = Desert::Assets::ParseMaterialJson( "M_Old.demat", v2 );
+    ASSERT_FALSE( parsed );
+    EXPECT_NE( parsed.GetError().find( "M_Old.demat" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "schema v2" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "SceneMigrator" ), std::string::npos ) << parsed.GetError();
+}
+
+TEST( MaterialFormatV3, ASlotGuidTheHeaderDoesNotStateOrAPathWithoutAGuidIsRefused )
+{
+    const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
+                             R"("Versions":{"MATL":3},"Dependencies":[)";
+    const std::string slot = R"("Params":[],"Textures":[],"ShaderRefs":[],)"
+                             R"("CloudAssets":[{"Name":"CloudType1","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
+                             R"("Path":"assets:Clouds/Types/Cu.decloudtype"}]})";
+    EXPECT_TRUE( Desert::Assets::ParseMaterialJson( "ok", head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},)" + slot ) );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "undeclared", head + "]}," + slot ) );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
+         "pathonly", head + R"(]},"Params":[],"CloudAssets":[],"ShaderRefs":[],)"
+                                R"("Textures":[{"Name":"u_AlbedoTexture","Guid":"","Path":"assets:T.detex"}]})" ) );
+}
+
+// The relation, not either end: a type registers under HandleForGuid of its header GUID (CloudTypeAsset's
+// constructor), and the cloud slot that names that GUID hands ApplyCloudAssetRef (through the flattened
+// overrides MaterialService::ResolveOverrides builds with ForEachSlotHandle) exactly that number.
+TEST( MaterialFormatV3, ACloudSlotNamedByGuidFindsTheTypeRegisteredUnderThatGuid )
+{
+    MaterialData m;
+    m.SetCloudAsset( "CloudType1", kTypeGuid, "assets:Clouds/Types/Cu.decloudtype" );
+    const auto text = Desert::Assets::WriteMaterialJson( m );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto back = Desert::Assets::ParseMaterialJson( "c.demat", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+
+    const uint64_t registeredUnder = Fold( kTypeGuid ); // what CloudTypeService keys the type by
+    uint64_t       handed          = 0;
+    back.GetValue().ForEachSlotHandle(
+         [&]( const std::string& name, uint64_t handle )
+         {
+             if ( name == "CloudType1" )
+                 handed = handle;
+         } );
+    EXPECT_EQ( handed, registeredUnder );
 }
 
 int main( int argc, char** argv )

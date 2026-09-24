@@ -1,4 +1,7 @@
 #include "AssimpImporter.hpp"
+#include "../TextureImporter.hpp"
+
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <limits>
 #include <functional>
@@ -318,36 +321,48 @@ namespace Desert::Editor
                 return {};
             };
 
-            auto loadTex = [&]( aiTextureType type ) -> Assets::AssetHandle
+            // Imports the source's texture of `type` and states it in the `sampler` slot by the imported
+            // asset's header GUID (MATL 3), with the asset's path as the locator.
+            auto loadTex = [&]( aiTextureType type, const char* sampler )
             {
                 if ( mat->GetTextureCount( type ) == 0 )
-                    return Common::UUID::Null();
+                    return;
 
                 aiString path;
                 if ( mat->GetTexture( type, 0, &path ) != AI_SUCCESS )
-                    return Common::UUID::Null();
+                    return;
 
                 const std::filesystem::path found = findTextureFile( path.C_Str() );
                 if ( found.empty() )
                 {
                     LOG_WARN( "[Import][Tex] type={} fbxRef='{}' NOT FOUND under '{}'", static_cast<int>( type ),
                               path.C_Str(), basePath.generic_string() );
-                    return Common::UUID::Null();
+                    return;
                 }
-                const Assets::AssetHandle h = manager.ImportTexture( found.string() );
-                LOG_INFO( "[Import][Tex] type={} fbxRef='{}' -> '{}' handle={}", static_cast<int>( type ),
-                          path.C_Str(), found.generic_string(), static_cast<uint64_t>( h ) );
-                return h;
+                if ( static_cast<uint64_t>( manager.ImportTexture( found.string() ) ) == 0 )
+                    return; // the importer logged why
+                const std::filesystem::path asset = TextureImporter::AssetPathFor( found );
+                const auto                  key   = Assets::ReadTextureAssetKey( asset );
+                if ( !key.IsSuccess() || key.GetValue().Guid.IsNull() )
+                {
+                    LOG_ERROR( "[Import][Tex] '{}' was imported but states no identity ({}), so slot '{}' stays "
+                               "empty",
+                               asset.generic_string(), key.IsSuccess() ? "null GUID" : key.GetError(), sampler );
+                    return;
+                }
+                LOG_INFO( "[Import][Tex] type={} fbxRef='{}' -> '{}'", static_cast<int>( type ), path.C_Str(),
+                          asset.generic_string() );
+                out.Textures.push_back( { sampler, Common::Content::AssetGuidToText( key.GetValue().Guid ),
+                                          Common::AssetHandle::StableKeyForPath( asset ) } );
             };
 
-            // TEXTURES (Normal + Opacity now included)
-            d.AlbedoTexture    = loadTex( aiTextureType_DIFFUSE );
-            d.NormalTexture    = loadTex( aiTextureType_NORMALS );
-            d.MetallicTexture  = loadTex( aiTextureType_METALNESS );
-            d.RoughnessTexture = loadTex( aiTextureType_DIFFUSE_ROUGHNESS );
-            d.AOTexture        = loadTex( aiTextureType_AMBIENT_OCCLUSION );
-            d.EmissiveTexture  = loadTex( aiTextureType_EMISSIVE );
-            d.OpacityTexture   = loadTex( aiTextureType_OPACITY );
+            loadTex( aiTextureType_DIFFUSE, "u_AlbedoTexture" );
+            loadTex( aiTextureType_NORMALS, "u_NormalTexture" );
+            loadTex( aiTextureType_METALNESS, "u_MetallicTexture" );
+            loadTex( aiTextureType_DIFFUSE_ROUGHNESS, "u_RoughnessTexture" );
+            loadTex( aiTextureType_AMBIENT_OCCLUSION, "u_AOTexture" );
+            loadTex( aiTextureType_EMISSIVE, "u_EmissiveTexture" );
+            loadTex( aiTextureType_OPACITY, "u_OpacityTexture" );
 
             d.AlbedoColor     = GetColor( mat, AI_MATKEY_COLOR_DIFFUSE, glm::vec4( 1.0f ) );
             d.MetallicFactor  = GetFloat( mat, AI_MATKEY_METALLIC_FACTOR, 0.0f );
