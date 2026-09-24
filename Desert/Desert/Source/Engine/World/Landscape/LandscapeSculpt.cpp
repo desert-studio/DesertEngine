@@ -1161,8 +1161,12 @@ namespace Desert::World::Landscape
                 const float amount = brushValue * static_cast<float>( s.Threshold ) * strength * brushSizeAdjust;
                 const float paint =
                      NoiseModeConversion( mode, amount, LandscapeNoiseSample( x, z, s.NoiseScale ) * amount );
+                // Deviation from UE (LandscapeEdModeErosionTools.cpp:286), which truncates current + paint: with
+                // the Lower mode's paint always negative that takes a whole step from every sample the brush
+                // touches, however small its weight, so 25 strokes sank the brush circle by 25 steps against the
+                // untouched ground outside - a step at the rim. Rounded, a sample of weight ~0 keeps its height.
                 uint16_t& current = field.Heights[ix.At( x, z )];
-                current           = ClampValue( static_cast<int64_t>( static_cast<float>( current ) + paint ) );
+                current           = ClampValue( std::lround( static_cast<float>( current ) + paint ) );
             }
     }
 

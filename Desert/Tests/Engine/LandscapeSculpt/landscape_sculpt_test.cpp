@@ -1353,3 +1353,36 @@ TEST( LandscapeSculpt, ErosionHeldOverAHillSmallerThanTheBrushSlumpsItToTheThres
     EXPECT_LE( SteepestWorld( w ), defaults.Threshold + defaults.Threshold / 4 )
          << "no slope above the threshold, no wall at the rim: " << profile;
 }
+
+TEST( LandscapeSculpt, ErosionOnAFlatFieldFadesToTheBrushEdgeWithoutAStep )
+{
+    // The editor's scale (LS7e: 100 cm spacing, Z scale 35.15625). A flat field has nothing to slump; what a
+    // stroke does there is UE's noise pass, weighted by the brush. A sample of weight w must move by no more
+    // than that weight allows: the rim may not follow the centre down and leave a step at the brush circle.
+    World w( Flat );
+    w.Root.ZScale                    = 35.15625f;
+    const auto                     b = Brush( 2048.0f, 1.0f );
+    const LandscapeErosionSettings defaults;
+    const LandscapeBrushWeights    weights = Weights( w, b, { 3100.0f, 3100.0f } );
+    for ( int32_t i = 0; i < 25; ++i )
+    {
+        LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+        ASSERT_TRUE( stroke.ApplyErosion( Weights( w, b, { 3100.0f, 3100.0f } ), b, {} ).IsSuccess() );
+        ASSERT_TRUE( stroke.Finish().IsSuccess() );
+    }
+    std::string profile;
+    for ( int32_t x = 0; x <= 2 * kQ; ++x )
+        profile += std::to_string( int32_t( w.At( x, 31 ) ) - int32_t( kLandscapeMidSample ) ) + " ";
+    const int32_t centre = std::abs( int32_t( w.At( 31, 31 ) ) - int32_t( kLandscapeMidSample ) );
+    EXPECT_GT( centre, 0 ) << "the stroke did something: " << profile;
+    // At weight 0.01 a stroke's noise is under 0.3 steps: 25 strokes leave such a sample where it was. The rim
+    // following the centre down by a step a stroke is the defect (25 steps at weight 0.0002 before the fix).
+    for ( int32_t z = 0; z <= 2 * kQ; ++z )
+        for ( int32_t x = 0; x <= 2 * kQ; ++x )
+            if ( weights.At( x, z ) < 0.01f )
+                ASSERT_EQ( w.At( x, z ), kLandscapeMidSample )
+                     << "sample " << x << "," << z << " of weight " << weights.At( x, z )
+                     << " moved; profile: " << profile;
+    EXPECT_LE( SteepestWorld( w ), defaults.Threshold + defaults.Threshold / 4 )
+         << "no step anywhere: " << profile;
+}
