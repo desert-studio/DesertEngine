@@ -11,6 +11,7 @@
 #include <entt/entt.hpp>
 
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace Desert::ECS
@@ -47,25 +48,47 @@ namespace Desert::ECS
     {
         entt::entity                     Entity    = entt::null;
         LandscapeTileComponent*          Component = nullptr;
+        World::Landscape::LandscapeRoot  Root;
         World::Landscape::LandscapeFrame Frame;
     };
 
-    /// Every tile the renderer draws — the same test LandscapeECSSystem applies, which is also where a tile
-    /// failing it is reported. Unloaded, orphaned and mis-sized tiles are left out without a word here.
-    inline std::vector<LandscapeTileRef> DrawableLandscapeTiles( entt::registry& registry )
+    /// A tile with loaded heights that is NOT drawn, and why.
+    struct RefusedLandscapeTile
     {
-        std::vector<LandscapeTileRef> tiles;
+        entt::entity Entity = entt::null;
+        std::string  Reason;
+    };
+
+    struct DrawableLandscape
+    {
+        std::vector<LandscapeTileRef>     Tiles;
+        std::vector<RefusedLandscapeTile> Refused;
+    };
+
+    /// Every tile the renderer draws, and every loaded tile it refuses with the reason. ONE test for both
+    /// consumers: LandscapeECSSystem draws `Tiles` and reports `Refused`; collision builds bodies for
+    /// exactly `Tiles`, so a refused tile has neither and the one warning covers both. Unloaded tiles
+    /// are in neither list — the loader already said why a tile was refused at load.
+    inline DrawableLandscape DrawableLandscapeTiles( entt::registry& registry )
+    {
+        DrawableLandscape out;
         for ( const auto entity : registry.view<LandscapeTileComponent>() )
         {
             auto& component = registry.get<LandscapeTileComponent>( entity );
             if ( !component.Heights.has_value() )
                 continue;
             const auto root = FindLandscapeRoot( registry, component.Landscape );
-            if ( !root || !World::Landscape::CheckTileMatchesRoot( *component.Heights, *root ).IsSuccess() )
+            const auto fits = root ? World::Landscape::CheckTileMatchesRoot( *component.Heights, *root )
+                                   : Common::MakeError<bool>( "its root is not loaded or is not a landscape" );
+            if ( !fits.IsSuccess() )
+            {
+                out.Refused.push_back( { entity, fits.GetError() } );
                 continue;
-            tiles.push_back( { entity, &component,
-                               World::Landscape::LandscapeTileFrame( *root, component.TileX, component.TileZ ) } );
+            }
+            out.Tiles.push_back(
+                 { entity, &component, *root,
+                   World::Landscape::LandscapeTileFrame( *root, component.TileX, component.TileZ ) } );
         }
-        return tiles;
+        return out;
     }
 } // namespace Desert::ECS

@@ -742,6 +742,99 @@ TEST( ShaderSchemaConsumers, TheDeclaredShaderNameIsTheFileStem )
     }
 }
 
+namespace
+{
+    /// A shader source together with everything it includes: each file comment- and literal-stripped,
+    /// every `#include <path>` / `#include "path"` resolved as the shader compiler resolves it, recursively, each
+    /// file once. The files are concatenated rather than spliced in place: the census asks whether a declaration
+    /// EXISTS in what a stage compiles, not where.
+    ///
+    /// WHY THE CENSUS FOLLOWS INCLUDES. Terrain.shader offers u_GrassTex/u_RockTex/u_SnowTex and its
+    /// fragment stage is a single `#include <Programs/Terrain/TerrainSurface.glslh>`, where the three
+    /// `sampler2D` lines live. Reading only the `.shader` file reported three wired slots as dead; moving
+    /// the declarations back to satisfy the census would have made the census the design authority.
+    ///
+    /// Directives are read from the RAW text, line by line: the stripper blanks what sits between the
+    /// delimiters of an include, so the stripped text no longer names the file.
+    struct ExpandedShader
+    {
+        std::string              Text;
+        std::vector<std::string> Unresolved; ///< include targets the census could not open
+    };
+
+    void AppendExpanded( const fs::path& shadersDir, const fs::path& file, std::set<std::string>& visited,
+                         ExpandedShader& out )
+    {
+        const std::string raw = ReadAll( file );
+        out.Text += Strip( raw );
+        out.Text += '\n';
+
+        std::istringstream lines( raw );
+        for ( std::string line; std::getline( lines, line ); )
+        {
+            const std::size_t hash = CT::SkipSpace( line, 0 );
+            if ( line.compare( hash, 8, "#include" ) != 0 )
+                continue;
+            const std::size_t open = CT::SkipSpace( line, hash + 8 );
+            if ( open >= line.size() || ( line[open] != '<' && line[open] != '"' ) )
+            {
+                out.Unresolved.push_back( line );
+                continue;
+            }
+            const std::size_t close = line.find( line[open] == '<' ? '>' : '"', open + 1 );
+            if ( close == std::string::npos )
+            {
+                out.Unresolved.push_back( line );
+                continue;
+            }
+            // `<path>` names a file under the Shaders directory; `"path"` is looked up next to the including
+            // file first (Mesh/PointLight.glslh includes "DirectLighting.glslh"), as a relative include is.
+            const std::string target   = line.substr( open + 1, close - open - 1 );
+            fs::path          included = shadersDir / target;
+            if ( line[open] == '"' && fs::exists( file.parent_path() / target ) )
+                included = file.parent_path() / target;
+            if ( !fs::exists( included ) )
+            {
+                out.Unresolved.push_back( target );
+                continue;
+            }
+            if ( !visited.insert( fs::weakly_canonical( included ).string() ).second )
+                continue;
+            AppendExpanded( shadersDir, included, visited, out );
+        }
+    }
+
+    ExpandedShader ExpandIncludes( const fs::path& shadersDir, const fs::path& file )
+    {
+        ExpandedShader        out;
+        std::set<std::string> visited;
+        AppendExpanded( shadersDir, file, visited, out );
+        return out;
+    }
+} // namespace
+
+TEST( ShaderSchemaConsumers, TheSamplerSearchFollowsIncludes )
+{
+    // THE RELATION the sampler census depends on, pinned on the shader that needed it: Terrain.shader's
+    // own text declares none of its three texture samplers, and its expansion declares all three.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";
+    const fs::path terrain    = shadersDir / "Programs" / "Terrain" / "Terrain.shader";
+    ASSERT_TRUE( fs::exists( terrain ) );
+
+    const std::string    own      = Strip( ReadAll( terrain ) );
+    const ExpandedShader expanded = ExpandIncludes( shadersDir, terrain );
+    EXPECT_TRUE( expanded.Unresolved.empty() ) << "first unresolved include: " << expanded.Unresolved.front();
+    for ( const char* name : { "u_GrassTex", "u_RockTex", "u_SnowTex" } )
+    {
+        EXPECT_EQ( own.find( std::string( "sampler2D " ) + name ), std::string::npos )
+             << name << " is declared in Terrain.shader itself again; this test no longer exercises includes";
+        EXPECT_NE( expanded.Text.find( std::string( "sampler2D " ) + name ), std::string::npos )
+             << name << " is not reached through Terrain.shader's includes";
+    }
+}
+
 TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
 {
     // A `Texture2D`/`TextureCube` line in a Properties block is a SLOT IN THE MATERIAL EDITOR: it gets a
@@ -764,11 +857,17 @@ TEST( ShaderSchemaConsumers, EveryTexturePropertyHasASamplerToBindTo )
                                                           "u_EmissiveTexture" };
     std::set<std::string>              seenUnsampled;
 
+    const fs::path shadersDir = fs::path( root ) / "Editor" / "Resources" / "Shaders";
     for ( const auto& file : ShippedShaders( root ) )
     {
         // Comments stripped: a `.shader` explains its own bindings in prose, and "declares no sampler2D"
-        // must not be answered by a sentence that mentions one.
-        const std::string source = Strip( ReadAll( file ) );
+        // must not be answered by a sentence that mentions one. Includes followed: a stage that is one
+        // `#include` declares its samplers in the included file.
+        const ExpandedShader expanded = ExpandIncludes( shadersDir, file );
+        for ( const std::string& hole : expanded.Unresolved )
+            ADD_FAILURE() << file.string() << ": the census cannot follow `" << hole
+                          << "`, so a sampler declared behind it would be reported missing";
+        const std::string& source = expanded.Text;
 
         const PropertiesBlock properties = FindPropertiesBlock( source );
         if ( !properties.Found || properties.Generated )

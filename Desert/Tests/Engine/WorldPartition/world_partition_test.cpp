@@ -604,6 +604,11 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 //     in-scene EditMesh with no asset, so neither the registry nor a primitive box answers for them yet;
 //   * -4 with M5 (2462 / 2430): the two Cylinders and two Capsules of Starter and Desert_Sandbox, which
 //     the factory built nothing for until the primitives moved onto ShapeGenerators and got their boxes.
+//   * +6 with LS-6 (2468 / 2436): the six procedural terrains baked into landscapes (two each in
+//     G26_TerrainRockLayer and G3_TwoTerrains, one each in Terrain_Grass and Terrain_MatProbe). The old
+//     `Terrain` block carried a Size x Size box; the root that keeps its id holds Landscape and
+//     LandscapeMaterial, which have no extent of their own. Its 25 tiles each get their rectangle from the
+//     root's frame, so the land is still covered; only the root record is point-only.
 //
 // The mesh references are resolved as the loader resolves them - handle, else path - and a path is
 // relative to the editor's working directory, so the walk runs from there.
@@ -612,7 +617,7 @@ namespace
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
     // records stay point-only once the committed registry answers for them.
     constexpr std::size_t kCorpusMeshReferences        = 32;
-    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2430;
+    constexpr std::size_t kCorpusPointOnlyWithRegistry = 2436;
 } // namespace
 
 TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommittedRegistry )
@@ -665,7 +670,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommitte
         seen += PlanWorldPartition( parsed->Entities, Cells( 12800.0f ), source ).PointOnlyRecords;
     }
 
-    EXPECT_EQ( blind, 2462u );
+    EXPECT_EQ( blind, 2468u );
     EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
     EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
     EXPECT_EQ( seen, kCorpusPointOnlyWithRegistry );

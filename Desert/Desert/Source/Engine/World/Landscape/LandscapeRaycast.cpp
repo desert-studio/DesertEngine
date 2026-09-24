@@ -1,5 +1,7 @@
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -174,8 +176,19 @@ namespace Desert::World::Landscape
         for ( size_t index = 0; index < tiles.size(); ++index )
         {
             const LandscapeRayTile& entry = tiles[index];
-            if ( !entry.Heights || !ValidateLandscapeFrame( entry.Frame ).IsSuccess() )
+            if ( !entry.Heights )
+            {
+                LOG_ERROR( "[Landscape] raycast: tile {} of {} has no heights and is skipped", index,
+                           tiles.size() );
                 continue;
+            }
+            const auto valid = ValidateLandscapeFrame( entry.Frame );
+            if ( !valid.IsSuccess() )
+            {
+                LOG_ERROR( "[Landscape] raycast: tile {} of {} is skipped: {}", index, tiles.size(),
+                           valid.GetError() );
+                continue;
+            }
             const LandscapeFrame& frame   = entry.Frame;
             const double          spacing = static_cast<double>( frame.SpacingCm );
 

@@ -369,7 +369,7 @@ namespace
                 if ( Registry.valid( Entities[i] ) &&
                      Registry.get<ECS::LandscapeTileComponent>( Entities[i] ).Heights.has_value() )
                     refs.push_back( { Entities[i], &Registry.get<ECS::LandscapeTileComponent>( Entities[i] ),
-                                      land.Frames[i] } );
+                                      land.Root, land.Frames[i] } );
             Collision->Sync( refs );
         }
 

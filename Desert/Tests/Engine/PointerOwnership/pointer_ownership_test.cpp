@@ -478,11 +478,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   an attribute layer of the mesh the operation is building - and EditMeshCommand::m_Alongside
     //   (unique), the selection change undone and redone with a mesh operation as one step. Raw 391+1,
     //   Unique 123+1.
-    EXPECT_EQ( CountOf( Form::Raw ), 401 );
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    //   LS-6 (2026-09-24) retired the procedural terrain and its painted splat map with it, taking three:
+    //   the procedural terrain component's SplatMap (shared, the component owned the map), and the two
+    //   non-owning Image2D* SplatMap that carried it to the draw (the deleted terrain draw command and
+    //   the terrain batch key's). Raw 401-2, Shared 339-1.
+    EXPECT_EQ( CountOf( Form::Raw ), 399 );
+    EXPECT_EQ( CountOf( Form::Shared ), 338 );
     EXPECT_EQ( CountOf( Form::Unique ), 129 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 908 )
+    EXPECT_EQ( (int)Members().size(), 905 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -733,7 +737,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
     // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
     // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    // 339 -> 338 with LS-6: the procedural terrain component's SplatMap, retired with the procedural terrain.
+    EXPECT_EQ( CountOf( Form::Shared ), 338 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

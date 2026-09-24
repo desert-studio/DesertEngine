@@ -73,31 +73,28 @@ namespace Desert::ECS
         std::vector<Drawable>   drawables;
         std::map<Coord, size_t> byCoord;
 
-        auto view = registry.view<LandscapeTileComponent>();
-        for ( const auto entity : view )
+        // Unloaded tiles are in neither list (the loader said why; the sweep below frees them).
+        const DrawableLandscape landscape = DrawableLandscapeTiles( registry );
+        for ( const RefusedLandscapeTile& refused : landscape.Refused )
         {
-            auto& tileComp = view.get<LandscapeTileComponent>( entity );
-            if ( !tileComp.Heights.has_value() )
-                continue; // not loaded, or refused at load (the loader said why); the sweep below frees it
-            Landscape::LandscapeTileData& heights = *tileComp.Heights;
-
-            const auto root = FindLandscapeRoot( registry, tileComp.Landscape );
-            const auto fits = root ? Landscape::CheckTileMatchesRoot( heights, *root )
-                                   : Common::MakeError<bool>( "its root is not loaded or is not a landscape" );
-            if ( !fits.IsSuccess() )
-            {
-                if ( m_Warned.insert( entity ).second )
-                    LOG_WARN( "[Landscape] tile ({}, {}) is not drawn: {}", tileComp.TileX, tileComp.TileZ,
-                              fits.GetError() );
+            if ( !m_Warned.insert( refused.Entity ).second )
                 continue;
-            }
+            const auto& tileComp = registry.get<LandscapeTileComponent>( refused.Entity );
+            LOG_WARN( "[Landscape] tile ({}, {}) is not drawn: {}", tileComp.TileX, tileComp.TileZ,
+                      refused.Reason );
+        }
+        for ( const LandscapeTileRef& tile : landscape.Tiles )
+        {
+            const entt::entity            entity   = tile.Entity;
+            const LandscapeTileComponent& tileComp = *tile.Component;
+            Landscape::LandscapeTileData& heights  = *tile.Component->Heights;
             m_Warned.erase( entity );
 
             // ALWAYS taken, drawn or hidden: the list is "what the GPU copy does not have yet", and a hidden
             // tile's copy is refreshed like any other so showing it again shows the current heights.
             Drawable d;
             d.Entity = entity;
-            d.Root   = *root;
+            d.Root   = tile.Root;
             d.Dirty  = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
             byCoord.emplace( Coord{ static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) ), tileComp.TileX,
                                     tileComp.TileZ },

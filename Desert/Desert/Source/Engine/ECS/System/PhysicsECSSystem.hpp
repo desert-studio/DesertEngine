@@ -88,7 +88,8 @@ namespace Desert::ECS
             // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
             m_Lifetime->Attach( registry );
             m_Landscape->Attach( registry );
-            m_Landscape->Sync( DrawableLandscapeTiles( registry ) );
+            // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
+            m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
 
             // Create a Jolt body for any physics entity that doesn't have one yet (uses its authored pose).
             for ( auto entity : bodies )

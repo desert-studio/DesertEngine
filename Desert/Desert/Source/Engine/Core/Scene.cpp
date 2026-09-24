@@ -106,8 +106,15 @@ namespace Desert::Core
                 if ( !rootEntity.has_value() || !rootEntity->get().HasComponent<ECS::LandscapeComponent>() )
                     continue;
                 const auto root = ECS::LandscapeRootOf( rootEntity->get() );
-                if ( !World::Landscape::CheckTileMatchesRoot( *tile.Heights, root ).IsSuccess() )
+                // The renderer refuses the same tile (and says so once); a pick is an explicit request, so
+                // it is told why the tile under the cursor cannot answer.
+                const auto fits = World::Landscape::CheckTileMatchesRoot( *tile.Heights, root );
+                if ( !fits.IsSuccess() )
+                {
+                    LOG_WARN( "[Landscape] tile ({}, {}) is not pickable: {}", tile.TileX, tile.TileZ,
+                              fits.GetError() );
                     continue;
+                }
                 PickableTile pick;
                 pick.Entity      = entity.GetComponent<ECS::UUIDComponent>().UUID;
                 pick.Ray.Heights = &*tile.Heights;
