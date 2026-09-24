@@ -6,7 +6,7 @@
 // gets an error naming a file, because no file is named.
 //
 // WHAT THE NUMBER IS. `Common::AssetHandle::FromCookedPath( <the asset's SOURCE file> )` — FNV-1a over the
-// file's place inside the project behind its root's tag (`assets:Textures/T_Checker.png`). That is one
+// file's place inside the project behind its root's tag (`assets:Textures/T_Checker.detex`). That is one
 // derivation with one owner, so a material's reference and the file it means are two statements of one
 // quantity, and this suite asserts the agreement rather than either side. It is the shape the taxonomy in
 // the `desert-engine-verify` skill keeps naming: both sides individually plausible, the defect living only
@@ -260,8 +260,8 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     // rather than written down — a literal here would be a second copy of the number this suite exists to
     // stop having two of.
     const auto good =
-         static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( content / "Textures" / "T_Checker.png" ) );
-    ASSERT_NE( derived.find( good ), derived.end() ) << "T_Checker.png is missing from the checkout";
+         static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( content / "Textures" / "T_Checker.detex" ) );
+    ASSERT_NE( derived.find( good ), derived.end() ) << "T_Checker.detex is missing from the checkout";
 
     uint64_t bad = good ^ 0x5555555555555555ull;
     while ( derived.find( bad ) != derived.end() )

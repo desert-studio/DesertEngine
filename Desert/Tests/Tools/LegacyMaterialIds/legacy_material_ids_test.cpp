@@ -179,3 +179,9 @@ TEST( LegacyMaterialIds, ReadingTheStatedNumbersOfAV1Text )
     ASSERT_TRUE( stated.GetValue().ParentMaterialId.has_value() );
     EXPECT_EQ( *stated.GetValue().ParentMaterialId, kParentId );
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}

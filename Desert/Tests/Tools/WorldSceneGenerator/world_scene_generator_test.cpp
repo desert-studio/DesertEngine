@@ -564,8 +564,11 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
             // Compared as TEXT, because a handle above 2^53 does not survive rfl::Generic's numeric
             // accessors - which is the defect this suite's own generator hit on its first run, when
             // to_int() turned 6418972230554417713 into 155908657. `adopted` is read from the legacy
-            // register's own raw text, so it never goes through that lossy accessor either.
-            EXPECT_EQ( rfl::json::write( ( *guidList )[i] ), std::to_string( adopted ) )
+            // register's own raw text, so it never goes through that lossy accessor either. rfl::Generic
+            // holds an integer as int64, so a handle at or above 2^63 comes back written as its two's-
+            // complement negative; reading that text back as int64 and reinterpreting it as uint64 is exact.
+            const std::string entryText = rfl::json::write( ( *guidList )[i] );
+            EXPECT_EQ( static_cast<uint64_t>( std::stoll( entryText ) ), adopted )
                  << *relative << ": the scene's MaterialGuids entry does not match the legacy register's "
                  << "adopted id for this file's header GUID (" << *guidText << ")";
             ++checked;
