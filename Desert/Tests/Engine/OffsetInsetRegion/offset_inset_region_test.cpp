@@ -2,8 +2,8 @@
 // algorithm produces for one face, the new face's position, the wall / ring groups, and a closed result.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/Operations/InsetMeshRegion.hpp"
-#include "Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
 
 #include <gtest/gtest.h>
 

@@ -1,6 +1,6 @@
 // Ported from UE 5.8 .../DynamicMesh/Private/Operations/OffsetMeshRegion.cpp (see the header for the line ranges
 // and the adaptations).
-#include "Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"

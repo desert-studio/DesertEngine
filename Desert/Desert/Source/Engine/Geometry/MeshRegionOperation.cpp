@@ -3,8 +3,8 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
-#include "Engine/Geometry/UECore/Operations/InsetMeshRegion.hpp"
-#include "Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
 
 namespace Desert::Geometry
 {

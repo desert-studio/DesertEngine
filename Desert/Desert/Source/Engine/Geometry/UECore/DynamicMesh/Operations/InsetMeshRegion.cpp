@@ -1,10 +1,10 @@
 // Ported from UE 5.8 .../DynamicMesh/Private/Operations/InsetMeshRegion.cpp and PolyEditingEdgeUtil.cpp (see the
 // header for the line ranges and the adaptations).
-#include "Engine/Geometry/UECore/Operations/InsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMeshEditor.hpp"
-#include "Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
