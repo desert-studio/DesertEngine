@@ -806,7 +806,9 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // workers reading cells - see TheScanFindsTheCensusedPopulation.
     // -> 345 with M17: XformEntityState::Mesh and XformCommand::Gone::Mesh.
     // -> 348 with P8a: EditMeshBridge's cached EditMesh view and the selection tools' EditMesh views.
-    EXPECT_EQ( CountOf( Form::Shared ), 348 );
+    // -> 350 with P12: ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, the same immutable
+    // EditMesh held by the tool and by its committed snapshot - see TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 350 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

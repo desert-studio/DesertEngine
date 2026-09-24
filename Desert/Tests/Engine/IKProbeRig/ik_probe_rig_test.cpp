@@ -260,7 +260,7 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
     {
         const std::string text = ReadFile( RepoRoot() + scene );
         ASSERT_FALSE( text.empty() ) << "could not read " << scene;
-        EXPECT_NE( text.find( "\"MeshGuid\":" + std::to_string( kMeshHandle ) ), std::string::npos )
+        EXPECT_NE( text.find( "\"MeshGuid\": " + std::to_string( kMeshHandle ) ), std::string::npos )
              << scene
              << " no longer stores the probe mesh's path-derived handle, so the scene that places "
                 "the rig would resolve to no mesh at all.";
@@ -356,9 +356,9 @@ TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
     // the two agree, and a frame showing the hand beside the post would look like a solver bug either way.
     const std::string scene = ReadFile( RepoRoot() + kWitness );
     ASSERT_FALSE( scene.empty() );
-    EXPECT_NE( scene.find( "\"Goal\":[90.0,150.0,0.0]" ), std::string::npos )
+    EXPECT_NE( scene.find( "\"Goal\": [90.0, 150.0, 0.0]" ), std::string::npos )
          << "the witness scene's authored goal is not the post bone's position any more.";
-    EXPECT_NE( scene.find( std::string( "\"EndBone\":\"" ) + kHand + "\"" ), std::string::npos );
+    EXPECT_NE( scene.find( std::string( "\"EndBone\": \"" ) + kHand + "\"" ), std::string::npos );
     EXPECT_NEAR( glm::length( post - glm::vec3( 90.0F, 150.0F, 0.0F ) ), 0.0F, 1e-3F );
 
     // "REACHED, NOT CLAMPED": strictly inside the shell, with room either side, so the shots show the

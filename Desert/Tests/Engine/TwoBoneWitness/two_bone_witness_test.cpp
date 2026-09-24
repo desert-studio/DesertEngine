@@ -380,7 +380,7 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
                kWitnessMeshHandle );
     const std::string scene = ReadFile( RepoRoot() + kSceneFile );
     ASSERT_FALSE( scene.empty() ) << "could not read " << kSceneFile;
-    EXPECT_NE( scene.find( "\"MeshGuid\":" + std::to_string( kWitnessMeshHandle ) ), std::string::npos )
+    EXPECT_NE( scene.find( "\"MeshGuid\": " + std::to_string( kWitnessMeshHandle ) ), std::string::npos )
          << kSceneFile
          << " no longer stores the witness mesh's path-derived handle, so the scene that "
             "places the rig would resolve to no mesh at all.";
