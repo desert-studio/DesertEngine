@@ -103,6 +103,16 @@ namespace Desert::Geometry
     template <typename Signature>
     using TFunctionRef = std::function<Signature>;
 
+    // UE's ParallelFor (Async/ParallelFor.h), serial: UECore links no task system. Every ported caller writes
+    // disjoint outputs per index or accumulates through std::atomic, so running the body in index order gives
+    // the same results UE's threaded run does (float accumulation order aside).
+    inline void ParallelFor( int32 Num, const std::function<void( int32 )>& Body, bool bForceSingleThread = false )
+    {
+        (void)bForceSingleThread;
+        for ( int32 Index = 0; Index < Num; ++Index )
+            Body( Index );
+    }
+
     template <typename T>
     struct TNumericLimits
     {
@@ -184,7 +194,8 @@ namespace Desert::Geometry
 
         void SetNumZeroed( int32 NewNum, EAllowShrinking = EAllowShrinking::Yes )
         {
-            Data.assign( static_cast<size_t>( NewNum ), T{} );
+            // Constructs rather than assigns so element types that cannot be copied (std::atomic) still zero.
+            Data = std::vector<T>( static_cast<size_t>( NewNum ) );
         }
 
         // std::vector's reference type, so TArray<bool> (a bit-vector underneath) indexes too.
@@ -398,6 +409,27 @@ namespace Desert::Geometry
     class TSet
     {
     public:
+        TSet() = default;
+        // UE's TSet(const TArray<T>&) and Append: every element of a range, duplicates collapsing.
+        template <typename RangeType>
+        explicit TSet( const RangeType& Items )
+        {
+            Append( Items );
+        }
+        template <typename RangeType>
+        void Append( const RangeType& Items )
+        {
+            for ( const T& Item : Items )
+                Data.insert( Item );
+        }
+        // UE returns the elements in the set's own order; callers here treat the result as unordered.
+        TArray<T> Array() const
+        {
+            TArray<T> Out;
+            for ( const T& Item : Data )
+                Out.Add( Item );
+            return Out;
+        }
         void Add( const T& Item )
         {
             Data.insert( Item );
@@ -417,6 +449,11 @@ namespace Desert::Geometry
         void Empty()
         {
             Data.clear();
+        }
+        // UE keeps the allocation; std::unordered_set::clear already does.
+        void Reset()
+        {
+            Empty();
         }
         void Reserve( int32 Count )
         {

@@ -23,6 +23,7 @@ namespace Desert::Geometry
         static constexpr float FourPi         = 4.0f * Pi;
         static constexpr float TwoPi          = 2.0f * Pi;
         static constexpr float HalfPi         = 0.5f * Pi;
+        static constexpr float DegToRad       = Pi / 180.0f;
     };
 
     template <>
@@ -36,6 +37,7 @@ namespace Desert::Geometry
         static constexpr double FourPi         = 4.0 * Pi;
         static constexpr double TwoPi          = 2.0 * Pi;
         static constexpr double HalfPi         = 0.5 * Pi;
+        static constexpr double DegToRad       = Pi / 180.0;
     };
 
     template <typename RealType>
@@ -65,6 +67,10 @@ namespace Desert::Geometry
         static inline RealType Min( const RealType A, const RealType B )
         {
             return ( A <= B ) ? A : B;
+        }
+        static inline RealType Cos( const RealType Value )
+        {
+            return std::cos( Value );
         }
         static inline RealType Sqrt( const RealType Value )
         {
