@@ -23,7 +23,8 @@ namespace fs = std::filesystem;
 
 namespace
 {
-    constexpr Common::DDC::Deriver kTestDeriver{ "TestBucket", ".bin", { 0x1111222233334444ULL, 0x5555666677778888ULL } };
+    constexpr Common::DDC::Deriver kTestDeriver{
+         "TestBucket", ".bin", { 0x1111222233334444ULL, 0x5555666677778888ULL } };
 
     fs::path RepoRoot()
     {
@@ -58,7 +59,7 @@ TEST( DerivedDataKey, KeyMovesWithEverySettingAndTheDeriverVersion )
 {
     const uint64_t                payload  = Common::Utils::PakContentHash( "payload", 7 );
     const std::array<uint32_t, 3> settings = { 64, 2, 1024 };
-    const uint64_t                base     = Common::DDC::MakeKey( kTestDeriver, payload, settings.data(), sizeof( settings ) );
+    const uint64_t base = Common::DDC::MakeKey( kTestDeriver, payload, settings.data(), sizeof( settings ) );
 
     EXPECT_EQ( base, Common::DDC::MakeKey( kTestDeriver, payload, settings.data(), sizeof( settings ) ) )
          << "the key must be a pure function of its inputs";
@@ -71,14 +72,17 @@ TEST( DerivedDataKey, KeyMovesWithEverySettingAndTheDeriverVersion )
              << "setting #" << i << " changed and the key did not";
     }
 
-    constexpr Common::DDC::Deriver bumpedHi{ "TestBucket", ".bin", { 0x1111222233334445ULL, 0x5555666677778888ULL } };
-    constexpr Common::DDC::Deriver bumpedLo{ "TestBucket", ".bin", { 0x1111222233334444ULL, 0x5555666677778889ULL } };
+    constexpr Common::DDC::Deriver bumpedHi{
+         "TestBucket", ".bin", { 0x1111222233334445ULL, 0x5555666677778888ULL } };
+    constexpr Common::DDC::Deriver bumpedLo{
+         "TestBucket", ".bin", { 0x1111222233334444ULL, 0x5555666677778889ULL } };
     EXPECT_NE( base, Common::DDC::MakeKey( bumpedHi, payload, settings.data(), sizeof( settings ) ) )
          << "a new deriver GUID (high half) must invalidate every entry";
     EXPECT_NE( base, Common::DDC::MakeKey( bumpedLo, payload, settings.data(), sizeof( settings ) ) )
          << "a new deriver GUID (low half) must invalidate every entry";
 
-    constexpr Common::DDC::Deriver otherBucket{ "OtherBucket", ".bin", { 0x1111222233334444ULL, 0x5555666677778888ULL } };
+    constexpr Common::DDC::Deriver otherBucket{
+         "OtherBucket", ".bin", { 0x1111222233334444ULL, 0x5555666677778888ULL } };
     EXPECT_NE( base, Common::DDC::MakeKey( otherBucket, payload, settings.data(), sizeof( settings ) ) );
 
     EXPECT_NE( base, Common::DDC::MakeKey( kTestDeriver, payload + 1, settings.data(), sizeof( settings ) ) )
@@ -88,7 +92,7 @@ TEST( DerivedDataKey, KeyMovesWithEverySettingAndTheDeriverVersion )
 
 TEST( DerivedDataKey, KeyDoesNotMoveWithTheSourcePath )
 {
-    const fs::path dir = fs::temp_directory_path() / "desert_ddc_path_invariance";
+    const fs::path  dir = fs::temp_directory_path() / "desert_ddc_path_invariance";
     std::error_code ec;
     fs::remove_all( dir, ec );
     fs::create_directories( dir / "Moved" / "Deeper", ec );
@@ -97,7 +101,8 @@ TEST( DerivedDataKey, KeyDoesNotMoveWithTheSourcePath )
         std::ofstream( p, std::ios::binary ) << bytes;
 
     const std::vector<uint32_t> settings = { 48, 4 };
-    EXPECT_EQ( KeyOfFile( dir / "Original.ttf", settings ), KeyOfFile( dir / "Moved" / "Deeper" / "Renamed.ttf", settings ) )
+    EXPECT_EQ( KeyOfFile( dir / "Original.ttf", settings ),
+               KeyOfFile( dir / "Moved" / "Deeper" / "Renamed.ttf", settings ) )
          << "moving or renaming an asset must hit the same DDC entry";
     fs::remove_all( dir, ec );
 }
@@ -111,7 +116,8 @@ TEST( DerivedDataKey, LayoutIsUEBucketFanOut )
     static_assert( !Common::DDC::IsValidBucketName( "" ) );
     static_assert( !Common::DDC::IsValidBucketName( "../escape" ) );
     static_assert( !Common::DDC::IsValidBucketName( "with space" ) );
-    static_assert( !Common::DDC::IsValidBucketName( std::string_view( "a123456789012345678901234567890123456789012345678901234567890123" ) ) );
+    static_assert( !Common::DDC::IsValidBucketName(
+         std::string_view( "a123456789012345678901234567890123456789012345678901234567890123" ) ) );
 }
 
 TEST( DerivedDataKey, RootComesFromTheSettingAndDefaultsIntoTheProject )
@@ -124,7 +130,7 @@ TEST( DerivedDataKey, RootComesFromTheSettingAndDefaultsIntoTheProject )
 #endif
 
     // The live root follows the machine setting — read, not cached.
-    auto& machine                = Common::Settings::MachineSettings::Get();
+    auto&             machine    = Common::Settings::MachineSettings::Get();
     const std::string previous   = machine.DerivedDataCachePath;
     machine.DerivedDataCachePath = "ElsewhereDDC";
     EXPECT_EQ( Common::DDC::Root().filename(), "ElsewhereDDC" );
@@ -133,14 +139,15 @@ TEST( DerivedDataKey, RootComesFromTheSettingAndDefaultsIntoTheProject )
 
 TEST( DerivedDataKey, PutThenGetAndAPackagedGameLooksUnderCooked )
 {
-    const fs::path project = fs::temp_directory_path() / "desert_ddc_roundtrip";
+    const fs::path  project = fs::temp_directory_path() / "desert_ddc_roundtrip";
     std::error_code ec;
     fs::remove_all( project, ec );
     Common::Constants::Path::SetProjectRoot( project, "Assets" );
 
     EXPECT_FALSE( Common::DDC::Get( kTestDeriver, 42 ).has_value() ) << "an empty DDC is a miss, not an error";
     ASSERT_TRUE( Common::DDC::Put( kTestDeriver, 42, "derived bytes" ) );
-    EXPECT_TRUE( fs::is_regular_file( project / "DerivedDataCache" / Common::DDC::RelativePath( kTestDeriver, 42 ) ) );
+    EXPECT_TRUE(
+         fs::is_regular_file( project / "DerivedDataCache" / Common::DDC::RelativePath( kTestDeriver, 42 ) ) );
     EXPECT_EQ( Common::DDC::Get( kTestDeriver, 42 ).value_or( "" ), "derived bytes" );
 
     fs::remove_all( project / "DerivedDataCache", ec );
@@ -148,10 +155,12 @@ TEST( DerivedDataKey, PutThenGetAndAPackagedGameLooksUnderCooked )
 
     const fs::path loose = Common::DDC::PathFor( kTestDeriver, 42 );
     EXPECT_EQ( Common::DDC::PackagedPath( loose ).lexically_normal(),
-               ( Common::Constants::Path::COOKED_PATH / Common::DDC::RelativePath( kTestDeriver, 42 ) ).lexically_normal() );
+               ( Common::Constants::Path::COOKED_PATH / Common::DDC::RelativePath( kTestDeriver, 42 ) )
+                    .lexically_normal() );
     EXPECT_EQ( Common::DDC::PackagedPath( project / "Other.txt" ), project / "Other.txt" );
 
-    EXPECT_EQ( Common::DDC::PlatformCookedDir(), ( project / "Saved" / "Cooked" / Common::DDC::CookPlatformName() ).lexically_normal() );
+    EXPECT_EQ( Common::DDC::PlatformCookedDir(),
+               ( project / "Saved" / "Cooked" / Common::DDC::CookPlatformName() ).lexically_normal() );
     Common::Constants::Path::ResetToSandbox();
     fs::remove_all( project, ec );
 }
@@ -173,7 +182,8 @@ namespace
         return out;
     }
 
-    const std::array<const char*, 3> kEngineSourceRoots = { "Desert/Desert/Source", "Editor/Source", "Runtime/Source" };
+    const std::array<const char*, 3> kEngineSourceRoots = { "Desert/Desert/Source", "Editor/Source",
+                                                            "Runtime/Source" };
 } // namespace
 
 TEST( DerivedDataKey, OnlyThePackagerNamesSavedCooked )
@@ -185,13 +195,14 @@ TEST( DerivedDataKey, OnlyThePackagerNamesSavedCooked )
         for ( const fs::path& file : SourcesUnder( repo / root ) )
         {
             ++scanned;
-            const std::string text = ReadText( file );
-            const bool names = text.find( "PlatformCookedDir" ) != std::string::npos ||
+            const std::string text  = ReadText( file );
+            const bool        names = text.find( "PlatformCookedDir" ) != std::string::npos ||
                                text.find( "Saved/Cooked" ) != std::string::npos;
             const std::string rel = file.lexically_relative( repo ).generic_string();
             if ( names )
                 EXPECT_EQ( rel.rfind( "Editor/Source/Editor/Packaging/", 0 ), 0u )
-                     << rel << " names the packager's cook output; the editor and the engine never read Saved/Cooked";
+                     << rel
+                     << " names the packager's cook output; the editor and the engine never read Saved/Cooked";
         }
     EXPECT_GT( scanned, 500u ) << "the census read almost nothing — wrong root";
 }
@@ -200,9 +211,9 @@ TEST( DerivedDataKey, NoDerivedCacheIsSpelledUnderTheCookedTree )
 {
     // The six caches moved into the DDC. A path that joins COOKED_PATH with one of their names is the
     // old home coming back, and the entries would land in the tree a package ships wholesale.
-    const std::array<const char*, 6> caches = { "ShaderCache", "PipelineCache", "FontCache", "IconCache",
-                                                "EnvironmentCache", "Thumbnails" };
-    const fs::path repo = RepoRoot();
+    const std::array<const char*, 6> caches = { "ShaderCache", "PipelineCache",    "FontCache",
+                                                "IconCache",   "EnvironmentCache", "Thumbnails" };
+    const fs::path                   repo   = RepoRoot();
     ASSERT_FALSE( repo.empty() );
     for ( const char* root : kEngineSourceRoots )
         for ( const fs::path& file : SourcesUnder( repo / root ) )
@@ -229,7 +240,7 @@ TEST( DerivedDataKey, GitIgnoresTheCacheAndNeverReIncludesIt )
     ASSERT_FALSE( repo.empty() );
     std::istringstream lines( ReadText( repo / ".gitignore" ) );
     std::string        line;
-    bool               ignored = false;
+    bool               ignored      = false;
     bool               savedIgnored = false;
     while ( std::getline( lines, line ) )
     {

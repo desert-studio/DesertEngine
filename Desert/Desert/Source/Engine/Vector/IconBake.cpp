@@ -66,8 +66,8 @@ namespace Desert::Vector
 
     namespace
     {
-        constexpr Common::DDC::Deriver kIconDeriver{ "IconCache", ".dicon",
-                                                     { 0x91c6e2b04f7a3d58ULL, 0x0d7f35a9c2e81b46ULL } };
+        constexpr Common::DDC::Deriver kIconDeriver{
+             "IconCache", ".dicon", { 0x91c6e2b04f7a3d58ULL, 0x0d7f35a9c2e81b46ULL } };
     } // namespace
 
     uint64_t IconCacheKey( const std::vector<uint8_t>& svg )

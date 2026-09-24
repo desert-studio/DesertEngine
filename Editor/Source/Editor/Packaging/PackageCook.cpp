@@ -273,10 +273,10 @@ namespace Desert::Editor
         void StageCookedEntries( CookStats& stats )
         {
             constexpr std::string_view kShippedBuckets[] = { "ShaderCache", "FontCache", "IconCache",
-                                                              "EnvironmentCache", "PipelineCache" };
-            const fs::path  cooked  = Common::DDC::PlatformCookedDir();
-            const fs::path  ddcRoot = Common::DDC::Root();
-            std::error_code ec;
+                                                             "EnvironmentCache", "PipelineCache" };
+            const fs::path             cooked            = Common::DDC::PlatformCookedDir();
+            const fs::path             ddcRoot           = Common::DDC::Root();
+            std::error_code            ec;
             fs::remove_all( cooked, ec );
             fs::create_directories( cooked, ec );
 

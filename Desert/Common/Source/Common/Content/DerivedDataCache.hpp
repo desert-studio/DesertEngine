@@ -42,7 +42,7 @@ namespace Common::DDC
     // FCacheBucket::IsValidName: alphanumeric, non-empty, at most 63 code units. It becomes a directory
     // name, so the rule is also what keeps a bucket from escaping the root.
     inline constexpr std::size_t BUCKET_MAX_NAME_LEN = 63;
-    constexpr bool IsValidBucketName( const std::string_view name ) noexcept
+    constexpr bool               IsValidBucketName( const std::string_view name ) noexcept
     {
         if ( name.empty() || name.size() > BUCKET_MAX_NAME_LEN )
             return false;
@@ -73,7 +73,7 @@ namespace Common::DDC
         // consteval-checked at every declaration site: a bucket that is not a valid name does not compile.
         consteval Deriver( const std::string_view bucket, const std::string_view extension,
                            const DeriverVersion version )
-            : Bucket( bucket ), Extension( extension ), Version( version )
+             : Bucket( bucket ), Extension( extension ), Version( version )
         {
             if ( !IsValidBucketName( bucket ) )
                 throw "DDC bucket names are alphanumeric and at most 63 characters (UE FCacheBucket)";
@@ -104,7 +104,8 @@ namespace Common::DDC
     std::optional<std::string> Get( const Deriver& deriver, uint64_t key );
     bool                       Put( const Deriver& deriver, uint64_t key, std::string_view bytes );
 
-    // Root() / "Buckets" / bucket — for derivers whose entries are not addressed by MakeKey (thumbnails, see there).
+    // Root() / "Buckets" / bucket — for derivers whose entries are not addressed by MakeKey (thumbnails, see
+    // there).
     std::filesystem::path BucketDir( std::string_view bucket );
 
     // Where a packaged game finds the entry whose loose DDC path is `loosePath`: COOKED_PATH/<relative>.

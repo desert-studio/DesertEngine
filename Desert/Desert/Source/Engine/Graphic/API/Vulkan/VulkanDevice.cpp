@@ -26,9 +26,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             // One blob per DDC: its validity is the DRIVER's call (the header carries vendor, device and
             // pipelineCacheUUID and a mismatch is discarded), so there is no payload to hash here.
-            constexpr Common::DDC::Deriver kPipelineDeriver{ "PipelineCache", ".bin",
-                                                             { 0xc83f1a6d29e7054bULL, 0x76b2e9f04a1d3c85ULL } };
-            return Common::DDC::PathFor( kPipelineDeriver, Common::DDC::MakeKey( kPipelineDeriver, 0, nullptr, 0 ) );
+            constexpr Common::DDC::Deriver kPipelineDeriver{
+                 "PipelineCache", ".bin", { 0xc83f1a6d29e7054bULL, 0x76b2e9f04a1d3c85ULL } };
+            return Common::DDC::PathFor( kPipelineDeriver,
+                                         Common::DDC::MakeKey( kPipelineDeriver, 0, nullptr, 0 ) );
         }
     } // namespace
 

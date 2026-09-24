@@ -89,11 +89,11 @@ namespace Desert::Graphic
     std::filesystem::path EnvironmentBakePath( const uint64_t sourceSignature, const uint64_t bakeSignature )
     {
         // Payload = the panorama's own signature; setting = the cube's shape (which cube, size, mips).
-        constexpr Common::DDC::Deriver kEnvironmentDeriver{ "EnvironmentCache", ".tex",
-                                                            { 0x5e0b8d3712f4a6c9ULL, 0xe47a2c9150b3d68fULL } };
-        return Common::DDC::PathFor( kEnvironmentDeriver, Common::DDC::MakeKey( kEnvironmentDeriver, sourceSignature,
-                                                                                &bakeSignature,
-                                                                                sizeof( bakeSignature ) ) );
+        constexpr Common::DDC::Deriver kEnvironmentDeriver{
+             "EnvironmentCache", ".tex", { 0x5e0b8d3712f4a6c9ULL, 0xe47a2c9150b3d68fULL } };
+        return Common::DDC::PathFor( kEnvironmentDeriver,
+                                     Common::DDC::MakeKey( kEnvironmentDeriver, sourceSignature, &bakeSignature,
+                                                           sizeof( bakeSignature ) ) );
     }
 
     Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr )

@@ -18,8 +18,8 @@ namespace Desert::Text
 {
     namespace
     {
-        constexpr Common::DDC::Deriver kFontDeriver{ "FontCache", ".dfont",
-                                                     { 0x2f94d7a15c0e3b86ULL, 0xb31e6d08a4c97f25ULL } };
+        constexpr Common::DDC::Deriver kFontDeriver{
+             "FontCache", ".dfont", { 0x2f94d7a15c0e3b86ULL, 0xb31e6d08a4c97f25ULL } };
     } // namespace
 
     uint64_t FontCacheKey( const std::vector<uint8_t>& ttf, float pixelHeight,
@@ -30,10 +30,10 @@ namespace Desert::Text
         // produce a different key. A different glyph set is a different atlas, so the extra
         // codepoints are settings too.
         constexpr float       kBandHashScale = 256.0F;
-        std::vector<uint64_t> settings       = {
-             static_cast<uint64_t>( static_cast<int>( pixelHeight ) ), static_cast<uint64_t>( kGlyphPadding ),
-             static_cast<uint64_t>( kAtlasWidth ),
-             static_cast<uint64_t>( kDistanceRangeTexels * kBandHashScale ) };
+        std::vector<uint64_t> settings       = { static_cast<uint64_t>( static_cast<int>( pixelHeight ) ),
+                                                 static_cast<uint64_t>( kGlyphPadding ),
+                                                 static_cast<uint64_t>( kAtlasWidth ),
+                                                 static_cast<uint64_t>( kDistanceRangeTexels * kBandHashScale ) };
         for ( uint32_t cp : extraCodepoints )
             settings.push_back( cp );
         return Common::DDC::MakeKey( kFontDeriver, Common::Utils::PakContentHash( ttf.data(), ttf.size() ),

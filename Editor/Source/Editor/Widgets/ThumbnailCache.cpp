@@ -26,8 +26,7 @@ namespace Desert::Editor
         // texture an artist happened to file under a folder called Thumbnails — and this predicate is the
         // one thing standing between a decode failure and `remove()`.
         std::error_code ec;
-        const auto      root =
-             std::filesystem::weakly_canonical( Common::DDC::BucketDir( "Thumbnails" ), ec );
+        const auto      root = std::filesystem::weakly_canonical( Common::DDC::BucketDir( "Thumbnails" ), ec );
         if ( ec )
             return false;
 
