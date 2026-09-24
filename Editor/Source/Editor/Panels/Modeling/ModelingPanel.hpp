@@ -2,6 +2,9 @@
 
 #include "../IPanel.hpp"
 
+#include <Common/Core/ResultStr.hpp>
+#include <Common/Core/UUID.hpp>
+
 #include <memory>
 
 namespace Desert::Core
@@ -29,6 +32,11 @@ namespace Desert::Editor
         }
 
         bool IsRelevant() const override;
+
+        // Trim's cutter. The panel's Pick Cutter takes the first selected entity other than the one being
+        // edited; the palette names one. Both refuse the edited entity itself, which cannot cut itself.
+        static Common::BoolResultStr PickTrimCutterFromSelection();
+        static Common::BoolResultStr PickTrimCutter( const Common::UUID& cutter );
         void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override
         {
             m_Scene = scene;
@@ -42,5 +50,6 @@ namespace Desert::Editor
 
         std::shared_ptr<Desert::Core::Scene> m_Scene;
         int                                  m_Category = 0; // index into the rail: 0 = Create, 1 = Model
+        int                                  m_ShownTool = 0; // the ModelingState::Tool the rail last followed
     };
 } // namespace Desert::Editor

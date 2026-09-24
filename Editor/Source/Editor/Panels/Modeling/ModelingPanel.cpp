@@ -3,6 +3,7 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
@@ -38,6 +39,18 @@ namespace Desert::Editor
         // The editor's ONE accent colour. A panel that mixes its own blue in is how a UI ends up looking
         // assembled from parts.
         const ImVec4 sel = ThemeManager::GetSelectedColor();
+
+        // The rail follows a tool chosen from outside the panel (the palette, the control channel), so the
+        // properties of the tool that is active are the ones on screen. A person's own click on the rail
+        // still wins until the tool changes again.
+        if ( static_cast<int>( ms.ActiveTool ) != m_ShownTool )
+        {
+            m_ShownTool = static_cast<int>( ms.ActiveTool );
+            if ( ms.ActiveTool == MS::Tool::CubeGrid || ms.ActiveTool == MS::Tool::CreateShape )
+                m_Category = 0;
+            else if ( ms.ActiveTool == MS::Tool::PolyEdit || ms.ActiveTool == MS::Tool::ElementSelect )
+                m_Category = 1;
+        }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
@@ -200,13 +213,10 @@ namespace Desert::Editor
 
                 // Grid Power: block size = 1 m >> power (Power 2 = 25 cm), like UE's slider. Typing a free
                 // Current Block Size below still wins — the power just snaps to the nearest step.
-                int power = 0;
-                for ( float sz = MS::BaseBlockSize; power < MS::MaxGridPower && sz > ms.CellSize + 0.01f; ++power )
-                    sz *= 0.5f;
+                int power = ms.GridPower();
                 ImGui::SetNextItemWidth( 120.0f );
                 if ( ImGui::SliderInt( "Grid Power", &power, 0, MS::MaxGridPower ) )
-                    ms.CellSize =
-                         std::max( MS::MinCellSize, MS::BaseBlockSize / static_cast<float>( 1 << power ) );
+                    ms.SetGridPower( power );
             }
             if ( Utils::ImGuiUtilities::SectionHeader( "Corner Mode" ) )
             {
@@ -264,10 +274,10 @@ namespace Desert::Editor
                     ms.CellSize = std::max( kMinBlock, ms.CellSize );
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "/2##bs" ) )
-                    ms.CellSize = std::max( ms.CellSize * 0.5f, kMinBlock );
+                    ms.HalveBlockSize();
                 ImGui::SameLine();
                 if ( ImGui::SmallButton( "x2##bs" ) )
-                    ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
+                    ms.DoubleBlockSize();
                 // Blocks Per Step: how many cells one Push/Pull moves (UE multiplier).
                 ImGui::SetNextItemWidth( 120.0f );
                 if ( ImGui::SliderInt( "Blocks / Step", &ms.BlocksPerStep, 1, 32 ) )
@@ -400,6 +410,24 @@ namespace Desert::Editor
     }
 
     // UE's "Output Type" section (UCreateMeshObjectTypeProperties), shared by the creating tools.
+    Common::BoolResultStr ModelingPanel::PickTrimCutterFromSelection()
+    {
+        // The first selected entity that is not the one being edited.
+        Core::ModelingState::Get().ElementTrimCutter = Common::UUID::Null();
+        for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
+            if ( id != Core::MeshElementSelection::Get().Entity() )
+                return PickTrimCutter( id );
+        return Common::MakeError<bool>( "select the cutter entity (besides the edited one) before Pick Cutter" );
+    }
+
+    Common::BoolResultStr ModelingPanel::PickTrimCutter( const Common::UUID& cutter )
+    {
+        if ( cutter == Core::MeshElementSelection::Get().Entity() )
+            return Common::MakeError<bool>( "the entity being edited cannot be its own Trim cutter" );
+        Core::ModelingState::Get().ElementTrimCutter = cutter;
+        return Common::MakeSuccess( true );
+    }
+
     void ModelingPanel::DrawOutputType()
     {
         using MS  = Core::ModelingState;
@@ -568,16 +596,8 @@ namespace Desert::Editor
         // Trim (UE's Trim tool): another entity's closed convex mesh cuts this one; the cut stays open.
         if ( ImGui::Button( "Pick Cutter", ImVec2( half, 0.0f ) ) )
         {
-            // The first selected entity that is not the one being edited.
-            ms.ElementTrimCutter = Common::UUID::Null();
-            for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
-                if ( id != Core::MeshElementSelection::Get().Entity() )
-                {
-                    ms.ElementTrimCutter = id;
-                    break;
-                }
-            if ( ms.ElementTrimCutter.IsNull() )
-                LOG_WARN( "Mesh Trim: select the cutter entity (besides the edited one) before Pick Cutter" );
+            if ( const auto picked = PickTrimCutterFromSelection(); !picked )
+                LOG_WARN( "Mesh Trim: {}", picked.GetError() );
         }
         ImGui::SameLine();
         if ( ms.ElementTrimCutter.IsNull() )
@@ -590,6 +610,88 @@ namespace Desert::Editor
             ms.ElementTrimSide = outside ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside;
         if ( ImGui::Button( Core::ToString( MO::Trim ), ImVec2( -1.0f, 0.0f ) ) )
             operate( MO::Trim );
+
+        // XForm (UE's XForm tab): whole entities of the scene selection, not the element selection.
+        ImGui::Separator();
+        ImGui::TextDisabled( "XForm" );
+        using XO             = Core::XformOperation;
+        const auto transform = [&]( XO op )
+        {
+            if ( !m_Scene )
+            {
+                LOG_WARN( "{0}: the Modeling panel has no scene", Core::ToString( op ) );
+                return;
+            }
+            report( Core::ApplyXformOperation( *m_Scene, op, Core::XformArgsFromModelingState() ) );
+        };
+        const char* pivots[] = { "Bounds Center", "Bounds Base", "World Origin", "World Point" };
+        int         pivot    = static_cast<int>( ms.XformPivot );
+        ImGui::SetNextItemWidth( half );
+        if ( ImGui::Combo( "##XformPivot", &pivot, pivots, 4 ) )
+            ms.XformPivot = static_cast<Geometry::PivotLocation>( pivot );
+        if ( ms.XformPivot == Geometry::PivotLocation::WorldPoint )
+            ImGui::DragFloat3( "##XformPivotPoint", &ms.XformPivotWorldPoint.x, 1.0f, -1.0e6f, 1.0e6f, "%.1f cm" );
+        ImGui::SameLine();
+        if ( ImGui::Button( Core::ToString( XO::EditPivot ), ImVec2( -1.0f, 0.0f ) ) )
+            transform( XO::EditPivot );
+        ImGui::Checkbox( "Rotation##Bake", &ms.XformBake.Rotation );
+        ImGui::SameLine();
+        ImGui::Checkbox( "Scale##Bake", &ms.XformBake.Scale );
+        ImGui::SameLine();
+        ImGui::Checkbox( "Location##Bake", &ms.XformBake.Translation );
+        if ( ImGui::Button( Core::ToString( XO::BakeTransform ), ImVec2( -1.0f, 0.0f ) ) )
+            transform( XO::BakeTransform );
+        if ( ImGui::Button( Core::ToString( XO::Merge ), ImVec2( half, 0.0f ) ) )
+            transform( XO::Merge );
+        ImGui::SameLine();
+        if ( ImGui::Button( Core::ToString( XO::Split ), ImVec2( -1.0f, 0.0f ) ) )
+            transform( XO::Split );
+        bool byGroups = ms.XformSplit == Geometry::SplitMethod::PolyGroups;
+        if ( ImGui::Checkbox( "Split by polygroups", &byGroups ) )
+            ms.XformSplit =
+                 byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
+        Geometry::PatternSettings& pattern  = ms.XformPattern;
+        const char*                shapes[] = { "Line", "Grid", "Circle" };
+        int                        shape    = static_cast<int>( pattern.Shape );
+        ImGui::SetNextItemWidth( half );
+        if ( ImGui::Combo( "##XformPatternShape", &shape, shapes, 3 ) )
+            pattern.Shape = static_cast<Geometry::PatternShape>( shape );
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( half );
+        ImGui::Combo( "##XformPatternAxis", &pattern.AxisA, axes, 3 );
+        ImGui::SetNextItemWidth( half );
+        ImGui::DragInt( "##XformPatternCount", &pattern.Count, 0.1f, 1, Geometry::kMaxPatternCopies, "Count %d" );
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( half );
+        if ( pattern.Shape == Geometry::PatternShape::Circle )
+            ImGui::DragFloat( "##XformPatternRadius", &pattern.Radius, 1.0f, 0.0f, 1.0e6f, "Radius %.1f cm" );
+        else
+            ImGui::DragFloat( "##XformPatternSpacing", &pattern.Spacing, 1.0f, -1.0e6f, 1.0e6f,
+                              "Spacing %.1f cm" );
+        if ( pattern.Shape == Geometry::PatternShape::Grid )
+        {
+            ImGui::SetNextItemWidth( half );
+            ImGui::Combo( "##XformPatternAxisB", &pattern.AxisB, axes, 3 );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( half );
+            ImGui::DragInt( "##XformPatternCountB", &pattern.CountB, 0.1f, 1, Geometry::kMaxPatternCopies,
+                            "Count %d" );
+            ImGui::SetNextItemWidth( half );
+            ImGui::DragFloat( "##XformPatternSpacingB", &pattern.SpacingB, 1.0f, -1.0e6f, 1.0e6f,
+                              "Spacing %.1f cm" );
+        }
+        if ( pattern.Shape == Geometry::PatternShape::Circle )
+        {
+            ImGui::SetNextItemWidth( half );
+            ImGui::DragFloat( "##XformPatternSweep", &pattern.SweepDegrees, 1.0f, -360.0f, 360.0f,
+                              "Sweep %.0f deg" );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Orient", &pattern.OrientToCircle );
+        }
+        ImGui::Checkbox( "Separate entities##Pattern", &ms.XformPatternSeparate );
+        if ( ImGui::Button( Core::ToString( XO::Pattern ), ImVec2( -1.0f, 0.0f ) ) )
+            transform( XO::Pattern );
+
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
         ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );
