@@ -20,6 +20,7 @@
 #include "Tools/FoliagePaintTool.hpp"
 #include "Tools/CubeGridTool.hpp"
 #include "Tools/CreateShapeTool.hpp"
+#include "Tools/ActiveToolBar.hpp"
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/PolyEditTool.hpp"
 #include "Tools/GizmoController.hpp"

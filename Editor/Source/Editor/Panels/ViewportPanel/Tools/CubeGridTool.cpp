@@ -769,12 +769,13 @@ namespace Desert::Editor::Tools
         for ( const Layer& l : m_Volume.Frozen )
             ms.Cubes += static_cast<int>( l.Cells.size() );
 
-        // --- Viewport bottom bar: tool + Level shift + Push/Pull + Resize Grid + Accept/Cancel. ---
+        // --- Viewport bar: Level shift + Push/Pull + Corner + Resize Grid. It sits one row above the shared
+        // tool bar (ActiveToolBar), which carries the tool's name and Accept/Cancel for every tool. ---
         if ( toolActive )
         {
             ::ImGui::SetNextWindowPos(
-                 ImVec2( viewportPos.x + viewportSize.x * 0.5f, viewportPos.y + viewportSize.y - 58.0f ),
-                 ImGuiCond_Always, ImVec2( 0.5f, 0.0f ) );
+                 ImVec2( viewportPos.x + viewportSize.x * 0.5f, viewportPos.y + viewportSize.y - 66.0f ),
+                 ImGuiCond_Always, ImVec2( 0.5f, 1.0f ) );
             ::ImGui::SetNextWindowBgAlpha( 0.92f );
             ::ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 12.0f, 8.0f ) );
             ::ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 10.0f, 6.0f ) );
@@ -784,12 +785,8 @@ namespace Desert::Editor::Tools
                                       ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
                                       ImGuiWindowFlags_NoNav ) )
             {
-                ::ImGui::AlignTextToFramePadding();
-                ::ImGui::TextUnformatted( ICON_MDI_GRID "  CubeGrid" );
-
                 // Level: shift the ground work-plane one block up/down (the hover preview follows it), and
                 // carry a selection that sits on that plane along with it.
-                ::ImGui::SameLine( 0.0f, 14.0f );
                 const bool onGround = m_HasSel && m_Plane.Na == 1 && m_Plane.Sign > 0;
                 if ( ::ImGui::Button( ICON_MDI_ARROW_UP "##lvlup" ) )
                 {
@@ -856,19 +853,6 @@ namespace Desert::Editor::Tools
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( ICON_MDI_PLUS "##grid_up" ) )
                     ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
-
-                ::ImGui::SameLine( 0.0f, 16.0f );
-                ::ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.55f, 0.30f, 1.0f ) );
-                ::ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.26f, 0.68f, 0.38f, 1.0f ) );
-                if ( ::ImGui::Button( ICON_MDI_CHECK "  Accept" ) )
-                    ms.ReqAccept = true;
-                ::ImGui::PopStyleColor( 2 );
-                ::ImGui::SameLine();
-                ::ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.55f, 0.22f, 0.22f, 1.0f ) );
-                ::ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.70f, 0.28f, 0.28f, 1.0f ) );
-                if ( ::ImGui::Button( ICON_MDI_CLOSE "  Cancel" ) )
-                    ms.ReqCancel = true;
-                ::ImGui::PopStyleColor( 2 );
             }
             ::ImGui::End();
             ::ImGui::PopStyleVar( 3 );
