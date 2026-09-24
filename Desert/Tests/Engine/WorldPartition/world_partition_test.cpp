@@ -32,6 +32,9 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <glm/gtc/constants.hpp>
@@ -39,6 +42,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <regex>
@@ -614,11 +618,11 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 }
 
 // THE CORPUS, BEFORE AND AFTER: how many records are placed by their position alone, with no registry and
-// with the committed one. The numbers are the task's acceptance (WP15), derived from the files:
+// with the one the editor gathers. The numbers are the task's acceptance (WP15), derived from the files:
 //
 //   * 2543 before WP15 - only the Cube, the Terrain and instanced meshes had an extent;
 //   * 2462 with no registry - the 81 Spheres now have the factory's box (Geometry::PrimitiveBounds);
-//   * with the committed registry, every mesh-asset record whose row carries Bounds leaves as well;
+//   * with the gathered registry, every mesh-asset record whose row carries Bounds leaves as well;
 //   * +4 with M4 (2466 / 2434): M4_RampNormalMap.desce, whose static meshes carry their geometry as an
 //     in-scene EditMesh with no asset, so neither the registry nor a primitive box answers for them yet;
 //   * -4 with M5 (2462 / 2430): the two Cylinders and two Capsules of Starter and Desert_Sandbox, which
@@ -628,44 +632,74 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 //     `Terrain` block carried a Size x Size box; the root that keeps its id holds Landscape and
 //     LandscapeMaterial, which have no extent of their own. Its 25 tiles each get their rectangle from the
 //     root's frame, so the land is still covered; only the root record is point-only.
+//   * AF9 (@KCOUNT@): the registry is no longer committed; the editor gathers it, and a mesh row's box
+//     comes from the mesh's own 64-byte header. Derived in a clean clone (@HASH@), where only tracked
+//     meshes can answer - a developer's ignored local meshes under Editor/Cooked would answer too.
 //
 // The mesh references are resolved as the loader resolves them - handle, else path - and a path is
 // relative to the editor's working directory, so the walk runs from there.
 namespace
 {
     // How many mesh-asset records (StaticMesh or SkinnedMesh naming a file) the corpus has, and how many
-    // records stay point-only once the committed registry answers for them.
+    // records stay point-only once the gathered registry answers for them.
     constexpr std::size_t kCorpusMeshReferences        = 32;
     constexpr std::size_t kCorpusPointOnlyWithRegistry = 2436;
+
+    // The editor's project, opened the way the editor opens it: cwd = Editor/ (engine resource roots and
+    // scene mesh paths resolve against it) and the project root set from Desert.deproj. Restored on exit.
+    class EditorProject
+    {
+    public:
+        explicit EditorProject( const std::string& repoRoot )
+             : m_SavedRoot( Common::Constants::Path::CurrentProjectRoot() ),
+               m_SavedCwd( std::filesystem::current_path() )
+        {
+            const std::filesystem::path editorDir = std::filesystem::absolute( repoRoot + "Editor" );
+            std::filesystem::current_path( editorDir );
+            const auto project = Common::Project::ReadProjectFile( ReadAll( editorDir / "Desert.deproj" ) );
+            if ( !project )
+                return;
+            Common::Constants::Path::SetProjectRoot( editorDir, project.GetValue().AssetsRoot );
+            m_Opened = true;
+        }
+        ~EditorProject()
+        {
+            Common::Constants::Path::SetProjectRoot( m_SavedRoot.ProjectDir, m_SavedRoot.AssetsRoot );
+            std::error_code ec;
+            std::filesystem::current_path( m_SavedCwd, ec );
+        }
+        EditorProject( const EditorProject& )            = delete;
+        EditorProject& operator=( const EditorProject& ) = delete;
+        bool           Opened() const
+        {
+            return m_Opened;
+        }
+
+    private:
+        Common::Constants::Path::ProjectRootState m_SavedRoot;
+        std::filesystem::path                     m_SavedCwd;
+        bool                                      m_Opened = false;
+    };
 } // namespace
 
-TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommittedRegistry )
+TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGatheredRegistry )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const auto registry =
-         Common::Utils::AssetRegistry::Parse( ReadAll( root + "Editor/Cooked/AssetRegistry.dreg" ) );
-    ASSERT_TRUE( registry ) << registry.GetError();
 
     const std::vector<std::filesystem::path> scenes = RepositoryScenes();
     ASSERT_FALSE( scenes.empty() );
 
-    struct WorkingDirectory
-    {
-        std::filesystem::path Saved = std::filesystem::current_path();
-        ~WorkingDirectory()
-        {
-            std::error_code ec;
-            std::filesystem::current_path( Saved, ec );
-        }
-    } const restore;
     std::vector<std::filesystem::path> absolute;
     absolute.reserve( scenes.size() );
     for ( const auto& scene : scenes )
         absolute.push_back( std::filesystem::absolute( scene ) );
-    std::filesystem::current_path( std::filesystem::absolute( root + "Editor" ) );
+    const EditorProject project( root );
+    ASSERT_TRUE( project.Opened() );
+    const Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( {} );
+    ASSERT_TRUE( gathered.Refused.empty() ) << gathered.Refused.front();
 
-    const Common::Utils::AssetRegistry&          rows    = registry.GetValue();
+    const Common::Utils::AssetRegistry&          rows    = gathered.Registry;
     std::size_t                                  asked   = 0;
     std::size_t                                  answers = 0;
     const Desert::Core::Rules::AssetBoundsSource source =
@@ -692,6 +726,8 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheCommitte
     EXPECT_EQ( blind, 2468u );
     EXPECT_EQ( asked, kCorpusMeshReferences ) << "every mesh-asset record of the corpus is asked once";
     EXPECT_EQ( seen, blind - answers ) << "each answered mesh must take exactly one record off the count";
+    std::printf( "[corpus] %zu answered of %zu asked; point-only %zu blind, %zu with the registry\n", answers,
+                 asked, blind, seen );
     EXPECT_EQ( seen, kCorpusPointOnlyWithRegistry );
 }
 
