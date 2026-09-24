@@ -292,7 +292,7 @@ TEST( ModelingPaletteCensus, EverySetRowIsASubjectRowAndEverySubjectRowIsAWidget
         }
     }
     for ( const auto& row : kModelingStateRows )
-        EXPECT_TRUE( named.count( row.Name ) ) << row.Name << " stands for no widget of the panel";
+        EXPECT_TRUE( named.count( std::string( row.Name ) ) ) << row.Name << " stands for no widget of the panel";
 }
 
 // A `set` lands in the field the widget writes, and a value the widget cannot hold is refused, not clamped.

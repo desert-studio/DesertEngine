@@ -599,11 +599,15 @@ namespace Desert::Editor::Tools
         if ( ms.ReqCubeGridSelectBlocks > 0 && toolActive )
         {
             if ( m_CornerMode )
+            {
                 LOG_WARN( "CubeGrid: leave Corner Mode (Z) before selecting {0}x{0} blocks",
                           ms.ReqCubeGridSelectBlocks );
+            }
             else if ( !tHas )
+            {
                 LOG_WARN( "CubeGrid: nothing under the aim to select {0}x{0} blocks on",
                           ms.ReqCubeGridSelectBlocks );
+            }
             else
             {
                 const int n  = ms.ReqCubeGridSelectBlocks;
@@ -623,10 +627,14 @@ namespace Desert::Editor::Tools
         if ( ms.ReqCornerPosts >= 0 )
         {
             if ( toolActive && m_CornerMode )
+            {
                 for ( int k = 0; k < 4; ++k )
                     m_CornerSel[k] = ( ms.ReqCornerPosts >> k ) & 1;
+            }
             else
+            {
                 LOG_WARN( "CubeGrid: corner posts are picked in Corner Mode (Z) on a selection" );
+            }
             ms.ReqCornerPosts = -1;
         }
 

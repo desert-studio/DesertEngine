@@ -498,8 +498,8 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   XformEntityState::Mesh (the state an XForm operation puts an entity in, held by the undo step) and
     //   XformCommand::Gone::Mesh (a merged-away entity's mesh, put back by reference on undo, as
     //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
-    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2 Shared):
-    //   400 / 345 / 131 / 39 = 915.
+    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2
+    //   Shared): 400 / 345 / 131 / 39 = 915.
     EXPECT_EQ( CountOf( Form::Raw ), 400 );
     EXPECT_EQ( CountOf( Form::Shared ), 345 );
     EXPECT_EQ( CountOf( Form::Unique ), 131 );

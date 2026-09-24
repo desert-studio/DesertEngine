@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Editor::Core
@@ -26,13 +27,14 @@ namespace Desert::Editor::Core
      */
     struct ModelingStateRow
     {
-        const char* Name;  ///< what `set` names
-        const char* Label; ///< the widget it stands for
-        const char* Group;
-        int         Components; ///< 1, or 3 for a float3
-        bool        Integer;
-        float       Min;
-        float       Max;
+        // Views of literals, not pointers: the rows own nothing and are never re-seated.
+        std::string_view Name;  ///< what `set` names
+        std::string_view Label; ///< the widget it stands for
+        std::string_view Group;
+        int              Components; ///< 1, or 3 for a float3
+        bool             Integer;
+        float            Min;
+        float            Max;
         float* ( *Float )( ModelingState& ); ///< the field, when it is a float (or a float3's first component)
         int* ( *Int )( ModelingState& );     ///< the field, when it is an int
     };
@@ -99,9 +101,9 @@ namespace Desert::Editor::Core
         for ( const ModelingStateRow& row : kModelingStateRows )
         {
             EditableProperty property;
-            property.Name       = row.Name;
-            property.Label      = row.Label;
-            property.Group      = row.Group;
+            property.Name       = std::string( row.Name );
+            property.Label      = std::string( row.Label );
+            property.Group      = std::string( row.Group );
             property.Type       = row.Integer ? "int" : ( row.Components == 3 ? "float3" : "float" );
             property.Components = row.Components;
             property.Min        = row.Min;
