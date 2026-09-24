@@ -1251,3 +1251,60 @@ TEST( LandscapeSculpt, ErosionHeldOverAHillWearsItDownWithoutAWallAtTheBrushEdge
             ASSERT_LE( w.At( x, z ), std::max<int32_t>( before.At( x, z ), 20000 + 25000 / 2 ) )
                  << "no sample rises above the hill's half height where it was lower, at " << x << "," << z;
 }
+
+namespace
+{
+    /// A cosine bump 3000 steps high whose foot is half the default brush's radius: its repose cone (threshold
+    /// 64 steps per sample) reaches ~16 samples out, inside the brush's 20.48.
+    uint16_t HalfBrushHill( int32_t x, int32_t z )
+    {
+        const double r = std::sqrt( double( ( x - 31 ) * ( x - 31 ) + ( z - 31 ) * ( z - 31 ) ) );
+        const double h = r < 10.24 ? 3000.0 * 0.5 * ( 1.0 + std::cos( r / 10.24 * 3.14159265358979 ) ) : 0.0;
+        return static_cast<uint16_t>( 20000.0 + h );
+    }
+
+    int64_t WorldMass( const World& w )
+    {
+        int64_t mass = 0;
+        for ( int32_t z = 0; z <= 2 * kQ; ++z )
+            for ( int32_t x = 0; x <= 2 * kQ; ++x )
+                mass += w.At( x, z );
+        return mass;
+    }
+} // namespace
+
+TEST( LandscapeSculpt, ErosionHeldOverAHillSmallerThanTheBrushSlumpsItToTheThresholdAndKeepsItsMass )
+{
+    // UE's loop does this (the hill's repose cone fits in the brush); the stroke must not lose the height the
+    // hill sheds onto the falloff, and must leave no slope steeper than the threshold behind.
+    // The stroke closes with UE's noise pass (Lower by default), which digs up to BrushValue * Threshold per
+    // stroke by design; a flat twin under the same strokes measures that, so the mass check sees the thermal
+    // loop alone (the noise depends on the position, not the height).
+    const auto  flat = []( int32_t, int32_t ) -> uint16_t { return 20000; };
+    const World before( HalfBrushHill );
+    World       w( HalfBrushHill );
+    World       twin( flat );
+    const auto  b = Brush( 2048.0f, 1.0f );
+    for ( int32_t i = 0; i < 25; ++i )
+        for ( World* target : { &w, &twin } )
+        {
+            LandscapeHeightStroke stroke( target->Root, target->Lookup(), target->Bounds() );
+            ASSERT_TRUE( stroke.ApplyErosion( Weights( *target, b, { 3100.0f, 3100.0f } ), b, {} ).IsSuccess() );
+            ASSERT_TRUE( stroke.Finish().IsSuccess() );
+        }
+    std::string profile;
+    for ( int32_t x = 0; x <= 2 * kQ; ++x )
+        profile += std::to_string( w.At( x, 31 ) ) + " ";
+    EXPECT_LT( w.At( 31, 31 ), 20000 + 3000 / 2 ) << "the hill came down: " << profile;
+    const int64_t side = 2 * kQ + 1;
+    const int64_t hill = WorldMass( before ) - int64_t( 20000 ) * side * side;
+    const int64_t dug  = int64_t( 20000 ) * side * side - WorldMass( twin );
+    const int64_t lost = WorldMass( before ) - WorldMass( w ) - dug;
+    EXPECT_GT( dug, 0 ) << "the noise pass ran";
+    EXPECT_GE( lost, 0 ) << "erosion only moves height";
+    EXPECT_LT( static_cast<double>( lost ) / static_cast<double>( hill ), 0.05 )
+         << "the hill's volume slid down instead of leaving: " << profile;
+    const LandscapeErosionSettings defaults;
+    EXPECT_LE( SteepestWorld( w ), defaults.Threshold + defaults.Threshold / 4 )
+         << "no slope above the threshold, no wall at the rim: " << profile;
+}

@@ -1065,25 +1065,30 @@ namespace Desert::World::Landscape
         // it came from, the pair swaps with a larger step each iteration and the stroke grows spikes up to the
         // height limit, so the strength that reaches the shed is capped at 1, as Smooth caps its own.
         strength = std::clamp( strength, 0.0f, 1.0f );
-        const FieldIndex            ix{ field };
-        std::vector<uint16_t>&      h        = field.Heights;
-        const std::vector<uint16_t> original = h;
-        const uint16_t              thresh   = static_cast<uint16_t>( s.Threshold );
-        const auto                  weight   = [&]( int32_t x, int32_t z ) -> float
+        const FieldIndex       ix{ field };
+        std::vector<uint16_t>& h      = field.Heights;
+        const uint16_t         thresh = static_cast<uint16_t>( s.Threshold );
+        const auto             weight = [&]( int32_t x, int32_t z ) -> float
         {
             const bool inside =
                  x >= field.Inner.X1 && x <= field.Inner.X2 && z >= field.Inner.Z1 && z <= field.Inner.Z2;
             return inside ? ix.Brush( x, z ) : 0.0f;
         };
-        // Deviation from UE (LandscapeEdModeErosionTools.cpp:141-257), which weighs the gate (Slope * BrushValue
-        // > Thresh) and the shed by the brush and lets every neighbour receive. That loop conserves the height
-        // inside the brush, and a sample of weight w only sheds above Thresh / w: everything the hill loses
-        // stops in the falloff ring, where the allowed slope grows without bound, so a stroke held over a hill
-        // steeper than the threshold turns it into a plateau with a wall at the brush edge (25 strokes, 25000
-        // step hill, default brush: steepest step 1914 -> 8769), with a spike wherever the circle's samples
-        // differ in weight. Here the loop runs at full weight over the brush's samples, height shed onto a
-        // sample the brush does not touch leaves the field (the ground outside is not part of the stroke), and
-        // the brush weight blends the result in, as every other height tool applies its weight.
+        // Deviation from UE (LandscapeEdModeErosionTools.cpp:141-257). UE weighs the gate (Slope * BrushValue >
+        // Thresh) and the shed by the brush and lets every neighbour in the rectangle receive, so the stroke
+        // conserves height inside the brush and a sample of weight w holds any slope up to Thresh / w. For a hill
+        // smaller than the full-weight disc that is the angle of repose (the hill slumps into a cone, mass kept
+        // to UE's truncation), but a hill as wide as the brush cannot fit its repose cone inside the circle: a
+        // 25000-step hill of the default brush holds 9.3e6 step-samples, ~7000 steps over the brush's area, so
+        // any loop that keeps the mass inside the brush ends in a plateau with a wall at the rim (UE: steepest
+        // step 1914 -> 8769). Weighing only the shed (not the gate) does not help: the rim's weight throttles
+        // the outflow and the wall stays (5710 in the same scenario).
+        // Here the loop runs at full weight over every sample the brush touches, with UE's unweighted gate
+        // (its second loop's Slope > Thresh), and height shed onto a sample the brush does not touch leaves the
+        // field: the ground outside is not part of the stroke. A hill smaller than the brush slumps to the
+        // threshold slope and keeps its mass, as in UE; only height that reaches the rim is lost. The result is
+        // NOT blended back by the brush weight: that blend kept part of the original height wherever the
+        // slumping cone landed in the falloff, lost 13% of a half-brush hill's mass and left a ring at its foot.
         int32_t ran = 0;
         for ( int32_t i = 0; i < s.Iterations; ++i )
         {
@@ -1136,14 +1141,6 @@ namespace Desert::World::Landscape
             if ( !changed )
                 break;
         }
-        for ( int32_t z = field.Inner.Z1; z <= field.Inner.Z2; ++z )
-            for ( int32_t x = field.Inner.X1; x <= field.Inner.X2; ++x )
-            {
-                const size_t c    = ix.At( x, z );
-                const float  from = static_cast<float>( original[c] );
-                h[c] =
-                     ClampValue( std::lround( from + ix.Brush( x, z ) * ( static_cast<float>( h[c] ) - from ) ) );
-            }
         return ran;
     }
 
