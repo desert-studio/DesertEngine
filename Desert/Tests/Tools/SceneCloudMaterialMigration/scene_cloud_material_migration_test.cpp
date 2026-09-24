@@ -9,9 +9,9 @@
 //     (Desert/Tests/Engine/CloudMaterialSchema pins that), so "the default" keeps meaning the same sky.
 //   * NOTHING IS DROPPED SILENTLY. A value of the wrong shape leaves the payload — the runtime knows
 //     nothing about the old format — but its NAME comes back in the report, out loud (§1.4).
-//   * IT IS DETERMINISTIC, file bytes included: the MaterialId is derived from the file's own relative
-//     path, so two runs produce byte-identical scenes AND byte-identical materials, and the repository
-//     diff of the migration shows only real change.
+//   * IT IS DETERMINISTIC, file bytes included: the header GUID (MATL 2's one identity) is derived from
+//     the file's own relative path, so two runs produce byte-identical scenes AND byte-identical
+//     materials, and the repository diff of the migration shows only real change.
 //
 // Everything below runs on the parsed tree. No GPU, no filesystem — the material FILES are part of the
 // return value, and the tool is what writes them.
@@ -250,15 +250,18 @@ TEST( SceneCloudMaterialMigration, ItIsDeterministicToTheByte )
     ASSERT_EQ( ra.Materials.size(), 1u );
     ASSERT_EQ( rb.Materials.size(), 1u );
     EXPECT_EQ( ra.Materials[0].Json, rb.Materials[0].Json )
-         << "two runs disagree, so the MaterialId is drawn rather than derived and every migration "
+         << "two runs disagree, so the header GUID is drawn rather than derived and every migration "
             "run dirties the repository";
 
-    // And the derived identity is stable across runs by construction: FNV of the file's own path.
+    // And the derived identity is stable across runs by construction: FNV of the file's own path
+    // (MigrationGuidForPath), the header GUID's ONE fold to a handle (MaterialData::Handle).
     const Desert::Assets::MaterialData material = MaterialOf( ra );
-    ASSERT_TRUE( material.MaterialId.has_value() );
-    EXPECT_EQ( static_cast<uint64_t>( *material.MaterialId ),
-               static_cast<uint64_t>(
-                    Common::AssetHandle::FromKey( "cloudmat:Materials/M_Clouds_Protocol_Clouds.demat" ) ) );
+    ASSERT_TRUE( material.Header.has_value() );
+    const auto expectedGuid =
+         Desert::Migration::MigrationGuidForPath( "Materials/M_Clouds_Protocol_Clouds.demat" );
+    EXPECT_TRUE( material.Guid() == expectedGuid );
+    EXPECT_EQ( static_cast<uint64_t>( material.Handle() ),
+               static_cast<uint64_t>( Desert::Assets::MaterialData::HandleOf( expectedGuid ) ) );
 }
 
 TEST( SceneCloudMaterialMigration, ItIsIdempotent )
@@ -317,7 +320,7 @@ TEST( SceneCloudMaterialMigration, ASecondCloudEntityGetsANumberedSiblingRatherT
     EXPECT_EQ( report.Materials[0].RelativePath, "Materials/M_Twins_Clouds.demat" );
     EXPECT_EQ( report.Materials[1].RelativePath, "Materials/M_Twins_Clouds_2.demat" );
     EXPECT_NE( report.Materials[0].Json, report.Materials[1].Json )
-         << "two files, one MaterialId — whichever registers second can never resolve";
+         << "two files, one header GUID — whichever registers second can never resolve";
 }
 
 TEST( SceneCloudMaterialMigration, MigrateSceneRunsItLastAndStampsTheFileSoItNeverRunsAgain )

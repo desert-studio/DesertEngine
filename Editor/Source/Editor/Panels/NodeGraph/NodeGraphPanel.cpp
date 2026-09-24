@@ -5,6 +5,7 @@
 #include <Editor/Panels/MaterialEditor/MaterialShaderRebuild.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>

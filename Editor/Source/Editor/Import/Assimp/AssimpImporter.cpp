@@ -282,10 +282,7 @@ namespace Desert::Editor
             auto& d      = out.Data;
             // Keyed on the mesh's place in the project, NOT on its file stem — see CookPaths::MaterialKey
             // for what the stem-only key merged and why the repository is one same-named file away from it.
-            d.Header = Common::Content::MakeTextHeader(
-                 Common::Content::ContentKind::Material,
-                 StableMaterialGuid( CookPaths::MaterialKey( sourcePath, out.Name, i ) ),
-                 Assets::MaterialTextSubsystems() );
+            out.Guid = StableMaterialGuid( CookPaths::MaterialKey( sourcePath, out.Name, i ) );
 
             // Locate a material's texture FILE on disk. FBX/glTF often store an unusable path (the author's
             // absolute build path, relativized to a long "../../.../mnt/prod/.../foo.jpg" that escapes the
@@ -444,7 +441,7 @@ namespace Desert::Editor
             submesh.VertexCount    = mesh->mNumVertices;
             submesh.IndexCount     = mesh->mNumFaces * 3;
             submesh.Transform      = glm::mat4( 1.0f );
-            submesh.MaterialHandle = materialData[mesh->mMaterialIndex].Data.Handle();
+            submesh.MaterialHandle = Assets::MaterialData::HandleOf( materialData[mesh->mMaterialIndex].Guid );
 
             // ============================
             // VERTICES

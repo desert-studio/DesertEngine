@@ -1,8 +1,9 @@
-// A `.demat`'s MaterialId IS its asset handle, and the editor addresses a document BY that handle.
+// A `.demat`'s header GUID IS its identity (MATL 2), its asset handle is that GUID through HandleForGuid,
+// and the editor addresses a document BY that handle.
 //
-// So two files carrying one MaterialId are not a tidiness problem, they are a wrong-asset problem:
-// whichever registers second wins AssetManager::m_HandleLookup and MaterialService's maps, the Edit
-// button and a double-click on either file open the same document, and the other material can never be
+// So two files carrying one GUID (or two GUIDs folding to one handle) are not a tidiness problem, they are a
+// wrong-asset problem: whichever registers second wins AssetManager::m_HandleLookup and MaterialService's maps,
+// the Edit button and a double-click on either file open the same document, and the other material can never be
 // resolved at all. `MP_LitConst.demat` and `MP_HandUnlit.demat` both carried 6666666666666666666, and a
 // developer found it by having the Material Editor open somebody else's material in front of him.
 //
@@ -12,14 +13,17 @@
 //
 // Three things are asserted here:
 //
-//   1. No two shipped `.demat` share a MaterialId, and every one of them states one.
-//   2. Every MaterialGuid a shipped scene names resolves to exactly ONE `.demat` — the relation between
-//      the two sides, not either side alone (the defect class this project keeps finding).
+//   1. Every shipped `.demat` is MATL 2: one identity (the header GUID), no second number beside it, an
+//      instance's Parent is a shipped material's GUID stated again as the header's one Dependency, and no
+//      two files share a GUID or a handle.
+//   2. Every MaterialGuid a shipped scene names (still the MATL 1 number until SCNE 27) is translated by the
+//      LegacyMaterialIds register to exactly ONE `.demat` — the relation between the two sides.
 //   3. The rule MaterialService refuses on, driven directly, including the cases that must NOT refuse.
 
 #include <gtest/gtest.h>
 
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Runtime/Services/Material/MaterialIdentity.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
@@ -84,85 +88,175 @@ namespace
 // WHY A SWEEP AND NOT A LIST. Two files collided here once and the way it was found was a developer
 // tripping over it, months later, with the Material Editor showing him the wrong asset. A list of known
 // ids would have to be edited by the same person who adds the next colliding file.
-TEST( MaterialIdentity, NoTwoShippedMaterialsShareAMaterialId )
+namespace
 {
-    const std::string root = RepoRoot();
-    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
-
-    const std::filesystem::path dir = root + "Editor/Resources/Assets/Materials";
-    ASSERT_TRUE( std::filesystem::exists( dir ) ) << dir.string() << " is missing";
-
-    // id -> the first file that claimed it, so a failure can name BOTH sides.
-    std::map<uint64_t, std::string> claimed;
-    int                             seen = 0;
-
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( dir ) )
+    struct ShippedMaterial
     {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".demat" )
-            continue;
+        std::string  Name;
+        std::string  Text;
+        MaterialData Data;
+    };
 
-        const auto parsed = rfl::json::read<MaterialData>( ReadAll( entry.path() ) );
-        ASSERT_TRUE( parsed ) << entry.path().string() << " does not parse as a material";
-        ++seen;
-
-        const std::string name = entry.path().filename().string();
-
-        // A material with no MaterialId falls back to a PATH-derived handle, which is a different
-        // identity scheme and cannot collide with a stated one. It is still asserted, because a shipped
-        // material whose identity moves when the file is renamed is the defect the id exists to prevent.
-        ASSERT_TRUE( parsed.value().MaterialId.has_value() )
-             << name
-             << " states no MaterialId, so its handle is derived from its path and any rename "
-                "silently breaks every scene that names it.";
-
-        const uint64_t id = static_cast<uint64_t>( *parsed.value().MaterialId );
-        EXPECT_NE( id, 0u ) << name << " states MaterialId 0, which is the null handle.";
-
-        const auto [it, inserted] = claimed.emplace( id, name );
-        EXPECT_TRUE( inserted ) << "MaterialId " << id << " is claimed by BOTH '" << it->second << "' and '"
-                                << name
-                                << "'. A `.demat`'s MaterialId is its asset handle, so only one of the "
-                                   "two can ever resolve: the Edit button, a double-click and every mesh "
-                                   "slot naming this id open whichever registered first. Give one of them "
-                                   "a different MaterialId and re-point every scene that names it.";
+    // Every shipped `.demat`, read through the engine's own parser (which refuses anything but MATL 2, a
+    // malformed Parent and a Parent missing from the header's Dependencies).
+    std::vector<ShippedMaterial> ReadShippedMaterials( std::vector<std::string>& refusals )
+    {
+        std::vector<ShippedMaterial> out;
+        const std::filesystem::path  dir = RepoRoot() + "Editor/Resources/Assets/Materials";
+        if ( !std::filesystem::exists( dir ) )
+            return out;
+        for ( const auto& entry : std::filesystem::recursive_directory_iterator( dir ) )
+        {
+            if ( !entry.is_regular_file() || entry.path().extension() != ".demat" )
+                continue;
+            std::string text   = ReadAll( entry.path() );
+            const auto  parsed = Desert::Assets::ParseMaterialJson( entry.path().string(), text );
+            if ( !parsed )
+            {
+                refusals.push_back( parsed.GetError() );
+                continue;
+            }
+            out.push_back( { entry.path().filename().string(), std::move( text ), parsed.GetValue() } );
+        }
+        return out;
     }
 
-    EXPECT_GT( seen, 0 ) << "no .demat files were found — the sweep asserted nothing";
+    // The register the migrator wrote once from the MATL 1 corpus (Tools/SceneMigrator LegacyMaterialIds).
+    struct LegacyRow
+    {
+        uint64_t    MaterialId = 0;
+        std::string Guid;
+    };
+    struct LegacyRegister
+    {
+        std::vector<LegacyRow> Ids;
+    };
+} // namespace
+
+TEST( MaterialIdentity, EveryShippedMaterialIsMatl2WithOneIdentityAndNoTwoShareIt )
+{
+    ASSERT_FALSE( RepoRoot().empty() ) << "repository root not found from the test's working directory";
+    std::vector<std::string> refusals;
+    const auto               materials = ReadShippedMaterials( refusals );
+    for ( const auto& refusal : refusals )
+        ADD_FAILURE() << refusal;
+    ASSERT_GT( materials.size(), 0u ) << "no .demat files were found — the sweep asserted nothing";
+
+    std::map<std::string, std::string> byGuid;
+    std::map<uint64_t, std::string>    byHandle;
+    for ( const auto& m : materials )
+    {
+        // The second identity is gone from the TEXT, not merely ignored by the reader.
+        EXPECT_EQ( m.Text.find( "\"MaterialId\"" ), std::string::npos ) << m.Name << " still states a MaterialId";
+        EXPECT_EQ( m.Text.find( "\"ParentMaterialId\"" ), std::string::npos )
+             << m.Name << " still states a ParentMaterialId";
+
+        const auto guid = m.Data.Guid();
+        ASSERT_FALSE( guid.IsNull() ) << m.Name << " has a null header GUID";
+        const uint64_t handle = static_cast<uint64_t>( m.Data.Handle() );
+        EXPECT_EQ( handle, static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) )
+             << m.Name << ": Handle() is not HandleForGuid of the header GUID";
+        EXPECT_NE( handle, 0u ) << m.Name << " folds to the null handle";
+
+        const auto [g, newGuid] = byGuid.emplace( Common::Content::AssetGuidToText( guid ), m.Name );
+        EXPECT_TRUE( newGuid ) << "GUID claimed by BOTH '" << g->second << "' and '" << m.Name << "'";
+        const auto [h, newHandle] = byHandle.emplace( handle, m.Name );
+        EXPECT_TRUE( newHandle ) << "handle " << handle << " claimed by BOTH '" << h->second << "' and '" << m.Name
+                                 << "': only one of the two can ever resolve";
+    }
+
+    // An instance names a material that ships, and says so in its header.
+    int instances = 0;
+    for ( const auto& m : materials )
+    {
+        if ( !m.Data.IsInstance() )
+        {
+            EXPECT_TRUE( m.Data.Header->Dependencies.empty() )
+                 << m.Name << " is a base material with dependencies";
+            continue;
+        }
+        ++instances;
+        const auto parent = Common::Content::AssetGuidToText( m.Data.ParentGuid() );
+        EXPECT_EQ( parent, *m.Data.Parent ) << m.Name << ": Parent is not a canonical GUID";
+        EXPECT_TRUE( byGuid.count( parent ) )
+             << m.Name << " names parent " << parent << ", which no shipped file carries";
+        ASSERT_EQ( m.Data.Header->Dependencies.size(), 1u ) << m.Name;
+        EXPECT_EQ( m.Data.Header->Dependencies.front(), parent ) << m.Name;
+        EXPECT_EQ( static_cast<uint64_t>( *m.Data.InstanceParentId() ),
+                   static_cast<uint64_t>( Common::Content::HandleForGuid( m.Data.ParentGuid() ) ) )
+             << m.Name << ": the parent's handle is not the fold of its GUID";
+    }
+    EXPECT_GE( instances, 2 ) << "the corpus has two instances; fewer means the sweep lost them";
+}
+
+TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
+{
+    const std::string head   = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
+                               R"("Versions":{"MATL":2},"Dependencies":[)";
+    const std::string good   = head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],)"
+                                      R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
+    const auto        parsed = Desert::Assets::ParseMaterialJson( "good", good );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    EXPECT_EQ( Common::Content::AssetGuidToText( parsed.GetValue().ParentGuid() ),
+               "45d579b03cc0d0a8df2e4cb025d6bea5" );
+
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
+         "undeclared", head + R"(]},"Params":[],"Textures":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
+         << "a Parent missing from the header's Dependencies must be refused";
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
+         "number",
+         head + R"("6418972230554417713"]},"Params":[],"Textures":[],"Parent":"6418972230554417713"})" ) )
+         << "a MATL 1 number in Parent is not a GUID";
+
+    std::string v1 = good;
+    v1.replace( v1.find( "\"MATL\":2" ), 8, "\"MATL\":1" );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "v1", v1 ) ) << "a MATL 1 file must be refused";
+}
+
+TEST( MaterialIdentity, StampingAnInstanceStatesItsParentAsTheOneDependency )
+{
+    MaterialData m;
+    m.SetParent( { 0x45d579b03cc0d0a8ull, 0xdf2e4cb025d6bea5ull } );
+    const auto stamped = Desert::Assets::StampMaterialHeader( m );
+    ASSERT_TRUE( stamped.Header.has_value() );
+    ASSERT_EQ( stamped.Header->Dependencies.size(), 1u );
+    EXPECT_EQ( stamped.Header->Dependencies.front(), "45d579b03cc0d0a8df2e4cb025d6bea5" );
+    EXPECT_FALSE( stamped.Guid().IsNull() ) << "a material that never had a GUID is minted one";
+
+    const auto text = Desert::Assets::WriteMaterialJson( stamped );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto back = Desert::Assets::ParseMaterialJson( "stamped", text.GetValue() );
+    ASSERT_TRUE( back ) << back.GetError();
+    EXPECT_EQ( back.GetValue().Guid(), stamped.Guid() );
+    EXPECT_EQ( back.GetValue().ParentGuid(), stamped.ParentGuid() );
 }
 
 // ── The relation: what a scene names, and what carries it ──────────────────────────────────────────
 
 // Neither side is wrong on its own — a scene's MaterialGuid is a plausible number and each `.demat`'s
-// MaterialId is a plausible number. The defect only exists in the DISAGREEMENT, which is why it is the
-// agreement that is asserted (see the taxonomy in the desert-engine-verify skill).
+// GUID is a plausible GUID. The defect only exists in the DISAGREEMENT, which is why it is the agreement
+// that is asserted (see the taxonomy in the desert-engine-verify skill). Scenes still name the MATL 1
+// numbers until SCNE 27 rewrites them, so the number is translated through the register first.
 TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOneMaterialFile )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
 
-    const std::filesystem::path materials = root + "Editor/Resources/Assets/Materials";
-    const std::filesystem::path scenes    = root + "Editor/Resources/Assets/Scenes";
-    ASSERT_TRUE( std::filesystem::exists( materials ) ) << materials.string() << " is missing";
+    const std::filesystem::path scenes = root + "Editor/Resources/Assets/Scenes";
     ASSERT_TRUE( std::filesystem::exists( scenes ) ) << scenes.string() << " is missing";
 
-    // How many FILES carry each id. More than one is the collision the test above reports; the count is
-    // kept here so this test can say "two files carry it" rather than "the scene is fine".
-    std::map<uint64_t, std::vector<std::string>> carriers;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( materials ) )
-    {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".demat" )
-            continue;
-        const auto parsed = rfl::json::read<MaterialData>( ReadAll( entry.path() ) );
-        if ( !parsed || !parsed.value().MaterialId )
-            continue;
-        carriers[static_cast<uint64_t>( *parsed.value().MaterialId )].push_back(
-             entry.path().filename().string() );
-    }
+    std::vector<std::string>                        refusals;
+    std::map<std::string, std::vector<std::string>> carriers; // GUID text -> files
+    for ( const auto& m : ReadShippedMaterials( refusals ) )
+        carriers[Common::Content::AssetGuidToText( m.Data.Guid() )].push_back( m.Name );
 
-    // Read as TEXT rather than through SceneSerialized: the ids live inside "MaterialGuids" arrays on
-    // three different components, and a scan for the numbers is both shorter and blind to which component
-    // they sat on — which is what this assertion wants. The canonical `.desce` text is multi-line, so the
-    // key is matched with any whitespace around its colon.
+    const auto reg =
+         rfl::json::read<LegacyRegister>( ReadAll( root + "Editor/Resources/LegacyMaterialIds.json" ) );
+    ASSERT_TRUE( reg ) << "Editor/Resources/LegacyMaterialIds.json does not parse";
+    std::map<uint64_t, std::string> legacy;
+    for ( const auto& row : reg.value().Ids )
+        legacy.emplace( row.MaterialId, row.Guid );
+
     int checked = 0;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( scenes ) )
     {
@@ -189,25 +283,25 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
                 while ( end < text.size() && std::isdigit( static_cast<unsigned char>( text[end] ) ) )
                     ++end;
 
-                const uint64_t guid = std::stoull( text.substr( cursor, end - cursor ) );
-                cursor              = end;
+                const uint64_t id = std::stoull( text.substr( cursor, end - cursor ) );
+                cursor            = end;
 
-                if ( guid == 0 )
+                if ( id == 0 )
                     continue; // an empty slot; the mesh falls back to its default material
 
-                const auto it = carriers.find( guid );
+                // NOT an ASSERT that it is registered: a scene may legitimately name a material that lives
+                // beside an imported mesh rather than in Materials/. What must never be true is that the
+                // number names a GUID carried by no file or by TWO files.
+                const auto row = legacy.find( id );
+                if ( row == legacy.end() )
+                    continue;
                 ++checked;
 
-                // NOT an ASSERT that it exists: a scene may legitimately name a material that lives
-                // beside an imported mesh rather than in Materials/. What must never be true is that it
-                // names an id carried by TWO files, because then the scene does not say which.
-                if ( it == carriers.end() )
-                    continue;
-
-                EXPECT_EQ( it->second.size(), 1u )
-                     << entry.path().filename().string() << " names MaterialId " << guid
-                     << ", which is carried by " << it->second.size()
-                     << " material files — the scene cannot say which of them it means.";
+                const auto   it    = carriers.find( row->second );
+                const size_t count = it == carriers.end() ? 0u : it->second.size();
+                EXPECT_EQ( count, 1u ) << entry.path().filename().string() << " names MaterialId " << id
+                                       << " (GUID " << row->second << "), which is carried by " << count
+                                       << " material files";
             }
         }
     }

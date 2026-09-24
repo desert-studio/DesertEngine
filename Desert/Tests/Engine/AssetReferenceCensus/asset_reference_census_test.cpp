@@ -270,9 +270,11 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     {
         std::ofstream out( scratch / "M_Dangling.demat" );
         ASSERT_TRUE( out.is_open() );
+        // No `Header`, on purpose: `ReferencesUnder` reads through `rfl::json::read<MaterialData>` and
+        // `Header` is optional, so this fixture stays the minimal shape the census actually needs — a
+        // `Textures` array — rather than a fabricated MATL 2 document nothing here reads.
         out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","TextureHandle":)" << good
-            << R"(},{"Name":"u_NormalTexture","TextureHandle":)" << bad
-            << R"(}],"MaterialId":7422981036455190011})";
+            << R"(},{"Name":"u_NormalTexture","TextureHandle":)" << bad << R"(}]})";
     }
 
     std::string parseError;

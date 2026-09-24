@@ -330,13 +330,12 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
             auto parsedMaterial = rfl::json::read<Desert::Assets::MaterialData>( materialJson );
             ASSERT_TRUE( parsedMaterial ) << leg.Scene << ": '" << *material << "' is not a material";
 
-            // MaterialId is the FILE's identity, not the sky's — it is derived from the file's own path
-            // so that two runs of the migration produce byte-identical output, which means three legs
-            // that name three files necessarily carry three ids. Comparing it would fail on a difference
-            // that cannot reach a pixel; comparing everything else is the sky.
+            // The header GUID is the FILE's identity, not the sky's — it is derived from the file's own
+            // path so that two runs of the migration produce byte-identical output, which means three
+            // legs that name three files necessarily carry three GUIDs. Comparing it would fail on a
+            // difference that cannot reach a pixel; comparing everything else is the sky.
             Desert::Assets::MaterialData look = parsedMaterial.value();
-            look.MaterialId                   = ::Common::UUID( static_cast<uint64_t>( 0 ) );
-            look.Header                       = std::nullopt; // the file's GUID: the same argument as MaterialId
+            look.Header                       = std::nullopt; // the file's identity, cleared for the comparison
             cloudLook.push_back( rfl::json::write( look ) );
 
             payload.value()["Material"]          = std::string( "normalised" );

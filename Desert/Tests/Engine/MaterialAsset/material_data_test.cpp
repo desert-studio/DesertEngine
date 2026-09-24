@@ -57,7 +57,8 @@ TEST( MaterialData, JsonRoundTrip )
     m.ShaderName = "Unlit";
     m.SetParam( "Color", glm::vec4( 0.1f, 0.2f, 0.3f, 1.0f ) );
     m.SetTexture( "u_AlbedoTex", 12345ull );
-    m.MaterialId = Common::UUID::Generate();
+    const Common::Content::AssetGuid parent{ 0x1122334455667788ull, 0x99aabbccddeeff00ull };
+    m.SetParent( parent );
 
     const std::string json = rfl::json::write( m );
     auto              back = rfl::json::read<MaterialData>( json );
@@ -67,7 +68,7 @@ TEST( MaterialData, JsonRoundTrip )
     EXPECT_TRUE( r.UsesCustomShader() );
     EXPECT_FLOAT_EQ( r.GetParam( "Color" ).y, 0.2f );
     EXPECT_EQ( r.GetTexture( "u_AlbedoTex" ), 12345ull );
-    EXPECT_TRUE( r.MaterialId.has_value() );
+    EXPECT_EQ( r.ParentGuid(), parent );
 }
 
 TEST( MaterialData, PBRJsonRoundTripKeepsShaderAbsent )
@@ -91,7 +92,6 @@ TEST( PBRSurfaceParams, TypedViewToCanonAndBack )
     p.GlassTint       = glm::vec4( 0.9f, 0.8f, 0.7f, 0.5f );
     p.AlbedoTexture   = Desert::Assets::AssetHandle( 777ull );
     p.UVTiling        = glm::vec2( 3.0f, 5.0f );
-    p.MaterialId      = Common::UUID::Generate();
 
     const MaterialData canon = p.ToMaterialData();
     EXPECT_FLOAT_EQ( canon.GetParam( "AlbedoColor" ).y, 0.4f );
@@ -99,7 +99,6 @@ TEST( PBRSurfaceParams, TypedViewToCanonAndBack )
     EXPECT_FLOAT_EQ( canon.GetParam( "GlassTint" ).w, 0.5f );
     EXPECT_FLOAT_EQ( canon.GetParam( "UVTiling" ).y, 5.0f );
     EXPECT_EQ( canon.GetTexture( "u_AlbedoTexture" ), 777ull );
-    EXPECT_TRUE( canon.MaterialId.has_value() );
 
     const PBRSurfaceParams back = PBRSurfaceParams::FromMaterialData( canon );
     EXPECT_FLOAT_EQ( back.AlbedoColor.y, 0.4f );
@@ -108,7 +107,6 @@ TEST( PBRSurfaceParams, TypedViewToCanonAndBack )
     ASSERT_TRUE( back.UVTiling.has_value() );
     EXPECT_FLOAT_EQ( back.UVTiling->y, 5.0f );
     EXPECT_EQ( static_cast<uint64_t>( back.AlbedoTexture ), 777ull );
-    EXPECT_EQ( back.MaterialId, p.MaterialId );
 }
 
 TEST( PBRSurfaceParams, FromCanonUsesDefaultsForMissingParams )

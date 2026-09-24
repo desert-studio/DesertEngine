@@ -28,6 +28,8 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -929,14 +931,20 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 
 TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMoving )
 {
-    // The same claim for the other class that carries its own id. `MaterialId` is what a mesh's
-    // surface and a scene's material override both key on.
+    // The same claim for the other class that carries its own id. A material's identity is its header
+    // GUID, and its handle is that GUID through Common::Content::HandleForGuid - the number a mesh's
+    // surface, a scene's material override and an instance's Parent all fold to. The LOAD path must arrive
+    // at that same number, or every reference misses the material it names.
     const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.demat";
-    constexpr uint64_t kIdInTheFile = 6418972230554417713ull; // M_CheckerFloor.demat's actual MaterialId
+    constexpr const char* kGuidInTheFile = "45d579b03cc0d0a8df2e4cb025d6bea5"; // M_CheckerFloor.demat's GUID
+    const auto            guid           = Common::Content::AssetGuidFromText( kGuidInTheFile );
+    ASSERT_TRUE( guid );
+    const uint64_t kIdInTheFile = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
     {
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[],"MaterialId":6418972230554417713})";
+        out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
+               R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})";
     }
 
     ProjectRootGuard guard;

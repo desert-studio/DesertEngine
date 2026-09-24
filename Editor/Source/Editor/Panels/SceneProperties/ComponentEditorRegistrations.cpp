@@ -46,6 +46,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 // rfl serialization environment (the same three the mesh slot editor pulls in for the same reason) — a
 // fresh landscape material is written to disk with its stable GUID before the asset is created + registered.

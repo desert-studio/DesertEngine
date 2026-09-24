@@ -14,7 +14,8 @@
 // re-stamped project-relative with no migration. It is FALSE, and it is falsifiable by arithmetic:
 // `ANIM_RigWitness_NoRig.desce` stores `"MeshPath":"Cooked/Meshes/IKProbe.skmesh"` beside
 // `"MeshGuid":556331627295699705`, and that number is exactly `FromCookedPath` of that path. Ten such
-// pairs are committed, plus 95 `TextureHandle` and 113 `MaterialId` numbers in `.demat` files.
+// pairs are committed, plus 95 `TextureHandle` numbers and 113 adopted-id entries in `.demat` files
+// (now bridged through the legacy register, since MATL 2 moved material identity to the header GUID).
 //
 // So the derivation is load-bearing for committed content, and `TestB` below is what makes moving it a RED
 // BUILD naming the file rather than a silent emptying discovered a session later. (`AssetReferenceCensus`
@@ -29,8 +30,9 @@
 //
 // And the two kinds of row are deliberately both here, because they fail in opposite directions:
 //   * `MeshPath` + `MeshGuid` is a PATH-DERIVED handle. It breaks if the derivation moves.
-//   * `MaterialPaths` + `MaterialGuids` is an ADOPTED handle — the `MaterialId` written inside the named
-//     `.demat`, a random authored id that no derivation produces. It breaks if the adoption is dropped.
+//   * `MaterialPaths` + `MaterialGuids` is an ADOPTED handle — the OLD id the legacy register associates
+//     with the named `.demat`'s header GUID, a random authored id that no derivation produces. It breaks
+//     if the adoption is dropped.
 // An index that only recorded derivations would be empty for exactly the references that exist most.
 
 #include <gtest/gtest.h>
@@ -42,6 +44,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -299,16 +302,61 @@ namespace
         }
     }
 
-    // The `MaterialId` a `.demat` carries, or 0. Read as raw text rather than through MaterialData so a
-    // schema change to that struct cannot make this census quietly stop finding the field.
-    uint64_t MaterialIdIn( const fs::path& demat )
+    // The quoted string value that follows `key` in `text`, starting the search at `from` — tolerant of
+    // the whitespace both `LegacyMaterialIds.json` and a `.demat` pretty-print between the colon and the
+    // opening quote (`"Guid": "..."`, not `"Guid":"..."`). Returns {} and leaves `at` at npos on failure.
+    std::string QuotedValueAfter( const std::string& text, const std::string& key, size_t from, size_t& at )
+    {
+        at = text.find( key, from );
+        if ( at == std::string::npos )
+            return {};
+        size_t cursor = at + key.size();
+        while ( cursor < text.size() && std::isspace( static_cast<unsigned char>( text[cursor] ) ) )
+            ++cursor;
+        if ( cursor >= text.size() || text[cursor] != '"' )
+        {
+            at = std::string::npos;
+            return {};
+        }
+        const size_t end = text.find( '"', cursor + 1 );
+        if ( end == std::string::npos )
+        {
+            at = std::string::npos;
+            return {};
+        }
+        return text.substr( cursor + 1, end - cursor - 1 );
+    }
+
+    // The OLD adopted id a `.demat` answers to, or 0. MATL 2 removed `MaterialId` from the file itself —
+    // identity is now the header GUID — so the relation this census protects ("the number the scene
+    // stores for this material IS the number that names this exact file") now goes through the legacy
+    // register: read the file's `Header.Guid` as raw text (same "raw text, not through a struct"
+    // philosophy the old reader used, so a schema change to MaterialData cannot make this census
+    // quietly stop finding the field), then ask `Editor/Resources/LegacyMaterialIds.json` what OLD id
+    // that GUID used to be.
+    uint64_t AdoptedIdOfDemat( const fs::path& demat )
     {
         const std::string text = ReadAll( demat );
-        const std::string key  = "\"MaterialId\":";
-        const size_t      at   = text.rfind( key );
-        if ( at == std::string::npos )
+        size_t            at   = 0;
+        const std::string guid = QuotedValueAfter( text, "\"Guid\":", 0, at );
+        if ( guid.empty() )
             return 0;
-        return std::strtoull( text.c_str() + at + key.size(), nullptr, 10 );
+
+        const std::string registerText = ReadAll( RepoRoot() + "Editor/Resources/LegacyMaterialIds.json" );
+        const std::string idKey        = "\"MaterialId\":";
+        size_t            pos          = 0;
+        while ( ( pos = registerText.find( idKey, pos ) ) != std::string::npos )
+        {
+            const uint64_t    id = std::strtoull( registerText.c_str() + pos + idKey.size(), nullptr, 10 );
+            size_t            entryGuidAt = 0;
+            const std::string entryGuid   = QuotedValueAfter( registerText, "\"Guid\":", pos, entryGuidAt );
+            if ( entryGuidAt == std::string::npos )
+                break;
+            if ( entryGuid == guid )
+                return id;
+            pos = entryGuidAt + 1;
+        }
+        return 0;
     }
 } // namespace
 
@@ -439,13 +487,14 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
             continue; // a scene naming a material this checkout does not have is AssetReferenceCensus's job
         ++checked;
 
-        // An ADOPTED id: the number in the scene is the `MaterialId` inside the named `.demat`, not a
-        // derivation of its path. Asserting it against FromCookedPath would be asserting the wrong thing
-        // and would go red on correct content.
-        EXPECT_EQ( MaterialIdIn( demat ), row.Handle )
+        // An ADOPTED id: the number in the scene is the OLD id the legacy register associates with the
+        // GUID inside the named `.demat`'s header, not a derivation of its path. Asserting it against
+        // FromCookedPath would be asserting the wrong thing and would go red on correct content.
+        EXPECT_EQ( AdoptedIdOfDemat( demat ), row.Handle )
              << row.Scene << " writes '" << row.Path << "' beside " << row.Handle
-             << ", but that file carries MaterialId " << MaterialIdIn( demat )
-             << ". A material's handle IS its in-file id, so these two must be one number.";
+             << ", but the legacy register answers " << AdoptedIdOfDemat( demat )
+             << " for that file's header GUID. A material's handle IS its adopted id, so these two must "
+             << "be one number.";
 
         EXPECT_NE( static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( demat ) ), row.Handle )
              << row.Path << " happens to derive its own MaterialId. That is not a defect, but this "

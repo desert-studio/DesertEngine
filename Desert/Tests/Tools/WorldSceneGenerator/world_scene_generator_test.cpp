@@ -31,6 +31,7 @@
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -39,6 +40,7 @@
 #include <filesystem>
 #include <fstream>
 #include <cctype>
+#include <cstring>
 #include <set>
 #include <sstream>
 #include <string>
@@ -121,6 +123,19 @@ namespace
         if ( !parsed.has_value() )
             return {};
         return parsed.value().to_object().value_or( rfl::Generic::Object{} );
+    }
+
+    // The handle a scene names this material by, derived from its header GUID. NOT the legacy register:
+    // that bridges OLD, already-committed scenes to the new identity, but `WorldSceneGenerator` writes
+    // FRESH scenes, and `Tools/WorldGen/Source/WorldGenMain.cpp`'s own `LoadMaterial` already assigns
+    // `MaterialRef::Guid` as `HandleForGuid` of the header GUID (not an adopted id) — this mirrors that
+    // exact fold so the test asserts the relation the tool actually holds.
+    uint64_t AdoptedIdForGuid( const std::string& guid )
+    {
+        const auto parsedGuid = Common::Content::AssetGuidFromText( guid );
+        if ( !parsedGuid || parsedGuid.GetValue().IsNull() )
+            return 0;
+        return static_cast<uint64_t>( Common::Content::HandleForGuid( parsedGuid.GetValue() ) );
     }
 
     // A counting mint, like the corpus suites use: a scene whose records all carry ids must never call it.
@@ -537,13 +552,22 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
 
             const auto material = rfl::json::read<rfl::Generic>( ReadAll( onDisk ) );
             ASSERT_TRUE( material.has_value() );
-            const auto stated = material->to_object().value().get( "MaterialId" );
-            ASSERT_TRUE( stated.has_value() ) << *relative << " states no MaterialId";
+            const auto header = material->to_object().value().get( "Header" );
+            ASSERT_TRUE( header.has_value() ) << *relative << " states no Header";
+            const auto guid = header->to_object().value().get( "Guid" );
+            ASSERT_TRUE( guid.has_value() ) << *relative << " Header states no Guid";
+            const auto guidText = guid->to_string();
+            ASSERT_TRUE( guidText.has_value() ) << *relative << " Header.Guid is not a string";
+
+            const uint64_t adopted = AdoptedIdForGuid( *guidText );
 
             // Compared as TEXT, because a handle above 2^53 does not survive rfl::Generic's numeric
             // accessors - which is the defect this suite's own generator hit on its first run, when
-            // to_int() turned 6418972230554417713 into 155908657.
-            EXPECT_EQ( rfl::json::write( ( *guidList )[i] ), rfl::json::write( stated.value() ) ) << *relative;
+            // to_int() turned 6418972230554417713 into 155908657. `adopted` is read from the legacy
+            // register's own raw text, so it never goes through that lossy accessor either.
+            EXPECT_EQ( rfl::json::write( ( *guidList )[i] ), std::to_string( adopted ) )
+                 << *relative << ": the scene's MaterialGuids entry does not match the legacy register's "
+                 << "adopted id for this file's header GUID (" << *guidText << ")";
             ++checked;
         }
     }

@@ -12,6 +12,7 @@
 
 #include <Common/Core/Constants.hpp>
 
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
@@ -279,7 +280,7 @@ namespace Desert::Editor
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
         // the asset browser, reusable), like UE.
-        // Meaningful name, NO handle in it (stable identity lives in the file: PBRSurfaceParams::MaterialId).
+        // Meaningful name, NO handle in it (stable identity lives in the file: its header GUID).
         // Unified .demat schema (legacy ".mat" cooker output is gone; SurfaceMaterialAsset::Load still READS old).
         //
         // The per-mesh subfolder is CookPaths::MaterialFolder and not `MATERIAL_PATH / stem` spelled here.
@@ -297,8 +298,15 @@ namespace Desert::Editor
         std::error_code ec;
         if ( std::filesystem::exists( path, ec ) )
             return BOOLSUCCESS; // deliberately kept, not a failure to write
-        // Typed extraction -> unified canon (the only on-disk material format).
-        return WriteCookedJson( material.Data.ToMaterialData(), path );
+        // Typed extraction -> unified canon (the only on-disk material format), under the GUID the importer
+        // derived, so the file states the identity the mesh's submeshes already reference.
+        auto data       = material.Data.ToMaterialData();
+        data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+                                                           Assets::MaterialTextSubsystems() );
+        const auto text = Assets::WriteMaterialJson( data );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "material '{}' refused: {}", path.string(), text.GetError() );
+        return WriteCookedBytes( text.GetValue(), path );
     }
 
     Common::UUID ImportManager::ImportTexture( const std::filesystem::path& path )

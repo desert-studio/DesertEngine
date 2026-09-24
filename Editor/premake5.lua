@@ -25,6 +25,7 @@ project "Editor"
         -- packaged game never opens an autosave.
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
     }
 
