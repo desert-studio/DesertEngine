@@ -16,6 +16,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshAssetArrays.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
     }
 
