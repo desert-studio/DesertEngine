@@ -60,7 +60,9 @@ Desert/Common/Source/Common/Core/Version.gen.hpp
 
 # AF5: everything derivable lives in the DerivedDataCache (Common/Content/DerivedDataCache.hpp) — shader,
 # pipeline, font, icon, environment and thumbnail caches. Deletable; a miss is a rebuild; never committed and
-# never re-included below. Saved/ holds the packager's cook (Saved/Cooked/<Platform>), equally derived.
+# never re-included below. The suite that guards this is named DerivedDataKey, NOT DerivedDataCache: this
+# unanchored line would swallow a test directory of that name and `git add` would skip it in silence.
+# Saved/ holds the packager's cook (Saved/Cooked/<Platform>), equally derived.
 DerivedDataCache/
 Saved/
 
