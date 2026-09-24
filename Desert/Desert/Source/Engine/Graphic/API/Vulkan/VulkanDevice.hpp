@@ -4,6 +4,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include <chrono>
+#include <optional>
 #include <unordered_set>
 
 namespace Desert::Graphic::API::Vulkan
@@ -111,6 +113,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void                                    WaitIdle() const override;
         [[nodiscard]] Engine::DeviceMemoryReport        QueryMemory() const override;
         [[nodiscard]] virtual std::string               GetName() const override;
+        [[nodiscard]] Common::BoolResultStr             PersistPipelineCache() override;
         [[nodiscard]] bool IsFormatSupported( ::Desert::Core::Formats::ImageFormat format,
                                               Engine::FormatUsage                  usage ) const override;
 
@@ -123,10 +126,10 @@ namespace Desert::Graphic::API::Vulkan
             return m_LogicalDevice;
         }
 
-        // ONE device-wide pipeline cache, seeded from Cooked/PipelineCache.bin on create and written
-        // back on Destroy — so the driver reuses previously-built pipeline binaries across runs instead
-        // of rebuilding every graphics/compute pipeline from scratch each startup. Passed to every
-        // vkCreate*Pipelines call (graphics + compute).
+        // ONE device-wide pipeline cache, seeded from its DDC entry on create and written back while the
+        // app runs (PersistPipelineCache) and on Destroy — so the driver reuses previously-built pipeline binaries
+        // across runs instead of rebuilding every graphics/compute pipeline from scratch each startup. Passed to
+        // every vkCreate*Pipelines call (graphics + compute).
         VkPipelineCache GetPipelineCache() const
         {
             return m_PipelineCache;
@@ -149,13 +152,17 @@ namespace Desert::Graphic::API::Vulkan
         // Create the device-wide VkPipelineCache, seeding it from the on-disk cache if present. The driver
         // validates the header (vendor/device/UUID) and silently ignores mismatched or corrupt data.
         void CreatePipelineCache();
-        // Serialize the current pipeline cache to disk (best-effort — read-only installs just skip it).
-        void SavePipelineCache() const;
+        // The driver's current cache into the DDC entry (atomic), unless it equals what is already there.
+        Common::BoolResultStr WritePipelineCache();
 
     private:
         std::shared_ptr<VulkanPhysicalDevice> m_PhysicalDevice;
         VkDevice                              m_LogicalDevice;
         VkPipelineCache                       m_PipelineCache = VK_NULL_HANDLE;
+        uint64_t                              m_PipelineCacheKey       = 0;
+        uint64_t                              m_PersistedPipelineHash  = 0; // of the entry on disk, 0 = none
+        uint64_t                              m_PersistedPipelineCount = 0; // pipelines built at the last write
+        std::optional<std::chrono::steady_clock::time_point> m_PersistedAt;
         std::string                           m_DeviceName;
 
         // Whether VK_EXT_memory_budget was ENABLED on this device, not merely supported by it. Chaining

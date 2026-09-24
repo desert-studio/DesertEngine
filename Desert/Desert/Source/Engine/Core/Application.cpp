@@ -284,6 +284,13 @@ namespace Desert::Engine
                 for ( const auto& layer : m_LayerStack )
                     layer->OnFramePresented();
             }
+
+            // 8. Pipelines the driver built this frame go to disk now rather than only at a clean exit.
+            {
+                DESERT_PROFILE_SCOPE( "PersistPipelineCache" );
+                if ( const auto persisted = m_Device->PersistPipelineCache(); !persisted )
+                    LOG_WARN( "[PipelineCache] not written: {}", persisted.GetError() );
+            }
         }
 
         // Window closed: detach layers (top-down) so each releases its resources and clears its

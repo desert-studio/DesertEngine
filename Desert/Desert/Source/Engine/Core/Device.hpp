@@ -241,6 +241,13 @@ namespace Desert::Engine
          */
         [[nodiscard]] virtual std::string GetName() const = 0;
 
+        /**
+         * @brief Write the driver's pipeline cache to disk if pipelines were built since the last write.
+         * Called once per frame; throttled inside, so a run that is killed keeps what it had built a moment
+         * earlier instead of only what a clean exit would have written.
+         */
+        [[nodiscard]] virtual Common::BoolResultStr PersistPipelineCache() = 0;
+
         static std::shared_ptr<Device> Create();
     };
 
