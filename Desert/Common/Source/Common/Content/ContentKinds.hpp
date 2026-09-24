@@ -100,7 +100,7 @@ namespace Common::Content
              // Materials are editable CONTENT (the project's Materials/ dir): imported per-mesh
              // subfolders and editor-created files both land there, in the unified .demat format.
              /* Material             */ { "Material", E::MATERIAL_EXTENSION, &P::MATERIAL_PATH },
-             /* Skybox               */ { "Skybox", ".hdr", &P::SKYBOX_PATH },
+             /* Skybox               */ { "Skybox", ".detex", &P::SKYBOX_PATH },
              /* Shader               */ { "Shader", ".shader", &P::SHADERDIR_PATH },
              // The four cloud kinds. CloudNoiseVolume's root is `Clouds/` itself, which CONTAINS the
              // other three roots — that is not a mistake to tidy up: the extension is what separates

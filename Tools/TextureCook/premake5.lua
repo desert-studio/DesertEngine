@@ -16,6 +16,7 @@ project "TextureCook"
         "Source/**.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
         "%{wks.location}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
         "%{wks.location}/ThirdParty/stb/stb_image.cpp",

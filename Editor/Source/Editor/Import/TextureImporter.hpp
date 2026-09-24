@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
 namespace Desert::Editor
@@ -61,6 +62,11 @@ namespace Desert::Editor
         // source's bytes, the cook signature and the two identity fields (see the .cpp) — so an up-to-date
         // `.tex` is `Fresh` and is not rewritten.
         TextureCookResult Cook( const std::filesystem::path& path );
+
+        // Imports a raw image (png, jpg, hdr, ...) into its texture asset `<stem>.detex` beside it (AF3):
+        // creates the asset on first import, re-takes the source only when its CONTENT changed, and returns
+        // the asset's path. `Cook` calls it for any non-asset path; the migration calls it directly.
+        static Common::ResultStr<std::filesystem::path> ImportSourceAsset( const std::filesystem::path& source );
 
         // Cooks every texture source under `LooseTextureRoots()`. THERE IS NO `force` PARAMETER, and
         // there must not be one: freshness is a fact about the source's bytes, so "force" would mean

@@ -832,7 +832,9 @@ TEST_F( TextureImport, AnIntentFileThatCannotBeUnderstoodStopsTheCookGuessingPas
     ASSERT_NE( (uint64_t)importer.Import( source ), 0ull );
 
     const auto header = CookedHeader( TextureImporter::CookedMetaPath( source ) );
-    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Unspecified );
+    // AF3: the sidecar is replaced by the asset, so "do not guess" is written down as the intent that
+    // forbids a block format (Data) instead of being re-derived from a file that no longer exists.
+    EXPECT_EQ( header.Intent, Fmt::TextureIntent::Data );
     EXPECT_EQ( header.Format, Fmt::ImageFormat::RGBA8F )
          << "an instruction the cook could not read is not permission to compress";
     EXPECT_NE( log.Text().find( "not one of" ), std::string::npos )
