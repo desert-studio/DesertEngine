@@ -41,6 +41,7 @@ TREE_SEARCH = [
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
 EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
+SINGLE_TU = re.compile(r"\.o\b|\s-n\b|--dry-run")
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
@@ -339,7 +340,9 @@ def main():
                  "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "
                  "for i in $(seq 27); do pgrep -x Editor >/dev/null || pgrep -x Runtime >/dev/null || break; "
                  "sleep 10; done; <запуск>", data, agent)
-        if EDITOR_BUILD.search(cmd):
+        # a single translation unit (`make -f Editor.make .../EditorLayer.o`) is the cheap check the brief asks for
+        # BEFORE a full build; counting it made the rule punish its own advice (AF9k, 2026-09-24)
+        if EDITOR_BUILD.search(cmd) and not SINGLE_TU.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
                 save_state(state, path)
                 deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раза в этой задаче. Итерации — на "
