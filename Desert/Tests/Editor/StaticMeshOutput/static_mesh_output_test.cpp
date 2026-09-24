@@ -8,6 +8,8 @@
 
 #include <Common/Core/Constants.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Geometry/EditMeshAsset.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -23,6 +25,14 @@ using namespace Desert;
 
 namespace
 {
+    // The writer takes the component's core; the fixtures are built on EditMesh and cross the bridge once.
+    std::shared_ptr<const Geometry::FDynamicMesh3> Dyn( Geometry::EditMesh mesh )
+    {
+        auto converted = Geometry::Bridge::FromEditMesh( std::move( mesh ) );
+        EXPECT_TRUE( converted.IsSuccess() ) << ( converted.IsSuccess() ? "" : converted.GetError() );
+        return converted.IsSuccess() ? converted.ExtractValue() : std::make_shared<const Geometry::FDynamicMesh3>();
+    }
+
     // A box with one polygroup per face and two materials (odd faces on slot 1), so a round trip that loses
     // groups, reorders faces or collapses submeshes has something to lose.
     Geometry::EditMesh TwoMaterialBox()
@@ -155,7 +165,7 @@ TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )
 {
     auto folder = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( folder.IsSuccess() ) << folder.GetError();
-    auto written = Editor::WriteStaticMeshAsset( TwoMaterialBox(), kSlots, folder.GetValue(), "Box" );
+    auto written = Editor::WriteStaticMeshAsset( *Dyn( TwoMaterialBox() ), kSlots, folder.GetValue(), "Box" );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const fs::path path = written.GetValue();
     EXPECT_EQ( path.filename(), "Box.stmesh" );
@@ -176,16 +186,16 @@ TEST_F( ScratchProject, ATakenNameGetsASuffixAndTheFirstFileIsUntouched )
     auto target = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
     const fs::path folder = target.GetValue();
-    auto           first  = Editor::WriteStaticMeshAsset( TwoMaterialBox(), kSlots, folder, "Box" );
+    auto           first  = Editor::WriteStaticMeshAsset( *Dyn( TwoMaterialBox() ), kSlots, folder, "Box" );
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     const auto firstTime = fs::last_write_time( first.GetValue() );
 
     Geometry::EditMesh other = TwoMaterialBox();
     for ( const int t : other.TriangleIds() )
         other.Attributes().SetMaterialId( t, 0 );
-    auto second = Editor::WriteStaticMeshAsset( other, kSlots, folder, "Box" );
+    auto second = Editor::WriteStaticMeshAsset( *Dyn( other ), kSlots, folder, "Box" );
     ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
-    auto third = Editor::WriteStaticMeshAsset( other, kSlots, folder, "Box" );
+    auto third = Editor::WriteStaticMeshAsset( *Dyn( other ), kSlots, folder, "Box" );
     ASSERT_TRUE( third.IsSuccess() ) << third.GetError();
 
     EXPECT_EQ( first.GetValue().filename(), "Box.stmesh" );
@@ -208,7 +218,7 @@ TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )
     auto target = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
     const fs::path folder = target.GetValue();
-    EXPECT_FALSE( Editor::WriteStaticMeshAsset( coloured, kSlots, folder, "Box" ).IsSuccess() );
+    EXPECT_FALSE( Editor::WriteStaticMeshAsset( *Dyn( coloured ), kSlots, folder, "Box" ).IsSuccess() );
     EXPECT_FALSE( fs::exists( folder / "Box.stmesh" ) );
 }
 

@@ -4,7 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/EditMeshSelection.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <memory>
 #include <string>
@@ -67,7 +67,7 @@ namespace Desert::Editor::Core
         // Called by the tool every frame with the entity it edits and that entity's current mesh (null when
         // it has none). A new entity starts an empty selection (not an undo step: nothing was un-selected
         // by the user); a new mesh on the same entity prunes the selection against it and counts the drop.
-        void Track( const Common::UUID& entity, std::shared_ptr<const Geometry::EditMesh> mesh );
+        void Track( const Common::UUID& entity, std::shared_ptr<const Geometry::FDynamicMesh3> mesh );
 
         // Replaces the selection as one undo step labelled `label`; nothing is recorded when it is unchanged.
         void Commit( Geometry::ElementSelection next, const std::string& label );
@@ -92,7 +92,7 @@ namespace Desert::Editor::Core
 
     private:
         Common::UUID                              m_Entity = Common::UUID::Null();
-        std::shared_ptr<const Geometry::EditMesh> m_Mesh;
+        std::shared_ptr<const Geometry::FDynamicMesh3> m_Mesh;
         Geometry::ElementSelection                m_Selection{ Geometry::ElementMode::PolyGroup };
         Geometry::PruneReport                     m_LastDropped;
         int                                       m_TotalDropped = 0;

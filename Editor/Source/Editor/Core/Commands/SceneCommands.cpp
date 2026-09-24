@@ -294,8 +294,8 @@ namespace Desert::Editor::Commands
         {
         public:
             EditMeshCommand( const Common::UUID& entity, std::string label,
-                             std::shared_ptr<const Geometry::EditMesh> before,
-                             std::shared_ptr<const Geometry::EditMesh> after, std::unique_ptr<ICommand> alongside )
+                             std::shared_ptr<const Geometry::FDynamicMesh3> before,
+                             std::shared_ptr<const Geometry::FDynamicMesh3> after, std::unique_ptr<ICommand> alongside )
                  : m_Entity( entity ), m_Label( std::move( label ) ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Alongside( std::move( alongside ) )
             {
@@ -324,7 +324,7 @@ namespace Desert::Editor::Commands
             }
 
         private:
-            bool Apply( const std::shared_ptr<const Geometry::EditMesh>& mesh )
+            bool Apply( const std::shared_ptr<const Geometry::FDynamicMesh3>& mesh )
             {
                 auto e = FindEntity( m_Entity );
                 if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
@@ -347,7 +347,7 @@ namespace Desert::Editor::Commands
 
             Common::UUID                              m_Entity;
             std::string                               m_Label;
-            std::shared_ptr<const Geometry::EditMesh> m_Before, m_After;
+            std::shared_ptr<const Geometry::FDynamicMesh3> m_Before, m_After;
             std::unique_ptr<ICommand>                 m_Alongside; // part of the same step (may be null)
         };
 
@@ -443,7 +443,7 @@ namespace Desert::Editor::Commands
         class SplitCopyCommand final : public ICommand
         {
         public:
-            SplitCopyCommand( const Common::UUID& copy, std::shared_ptr<const Geometry::EditMesh> mesh,
+            SplitCopyCommand( const Common::UUID& copy, std::shared_ptr<const Geometry::FDynamicMesh3> mesh,
                               std::unique_ptr<ICommand> alongside )
                  : m_Copy( copy ), m_Mesh( std::move( mesh ) ), m_Alongside( std::move( alongside ) )
             {
@@ -488,7 +488,7 @@ namespace Desert::Editor::Commands
 
         private:
             Common::UUID                              m_Copy;
-            std::shared_ptr<const Geometry::EditMesh> m_Mesh;
+            std::shared_ptr<const Geometry::FDynamicMesh3> m_Mesh;
             std::unique_ptr<ICommand>                 m_Alongside;
             std::vector<Assets::EntityData>           m_Snapshot;
         };
@@ -552,7 +552,7 @@ namespace Desert::Editor::Commands
             struct Gone
             {
                 Common::UUID                              Id;
-                std::shared_ptr<const Geometry::EditMesh> Mesh;
+                std::shared_ptr<const Geometry::FDynamicMesh3> Mesh;
                 std::vector<Assets::EntityData>           Snapshot;
             };
 
@@ -1072,7 +1072,7 @@ namespace Desert::Editor::Commands
     }
 
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::EditMesh> before,
+                               std::shared_ptr<const Geometry::FDynamicMesh3> before,
                                std::unique_ptr<ICommand>                 alongside )
     {
         if ( !Ready() )
@@ -1080,7 +1080,7 @@ namespace Desert::Editor::Commands
         auto e = FindEntity( uuid );
         if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
             return;
-        std::shared_ptr<const Geometry::EditMesh> after = e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
+        std::shared_ptr<const Geometry::FDynamicMesh3> after = e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
         if ( after == before )
             return;
         CommandHistory::Get().PushCommand( std::make_unique<EditMeshCommand>(
@@ -1088,8 +1088,8 @@ namespace Desert::Editor::Commands
     }
 
     Common::ResultStr<Common::UUID> RecordEditMeshSplit( const Common::UUID& uuid, const std::string& label,
-                                                         std::shared_ptr<const Geometry::EditMesh> before,
-                                                         std::shared_ptr<const Geometry::EditMesh> otherHalf,
+                                                         std::shared_ptr<const Geometry::FDynamicMesh3> before,
+                                                         std::shared_ptr<const Geometry::FDynamicMesh3> otherHalf,
                                                          std::unique_ptr<ICommand>                 alongside )
     {
         if ( !Ready() )

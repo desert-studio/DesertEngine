@@ -31,8 +31,7 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
@@ -1024,14 +1023,14 @@ namespace Desert::Core::Serialize
                     const std::string tag    = entity.HasComponent<ECS::TagComponent>()
                                                     ? entity.GetComponent<ECS::TagComponent>().Tag
                                                     : std::string( "Entity" );
-                    auto              loaded = Geometry::FromSerialized( *meshData.EditMesh );
+                    auto              loaded = Geometry::DynamicMeshFromSerialized( *meshData.EditMesh, tag );
                     if ( !loaded.IsSuccess() )
                     {
                         LOG_ERROR( "[Scene] entity '{0}': its edited mesh could not be read and was DROPPED: {1}",
                                    tag, loaded.GetError() );
                     }
                     else if ( auto set = ECS::SetEditableMesh(
-                                   smc, std::make_shared<const Geometry::EditMesh>( loaded.ExtractValue() ) );
+                                   smc, std::make_shared<const Geometry::FDynamicMesh3>( loaded.ExtractValue() ) );
                               !set.IsSuccess() )
                     {
                         LOG_ERROR(

@@ -10,7 +10,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/Geometry/EditMeshConversion.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -1000,8 +1000,8 @@ namespace Desert::Editor::Tools
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        auto mesh = std::make_shared<const Geometry::EditMesh>( std::move( imported.ExtractValue().Mesh ) );
-        if ( auto set = ECS::SetEditableMesh( smc, std::move( mesh ) ); !set.IsSuccess() )
+        if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
+             !set.IsSuccess() )
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
     }
 

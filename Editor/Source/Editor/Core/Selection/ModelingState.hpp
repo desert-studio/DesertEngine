@@ -3,8 +3,7 @@
 #include <string>
 
 #include <Common/Core/UUID.hpp>
-#include <Engine/Geometry/EditMeshModelOperations.hpp>
-#include <Engine/Geometry/EditMeshXformOperations.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>

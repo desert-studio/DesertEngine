@@ -6,7 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
-#include <Engine/Geometry/EditMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <cctype>
 #include <filesystem>
@@ -65,14 +65,14 @@ namespace Desert::Editor
         return Common::MakeSuccess( ( Common::Constants::Path::MESH_PATH_COOKED / rel ).lexically_normal() );
     }
 
-    // Encodes @p mesh (Geometry::ToMeshAssetData - polygroups included) and writes it as a NEW file in
+    // Encodes @p mesh (Geometry::DynamicMeshToMeshAssetData - polygroups included) and writes it as a NEW file in
     // @p folder, registered in the content registry with its bounds, exactly as the importer's cook does.
     // Returns the path written. Nothing is written when the mesh is refused.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
-    WriteStaticMeshAsset( const Geometry::EditMesh& mesh, std::span<const Common::UUID> slotMaterials,
+    WriteStaticMeshAsset( const Geometry::FDynamicMesh3& mesh, std::span<const Common::UUID> slotMaterials,
                           const std::filesystem::path& folder, std::string_view baseName )
     {
-        auto data = Geometry::ToMeshAssetData( mesh, slotMaterials );
+        auto data = Geometry::DynamicMeshToMeshAssetData( mesh, slotMaterials );
         if ( !data.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was not written as a static mesh: {}",
                                                                       baseName, data.GetError() );

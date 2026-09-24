@@ -7,7 +7,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -99,7 +99,7 @@ namespace Desert::Editor::Tools
         entity.GetComponent<ECS::TransformComponent>().Translation = position;
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
         if ( auto set =
-                  ECS::SetEditableMesh( smc, std::make_shared<const Geometry::EditMesh>( mesh.ExtractValue() ) );
+                  Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
              !set.IsSuccess() )
         {
             scene.DestroyEntity( entity );

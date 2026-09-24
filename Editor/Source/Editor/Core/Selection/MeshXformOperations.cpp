@@ -23,13 +23,13 @@ namespace Desert::Editor::Core
 {
     namespace
     {
-        using MeshPtr = std::shared_ptr<const Geometry::EditMesh>;
+        using MeshPtr = std::shared_ptr<const Geometry::FDynamicMesh3>;
 
         struct Target
         {
             Common::UUID  Id;
             ECS::Entity   Entity;
-            MeshPtr       Mesh;
+            std::shared_ptr<const Geometry::EditMesh> Mesh; // Bridge::EditMeshView of the entity's mesh
             Geometry::Trs Local;
             std::string   Name;
         };
@@ -62,8 +62,12 @@ namespace Desert::Editor::Core
                          "first",
                          ToString( op ), static_cast<uint64_t>( id ),
                          e.GetComponent<ECS::RelationshipComponent>().Children.size() );
+                auto view = Geometry::Bridge::EditMeshView( e.GetComponent<ECS::StaticMeshComponent>().EditableMesh );
+                if ( !view.IsSuccess() )
+                    return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
+                                                            static_cast<uint64_t>( id ), view.GetError() );
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
-                out.push_back( { id, e, e.GetComponent<ECS::StaticMeshComponent>().EditableMesh,
+                out.push_back( { id, e, view.ExtractValue(),
                                  Geometry::Trs{ tc.Translation, tc.Rotation, tc.Scale },
                                  e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
                                                                      : std::string( "Mesh" ) } );
@@ -74,11 +78,6 @@ namespace Desert::Editor::Core
         Commands::XformEntityState StateOf( const Common::UUID& id, MeshPtr mesh, const Geometry::Trs& local )
         {
             return { id, std::move( mesh ), local.Translation, local.Rotation, local.Scale, std::nullopt };
-        }
-
-        MeshPtr Share( Geometry::EditMesh&& mesh )
-        {
-            return std::make_shared<const Geometry::EditMesh>( std::move( mesh ) );
         }
 
         // Merge's material table: the target's slots first, then every other part's slots not already there;
@@ -163,6 +162,18 @@ namespace Desert::Editor::Core
         std::vector<Target>                     kept   = targets;
         auto                                    refuse = [&]( const Target& t, const std::string& why )
         { return Common::MakeFormattedError<bool>( "{} on '{}': {}", name, t.Name, why ); };
+        // Every result goes back onto the ported core; the first conversion refused refuses the whole edit
+        // below, before anything is applied.
+        std::string shareError;
+        auto        Share = [&]( Geometry::EditMesh&& mesh ) -> MeshPtr
+        {
+            auto converted = Geometry::Bridge::FromEditMesh( std::move( mesh ) );
+            if ( converted.IsSuccess() )
+                return converted.ExtractValue();
+            if ( shareError.empty() )
+                shareError = converted.GetError();
+            return nullptr;
+        };
 
         switch ( op )
         {
@@ -275,6 +286,8 @@ namespace Desert::Editor::Core
             }
         }
 
+        if ( !shareError.empty() )
+            return Common::MakeFormattedError<bool>( "{}: {}", name, shareError );
         auto applied = Commands::ApplyXformEdit( fmt::format( "Modeling: {}", name ), changes, creates, deletes );
         if ( !applied.IsSuccess() )
             return Common::MakeError<bool>( applied.GetError() );

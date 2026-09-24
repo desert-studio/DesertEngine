@@ -25,7 +25,7 @@ namespace Desert::Assets
 }
 namespace Desert::Geometry
 {
-    class EditMesh;
+    class FDynamicMesh3;
 }
 
 namespace Desert::Editor::Commands
@@ -72,7 +72,7 @@ namespace Desert::Editor::Commands
     // the two are the same object. The meshes are immutable, so both are kept by reference. @p alongside is
     // undone / redone with the mesh as part of the SAME step (a mesh operation's selection change).
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
-                               std::shared_ptr<const Geometry::EditMesh> before,
+                               std::shared_ptr<const Geometry::FDynamicMesh3> before,
                                std::unique_ptr<ICommand>                 alongside = nullptr );
 
     // Record a mesh operation that SPLIT the entity in two (Plane Cut, Keep Both Halves): the entity's CURRENT
@@ -81,8 +81,8 @@ namespace Desert::Editor::Commands
     // left created or recorded - when the copy cannot be made or cannot take the mesh; the caller then puts
     // @p before back on the source.
     [[nodiscard]] Common::ResultStr<Common::UUID> RecordEditMeshSplit(
-         const Common::UUID& uuid, const std::string& label, std::shared_ptr<const Geometry::EditMesh> before,
-         std::shared_ptr<const Geometry::EditMesh> otherHalf, std::unique_ptr<ICommand> alongside = nullptr );
+         const Common::UUID& uuid, const std::string& label, std::shared_ptr<const Geometry::FDynamicMesh3> before,
+         std::shared_ptr<const Geometry::FDynamicMesh3> otherHalf, std::unique_ptr<ICommand> alongside = nullptr );
 
     // ---- XForm (Modeling): whole-entity mesh + transform edits as ONE undo step ----
 
@@ -91,7 +91,7 @@ namespace Desert::Editor::Commands
     struct XformEntityState
     {
         Common::UUID                                    Entity;
-        std::shared_ptr<const Geometry::EditMesh>       Mesh;
+        std::shared_ptr<const Geometry::FDynamicMesh3>       Mesh;
         glm::vec3                                       Translation{ 0.0f };
         glm::vec3                                       Rotation{ 0.0f };
         glm::vec3                                       Scale{ 1.0f };

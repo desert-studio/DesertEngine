@@ -8,9 +8,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
-#include <Engine/Geometry/EditMeshNormals.hpp>
-#include <Engine/Geometry/EditMeshSelection.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -86,7 +84,13 @@ namespace Desert::Editor::Tools
         const auto target = GetTarget( scene, m_Entity );
         if ( !target )
             return false;
-        const Geometry::EditMesh& mesh  = *target->Mesh().EditableMesh;
+        auto pickView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
+        if ( !pickView.IsSuccess() )
+        {
+            LOG_ERROR( "[PolyEdit] the entity's mesh cannot be read: {0}", pickView.GetError() );
+            return false;
+        }
+        const Geometry::EditMesh& mesh  = *pickView.GetValue();
         const glm::mat4&          world = target->World;
 
         // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
@@ -194,11 +198,14 @@ namespace Desert::Editor::Tools
             if ( m_Dragging && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             {
                 const float ds = s - m_DragS;
-                if ( std::abs( ds ) > 1e-4f )
+                auto dragView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
+                if ( !dragView.IsSuccess() )
+                    LOG_ERROR( "[PolyEdit] the drag cannot read the entity's mesh: {0}", dragView.GetError() );
+                if ( std::abs( ds ) > 1e-4f && dragView.IsSuccess() )
                 {
                     // The component's mesh is immutable (EditableMesh.hpp): each step of the drag is a new
                     // mesh, so the one the drag started from stays intact for the undo record.
-                    auto            next = std::make_shared<Geometry::EditMesh>( *target->Mesh().EditableMesh );
+                    auto            next = std::make_shared<Geometry::EditMesh>( *dragView.GetValue() );
                     const glm::vec3 deltaLocal = glm::vec3( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
                     for ( const int vtx : m_SelVerts )
                         next->SetPosition( vtx, next->GetPosition( vtx ) + deltaLocal );
@@ -220,7 +227,7 @@ namespace Desert::Editor::Tools
                                     normals->SetElement( el, n );
                             }
                     }
-                    if ( auto set = ECS::SetEditableMesh( target->Mesh(), std::move( next ) ); set.IsSuccess() )
+                    if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( target->Mesh(), std::move( *next ) ); set.IsSuccess() )
                     {
                         m_CentroidWorld += ds * wN;
                         m_DragS = s;
@@ -235,7 +242,14 @@ namespace Desert::Editor::Tools
                 FinishDrag();
 
             // Highlight the selected face (translucent green + outline).
-            const Geometry::EditMesh& mesh = *target->Mesh().EditableMesh;
+            static const Geometry::EditMesh kNoMesh;
+            auto                            drawView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
+            if ( !drawView.IsSuccess() )
+            {
+                LOG_ERROR( "[PolyEdit] the highlight cannot read the entity's mesh: {0}", drawView.GetError() );
+                m_SelTris.clear();
+            }
+            const Geometry::EditMesh& mesh = drawView.IsSuccess() ? *drawView.GetValue() : kNoMesh;
             for ( const int ti : m_SelTris )
             {
                 if ( !mesh.IsTriangle( ti ) )

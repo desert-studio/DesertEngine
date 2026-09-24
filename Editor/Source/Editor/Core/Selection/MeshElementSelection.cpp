@@ -65,7 +65,7 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
-    void MeshElementSelection::Track( const Common::UUID& entity, std::shared_ptr<const Geometry::EditMesh> mesh )
+    void MeshElementSelection::Track( const Common::UUID& entity, std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
     {
         if ( static_cast<uint64_t>( entity ) != static_cast<uint64_t>( m_Entity ) )
         {
@@ -84,7 +84,15 @@ namespace Desert::Editor::Core
             m_Selection.Clear();
             return;
         }
-        const Geometry::PruneReport dropped = m_Selection.Prune( *m_Mesh );
+        auto view = Geometry::Bridge::EditMeshView( m_Mesh );
+        if ( !view.IsSuccess() )
+        {
+            LOG_ERROR( "[Mesh Selection] the selection was cleared, the edited mesh cannot be read: {0}",
+                       view.GetError() );
+            m_Selection.Clear();
+            return;
+        }
+        const Geometry::PruneReport dropped = m_Selection.Prune( *view.GetValue() );
         if ( dropped.Total() > 0 )
         {
             m_LastDropped = dropped;

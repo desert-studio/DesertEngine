@@ -8,8 +8,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
-#include <Engine/Geometry/EditMeshSelection.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -27,7 +26,8 @@ namespace Desert::Editor::Tools
 
         struct Target
         {
-            std::shared_ptr<const Geometry::EditMesh> Mesh;
+            std::shared_ptr<const Geometry::FDynamicMesh3> Source;
+            std::shared_ptr<const Geometry::EditMesh>      Mesh; // Bridge::EditMeshView( Source )
             glm::mat4                                 World{ 1.0f };
         };
 
@@ -46,7 +46,13 @@ namespace Desert::Editor::Tools
             const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
             if ( !smc.EditableMesh )
                 return {};
-            return { smc.EditableMesh, e.HasComponent<ECS::TransformComponent>()
+            auto view = Geometry::Bridge::EditMeshView( smc.EditableMesh );
+            if ( !view.IsSuccess() )
+            {
+                LOG_ERROR( "[Select Elements] the entity's mesh cannot be read: {0}", view.GetError() );
+                return {};
+            }
+            return { smc.EditableMesh, view.ExtractValue(), e.HasComponent<ECS::TransformComponent>()
                                             ? e.GetComponent<ECS::TransformComponent>().GetTransform()
                                             : glm::mat4( 1.0f ) };
         }
@@ -148,7 +154,7 @@ namespace Desert::Editor::Tools
         const auto&        selected = Core::SelectionManager::GetSelected();
         const Common::UUID entity   = selected.has_value() ? *selected : Common::UUID::Null();
         const Target       target   = FindTarget( scene, entity );
-        state.Track( entity, target.Mesh );
+        state.Track( entity, target.Source );
         if ( !target.Mesh )
         {
             state.ReqPickCentre = false;
