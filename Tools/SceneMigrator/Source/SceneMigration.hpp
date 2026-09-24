@@ -338,12 +338,19 @@ namespace Desert::Migration
     //                   root, or one stating no texture GUID REFUSES the file, naming it
     //                   (MigrateTextureGuidsV28ToV29).
     inline constexpr int kSceneVersionTextureGuids = 29;
+    //  30             - A UI SPRITE IS NAMED BY ITS HEADER GUID (T6f). `UICanvas.Sprite`, `UIPanel.Sprite`,
+    //                   `UIImage.Sprite`, `UIButton.Sprite` / `HoverSprite` / `PressedSprite` and
+    //                   `Settings.SplashSprite` held the texture's stable key; each becomes the SCNE 29 reference
+    //                   object `{"Guid", "Path"}`, in entity records, prefab-override records and the settings.
+    //                   The refusals are 29's: a missing file, a file outside the assets root, or one stating
+    //                   no texture GUID REFUSES the file, naming the slot (MigrateSpriteGuidsV29ToV30).
+    inline constexpr int kSceneVersionSpriteGuids = 30;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionTextureGuids == kSceneVersion,
+    static_assert( kSceneVersionSpriteGuids == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1470,6 +1477,15 @@ namespace Desert::Migration
     TextureGuidsMigrationReport MigrateTextureGuidsV28ToV29( std::vector<Assets::EntityData>& entities,
                                                              const std::filesystem::path&     assetsRoot );
 
+    // Raises every UI sprite slot and `Settings.SplashSprite` (the texture's stable key) from v29 to the
+    // reference object `{"Guid", "Path"}` MigrateTextureGuidsV28ToV29 gave the skybox, in entity records, their
+    // prefab-override records and the settings (absent for a prefab). The report is that step's: UnknownNames
+    // non-empty REFUSES the file. IDEMPOTENT: a slot that is already an object is left as it is. SHELF LIFE:
+    // deleted once no v29 file remains.
+    TextureGuidsMigrationReport MigrateSpriteGuidsV29ToV30( std::optional<rfl::Generic>&     settings,
+                                                            std::vector<Assets::EntityData>& entities,
+                                                            const std::filesystem::path&     assetsRoot );
+
     struct TextureAssetRefsMigrationReport
     {
         int Rewritten = 0; // strings that now name a texture asset
@@ -1638,6 +1654,8 @@ namespace Desert::Migration
         MeshGuidsMigrationReport         MeshGuids;
         bool                             TextureGuidsRaised = false; // below kSceneVersionTextureGuids
         TextureGuidsMigrationReport      TextureGuids;
+        bool                             SpriteGuidsRaised = false; // below kSceneVersionSpriteGuids
+        TextureGuidsMigrationReport      SpriteGuids;
 
         bool Changed() const
         {
@@ -1647,7 +1665,7 @@ namespace Desert::Migration
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
                    TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
-                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised;
+                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised || SpriteGuidsRaised;
         }
     };
 
