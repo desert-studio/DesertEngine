@@ -13,6 +13,7 @@
 #include <Common/Core/Constants.hpp>
 
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
