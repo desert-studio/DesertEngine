@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <limits>
 #include <set>
 #include <utility>
 #include <vector>
@@ -83,6 +85,10 @@ namespace
         EditMesh       Old;
         FDynamicMesh3  New;
         FGroupTopology Topology;
+        // Vertex / Edge picks against the EditMesh path's pixel-nearest rule (reported, not required equal).
+        int PickSame          = 0;
+        int PickOther         = 0;
+        int PickMissAgreement = 0;
     };
 
     std::unique_ptr<Pair> Build( const Source& s )
@@ -211,6 +217,28 @@ namespace
                 {
                     const ElementHit o = PickElement( p.Old, mode, view );
                     const ElementHit n = PickElement( p.New, p.Topology, mode, view );
+                    if ( mode == ElementMode::Vertex || mode == ElementMode::Edge )
+                    {
+                        // The ported pick (UE FindSelectedElement) chooses among the elements within tolerance
+                        // by ray parameter (vertices) or ray-area metric (edges), not by pixel distance, and
+                        // misses when that choice is occluded; what both rules share is the tolerance.
+                        if ( n.IsHit() )
+                        {
+                            ++hits;
+                            EXPECT_LE( n.PixelDistance, view.TolerancePixels ) << ToString( mode );
+                        }
+                        if ( n.IsHit() != o.IsHit() )
+                            ++p.PickMissAgreement;
+                        else if ( n.IsHit() )
+                        {
+                            ElementSelection os( mode );
+                            ElementSelection ns( mode );
+                            (void)os.Add( p.Old, o.Id );
+                            (void)ns.Add( p.New, n.Id );
+                            ( OldValues( p.Old, os ) == NewValues( p.New, ns ) ? p.PickSame : p.PickOther )++;
+                        }
+                        continue;
+                    }
                     EXPECT_EQ( o.IsHit(), n.IsHit() ) << ToString( mode ) << " at " << x << "," << y;
                     if ( !o.IsHit() || !n.IsHit() )
                         continue;
@@ -233,6 +261,9 @@ TEST( DynamicMeshSelection, CubeSelectsWhatTheEditMeshPathSelects )
     ASSERT_EQ( p->Topology.Groups.Num(), 6 );
     EXPECT_EQ( CompareOperations( *p ), ( 8 + 18 + 12 + 6 ) * 7 );
     EXPECT_GT( ComparePicks( *p, { 180.0f, 140.0f, 220.0f }, { 0.0f, 0.0f, 0.0f } ), 50 );
+    std::cout << "[ pick ] vertex/edge: same " << p->PickSame << ", other " << p->PickOther << ", hit/miss differ "
+              << p->PickMissAgreement << "\n";
+    EXPECT_GT( p->PickSame, p->PickOther );
 }
 
 TEST( DynamicMeshSelection, CylinderSelectsWhatTheEditMeshPathSelects )
@@ -241,6 +272,9 @@ TEST( DynamicMeshSelection, CylinderSelectsWhatTheEditMeshPathSelects )
     ASSERT_EQ( p->Topology.Groups.Num(), 3 );
     EXPECT_EQ( CompareOperations( *p ), ( 18 + 48 + 32 + 3 ) * 7 );
     EXPECT_GT( ComparePicks( *p, { 150.0f, 220.0f, 180.0f }, { 0.0f, 50.0f, 0.0f } ), 50 );
+    std::cout << "[ pick ] vertex/edge: same " << p->PickSame << ", other " << p->PickOther << ", hit/miss differ "
+              << p->PickMissAgreement << "\n";
+    EXPECT_GT( p->PickSame, p->PickOther );
 }
 
 TEST( DynamicMeshSelection, PruneDropsAGroupNoTriangleCarries )
@@ -254,4 +288,31 @@ TEST( DynamicMeshSelection, PruneDropsAGroupNoTriangleCarries )
     const PruneReport report = sel.Prune( p->New );
     EXPECT_EQ( report.Missing, 1 );
     EXPECT_TRUE( sel.Empty() );
+}
+
+// The ported corner pick (UE DoCornerBasedSelection / FindNearestPointToRay) takes, of the vertices within
+// tolerance, the one nearest ALONG THE RAY, where the EditMesh path took the one nearest the cursor in pixels.
+TEST( DynamicMeshSelection, CornerPickPrefersNearerAlongTheRay )
+{
+    auto p = Build( Cube() );
+    ASSERT_GT( p->New.VertexCount(), 0 );
+    // Looking down a cube's corner diagonal from far away, several corners fall within a wide tolerance.
+    const glm::vec3 eye( 400.0f, 400.0f, 400.0f );
+    PickView        view;
+    view.ViewProj = glm::perspective( glm::radians( 60.0f ), 1.0f, 1.0f, 10000.0f ) *
+                    glm::lookAt( eye, glm::vec3( 0.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ) );
+    view.ViewportSize    = { 512.0f, 512.0f };
+    view.Cursor          = { 256.0f, 256.0f };
+    view.RayOrigin       = eye;
+    view.RayDirection    = glm::normalize( -eye );
+    view.TolerancePixels = 400.0f;
+    const ElementHit n   = PickElement( p->New, p->Topology, ElementMode::Vertex, view );
+    ASSERT_TRUE( n.IsHit() );
+    float nearest = std::numeric_limits<float>::infinity();
+    for ( const int v : p->New.VertexIndicesItr() )
+    {
+        const FVector3d q = p->New.GetVertex( v );
+        nearest           = std::min( nearest, glm::dot( glm::vec3( q.X, q.Y, q.Z ) - eye, view.RayDirection ) );
+    }
+    EXPECT_FLOAT_EQ( n.RayT, nearest );
 }

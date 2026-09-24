@@ -6,9 +6,11 @@
 // vertex, triangle and group IDs agree with the EditMesh view of the same mesh; EDGE IDs are the FDynamicMesh3's,
 // and an operation still on the bridge converts them (Bridge::ToEditMeshSelection).
 //
-// UE: GeometryCore/Selections (MeshFaceSelection, MeshVertexSelection, MeshEdgeSelection) grow and shrink by one
-// ring as GrowSelection / ShrinkSelection do here; the rules were ours already (M13) and are MOVED onto the ported
-// core, not re-ported: UE's classes are containers without picking or mode conversion.
+// PickElement is ported from UE's FMeshTopologySelector::FindSelectedElement (see DynamicMeshSelection.cpp for
+// what was adapted): a vertex is the within-tolerance one nearest ALONG THE RAY, an edge the one with the least
+// ray-area metric, and an occluded choice is a miss. Grow / Shrink match UE's FMeshFaceSelection
+// ExpandToOneRingNeighbours / ContractBorderByOneRingNeighbours on closed manifolds; UE 5.8 has no Grow/Shrink in
+// GeometrySelectionUtil.
 
 #include "Engine/Geometry/EditMeshSelection.hpp"
 
