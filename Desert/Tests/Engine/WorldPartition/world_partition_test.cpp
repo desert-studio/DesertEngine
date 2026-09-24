@@ -32,6 +32,7 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
@@ -704,10 +705,16 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
     std::size_t                                  asked   = 0;
     std::size_t                                  answers = 0;
     const Desert::Core::Rules::AssetBoundsSource source =
-         [&]( std::uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+         [&]( const Common::Content::AssetGuid& guid, std::string_view path ) -> std::optional<Common::Math::AABB>
     {
         ++asked;
-        const Common::Utils::AssetRegistryEntry* row = rows.FindByReference( handle, path );
+        const Common::Utils::AssetRegistryEntry* row = nullptr;
+        if ( !guid.IsNull() )
+            for ( const auto& candidate : rows.Entries() )
+                if ( candidate.Guid.has_value() && *candidate.Guid == guid )
+                    row = &candidate;
+        if ( row == nullptr )
+            row = rows.FindByReference( 0, path );
         if ( row == nullptr || !row->Bounds.has_value() )
             return std::nullopt;
         ++answers;
@@ -952,18 +959,23 @@ TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
 
 namespace
 {
-    // A registry of one mesh, the way the loader's source answers: by handle, else by path.
-    Desert::Core::Rules::AssetBoundsSource OneMesh( std::uint64_t handle, const std::string& path,
+    // A registry of one mesh, the way the loader's source answers: by header GUID, else by path.
+    Desert::Core::Rules::AssetBoundsSource OneMesh( Common::Content::AssetGuid guid, const std::string& path,
                                                     Common::Math::AABB box )
     {
         // NOLINTNEXTLINE(bugprone-exception-escape): test fixture
-        return [=]( std::uint64_t asked, std::string_view named ) -> std::optional<Common::Math::AABB>
+        return [=]( const Common::Content::AssetGuid& asked,
+                    std::string_view                  named ) -> std::optional<Common::Math::AABB>
         {
-            if ( ( asked != 0 && asked == handle ) || ( !named.empty() && named == path ) )
+            if ( ( !asked.IsNull() && asked == guid ) || ( !named.empty() && named == path ) )
                 return box;
             return std::nullopt;
         };
     }
+
+    // A mesh GUID and the text a scene writes it as (SCNE 28: 32 lower-case hex digits, Hi then Lo).
+    constexpr Common::Content::AssetGuid kBridgeGuid{ 0x4f1c2a9e7b3d5a10ull, 0x9e8d7c6b5a493827ull };
+    constexpr const char*                kBridgeGuidText = "4f1c2a9e7b3d5a109e8d7c6b5a493827";
 } // namespace
 
 // THE ACCEPTANCE CASE: A KILOMETRE BRIDGE AS ONE MODEL. Its entity sits at (1000, 0, 1000); the mesh runs
@@ -974,7 +986,8 @@ TEST( WorldPartitionMeshAssets, AKilometreBridgeModelGoesToTheLevelThatHoldsIt )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 1, "Bridge", { 1000.0f, 0.0f, 1000.0f } ) );
-    With( records[0], "StaticMesh", R"({"MeshGuid":4242,"MeshPath":"Cooked/Meshes/Bridge.stmesh"})" );
+    With( records[0], "StaticMesh",
+          R"({"MeshGuid":"4f1c2a9e7b3d5a109e8d7c6b5a493827","MeshPath":"Cooked/Meshes/Bridge.stmesh"})" );
     records.push_back( Record( 2, "FarRock", { 900000.0f, 0.0f, 900000.0f } ) );
 
     const WorldPartitionPlan blind = PlanWorldPartition( records, Cells( 12800.0f ) );
@@ -982,7 +995,7 @@ TEST( WorldPartitionMeshAssets, AKilometreBridgeModelGoesToTheLevelThatHoldsIt )
     EXPECT_EQ( blind.PointOnlyRecords, 2u );
 
     const auto source = OneMesh(
-         4242, "",
+         kBridgeGuid, "",
          Common::Math::AABB{ glm::vec3( 0.0f, -500.0f, -300.0f ), glm::vec3( 100000.0f, 800.0f, 300.0f ) } );
     const WorldPartitionPlan seen   = PlanWorldPartition( records, Cells( 12800.0f ), source );
     const PlannedComposite&  bridge = HeldBy( seen, 0 );
@@ -1006,7 +1019,7 @@ TEST( WorldPartitionMeshAssets, TheBoxIsCarriedByTheWorldMatrixNotJustThePositio
     With( records[1], "StaticMesh", R"({"MeshPath":"Cooked/Meshes/Beam.stmesh"})" );
 
     const auto source =
-         OneMesh( 0, "Cooked/Meshes/Beam.stmesh",
+         OneMesh( {}, "Cooked/Meshes/Beam.stmesh",
                   Common::Math::AABB{ glm::vec3( 0.0f, 0.0f, -10.0f ), glm::vec3( 1000.0f, 10.0f, 10.0f ) } );
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
     const PlannedComposite&  held = HeldBy( plan, 1 );
@@ -1021,24 +1034,22 @@ TEST( WorldPartitionMeshAssets, TheBoxIsCarriedByTheWorldMatrixNotJustThePositio
     EXPECT_EQ( plan.PointOnlyRecords, 1u ) << "the pivot names nothing and stays a point";
 }
 
-// A SKINNED MESH IS ASKED THE SAME WAY, AND A HANDLE ABOVE 2^53 IS NOT ROUNDED. The corpus writes
-// MeshGuid as a JSON integer; read through a double it would name a neighbouring handle and miss.
-TEST( WorldPartitionMeshAssets, ASkinnedMeshIsAskedByItsExactHandle )
+// A SKINNED MESH IS ASKED THE SAME WAY, BY ALL 128 BITS OF ITS GUID TEXT.
+TEST( WorldPartitionMeshAssets, ASkinnedMeshIsAskedByItsExactGuid )
 {
-    constexpr std::uint64_t kHandle = 5756835276253557057ull; // a real skinned handle from the corpus
     std::vector<EntityData> records;
     records.push_back( Record( 1, "Rig", { 0.0f, 0.0f, 0.0f } ) );
-    With( records[0], "SkinnedMesh", R"({"MeshGuid":5756835276253557057})" );
+    With( records[0], "SkinnedMesh", ( std::string( R"({"MeshGuid":")" ) + kBridgeGuidText + R"("})" ).c_str() );
 
-    const auto source =
-         OneMesh( kHandle, "", Common::Math::AABB{ glm::vec3( -30.0f, 0.0f, -20000.0f ), glm::vec3( 30.0f ) } );
+    const auto               source = OneMesh( kBridgeGuid, "",
+                                               Common::Math::AABB{ glm::vec3( -30.0f, 0.0f, -20000.0f ), glm::vec3( 30.0f ) } );
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
     ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( plan.Composites[0].Footprint.value().MinZ, -20000.0f,
                  0.5f ); // NOLINT(bugprone-unchecked-optional-access)
     // NOLINTEND(bugprone-unchecked-optional-access)
-    EXPECT_EQ( plan.PointOnlyRecords, 0u ) << "the exact handle was not found - read through a double?";
+    EXPECT_EQ( plan.PointOnlyRecords, 0u ) << "the exact GUID was not found";
 }
 
 // A SOURCE THAT DOES NOT KNOW THE MESH LEAVES IT A POINT AND COUNTED - never a guessed box.
@@ -1046,9 +1057,11 @@ TEST( WorldPartitionMeshAssets, AnUnknownMeshIsItsPositionAndIsCounted )
 {
     std::vector<EntityData> records;
     records.push_back( Record( 1, "Prop", { 20.0f, 0.0f, 20.0f } ) );
-    With( records[0], "StaticMesh", R"({"MeshGuid":77})" );
+    With( records[0], "StaticMesh", ( std::string( R"({"MeshGuid":")" ) + kBridgeGuidText + R"("})" ).c_str() );
 
-    const auto source = OneMesh( 78, "", Common::Math::AABB{ glm::vec3( -1.0e6f ), glm::vec3( 1.0e6f ) } );
+    // One bit away in Lo: a different asset.
+    const auto source             = OneMesh( Common::Content::AssetGuid{ kBridgeGuid.Hi, kBridgeGuid.Lo ^ 1u }, "",
+                                             Common::Math::AABB{ glm::vec3( -1.0e6f ), glm::vec3( 1.0e6f ) } );
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
     EXPECT_EQ( plan.PointOnlyRecords, 1u );
     EXPECT_EQ( plan.Composites[0].Level, 0 );
