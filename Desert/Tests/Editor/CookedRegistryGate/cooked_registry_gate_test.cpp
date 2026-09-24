@@ -332,7 +332,7 @@ TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
     SandboxProject sandbox( root );
     ASSERT_TRUE( sandbox.Opened() );
 
-    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    const Common::Utils::AssetRegistry         registry = ScannedCorpus();
     std::map<std::string, std::pair<int, int>> byKind; // kind -> rows, rows with a GUID
     for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
     {
@@ -373,9 +373,9 @@ TEST( CookedRegistryGate, AnEdgeWithAChangedGuidIsCaught )
     ASSERT_TRUE( sandbox.Opened() );
 
     Common::Utils::AssetRegistry registry = ScannedCorpus();
-    const auto withEdge = std::find_if( registry.Entries().begin(), registry.Entries().end(),
-                                        []( const Common::Utils::AssetRegistryEntry& row )
-                                        { return !row.Dependencies.empty(); } );
+    const auto                   withEdge =
+         std::find_if( registry.Entries().begin(), registry.Entries().end(),
+                       []( const Common::Utils::AssetRegistryEntry& row ) { return !row.Dependencies.empty(); } );
     ASSERT_NE( withEdge, registry.Entries().end() );
     const std::string key = withEdge->Key;
 
@@ -404,9 +404,9 @@ TEST( CookedRegistryGate, ACorruptIdentityIsCaught )
     ASSERT_TRUE( sandbox.Opened() );
 
     Common::Utils::AssetRegistry registry = ScannedCorpus();
-    const auto withGuid = std::find_if( registry.Entries().begin(), registry.Entries().end(),
-                                        []( const Common::Utils::AssetRegistryEntry& row )
-                                        { return row.Guid.has_value(); } );
+    const auto                   withGuid =
+         std::find_if( registry.Entries().begin(), registry.Entries().end(),
+                       []( const Common::Utils::AssetRegistryEntry& row ) { return row.Guid.has_value(); } );
     ASSERT_NE( withGuid, registry.Entries().end() );
     const std::string key      = withGuid->Key;
     const uint64_t    identity = withGuid->Identity;

@@ -411,9 +411,9 @@ namespace Desert::Assets
 
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
-            // A KNOWN ROW IS RE-DESCRIBED FROM ITS HEADER; A HEADER-LESS ROW KEEPS ITS IDENTITY. A re-cook rewrites the
-            // bytes of a file whose identity the running session already learned by parsing it; clearing
-            // that here would make the row forget the number every scene reference holds, and it would do
+            // A KNOWN ROW IS RE-DESCRIBED FROM ITS HEADER; A HEADER-LESS ROW KEEPS ITS IDENTITY. A re-cook
+            // rewrites the bytes of a file whose identity the running session already learned by parsing it;
+            // clearing that here would make the row forget the number every scene reference holds, and it would do
             // it on the one path where the file is most likely to be re-read a moment later.
             //
             // THE SIZE IS DIFFERENT: it is a fact about the bytes this call was told were just written,

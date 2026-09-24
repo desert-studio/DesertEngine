@@ -374,9 +374,9 @@ namespace Common::Content
         // forms (a committed file is migrated by reading it), but an older form inside a cache lacks columns
         // the gather fills, and the cache would hand those rows back unread for as long as their files'
         // size and stamp hold.
-        const std::string      currentLine  = Utils::AssetRegistry().Serialize();
-        const std::string_view writtenLine  = std::string_view( currentLine ).substr( 0, currentLine.find( '\n' ) );
-        const std::string_view embedded     = text.substr( registryAt + 1 );
+        const std::string      currentLine = Utils::AssetRegistry().Serialize();
+        const std::string_view writtenLine = std::string_view( currentLine ).substr( 0, currentLine.find( '\n' ) );
+        const std::string_view embedded    = text.substr( registryAt + 1 );
         const std::string_view embeddedLine = embedded.substr( 0, embedded.find( '\n' ) );
         if ( embeddedLine != writtenLine )
             return MakeFormattedError<RegistryCache>( "the registry cache embeds '{}', this build writes '{}'",

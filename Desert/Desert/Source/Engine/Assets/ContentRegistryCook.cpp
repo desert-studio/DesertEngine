@@ -107,7 +107,6 @@ namespace Desert::Assets::ContentRegistry
             for ( const Common::Utils::AssetRegistryEntry& row : state.Registry.Entries() )
                 outcome.Edges += row.Dependencies.size();
 
-
             // ── BOUNDS: every loaded mesh's box ─────────────────────────────────────────────────────
             //
             // The box the draw side uses (Geometry::LocalBounds over the submeshes), so the partitioner and
