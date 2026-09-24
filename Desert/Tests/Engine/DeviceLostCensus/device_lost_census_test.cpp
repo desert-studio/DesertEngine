@@ -174,7 +174,7 @@ namespace
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp", "VulkanLogicalDevice::WaitIdle",
            "vkDeviceWaitIdle" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp",
-           "VulkanLogicalDevice::SavePipelineCache", "vkGetPipelineCacheData" },
+           "VulkanLogicalDevice::WritePipelineCache", "vkGetPipelineCacheData" },
          // THE EXCEPTION TO THE PARAGRAPH ABOVE, and the reason it is a row rather than a footnote. This
          // one records interface geometry into `queue->GetDrawCommandBuffer()` DIRECTLY, reaching past
          // m_CurrentCommandBuffer, so the single gate in BeginFrame does not reach it.
@@ -207,7 +207,9 @@ namespace
          //      factory that seven allocation sites bypass, so it was blind to 2.79 GB of what it exists
          //      to count.
          { "VulkanAllocator.cpp", "vmaGetAllocationInfo", 2, "void" },
-         { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 3, "void" },
+         // FOUR SITES, the count derived from them: device selection (scoring + the chosen GPU), the device name read at logical-device
+         // creation, and AF7's PipelineCacheKey — the GPU/driver identity that keys the pipeline-cache DDC entry.
+         { "VulkanDevice.cpp", "vkGetPhysicalDeviceProperties", 4, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFeatures", 1, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceFormatProperties", 3, "void" },
          { "VulkanDevice.cpp", "vkGetPhysicalDeviceMemoryProperties", 1, "void" },

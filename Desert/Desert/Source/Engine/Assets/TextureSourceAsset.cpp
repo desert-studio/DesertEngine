@@ -243,23 +243,10 @@ namespace Desert::Assets
         const auto bytes = EncodeTextureSourceAsset( asset );
         if ( !bytes.IsSuccess() )
             return Common::MakeError<bool>( bytes.GetError() );
-        // Write-then-rename: an asset is the whole file or the previous one, never half of the new one.
-        const std::filesystem::path tmp = file.string() + ".tmp";
-        {
-            std::ofstream out( tmp, std::ios::binary | std::ios::trunc );
-            if ( !out )
-                return Common::MakeFormattedError<bool>( "cannot open '{}' for writing", tmp.string() );
-            out.write( reinterpret_cast<const char*>( bytes.GetValue().data() ),
-                       static_cast<std::streamsize>( bytes.GetValue().size() ) );
-            if ( !out )
-                return Common::MakeFormattedError<bool>( "writing '{}' failed", tmp.string() );
-        }
-        std::error_code ec;
-        std::filesystem::rename( tmp, file, ec );
-        if ( ec )
-            return Common::MakeFormattedError<bool>( "renaming '{}' over '{}' failed: {}", tmp.string(),
-                                                     file.string(), ec.message() );
-        return Common::MakeSuccess( true );
+        // Atomic: an asset is the whole file or the previous one, never half of the new one.
+        return Common::Utils::FileSystem::WriteBytesToFileAtomic(
+             file, std::span<const std::byte>( reinterpret_cast<const std::byte*>( bytes.GetValue().data() ),
+                                               bytes.GetValue().size() ) );
     }
 
     bool IsTextureSourceAssetFile( const std::filesystem::path& file )

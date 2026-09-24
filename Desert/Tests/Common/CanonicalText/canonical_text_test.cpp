@@ -248,11 +248,13 @@ namespace
         const char* File;
         const char* Source; // the file whose serializer produces the canonical text this file writes
     };
+    // The two material writers: since AF7 SurfaceMaterialAsset serializes through MaterialFormat's
+    // WriteMaterialJson (header-stamped, one writer for the editor and the tools), which holds the call.
     constexpr std::array kCanonicalAtSource{
          CanonicalAtSource{ "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
-                            "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp" },
+                            "Desert/Desert/Source/Engine/Assets/MaterialFormat.hpp" },
          CanonicalAtSource{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp",
-                            "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp" },
+                            "Desert/Desert/Source/Engine/Assets/MaterialFormat.hpp" },
          CanonicalAtSource{ "Desert/Desert/Source/Engine/Assets/Prefab/PrefabAsset.cpp",
                             "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
          CanonicalAtSource{ "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",

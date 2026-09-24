@@ -375,7 +375,10 @@ namespace Desert::Editor::Core
                 return Common::MakeError<bool>( result.GetError() );
             outcome = result.ExtractValue();
 
-            auto converted = Geometry::Bridge::FromEditMesh( std::move( outcome.Mesh ), &outcome.Selection );
+            // Two statements, not one argument list: reading `outcome` beside a move out of it leaves the
+            // order to the compiler (clang left-to-right, MSVC right-to-left), which ArgumentOrder forbids.
+            auto* const selection = &outcome.Selection;
+            auto converted = Geometry::Bridge::FromEditMesh( std::move( outcome.Mesh ), selection );
             if ( !converted.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "Mesh {}: {}", ToString( operation ),
                                                          converted.GetError() );

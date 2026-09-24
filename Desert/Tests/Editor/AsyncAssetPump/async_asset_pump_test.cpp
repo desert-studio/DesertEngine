@@ -204,7 +204,9 @@ TEST( AsyncAssetPump, TheConvertedKindsAreAnnouncedAndNotRead )
         // the check been written against the raw source instead it would have passed -- and then gone red
         // on a caller that wrote the same `false` without the naming comment, which is the same code.
         // What the scan must not do is read; what says it does not read is the argument's VALUE.
-        const std::regex lazyCreate( R"(AssetPriority::[A-Za-z]+\s*,\s*false)" );
+        // SPL2 put the load's progress report between the priority and the flag (`nullptr` here: a
+        // scan that does not read has nothing to report), so one optional pointer argument may sit there.
+        const std::regex lazyCreate( R"(AssetPriority::[A-Za-z]+\s*,\s*(nullptr\s*,\s*)?false)" );
         EXPECT_TRUE( std::regex_search( body, lazyCreate ) )
              << kind.Stage
              << " creates its assets with the eager load still on. The scan would read every file of this "

@@ -370,15 +370,16 @@ namespace
              << " now ships Templates/, which would make a drop look like a checkout to the "
                 "launcher while still carrying no way for it to start this editor";
 
-        // THE DROP'S OWN ASSET REGISTRY. Since T2.4 neither host walks the content roots at boot,
-        // so a packaged editor with no registry preloads zero shaders and dies at the first
-        // material ("Could not find the shader: StaticMeshPBR"), measured on a real drop. A cook,
-        // not a copy: the drop carries one scene's closure and the dev tree's registry describes
-        // the whole repository.
-        EXPECT_NE( text.find( "AssetRegistryTool" ), std::string::npos )
+        // NO REGISTRY TRAVELS (AF9). Until AF7 the packager cooked the drop's own registry, because a
+        // drop with none preloaded zero shaders and died at the first material. Since AF9 the packaged
+        // editor GATHERS its registry on first start from the headers of the files the drop carries
+        // (Common::Content::GatherContentRegistry) into Intermediate/AssetRegistry.cache. A registry
+        // cooked here would be a second answer to the same question, and one that goes stale the
+        // moment the drop's content differs from what was cooked — so the census now asserts its absence.
+        EXPECT_EQ( text.find( "AssetRegistryTool" ), std::string::npos )
              << what
-             << " no longer cooks the drop's asset registry, so the packaged editor would "
-                "start with zero shaders and abort before its first frame";
+             << " cooks an asset registry again; the packaged editor gathers its own at first start "
+                "(AF9), and a cooked one would be a second, stale-able source for the same rows";
     }
 } // namespace
 
