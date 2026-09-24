@@ -45,8 +45,8 @@ namespace
 
     std::string Bytes( const MeshPtr& mesh )
     {
-        const std::vector<Common::UUID> slots = { Common::UUID( 1111 ) };
-        auto                            data  = Geometry::DynamicMeshToMeshAssetData( *mesh, slots );
+        const std::vector<Common::Content::AssetGuid> slots = { { 1111, 1 } };
+        auto                                          data  = Geometry::DynamicMeshToMeshAssetData( *mesh, slots );
         EXPECT_TRUE( data.IsSuccess() ) << ( data.IsSuccess() ? "" : data.GetError() );
         return Assets::Serialization::EncodeMeshBinary( data.GetValue() );
     }
