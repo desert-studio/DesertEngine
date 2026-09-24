@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include <Engine/Geometry/EditMeshModelOperations.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -158,6 +159,18 @@ namespace Desert::Editor::Core
         float ElementLoopPosition = 0.5f;
         // Clean: vertices closer than this (cm) are welded.
         float ElementWeldTolerance = 0.01f;
+        // Subdivide: how many times the whole mesh is split, and whether it is smoothed (Loop) or only
+        // re-tessellated (Uniform).
+        int                       ElementSubdivideLevels = 1;
+        Geometry::SubdivideScheme ElementSubdivideScheme = Geometry::SubdivideScheme::Loop;
+        // Mirror: the plane is perpendicular to ElementMirrorAxis (0 = X, 1 = Y, 2 = Z) through the entity's
+        // origin along its own axis, or - ElementMirrorWorld - through the world's origin along the world's.
+        // Cut and Mirror keeps the positive side of that axis, the negative one with ElementMirrorKeepNegative.
+        // The seam welds within ElementWeldTolerance.
+        int                  ElementMirrorAxis         = 0;
+        bool                 ElementMirrorWorld        = false;
+        bool                 ElementMirrorKeepNegative = false;
+        Geometry::MirrorMode ElementMirrorMode         = Geometry::MirrorMode::CutAndMirror;
 
         // Create tool: the shape a click places, and a one-shot that places it where the viewport centre
         // looks (the palette's way to place without a mouse).
