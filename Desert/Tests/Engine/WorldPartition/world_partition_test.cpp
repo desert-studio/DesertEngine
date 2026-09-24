@@ -632,7 +632,8 @@ TEST( WorldPartitionComposites, TheCorpusPrefabInstancesAreAllUnplaceableAndAreC
 //     `Terrain` block carried a Size x Size box; the root that keeps its id holds Landscape and
 //     LandscapeMaterial, which have no extent of their own. Its 25 tiles each get their rectangle from the
 //     root's frame, so the land is still covered; only the root record is point-only.
-//   * AF9 (2468 / 2436, all 32 mesh references answered): the registry is no longer committed; the editor gathers it, and a mesh row's box
+//   * AF9 (2468 / 2436, all 32 mesh references answered): the registry is no longer committed; the editor gathers
+//   it, and a mesh row's box
 //     comes from the mesh's own 64-byte header. Derived in a clean clone of 1de8ad1a, where only tracked
 //     meshes can answer - a developer's ignored local meshes under Editor/Cooked would answer too.
 //

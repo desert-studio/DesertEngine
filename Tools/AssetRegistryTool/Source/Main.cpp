@@ -48,7 +48,7 @@ namespace
         return 2;
     }
 
-        int Fail( const std::string& message )
+    int Fail( const std::string& message )
     {
         std::fprintf( stderr, "AssetRegistryTool: %s\n", message.c_str() );
         return 1;
