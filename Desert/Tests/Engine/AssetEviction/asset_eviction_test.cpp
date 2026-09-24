@@ -229,7 +229,8 @@ namespace
 
     // A STATIC mesh whose one submesh names `material`. The static half of the pair above, and it
     // exists because the mesh -> material edge had no test at all — see the block of tests below.
-    std::string WriteProbeStaticMesh( const std::filesystem::path& path, const Common::UUID& material )
+    std::string WriteProbeStaticMesh( const std::filesystem::path&      path,
+                                      const Common::Content::AssetGuid& material )
     {
         Desert::Assets::Serialization::MeshAssetData data;
         data.IsSkinned = false;
@@ -255,7 +256,7 @@ namespace
         submesh.Transform       = glm::mat4( 1.0f );
         submesh.BoundingBox.Min = glm::vec3( 0.0f );
         submesh.BoundingBox.Max = glm::vec3( 2.0f, 0.0f, 0.0f );
-        submesh.MaterialHandle  = material;
+        submesh.MaterialGuid    = material;
         data.Submeshes.push_back( submesh );
 
         // Same reason as the skinned fixture above.
@@ -762,7 +763,8 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
          manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium, Common::Filepath( materialPath ) );
     ASSERT_TRUE( material );
 
-    WriteProbeStaticMesh( meshPath, material->GetMetadata().Handle );
+    ASSERT_FALSE( material->Data().Guid().IsNull() ) << "the probe material states no GUID for the mesh to name";
+    WriteProbeStaticMesh( meshPath, material->Data().Guid() );
     auto mesh = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Medium, Common::Filepath( meshPath ) );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->IsReadyForUse() ) << "the probe mesh did not load; the edge cannot be tested";

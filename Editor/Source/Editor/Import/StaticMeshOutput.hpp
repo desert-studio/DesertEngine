@@ -69,7 +69,8 @@ namespace Desert::Editor
     // @p folder, registered in the content registry with its bounds, exactly as the importer's cook does.
     // Returns the path written. Nothing is written when the mesh is refused.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
-    WriteStaticMeshAsset( const Geometry::EditMesh& mesh, std::span<const Common::UUID> slotMaterials,
+    WriteStaticMeshAsset( const Geometry::EditMesh&                   mesh,
+                          std::span<const Common::Content::AssetGuid> slotMaterials,
                           const std::filesystem::path& folder, std::string_view baseName )
     {
         auto data = Geometry::ToMeshAssetData( mesh, slotMaterials );

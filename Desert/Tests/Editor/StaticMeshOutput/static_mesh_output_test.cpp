@@ -36,7 +36,7 @@ namespace
         return out;
     }
 
-    const std::vector<Common::UUID> kSlots = { Common::UUID( 1111 ), Common::UUID( 2222 ) };
+    const std::vector<Common::Content::AssetGuid> kSlots = { { 1111, 1 }, { 2222, 2 } };
 
     // A throw-away project, so the write lands under a cooked mesh root and the registry can key it.
     class ScratchProject : public ::testing::Test
@@ -76,8 +76,8 @@ TEST( StaticMeshOutput, TheRoundTripThroughTheFileKeepsGroupsCornersAndMaterials
     const auto& file = decoded.GetValue();
 
     ASSERT_EQ( file.Submeshes.size(), 2u );
-    EXPECT_EQ( file.Submeshes[0].MaterialHandle, kSlots[0] );
-    EXPECT_EQ( file.Submeshes[1].MaterialHandle, kSlots[1] );
+    EXPECT_EQ( file.Submeshes[0].MaterialGuid, kSlots[0] );
+    EXPECT_EQ( file.Submeshes[1].MaterialGuid, kSlots[1] );
     ASSERT_EQ( file.PolyGroups.size(), file.Indices.size() ) << "the PolyGroups section was not filled";
 
     auto lifted = Geometry::FromMeshAssetData( file );

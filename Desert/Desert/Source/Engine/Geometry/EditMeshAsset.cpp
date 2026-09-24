@@ -8,8 +8,8 @@ namespace Desert::Geometry
 {
     namespace Ser = Assets::Serialization;
 
-    Common::ResultStr<Ser::MeshAssetData> ToMeshAssetData( const EditMesh&               mesh,
-                                                           std::span<const Common::UUID> slotMaterials )
+    Common::ResultStr<Ser::MeshAssetData>
+    ToMeshAssetData( const EditMesh& mesh, std::span<const Common::Content::AssetGuid> slotMaterials )
     {
         if ( mesh.TriangleCount() == 0 )
             return Common::MakeFormattedError<Ser::MeshAssetData>(
@@ -54,7 +54,7 @@ namespace Desert::Geometry
             to.IndexCount     = from.IndexCount;
             to.Transform      = from.Transform;
             to.BoundingBox    = from.BoundingBox;
-            to.MaterialHandle = k < slotMaterials.size() ? slotMaterials[k] : Common::UUID::Null();
+            to.MaterialGuid   = k < slotMaterials.size() ? slotMaterials[k] : Common::Content::AssetGuid{};
             data.Submeshes.push_back( std::move( to ) );
         }
 

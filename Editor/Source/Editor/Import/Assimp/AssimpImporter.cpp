@@ -441,7 +441,7 @@ namespace Desert::Editor
             submesh.VertexCount    = mesh->mNumVertices;
             submesh.IndexCount     = mesh->mNumFaces * 3;
             submesh.Transform      = glm::mat4( 1.0f );
-            submesh.MaterialHandle = Assets::MaterialData::HandleOf( materialData[mesh->mMaterialIndex].Guid );
+            submesh.MaterialGuid   = materialData[mesh->mMaterialIndex].Guid;
 
             // ============================
             // VERTICES

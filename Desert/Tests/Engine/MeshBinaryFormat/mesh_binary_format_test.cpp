@@ -143,7 +143,7 @@ namespace
         a.IndexCount     = 6;
         a.Transform      = glm::mat4( 2.0f );
         a.BoundingBox    = Common::Math::AABB{ glm::vec3( -1.0f, -2.0f, -3.0f ), glm::vec3( 4.0f, 5.0f, 6.0f ) };
-        a.MaterialHandle = Common::UUID( 0xABCDEF0123456789ull );
+        a.MaterialGuid   = Common::Content::AssetGuid{ 0xABCDEF0123456789ull, 0x0123456789ABCDEFull };
         a.LODs = { { Ser::IndexData{ 0, 1, 2 }, Ser::IndexData{ 1, 2, 3 } }, { Ser::IndexData{ 0, 2, 3 } } };
 
         // A SECOND SUBMESH AT A NON-ZERO OFFSET, for StaticMeshCooked's reason: the first submesh of
@@ -156,7 +156,7 @@ namespace
         b.IndexCount     = 9;
         b.Transform      = glm::mat4( 1.0f );
         b.BoundingBox    = Common::Math::AABB{ glm::vec3( 0.0f ), glm::vec3( 1.0f ) };
-        b.MaterialHandle = Common::UUID( 7ull );
+        b.MaterialGuid   = Common::Content::AssetGuid{ 7ull, 11ull };
         // Deliberately NO LOD chain: a submesh with LODs beside one without is what catches a reader
         // that computes the LOD range from the submesh index instead of from the record.
         data.Submeshes = { a, b };
@@ -237,8 +237,7 @@ namespace
                 EXPECT_EQ( glm::value_ptr( e.BoundingBox.Max )[c], glm::value_ptr( g.BoundingBox.Max )[c] )
                      << "submesh " << i << " bounds max " << c;
             }
-            EXPECT_EQ( static_cast<uint64_t>( e.MaterialHandle ), static_cast<uint64_t>( g.MaterialHandle ) )
-                 << "submesh " << i;
+            EXPECT_EQ( e.MaterialGuid, g.MaterialGuid ) << "submesh " << i;
             ASSERT_EQ( e.LODs.size(), g.LODs.size() ) << "submesh " << i;
             for ( size_t l = 0; l < e.LODs.size(); ++l )
             {
@@ -338,25 +337,53 @@ TEST( MeshBinaryFormat, ATruncatedFileIsRefusedAndAnEmptyOneIsNot )
 // the size 24 smaller, Version 1 and SectionCount 9 - which is also the precise statement of what v2 added.
 namespace
 {
-    // v3 minus its identity: the 16 GUID bytes after the 64-byte header go, and so does every offset's share.
-    std::string AsVersionTwo( const std::string& v3 )
+    // v3 minus its identity: the 16 GUID bytes after the 64-byte header go, and every submesh row ends in
+    // the 8-byte pre-GUID material number (`materialNumber` in each) where v3 has the material's 16-byte
+    // GUID. The sections are laid out again, each at the next 8-byte boundary, as the reader derives them.
+    std::string AsVersionTwo( const std::string& v3, uint64_t materialNumber = 0 )
     {
-        std::string v2       = v3.substr( 0, 64 ) + v3.substr( 80 );
-        uint32_t    version  = 2;
-        uint32_t    sections = 0;
-        uint64_t    fileSize = 0;
-        std::memcpy( &sections, v2.data() + 24, 4 );
-        std::memcpy( &fileSize, v2.data() + 16, 8 );
-        fileSize -= 16;
-        std::memcpy( v2.data() + 12, &version, 4 );
-        std::memcpy( v2.data() + 16, &fileSize, 8 );
+        constexpr size_t kHeader = 64, kRow = 24, kSubmeshRow = 3, kRowV3 = 136, kRowV2 = 128, kShared = 120;
+        const size_t     prefix  = Common::Content::kMeshBinaryPrefixV3;
+        uint32_t         version = 2, sections = 0;
+        std::memcpy( &sections, v3.data() + 24, 4 );
+        std::string table = v3.substr( prefix, sections * kRow );
+        std::string body;
+        uint64_t    at = kHeader + sections * kRow;
         for ( uint32_t row = 0; row < sections; ++row )
         {
-            uint64_t offset = 0;
-            std::memcpy( &offset, v2.data() + 64 + row * 24 + 8, 8 );
-            offset -= 16;
-            std::memcpy( v2.data() + 64 + row * 24 + 8, &offset, 8 );
+            uint32_t elementSize = 0;
+            uint64_t offset = 0, count = 0;
+            std::memcpy( &elementSize, table.data() + row * kRow + 4, 4 );
+            std::memcpy( &offset, table.data() + row * kRow + 8, 8 );
+            std::memcpy( &count, table.data() + row * kRow + 16, 8 );
+            std::string bytes = v3.substr( offset, count * elementSize );
+            if ( row == kSubmeshRow )
+            {
+                EXPECT_EQ( elementSize, kRowV3 );
+                std::string rows;
+                for ( uint64_t i = 0; i < count; ++i )
+                    rows += bytes.substr( i * kRowV3, kShared ) +
+                            std::string( reinterpret_cast<const char*>( &materialNumber ), 8 );
+                bytes       = rows;
+                elementSize = kRowV2;
+            }
+            while ( at % 8 != 0 )
+            {
+                body.push_back( '\0' );
+                ++at;
+            }
+            std::memcpy( table.data() + row * kRow + 4, &elementSize, 4 );
+            std::memcpy( table.data() + row * kRow + 8, &at, 8 );
+            body += bytes;
+            at += bytes.size();
         }
+        // The file ends at the next 8-byte boundary after its last section, as the encoder writes it.
+        while ( body.size() % 8 != 0 )
+            body.push_back( '\0' );
+        std::string    v2       = v3.substr( 0, kHeader ) + table + body;
+        const uint64_t fileSize = v2.size();
+        std::memcpy( v2.data() + 12, &version, 4 );
+        std::memcpy( v2.data() + 16, &fileSize, 8 );
         return v2;
     }
 
@@ -404,7 +431,21 @@ TEST( MeshBinaryFormat, AVersionTwoFileIsReadWithANullGuid )
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
     EXPECT_TRUE( read.GetValue().Guid.IsNull() );
     source.Guid = {};
+    for ( Ser::SubmeshData& submesh : source.Submeshes )
+        submesh.MaterialGuid = {}; // a v2 row with material number 0 names no material
     ExpectSameMesh( source, read.GetValue() );
+}
+
+// A v2 SUBMESH THAT NAMES ITS MATERIAL BY THE PRE-GUID NUMBER IS REFUSED BY NAME, never read as "no
+// material": the number cannot become a GUID in this build, and the message names the tool that maps it.
+TEST( MeshBinaryFormat, AVersionTwoMaterialNumberIsRefusedAndNamesTheMigrator )
+{
+    const auto read = Ser::DecodeMeshBinary(
+         AsVersionTwo( Ser::EncodeMeshBinary( FullyPopulated() ), 0x44d056a9359b4d1cull ), "numbered.stmesh" );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( std::to_string( 0x44d056a9359b4d1cull ) ), std::string::npos )
+         << read.GetError();
 }
 
 // THE GATHER LEARNS THE MESH'S IDENTITY FROM ITS PREFIX: the one header entry point states the kind (from
@@ -445,6 +486,8 @@ TEST( MeshBinaryFormat, AVersionOneFileIsReadWithNoPolyGroups )
     source.PolyGroups.clear();
     const std::string v1 = AsVersionOne( AsVersionTwo( Ser::EncodeMeshBinary( source ) ) );
     source.Guid          = {}; // v1 states no identity
+    for ( Ser::SubmeshData& submesh : source.Submeshes )
+        submesh.MaterialGuid = {};
 
     const auto read = Ser::ReadMeshAssetData( v1, "v1.stmesh" );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();

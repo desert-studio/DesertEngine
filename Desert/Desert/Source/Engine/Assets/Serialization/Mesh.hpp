@@ -50,7 +50,8 @@ namespace Desert::Assets::Serialization
         glm::mat4          Transform;
         Common::Math::AABB BoundingBox;
 
-        Common::UUID MaterialHandle;
+        // The material's header GUID; null = no material. The runtime handle is HandleForGuid of it.
+        Common::Content::AssetGuid MaterialGuid;
 
         // Baked LOD triangle sets (cooked at import, submesh-local, coarsest last). Empty => LODs are
         // generated at load. New field — meshes cooked before it exists load via rfl::DefaultIfMissing with an

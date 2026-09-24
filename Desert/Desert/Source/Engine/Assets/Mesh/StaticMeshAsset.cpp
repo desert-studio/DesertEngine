@@ -118,7 +118,10 @@ namespace Desert::Assets
                 submesh.BakedLODs.push_back( std::move( tris ) );
             }
 
-            m_MaterialAssetHandles.emplace_back( s.MaterialHandle );
+            m_MaterialAssetHandles.emplace_back(
+                 s.MaterialGuid.IsNull() ? Common::UUID::Null()
+                                         : Common::UUID( static_cast<uint64_t>(
+                                                Common::Content::HandleForGuid( s.MaterialGuid ) ) ) );
             m_Submeshes.emplace_back( std::move( submesh ) );
         }
 

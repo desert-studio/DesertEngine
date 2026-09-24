@@ -2,6 +2,7 @@
 
 #include "InstanceFold.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Editor/Import/StaticMeshOutput.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
@@ -729,7 +730,26 @@ namespace Desert::Editor::Commands
             if ( !target.IsSuccess() )
                 return Common::MakeError<WrittenStaticMesh>( target.GetError() );
 
-            std::vector<Common::UUID> slots( smc.MaterialSlots.begin(), smc.MaterialSlots.end() );
+            // The file names each slot's material by its header GUID (MeshBinary v3); the slot holds
+            // HandleForGuid of it, which cannot be inverted, so the cooked registry row answers.
+            std::vector<Common::Content::AssetGuid> slots;
+            slots.reserve( smc.MaterialSlots.size() );
+            for ( std::size_t k = 0; k < smc.MaterialSlots.size(); ++k )
+            {
+                const uint64_t material = static_cast<uint64_t>( smc.MaterialSlots[k] );
+                if ( material == 0 )
+                {
+                    slots.push_back( {} );
+                    continue;
+                }
+                const auto guid = Assets::ContentRegistry::GuidForHandle( material );
+                if ( !guid )
+                    return Common::MakeFormattedError<WrittenStaticMesh>(
+                         "'{}' slot {} holds material handle {}, which no cooked registry row states a GUID for; "
+                         "the mesh file cannot name it",
+                         tag, k, material );
+                slots.push_back( *guid );
+            }
             auto written = Editor::WriteStaticMeshAsset( *smc.EditableMesh, slots, target.GetValue(),
                                                          name.empty() ? std::string_view( tag ) : name );
             if ( !written.IsSuccess() )
