@@ -1758,7 +1758,7 @@ namespace Desert::Graphic
     {
         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
              ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, m_CloudQuality,
-                                heroClouds ); // a preview profile draws no clouds, so it never allocates their targets
+                                 heroClouds ); // a profile without clouds never allocates their targets
     }
 
     void SceneRenderer::ExecuteVolumetricClouds()

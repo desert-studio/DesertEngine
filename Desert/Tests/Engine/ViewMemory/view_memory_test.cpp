@@ -49,7 +49,7 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
 {
-    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 224.49, 0.01 );
+    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 233.49, 0.01 );
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 20971520u );
 }
 
@@ -58,8 +58,8 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t main    = SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).Total();
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
-    // 105 B/px (clouds 9, SSR 48, GI 48) over 1920x1080 + (320 MiB - 20 MiB) of cascades + the 14 MiB RSM.
-    EXPECT_EQ( main - preview, 546980864u ) << "main " << main << " preview " << preview;
+    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (320 MiB - 20 MiB) of cascades + the 14 MiB RSM.
+    EXPECT_EQ( main - preview, 528318464u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )
@@ -81,9 +81,7 @@ TEST( ViewMemory, PreviewDropsOnlyTheRowsItsProfileNames )
     for ( const auto& name : RowNames( kPreviewViewProfile ) )
     {
         EXPECT_NE( std::find( mainRows.begin(), mainRows.end(), name ), mainRows.end() ) << name;
-        EXPECT_FALSE( name.starts_with( "Clouds" ) || name.starts_with( "SSR" ) || name.starts_with( "GI" ) ||
-                      name.starts_with( "RSM" ) )
-             << name;
+        EXPECT_FALSE( name.starts_with( "SSR" ) || name.starts_with( "GI" ) || name.starts_with( "RSM" ) ) << name;
     }
 }
 

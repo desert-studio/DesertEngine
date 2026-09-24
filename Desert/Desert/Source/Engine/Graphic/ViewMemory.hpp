@@ -42,12 +42,14 @@ namespace Desert::Graphic
     // A viewport of a level: every feature may be switched on by the scene.
     inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true };
 
-    // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, and none of the
-    // three features whose targets are the largest per-pixel cost after the G-buffer.
-    inline constexpr ViewProfile kPreviewViewProfile{ kPreviewShadowQuality, false, false, false };
+    // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no RSM-GI.
+    // Clouds stay ON: a cloud material's preview IS its clouds (RT1b: with them off, all 53 cloud-material
+    // thumbnails rendered an empty sky), and the cloud targets are only built when the preview scene has
+    // clouds, so a preview without them pays nothing for the flag.
+    inline constexpr ViewProfile kPreviewViewProfile{ kPreviewShadowQuality, true, false, false };
 
     // A one-shot capture (asset thumbnails, photogrammetry preview): the preview profile without the sun.
-    inline constexpr ViewProfile kThumbnailViewProfile{ kNoShadowQuality, false, false, false };
+    inline constexpr ViewProfile kThumbnailViewProfile{ kNoShadowQuality, true, false, false };
 
     struct ViewTarget
     {
