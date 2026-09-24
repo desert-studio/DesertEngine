@@ -43,6 +43,7 @@ MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
 SELF_WAIT = re.compile(r"pgrep\s+-x\s+make")  # a command that waits for the other build itself is allowed
+GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 
@@ -104,6 +105,48 @@ def editor_running():
         return False
 
 
+def staged_claude_files(cmd, cwd):
+    """True when the commit about to run would carry files under .claude/ (staged, or `-a` on modified ones)."""
+    m = re.search(r"\bcd\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd) or re.search(r"\bgit\s+-C\s+(\"[^\"]+\"|\S+)", cmd)
+    where = m.group(1).strip("\"'") if m else (cwd or ".")
+    args = ["git", "-C", where, "diff", "--name-only"]
+    try:
+        staged = subprocess.run(args + ["--cached"], capture_output=True, text=True).stdout.split()
+        if re.search(r"\bcommit\b[^;&|]*\s-[A-Za-z]*a", cmd):
+            staged += subprocess.run(args, capture_output=True, text=True).stdout.split()
+    except OSError:
+        return False
+    return any(f.startswith(".claude/") for f in staged)
+
+
+def self_check():
+    """SessionStart: prove every rule still bites by replaying known-bad calls; a silent regression of this file
+    (2026-09-24: a merge restored an old copy and the build limits vanished) must be loud at the next start."""
+    cases = {
+        "tree search": {"tool_name": "Bash", "tool_input": {"command": "grep -rn x ."}},
+        "find without depth": {"tool_name": "Bash", "tool_input": {"command": "find . -name x"}},
+        "long sleep": {"tool_name": "Bash", "tool_input": {"command": "sleep 600"}},
+        "make -j8": {"tool_name": "Bash", "tool_input": {"command": "make Editor -j8"}},
+        "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
+    }
+    failed = []
+    for name, case in cases.items():
+        payload = dict(case, agent_id="selfcheck-" + name.replace(" ", "-"), agent_type="general-purpose",
+                       hook_event_name="PreToolUse")
+        out = subprocess.run([sys.executable, __file__], input=json.dumps(payload), capture_output=True, text=True)
+        if '"deny"' not in out.stdout:
+            failed.append(name)
+        try:
+            os.remove(os.path.join(STATE_DIR, payload["agent_id"] + ".json"))
+        except OSError:
+            pass
+    rules = ", ".join(cases)
+    msg = (f"[agent_guard] self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
+           f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
+    emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -140,6 +183,15 @@ def main():
             save_state(state, path)
             deny(f"[agent_guard] Лимит {TURN_LIMIT} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
                  f"отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
+
+    if tool in ("Edit", "Write", "NotebookEdit") and "/.claude/" in (tin.get("file_path") or ""):
+        save_state(state, path)
+        deny("[agent_guard] Файлы .claude/ (хуки, бриф, контракт) правит только тимлид: 2026-09-24 слияние "
+             "принесло старую копию хука из дерева агента, лимиты сборок исчезли, машина упала.", data, agent)
+    if tool == "Bash" and GIT_COMMIT.search(cmd) and staged_claude_files(cmd, data.get("cwd")):
+        save_state(state, path)
+        deny("[agent_guard] В коммите есть файлы .claude/ — их коммитит только тимлид. Убери их из индекса: "
+             "git restore --staged .claude && git checkout -- .claude", data, agent)
 
     if tool == "Bash":
         for rx in TREE_SEARCH:
@@ -190,4 +242,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--self-check" in sys.argv:
+        self_check()
     main()
