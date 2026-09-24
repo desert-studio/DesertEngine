@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -142,13 +143,17 @@ namespace
 TEST( SceneUnitMigration, StampedSceneIsLeftByteIdentical )
 {
     SceneSerialized scene = Parse( kUnstampedScene );
-    scene.UnitVersion     = kUnitVersion;
-    // "Current" means current on BOTH counters. This line used to be absent, because when the test was
-    // written the only other migration was gated on a version an unstamped scene already satisfied. It is
-    // here now so that adding a third migration cannot make this test quietly assert nothing: a fixture
-    // that is not fully stamped would go through MigrateScene and the "byte-identical" claim would be
-    // about a tree that never had anything to migrate.
-    scene.SceneVersion = kSceneVersion;
+    // Since v26 "current" is stated in the HEADER (SCNE, UNIT), not the top-level SceneVersion/UnitVersion
+    // integers those fields still parse for backward compatibility - MigrateScene reads them only when
+    // there is no Header at all. Stamping the fixture with the old ints therefore no longer reaches
+    // "already current": MigrateScene would see an absent Header, run no step (both stated versions are
+    // already the head), but then unconditionally mint a FRESH GUID into the header it stamps every tree
+    // with, which is exactly the byte the "identical" claim below would catch as a false migration. A
+    // scene that is really already current carries a header, with a GUID some earlier save minted -
+    // fixed here so the fixture is reproducible.
+    scene.Header = Common::Content::MakeTextHeader(
+         Common::Content::ContentKind::Scene, Common::Content::AssetGuid{ 0x1111111111111111ull, 0x2222222222222222ull },
+         Desert::Core::SceneTextSubsystems() );
 
     const std::string          before = Json( scene );
     const FileMigrationReport  report = MigrateScene( scene );
@@ -359,9 +364,18 @@ TEST( SceneUnitMigration, BothVersionsAreRaisedIndependently )
     EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 
+    // NOT old.Entities.back(): a scene at v0 also runs the v24 -> v25 sibling-order step (the ID it is
+    // gated on is below kSceneVersionSiblingOrder here too), which stable-sorts every entity by id. The
+    // sky entity above was pushed with no id, i.e. UUID(0), the lowest of the fixture, so migration moves
+    // it to the FRONT - "the sky entity" has to be found by its tag, not by the position it was appended
+    // at, or this assertion would silently start reading whichever entity migration leaves last instead.
+    const auto skyEntityIt = std::find_if( old.Entities.begin(), old.Entities.end(),
+                                           []( const EntityData& e ) { return e.Tag && *e.Tag == "Sky"; } );
+    ASSERT_NE( skyEntityIt, old.Entities.end() ) << "the sky entity must survive migration under its tag";
+
     // The sky payload the sky migration wrote carries no length, so the unit migration cannot have
     // touched it: 22 is an intensity and 2.29 is an angle in degrees.
-    const auto skyOut = old.Entities.back().Components.get( "SkyAtmosphere" ).value().to_object().value();
+    const auto skyOut = skyEntityIt->Components.get( "SkyAtmosphere" ).value().to_object().value();
     EXPECT_DOUBLE_EQ( skyOut.get( "SunIntensity" ).value().to_double().value_or( -1.0 ), 22.0 );
     EXPECT_NEAR( skyOut.get( "SunAngularDiameter" ).value().to_double().value_or( -1.0 ), 2.29183, 1e-4 );
 

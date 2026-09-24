@@ -1,3 +1,6 @@
+#include <optional>
+#include <filesystem>
+#include <Common/Content/AssetEnvelope.hpp>
 #pragma once
 
 // THE WORLD-SCALE SCENE, AS A PURE FUNCTION.
@@ -85,5 +88,13 @@ namespace Desert::WorldGen
     //     a cell's contents do not depend on how many cells were generated before it - which keeps the
     //     file stable under a change of Cells, and is the property a per-cell regeneration would need.
     Core::SceneSerialized BuildWorld( const WorldSpec& spec, const std::vector<MaterialRef>& buildingMaterials,
-                                      const MaterialRef& groundMaterial, WorldStats& stats );
+                                      const MaterialRef& groundMaterial, const Common::Content::AssetGuid& guid,
+                                      WorldStats& stats );
+
+    // The GUID a REGENERATION of `outputFile` must keep: parsed from that file's own header when it
+    // already exists and the header is well-formed. Absent otherwise (no file yet, or one this build
+    // cannot read as a text asset) - the caller mints a fresh AssetGuid in that case, the same rule every
+    // other text asset follows (Assets::StampTextHeader). Never derives a GUID from the spec's name: two
+    // never-before-written files of one spec must not collide on one identity.
+    std::optional<Common::Content::AssetGuid> ExistingWorldGuid( const std::filesystem::path& outputFile );
 } // namespace Desert::WorldGen

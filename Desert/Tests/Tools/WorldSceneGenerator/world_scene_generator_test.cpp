@@ -134,18 +134,40 @@ namespace
 // 1. THE PROPERTY THE INSTRUMENT'S USEFULNESS RESTS ON
 // ---------------------------------------------------------------------------------------------------
 
-// 1a. Two runs of one spec are the same bytes. This is the claim the brief asked to be PINNED rather than
-// hoped for: without it, "start-up fell by 2 seconds" could be a fact about the scene rather than about
-// the engine, and nobody could tell which.
-TEST( WorldSceneGenerator, TheSameSpecGeneratedTwiceIsTheSameFile )
+// 1a. Regenerating over the SAME file is the same bytes. Architect's decision (AF6k): the world's GUID is
+// no longer derived from the spec's name - it is kept from the output file's own header, the same rule
+// every other text asset follows, minted fresh only when that file does not yet exist. So it is the FILE,
+// regenerated, that pins determinism (and what --verify measures against), not the spec alone.
+TEST( WorldSceneGenerator, RegeneratingTheSameFileKeepsItsGuid )
 {
+    const auto path = Scratch() / "regenerate.desce";
+    std::filesystem::remove( path );
+
     std::string first;
     std::string second;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "twice_a.desce", first ), 0 ) << first;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "twice_b.desce", second ), 0 ) << second;
+    ASSERT_EQ( GenerateSmoke( path, first ), 0 ) << first;
+    ASSERT_EQ( GenerateSmoke( path, second ), 0 ) << second;
 
     ASSERT_FALSE( first.empty() );
-    EXPECT_EQ( first, second );
+    EXPECT_EQ( first, second ) << "regenerating over the same file must keep its GUID";
+}
+
+// 1b. Two NEVER-BEFORE-WRITTEN files of the one spec are two different assets: if the GUID were still
+// derived from the spec's name, these would collide on it. Each gets its own freshly minted GUID instead.
+TEST( WorldSceneGenerator, TwoNewFilesOfTheSameSpecGetDifferentGuids )
+{
+    const auto pathA = Scratch() / "fresh_a.desce";
+    const auto pathB = Scratch() / "fresh_b.desce";
+    std::filesystem::remove( pathA );
+    std::filesystem::remove( pathB );
+
+    std::string a;
+    std::string b;
+    ASSERT_EQ( GenerateSmoke( pathA, a ), 0 ) << a;
+    ASSERT_EQ( GenerateSmoke( pathB, b ), 0 ) << b;
+
+    ASSERT_FALSE( a.empty() );
+    EXPECT_NE( a, b ) << "two never-before-written files must not collide on a name-derived GUID";
 }
 
 // 1b. And the tool says so itself, before it writes. --verify is what a human running the generator gets
