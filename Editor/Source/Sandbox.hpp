@@ -16,6 +16,7 @@
 #include <Engine/Assets/CookedTexturePath.hpp>
 #include <Common/Core/Version.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -164,6 +165,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                      1, "[Engine] the engine resources are in '" + resources.WorkingDirectory +
                              "' but this process could not work from there: " + moveError.message() );
             }
+            Common::Logger::RelocateLogFile( resources.WorkingDirectory );
         }
     }
 
