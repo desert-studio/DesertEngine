@@ -496,11 +496,13 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   Shared 339+4.
     //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared):
     //   400 / 343 / 131 / 39 = 913.
-    EXPECT_EQ( CountOf( Form::Raw ), 400 );
+    //   L8 (2026-09-24) +6 Raw: LandscapeTileSlot::Data (the edit cache) and five Landscape-mode editor members
+    //   the scan had not been given rows for (four string literals, the stroke command's scene): 406 / 919.
+    EXPECT_EQ( CountOf( Form::Raw ), 406 );
     EXPECT_EQ( CountOf( Form::Shared ), 343 );
     EXPECT_EQ( CountOf( Form::Unique ), 131 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 913 )
+    EXPECT_EQ( (int)Members().size(), 919 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
