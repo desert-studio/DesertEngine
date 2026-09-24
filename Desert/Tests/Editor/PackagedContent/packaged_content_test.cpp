@@ -1692,7 +1692,9 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
         EXPECT_EQ( reader.EntryCodec( "Cooked/Textures/T_Checker.tex" ), Common::Utils::PakCodec::Store );
         const std::optional<std::string> entry = reader.Read( "Cooked/Textures/T_Checker.tex" );
         ASSERT_TRUE( entry.has_value() ) << "the cooked checker texture is not an entry of the archive";
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         const auto header = TexSer::DecodeTextureHeader( entry.value(), "T_Checker.tex" );
+        // NOLINTEND(bugprone-unchecked-optional-access)
         ASSERT_TRUE( header.IsSuccess() ) << header.GetError();
         EXPECT_LT( header.GetValue().StoredPayloadBytes, header.GetValue().PayloadBytes )
              << "the cook is no longer compressing the levels of what it ships";

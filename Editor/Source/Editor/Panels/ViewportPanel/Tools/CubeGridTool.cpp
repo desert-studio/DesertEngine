@@ -669,8 +669,8 @@ namespace Desert::Editor::Tools
             float        bestD   = 14.0f;
             for ( int k = 0; k < 4; ++k )
             {
-                const float lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
-                const float lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
+                const auto  lu = static_cast<float>( kPosts[k].AtUMax ? m_Sel.UMax + 1 : m_Sel.UMin );
+                const auto  lv = static_cast<float>( kPosts[k].AtVMax ? m_Sel.VMax + 1 : m_Sel.VMin );
                 const float hW = planeW + static_cast<float>( m_CornerH[k] ) / CornerDen * u;
                 ok[k] = WorldToScreen( worldPt( lu, lv, m_Plane.Na, hW ), viewProj, viewportPos, viewportSize,
                                        sp[k] );

@@ -41,7 +41,7 @@ namespace Desert::Editor::Splash
 
         const auto&          level  = data.Levels[0];
         const unsigned char* source = data.Pixels.data() + level.ByteOffset;
-        const std::size_t    size   = static_cast<std::size_t>( level.ByteSize );
+        const auto           size   = static_cast<std::size_t>( level.ByteSize );
 
         SplashPixels pixels;
         pixels.Width  = level.Width;

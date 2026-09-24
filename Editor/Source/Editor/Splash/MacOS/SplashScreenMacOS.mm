@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include <condition_variable>
+#include <cstddef>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -70,7 +71,7 @@ namespace Desert::Editor::Splash
         NSString* ToNS( const std::string& text )
         {
             NSString* string = [NSString stringWithUTF8String:text.c_str()];
-            return string ? string : @"";
+            return ( string != nullptr ) ? string : @"";
         }
     } // namespace
 
@@ -92,8 +93,9 @@ namespace Desert::Editor::Splash
                           kAppIcon.string() );
 
             NSScreen*     screen  = [NSScreen mainScreen];
-            const NSRect  visible = screen ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
-            const CGFloat backing = screen ? screen.backingScaleFactor : 2.0;
+            const NSRect  visible =
+                 ( screen != nullptr ) ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
+            const CGFloat backing = ( screen != nullptr ) ? screen.backingScaleFactor : 2.0;
             const CGFloat fit     = FitScale( (float)visible.size.width, (float)visible.size.height );
             const CGFloat w       = kWidth * fit;
             const CGFloat h       = kHeight * fit;
@@ -210,7 +212,7 @@ namespace Desert::Editor::Splash
         void SetStatus( const std::string& label, const std::size_t index, const std::size_t total ) override
         {
             {
-                std::lock_guard<std::mutex> lock( m_Mutex );
+                const std::lock_guard<std::mutex> lock( m_Mutex );
                 m_Pending = Status{ label, index, total };
             }
             m_Wake.notify_one();
@@ -223,7 +225,7 @@ namespace Desert::Editor::Splash
             m_Closed = true;
 
             {
-                std::lock_guard<std::mutex> lock( m_Mutex );
+                const std::lock_guard<std::mutex> lock( m_Mutex );
                 m_Stop = true;
             }
             m_Wake.notify_one();
@@ -287,9 +289,9 @@ namespace Desert::Editor::Splash
                 CGDataProviderRef   provider = CGDataProviderCreateWithCFData( data );
                 CGColorSpaceRef     space    = CGColorSpaceCreateWithName( kCGColorSpaceSRGB );
                 CGImageRef          picture =
-                     CGImageCreate( image.Width, image.Height, 8, 32, image.Width * 4u, space,
-                                    (CGBitmapInfo)kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault, provider,
-                                    nullptr, false, kCGRenderingIntentDefault );
+                     CGImageCreate( image.Width, image.Height, 8, 32, static_cast<size_t>( image.Width ) * 4u,
+                                    space, (CGBitmapInfo)kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault,
+                                    provider, nullptr, false, kCGRenderingIntentDefault );
                 [CATransaction begin];
                 [CATransaction setDisableActions:YES];
                 m_Image.contents = (__bridge id)picture;

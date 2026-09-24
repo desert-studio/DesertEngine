@@ -500,9 +500,8 @@ namespace Desert::Core::WorldCells
             for ( std::size_t other = 0; other < unit; ++other )
                 if ( index.Units[other].File == wanted.File )
                     offset += index.Units[other].Ids.size();
-            return std::vector<Assets::EntityData>(
-                 cell.Records.begin() + static_cast<std::ptrdiff_t>( offset ),
-                 cell.Records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) );
+            return { cell.Records.begin() + static_cast<std::ptrdiff_t>( offset ),
+                     cell.Records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) };
         }
 
         Common::ResultStr<CellPayload> ReadUnitFile( const WorldIndex& index, const FileReader& reader,

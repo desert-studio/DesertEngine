@@ -34,7 +34,7 @@ namespace Desert::Editor::Core
                 MeshElementSelection::Get().Restore( m_Entity, m_After );
                 return true;
             }
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return m_Label;
             }

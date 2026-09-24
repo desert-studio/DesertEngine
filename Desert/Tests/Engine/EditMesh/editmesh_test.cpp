@@ -120,7 +120,7 @@ namespace
 
 TEST( EditMesh, QuadHasFiveEdgesOneOfThemInterior )
 {
-    EditMesh mesh = MakeGrid( 1 );
+    const EditMesh mesh = MakeGrid( 1 );
     EXPECT_EQ( mesh.VertexCount(), 4 );
     EXPECT_EQ( mesh.TriangleCount(), 2 );
     EXPECT_EQ( mesh.EdgeCount(), 5 );
@@ -138,7 +138,7 @@ TEST( EditMesh, QuadHasFiveEdgesOneOfThemInterior )
 
 TEST( EditMesh, TriangleEdgeSlotsFollowTheWinding )
 {
-    EditMesh mesh = MakeGrid( 2 );
+    const EditMesh mesh = MakeGrid( 2 );
     for ( const int t : mesh.TriangleIds() )
         for ( int j = 0; j < 3; ++j )
         {
@@ -338,7 +338,9 @@ TEST( EditMesh, CollapseInteriorEdgeRemovesTwoTrianglesAndThreeEdges )
     const int east   = 13;
     ASSERT_NE( mesh.FindEdge( centre, east ), InvalidId );
     const int euler = EulerCharacteristic( mesh );
-    const int v = mesh.VertexCount(), e = mesh.EdgeCount(), t = mesh.TriangleCount();
+    const int v     = mesh.VertexCount();
+    const int e     = mesh.EdgeCount();
+    const int t     = mesh.TriangleCount();
 
     CollapseEdgeInfo info;
     ASSERT_EQ( mesh.CollapseEdge( centre, east, 0.5f, info ), EditResult::Ok );
@@ -362,7 +364,9 @@ TEST( EditMesh, CollapseInteriorEdgeRemovesTwoTrianglesAndThreeEdges )
 TEST( EditMesh, CollapseBoundaryEdge )
 {
     EditMesh  mesh = MakeGrid( 3 );
-    const int v = mesh.VertexCount(), e = mesh.EdgeCount(), t = mesh.TriangleCount();
+    const int v    = mesh.VertexCount();
+    const int e    = mesh.EdgeCount();
+    const int t    = mesh.TriangleCount();
 
     CollapseEdgeInfo info;
     ASSERT_EQ( mesh.CollapseEdge( 1, 2, 0.0f, info ), EditResult::Ok ); // on the y = 0 border

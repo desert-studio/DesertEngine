@@ -40,7 +40,7 @@ namespace Desert::Editor::Tools
             auto ref = scene.FindEntityByID( id );
             if ( !ref )
                 return {};
-            ECS::Entity e = ref->get();
+            const ECS::Entity e = ref->get();
             if ( !e.HasComponent<ECS::StaticMeshComponent>() )
                 return {};
             const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
@@ -78,14 +78,17 @@ namespace Desert::Editor::Tools
             void Edge( int e, ImU32 colour, float width ) const
             {
                 const auto& ev = Mesh.GetEdgeVertices( e );
-                ImVec2      a, b;
+                ImVec2      a;
+                ImVec2      b;
                 if ( Screen( ev[0], a ) && Screen( ev[1], b ) )
                     List.AddLine( a, b, colour, width );
             }
             void Triangle( int t, ImU32 fill, ImU32 outline ) const
             {
                 const auto& tri = Mesh.GetTriangle( t );
-                ImVec2      a, b, c;
+                ImVec2      a;
+                ImVec2      b;
+                ImVec2      c;
                 if ( !Screen( tri[0], a ) || !Screen( tri[1], b ) || !Screen( tri[2], c ) )
                     return;
                 if ( fill != 0 )

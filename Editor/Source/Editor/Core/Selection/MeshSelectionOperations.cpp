@@ -176,7 +176,7 @@ namespace Desert::Editor::Core
         if ( !ref )
             return Common::MakeFormattedError<bool>( "Mesh {}: entity {} is not in the scene",
                                                      ToString( operation ), static_cast<uint64_t>( entity ) );
-        ECS::Entity e = ref->get();
+        const ECS::Entity e = ref->get();
         if ( !e.HasComponent<ECS::StaticMeshComponent>() ||
              !e.GetComponent<ECS::StaticMeshComponent>().EditableMesh )
             return Common::MakeFormattedError<bool>( "Mesh {}: entity {} has no editable mesh",
@@ -280,7 +280,7 @@ namespace Desert::Editor::Core
                 if ( !cutterRef )
                     return Common::MakeFormattedError<bool>( "Mesh Trim: the cutter entity {} is not in the scene",
                                                              static_cast<uint64_t>( args.TrimCutter ) );
-                ECS::Entity cutter = cutterRef->get();
+                const ECS::Entity cutter = cutterRef->get();
                 if ( !cutter.HasComponent<ECS::StaticMeshComponent>() ||
                      !cutter.GetComponent<ECS::StaticMeshComponent>().EditableMesh )
                     return Common::MakeFormattedError<bool>(

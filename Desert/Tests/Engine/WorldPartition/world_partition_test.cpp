@@ -231,7 +231,7 @@ namespace
         }
 
         // `Register(` as a call: not `::Register(` (the definition) and not `->Register(` (an asset service).
-        const std::regex call( "(^|[^\\w>.:])Register\\s*\\(" );
+        const std::regex call( R"((^|[^\w>.:])Register\s*\()" );
         registrations = static_cast<std::size_t>(
              std::distance( std::sregex_iterator( source.begin(), source.end(), call ), std::sregex_iterator() ) );
         return keys;
@@ -303,9 +303,13 @@ TEST( WorldPartitionFormat, APartitionedSceneStatesAListOfGridsAndBothNumbersRou
     const auto read = rfl::json::read<SceneSerialized>( written );
     ASSERT_TRUE( read.has_value() );
     ASSERT_TRUE( read->WorldPartition.has_value() );
-    ASSERT_EQ( read->WorldPartition->Grids.size(), 1u );
+    ASSERT_EQ( read->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( read->WorldPartition->Grids[0].CellSize, 25600.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( read->WorldPartition->Grids[0].LoadingRange, 76800.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
 // A partitioned world is still at the CURRENT generation - the block is additive, so nothing had to be
@@ -349,9 +353,13 @@ TEST( WorldPartitionFormat, ThePartitionBlockSurvivesASaveThroughTheDocumentMerg
     const auto reread = rfl::json::read<SceneSerialized>( rfl::json::write( rfl::Generic( merged ) ) );
     ASSERT_TRUE( reread.has_value() );
     ASSERT_TRUE( reread->WorldPartition.has_value() );
-    ASSERT_EQ( reread->WorldPartition->Grids.size(), 1u );
+    ASSERT_EQ( reread->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( reread->WorldPartition->Grids[0].CellSize, 51200.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( reread->WorldPartition->Grids[0].LoadingRange, 102400.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
 // ── 2. CELLS ARE DERIVED FROM COORDINATES ──────────────────────────────────────────────────────────
@@ -377,14 +385,14 @@ TEST( WorldPartitionCells, AFootprintEndingExactlyOnAnEdgeIsInOneCell )
 {
     const auto exact = SingleCellHolding( CellBounds{ 100.0f, 0.0f, 200.0f, 100.0f }, 100.0 );
     ASSERT_TRUE( exact.has_value() );
-    EXPECT_EQ( *exact, ( CellCoord{ 1, 0 } ) );
+    EXPECT_EQ( *exact, ( CellCoord{ 1, 0 } ) ); // NOLINT(bugprone-unchecked-optional-access)
 
     EXPECT_FALSE( SingleCellHolding( CellBounds{ 100.0f, 0.0f, 201.0f, 100.0f }, 100.0 ).has_value() );
     EXPECT_FALSE( SingleCellHolding( CellBounds{ 99.0f, 0.0f, 150.0f, 50.0f }, 100.0 ).has_value() );
 
     const auto point = SingleCellHolding( CellBounds{ 200.0f, -100.0f, 200.0f, -100.0f }, 100.0 );
     ASSERT_TRUE( point.has_value() );
-    EXPECT_EQ( *point, ( CellCoord{ 2, -1 } ) );
+    EXPECT_EQ( *point, ( CellCoord{ 2, -1 } ) ); // NOLINT(bugprone-unchecked-optional-access)
 
     // A coordinate whose index no int32 holds fits no cell rather than overflowing.
     EXPECT_FALSE( SingleCellHolding( CellBounds{ 1e30f, 0.0f, 1e30f, 0.0f }, 100.0 ).has_value() );
@@ -405,7 +413,7 @@ TEST( WorldPartitionCells, AChildIsPartitionedByItsWorldPositionNotItsLocalOne )
     ASSERT_EQ( plan.Composites.size(), 1u );
     EXPECT_EQ( plan.Composites[0].Anchor, 0u );
     ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
-    EXPECT_FLOAT_EQ( plan.Composites[0].Footprint->MaxX, 30100.0f );
+    EXPECT_FLOAT_EQ( plan.Composites[0].Footprint->MaxX, 30100.0f ); // NOLINT(bugprone-unchecked-optional-access)
     // 30000..30100 is inside cell 3 of level 0.
     EXPECT_EQ( plan.Composites[0].Level, 0 );
     EXPECT_EQ( plan.Composites[0].Cell.X, 3 );
@@ -426,8 +434,8 @@ TEST( WorldPartitionCells, RotationOfAParentMovesWhereItsChildLands )
     ASSERT_EQ( plan.Composites.size(), 1u );
     const auto& held = plan.Composites[0];
     ASSERT_TRUE( held.Footprint.has_value() );
-    EXPECT_NEAR( held.Footprint->MinZ, 10000.0f, 1.0f );
-    EXPECT_NEAR( held.Footprint->MaxX, 5000.0f, 1.0f );
+    EXPECT_NEAR( held.Footprint->MinZ, 10000.0f, 1.0f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( held.Footprint->MaxX, 5000.0f, 1.0f );  // NOLINT(bugprone-unchecked-optional-access)
     // Z 10000..25000 crosses the 20000 edge of level 1; a 40000 cell holds it: level 2, cell (0, 0).
     EXPECT_EQ( held.Reason, AlwaysLoadedReason::None );
     EXPECT_EQ( held.Level, 2 );
@@ -456,7 +464,7 @@ TEST( WorldPartitionCells, ARotatedScaledOffsetParentPlacesItsChildWhereTheLoade
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 1000000.0f ) );
     ASSERT_EQ( plan.Composites.size(), 1u );
     ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
-    const CellBounds& footprint = *plan.Composites[0].Footprint;
+    const CellBounds& footprint = *plan.Composites[0].Footprint; // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_NEAR( footprint.MinX, 1000.0f, 0.5f );
     EXPECT_NEAR( footprint.MaxX, 1000.0f, 0.5f );
     EXPECT_NEAR( footprint.MinZ, 1400.0f, 0.5f );
@@ -815,8 +823,8 @@ TEST( WorldPartitionLevels, AnInstancedMeshIsAsWideAsItsInstancesNotItsEntity )
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
     const PlannedComposite&  held = plan.Composites[0];
     ASSERT_TRUE( held.Footprint.has_value() );
-    EXPECT_FLOAT_EQ( held.Footprint->MaxX, 50000.0f );
-    EXPECT_FLOAT_EQ( held.Footprint->MaxZ, 30000.0f );
+    EXPECT_FLOAT_EQ( held.Footprint->MaxX, 50000.0f ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_FLOAT_EQ( held.Footprint->MaxZ, 30000.0f ); // NOLINT(bugprone-unchecked-optional-access)
     // X 10..50000 needs an 80000 cell: level 3.
     EXPECT_EQ( held.Level, 3 );
     EXPECT_EQ( plan.PointOnlyRecords, 0u );
@@ -836,16 +844,24 @@ TEST( WorldPartitionLevels, APrimitiveCubeIsItsCornersAndAShapelessPrimitiveIsIt
 
     const WorldPartitionPlan cube = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_TRUE( cube.Composites[0].Footprint.has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( cube.Composites[0].Footprint->MinX, 9860.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( cube.Composites[0].Footprint->MaxX, 10060.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( cube.Composites[0].Level, 1 );
     EXPECT_EQ( cube.PointOnlyRecords, 0u );
 
     With( records[0], "StaticMesh", R"({"Primitive":"Cylinder"})" );
     const WorldPartitionPlan cylinder = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_TRUE( cylinder.Composites[0].Footprint.has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( cylinder.Composites[0].Footprint->MinX, 9860.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( cylinder.Composites[0].Footprint->MaxX, 10060.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( cylinder.Composites[0].Level, 1 );
     EXPECT_EQ( cylinder.PointOnlyRecords, 0u );
 
@@ -866,8 +882,9 @@ TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
     const WorldPartitionPlan ball = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_TRUE( ball.Composites[0].Footprint.has_value() );
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
-    EXPECT_NEAR( ball.Composites[0].Footprint.value().MaxX, 10010.0f,
-                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( ball.Composites[0].Footprint.value().MaxX, 10010.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( ball.Composites[0].Level, 1 ) << "the ball crosses the 10000 edge";
     EXPECT_EQ( ball.PointOnlyRecords, 0u );
@@ -876,14 +893,18 @@ TEST( WorldPartitionLevels, ASphereAndAPlaneHaveTheBoxesTheFactoryStamps )
     const WorldPartitionPlan card = PlanWorldPartition( records, Cells( 10000.0f ) );
     ASSERT_TRUE( card.Composites[0].Footprint.has_value() );
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
-    EXPECT_NEAR( card.Composites[0].Footprint.value().MinX, 9910.0f,
-                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
-    EXPECT_NEAR( card.Composites[0].Footprint.value().MaxX, 10010.0f,
-                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
-    EXPECT_NEAR( card.Composites[0].Footprint.value().MinZ, 500.0f,
-                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
-    EXPECT_NEAR( card.Composites[0].Footprint.value().MaxZ, 500.0f,
-                 0.01f ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MinX, 9910.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MaxX, 10010.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MinZ, 500.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( card.Composites[0].Footprint.value().MaxZ, 500.0f, 0.01f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( card.PointOnlyRecords, 0u );
 
@@ -979,8 +1000,9 @@ TEST( WorldPartitionMeshAssets, ASkinnedMeshIsAskedByItsExactHandle )
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ), source );
     ASSERT_TRUE( plan.Composites[0].Footprint.has_value() );
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
-    EXPECT_NEAR( plan.Composites[0].Footprint.value().MinZ, -20000.0f,
-                 0.5f ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+    EXPECT_NEAR( plan.Composites[0].Footprint.value().MinZ, -20000.0f, 0.5f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( plan.PointOnlyRecords, 0u ) << "the exact handle was not found - read through a double?";
 }
@@ -1208,14 +1230,18 @@ TEST( WorldPartitionLandscape, EveryTileIsItsOwnCompositeAtLevelZeroInItsOwnCell
         // The tile's footprint IS its rectangle: all four corners, nothing of its far-away entity position.
         ASSERT_TRUE( held.Footprint.has_value() );
         // NOLINTBEGIN(bugprone-unchecked-optional-access)
-        EXPECT_FLOAT_EQ( held.Footprint.value().MinX,
-                         tile.X * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
-        EXPECT_FLOAT_EQ( held.Footprint.value().MaxX,
-                         ( tile.X + 1 ) * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
-        EXPECT_FLOAT_EQ( held.Footprint.value().MinZ,
-                         tile.Z * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
-        EXPECT_FLOAT_EQ( held.Footprint.value().MaxZ,
-                         ( tile.Z + 1 ) * kTileCm ); // NOLINT(bugprone-unchecked-optional-access)
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MinX, tile.X * kTileCm );
+        // NOLINTEND(bugprone-unchecked-optional-access)
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MaxX, ( tile.X + 1 ) * kTileCm );
+        // NOLINTEND(bugprone-unchecked-optional-access)
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MinZ, tile.Z * kTileCm );
+        // NOLINTEND(bugprone-unchecked-optional-access)
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        EXPECT_FLOAT_EQ( held.Footprint.value().MaxZ, ( tile.Z + 1 ) * kTileCm );
+        // NOLINTEND(bugprone-unchecked-optional-access)
         // NOLINTEND(bugprone-unchecked-optional-access)
     }
 

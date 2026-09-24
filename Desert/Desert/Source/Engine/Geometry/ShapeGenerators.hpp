@@ -159,7 +159,7 @@ namespace Desert::Geometry
         inline uint32_t PushVertex( ShapeMesh& m, const glm::vec3& p, const glm::vec3& n, const glm::vec3& t,
                                     const glm::vec2& uv )
         {
-            Vertex v;
+            Vertex v{};
             v.Position  = p;
             v.Normal    = n;
             v.Tangent   = t;
@@ -175,7 +175,7 @@ namespace Desert::Geometry
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[3] - p[0] ) );
             const glm::vec3 t    = glm::normalize( p[1] - p[0] );
-            const uint32_t  base = static_cast<uint32_t>( m.Vertices.size() );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 4; ++i )
                 PushVertex( m, p[i], n, t, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
@@ -190,7 +190,7 @@ namespace Desert::Geometry
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[2] - p[0] ) );
             const glm::vec3 t    = glm::normalize( p[1] - p[0] );
-            const uint32_t  base = static_cast<uint32_t>( m.Vertices.size() );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 3; ++i )
                 PushVertex( m, p[i], n, t, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
@@ -235,8 +235,8 @@ namespace Desert::Geometry
 
         struct LatheSegment
         {
-            glm::vec2 P0, P1; // (radius, height)
-            glm::vec2 N0, N1; // outward normal in (radial, up) at each end
+            glm::vec2 P0{}, P1{}; // (radius, height)
+            glm::vec2 N0{}, N1{}; // outward normal in (radial, up) at each end
             float     V0   = 0.0f;
             float     V1   = 0.0f;
             LatheUV   UV   = LatheUV::Wrap;
@@ -477,7 +477,7 @@ namespace Desert::Geometry
         slices                                   = std::max( slices, 3 );
         rings                                    = std::max( rings, 1 );
         const float                       total  = d + body;
-        const float                       halfPi = glm::half_pi<float>();
+        const auto                        halfPi = glm::half_pi<float>();
         std::vector<Detail::LatheSegment> profile;
         Detail::AddArc( profile, r, r, 0.0f, halfPi, rings, 1.0f, 1.0f - r / total, 0 );
         profile.push_back( { { r, r },
@@ -530,7 +530,7 @@ namespace Desert::Geometry
         const float           sd = Detail::Extent( stepDepth );
         const float           sh = Detail::Extent( stepHeight );
         steps                    = std::max( steps, 1 );
-        const float n            = static_cast<float>( steps );
+        const auto  n            = static_cast<float>( steps );
         const float z0           = -0.5f * n * sd;
         const float hx           = 0.5f * w;
         int         face         = 0;

@@ -1503,7 +1503,7 @@ namespace Desert::Editor
                                               !StartupLoading() &&
                                               ( !m_ShotCameraPlaced || shot.HasMotion() || shot.FlightRoute ) )
         {
-            if ( ::Desert::Core::EditorCamera* cam = ActiveEditorCamera(); cam && shot.FlightRoute )
+            if ( ::Desert::Core::EditorCamera* cam = ActiveEditorCamera(); ( cam != nullptr ) && shot.FlightRoute )
             {
                 const Flight::Pose pose =
                      Flight::PoseAt( *shot.FlightRoute, Flight::DistanceAt( m_ShotFrame, shot.FlightSpeed,
@@ -1511,7 +1511,7 @@ namespace Desert::Editor
                 PlaceEditorCamera( *cam, pose.Position, pose.Forward );
                 cam->SetInputEnabled( false );
             }
-            else if ( cam )
+            else if ( cam != nullptr )
             {
                 // THE SAME PLACEMENT THE CONTROL CHANNEL USES. It used to be spelled out here, with the
                 // framing distance written twice on one line as a bare 500.0f — and it was the ONLY way to
@@ -4183,7 +4183,7 @@ namespace Desert::Editor
         commands.push_back( { "Entity", "Place a cube on the surface at the viewport centre", [this]
                               {
                                   ::Desert::Core::EditorCamera* camera = ActiveEditorCamera();
-                                  if ( !camera || !m_MainScene )
+                                  if ( ( camera == nullptr ) || !m_MainScene )
                                       return PaletteCommandOutcome( false, "no viewport camera or no scene" );
                                   const Common::Math::Ray    ray( camera->GetPosition(), camera->GetDirection() );
                                   ::Desert::Core::RaycastHit hit;

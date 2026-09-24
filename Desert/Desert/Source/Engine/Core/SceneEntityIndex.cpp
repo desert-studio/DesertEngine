@@ -3,6 +3,7 @@
 #include <Engine/ECS/Components.hpp>
 
 #include <algorithm>
+#include <ranges>
 
 namespace Desert::Core
 {
@@ -65,7 +66,7 @@ namespace Desert::Core
 
         // Unlink the ROOT from its parent — the one parent that survives this call.
         if ( const auto* rel = registry.try_get<ECS::RelationshipComponent>( root );
-             rel && rel->Parent != entt::null )
+             ( rel != nullptr ) && rel->Parent != entt::null )
         {
             if ( auto* parentRel = registry.try_get<ECS::RelationshipComponent>( rel->Parent ) )
             {
@@ -93,10 +94,10 @@ namespace Desert::Core
 
         // Children before parents, as the recursive version did, so an on_destroy listener that looks at
         // the parent of a dying entity still finds it alive.
-        for ( auto it = doomed.rbegin(); it != doomed.rend(); ++it )
+        for ( auto& it : std::ranges::reverse_view( doomed ) )
         {
-            index.Remove( *it );
-            registry.destroy( *it );
+            index.Remove( it );
+            registry.destroy( it );
         }
     }
 } // namespace Desert::Core

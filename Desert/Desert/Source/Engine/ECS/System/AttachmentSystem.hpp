@@ -34,7 +34,7 @@ namespace Desert::ECS
 
         ~AttachmentSystem() override
         {
-            if ( m_HookedRegistry )
+            if ( m_HookedRegistry != nullptr )
                 m_HookedRegistry->on_destroy<SocketAttachmentComponent>().disconnect( this );
         }
 
@@ -121,7 +121,7 @@ namespace Desert::ECS
         {
             if ( m_HookedRegistry == &registry )
                 return;
-            if ( m_HookedRegistry )
+            if ( m_HookedRegistry != nullptr )
                 m_HookedRegistry->on_destroy<SocketAttachmentComponent>().disconnect( this );
             registry.on_destroy<SocketAttachmentComponent>().connect<&AttachmentSystem::OnSocketDestroyed>( this );
             m_HookedRegistry = &registry;

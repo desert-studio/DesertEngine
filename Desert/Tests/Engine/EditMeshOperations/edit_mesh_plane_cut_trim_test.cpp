@@ -92,12 +92,14 @@ TEST( PlaneCutMesh, CubeInHalvesIsTwoClosedMeshesThatSumToIt )
     const auto     out = Cut( cube, plane, PlaneCutMode::KeepBothHalves, true );
     ASSERT_TRUE( out.OtherHalf.has_value() );
     EXPECT_TRUE( ClosedAndConsistent( out.Kept.Mesh ) );
-    EXPECT_TRUE( ClosedAndConsistent( *out.OtherHalf ) );
+    EXPECT_TRUE( ClosedAndConsistent( *out.OtherHalf ) ); // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_NEAR( SignedVolume( out.Kept.Mesh ), 50.0 * 200.0 * 200.0, 1.0 );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( SignedVolume( *out.OtherHalf ), 150.0 * 200.0 * 200.0, 1.0 );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     // Five of the cube's groups reach each half, plus the cap.
     EXPECT_EQ( GroupCount( out.Kept.Mesh ), 6 );
-    EXPECT_EQ( GroupCount( *out.OtherHalf ), 6 );
+    EXPECT_EQ( GroupCount( *out.OtherHalf ), 6 ); // NOLINT(bugprone-unchecked-optional-access)
     const std::vector<int> cap = CapOf( out );
     ExpectFlatCap( out.Kept.Mesh, cap, plane );
     EXPECT_NEAR( Area( out.Kept.Mesh, cap ), 200.0 * 200.0, 1e-2 );
@@ -110,9 +112,9 @@ TEST( PlaneCutMesh, AnObliquePlaneKeepsTheVolume )
     const auto     out = Cut( cube, plane, PlaneCutMode::KeepBothHalves, true );
     ASSERT_TRUE( out.OtherHalf.has_value() );
     EXPECT_TRUE( ClosedAndConsistent( out.Kept.Mesh ) );
-    EXPECT_TRUE( ClosedAndConsistent( *out.OtherHalf ) );
+    EXPECT_TRUE( ClosedAndConsistent( *out.OtherHalf ) ); // NOLINT(bugprone-unchecked-optional-access)
     const double kept  = SignedVolume( out.Kept.Mesh );
-    const double other = SignedVolume( *out.OtherHalf );
+    const double other = SignedVolume( *out.OtherHalf ); // NOLINT(bugprone-unchecked-optional-access)
     EXPECT_GT( kept, 0.0 );
     EXPECT_GT( other, kept );
     EXPECT_NEAR( kept + other, 8.0e6, 10.0 );
@@ -151,7 +153,9 @@ TEST( PlaneCutMesh, TheOpenBorderAcrossThePlaneCannotBeCapped )
     // Without the cap it is an ordinary cut.
     const auto out = Cut( open, CutPlane{ { 0, 100, 0 }, { 0, 1, 0 } }, PlaneCutMode::KeepBothHalves, false );
     ASSERT_TRUE( out.OtherHalf.has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( TotalArea( out.Kept.Mesh ) + TotalArea( *out.OtherHalf ), 5.0 * 200.0 * 200.0, 1e-1 );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     // The open face is on the discarded side: the rim is closed and capped.
     const auto capped = Cut( open, CutPlane{ { 0, 0, 0 }, { 1, 0, 0 } }, PlaneCutMode::DiscardNegativeSide, true );
     EXPECT_TRUE( ClosedAndConsistent( capped.Kept.Mesh ) );

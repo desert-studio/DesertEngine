@@ -174,7 +174,7 @@ namespace Desert::Graphic
     /// written keeps what the previous scene left in it.
     inline void SceneSkyLookBind( Material* material, const SkyLook& look )
     {
-        if ( !material )
+        if ( material == nullptr )
             return;
         if ( auto* ub = material->Get<UniformBufferProperty>( kSkyLookBlockName ) )
         {

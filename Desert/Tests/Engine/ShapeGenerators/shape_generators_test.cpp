@@ -43,7 +43,7 @@ namespace
 
     std::vector<ShapeCase> Cases()
     {
-        const float pi = glm::pi<float>();
+        const auto pi = glm::pi<float>();
         return {
              { "Box", []( const ShapeOptions& o ) { return MakeBox( { 200.0f, 100.0f, 50.0f }, { 2, 3, 1 }, o ); },
                6, 2 * ( 2 * 3 + 3 * 1 + 1 * 2 ), true, 200.0f * 100.0f * 50.0f, 1e-4f },
@@ -296,8 +296,12 @@ TEST( ShapeGenerators, PrimitiveBoundsIsTheBoxOfTheGeneratedVertices )
         const auto drawn = shape->Bounds();
         for ( int axis = 0; axis < 3; ++axis )
         {
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             EXPECT_NEAR( drawn.Min[axis], box->Min[axis], 1e-3f ) << "axis " << axis;
+            // NOLINTEND(bugprone-unchecked-optional-access)
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             EXPECT_NEAR( drawn.Max[axis], box->Max[axis], 1e-3f ) << "axis " << axis;
+            // NOLINTEND(bugprone-unchecked-optional-access)
         }
     }
 }
@@ -310,7 +314,7 @@ TEST( ShapeGenerators, EveryAuthorablePrimitiveIsDrawn )
         SCOPED_TRACE( PrimitiveTypeName( type ) );
         const auto shape = MakePrimitive( type );
         ASSERT_TRUE( shape.has_value() );
-        auto converted = ShapeToEditMesh( *shape );
+        auto converted = ShapeToEditMesh( *shape ); // NOLINT(bugprone-unchecked-optional-access)
         ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
         if ( type != PrimitiveType::Plane )
             EXPECT_GT( SignedVolume( *shape ), 0.0 );

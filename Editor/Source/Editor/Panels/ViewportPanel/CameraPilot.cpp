@@ -77,7 +77,7 @@ namespace Desert::Editor
         if ( !m_Entity )
             return;
         CloseSegment();
-        if ( camera )
+        if ( camera != nullptr )
             camera->RestorePose( m_Saved );
         m_Entity.reset();
         m_EntityName.clear();

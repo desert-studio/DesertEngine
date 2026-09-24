@@ -43,7 +43,7 @@ namespace Desert::Editor
     public:
         // @p splash is the start-up splash CreateApplication put up before the renderer existed; this
         // layer reports its steps to it and takes it down on the first real frame (RevealWhenReady).
-        EditorLayer( const Engine::Application* window, const std::string& layerName,
+        EditorLayer( const Engine::Application* application, const std::string& layerName,
                      std::unique_ptr<Splash::SplashScreen> splash );
         ~EditorLayer();
 

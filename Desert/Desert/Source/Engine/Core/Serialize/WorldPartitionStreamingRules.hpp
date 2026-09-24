@@ -193,8 +193,8 @@ namespace Desert::Core::Rules
         std::vector<WantedCell> hits;
         for ( std::size_t sourceIndex = 0; sourceIndex < sources.size(); ++sourceIndex )
         {
-            const double x = static_cast<double>( sources[sourceIndex].Position.x );
-            const double z = static_cast<double>( sources[sourceIndex].Position.z );
+            const auto   x = static_cast<double>( sources[sourceIndex].Position.x );
+            const auto   z = static_cast<double>( sources[sourceIndex].Position.z );
             const double radius =
                  static_cast<double>( grid.LoadingRange ) * static_cast<double>( sources[sourceIndex].RangeScale );
 

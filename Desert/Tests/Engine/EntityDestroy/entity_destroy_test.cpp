@@ -66,6 +66,7 @@ TEST( EntityDestroy, RemovingFromTheMiddleKeepsEveryOtherLookupRight )
     entt::registry            reg;
     Core::SceneEntityIndex    index;
     std::vector<entt::entity> all;
+    all.reserve( 200 );
     for ( int i = 0; i < 200; ++i )
         all.push_back( Make( reg, index ) );
 
@@ -159,6 +160,7 @@ TEST( EntityDestroy, DestroyingTheEntityGivesItsJoltBodyAndCharacterBack )
 
     const uint32_t            bodiesBefore = world.GetBodyCount();
     std::vector<entt::entity> doomed;
+    doomed.reserve( 64 );
     for ( int i = 0; i < 64; ++i )
         doomed.push_back( MakeBody( reg, index, world, 300.0f * static_cast<float>( i ) ) );
     doomed.push_back( MakeCharacter( reg, index, world ) );
@@ -167,7 +169,7 @@ TEST( EntityDestroy, DestroyingTheEntityGivesItsJoltBodyAndCharacterBack )
     ASSERT_EQ( world.GetCharacterCount(), 2u );
     world.Step( 1.0f / 30.0f ); // the bodies have been simulated, as they would be in Play
 
-    for ( entt::entity e : doomed )
+    for ( const entt::entity e : doomed )
         Core::DestroyEntityTree( reg, index, e );
 
     EXPECT_EQ( world.GetBodyCount(), bodiesBefore ) << "a destroyed entity left its Jolt body in the world";

@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <numbers>
 #include <span>
 #include <string>
 #include <vector>
@@ -62,7 +63,7 @@ namespace Desert::Editor::Flight
     {
         inline bool ParseNumber( const std::string& text, double& out )
         {
-            if ( text.empty() || std::isspace( static_cast<unsigned char>( text.front() ) ) )
+            if ( text.empty() || ( std::isspace( static_cast<unsigned char>( text.front() ) ) != 0 ) )
                 return false;
             char*        end   = nullptr;
             const double value = std::strtod( text.c_str(), &end );
@@ -163,7 +164,7 @@ namespace Desert::Editor::Flight
             route.Closed = true;
             for ( int i = 0; i < kCircleSegments; ++i )
             {
-                const double angle = 2.0 * 3.14159265358979323846 * static_cast<double>( i ) / kCircleSegments;
+                const double angle = 2.0 * std::numbers::pi * static_cast<double>( i ) / kCircleSegments;
                 route.Points.push_back( first + glm::vec3( static_cast<float>( radius * std::cos( angle ) ), 0.0f,
                                                            static_cast<float>( radius * std::sin( angle ) ) ) );
             }
@@ -351,7 +352,8 @@ namespace Desert::Editor::Flight
     [[nodiscard]] inline double Percentile( std::span<const double> sorted, double percent )
     {
         const double      rank  = std::ceil( percent / 100.0 * static_cast<double>( sorted.size() ) );
-        const std::size_t index = static_cast<std::size_t>( std::clamp( rank, 1.0, double( sorted.size() ) ) ) - 1;
+        const std::size_t index =
+             static_cast<std::size_t>( std::clamp( rank, 1.0, static_cast<double>( sorted.size() ) ) ) - 1;
         return sorted[index];
     }
 

@@ -604,11 +604,11 @@ namespace Desert::Editor
     Common::BoolResultStr ViewportPanel::RequestPilot( const Common::UUID& entity )
     {
         ViewportPanel* target = ActiveViewport();
-        if ( !target )
+        if ( target == nullptr )
             return Common::MakeError<bool>( "there is no viewport to pilot with." );
         const auto camera    = target->ViewCamera();
         auto*      editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
-        if ( !editorCam || !target->m_Scene )
+        if ( ( editorCam == nullptr ) || !target->m_Scene )
         {
             return Common::MakeFormattedError<bool>(
                  "'{}' has no editor camera to pilot with (the view was closed, or the scene is playing).",
@@ -1458,7 +1458,7 @@ namespace Desert::Editor
                     {
                         LOG_ERROR( "{}", placed.GetError() );
                     }
-                    else if ( ECS::Entity root = placed.GetValue() )
+                    else if ( const ECS::Entity root = placed.GetValue() )
                     {
                         // A world prefab lands on the surface under the cursor; a UI prefab keeps the layout
                         // its canvas gives it.
@@ -1602,7 +1602,7 @@ namespace Desert::Editor
             if ( const auto camera = ViewCamera() )
             {
                 auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
-                if ( editorCam && !m_Pilot.IsActive() )
+                if ( ( editorCam != nullptr ) && !m_Pilot.IsActive() )
                 {
                     const char* label = ViewportCameraPresetLabel( *editorCam );
                     const ImVec2 at( m_ViewportData.ViewportPos.x + 10.0f,
@@ -2362,7 +2362,7 @@ namespace Desert::Editor
 
     void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )
     {
-        if ( !m_AssetManager )
+        if ( m_AssetManager == nullptr )
             return;
         const auto found = SurfaceAtCursor();
         if ( !found )

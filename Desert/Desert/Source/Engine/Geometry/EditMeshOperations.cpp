@@ -95,7 +95,7 @@ namespace Desert::Geometry
                     vertexIn[v] = 1;
             }
             for ( int v = 0; v < mesh.MaxVertexId(); ++v )
-                if ( vertexIn[v] )
+                if ( vertexIn[v] != 0 )
                     region.Vertices.push_back( v );
 
             // Boundary edges keyed by their start vertex; a vertex that starts two is where the region
@@ -109,7 +109,7 @@ namespace Desert::Geometry
                 {
                     const auto& et    = mesh.GetEdgeTriangles( edges[j] );
                     const int   other = et[0] == t ? et[1] : et[0];
-                    if ( other != InvalidId && region.InRegion[other] )
+                    if ( other != InvalidId && ( region.InRegion[other] != 0 ) )
                         continue;
                     const BoundaryEdge b{ corners[j], corners[( j + 1 ) % 3], t, other };
                     if ( !byFrom.emplace( b.From, b ).second )
@@ -181,7 +181,7 @@ namespace Desert::Geometry
                 const glm::vec3 n         = sum / length;
                 float           agreement = 1.0f;
                 for ( const int t : mesh.GetVertexTriangles( v ) )
-                    if ( region.InRegion[t] && glm::length( AreaNormal( mesh, t ) ) > 0.0f )
+                    if ( ( region.InRegion[t] != 0 ) && glm::length( AreaNormal( mesh, t ) ) > 0.0f )
                         agreement = std::min( agreement, glm::dot( n, TriangleNormal( mesh, t ) ) );
                 directions[v] = n / std::max( agreement, kMinNormalAgreement );
             }
@@ -551,6 +551,7 @@ namespace Desert::Geometry
 
             // 4. Normals where anything moved or was created, then the strip's tangents.
             std::vector<int> rebuild;
+            rebuild.reserve( copy.size() );
             for ( const auto& [v, c] : copy )
                 rebuild.push_back( c );
             for ( const auto& loop : region.Loops )

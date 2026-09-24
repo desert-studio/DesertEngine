@@ -99,8 +99,8 @@ namespace Desert::World::Landscape
             const uint32_t sz = tile.SamplesZ();
             if ( sx < kLandscapeMinTileSamples || sz < kLandscapeMinTileSamples )
                 return std::nullopt;
-            const double lastX = static_cast<double>( sx - 1u );
-            const double lastZ = static_cast<double>( sz - 1u );
+            const auto lastX = static_cast<double>( sx - 1u );
+            const auto lastZ = static_cast<double>( sz - 1u );
 
             const auto h = [&]( uint32_t x, uint32_t z ) -> double
             { return static_cast<double>( LandscapeHeightCm( tile.Sample( x, z ), frame.ZScale ) ); };
@@ -108,8 +108,8 @@ namespace Desert::World::Landscape
             // The vertical slab bounds the traversal to where the ray is between the tile's lowest and
             // highest sample: the bilinear patch never leaves the range of its four corners.
             const auto [lowIt, highIt] = std::minmax_element( tile.Samples().begin(), tile.Samples().end() );
-            const double low           = static_cast<double>( LandscapeHeightCm( *lowIt, frame.ZScale ) );
-            const double high          = static_cast<double>( LandscapeHeightCm( *highIt, frame.ZScale ) );
+            const auto low             = static_cast<double>( LandscapeHeightCm( *lowIt, frame.ZScale ) );
+            const auto high            = static_cast<double>( LandscapeHeightCm( *highIt, frame.ZScale ) );
 
             double tMin = 0.0;
             double tMax = maxDistance;
@@ -176,7 +176,7 @@ namespace Desert::World::Landscape
         for ( size_t index = 0; index < tiles.size(); ++index )
         {
             const LandscapeRayTile& entry = tiles[index];
-            if ( !entry.Heights )
+            if ( entry.Heights == nullptr )
             {
                 LOG_ERROR( "[Landscape] raycast: tile {} of {} has no heights and is skipped", index,
                            tiles.size() );
@@ -190,7 +190,7 @@ namespace Desert::World::Landscape
                 continue;
             }
             const LandscapeFrame& frame   = entry.Frame;
-            const double          spacing = static_cast<double>( frame.SpacingCm );
+            const auto            spacing = static_cast<double>( frame.SpacingCm );
 
             GridRay ray;
             ray.Gx0 = ( static_cast<double>( origin.x ) - frame.OriginX ) / spacing;

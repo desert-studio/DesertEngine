@@ -21,7 +21,7 @@ namespace Desert::Geometry
     void ComputeNormalsByPolyGroup( EditMesh& mesh );
 
     // Interior angle of t at corner j (radians); zero for a degenerate corner so it weighs nothing.
-    [[nodiscard]] float CornerAngle( const EditMesh& mesh, int t, int corner );
+    [[nodiscard]] float CornerAngle( const EditMesh& mesh, int t, int j );
     // The corner (0..2) of t that is vertex v, -1 when v is not a corner of t.
     [[nodiscard]] int TriangleCornerOf( const EditMesh& mesh, int t, int v );
 

@@ -157,7 +157,7 @@ TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )
     ASSERT_TRUE( folder.IsSuccess() ) << folder.GetError();
     auto written = Editor::WriteStaticMeshAsset( TwoMaterialBox(), kSlots, folder.GetValue(), "Box" );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
-    const fs::path path = written.GetValue();
+    const fs::path& path = written.GetValue();
     EXPECT_EQ( path.filename(), "Box.stmesh" );
     EXPECT_EQ( path.parent_path(), ( Common::Constants::Path::MESH_PATH_COOKED / "Modeling" ).lexically_normal() );
 
@@ -167,15 +167,19 @@ TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )
     EXPECT_EQ( row->Size, fs::file_size( path ) );
     ASSERT_TRUE( row->Bounds.has_value() ) << "the row carries no box (WP15)";
     // MakeBox with a base pivot: 200 x 100 x 50 cm standing on y = 0.
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( row->Bounds->Min, glm::vec3( -100.0f, 0.0f, -25.0f ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_EQ( row->Bounds->Max, glm::vec3( 100.0f, 100.0f, 25.0f ) );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }
 
 TEST_F( ScratchProject, ATakenNameGetsASuffixAndTheFirstFileIsUntouched )
 {
     auto target = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
-    const fs::path folder = target.GetValue();
+    const fs::path& folder = target.GetValue();
     auto           first  = Editor::WriteStaticMeshAsset( TwoMaterialBox(), kSlots, folder, "Box" );
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     const auto firstTime = fs::last_write_time( first.GetValue() );
@@ -207,7 +211,7 @@ TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )
     coloured.Attributes().EnableColors();
     auto target = Editor::StaticMeshOutputFolder( "Modeling" );
     ASSERT_TRUE( target.IsSuccess() ) << target.GetError();
-    const fs::path folder = target.GetValue();
+    const fs::path& folder = target.GetValue();
     EXPECT_FALSE( Editor::WriteStaticMeshAsset( coloured, kSlots, folder, "Box" ).IsSuccess() );
     EXPECT_FALSE( fs::exists( folder / "Box.stmesh" ) );
 }

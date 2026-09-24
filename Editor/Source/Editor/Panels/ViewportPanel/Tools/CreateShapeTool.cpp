@@ -95,7 +95,7 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<Common::UUID>( "the {} was not placed: {}",
                                                              MS::ShapeName( settings.Kind ), mesh.GetError() );
 
-        ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
+        const ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
         entity.GetComponent<ECS::TransformComponent>().Translation = position;
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
         if ( auto set =

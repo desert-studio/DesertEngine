@@ -30,7 +30,7 @@ namespace
         render.Indices  = shape.Indices;
         auto imported   = FromRenderMesh( render );
         EXPECT_TRUE( imported.IsSuccess() ) << imported.GetError();
-        EditMesh mesh = std::move( imported.GetValue().Mesh );
+        EditMesh mesh = imported.GetValue().Mesh;
         return mesh;
     }
 
@@ -336,7 +336,7 @@ TEST( ElementSelectionEdits, RemovedTrianglesDropOutAndAreCounted )
         const int a = mesh.AppendVertex( { 500.0f + i * 100.0f, 0, 0 } );
         const int b = mesh.AppendVertex( { 550.0f + i * 100.0f, 0, 0 } );
         const int c = mesh.AppendVertex( { 500.0f + i * 100.0f, 50, 0 } );
-        int       added;
+        int       added = 0;
         ASSERT_EQ( mesh.AppendTriangle( a, b, c, added ), EditResult::Ok );
     }
     ASSERT_TRUE( mesh.IsTriangle( kept ) );

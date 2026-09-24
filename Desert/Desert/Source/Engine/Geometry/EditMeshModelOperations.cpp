@@ -34,11 +34,11 @@ namespace Desert::Geometry
 
         void EnableLayersLike( const EditMeshAttributes& from, EditMeshAttributes& to )
         {
-            if ( from.Normals() )
+            if ( from.Normals() != nullptr )
                 to.EnableNormals();
-            if ( from.Tangents() )
+            if ( from.Tangents() != nullptr )
                 to.EnableTangents();
-            if ( from.Colors() )
+            if ( from.Colors() != nullptr )
                 to.EnableColors();
         }
 
@@ -234,10 +234,10 @@ namespace Desert::Geometry
                  CarryLayer( from.Colors(), result, to.Colors(), children, linear4, "colours" );
             for ( int layer = 0; layer < from.UVLayerCount() && carried.IsSuccess(); ++layer )
                 carried = CarryLayer( from.UV( layer ), result, to.UV( layer ), children, linear2, "UVs" );
-            if ( carried.IsSuccess() && from.Normals() )
+            if ( carried.IsSuccess() && ( from.Normals() != nullptr ) )
                 carried = loop ? SmoothNormals( result )
                                : CarryLayer( from.Normals(), result, to.Normals(), children, unit3, "normals" );
-            if ( carried.IsSuccess() && from.Tangents() )
+            if ( carried.IsSuccess() && ( from.Tangents() != nullptr ) )
                 carried = ComputeTangentsAt( result, Snapshot( result.TriangleIds() ) );
             if ( !carried.IsSuccess() )
                 return Common::MakeError<EditMesh>( carried.GetError() );
@@ -363,8 +363,8 @@ namespace Desert::Geometry
                 const auto& ends = work.GetEdgeVertices( e );
                 const float da   = signedDistance( work.GetPosition( ends[0] ) );
                 const float db   = signedDistance( work.GetPosition( ends[1] ) );
-                if ( !( ( da > weldTolerance && db < -weldTolerance ) ||
-                        ( da < -weldTolerance && db > weldTolerance ) ) )
+                if ( ( da <= weldTolerance || db >= -weldTolerance ) &&
+                     ( da >= -weldTolerance || db <= weldTolerance ) )
                     continue;
                 SplitEdgeInfo info;
                 if ( const EditResult r = work.SplitEdge( e, da / ( da - db ), info ); r != EditResult::Ok )
@@ -457,7 +457,7 @@ namespace Desert::Geometry
             mirrored = MirrorLayer( work, attributes.UV( layer ), pairs, mirrorOf, same, "UVs" );
         if ( mirrored.IsSuccess() && !seam.empty() )
             mirrored = RebuildNormalsByPolyGroupAt( work, seam );
-        if ( mirrored.IsSuccess() && !seam.empty() && attributes.Tangents() )
+        if ( mirrored.IsSuccess() && !seam.empty() && ( attributes.Tangents() != nullptr ) )
         {
             std::vector<int> around;
             for ( const int v : seam )
@@ -565,7 +565,7 @@ namespace Desert::Geometry
             out.Kept.Report += fmt::format( "; the other half {} triangles", out.OtherHalf->TriangleCount() );
         }
         for ( const EditMesh* half : { &out.Kept.Mesh, out.OtherHalf ? &*out.OtherHalf : nullptr } )
-            if ( half )
+            if ( half != nullptr )
                 if ( auto valid = half->CheckValidity(); !valid.IsSuccess() )
                     return Common::MakeFormattedError<PlaneCutOutcome>(
                          "Plane Cut: a half is not a valid mesh: {}", valid.GetError() );

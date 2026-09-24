@@ -447,7 +447,7 @@ namespace Desert::Editor::Commands
             {
             }
 
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return "Split";
             }
@@ -467,7 +467,7 @@ namespace Desert::Editor::Commands
 
             bool Redo() override
             {
-                ECS::Entity copy = RestoreSnapshot( m_Snapshot, /*preserveIds=*/true );
+                const ECS::Entity copy = RestoreSnapshot( m_Snapshot, /*preserveIds=*/true );
                 if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
                     return false;
                 if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), m_Mesh );
@@ -956,7 +956,7 @@ namespace Desert::Editor::Commands
         // root-only snapshot re-parents nothing).
         std::vector<Assets::EntityData> record = CaptureSubtree( *source );
         record.resize( 1 );
-        ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
+        const ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
         if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
             return Common::MakeFormattedError<Common::UUID>( "{}: the copy of entity {} could not be made", label,
                                                              static_cast<uint64_t>( uuid ) );

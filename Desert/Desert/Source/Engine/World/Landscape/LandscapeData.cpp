@@ -41,7 +41,7 @@ namespace Desert::World::Landscape
     {
         const float scaled = localHeight * kLandscapeStepsPerLocal + static_cast<float>( kLandscapeMidSample );
         const float lo     = 0.0f;
-        const float hi     = static_cast<float>( kLandscapeMaxSample );
+        const auto  hi     = static_cast<float>( kLandscapeMaxSample );
         // FMath::Clamp's own spelling — see the header for why it is not std::clamp (NaN).
         const float clamped = scaled < lo ? lo : ( scaled < hi ? scaled : hi );
         // FMath::RoundToInt is floor(x + 0.5): an exact half step (a height on an odd multiple of 1/256
@@ -248,7 +248,7 @@ namespace Desert::World::Landscape
             const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
             const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
             // Written as !(inside) so NaN lands outside rather than on sample 0.
-            if ( !( gx >= 0.0f && gx <= lastX && gz >= 0.0f && gz <= lastZ ) )
+            if ( gx < 0.0f || gx > lastX || gz < 0.0f || gz > lastZ )
                 return std::nullopt;
             const float cellX = LandscapeCellOf( gx, static_cast<float>( tile.SamplesX() ) );
             const float cellZ = LandscapeCellOf( gz, static_cast<float>( tile.SamplesZ() ) );
@@ -283,13 +283,13 @@ namespace Desert::World::Landscape
             const auto cz   = static_cast<uint32_t>( std::clamp( z, 0, sz - 1 ) );
             if ( outX == outZ ) // inside, or a ring corner no gradient reads
                 return tile.Sample( cx, cz );
-            if ( x < 0 && n.West )
+            if ( x < 0 && ( n.West != nullptr ) )
                 return n.West->Sample( static_cast<uint32_t>( sx - 2 ), cz );
-            if ( x >= sx && n.East )
+            if ( x >= sx && ( n.East != nullptr ) )
                 return n.East->Sample( 1u, cz );
-            if ( z < 0 && n.South )
+            if ( z < 0 && ( n.South != nullptr ) )
                 return n.South->Sample( cx, static_cast<uint32_t>( sz - 2 ) );
-            if ( z >= sz && n.North )
+            if ( z >= sz && ( n.North != nullptr ) )
                 return n.North->Sample( cx, 1u );
             return tile.Sample( cx, cz ); // absent neighbour: never differenced (the mask says so)
         }
@@ -316,14 +316,14 @@ namespace Desert::World::Landscape
         std::pair<float, float> GradientAt( const LandscapeTileData& tile, const LandscapeTileNeighbours& n,
                                             const LandscapeFrame& frame, uint32_t ix, uint32_t iz )
         {
-            const float x     = static_cast<float>( ix );
-            const float z     = static_cast<float>( iz );
-            const float lastX = static_cast<float>( tile.SamplesX() - 1u );
-            const float lastZ = static_cast<float>( tile.SamplesZ() - 1u );
-            const float xa    = LandscapeGradientLow( x, n.West ? 1.0f : 0.0f );
-            const float xb    = LandscapeGradientHigh( x, lastX, n.East ? 1.0f : 0.0f );
-            const float za    = LandscapeGradientLow( z, n.South ? 1.0f : 0.0f );
-            const float zb    = LandscapeGradientHigh( z, lastZ, n.North ? 1.0f : 0.0f );
+            const auto  x     = static_cast<float>( ix );
+            const auto  z     = static_cast<float>( iz );
+            const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
+            const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+            const float xa    = LandscapeGradientLow( x, ( n.West != nullptr ) ? 1.0f : 0.0f );
+            const float xb    = LandscapeGradientHigh( x, lastX, ( n.East != nullptr ) ? 1.0f : 0.0f );
+            const float za    = LandscapeGradientLow( z, ( n.South != nullptr ) ? 1.0f : 0.0f );
+            const float zb    = LandscapeGradientHigh( z, lastZ, ( n.North != nullptr ) ? 1.0f : 0.0f );
             const float dx =
                  LandscapeGradient( BorderedHeight( tile, n, frame, xa, z ),
                                     BorderedHeight( tile, n, frame, xb, z ), xb - xa, frame.SpacingCm );
@@ -349,8 +349,8 @@ namespace Desert::World::Landscape
 
     uint32_t LandscapeNeighbourMask( const LandscapeTileNeighbours& neighbours )
     {
-        return ( neighbours.West ? 1u : 0u ) | ( neighbours.East ? 2u : 0u ) | ( neighbours.South ? 4u : 0u ) |
-               ( neighbours.North ? 8u : 0u );
+        return ( ( neighbours.West != nullptr ) ? 1u : 0u ) | ( ( neighbours.East != nullptr ) ? 2u : 0u ) |
+               ( ( neighbours.South != nullptr ) ? 4u : 0u ) | ( ( neighbours.North != nullptr ) ? 8u : 0u );
     }
 
     std::vector<uint16_t> LandscapeBorderedSamples( const LandscapeTileData&       tile,

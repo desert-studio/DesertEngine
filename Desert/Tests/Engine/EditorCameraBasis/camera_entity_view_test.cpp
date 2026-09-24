@@ -170,5 +170,7 @@ TEST( EditorCameraRoll, ZeroRollIsTheOrbitsUp )
 
     const auto top = AxisViewBasisOf( glm::vec3( 0.0f, -1.0f, 0.0f ) );
     ASSERT_TRUE( top.has_value() );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_NEAR( glm::length( RollFreeUp( top->Forward ) - top->Up ), 0.0f, 1.0e-6f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 }

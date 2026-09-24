@@ -112,7 +112,7 @@ namespace Desert::Graphic::System
         for ( const auto& [name, handle] : overrides.Textures )
             if ( handle != 0 )
                 parts.push_back( name + "=" + std::to_string( handle ) );
-        if ( heightmap )
+        if ( heightmap != nullptr )
             parts.push_back( "u_Heightmap=@" + std::to_string( reinterpret_cast<uintptr_t>( heightmap ) ) );
         std::sort( parts.begin(), parts.end() );
 

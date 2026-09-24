@@ -333,7 +333,7 @@ namespace Desert::Graphic::System
         const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
 
         // The target a non-mesh caster builds its pipeline against — every cascade's has the same formats.
-        const std::shared_ptr<Framebuffer>& GetCascadeFramebuffer() const
+        [[nodiscard]] const std::shared_ptr<Framebuffer>& GetCascadeFramebuffer() const
         {
             return m_CascadeFB[0];
         }

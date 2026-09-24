@@ -130,19 +130,19 @@ namespace Desert::World::Landscape
         uint32_t X1 = 0u;
         uint32_t Z1 = 0u;
 
-        uint32_t Width() const
+        [[nodiscard]] uint32_t Width() const
         {
             return X1 - X0;
         }
-        uint32_t Depth() const
+        [[nodiscard]] uint32_t Depth() const
         {
             return Z1 - Z0;
         }
-        bool Empty() const
+        [[nodiscard]] bool Empty() const
         {
             return X1 <= X0 || Z1 <= Z0;
         }
-        uint64_t Area() const
+        [[nodiscard]] uint64_t Area() const
         {
             return Empty() ? 0u : static_cast<uint64_t>( Width() ) * Depth();
         }
@@ -198,38 +198,38 @@ namespace Desert::World::Landscape
         static Common::ResultStr<LandscapeTileData> FromSamples( uint32_t samplesX, uint32_t samplesZ,
                                                                  std::vector<uint16_t> samples );
 
-        uint32_t SamplesX() const
+        [[nodiscard]] uint32_t SamplesX() const
         {
             return m_SamplesX;
         }
-        uint32_t SamplesZ() const
+        [[nodiscard]] uint32_t SamplesZ() const
         {
             return m_SamplesZ;
         }
 
         /// Row-major, X fastest, exactly SamplesX * SamplesZ entries — the layout an R16 upload of the whole
         /// tile takes with no row padding.
-        const std::vector<uint16_t>& Samples() const
+        [[nodiscard]] const std::vector<uint16_t>& Samples() const
         {
             return m_Samples;
         }
 
         /// The whole tile as a rectangle.
-        LandscapeRect Bounds() const
+        [[nodiscard]] LandscapeRect Bounds() const
         {
             return { 0u, 0u, m_SamplesX, m_SamplesZ };
         }
 
         /// One sample. Out of range is a caller defect and is asserted, not clamped: a clamp here would
         /// hand back the edge height for a point off the tile, which is the silent wrong answer.
-        uint16_t Sample( uint32_t x, uint32_t z ) const;
+        [[nodiscard]] uint16_t Sample( uint32_t x, uint32_t z ) const;
 
         /// Writes one sample and marks it dirty. Writing the value already there changes nothing and
         /// dirties nothing — undo and upload are both about change, not about touch.
         void SetSample( uint32_t x, uint32_t z, uint16_t value );
 
         /// Copies @p rect out, row-major. Refuses a rectangle that is empty or leaves the tile.
-        Common::ResultStr<std::vector<uint16_t>> ReadRegion( const LandscapeRect& rect ) const;
+        [[nodiscard]] Common::ResultStr<std::vector<uint16_t>> ReadRegion( const LandscapeRect& rect ) const;
 
         /// Writes @p values (row-major, rect.Area() entries) into @p rect and marks it dirty. Refuses an
         /// empty rectangle, one that leaves the tile, or a value count that does not match — naming the
@@ -252,7 +252,7 @@ namespace Desert::World::Landscape
          * Overlapping or edge-touching rectangles are merged into their bounding box as they arrive, so a
          * brush stroke of a hundred dabs is one rectangle, not a hundred. Two far-apart edits stay two.
          */
-        const std::vector<LandscapeRect>& DirtyRects( LandscapeDirtyConsumer consumer ) const
+        [[nodiscard]] const std::vector<LandscapeRect>& DirtyRects( LandscapeDirtyConsumer consumer ) const
         {
             return m_Dirty[static_cast<size_t>( consumer )];
         }
