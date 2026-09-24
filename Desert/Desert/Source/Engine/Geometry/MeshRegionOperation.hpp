@@ -44,4 +44,19 @@ namespace Desert::Geometry
                                                                        const FDynamicMesh3&    before,
                                                                        const ElementSelection& selection,
                                                                        float                   distance );
+
+    // Fill Hole, as UE's FHoleFillOp::CalculateResult runs it with the TriangleFan fill
+    // (ModelingOperators/Private/CleaningOps/HoleFillOp.cpp:331-450): per open loop, the Newell plane of its
+    // vertices (PolygonTriangulation::ComputePolygonPlane), negated as UE does, a fan in a new polygroup, the
+    // plane normal on the fan and UVs projected on the plane at 1 / the mesh's largest bounds dimension
+    // (HoleFillTool.cpp:218). An EDGE selection fills the loops through its edges; any other selection fills
+    // every loop. The result selects the new triangles. Refused on a mesh with no open loop, a selected edge on
+    // no loop, or a loop the filler rejects.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> FillHoles( const FDynamicMesh3&    before,
+                                                              const ElementSelection& selection );
+
+    // Weld Edges: FMergeCoincidentMeshEdges with UE's defaults (MergeCoincidentMeshEdges.h) and the split
+    // attributes welded along merged edges, the settings of test WeldClosesACubeCutAlongEverySeam. Mesh-wide;
+    // leaves an empty selection in @p mode. Refused when there is no boundary edge to weld.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> WeldEdges( const FDynamicMesh3& before, ElementMode mode );
 } // namespace Desert::Geometry

@@ -4,7 +4,14 @@
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/SimpleHoleFiller.hpp"
+#include "Engine/Geometry/UECore/DynamicMeshEditor.hpp"
+#include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
+
+#include <algorithm>
+#include <cmath>
 
 namespace Desert::Geometry
 {
@@ -45,7 +52,131 @@ namespace Desert::Geometry
                      attributes->NumNormalLayers() );
             return Common::MakeSuccess( true );
         }
+
+        // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
+        // (ComputePolygonPlane, Newell's method), adapted: the loop's vertex IDs in, no area returned.
+        void ComputeLoopPlane( const FDynamicMesh3& mesh, const TArray<int>& loopVertices, FVector3d& normal,
+                               FVector3d& origin )
+        {
+            normal          = FVector3d( 0, 0, 0 );
+            origin          = FVector3d( 0, 0, 0 );
+            const int count = loopVertices.Num();
+            for ( int i = count - 1, j = 0; j < count; i = j++ )
+            {
+                const FVector3d pi = mesh.GetVertex( loopVertices[i] );
+                const FVector3d pj = mesh.GetVertex( loopVertices[j] );
+                origin += pj;
+                normal.X += ( pj.Y - pi.Y ) * ( pi.Z + pj.Z );
+                normal.Y += ( pj.Z - pi.Z ) * ( pi.X + pj.X );
+                normal.Z += ( pj.X - pi.X ) * ( pi.Y + pj.Y );
+            }
+            origin /= static_cast<double>( count );
+            Normalize( normal );
+        }
+
+        // UE HoleFillOp.cpp:19-40 (LoopIsValid); FEdgeLoop::IsBoundaryLoop stands for CheckValidity.
+        bool LoopIsValid( const FDynamicMesh3& mesh, const FEdgeLoop& loop )
+        {
+            if ( loop.Edges.Num() == 0 )
+                return false;
+            for ( const int e : loop.Edges )
+                if ( !mesh.IsBoundaryEdge( e ) )
+                    return false;
+            return loop.IsBoundaryLoop( mesh );
+        }
     } // namespace
+
+    Common::ResultStr<RegionOutcome> FillHoles( const FDynamicMesh3& before, const ElementSelection& selection )
+    {
+        auto                     mesh = std::make_shared<FDynamicMesh3>( before );
+        const FMeshBoundaryLoops boundary( mesh.get() );
+        if ( boundary.GetLoopCount() == 0 )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Fill Hole: the mesh has no open loop ({} open spans)", boundary.Spans.Num() );
+        TArray<int> loopIndices;
+        if ( selection.Mode() == ElementMode::Edge && !selection.Empty() )
+        {
+            for ( const int e : selection.Ids() )
+            {
+                const int loop = boundary.FindLoopContainingEdge( e );
+                if ( loop < 0 )
+                    return Common::MakeFormattedError<RegionOutcome>(
+                         "Mesh Fill Hole: selected edge {} lies on none of the {} open loops", e,
+                         boundary.GetLoopCount() );
+                if ( !loopIndices.Contains( loop ) )
+                    loopIndices.Add( loop );
+            }
+        }
+        else
+            for ( int i = 0; i < boundary.GetLoopCount(); ++i )
+                loopIndices.Add( i );
+
+        // UE's MaxDim: the largest side of the bounds (Extents are half sides).
+        const FVector3d extents = mesh->GetBounds().Extents();
+        const double    uvScale = 1.0 / ( 2.0 * std::max( extents.X, std::max( extents.Y, extents.Z ) ) );
+        TArray<int32>   newTriangles;
+        for ( const int index : loopIndices )
+        {
+            const FEdgeLoop& loop = boundary.Loops[index];
+            if ( !LoopIsValid( *mesh, loop ) )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Fill Hole: loop {} ({} edges) is no longer a boundary loop", index,
+                     loop.GetEdgeCount() );
+            FVector3d planeNormal;
+            FVector3d planeOrigin;
+            ComputeLoopPlane( *mesh, loop.Vertices, planeNormal, planeOrigin );
+            planeNormal *= -1.0; // UE: ComputePolygonPlane orients opposite to what the fill expects
+            FSimpleHoleFiller filler( mesh.get(), loop );
+            if ( !filler.Fill( mesh->AllocateTriangleGroup() ) )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Fill Hole: loop {} ({} edges): {}", index,
+                                                                  loop.GetEdgeCount(), filler.FailureReason );
+            if ( mesh->HasAttributes() )
+            {
+                FDynamicMeshEditor editor( mesh.get() );
+                editor.SetTriangleNormals( filler.NewTriangles, FVector3f( static_cast<float>( planeNormal.X ),
+                                                                           static_cast<float>( planeNormal.Y ),
+                                                                           static_cast<float>( planeNormal.Z ) ) );
+                editor.SetTriangleUVsFromProjection( filler.NewTriangles, planeOrigin, planeNormal,
+                                                     static_cast<float>( uvScale ) );
+            }
+            for ( const int t : filler.NewTriangles )
+                newTriangles.Add( t );
+        }
+        if ( auto tangents = RecomputeTangents( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( tangents.GetError() );
+
+        ElementSelection result( ElementMode::Triangle );
+        for ( const int32 t : newTriangles )
+            if ( auto added = result.Add( *mesh, t ); !added.IsSuccess() )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Fill Hole: new triangle {}: {}", t,
+                                                                  added.GetError() );
+        if ( selection.Mode() != ElementMode::Triangle )
+        {
+            const FGroupTopology afterTopology( mesh.get(), true );
+            result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
+        }
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+    }
+
+    Common::ResultStr<RegionOutcome> WeldEdges( const FDynamicMesh3& before, ElementMode mode )
+    {
+        auto                      mesh = std::make_shared<FDynamicMesh3>( before );
+        FMergeCoincidentMeshEdges merger( mesh.get() );
+        merger.bWeldAttrsOnMergedEdges                  = true;
+        merger.SplitAttributeWelder.UVDistSqrdThreshold = 0.01f * 0.01f;
+        merger.SplitAttributeWelder.NormalVecDotThreshold =
+             std::abs( 1.f - std::cos( 0.1f * 3.14159265f / 180.f ) );
+        merger.SplitAttributeWelder.TangentVecDotThreshold = merger.SplitAttributeWelder.NormalVecDotThreshold;
+        if ( !merger.Apply() )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Weld Edges: the merge failed with {} of {} boundary edges left",
+                 merger.FinalNumBoundaryEdges, merger.InitialNumBoundaryEdges );
+        if ( merger.InitialNumBoundaryEdges == 0 )
+            return Common::MakeError<RegionOutcome>( "Mesh Weld Edges: the mesh has no boundary edge to weld" );
+        if ( auto tangents = RecomputeTangents( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( tangents.GetError() );
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
+    }
 
     Common::ResultStr<RegionOutcome> RunRegionOperation( RegionOperation operation, const FDynamicMesh3& before,
                                                          const ElementSelection& selection, float distance )

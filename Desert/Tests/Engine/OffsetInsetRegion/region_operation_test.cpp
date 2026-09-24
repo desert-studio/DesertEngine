@@ -289,3 +289,43 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
         EXPECT_NEAR( glm::dot( v.Tangent, v.Normal ), 0.0f, 1e-5f );
     }
 }
+
+// The editor's Fill Hole: the whole HoleFillOp orchestration, including the plane normal it derives (not given).
+TEST( RegionOperation, FillHolesDerivesTheCapNormalFromTheLoop )
+{
+    FDynamicMesh3 before = TangentCube();
+    before.RemoveTriangle( 2 * kPlusZ );
+    before.RemoveTriangle( 2 * kPlusZ + 1 );
+
+    auto filled = FillHoles( before, ElementSelection( ElementMode::Triangle ) );
+    ASSERT_TRUE( filled.IsSuccess() ) << filled.GetError();
+    const FDynamicMesh3& mesh = *filled.GetValue().Mesh;
+    EXPECT_TRUE( mesh.IsClosed() );
+    EXPECT_EQ( filled.GetValue().Selection.Size(), 4u );
+    auto render = ToRenderMesh( mesh );
+    ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
+    int capVertices = 0;
+    for ( const Vertex& v : render.GetValue().Vertices )
+    {
+        EXPECT_NEAR( glm::dot( v.Tangent, v.Normal ), 0.0f, 1e-5f );
+        if ( v.Position.z > 49.0f && v.Normal.z > 0.99f )
+            ++capVertices;
+    }
+    EXPECT_GE( capVertices, 5 ) << "the cap's normals must point out of the cube (+Z)";
+
+    auto again = FillHoles( mesh, ElementSelection( ElementMode::Triangle ) );
+    EXPECT_FALSE( again.IsSuccess() ) << "a closed mesh has no hole to fill";
+}
+
+TEST( RegionOperation, WeldEdgesClosesAnImportedHardCube )
+{
+    auto imported = DynamicMeshFromRenderMesh( HardCube( 50.0f ), WeldOptions{ -1.0f, 1e-5f } );
+    ASSERT_TRUE( imported.IsSuccess() ) << imported.GetError();
+    const FDynamicMesh3 before = std::move( imported.ExtractValue().Mesh );
+    ASSERT_FALSE( before.IsClosed() );
+    auto welded = WeldEdges( before, ElementMode::Edge );
+    ASSERT_TRUE( welded.IsSuccess() ) << welded.GetError();
+    EXPECT_TRUE( welded.GetValue().Mesh->IsClosed() );
+    EXPECT_TRUE( ToRenderMesh( *welded.GetValue().Mesh ).IsSuccess() );
+    EXPECT_FALSE( WeldEdges( *welded.GetValue().Mesh, ElementMode::Edge ).IsSuccess() );
+}
