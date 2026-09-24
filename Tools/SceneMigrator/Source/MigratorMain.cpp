@@ -1222,7 +1222,8 @@ namespace Desert::Migration
             // write itself is the shared atomic primitive — the original is byte-identical on any
             // failure, which is the guarantee И2 had to add after this tool truncated a file it then
             // reported as raised.
-            const auto written = Desert::Assets::WritePrefabJson( Desert::Migration::ToEnginePrefab( parsed.value() ) );
+            const auto written =
+                 Desert::Assets::WritePrefabJson( Desert::Migration::ToEnginePrefab( parsed.value() ) );
             if ( !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << " (original untouched)\n";

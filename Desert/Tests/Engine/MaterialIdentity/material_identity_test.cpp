@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -160,7 +161,8 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
 
     // Read as TEXT rather than through SceneSerialized: the ids live inside "MaterialGuids" arrays on
     // three different components, and a scan for the numbers is both shorter and blind to which component
-    // they sat on — which is what this assertion wants. A `.desce` is one line of JSON.
+    // they sat on — which is what this assertion wants. The canonical `.desce` text is multi-line, so the
+    // key is matched with any whitespace around its colon.
     int checked = 0;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( scenes ) )
     {
@@ -170,11 +172,12 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
             continue;
 
         const std::string text = ReadAll( entry.path() );
-        const std::string key  = "\"MaterialGuids\":[";
+        static const std::regex key( R"re("MaterialGuids"\s*:\s*\[)re" );
 
-        for ( size_t at = text.find( key ); at != std::string::npos; at = text.find( key, at + 1 ) )
+        for ( auto match = std::sregex_iterator( text.begin(), text.end(), key ); match != std::sregex_iterator();
+              ++match )
         {
-            size_t cursor = at + key.size();
+            size_t cursor = static_cast<size_t>( match->position() + match->length() );
             while ( cursor < text.size() && text[cursor] != ']' )
             {
                 if ( !std::isdigit( static_cast<unsigned char>( text[cursor] ) ) )

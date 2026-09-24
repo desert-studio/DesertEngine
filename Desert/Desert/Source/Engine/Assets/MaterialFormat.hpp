@@ -34,15 +34,16 @@ namespace Desert::Assets
     // be saved again) assigns this back, so the minted GUID is the one every later save states.
     [[nodiscard]] inline MaterialData StampMaterialHeader( MaterialData material )
     {
-        material.Header = StampTextHeader( material.Header, Common::Content::ContentKind::Material,
-                                           MaterialTextSubsystems() );
+        material.Header =
+             StampTextHeader( material.Header, Common::Content::ContentKind::Material, MaterialTextSubsystems() );
         return material;
     }
 
     // The canonical text of `material`, header stamped (StampMaterialHeader).
     [[nodiscard]] inline Common::ResultStr<std::string> WriteMaterialJson( const MaterialData& material )
     {
-        return Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( StampMaterialHeader( material ) ) );
+        return Common::Content::CanonicalJsonTextOfWriterOutput(
+             rfl::json::write( StampMaterialHeader( material ) ) );
     }
 
     // WriteMaterialJson, written to `file` atomically (WriteCanonicalJsonFileAtomic).
@@ -59,12 +60,13 @@ namespace Desert::Assets
     // header - Tools/SceneMigrator stamps it), a schema generation other than this build's, a malformed
     // header, or one naming another kind.
     [[nodiscard]] inline Common::ResultStr<MaterialData> ParseMaterialJson( std::string_view   source,
-                                                                           const std::string& json )
+                                                                            const std::string& json )
     {
         auto parsed = rfl::json::read<MaterialData>( json );
         if ( !parsed )
-            return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
-                                                    "' is not a readable material file: " + parsed.error().what() );
+            return Common::MakeError<MaterialData>(
+                 "[Material] '" + std::string( source ) +
+                 "' is not a readable material file: " + parsed.error().what() );
         const int stated = StatedVersion( parsed.value().Header, kMaterialSchemaTag );
         if ( stated != static_cast<int>( kMaterialSchemaVersion ) )
             return Common::MakeError<MaterialData>(
@@ -74,8 +76,8 @@ namespace Desert::Assets
         const Common::Content::AssetHeaderReadContext context{ MaterialTextSubsystems() };
         const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
         if ( !header )
-            return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) + "': " +
-                                                    header.GetError() );
+            return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
+                                                    "': " + header.GetError() );
         if ( header.GetValue().Kind != Common::Content::ContentKind::Material )
             return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
                                                     "': the header says kind '" + parsed.value().Header->Kind +

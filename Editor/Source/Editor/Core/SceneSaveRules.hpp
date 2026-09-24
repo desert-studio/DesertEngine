@@ -132,7 +132,8 @@ namespace Desert::Editor::Core::Rules
      * @param openScenePath the file the scene was opened from or last written to; empty when none.
      * @param destination   the file this save writes.
      */
-    [[nodiscard]] inline bool SaveKeepsAssetIdentity( std::string_view openScenePath, std::string_view destination )
+    [[nodiscard]] inline bool SaveKeepsAssetIdentity( std::string_view openScenePath,
+                                                      std::string_view destination )
     {
         if ( openScenePath.empty() )
             return false;

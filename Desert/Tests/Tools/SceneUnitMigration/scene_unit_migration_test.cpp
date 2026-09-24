@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -152,8 +151,13 @@ TEST( SceneUnitMigration, StampedSceneIsLeftByteIdentical )
     // scene that is really already current carries a header, with a GUID some earlier save minted -
     // fixed here so the fixture is reproducible.
     scene.Header = Common::Content::MakeTextHeader(
-         Common::Content::ContentKind::Scene, Common::Content::AssetGuid{ 0x1111111111111111ull, 0x2222222222222222ull },
+         Common::Content::ContentKind::Scene,
+         Common::Content::AssetGuid{ 0x1111111111111111ull, 0x2222222222222222ull },
          Desert::Core::SceneTextSubsystems() );
+    // The legacy top-level ints parsed from the fixture are dropped by every MigrateScene (the header is
+    // their one home now), so a scene that is really current carries neither of them.
+    scene.SceneVersion = std::nullopt;
+    scene.UnitVersion  = std::nullopt;
 
     const std::string          before = Json( scene );
     const FileMigrationReport  report = MigrateScene( scene );
@@ -349,6 +353,9 @@ TEST( SceneUnitMigration, BothVersionsAreRaisedIndependently )
     old.SceneVersion    = std::nullopt; // sky schema v0 as well as units v0
 
     EntityData           sky = Entity( "Sky" );
+    // An id above every fixture id: the v24 -> v25 step a v0 scene also runs stable-sorts entities by id,
+    // and with no id (UUID 0) the sky would move to the front and shift every kFloor..kGround index.
+    sky.id = Common::UUID( 100 );
     rfl::Generic::Object skybox;
     skybox["Procedural"]     = true;
     skybox["SunIntensity"]   = 22.0;
@@ -364,18 +371,9 @@ TEST( SceneUnitMigration, BothVersionsAreRaisedIndependently )
     EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 
-    // NOT old.Entities.back(): a scene at v0 also runs the v24 -> v25 sibling-order step (the ID it is
-    // gated on is below kSceneVersionSiblingOrder here too), which stable-sorts every entity by id. The
-    // sky entity above was pushed with no id, i.e. UUID(0), the lowest of the fixture, so migration moves
-    // it to the FRONT - "the sky entity" has to be found by its tag, not by the position it was appended
-    // at, or this assertion would silently start reading whichever entity migration leaves last instead.
-    const auto skyEntityIt = std::find_if( old.Entities.begin(), old.Entities.end(),
-                                           []( const EntityData& e ) { return e.Tag && *e.Tag == "Sky"; } );
-    ASSERT_NE( skyEntityIt, old.Entities.end() ) << "the sky entity must survive migration under its tag";
-
     // The sky payload the sky migration wrote carries no length, so the unit migration cannot have
     // touched it: 22 is an intensity and 2.29 is an angle in degrees.
-    const auto skyOut = skyEntityIt->Components.get( "SkyAtmosphere" ).value().to_object().value();
+    const auto skyOut = old.Entities.back().Components.get( "SkyAtmosphere" ).value().to_object().value();
     EXPECT_DOUBLE_EQ( skyOut.get( "SunIntensity" ).value().to_double().value_or( -1.0 ), 22.0 );
     EXPECT_NEAR( skyOut.get( "SunAngularDiameter" ).value().to_double().value_or( -1.0 ), 2.29183, 1e-4 );
 

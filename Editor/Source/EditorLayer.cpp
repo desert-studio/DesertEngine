@@ -7049,7 +7049,7 @@ namespace Desert::Editor
         // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
         // grew a step (a landscape writes its tile files beside the scene before the scene names them),
         // this copy would have written a .desce naming tile files that were never written.
-        const auto previousHeader = ForgetAssetIdentityUnlessSameFile( path );
+        const auto                    previousHeader = ForgetAssetIdentityUnlessSameFile( path );
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {

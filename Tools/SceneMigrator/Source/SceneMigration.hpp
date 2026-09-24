@@ -70,7 +70,8 @@ namespace Desert::Migration
         std::optional<int> UnitVersion;
         std::optional<int> SceneVersion;
     };
-    static_assert( rfl::named_tuple_t<SceneSerialized>::size() == rfl::named_tuple_t<Core::SceneSerialized>::size() + 2,
+    static_assert( rfl::named_tuple_t<SceneSerialized>::size() ==
+                        rfl::named_tuple_t<Core::SceneSerialized>::size() + 2,
                    "Core::SceneSerialized gained or lost a member: mirror it in Migration::SceneSerialized, or "
                    "this tool drops it from every scene it rewrites" );
 

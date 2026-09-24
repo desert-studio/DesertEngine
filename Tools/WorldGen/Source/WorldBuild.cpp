@@ -8,6 +8,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <optional>
 
 namespace Desert::WorldGen
 {
@@ -269,5 +272,22 @@ namespace Desert::WorldGen
 
         stats.Entities = static_cast<int>( scene.Entities.size() );
         return scene;
+    }
+
+    std::optional<Common::Content::AssetGuid> ExistingWorldGuid( const std::filesystem::path& outputFile )
+    {
+        std::ifstream in( outputFile, std::ios::binary );
+        if ( !in )
+            return std::nullopt;
+        const auto object = Common::Content::ReadTextHeaderObject( in );
+        if ( !object.IsSuccess() )
+            return std::nullopt;
+        const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+        if ( !header.IsSuccess() )
+            return std::nullopt;
+        const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+        if ( !guid.IsSuccess() )
+            return std::nullopt;
+        return guid.GetValue();
     }
 } // namespace Desert::WorldGen

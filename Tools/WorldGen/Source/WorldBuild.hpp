@@ -1,6 +1,3 @@
-#include <optional>
-#include <filesystem>
-#include <Common/Content/AssetEnvelope.hpp>
 #pragma once
 
 // THE WORLD-SCALE SCENE, AS A PURE FUNCTION.
@@ -22,9 +19,12 @@
 // in, a parsed tree out. That is what lets Desert/Tests/Tools/WorldSceneGenerator drive the same code the
 // tool drives, over the same numbers, without an engine.
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 

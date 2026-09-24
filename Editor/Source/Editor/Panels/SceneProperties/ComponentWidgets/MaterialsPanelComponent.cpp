@@ -311,8 +311,7 @@ namespace Desert::Editor
             // Checked because the create-with-load below DEPENDS on the file: without it the asset
             // adopts no in-file GUID, so the handle registered here is not the one a later run
             // resolves, and the mesh slot points at a material that will not come back.
-            if ( const auto written = Assets::WriteMaterialFile( path, defaults );
-                 !written )
+            if ( const auto written = Assets::WriteMaterialFile( path, defaults ); !written )
             {
                 LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), written.GetError() );
                 return {};

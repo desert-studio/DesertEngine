@@ -247,15 +247,19 @@ TEST( SceneSaveOutcome, ASceneThatHasNeverBeenOnDiskIsNamedAfterItself )
 // new path that kept it would leave two files claiming one asset.
 TEST( SceneSaveIdentity, TheFileItCameFromKeepsItsGuid )
 {
-    EXPECT_TRUE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce", "Assets/Scenes/Level.desce" ) );
+    EXPECT_TRUE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                      "Assets/Scenes/Level.desce" ) );
     // The same file spelled differently is still the same file.
-    EXPECT_TRUE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce", "Assets/Scenes/./Sub/../Level.desce" ) );
+    EXPECT_TRUE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                      "Assets/Scenes/./Sub/../Level.desce" ) );
 }
 
 TEST( SceneSaveIdentity, ANewPathIsANewAsset )
 {
-    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce", "Assets/Scenes/Level_Copy.desce" ) );
-    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce", "Assets/Other/Level.desce" ) );
+    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                       "Assets/Scenes/Level_Copy.desce" ) );
+    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                       "Assets/Other/Level.desce" ) );
 }
 
 TEST( SceneSaveIdentity, ASceneWithNoFileHasNoIdentityToKeep )

@@ -282,9 +282,14 @@ namespace Desert::WorldGen
             return 3;
         }
 
+        // Regenerating an existing world keeps that file's identity; a first write mints one. Resolved once,
+        // so the --verify rebuild below produces the same bytes.
+        const Common::Content::AssetGuid worldGuid =
+             ExistingWorldGuid( outPath ).value_or( Common::Content::AssetGuid::Generate() );
+
         const auto build = [&]( std::string& json, WorldStats& stats ) -> bool
         {
-            auto scene = BuildWorld( spec, palette, ground.GetValue(), stats );
+            auto scene = BuildWorld( spec, palette, ground.GetValue(), worldGuid, stats );
 
             // --partition: the world states a WorldPartition block. By default its level-0 cell IS the
             // generator's tile, so every ground tile is exactly one cell and what the plan promotes is what

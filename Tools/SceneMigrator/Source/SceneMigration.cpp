@@ -3514,7 +3514,7 @@ namespace Desert::Migration
 
     Common::Content::AssetGuid MigrationGuidForPath( const std::filesystem::path& relativeToContentRoot )
     {
-        const std::string key = relativeToContentRoot.generic_string();
+        const std::string          key = relativeToContentRoot.generic_string();
         Common::Content::AssetGuid guid;
         guid.Hi = Fnv1a64( key, 0xcbf29ce484222325ull );
         guid.Lo = Fnv1a64( key, 0x84222325cbf29ce4ull );
@@ -3550,8 +3550,9 @@ namespace Desert::Migration
         FileMigrationReport report;
 
         // Since v26 the header states the generations; before it, the two top-level integers did.
-        const int statedSceneVersion = scene.Header ? Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag )
-                                                    : scene.SceneVersion.value_or( 0 );
+        const int statedSceneVersion = scene.Header
+                                            ? Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag )
+                                            : scene.SceneVersion.value_or( 0 );
         const int statedUnitVersion  = scene.Header ? Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag )
                                                     : scene.UnitVersion.value_or( 0 );
 
@@ -3584,7 +3585,8 @@ namespace Desert::Migration
         // and leaving it unstamped is how every load ends up re-running a migration that already happened.
         if ( statedSceneVersion < kSceneVersionTextHeader )
             report.TextHeaderRaised = true;
-        scene.Header       = MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
+        scene.Header =
+             MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
         scene.SceneVersion = std::nullopt;
         scene.UnitVersion  = std::nullopt;
 
@@ -3601,8 +3603,8 @@ namespace Desert::Migration
                                                   : prefab.UnitVersion.value_or( 0 );
         const auto stamp          = [&]()
         {
-            prefab.Header = MigrationHeader( prefab.Header, Common::Content::ContentKind::Prefab, assetsRoot,
-                                             sourceFile );
+            prefab.Header =
+                 MigrationHeader( prefab.Header, Common::Content::ContentKind::Prefab, assetsRoot, sourceFile );
             prefab.SceneVersion = std::nullopt;
             prefab.UnitVersion  = std::nullopt;
         };
