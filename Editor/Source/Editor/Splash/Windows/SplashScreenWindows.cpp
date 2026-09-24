@@ -3,7 +3,7 @@
 // THE WINDOW BELONGS TO THE SPLASH'S OWN THREAD. A Win32 window is serviced by the thread that created
 // it, so a window made on the main thread would stop painting (and turn "Not Responding") for exactly as
 // long as the start keeps that thread busy — the failure the splash exists to cover. The thread below
-// creates the window, runs its message loop, and is the only thing that ever touches it; `SetStatus` and
+// creates the window, runs its message loop, and is the only thing that ever touches it; `SetProgress` and
 // `Close` only post messages to it. This is the arrangement UE's FWindowsPlatformSplash uses.
 //
 // THE MOTION (SplashLayout.hpp: fade in, crossfade out) is driven by a timer on the same thread, so it
@@ -48,6 +48,7 @@ namespace Desert::Editor::Splash
         constexpr COLORREF kBackground    = RGB( 20, 19, 18 );
         constexpr COLORREF kWhite         = RGB( 255, 255, 255 );
         constexpr COLORREF kDim           = RGB( 158, 158, 158 ); // white at kStageAlpha over black
+        constexpr COLORREF kFaint         = RGB( 115, 115, 115 ); // white at kItemAlpha over black
         constexpr COLORREF kShadow        = RGB( 8, 8, 8 );
         constexpr COLORREF kTrack         = RGB( 46, 46, 46 ); // white at kBarTrackAlpha over black
         constexpr COLORREF kSand =
@@ -84,12 +85,12 @@ namespace Desert::Editor::Splash
                 m_Thread.join();
         }
 
-        void SetStatus( const std::string& label, const std::size_t index, const std::size_t total ) override
+        void SetProgress( const ProgressSnapshot& progress ) override
         {
             HWND window = nullptr;
             {
                 std::lock_guard<std::mutex> lock( m_Mutex );
-                m_Status = Status{ label, index, total };
+                m_Status = progress;
                 window   = m_Window;
             }
             if ( window )
@@ -114,13 +115,6 @@ namespace Desert::Editor::Splash
         }
 
     private:
-        struct Status
-        {
-            std::string Label;
-            std::size_t Index = 0;
-            std::size_t Total = 0;
-        };
-
         static LRESULT CALLBACK WindowProc( HWND window, UINT message, WPARAM wParam, LPARAM lParam )
         {
             auto* self = reinterpret_cast<SplashScreenWindows*>( GetWindowLongPtrW( window, GWLP_USERDATA ) );
@@ -320,7 +314,7 @@ namespace Desert::Editor::Splash
             HBITMAP canvas = CreateCompatibleBitmap( screen, w, h );
             HGDIOBJ oldBmp = SelectObject( dc, canvas );
 
-            Status status;
+            ProgressSnapshot status;
             {
                 std::lock_guard<std::mutex> lock( m_Mutex );
                 status = m_Status;
@@ -348,7 +342,7 @@ namespace Desert::Editor::Splash
                 }
             }
 
-            const Layout layout = ComputeLayout( ProgressFraction( status.Index, status.Total ) );
+            const Layout layout = ComputeLayout( status.Fraction );
 
             const auto makeFont = [this]( const float size, const int weight )
             {
@@ -358,15 +352,18 @@ namespace Desert::Editor::Splash
             };
             HFONT   projectFont = makeFont( kProjectFontSize, FW_SEMIBOLD );
             HFONT   smallFont   = makeFont( kStageFontSize, FW_NORMAL );
+            HFONT   itemFont    = makeFont( kItemFontSize, FW_NORMAL );
             HGDIOBJ oldFont     = SelectObject( dc, smallFont );
             SetBkMode( dc, TRANSPARENT );
 
             Text( dc, projectFont, Widen( m_Content.ProjectName ), layout.Project, kWhite, DT_LEFT );
             Text( dc, smallFont, Widen( m_Content.Version ), layout.Version, kDim, DT_RIGHT );
-            Text( dc, smallFont, Widen( status.Label ), layout.Stage, kDim, DT_LEFT );
-            // Segoe UI's digits are tabular already, so the counter does not shift as it counts.
-            Text( dc, smallFont, Widen( FormatProgress( status.Index, status.Total ) ), layout.Counter, kDim,
-                  DT_RIGHT );
+            Text( dc, smallFont, Widen( status.Stage ), layout.Stage, kDim, DT_LEFT );
+            Text( dc, itemFont, Widen( status.Item ), layout.Item, kFaint, DT_LEFT );
+            // Segoe UI's digits are tabular already, so the percentage does not shift as it counts. No
+            // stage yet means no plan yet: a "0%" there would be a number that says nothing.
+            if ( !status.Stage.empty() )
+                Text( dc, smallFont, Widen( FormatPercent( status.Fraction ) ), layout.Percent, kDim, DT_RIGHT );
 
             HBRUSH track     = CreateSolidBrush( kTrack );
             RECT   trackRect = Scaled( layout.BarTrack );
@@ -385,6 +382,7 @@ namespace Desert::Editor::Splash
             SelectObject( dc, oldFont );
             DeleteObject( projectFont );
             DeleteObject( smallFont );
+            DeleteObject( itemFont );
             SelectObject( dc, oldBmp );
             DeleteObject( canvas );
             DeleteDC( dc );
@@ -404,7 +402,7 @@ namespace Desert::Editor::Splash
         std::chrono::steady_clock::time_point m_ShownAt;
         std::chrono::steady_clock::time_point m_ClosingAt;
         bool                                  m_Closing = false;
-        Status                                m_Status;
+        ProgressSnapshot                      m_Status;
         std::optional<SplashPixels>           m_Picture;
     };
 

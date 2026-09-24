@@ -5,6 +5,7 @@
 #include "Skybox/SkyboxAsset.hpp"
 
 #include <Engine/Animation/AnimationLibrary.hpp>
+#include <Engine/Assets/ItemProgress.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Assets
@@ -54,9 +55,15 @@ namespace Desert::Assets
         // NOT the same walk as the editor's thumbnail sweep (Editor/Widgets/ThumbnailSweep.hpp), which
         // covers overlapping directories and is deliberately not derived from this one. The difference
         // is written down there, in one place, beside the walk that came second.
-        void PreloadCookedAssetsAndMaterials();
+        // @p progress names each registry row as it is created (the splash's item line).
+        void PreloadCookedAssetsAndMaterials( const ItemProgress& progress = {} );
+        // The number of registry rows `PreloadCookedAssetsAndMaterials` works through — the splash weighs
+        // the stage by it before the stage begins.
+        static std::size_t CookedAssetRowCount();
         void PreloadSkyboxes();
-        void PreloadShaders();
+        // @p progress names each shader program as it is compiled; `ShaderRowCount` is how many there are.
+        void               PreloadShaders( const ItemProgress& progress = {} );
+        static std::size_t ShaderRowCount();
         // Cloud noise volumes (`.dcnv`). Scanned so the type asset's slot can offer them by name and so a
         // type that names one finds it already loaded; no GPU work happens here, the renderer uploads.
         void PreloadCloudNoiseVolumes();

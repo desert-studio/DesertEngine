@@ -277,8 +277,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     auto splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
                                                                 Common::Version::Base(),
                                                                 Desert::Editor::Splash::kSplashTexture } );
-    // The plan is not known yet — the editor layer that owns the stage list does not exist — so no count.
-    splash->SetStatus( "Starting the renderer...", 0, 0 );
+    // The plan is not made yet — the editor layer that owns it does not exist — so the bar is empty; the
+    // renderer's start is not weighed, and the first weighed stage is the shader preload.
+    splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
 
     ApplicationInfo appInfo;
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;
