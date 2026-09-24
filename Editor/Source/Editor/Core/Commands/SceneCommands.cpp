@@ -435,6 +435,62 @@ namespace Desert::Editor::Commands
 
         // Groups sub-commands into ONE history entry (multi-selection operations). Undo runs the
         // sub-commands in reverse; a stale sub-command is skipped, not fatal.
+        // The second half of a split (Plane Cut, Keep Both Halves): a new entity carrying `m_Mesh` BY REFERENCE,
+        // riding as the companion of the source's EditMeshCommand so the two are one step. The snapshot taken
+        // at undo restores the entity; its mesh is put back from the reference, not re-read from the snapshot.
+        class SplitCopyCommand final : public ICommand
+        {
+        public:
+            SplitCopyCommand( const Common::UUID& copy, std::shared_ptr<const Geometry::EditMesh> mesh,
+                              std::unique_ptr<ICommand> alongside )
+                 : m_Copy( copy ), m_Mesh( std::move( mesh ) ), m_Alongside( std::move( alongside ) )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return "Split";
+            }
+
+            bool Undo() override
+            {
+                if ( m_Alongside )
+                    m_Alongside->Undo();
+                auto e = FindEntity( m_Copy );
+                if ( !e )
+                    return false;
+                m_Snapshot = CaptureSubtree( *e );
+                DestroyByUUID( m_Copy );
+                OnStructuralChange();
+                return true;
+            }
+
+            bool Redo() override
+            {
+                ECS::Entity copy = RestoreSnapshot( m_Snapshot, /*preserveIds=*/true );
+                if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
+                    return false;
+                if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), m_Mesh );
+                     !set.IsSuccess() )
+                {
+                    LOG_ERROR(
+                         "[SceneCommands] redo of a split: the half could not be put back on its entity: {0}",
+                         set.GetError() );
+                    return false;
+                }
+                OnStructuralChange();
+                if ( m_Alongside )
+                    m_Alongside->Redo();
+                return true;
+            }
+
+        private:
+            Common::UUID                              m_Copy;
+            std::shared_ptr<const Geometry::EditMesh> m_Mesh;
+            std::unique_ptr<ICommand>                 m_Alongside;
+            std::vector<Assets::EntityData>           m_Snapshot;
+        };
+
         class CompositeCommand final : public ICommand
         {
         public:
@@ -882,6 +938,44 @@ namespace Desert::Editor::Commands
             return;
         CommandHistory::Get().PushCommand( std::make_unique<EditMeshCommand>(
              uuid, label, std::move( before ), std::move( after ), std::move( alongside ) ) );
+    }
+
+    Common::ResultStr<Common::UUID> RecordEditMeshSplit( const Common::UUID& uuid, const std::string& label,
+                                                         std::shared_ptr<const Geometry::EditMesh> before,
+                                                         std::shared_ptr<const Geometry::EditMesh> otherHalf,
+                                                         std::unique_ptr<ICommand>                 alongside )
+    {
+        if ( !Ready() )
+            return Common::MakeFormattedError<Common::UUID>( "{}: the scene commands are not bound to a scene",
+                                                             label );
+        auto source = FindEntity( uuid );
+        if ( !source || !source->HasComponent<ECS::StaticMeshComponent>() )
+            return Common::MakeFormattedError<Common::UUID>( "{}: entity {} has no mesh to split", label,
+                                                             static_cast<uint64_t>( uuid ) );
+        // The entity alone: its children stay with the original (a child's record names its parent, so a
+        // root-only snapshot re-parents nothing).
+        std::vector<Assets::EntityData> record = CaptureSubtree( *source );
+        record.resize( 1 );
+        ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
+        if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
+            return Common::MakeFormattedError<Common::UUID>( "{}: the copy of entity {} could not be made", label,
+                                                             static_cast<uint64_t>( uuid ) );
+        const Common::UUID copyId = UUIDOf( copy );
+        if ( copy.HasComponent<ECS::TagComponent>() )
+            copy.GetComponent<ECS::TagComponent>().Tag += " Half";
+        if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), otherHalf );
+             !set.IsSuccess() )
+        {
+            DestroyByUUID( copyId );
+            OnStructuralChange();
+            return Common::MakeFormattedError<Common::UUID>( "{}: the other half could not be put on the copy: {}",
+                                                             label, set.GetError() );
+        }
+        RecordEditMeshChange(
+             uuid, label, std::move( before ),
+             std::make_unique<SplitCopyCommand>( copyId, std::move( otherHalf ), std::move( alongside ) ) );
+        OnStructuralChange();
+        return Common::MakeSuccess( copyId );
     }
 
     void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,
