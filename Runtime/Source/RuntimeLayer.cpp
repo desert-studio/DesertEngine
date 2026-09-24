@@ -228,14 +228,28 @@ namespace Desert::Player
             // two are the boot, and they fail for different reasons — one is the disk (or the pak), the
             // other is the JSON. A single "Loading scene" stage would have made the two indistinguishable
             // in the one log that gets sent back from a player's machine.
-            const auto sceneJson =
-                 m_Boot.Run( "Reading the scene file",
-                             [&scenePath] { return Common::Utils::FileSystem::ReadFileContent( scenePath ); } );
-            if ( !sceneJson )
-                return Common::MakeError( sceneJson.GetError() );
+            // A COOKED WORLD BESIDE THE SCENE IS WHAT A GAME LOADS (WorldStreamer.hpp): its index and its
+            // always-loaded cell, and nothing else before the first frame — the cells are read on workers as
+            // the camera wants them. The .desce is read only when no cook sits beside it.
+            auto cooked = m_Boot.Run( "Reading the cooked world (index, always-loaded cell)",
+                                      [&scenePath] { return Core::ReadCookedWorld( scenePath ); } );
+            if ( !cooked )
+                return Common::MakeError( cooked.GetError() );
+            std::optional<Core::CookedWorldStart> world = cooked.ExtractValue();
+            std::string                           sceneJson;
+            if ( world.has_value() )
+                sceneJson = std::move( world->AlwaysLoadedJson );
+            else
+            {
+                auto read = m_Boot.Run( "Reading the scene file", [&scenePath]
+                                        { return Common::Utils::FileSystem::ReadFileContent( scenePath ); } );
+                if ( !read )
+                    return Common::MakeError( read.GetError() );
+                sceneJson = read.ExtractValue();
+            }
             if ( const auto loaded =
-                      m_Boot.Run( "Deserialising the scene", [&]
-                                  { return serializer.DeserializeFromJson( sceneJson.GetValue(), scenePath ); } );
+                      m_Boot.Run( "Deserialising the scene",
+                                  [&] { return serializer.DeserializeFromJson( sceneJson, scenePath ); } );
                  !loaded )
                 return Common::MakeError( loaded.GetError() );
             if ( const auto init =
@@ -243,10 +257,16 @@ namespace Desert::Player
                  !init )
                 return init;
             // A game has no Edit mode and never saves its world, so a partitioned one streams from its first
-            // frame: the file's records stay in memory and only the camera's neighbourhood stays entities.
-            auto streamer = m_Boot.Run(
-                 "Starting world streaming",
-                 [&] { return Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson.GetValue() ); } );
+            // frame: only the camera's neighbourhood is ever entities.
+            auto streamer =
+                 m_Boot.Run( "Starting world streaming",
+                             [&]
+                             {
+                                 return world.has_value()
+                                             ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager,
+                                                                                 std::move( *world ) )
+                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson );
+                             } );
             if ( !streamer )
                 return Common::MakeError( streamer.GetError() );
             m_WorldStreamer = streamer.ExtractValue();
@@ -337,13 +357,28 @@ namespace Desert::Player
         // so finding out afterwards that the target will not load would leave the game in an empty world it
         // cannot get out of. The loader asks the same question again and its answer is the authoritative
         // one; this is only the difference between a switch that does not happen and a game that ends.
-        const auto jsonRead = Common::Utils::FileSystem::ReadFileContent( path );
-        if ( !jsonRead )
+        // The same choice as the boot's: a cooked world beside the scene, else the .desce.
+        auto cooked = Core::ReadCookedWorld( path );
+        if ( !cooked )
         {
-            LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}", jsonRead.GetError() );
+            LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}", cooked.GetError() );
             return;
         }
-        const std::string& json = jsonRead.GetValue();
+        std::optional<Core::CookedWorldStart> world = cooked.ExtractValue();
+        std::string                           json;
+        if ( world.has_value() )
+            json = std::move( world->AlwaysLoadedJson );
+        else
+        {
+            auto jsonRead = Common::Utils::FileSystem::ReadFileContent( path );
+            if ( !jsonRead )
+            {
+                LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}",
+                           jsonRead.GetError() );
+                return;
+            }
+            json = jsonRead.ExtractValue();
+        }
         if ( const auto loadable = Core::ParseLoadableScene( path, json ); !loadable )
         {
             LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}", loadable.GetError() );
@@ -381,7 +416,9 @@ namespace Desert::Player
             LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );
             return;
         }
-        auto streamer = Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
+        auto streamer = world.has_value()
+                             ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
+                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
         if ( !streamer )
         {
             LOG_ERROR( "[Runtime] Scene switch could not stream the world: {}", streamer.GetError() );

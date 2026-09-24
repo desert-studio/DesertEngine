@@ -481,11 +481,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   WP8 (2026-09-24) added two: CookedCellSource::m_Index (raw, with a row) - the world index a cooked cell
     //   source reads against - and WorldStreamer::m_Source (unique), where a unit's records are read from.
     //   Raw 401+1, Unique 129+1.
+    //   WP9 (2026-09-24) added four shared and moved one unique: the cooked world's index is held by
+    //   CookedWorldStart::Index and WorldStreamer::m_Index, the Play snapshot by WorldStreamer::m_Snapshot, and
+    //   the cell source by WorldCellLoader::m_Source - each co-held by the JobSystem workers reading a cell, which
+    //   may outlive the frame that started them. WorldStreamer::m_Source (unique) became ::m_Loader (unique).
+    //   Shared 339+4.
     EXPECT_EQ( CountOf( Form::Raw ), 402 );
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    EXPECT_EQ( CountOf( Form::Shared ), 343 );
     EXPECT_EQ( CountOf( Form::Unique ), 130 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 910 )
+    EXPECT_EQ( (int)Members().size(), 914 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -736,7 +741,9 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
     // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
     // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    // 339 -> 343 with WP9: a cooked world's index, the Play snapshot and the cell source, co-held by the
+    // JobSystem workers reading cells - see TheScanFindsTheCensusedPopulation.
+    EXPECT_EQ( CountOf( Form::Shared ), 343 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

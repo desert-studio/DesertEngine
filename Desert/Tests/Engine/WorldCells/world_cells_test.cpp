@@ -13,12 +13,16 @@
 //   6. THE TOOL. Tools/WorldCook's own RunWorldCook writes a directory, verifies it from disk, and removes what
 //      an earlier cook left.
 
+#include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Engine/Assets/ContainerBytes.hpp>
 
 #include <Common/Utilities/Crc32c.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/PakFile.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 #include <WorldCookMain.hpp>
 
@@ -30,9 +34,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using Desert::Assets::EntityData;
@@ -443,4 +450,299 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── WP9: a cooked world streamed without its records ────────────────────────────────────────────────
+
+namespace
+{
+    std::uint64_t IdOf( const EntityData& record )
+    {
+        return static_cast<std::uint64_t>( *record.id );
+    }
+
+    // The ids a residency executor holds live, by the record list it was begun with.
+    std::set<std::uint64_t> LiveIds( const Rules::ResidencyExecutor&   executor,
+                                     const std::vector<std::uint64_t>& ids )
+    {
+        std::set<std::uint64_t> live;
+        for ( std::size_t record = 0; record < ids.size(); ++record )
+            if ( executor.IsLive( record ) )
+                live.insert( ids[record] );
+        return live;
+    }
+} // namespace
+
+// The runtime plans from the index alone; its plan must name the same units, cells and members (by id) as the
+// planner's over the source records — the query that decides residency reads nothing else.
+TEST( WorldCells, ThePlanFromTheIndexIsThePlannersPlan )
+{
+    const SceneSerialized source = World();
+    const auto            files  = FilesOf( Cook( source ) );
+    const auto            index  = IndexOf( files );
+    const auto            plan   = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
+    auto                  from   = Cells::PlanFromIndex( index );
+    ASSERT_TRUE( from.IsSuccess() ) << from.GetError();
+    const Cells::IndexedWorld& indexed = from.GetValue();
+
+    ASSERT_EQ( Rules::ResidencyUnitCount( indexed.Plan ), Rules::ResidencyUnitCount( plan ) );
+    ASSERT_EQ( indexed.Plan.AlwaysLoaded.size(), plan.AlwaysLoaded.size() );
+    EXPECT_EQ( indexed.RecordIds.size(), source.Entities.size() );
+    for ( std::size_t unit = 0; unit < Rules::ResidencyUnitCount( plan ); ++unit )
+    {
+        EXPECT_EQ( Rules::DescribeResidencyUnit( indexed.Plan, unit ),
+                   Rules::DescribeResidencyUnit( plan, unit ) );
+        std::vector<std::uint64_t> planned;
+        for ( const std::size_t record : Rules::ResidencyUnitMembers( plan, unit ) )
+            planned.push_back( IdOf( source.Entities[record] ) );
+        std::vector<std::uint64_t> indexedIds;
+        for ( const std::size_t record : Rules::ResidencyUnitMembers( indexed.Plan, unit ) )
+            indexedIds.push_back( indexed.RecordIds[record] );
+        EXPECT_EQ( indexedIds, planned ) << index.Units[unit].Name;
+    }
+    // The shooter observes the target two cells away: the one crossing observation.
+    ASSERT_EQ( indexed.Observations.size(), 1u );
+    EXPECT_EQ( indexed.RecordIds[indexed.Observations[0].first], kShooterId );
+    EXPECT_EQ( indexed.RecordIds[indexed.Observations[0].second], kTargetId );
+
+    for ( const glm::vec3 at :
+          { CellCentre( 0, 0 ), CellCentre( 3, 1 ), CellCentre( 7, 2 ), glm::vec3( -5.0e4f ) } )
+    {
+        const Rules::StreamingSource where{ at };
+        auto planned = Rules::QueryStreamingCells( plan, *source.WorldPartition, std::span( &where, 1 ) );
+        auto indexedWish =
+             Rules::QueryStreamingCells( indexed.Plan, index.WorldPartition, std::span( &where, 1 ) );
+        ASSERT_TRUE( planned.IsSuccess() && indexedWish.IsSuccess() );
+        EXPECT_EQ( indexedWish.GetValue().AlwaysLoaded, planned.GetValue().AlwaysLoaded );
+        EXPECT_EQ( rfl::json::write( indexedWish.GetValue().Cells ),
+                   rfl::json::write( planned.GetValue().Cells ) );
+    }
+}
+
+// An index the runtime cannot plan from is refused by name, not planned wrongly.
+TEST( WorldCells, AnIndexOutOfCellOrderIsRefused )
+{
+    auto index = IndexOf( FilesOf( Cook( World() ) ) );
+    ASSERT_GE( index.Units.size(), 3u );
+    std::swap( index.Units[index.Units.size() - 1], index.Units[index.Units.size() - 2] );
+    auto from = Cells::PlanFromIndex( index );
+    ASSERT_FALSE( from.IsSuccess() );
+    EXPECT_NE( from.GetError().find( "out of (level, X, Z) order" ), std::string::npos ) << from.GetError();
+}
+
+// The start of a cooked world: only its always-loaded records, and the scene-wide part.
+TEST( WorldCells, TheAlwaysLoadedPartIsTheAlwaysLoadedUnitsOnly )
+{
+    const SceneSerialized source = World();
+    const auto            files  = FilesOf( Cook( source ) );
+    const auto            index  = IndexOf( files );
+    auto                  start  = Cells::AssembleAlwaysLoaded( index, ReaderOf( files ) );
+    ASSERT_TRUE( start.IsSuccess() ) << start.GetError();
+    ASSERT_EQ( start.GetValue().Entities.size(), 1u ); // the camera
+    EXPECT_EQ( IdOf( start.GetValue().Entities[0] ), kCameraId );
+    EXPECT_EQ( start.GetValue().SceneName, source.SceneName );
+    EXPECT_EQ( rfl::json::write( start.GetValue().WorldPartition ), rfl::json::write( source.WorldPartition ) );
+}
+
+// THE TWO BEGINNINGS STREAM THE SAME WORLD. A game begins with only the always-loaded records and reads every
+// cell; the editor begins with every record and destroys what is not wanted. After the same flight the same
+// ids are live, frame by frame, once the cooked world's reads have landed.
+TEST( WorldCells, ACookedBeginningStreamsWhatTheWholeBeginningStreams )
+{
+    const SceneSerialized source = World();
+    const auto            files  = FilesOf( Cook( source ) );
+    const auto            index  = IndexOf( files );
+    const auto            plan   = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
+    auto                  from   = Cells::PlanFromIndex( index );
+    ASSERT_TRUE( from.IsSuccess() ) << from.GetError();
+    Cells::IndexedWorld indexed = from.ExtractValue();
+
+    std::vector<std::uint64_t> sourceIds;
+    for ( const auto& record : source.Entities )
+        sourceIds.push_back( IdOf( record ) );
+
+    RecordingWorld               whole;
+    RecordingWorld               cooked;
+    const Rules::StreamingSource start{ CellCentre( 0, 0 ) };
+    auto wholeBegun  = Rules::ResidencyExecutor::Begin( plan, *source.WorldPartition, source.Entities,
+                                                        Rules::ResidencySettings{}, std::span( &start, 1 ), whole );
+    auto cookedBegun = Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
+         indexed.Plan, index.WorldPartition, Rules::ResidencySettings{}, indexed.RecordIds.size(),
+         indexed.Observations );
+    ASSERT_TRUE( wholeBegun.IsSuccess() ) << wholeBegun.GetError();
+    ASSERT_TRUE( cookedBegun.IsSuccess() ) << cookedBegun.GetError();
+    auto wholeRun  = wholeBegun.ExtractValue();
+    auto cookedRun = cookedBegun.ExtractValue();
+    EXPECT_EQ( LiveIds( cookedRun, indexed.RecordIds ), std::set<std::uint64_t>{ kCameraId } );
+
+    const glm::vec3 route[] = { CellCentre( 0, 0 ), CellCentre( 3, 1 ), CellCentre( 7, 2 ), CellCentre( 1, 1 ) };
+    int             frame   = 0;
+    for ( const glm::vec3& at : route )
+    {
+        const Rules::StreamingSource where{ at };
+        for ( int step = 0; step < 32; ++step, ++frame )
+        {
+            auto a = wholeRun.Tick( std::span( &where, 1 ), frame / 60.0, whole );
+            auto b = cookedRun.Tick( std::span( &where, 1 ), frame / 60.0, cooked );
+            ASSERT_TRUE( a.IsSuccess() ) << a.GetError();
+            ASSERT_TRUE( b.IsSuccess() ) << b.GetError();
+        }
+        EXPECT_EQ( LiveIds( cookedRun, indexed.RecordIds ), LiveIds( wholeRun, sourceIds ) )
+             << "at (" << at.x << ", " << at.z << ")";
+    }
+}
+
+namespace
+{
+    // A cell source whose every read waits until the test opens the gate: a read that blocked the main thread
+    // would hang the test instead of passing it.
+    struct GatedSource final : Rules::WorldCellSource
+    {
+        std::shared_future<void> Gate;
+        bool                     Fail = false;
+
+        Common::ResultStr<std::vector<EntityData>> UnitRecords( std::size_t unit ) const override
+        {
+            Gate.wait_for(
+                 std::chrono::seconds( 3 ) ); // bounded, so a loader that blocked reads as slow, not as a hang
+            if ( Fail )
+                return Common::MakeError<std::vector<EntityData>>( "unit " + std::to_string( unit ) +
+                                                                   ": the disk said no" );
+            return Common::MakeSuccess( std::vector<EntityData>{ Record( 1000 + unit, "Read", {} ) } );
+        }
+    };
+
+    std::vector<Rules::LoadOutcome> WaitForOutcomes( Desert::Core::WorldCellLoader& loader, std::size_t count )
+    {
+        std::vector<Rules::LoadOutcome> all;
+        const auto                      deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 10 );
+        while ( all.size() < count && std::chrono::steady_clock::now() < deadline )
+        {
+            for ( auto& outcome : loader.TakeFinished() )
+                all.push_back( std::move( outcome ) );
+            std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        }
+        return all;
+    }
+} // namespace
+
+// THE MAIN THREAD DOES NOT WAIT FOR A CELL. Start and TakeFinished return while every read is still blocked on a
+// worker; the outcomes arrive only after the reads end, and each carries the ticket it was started with.
+TEST( WorldCells, TheLoaderNeverBlocksTheMainThreadOnARead )
+{
+    std::promise<void> open;
+    auto               source = std::make_shared<GatedSource>();
+    source->Gate              = open.get_future().share();
+    Desert::Core::WorldCellLoader loader( source );
+
+    const auto before = std::chrono::steady_clock::now();
+    loader.Start( 3, 11 );
+    loader.Start( 5, 12 );
+    const auto nothingYet = loader.TakeFinished();
+    const auto elapsed    = std::chrono::steady_clock::now() - before;
+    EXPECT_TRUE( nothingYet.empty() );
+    EXPECT_EQ( loader.InFlight(), 2u );
+    EXPECT_EQ( loader.Records( 3 ), nullptr );
+    EXPECT_LT( elapsed, std::chrono::milliseconds( 500 ) ); // the reads are blocked forever until the gate opens
+
+    open.set_value();
+    auto done = WaitForOutcomes( loader, 2 );
+    ASSERT_EQ( done.size(), 2u );
+    std::map<std::size_t, std::uint64_t> tickets;
+    for ( const auto& outcome : done )
+    {
+        EXPECT_TRUE( outcome.Ok ) << outcome.Reason;
+        tickets[outcome.Unit] = outcome.Ticket;
+    }
+    EXPECT_EQ( tickets, ( std::map<std::size_t, std::uint64_t>{ { 3, 11 }, { 5, 12 } } ) );
+    ASSERT_NE( loader.Records( 5 ), nullptr );
+    EXPECT_EQ( IdOf( loader.Records( 5 )->at( 0 ) ), 1005u );
+    loader.Unload( 5 );
+    EXPECT_EQ( loader.Records( 5 ), nullptr );
+    EXPECT_EQ( loader.InFlight(), 0u );
+}
+
+// A cancelled read reports nothing; a failed one reports the source's reason, for StepResidency's retry.
+TEST( WorldCells, TheLoaderDropsACancelledReadAndReportsAFailedOne )
+{
+    std::promise<void> open;
+    auto               source = std::make_shared<GatedSource>();
+    source->Gate              = open.get_future().share();
+    source->Fail              = true;
+    Desert::Core::WorldCellLoader loader( source );
+    loader.Start( 1, 7 );
+    loader.Start( 2, 8 );
+    loader.Cancel( 1, 7 );
+    open.set_value();
+    auto done = WaitForOutcomes( loader, 1 );
+    ASSERT_EQ( done.size(), 1u );
+    EXPECT_EQ( done[0].Unit, 2u );
+    EXPECT_FALSE( done[0].Ok );
+    EXPECT_NE( done[0].Reason.find( "the disk said no" ), std::string::npos ) << done[0].Reason;
+    // The cancelled read finished too, and was dropped rather than left in flight.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds( 10 );
+    while ( loader.InFlight() > 0 && std::chrono::steady_clock::now() < deadline )
+    {
+        EXPECT_TRUE( loader.TakeFinished().empty() );
+        std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+    }
+    EXPECT_EQ( loader.InFlight(), 0u );
+    EXPECT_EQ( loader.Records( 1 ), nullptr );
+}
+
+// A COOKED WORLD READ THROUGH A MOUNTED PAK, the way a game reads it: the files under the scene's cooked world
+// directory as pak keys, read by path through the VFS, on the loader's workers.
+TEST( WorldCells, ACookedWorldIsReadThroughAMountedPak )
+{
+    namespace fs                 = std::filesystem;
+    const SceneSerialized source = World();
+    const auto            cooked = Cook( source );
+    const fs::path        dir    = fs::temp_directory_path() / "DesertWorldCellsPak";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const std::string worldDir = Cells::CookedWorldDirectory( "Worlds/CookMe.desce" );
+    EXPECT_EQ( worldDir, "Worlds/CookMe.dwworld/" );
+    {
+        Common::Utils::PakWriter writer( dir / "Content.dpak" );
+        ASSERT_TRUE( writer.IsOpen() );
+        for ( const auto& file : cooked.Files )
+            ASSERT_TRUE( writer.AddData( worldDir + file.Name, file.Bytes.data(), file.Bytes.size() ) );
+        ASSERT_GT( writer.Finalize(), 0u );
+    }
+    const auto mounted = Common::Utils::VFS::MountPak( dir / "Content.dpak" );
+    ASSERT_TRUE( mounted.IsSuccess() ) << mounted.GetError();
+    // No loose file: the only place these bytes exist is the archive.
+    ASSERT_FALSE( fs::exists( dir / worldDir ) );
+
+    const std::string       root   = ( dir / worldDir ).generic_string();
+    const Cells::FileReader reader = [root]( std::string_view name )
+    {
+        auto read = Common::Utils::FileSystem::ReadByteFileContent( root + std::string( name ) );
+        if ( !read )
+            return Common::MakeError<std::vector<unsigned char>>( read.GetError() );
+        return Common::MakeSuccess( read.ExtractValue() );
+    };
+    auto indexBytes = reader( Cells::kIndexFileName );
+    ASSERT_TRUE( indexBytes.IsSuccess() ) << indexBytes.GetError();
+    auto index = Cells::ReadWorldIndex( Cells::kIndexFileName, indexBytes.GetValue() );
+    ASSERT_TRUE( index.IsSuccess() ) << index.GetError();
+
+    const auto                    plan = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
+    Rules::MemoryCellSource       memory( plan, source.Entities );
+    Desert::Core::WorldCellLoader loader( std::make_shared<Cells::CookedCellSource>( index.GetValue(), reader ) );
+    const std::size_t             units = index.GetValue().Units.size();
+    for ( std::size_t unit = 0; unit < units; ++unit )
+        loader.Start( unit, 100 + unit );
+    auto done = WaitForOutcomes( loader, units );
+    ASSERT_EQ( done.size(), units );
+    for ( const auto& outcome : done )
+    {
+        ASSERT_TRUE( outcome.Ok ) << outcome.Reason;
+        ASSERT_NE( loader.Records( outcome.Unit ), nullptr );
+        const auto expected = memory.UnitRecords( outcome.Unit );
+        ASSERT_TRUE( expected.IsSuccess() ) << expected.GetError();
+        EXPECT_EQ( rfl::json::write( *loader.Records( outcome.Unit ) ), rfl::json::write( expected.GetValue() ) );
+    }
+    Common::Utils::VFS::Unmount();
+    fs::remove_all( dir );
 }

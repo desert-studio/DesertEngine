@@ -3,6 +3,8 @@
 #include "PackageTarget.hpp"
 #include "PackagedContentTrees.hpp"
 
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 
@@ -22,6 +24,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <sstream>
 #include <system_error>
 
@@ -118,6 +121,57 @@ namespace Desert::Editor
         // string, so a failure there is an EMPTY SUCCESS, and an empty descriptor packed under the
         // right key produces a game that reaches "could not be read" on the player's machine instead
         // of failing here where somebody can act on it (DC §1.4).
+        // A PARTITIONED WORLD SHIPS CUT INTO ITS CELLS (WP9): the runtime reads its index and always-loaded cell
+        // at the start and every other cell on a worker when the camera wants it (WorldStreamer.hpp), from
+        // WorldCells::CookedWorldDirectory of the scene's key. Cooked here, from the scene as it is on disk, with
+        // the registry the editor plans with — so the cells are the ones the editor's Play streams. A scene
+        // file that states a partition and does not cook fails the package: the game would fail on it too.
+        bool CollectCookedWorlds( const std::vector<std::pair<std::string, fs::path>>& contentFiles,
+                                  std::vector<std::pair<std::string, std::string>>& baseBlobs, CopyStats& stats,
+                                  std::string& error )
+        {
+            for ( const auto& [key, path] : contentFiles )
+            {
+                if ( path.extension() != ".desce" )
+                    continue;
+                auto text = Common::Utils::FileSystem::ReadFileContent( path );
+                if ( !text )
+                {
+                    error = "cooking the worlds: " + text.GetError();
+                    return false;
+                }
+                // Only a file that names the block can state one; the rest are not parsed twice.
+                if ( text.GetValue().find( "\"WorldPartition\"" ) == std::string::npos )
+                    continue;
+                auto scene = Core::ParseLoadableScene( path.string(), text.GetValue() );
+                if ( !scene )
+                {
+                    error = "cooking the worlds: " + scene.GetError();
+                    return false;
+                }
+                if ( !scene.GetValue().WorldPartition.has_value() )
+                    continue;
+                auto cooked = Core::WorldCells::CookWorld( scene.GetValue(),
+                                                           std::span( &Assets::ContentRegistry::Get(), 1 ) );
+                if ( !cooked )
+                {
+                    error = "cooking the world '" + key + "': " + cooked.GetError();
+                    return false;
+                }
+                const std::string directory = Core::WorldCells::CookedWorldDirectory( key );
+                for ( const auto& file : cooked.GetValue().Files )
+                {
+                    baseBlobs.emplace_back( directory + file.Name,
+                                            std::string( file.Bytes.begin(), file.Bytes.end() ) );
+                    ++stats.Files;
+                    stats.Bytes += file.Bytes.size();
+                }
+                LOG_INFO( "[Package] world '{}' cooked into {} file(s) under '{}'", key,
+                          cooked.GetValue().Files.size(), directory );
+            }
+            return true;
+        }
+
         bool CollectDescriptor( const Common::Project::ProjectFile&               project,
                                 std::vector<std::pair<std::string, std::string>>& blobs, std::string& error )
         {
@@ -351,6 +405,9 @@ namespace Desert::Editor
                 if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
                                    error ) )
                     return { false, error, "" };
+
+            if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
+                return { false, error, "" };
 
             // FAILS THE PACKAGE, like every other step in this function: an archive without the
             // descriptor is a folder of content the player cannot identify as a game, and the
@@ -630,6 +687,9 @@ namespace Desert::Editor
         for ( const PackagedTree& tree : PackagedContentTrees() )
             if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
                 return { false, error, "" };
+
+        if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
+            return { false, error, "" };
 
         // ...and the same descriptor, so "a .dpak this tree produced" means ONE thing rather than two.
         // A dev pak that carried content but no identity was an archive only the other entry point's

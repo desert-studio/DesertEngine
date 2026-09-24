@@ -50,11 +50,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Core::WorldCells
@@ -169,20 +169,50 @@ namespace Desert::Core::WorldCells
     // How a reader gets a cooked file's bytes: a directory, a pak through the VFS, or memory in a test.
     using FileReader = std::function<Common::ResultStr<std::vector<unsigned char>>( std::string_view fileName )>;
 
-    // A WorldCellSource over cooked files: what WP9's streamer reads through. A unit's file is read and
-    // checked on first use and kept, since the always-loaded file serves several units.
+    // A WorldCellSource over cooked files: what the streamer reads through, on a JobSystem worker. HOLDS NO
+    // STATE BUT ITS INPUTS, so any number of workers may ask it at once; each call reads and checks the unit's
+    // whole file and keeps nothing, because a streamed world is bigger than what it keeps resident. (A file
+    // holding several units — the always-loaded one — is read once per unit; that happens once, at the start.)
     class CookedCellSource final : public Rules::WorldCellSource
     {
     public:
         CookedCellSource( const WorldIndex& index, FileReader reader );
 
-        [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>> UnitRecords( std::size_t unit ) override;
+        [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>>
+        UnitRecords( std::size_t unit ) const override;
 
     private:
-        const WorldIndex*                  m_Index;
-        FileReader                         m_Reader;
-        std::map<std::string, CellPayload> m_Read;
+        const WorldIndex* m_Index;
+        FileReader        m_Reader;
     };
+
+    // ── Streaming a cooked world without its records ─────────────────────────────────────────────
+
+    // What the residency executor needs, from the index alone. Record `r` is the r-th id of the index's units
+    // taken in unit order (the order ResidencyUnitMembers names them), so the plan's composites — one per unit —
+    // hold consecutive record indices.
+    struct IndexedWorld
+    {
+        Rules::WorldPartitionPlan                        Plan;
+        std::vector<std::uint64_t>                       RecordIds;
+        std::vector<std::pair<std::size_t, std::size_t>> Observations; // (from, to), crossing a unit
+        std::size_t                                      AlwaysLoadedRecords = 0;
+    };
+
+    // The plan the cook planned with, as far as residency reads it: every unit's composite, its cell and
+    // square, the always-loaded reasons, in unit order. Refused, by unit: a cell without its level, coordinate
+    // or square, an always-loaded unit after a cell, cells out of (level, X, Z) order — the streaming query
+    // searches them by that order — a record id twice, and a reference naming an id no unit holds.
+    [[nodiscard]] Common::ResultStr<IndexedWorld> PlanFromIndex( const WorldIndex& index );
+
+    // The part of a cooked world that is loaded before its first frame: the scene-wide part and the records of
+    // every always-loaded unit, as a scene the ordinary loader takes. Each file is read once.
+    [[nodiscard]] Common::ResultStr<SceneSerialized> AssembleAlwaysLoaded( const WorldIndex& index,
+                                                                           const FileReader& reader );
+
+    // Where a scene's cooked world lives beside it: `Worlds/X.desce` -> `Worlds/X.dwworld/`. One statement of
+    // it, for the packager that writes there and the runtime that looks there.
+    [[nodiscard]] std::string CookedWorldDirectory( std::string_view scenePath );
 
     // The world back from its cells: every unit's records in unit order, and the index's scene-wide part.
     // What the round trip is checked with; the records are in unit order, not the source's file order.

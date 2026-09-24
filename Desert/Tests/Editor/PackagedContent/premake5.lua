@@ -24,6 +24,11 @@ project(test_name)
         "%{wks.location}/Runtime/Source/PackagedContent.cpp",
         "%{wks.location}/Editor/Source/Editor/Packaging/GamePackager.cpp",
         "%{wks.location}/Editor/Source/Editor/Packaging/PackageCook.cpp",
+        -- GamePackager cuts a partitioned world into its cells (WP9): the world cook and what it reads with.
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCompiler.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/ShaderCompiler/ShaderCacheKey.cpp",
