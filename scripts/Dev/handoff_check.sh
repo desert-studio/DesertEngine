@@ -25,11 +25,18 @@ fail=0
 BIN=build/Bin/Tests/Debug
 run_one() { dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"; }
 export -f run_one dev_capped
+dev_regen_makefiles "$LOG" || exit 2
 bins=()
 for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
 total=${#bins[@]}
 [ "$total" -gt 0 ] && printf '%s\n' "${bins[@]}" | xargs -P "${HANDOFF_JOBS:-4}" -I{} bash -c 'run_one "$1" "$2"' _ {} "$LOG"
 passed=0; red=(); stale=()
+# (f) never built: a suite whose makefile exists but whose binary does not is not "not run", it is untested code.
+# The AF7 branch passed 146/146 in a tree that had built 146 of 332 suites; ModelingToolTarget no longer compiled.
+for mk in $(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null); do
+    name=$(basename "$mk" .make)
+    [ -x "$BIN/$name" ] || stale+=("$name<never built")
+done
 for t in "${bins[@]}"; do
     name=$(basename "$t")
     rc=$(cat "$LOG/$name.rc" 2>/dev/null || echo 255)
