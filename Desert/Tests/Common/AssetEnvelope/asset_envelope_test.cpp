@@ -7,9 +7,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <vector>
 
 namespace
 {
@@ -169,17 +171,19 @@ TEST( AssetEnvelope, GeneratedGuidsAreNonNullAndDistinct )
 // ---------------------------------------------------------------------------------------------------
 
 // For every kind in the census: an envelope of that kind, saved under that kind's extension, reads back
-// as the kind the extension names. The extension is resolved HERE, by the test, from the census; the
+// as exactly the kind that was written, and that kind is one of those the census files under the
+// extension. An extension may be shared by several kinds (Texture and Skybox are both .detex): the name
+// is for people, the header is what decides, so the gate is "header kind is in the extension's set",
+// not "the extension names one kind". The extension is resolved HERE, by the test, from the census; the
 // reader is never given it.
 TEST( AssetEnvelope, KindInHeaderEqualsKindByExtensionForEveryKind )
 {
-    const auto                              kinds = ContentKinds();
-    std::map<std::string_view, ContentKind> byExtension;
+    const auto                                           kinds = ContentKinds();
+    std::map<std::string_view, std::vector<ContentKind>> byExtension;
     for ( std::size_t i = 0; i < kinds.size(); ++i )
     {
         ASSERT_FALSE( kinds[i].Extension.empty() ) << kinds[i].Name;
-        const bool unique = byExtension.emplace( kinds[i].Extension, static_cast<ContentKind>( i ) ).second;
-        ASSERT_TRUE( unique ) << "extension " << kinds[i].Extension << " names two kinds; the gate needs one";
+        byExtension[kinds[i].Extension].push_back( static_cast<ContentKind>( i ) );
     }
 
     const fs::path dir = ScratchDir();
@@ -191,7 +195,10 @@ TEST( AssetEnvelope, KindInHeaderEqualsKindByExtensionForEveryKind )
 
         auto header = ReadAssetHeader( file, Context() );
         ASSERT_TRUE( header ) << kinds[i].Name << ": " << header.GetError();
-        EXPECT_EQ( header.GetValue().Kind, byExtension.at( file.extension().string() ) ) << kinds[i].Name;
+        EXPECT_EQ( header.GetValue().Kind, kind ) << kinds[i].Name;
+        const auto& shared = byExtension.at( file.extension().string() );
+        EXPECT_NE( std::find( shared.begin(), shared.end(), header.GetValue().Kind ), shared.end() )
+             << kinds[i].Name << " read back as a kind the census does not file under " << kinds[i].Extension;
         EXPECT_EQ( KindName( header.GetValue().Kind ), kinds[i].Name );
     }
     fs::remove_all( dir );
