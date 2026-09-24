@@ -223,8 +223,8 @@ namespace Desert::Editor
         // Wrapped: the Ramp hint is wider than the default dock column.
         ImGui::PushStyleColor( ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled] );
         ImGui::TextWrapped( "%s", settings.Tool == Core::LandscapeTool::Ramp
-                                      ? "LMB sets the start, then the end; Apply builds the ramp"
-                                      : "LMB applies the tool, Shift+LMB inverts it" );
+                                       ? "LMB sets the start, then the end; Apply builds the ramp"
+                                       : "LMB applies the tool, Shift+LMB inverts it" );
         ImGui::PopStyleColor();
     }
 
