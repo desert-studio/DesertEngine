@@ -44,6 +44,7 @@
 //                                    only, the other text assets), or directories searched recursively
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
@@ -216,6 +217,39 @@ namespace
         Relaid,
         Failed,
     };
+
+    // THE CLOUD TYPE'S HEADER (format 3 -> 4, AF7v). A v3 `.decloudtype` states a top-level FormatVersion and
+    // no identity; v4 opens with the text asset header (Kind "CloudType", a GUID minted HERE, once, and the
+    // format under `CLTY`) and states its version nowhere else. Every other member keeps its order and bytes.
+    // A file that already has a header returns nullopt (nothing to raise); any version but 3 is refused.
+    Common::ResultStr<std::optional<std::string>> RaiseCloudTypeTextToV4( const std::string&                source,
+                                                                          const Common::Content::AssetGuid& guid )
+    {
+        const auto tree = rfl::json::read<rfl::Generic>( source );
+        if ( !tree || !tree.value().to_object() )
+            return Common::MakeError<std::optional<std::string>>( "not a JSON object" );
+        const rfl::Generic::Object fields = tree.value().to_object().value();
+        if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
+            return Common::MakeSuccess( std::optional<std::string>{} );
+        const auto stated = fields.get( "FormatVersion" );
+        const auto version =
+             stated.has_value() ? stated.value().to_int() : rfl::Result<int>( rfl::Error( "absent" ) );
+        if ( !version || version.value() != 3 )
+            return Common::MakeError<std::optional<std::string>>(
+                 "cloud type format version " + ( version ? std::to_string( version.value() ) : "(unstated)" ) +
+                 " has no step to v" + std::to_string( Desert::Assets::kCloudTypeSchemaVersion ) +
+                 "; only a version-3 file is raised" );
+        const std::array<Common::Content::SubsystemVersion, 1> versions = { Common::Content::SubsystemVersion{
+             Desert::Assets::kCloudTypeSchemaTag, Desert::Assets::kCloudTypeSchemaVersion } };
+        const auto           header = rfl::json::read<rfl::Generic>( rfl::json::write(
+             Common::Content::MakeTextHeader( Common::Content::ContentKind::CloudType, guid, versions ) ) );
+        rfl::Generic::Object raised;
+        raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
+        for ( const auto& [key, value] : fields )
+            if ( key != "FormatVersion" )
+                raised[key] = value;
+        return Common::MakeSuccess( std::optional<std::string>( rfl::json::write( rfl::Generic( raised ) ) ) );
+    }
 
     Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
                              std::ostream& out, std::ostream& err )
@@ -1414,6 +1448,28 @@ namespace Desert::Migration
 
         for ( const auto& path : texts )
         {
+            if ( path.extension() == ".decloudtype" )
+            {
+                const std::string                source = ReadAll( path );
+                const Common::Content::AssetGuid guid   = Common::Content::AssetGuid::Generate();
+                const auto                       raised = RaiseCloudTypeTextToV4( source, guid );
+                if ( !raised )
+                {
+                    err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                if ( raised.GetValue().has_value() )
+                {
+                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — cloud type v3 -> v"
+                        << Desert::Assets::kCloudTypeSchemaVersion << ", GUID "
+                        << Common::Content::AssetGuidToText( guid ) << "\n";
+                    ++changed;
+                    if ( !check && !WriteText( path, *raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
             if ( const Layout layout = RelayOutIfNeeded( path, ReadAll( path ), check, out, err );
                  layout != Layout::Canonical )
                 ++( layout == Layout::Failed ? failed : relaid );

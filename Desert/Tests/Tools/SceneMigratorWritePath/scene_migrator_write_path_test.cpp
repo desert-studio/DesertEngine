@@ -18,6 +18,8 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -325,4 +327,45 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THE CLOUD TYPE PASS (AF7v, format 3 -> 4). A v3 file gains the text header with a fresh GUID, which a
+// header-only read (the one ContentScan and the registry make) finds without loading the type; a second
+// run leaves the file byte-identical, and a version with no step is refused and left untouched.
+TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    const fs::path dir  = MakeTempDir( "AF7vCloudTypeMigration" );
+    const fs::path file = dir / "Stratus.decloudtype";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"FormatVersion":3,"DisplayName":"Stratus","Shape":{"BaseAltitudeKm":0.3}})";
+    }
+    const fs::path stale = dir / "Old.decloudtype";
+    {
+        std::ofstream out( stale, std::ios::binary );
+        out << R"({"FormatVersion":2,"Shape":{}})";
+    }
+    const std::string staleBytes = ReadRaw( stale );
+
+    std::string report, errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 1 ) << "the v2 file was not a failure";
+    EXPECT_NE( errors.find( "Old.decloudtype" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( stale ), staleBytes ) << "a refused file was rewritten";
+    fs::remove( stale );
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_EQ( raised.find( "FormatVersion" ), std::string::npos ) << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::CloudType );
+    EXPECT_FALSE( header.GetValue().Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Subsystems[0].Version, 4u );
+    EXPECT_NE( raised.find( "Stratus" ), std::string::npos ) << raised;
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v4 file (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
 }

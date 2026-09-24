@@ -82,7 +82,6 @@ namespace
     CloudTypeData LegalData()
     {
         CloudTypeData data;
-        data.FormatVersion = kCloudTypeFormatVersion;
         data.DisplayName   = "Test type";
         data.Notes         = "Written by the round-trip test.";
         data.Shape         = LegalShape();
@@ -281,7 +280,14 @@ TEST( CloudTypeFormat, ATypeSurvivesBeingWrittenAndReadBack )
     EXPECT_EQ( round.DisplayName, original.DisplayName );
     EXPECT_EQ( round.Notes, original.Notes );
     EXPECT_EQ( round.NoiseVolume, original.NoiseVolume );
-    EXPECT_EQ( round.FormatVersion.value_or( 0 ), kCloudTypeFormatVersion );
+    // The writer stamped a header: this build's kind and version, and a GUID a second write keeps.
+    ASSERT_TRUE( round.Header.has_value() );
+    EXPECT_EQ( round.Header->Kind, "CloudType" );
+    EXPECT_EQ( Desert::Assets::StatedVersion( round.Header, Desert::Assets::kCloudTypeSchemaTag ),
+               kCloudTypeFormatVersion );
+    auto again = ParseCloudType( WriteCloudType( round ) );
+    ASSERT_TRUE( again ) << again.GetError();
+    EXPECT_EQ( again.GetValue().Header->Guid, round.Header->Guid ) << "a rewrite minted a second identity";
 
     // Every one of the twelve, named individually rather than compared as bytes: a field that stopped
     // being written would otherwise be reported as "the structs differ" and leave the reader to find which.
@@ -305,7 +311,8 @@ TEST( CloudTypeFormat, ATypeSurvivesBeingWrittenAndReadBack )
 TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
 {
     // A file an artist wrote by hand, with nothing in it but the numbers that have no answer.
-    const std::string minimal = R"({"Shape":{
+    const std::string minimal =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
@@ -318,7 +325,8 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
 
     // And the other way round: a shape with a field MISSING is refused rather than defaulted, because a
     // number nobody wrote is not a number anybody chose.
-    const std::string incomplete = R"({"Shape":{
+    const std::string incomplete =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,
@@ -1515,4 +1523,21 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// FORMAT 3 IS REFUSED BY NAME (AF7v). A v3 file is a complete, legal type with no identity; reading it
+// would hand it a handle nothing can name again, so the refusal says what moved and which tool fixes it.
+TEST( CloudTypeFormat, AVersionThreeFileWithoutAHeaderIsRefusedNamingTheMigrator )
+{
+    CloudTypeData data = LegalData();
+    std::string   text = WriteCloudType( data );
+    const auto    at   = text.find( "\"Header\"" );
+    ASSERT_NE( at, std::string::npos );
+    const auto close = text.find( "}", text.find( "\"Dependencies\"", at ) );
+    text             = "{\"FormatVersion\":3," + text.substr( text.find_first_not_of( " \t\r\n,", close + 1 ) );
+
+    const auto refused = ParseCloudType( text );
+    ASSERT_FALSE( refused ) << "a header-less version-3 file was read";
+    EXPECT_NE( refused.GetError().find( "format version 3" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }

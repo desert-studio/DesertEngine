@@ -1275,3 +1275,32 @@ int main( int argc, char** argv )
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// A CLOUD TYPE'S HANDLE IS HandleForGuid OF ITS HEADER GUID (AF7v), adopted at creation, before any load:
+// the same file under two paths is the same type, and the path no longer takes part.
+TEST( AssetHandleStability, ACloudTypeHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "AF7vCloudTypeHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path first = dir / "A.decloudtype";
+
+    Desert::Assets::CloudTypeData data = Desert::Assets::CloudTypeDefault();
+    ASSERT_TRUE( Desert::Assets::CloudTypeAsset::Save( first, data ) );
+
+    const Desert::Assets::CloudTypeAsset asset( Desert::Assets::AssetPriority{}, first );
+    ASSERT_FALSE( asset.Guid().IsNull() ) << "the constructor did not read the header GUID";
+    EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+               static_cast<uint64_t>( Common::Content::HandleForGuid( asset.Guid() ) ) );
+    EXPECT_NE( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+               static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( first ) ) );
+
+    const fs::path moved = dir / "Renamed.decloudtype";
+    fs::copy_file( first, moved );
+    const Desert::Assets::CloudTypeAsset renamed( Desert::Assets::AssetPriority{}, moved );
+    EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ),
+               static_cast<uint64_t>( asset.GetMetadata().Handle ) )
+         << "a rename changed the type's identity";
+    fs::remove_all( dir );
+}

@@ -1,13 +1,16 @@
 #pragma once
 
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -62,7 +65,22 @@ namespace Desert::Assets
     /// DEV_CONTRACT.md §4 forbids. So the conversion happens ONCE, in the commit, in the files: all nine
     /// shipped types were rewritten to version 3 through that function, so the library renders the sky it
     /// rendered before the format moved.
-    inline constexpr int32_t kCloudTypeFormatVersion = 3;
+    ///
+    /// VERSION 4 SINCE AF7v (T6b1): the file opens with the text asset header every text asset states
+    /// (Common/Content/TextAssetHeader.hpp) - Kind "CloudType", the GUID that IS the type's identity and
+    /// its handle (CloudTypeAsset's constructor), and this number under the tag `CLTY`. The header is the
+    /// ONE place the version is stated: the old top-level FormatVersion is gone, so the two cannot
+    /// disagree. A version-3 file (no header) is refused by name; Tools/SceneMigrator mints its GUID once.
+    inline constexpr int32_t kCloudTypeFormatVersion = static_cast<int32_t>( kCloudTypeSchemaVersion );
+
+    /// The subsystem versions a .decloudtype of this build states: the cloud type schema, and nothing else.
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> CloudTypeTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ kCloudTypeSchemaTag,
+                                                static_cast<uint32_t>( kCloudTypeFormatVersion ) } };
+        return versions;
+    }
 
     /**
      * @brief One cloud type on disk, and in memory — the same struct, because there is nothing to convert.
@@ -74,9 +92,10 @@ namespace Desert::Assets
      */
     struct CloudTypeData
     {
-        /// The layout this file was written under. Absent means 1 — the first, and the only one that has
-        /// ever existed.
-        std::optional<int32_t> FormatVersion;
+        /// The text asset header, FIRST so a reader of the header alone (ContentScan, the registry) finds
+        /// it without parsing the rest. Absent only on a type that has never been written: WriteCloudType
+        /// stamps it (StampTextHeader keeps a loaded GUID and mints one for a new type).
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         /// What the artist calls it. Shown in the slot's dropdown and in the type panel's title; the FILE
         /// NAME stays the identity for a human, this is the identity for a reader.
@@ -179,7 +198,8 @@ namespace Desert::Assets
      */
     Common::ResultStr<CloudTypeData> ParseCloudType( const std::string& text );
 
-    /// Serialises a type back to the text that ParseCloudType reads. Total: any @p data whose shape
-    /// Validate accepts writes, and re-reads equal.
+    /// Serialises a type back to the text that ParseCloudType reads, header stamped (StampTextHeader: the
+    /// loaded GUID is kept, a type without one is minted one). Total: any @p data whose shape Validate
+    /// accepts writes, and re-reads equal apart from a newly minted header.
     std::string WriteCloudType( const CloudTypeData& data );
 } // namespace Desert::Assets

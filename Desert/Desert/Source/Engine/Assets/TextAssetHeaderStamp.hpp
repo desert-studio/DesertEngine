@@ -20,6 +20,11 @@ namespace Desert::Assets
     // GUID (`Parent`), stated again as the header's Dependency.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
     inline constexpr uint32_t kMaterialSchemaVersion = 2;
+    // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
+    // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
+    // state it without the cloud maths.
+    inline constexpr uint32_t kCloudTypeSchemaTag     = Common::Content::FourCC( "CLTY" );
+    inline constexpr uint32_t kCloudTypeSchemaVersion = 4;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

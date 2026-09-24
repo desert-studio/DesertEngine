@@ -219,7 +219,8 @@ TEST( NewCloudAsset, ACreatedCloudTypeReadsBackAsWhatWasWritten )
     ASSERT_TRUE( read ) << read.GetError();
 
     EXPECT_EQ( read.GetValue().DisplayName.value_or( "" ), written.DisplayName.value_or( "" ) );
-    EXPECT_EQ( read.GetValue().FormatVersion.value_or( -1 ), Assets::kCloudTypeFormatVersion );
+    EXPECT_EQ( Assets::StatedVersion( read.GetValue().Header, Assets::kCloudTypeSchemaTag ),
+               Assets::kCloudTypeFormatVersion );
     ExpectShapesEqual( written.Shape, read.GetValue().Shape );
 }
 
