@@ -367,10 +367,17 @@ namespace Desert::Editor::Core
                 {
                     auto& sourceMesh = source->get().GetComponent<ECS::StaticMeshComponent>();
                     back             = Common::MakeSuccess( true );
-                    if ( committed )
-                        back = ECS::SetEditableMesh( sourceMesh, committed );
-                    else
-                        ECS::ClearEditableMesh( sourceMesh );
+                    switch ( PlanMeshRestore( sourceMesh.EditableMesh, committed ) )
+                    {
+                        case MeshRestore::Set:
+                            back = ECS::SetEditableMesh( sourceMesh, committed );
+                            break;
+                        case MeshRestore::Clear:
+                            ECS::ClearEditableMesh( sourceMesh );
+                            break;
+                        case MeshRestore::Unchanged:
+                            break;
+                    }
                 }
                 state.Restore( entity, selection );
                 state.Track( entity, before );

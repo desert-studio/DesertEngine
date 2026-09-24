@@ -1,5 +1,7 @@
 #include "SceneCommands.hpp"
 
+#include <Editor/Core/Selection/ModelingToolTarget.hpp> // PlanMeshRestore
+
 #include "InstanceFold.hpp"
 
 #include <Editor/Import/StaticMeshOutput.hpp>
@@ -331,9 +333,13 @@ namespace Desert::Editor::Commands
                 if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
                     return false;
                 auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
-                if ( !mesh )
+                // Null is the asset-only entity (a Modeling tool lifted its .stmesh): PlanMeshRestore drops
+                // the EditableMesh.
+                const MeshRestore plan = PlanMeshRestore( smc.EditableMesh, mesh );
+                if ( plan != MeshRestore::Set )
                 {
-                    ECS::ClearEditableMesh( smc );
+                    if ( plan == MeshRestore::Clear )
+                        ECS::ClearEditableMesh( smc );
                     return true;
                 }
                 // Both states were on the component once, so a refusal here means the device refused the
@@ -504,7 +510,12 @@ namespace Desert::Editor::Commands
                 return Common::MakeFormattedError<bool>( "entity {} has no mesh or no transform",
                                                          static_cast<uint64_t>( id ) );
             auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
-            if ( state.Mesh && state.Mesh != smc.EditableMesh )
+            // A null mesh is a state too: the entity drawn from its asset alone (a Modeling tool lifted the
+            // .stmesh), so undoing the edit drops the EditableMesh instead of keeping the edited one.
+            const MeshRestore plan = PlanMeshRestore( smc.EditableMesh, state.Mesh );
+            if ( plan == MeshRestore::Clear )
+                ECS::ClearEditableMesh( smc );
+            else if ( plan == MeshRestore::Set )
                 if ( auto set = ECS::SetEditableMesh( smc, state.Mesh ); !set.IsSuccess() )
                     return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
                                                              set.GetError() );
@@ -593,8 +604,10 @@ namespace Desert::Editor::Commands
                         ok = false;
                         continue;
                     }
-                    ok &= Report(
-                         ECS::SetEditableMesh( root.GetComponent<ECS::StaticMeshComponent>(), gone.Mesh ) );
+                    // An asset-only part (null mesh) comes back from its snapshot's MeshHandle alone.
+                    auto& goneMesh = root.GetComponent<ECS::StaticMeshComponent>();
+                    if ( PlanMeshRestore( goneMesh.EditableMesh, gone.Mesh ) == MeshRestore::Set )
+                        ok &= Report( ECS::SetEditableMesh( goneMesh, gone.Mesh ) );
                 }
                 OnStructuralChange();
                 return ok;
