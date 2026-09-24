@@ -3,8 +3,8 @@
 // The element-selection algorithms, written once over a MESH VIEW so both cores run the very same code while
 // the bridge lives: EditMesh (EditMeshSelection.cpp, until P8b) and the ported core (DynamicMeshSelection.cpp,
 // through FDynamicMeshElements). A Mesh provides VertexIds / EdgeIds / TriangleIds, IsVertex / IsEdge / IsTriangle,
-// Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours, Attributes().GetPolyGroup
-// and a free TrianglesByGroup( mesh ). Included by exactly those two files.
+// Max*Id, GetPosition, GetTriangle, GetTriangleEdges, GetEdgeVertices, GetVertexNeighbours and
+// Attributes().GetPolyGroup. Included by exactly those two files.
 
 #include "Engine/Geometry/EditMeshSelection.hpp"
 
@@ -14,7 +14,6 @@
 #include <cmath>
 #include <limits>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Geometry
@@ -183,15 +182,6 @@ namespace Desert::Geometry
 
         // ── conversion steps: one mode up or down ────────────────────────────────────────────────────────
 
-        template <class Mesh>
-        std::unordered_map<int, std::vector<int>> TrianglesByGroup( const Mesh& mesh )
-        {
-            std::unordered_map<int, std::vector<int>> groups;
-            for ( const int t : mesh.TriangleIds() )
-                groups[mesh.Attributes().GetPolyGroup( t )].push_back( t );
-            return groups;
-        }
-
         std::vector<char> Mask( int size, std::span<const int> ids )
         {
             std::vector<char> mask( static_cast<size_t>( size ), 0 );
@@ -267,14 +257,7 @@ namespace Desert::Geometry
                     }
                     break;
                 }
-                case ElementMode::Triangle:
-                {
-                    const auto mask = Mask( mesh.MaxTriangleId(), ids );
-                    for ( const auto& [group, tris] : TrianglesByGroup( mesh ) )
-                        if ( std::all_of( tris.begin(), tris.end(), [&]( int t ) { return mask[t] != 0; } ) )
-                            out.push_back( group );
-                    break;
-                }
+                case ElementMode::Triangle: // up to PolyGroup expands instead: ConvertSelectionT
                 case ElementMode::PolyGroup:
                     break;
             }
@@ -478,6 +461,31 @@ namespace Desert::Geometry
     {
         ElementMode      mode = selection.Mode();
         std::vector<int> ids( selection.Ids().begin(), selection.Ids().end() );
+        if ( target == ElementMode::PolyGroup && mode != ElementMode::PolyGroup )
+        {
+            // Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Selections/
+            // GeometrySelectionUtil.cpp:1828-1850 (ToPolyFace) with EnumerateTriangleSelectionTriangles :661-709,
+            // adapted: our IDs instead of FGeoSelectionID. EXPANDS: every group of every triangle the source
+            // touches (a vertex's one-ring, an edge's two sides, the triangle itself), not only whole groups.
+            std::vector<int> groups;
+            if ( mode == ElementMode::Vertex )
+                groups = ElementsTouching( mesh, ElementMode::PolyGroup, Mask( mesh.MaxVertexId(), ids ) );
+            else
+            {
+                const auto edges = mode == ElementMode::Edge ? Mask( mesh.MaxEdgeId(), ids ) : std::vector<char>();
+                const auto tris = mode == ElementMode::Triangle ? Mask( mesh.MaxTriangleId(), ids ) : std::vector<char>();
+                for ( const int t : mesh.TriangleIds() )
+                {
+                    bool touched = !tris.empty() && tris[t] != 0;
+                    if ( !edges.empty() )
+                        for ( const int e : mesh.GetTriangleEdges( t ) )
+                            touched = touched || edges[e] != 0;
+                    if ( touched )
+                        groups.push_back( mesh.Attributes().GetPolyGroup( t ) );
+                }
+            }
+            return Build( mesh, target, SortedUnique( std::move( groups ) ) );
+        }
         while ( mode > target )
         {
             ids  = StepDown( mesh, mode, ids );
@@ -534,7 +542,12 @@ namespace Desert::Geometry
     ElementSelection ShrinkSelectionT( const Mesh& mesh, const ElementSelection& selection )
     {
         const ElementMode mode = selection.Mode();
-        // The vertices of every UNselected element: a selected element touching one is on the rim.
+        // The vertices of every UNselected element: a selected element touching one is on the rim. The open
+        // border of the mesh is no rim: on a manifold mesh this is UE 5.8 FMeshFaceSelection::
+        // ContractBorderByOneRingNeighbours (GeometryCore/Private/Selections/MeshFaceSelection.cpp:149-190) with
+        // bContractFromMeshBoundary = false, as MeshGroupPaintTool.cpp:1264 calls it. UE's selection-mechanic
+        // Shrink (PolygonSelectionMechanic.cpp:423 -> GeometrySelectionUtil.cpp:2400-2512) DOES treat
+        // Mesh.IsBoundaryVertex as border; pinned by ElementTopology.ShrinkKeepsTheOpenBorderOfTheMesh.
         std::vector<char> rim( static_cast<size_t>( mesh.MaxVertexId() ), 0 );
         if ( mode == ElementMode::Vertex )
         {

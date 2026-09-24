@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <array>
-#include <unordered_map>
 #include <vector>
 
 namespace Desert::Geometry
@@ -91,10 +90,6 @@ namespace Desert::Geometry
         {
             return m_Topology ? m_Topology->GetGroupID( t ) : m_Mesh.GetTriangleGroup( t );
         }
-        [[nodiscard]] const FGroupTopology* Topology() const
-        {
-            return m_Topology;
-        }
 
     private:
         [[nodiscard]] int OtherEnd( int e, int v ) const
@@ -115,30 +110,12 @@ namespace Desert::Geometry
         const FDynamicMesh3&  m_Mesh;
         const FGroupTopology* m_Topology;
     };
-
-    // The group -> triangles table the algorithms ask for: FGroupTopology's own when the view carries one. Found
-    // by argument-dependent lookup from the template and preferred to it as the exact (non-template) match.
-    std::unordered_map<int, std::vector<int>> TrianglesByGroup( const FDynamicMeshElements& mesh );
 } // namespace Desert::Geometry
 
 #include "ElementSelectionAlgorithms.inl"
 
 namespace Desert::Geometry
 {
-    std::unordered_map<int, std::vector<int>> TrianglesByGroup( const FDynamicMeshElements& mesh )
-    {
-        std::unordered_map<int, std::vector<int>> groups;
-        if ( const FGroupTopology* topology = mesh.Topology() )
-        {
-            for ( const FGroupTopology::FGroup& group : topology->Groups )
-                groups[group.GroupID].assign( group.Triangles.begin(), group.Triangles.end() );
-            return groups;
-        }
-        for ( const int t : mesh.TriangleIds() )
-            groups[mesh.GetPolyGroup( t )].push_back( t );
-        return groups;
-    }
-
     // Ported from UE 5.8 Engine/Plugins/Runtime/MeshModelingToolset/Source/ModelingComponents/Private/Selection/
     // MeshTopologySelector.cpp:87-206 (FindSelectedElement), :208-260 (DoCornerBasedSelection), :374-420
     // (DoEdgeBasedSelection), :578-601 (IsOccluded), and Engine/Source/Runtime/GeometryCore/Private/Spatial/
