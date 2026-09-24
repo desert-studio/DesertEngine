@@ -32,6 +32,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Serialize/TextureSlot.hpp>
@@ -99,32 +100,19 @@ namespace
         Common::Constants::Path::ProjectRootState m_Saved;
     };
 
-    // A REAL cooked `.tex`, because the claim is about what the loader does with the file's own Handle
-    // field — and since B17 "real" means the binary container, produced by the engine's own encoder.
-    // Writing the bytes by hand here would be a second writer of one format, which is exactly the drift
-    // this suite exists to catch elsewhere. A 1x1 image keeps the fixture small; the pixels are not what
-    // is under test, the identity is.
+    // A REAL texture asset (the TXAS envelope, AF7), because the claim is about what the loader does with
+    // the identity the file itself states — written by the engine's own writer, since a second writer of one
+    // format is exactly the drift this suite exists to catch elsewhere. The source is a single byte: the
+    // loader reads the header and IMPT only, and the pixels are not what is under test, the identity is.
     void WriteCookedTexture( const std::filesystem::path& at, uint64_t handle )
     {
-        namespace Ser = Desert::Assets::Serialization;
-
         std::filesystem::create_directories( at.parent_path() );
-
-        Ser::TextureAssetData data;
-        data.Handle = Common::UUID( handle );
-        data.Width  = 1;
-        data.Height = 1;
-        data.Format = Desert::Core::Formats::ImageFormat::RGBA8F;
-
-        const std::vector<unsigned char> base( 4, 0x7F );
-        auto                             chain = Ser::BuildMipChain( 1, 1, data.Format, base, data.Pixels );
-        ASSERT_TRUE( chain.IsSuccess() ) << chain.GetError();
-        data.Levels = chain.ExtractValue();
-
-        const std::string bytes = Ser::EncodeTextureBinary( data );
-        std::ofstream     out( at, std::ios::binary );
-        ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << at.string();
-        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+        const Desert::Assets::TextureSourceAsset asset = Desert::Assets::MakeTextureSourceAsset(
+             Common::Content::ContentKind::Texture, Common::UUID( handle ),
+             "assets:Textures/" + at.stem().string() + ".png", { std::byte{ 0x7F } }, {} );
+        const auto written = Desert::Assets::WriteTextureSourceAssetFile( at, asset );
+        ASSERT_TRUE( written.IsSuccess() )
+             << "could not write the fixture at " << at.string() << ": " << written.GetError();
     }
 
     // Two developers' checkouts, sharing no directory above the project and not even agreeing on what the

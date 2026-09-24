@@ -404,25 +404,33 @@ namespace Desert::Editor
         constexpr double kSecondsSceneSettle  = 0.75;
         constexpr double kSecondsPerSceneRead = kSecondsPerShader;
 
-        // The texture import's items in the order `ImportLooseTextures` reaches them: a source with no texture
-        // asset yet will be imported and weighs its bytes; the rest (an asset itself, or a source already
-        // imported) weigh their freshness check. A source whose content changed is found only by the import's
-        // own check, and is weighed as fresh.
-        std::vector<double> TextureImportCosts()
+        // The BC7 derivation a first import used to pay inside "Importing textures" now runs where the platform
+        // data is first asked for: the preload, on a DDC miss (SetTexturePlatformDataBuilder). Importing a source
+        // only wraps its bytes, so the import stage weighs a freshness check per source, and the preload carries
+        // the bytes of every source that has no texture asset yet — the sources whose derivation is still owed.
+        // Asked before any stage runs, so "no asset yet" is the state the import is about to change.
+        double PendingTextureDerivationSeconds()
         {
-            std::vector<double> costs;
+            double seconds = 0.0;
             for ( const std::filesystem::path& source : LooseTextureSources() )
             {
                 std::error_code ec;
-                double          cost = kSecondsPerTextureCheck;
-                if ( !std::filesystem::exists( TextureImporter::AssetPathFor( source ), ec ) )
-                {
-                    const std::uintmax_t bytes = std::filesystem::file_size( source, ec );
-                    if ( !ec )
-                        cost += static_cast<double>( bytes ) * kSecondsPerCookedSourceByte;
-                }
-                costs.push_back( cost );
+                if ( std::filesystem::exists( TextureImporter::AssetPathFor( source ), ec ) )
+                    continue;
+                const std::uintmax_t bytes = std::filesystem::file_size( source, ec );
+                if ( !ec )
+                    seconds += static_cast<double>( bytes ) * kSecondsPerCookedSourceByte;
             }
+            return seconds;
+        }
+
+        // One row each at the registry rate, then the owed derivations as one item: the preloader reaches the
+        // textures among its rows in the registry's order, which the plan cannot know before the stage runs.
+        std::vector<double> PreloadCosts()
+        {
+            std::vector<double> costs( Assets::AssetPreloader::CookedAssetRowCount(), kSecondsPerAssetRow );
+            if ( const double derivation = PendingTextureDerivationSeconds(); derivation > 0.0 )
+                costs.push_back( derivation );
             return costs;
         }
     } // namespace
@@ -473,11 +481,10 @@ namespace Desert::Editor
                                               &TextureImporter::BuildPlatformData );
                                          (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                                      },
-                                     kSecondsPerTextureCheck, nullptr, [] { return TextureImportCosts(); } } );
+                                     kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...", [this]
                                      { m_AssetPreloader->PreloadCookedAssetsAndMaterials( SplashItems() ); },
-                                     kSecondsPerAssetRow,
-                                     [] { return Assets::AssetPreloader::CookedAssetRowCount(); } } );
+                                     kSecondsPerAssetRow, nullptr, [] { return PreloadCosts(); } } );
         m_StartupStages.push_back(
              { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
         m_StartupStages.push_back(

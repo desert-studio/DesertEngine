@@ -23,7 +23,10 @@ namespace Desert::Assets
             return Common::MakeError<bool>( key.GetError() );
         const std::string& sourceKey = key.GetValue().SourceFile;
         m_SourcePath                 = Common::AssetHandle::PathForStableKey( sourceKey ).string();
-        AdoptHandleFromFile( key.GetValue().Handle, sourceKey );
+        // The handle names THIS file, not the image it was imported from: SourceFile is provenance only and
+        // is gone from the tree after import, so indexing the handle under it would make every reference
+        // written through the index (TextureSlotToPath) name a file nothing can open.
+        AdoptHandleFromFile( key.GetValue().Handle, Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
         m_IsReadyForUse = true;
         return BOOLSUCCESS;
     }

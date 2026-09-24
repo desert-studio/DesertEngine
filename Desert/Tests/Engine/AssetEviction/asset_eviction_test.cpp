@@ -35,6 +35,7 @@
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
@@ -519,10 +520,12 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
     const uint64_t textureHandle = static_cast<uint64_t>( texture->GetMetadata().Handle );
 
     {
-        std::ofstream out( materialPath, std::ios::binary | std::ios::trunc );
-        ASSERT_TRUE( out.is_open() );
-        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","TextureHandle":)" << textureHandle
-            << R"(}]})";
+        // Through the one .demat writer, so the probe states the header and schema generation the loader
+        // requires; a hand-typed body without them loads as substituted defaults and names no texture.
+        MaterialData probe;
+        probe.SetTexture( "u_AlbedoTexture", textureHandle );
+        const auto written = WriteMaterialFile( materialPath, probe );
+        ASSERT_TRUE( written ) << written.GetError();
     }
 
     auto material = manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium,
@@ -754,9 +757,8 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
     AssetManager manager;
 
     {
-        std::ofstream out( materialPath, std::ios::binary | std::ios::trunc );
-        ASSERT_TRUE( out.is_open() );
-        out << R"({"Params":[],"Textures":[]})";
+        const auto written = WriteMaterialFile( materialPath, MaterialData{} );
+        ASSERT_TRUE( written ) << written.GetError();
     }
     auto material =
          manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium, Common::Filepath( materialPath ) );
