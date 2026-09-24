@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "972f1b3bbb049ef1c1ac350a698506a4",
         "Versions": {
-            "SCNE": 28,
+            "SCNE": 29,
             "UNIT": 1
         },
         "Dependencies": []
@@ -18,7 +18,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "assets:Textures/HDR/PreviewCheck.detex",
+                "SkyboxHandle": {
+                    "Guid": "e0ee3c11f6a10cf2edd3474d72613488",
+                    "Path": "assets:Textures/HDR/PreviewCheck.detex"
+                },
                 "Intensity": 1.0,
                 "Rotation": 180.0,
                 "Tint": [1.0, 1.0, 1.0]

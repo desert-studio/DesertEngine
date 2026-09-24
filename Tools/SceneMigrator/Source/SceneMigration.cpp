@@ -1,4 +1,8 @@
 #include "SceneMigration.hpp"
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <fstream>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -2089,6 +2093,216 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        rfl::Generic TextureRef( const std::string& guid, const std::string& key )
+        {
+            rfl::Generic::Object ref;
+            ref["Guid"] = guid;
+            ref["Path"] = key;
+            return rfl::Generic( std::move( ref ) );
+        }
+
+        // The header GUID a `.detex` states, refusing a missing file, another kind, or the null GUID.
+        Common::ResultStr<std::string> TextureGuidOfFile( const std::filesystem::path& file )
+        {
+            std::error_code ec;
+            if ( !std::filesystem::is_regular_file( file, ec ) )
+                return Common::MakeFormattedError<std::string>( "{}", "no file '" + file.generic_string() + "'" );
+            std::ifstream in( file, std::ios::binary );
+            std::string   prefix( 4096, '\0' );
+            in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+            const auto header = Common::Content::ReadEnvelopeHeader(
+                 std::span<const std::byte>( reinterpret_cast<const std::byte*>( prefix.data() ), prefix.size() ),
+                 Common::Content::AssetHeaderReadContext{ {}, true } );
+            if ( !header )
+                return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
+                                                                          "': " + header.GetError() );
+            const auto& asset = header.GetValue().Asset;
+            if ( asset.Kind != Common::Content::ContentKind::Texture &&
+                 asset.Kind != Common::Content::ContentKind::Skybox )
+                return Common::MakeFormattedError<std::string>(
+                     "{}", "'" + file.generic_string() + "' is not a texture (kind " +
+                                std::string( Common::Content::KindName( asset.Kind ) ) + ")" );
+            if ( asset.Guid.IsNull() )
+                return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
+                                                                          "' states the null GUID" );
+            return Common::MakeSuccess( Common::Content::AssetGuidToText( asset.Guid ) );
+        }
+
+        // `assets:<rel>` for a file under the assets root; an error naming it otherwise.
+        Common::ResultStr<std::string> AssetsKeyOf( const std::filesystem::path& file,
+                                                    const std::filesystem::path& assetsRoot )
+        {
+            std::error_code ec;
+            const auto      root = std::filesystem::absolute( assetsRoot, ec ).lexically_normal();
+            const auto      rel  = file.lexically_normal().lexically_relative( root ).generic_string();
+            if ( rel.empty() || rel == "." || rel.rfind( "..", 0 ) == 0 )
+                return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
+                                                                          "' lies outside the assets root '" +
+                                                                          root.generic_string() + "'" );
+            return Common::MakeSuccess( "assets:" + rel );
+        }
+
+        // A v28 skybox string -> the v29 reference object.
+        Common::ResultStr<rfl::Generic> SkyboxRefFor( const std::string& value, const std::filesystem::path& assetsRoot )
+        {
+            if ( value.empty() )
+                return Common::MakeSuccess( TextureRef( "", "" ) );
+            std::error_code       ec;
+            std::filesystem::path file;
+            if ( value.rfind( "assets:", 0 ) == 0 )
+                file = std::filesystem::absolute( assetsRoot, ec ) / value.substr( 7 );
+            else if ( std::filesystem::path( value ).is_absolute() )
+                file = value;
+            else
+                return Common::MakeFormattedError<rfl::Generic>(
+                     "{}", "is neither an assets: key nor an absolute path" );
+            const auto key = AssetsKeyOf( file, assetsRoot );
+            if ( !key )
+                return Common::MakeFormattedError<rfl::Generic>( "{}", key.GetError() );
+            const auto guid = TextureGuidOfFile( file );
+            if ( !guid )
+                return Common::MakeFormattedError<rfl::Generic>( "{}", guid.GetError() );
+            return Common::MakeSuccess( TextureRef( guid.GetValue(), key.GetValue() ) );
+        }
+
+        // handle -> {GUID text, assets: key} of every texture under the assets root, read once per file.
+        using TextureIndex = std::map<uint64_t, std::pair<std::string, std::string>>;
+
+        const TextureIndex& TexturesUnder( const std::filesystem::path& assetsRoot, std::optional<TextureIndex>& cache )
+        {
+            if ( cache )
+                return *cache;
+            cache.emplace();
+            std::error_code ec;
+            for ( auto it = std::filesystem::recursive_directory_iterator( assetsRoot, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( it->path().extension() != ".detex" )
+                    continue;
+                const auto guid = TextureGuidOfFile( it->path() );
+                const auto key  = AssetsKeyOf( std::filesystem::absolute( it->path() ), assetsRoot );
+                if ( !guid || !key )
+                    continue;
+                const auto parsed = Common::Content::AssetGuidFromText( guid.GetValue() );
+                ( *cache )[static_cast<uint64_t>( Common::Content::HandleForGuid( parsed.GetValue() ) )] = {
+                     guid.GetValue(), key.GetValue() };
+            }
+            return *cache;
+        }
+
+        void RaiseTextureGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                                const std::filesystem::path& assetsRoot, std::optional<TextureIndex>& index,
+                                TextureGuidsMigrationReport& report )
+        {
+            if ( const auto payload = components.get( "Skybox" ); payload.has_value() )
+                if ( const auto fields = payload.value().to_object(); fields.has_value() )
+                    if ( const auto value = fields.value().get( "SkyboxHandle" ); value.has_value() )
+                    {
+                        const std::string site = tag + " > Skybox.SkyboxHandle";
+                        if ( value.value().to_object().has_value() )
+                        {
+                            // Already a reference object: raised by an earlier run.
+                        }
+                        else if ( const auto text = value.value().to_string(); !text.has_value() )
+                            report.UnknownNames.push_back( site + " is " + Describe( value.value() ) +
+                                                           ", not a skybox reference" );
+                        else if ( const auto ref = SkyboxRefFor( text.value(), assetsRoot ); !ref )
+                            report.UnknownNames.push_back( site + " = '" + text.value() + "' " + ref.GetError() );
+                        else
+                        {
+                            if ( !text.value().empty() )
+                                ++report.Rewritten;
+                            rfl::Generic::Object kept = fields.value();
+                            kept["SkyboxHandle"]      = ref.GetValue();
+                            components["Skybox"]      = rfl::Generic( std::move( kept ) );
+                        }
+                    }
+
+            const auto payload = components.get( "Material" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return;
+            const auto list = fields.value().get( "Textures" );
+            if ( !list.has_value() )
+                return;
+            const auto slots = list.value().to_array();
+            if ( !slots.has_value() )
+                return;
+            rfl::Generic::Array raised;
+            bool                changed = false;
+            for ( std::size_t i = 0; i < slots.value().size(); ++i )
+            {
+                const auto slot = slots.value()[i].to_object();
+                if ( !slot.has_value() || !slot.value().get( "TextureHandle" ).has_value() )
+                {
+                    raised.push_back( slots.value()[i] ); // already {Name, Guid, Path}
+                    continue;
+                }
+                const auto        name = slot.value().get( "Name" );
+                const std::string slotName =
+                     name.has_value() ? name.value().to_string().value_or( std::string() ) : std::string();
+                const std::string site = tag + " > Material.Textures[" + std::to_string( i ) + "] (" + slotName + ")";
+                const auto        id   = slot.value().get( "TextureHandle" ).value().to_int64();
+                if ( !id.has_value() )
+                {
+                    report.UnknownNames.push_back( site + " is not a texture handle" );
+                    continue;
+                }
+                rfl::Generic::Object entry;
+                entry["Name"] = slotName;
+                if ( id.value() == 0 )
+                {
+                    entry["Guid"] = std::string();
+                    entry["Path"] = std::string();
+                }
+                else
+                {
+                    const auto& known = TexturesUnder( assetsRoot, index );
+                    const auto  hit   = known.find( static_cast<uint64_t>( id.value() ) );
+                    if ( hit == known.end() )
+                    {
+                        report.UnknownNames.push_back( site + " = " + std::to_string( id.value() ) +
+                                                       " is the handle of no .detex under the assets root" );
+                        continue;
+                    }
+                    entry["Guid"] = hit->second.first;
+                    entry["Path"] = hit->second.second;
+                    ++report.Rewritten;
+                }
+                raised.push_back( rfl::Generic( std::move( entry ) ) );
+                changed = true;
+            }
+            if ( !changed )
+                return;
+            rfl::Generic::Object kept = fields.value();
+            kept["Textures"]          = rfl::Generic( std::move( raised ) );
+            components["Material"]    = rfl::Generic( std::move( kept ) );
+        }
+    } // namespace
+
+    TextureGuidsMigrationReport MigrateTextureGuidsV28ToV29( std::vector<Assets::EntityData>& entities,
+                                                             const std::filesystem::path&     assetsRoot )
+    {
+        TextureGuidsMigrationReport report;
+        std::optional<TextureIndex> index;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseTextureGuids( entity.Components, tag, assetsRoot, index, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
+                RaiseTextureGuids( ( *entity.PrefabOverrides )[i].Components,
+                                   tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index, report );
+        }
+        return report;
+    }
+
     TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
                                                                      std::vector<Assets::EntityData>& entities,
                                                                      const std::filesystem::path&     assetsRoot )
@@ -3662,6 +3876,23 @@ namespace Desert::Migration
                         names += ( names.empty() ? "" : "; " ) + unknown;
                     report.Refused = "'" + name + "': " + std::to_string( report.MeshGuids.UnknownNames.size() ) +
                                      " mesh reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Rewrites the SkyboxHandle value and Material Textures entries; no step above writes either.
+            if ( statedSceneVersion < kSceneVersionTextureGuids )
+            {
+                report.TextureGuidsRaised = true;
+                report.TextureGuids       = MigrateTextureGuidsV28ToV29( entities, assetsRoot );
+                if ( !report.TextureGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.TextureGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name + "': " + std::to_string( report.TextureGuids.UnknownNames.size() ) +
+                                     " texture reference(s) cannot be raised to a header GUID: " + names +
                                      ". Nothing was written.";
                     return;
                 }
