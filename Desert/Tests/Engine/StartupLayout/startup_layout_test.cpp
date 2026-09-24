@@ -397,3 +397,25 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+TEST( StartupLayout, ABinaryStartedWhereItWasBuiltWorksFromItsCheckoutsEditor )
+{
+    // Visual Studio's F5 with per-user debugger settings that are not the generated ones: the working
+    // directory is the solution root, the binary is in build/Bin/<config>. Measured on Windows
+    // 2026-09-24 - the editor refused with "no Resources/Shaders" and nothing on screen said why.
+    const fs::path root = MakeCheckout( "started_where_built" );
+    fs::create_directories( root / "Editor" / "Resources" / "Shaders" );
+    const fs::path bin = root / "build" / "Bin" / "Debug";
+    fs::create_directories( bin );
+
+    const auto lookup = ResolveResourceRoot( root, bin );
+    EXPECT_TRUE( lookup.Explanation.empty() ) << lookup.Explanation;
+    EXPECT_TRUE( lookup.FromCheckout );
+    EXPECT_EQ( fs::path( lookup.WorkingDirectory ), root / "Editor" );
+
+    // ...and only by that shape: Bin/<config> outside build/ is not the checkout's build output.
+    const fs::path notBuild = root / "dist" / "Bin" / "Debug";
+    fs::create_directories( notBuild );
+    fs::create_directories( root / "dist" / "Editor" / "Resources" / "Shaders" );
+    EXPECT_FALSE( ResolveResourceRoot( root / "dist", notBuild ).FromCheckout );
+}

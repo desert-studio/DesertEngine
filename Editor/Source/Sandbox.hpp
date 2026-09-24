@@ -119,6 +119,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     const std::filesystem::path executable   = Common::Utils::FileSystem::ExecutablePath();
     const std::filesystem::path executableIn = executable.parent_path();
 
+    bool startedInCheckout = false;
+
     // 1. THE ENGINE RESOURCES, BEFORE ANYTHING READS ONE. Every engine resource is a path relative
     //    to the WORKING DIRECTORY (Common::Constants::Path), so this either leaves the working
     //    directory alone — which is what every `scripts/*/RunEditor.*` launch gets, because it has
@@ -134,6 +136,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             // whoever downloaded it an afternoon of looking at the wrong thing.
             Desert::Editor::RefuseToStart( 1, "[Engine] " + resources.Explanation );
         }
+        startedInCheckout = resources.FromCheckout;
         if ( !resources.WorkingDirectory.empty() )
         {
             // Absolute FIRST. The caller's `--project` (and anything else spelled relatively) was
@@ -167,6 +170,15 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     if ( options.Project.empty() )
     {
         auto beside = Desert::Project::ProjectBesideExecutable( executableIn );
+        // A binary started where it was built (an IDE's F5) has already moved into its checkout's
+        // Editor/, and the development project lives there - the same one the run scripts pass.
+        if ( !beside.IsSuccess() && startedInCheckout )
+        {
+            std::error_code cwdError;
+            if ( const auto here = std::filesystem::current_path( cwdError ); !cwdError )
+                if ( auto inEditor = Desert::Project::ProjectBesideExecutable( here ); inEditor.IsSuccess() )
+                    beside = std::move( inEditor );
+        }
         if ( !beside.IsSuccess() )
         {
             Desert::Editor::RefuseToStart( 1, beside.GetError() );
