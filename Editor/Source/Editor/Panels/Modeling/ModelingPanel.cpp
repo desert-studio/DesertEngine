@@ -610,18 +610,25 @@ namespace Desert::Editor
         using MS      = Core::ModelingState;
         auto&      ms = MS::Get();
         auto&      s  = ms.CreateShape;
+        // UE's ranges (AddPrimitiveTool.h:124-438): the slider spans the UI range, a typed value may go to
+        // the clamp range. Sizes: UI 1..1000 cm, clamp up to 1e6 cm; the low clamp is the generator's own
+        // smallest extent (1 mm) rather than UE's 1e-4 cm, so the panel never shows a size the mesh ignores.
         const auto cm = []( const char* label, float* value, const char* tip )
         {
             ImGui::SetNextItemWidth( 110.0f );
-            if ( ImGui::DragFloat( label, value, 1.0f, 1.0f, 100000.0f, "%.0f cm" ) )
-                *value = std::max( *value, 1.0f );
+            if ( ImGui::DragFloat( label, value, 1.0f, 1.0f, 1000.0f, "%.1f cm" ) )
+                *value = std::clamp( *value, Geometry::Detail::kMinExtent, 1000000.0f );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "%s", tip );
+                ImGui::SetTooltip( "%s\nDrag 1..1000 cm; Ctrl+click to type up to 1000000.", tip );
         };
-        const auto count = []( const char* label, int* value, int lowest, int highest )
+        const auto count = []( const char* label, int* value, int uiLowest, int uiHighest, int clampHighest )
         {
             ImGui::SetNextItemWidth( 110.0f );
-            ImGui::SliderInt( label, value, lowest, highest );
+            if ( ImGui::SliderInt( label, value, uiLowest, uiHighest ) )
+                *value = std::clamp( *value, uiLowest, clampHighest );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Drag %d..%d; Ctrl+click to type up to %d.", uiLowest, uiHighest,
+                                   clampHighest );
         };
 
         ImGui::TextUnformatted( MS::ShapeName( s.Kind ) );
@@ -638,14 +645,14 @@ namespace Desert::Editor
                 cm( "Height", &s.Height,
                     s.Kind == MS::Shape::Capsule ? "End to end, never less than the diameter." : "Y extent." );
             if ( s.Kind == MS::Shape::Box )
-                count( "Subdivisions", &s.Subdivisions, 1, 32 );
+                count( "Subdivisions", &s.Subdivisions, 1, 100, 500 );
             if ( round )
-                count( "Slices", &s.Slices, 3, 128 );
+                count( "Slices", &s.Slices, 3, 128, 500 );
             if ( s.Kind == MS::Shape::Sphere || s.Kind == MS::Shape::Capsule )
-                count( "Stacks", &s.Stacks, 2, 128 );
+                count( "Stacks", &s.Stacks, 4, 100, 500 );
             if ( s.Kind == MS::Shape::Stairs )
             {
-                count( "Steps", &s.Steps, 1, 64 );
+                count( "Steps", &s.Steps, 2, 100, 1000000 );
                 cm( "Step Depth", &s.StepDepth, "Tread depth, along +Z." );
                 cm( "Step Height", &s.StepHeight, "Riser height." );
             }

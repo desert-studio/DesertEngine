@@ -215,6 +215,28 @@ TEST( ShapeGenerators, TheEditMeshRendersTheSameShell )
 }
 
 // Base puts the bottom on Y = 0, Centre the middle, Top the top; X and Z stay centred.
+// UE clamps Box Subdivisions at 500 (AddPrimitiveTool.h), and the panel lets a typed value reach it: the
+// generator and the EditMesh the Create tool builds from it must both carry a box that dense, whole.
+TEST( ShapeGenerators, ABoxAtUEsSubdivisionCeilingIsWhole )
+{
+    constexpr int   n     = 500;
+    const ShapeMesh m     = MakeBox( { 100.0f, 100.0f, 100.0f }, glm::ivec3( n ) );
+    const size_t    quads = 6u * static_cast<size_t>( n ) * static_cast<size_t>( n );
+    ASSERT_EQ( m.Indices.size(), 2u * quads );
+    ASSERT_EQ( m.Groups.size(), m.Indices.size() );
+    for ( const Index& t : m.Indices )
+        ASSERT_TRUE( t.V1 < m.Vertices.size() && t.V2 < m.Vertices.size() && t.V3 < m.Vertices.size() );
+    EXPECT_NEAR( SignedVolume( m ), 100.0 * 100.0 * 100.0, 1.0 );
+    auto converted = ShapeToEditMesh( m );
+    ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
+    auto render = ToRenderMesh( converted.GetValue() );
+    ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
+    size_t drawn = 0;
+    for ( const Submesh& sub : render.GetValue().Submeshes )
+        drawn += sub.IndexCount / 3;
+    EXPECT_EQ( drawn, m.Indices.size() );
+}
+
 TEST( ShapeGenerators, PivotIsWhereItWasAsked )
 {
     for ( const ShapeCase& c : Cases() )
