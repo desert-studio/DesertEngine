@@ -656,6 +656,51 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
     EXPECT_EQ( plan.PointOnlyRecords, 3u ) << "only the fixtures have no primitive footprint";
 }
 
+// A GRID FINER THAN THE TILE: --partition-cell and --loading-range reach the block, and a 256 m ground tile
+// under a 128 m grid goes one level up — the WP3 level ladder is exercised by the generated world. Without
+// --partition the two flags would shape nothing, and saying nothing about it is refused.
+TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartition )
+{
+    const auto               out = Scratch() / "partitioned_fine.desce";
+    std::vector<std::string> args{ "--out",    out.string(),      "--assets",    AssetsRoot(),
+                                   "--preset", "smoke",           "--partition", "--partition-cell",
+                                   "12800",    "--loading-range", "51200" };
+    std::ostringstream       reported;
+    std::ostringstream       refused;
+    ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
+
+    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    ASSERT_TRUE( scene.has_value() );
+    ASSERT_TRUE( scene->WorldPartition.has_value() );
+    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
+    EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 12800.0f );
+    EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].LoadingRange, 51200.0f );
+
+    namespace Rules = Desert::Core::Rules;
+    const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    for ( std::size_t record = 0; record < scene->Entities.size(); ++record )
+    {
+        const auto& tag = scene->Entities[record].Tag.value_or( "" );
+        if ( tag.size() < 7 || tag.substr( tag.size() - 7 ) != "_Ground" )
+            continue;
+        for ( const auto& composite : plan.Composites )
+            if ( composite.Members.front() == record )
+                EXPECT_EQ( composite.Level, 1 ) << tag << " is two 128 m cells wide";
+    }
+
+    for ( const char* flag : { "--partition-cell", "--loading-range" } )
+    {
+        std::vector<std::string> alone{ "--out",    ( Scratch() / "refused.desce" ).string(),
+                                        "--assets", AssetsRoot(),
+                                        "--preset", "smoke",
+                                        flag,       "12800" };
+        std::ostringstream       quiet;
+        std::ostringstream       why;
+        EXPECT_EQ( Desert::WorldGen::RunWorldGen( alone, quiet, why ), 2 ) << flag;
+        EXPECT_NE( why.str().find( "--partition" ), std::string::npos ) << why.str();
+    }
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

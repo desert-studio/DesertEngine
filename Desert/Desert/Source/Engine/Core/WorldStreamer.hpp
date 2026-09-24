@@ -47,6 +47,21 @@ namespace Desert::Core
         // One frame: step the residency from the active camera's position and apply what it decides.
         [[nodiscard]] Common::BoolResultStr Tick( double nowSeconds );
 
+        // WHAT THE LAST Tick DID, for an instrument that attributes a frame's cost (the editor's --flight).
+        // Reset at the start of every Tick, so it never carries an earlier frame's activations.
+        struct TickReport
+        {
+            Rules::ResidencyTick Tick;
+            double               ActivationMs = 0.0; // summed over this tick's InstantiateRecords calls
+            std::string          ActivatedUnits;     // Rules::DescribeResidencyUnit of each, space-separated
+            std::size_t          LiveRecords = 0;    // records held as entities after the tick
+        };
+
+        [[nodiscard]] const TickReport& LastTick() const
+        {
+            return m_LastTick;
+        }
+
         // Whether @p scene is the one this streams: the editor updates several scenes a frame.
         [[nodiscard]] bool Streams( const Scene& scene ) const
         {
@@ -78,5 +93,7 @@ namespace Desert::Core
         double      m_ActivationMs     = 0.0;
         double      m_WorstUnitMs      = 0.0;
         std::size_t m_MostResident     = 0;
+
+        TickReport m_LastTick;
     };
 } // namespace Desert::Core
