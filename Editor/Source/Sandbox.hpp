@@ -4,6 +4,7 @@
 #include <Engine/EntryPoint.hpp>
 
 #include <Editor/Core/CommandLine.hpp>
+#include <Editor/Core/StartupRefusal.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
 #include <Engine/Project/EngineRegistration.hpp>
@@ -68,8 +69,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     {
         // stderr and a non-zero status, before any engine subsystem exists. There is no logger yet and no
         // frame to spoil, and a caller that reads the exit code learns the truth on the first byte.
-        std::fprintf( stderr, "%s\n", parsed.GetError().c_str() );
-        std::exit( 2 );
+        Desert::Editor::RefuseToStart( 2, parsed.GetError() );
     }
 
     // NOT const: the project is RESOLVED below -- made absolute before the working directory can
@@ -98,8 +98,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                     : Common::MakeError<Desert::Editor::Flight::Route>( text.GetError() );
             if ( !route )
             {
-                std::fprintf( stderr, "--flight: %s\n", route.GetError().c_str() );
-                std::exit( 2 );
+                Desert::Editor::RefuseToStart( 2, "--flight: " + route.GetError() );
             }
             shot.FlightRoute = route.ExtractValue();
             Desert::Editor::ArmFlight( shot );
@@ -133,8 +132,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         {
             // A REFUSAL, not a half-start. An editor that opens a window it cannot draw into costs
             // whoever downloaded it an afternoon of looking at the wrong thing.
-            std::fprintf( stderr, "[Engine] %s\n", resources.Explanation.c_str() );
-            std::exit( 1 );
+            Desert::Editor::RefuseToStart( 1, "[Engine] " + resources.Explanation );
         }
         if ( !resources.WorkingDirectory.empty() )
         {
@@ -152,11 +150,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             std::filesystem::current_path( resources.WorkingDirectory, moveError );
             if ( moveError )
             {
-                std::fprintf( stderr,
-                              "[Engine] the engine resources are in '%s' but this process could "
-                              "not work from there: %s\n",
-                              resources.WorkingDirectory.c_str(), moveError.message().c_str() );
-                std::exit( 1 );
+                Desert::Editor::RefuseToStart(
+                     1, "[Engine] the engine resources are in '" + resources.WorkingDirectory +
+                             "' but this process could not work from there: " + moveError.message() );
             }
         }
     }
@@ -173,8 +169,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         auto beside = Desert::Project::ProjectBesideExecutable( executableIn );
         if ( !beside.IsSuccess() )
         {
-            std::fprintf( stderr, "%s\n", beside.GetError().c_str() );
-            std::exit( 1 );
+            Desert::Editor::RefuseToStart( 1, beside.GetError() );
         }
         options.Project = beside.ExtractValue();
     }
@@ -191,9 +186,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                        : Desert::Editor::ProjectContext::RecordInRecent::Yes;
         if ( !Desert::Editor::ProjectContext::Open( options.Project, record ) )
         {
-            std::fprintf( stderr, "Could not open project '%s' (missing or corrupt .deproj).\n",
-                          options.Project.c_str() );
-            std::exit( 1 );
+            Desert::Editor::RefuseToStart( 1, "Could not open project '" + options.Project +
+                                                   "' (missing or corrupt .deproj)." );
         }
     }
 
@@ -247,8 +241,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     {
         if ( const auto set = Desert::Localization::Localization::Get().SetLanguage( options.Language ); !set )
         {
-            std::fprintf( stderr, "%s\n", set.GetError().c_str() );
-            std::exit( 2 );
+            Desert::Editor::RefuseToStart( 2, set.GetError() );
         }
     }
 
