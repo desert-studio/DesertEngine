@@ -27,11 +27,11 @@ namespace Desert::Editor::Core
 
         struct Target
         {
-            Common::UUID  Id;
-            ECS::Entity   Entity;
+            Common::UUID                              Id;
+            ECS::Entity                               Entity;
             std::shared_ptr<const Geometry::EditMesh> Mesh; // Bridge::EditMeshView of the entity's mesh
-            Geometry::Trs Local;
-            std::string   Name;
+            Geometry::Trs                             Local;
+            std::string                               Name;
         };
 
         Common::ResultStr<std::vector<Target>> SelectedTargets( ::Desert::Core::Scene& scene, XformOperation op,
@@ -62,7 +62,8 @@ namespace Desert::Editor::Core
                          "first",
                          ToString( op ), static_cast<uint64_t>( id ),
                          e.GetComponent<ECS::RelationshipComponent>().Children.size() );
-                auto view = Geometry::Bridge::EditMeshView( e.GetComponent<ECS::StaticMeshComponent>().EditableMesh );
+                auto view =
+                     Geometry::Bridge::EditMeshView( e.GetComponent<ECS::StaticMeshComponent>().EditableMesh );
                 if ( !view.IsSuccess() )
                     return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
                                                             static_cast<uint64_t>( id ), view.GetError() );

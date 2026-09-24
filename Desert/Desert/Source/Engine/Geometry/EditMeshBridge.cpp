@@ -21,17 +21,19 @@ namespace Desert::Geometry::Bridge
             std::shared_ptr<const EditMesh>    View;
         };
 
-        std::mutex                                           g_Mutex;
-        std::unordered_map<const FDynamicMesh3*, Entry>      g_Views;
+        std::mutex                                      g_Mutex;
+        std::unordered_map<const FDynamicMesh3*, Entry> g_Views;
 
-        void RememberLocked( const std::shared_ptr<const FDynamicMesh3>& mesh, std::shared_ptr<const EditMesh> view )
+        void RememberLocked( const std::shared_ptr<const FDynamicMesh3>& mesh,
+                             std::shared_ptr<const EditMesh>             view )
         {
             std::erase_if( g_Views, []( const auto& kv ) { return kv.second.Mesh.expired(); } );
             g_Views[mesh.get()] = Entry{ mesh, std::move( view ) };
         }
     } // namespace
 
-    Common::ResultStr<std::shared_ptr<const EditMesh>> EditMeshView( const std::shared_ptr<const FDynamicMesh3>& mesh )
+    Common::ResultStr<std::shared_ptr<const EditMesh>>
+    EditMeshView( const std::shared_ptr<const FDynamicMesh3>& mesh )
     {
         if ( !mesh )
             return Common::MakeError<std::shared_ptr<const EditMesh>>( "EditMeshView: no mesh" );
@@ -52,15 +54,17 @@ namespace Desert::Geometry::Bridge
         return Common::MakeSuccess( std::move( view ) );
     }
 
-    Common::ResultStr<std::shared_ptr<const FDynamicMesh3>> FromEditMesh( EditMesh mesh, ElementSelection* selection )
+    Common::ResultStr<std::shared_ptr<const FDynamicMesh3>> FromEditMesh( EditMesh          mesh,
+                                                                          ElementSelection* selection )
     {
         const CompactMaps maps = mesh.Compact();
         if ( selection )
             (void)selection->Remap( maps );
         auto converted = DynamicMeshFromSerialized( ToSerialized( mesh ), "EditMeshBridge" );
         if ( !converted.IsSuccess() )
-            return Common::MakeError<std::shared_ptr<const FDynamicMesh3>>( "FromEditMesh: " + converted.GetError() );
-        auto out = std::make_shared<const FDynamicMesh3>( converted.ExtractValue() );
+            return Common::MakeError<std::shared_ptr<const FDynamicMesh3>>( "FromEditMesh: " +
+                                                                            converted.GetError() );
+        auto             out = std::make_shared<const FDynamicMesh3>( converted.ExtractValue() );
         std::scoped_lock lock( g_Mutex );
         RememberLocked( out, std::make_shared<const EditMesh>( std::move( mesh ) ) );
         return Common::MakeSuccess( std::move( out ) );

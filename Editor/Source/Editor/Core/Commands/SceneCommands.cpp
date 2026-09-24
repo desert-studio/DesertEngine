@@ -295,7 +295,8 @@ namespace Desert::Editor::Commands
         public:
             EditMeshCommand( const Common::UUID& entity, std::string label,
                              std::shared_ptr<const Geometry::FDynamicMesh3> before,
-                             std::shared_ptr<const Geometry::FDynamicMesh3> after, std::unique_ptr<ICommand> alongside )
+                             std::shared_ptr<const Geometry::FDynamicMesh3> after,
+                             std::unique_ptr<ICommand>                      alongside )
                  : m_Entity( entity ), m_Label( std::move( label ) ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Alongside( std::move( alongside ) )
             {
@@ -551,9 +552,9 @@ namespace Desert::Editor::Commands
             };
             struct Gone
             {
-                Common::UUID                              Id;
+                Common::UUID                                   Id;
                 std::shared_ptr<const Geometry::FDynamicMesh3> Mesh;
-                std::vector<Assets::EntityData>           Snapshot;
+                std::vector<Assets::EntityData>                Snapshot;
             };
 
             XformCommand( std::string label, std::vector<Changed> changed, std::vector<Made> made,
@@ -1073,14 +1074,15 @@ namespace Desert::Editor::Commands
 
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
                                std::shared_ptr<const Geometry::FDynamicMesh3> before,
-                               std::unique_ptr<ICommand>                 alongside )
+                               std::unique_ptr<ICommand>                      alongside )
     {
         if ( !Ready() )
             return;
         auto e = FindEntity( uuid );
         if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
             return;
-        std::shared_ptr<const Geometry::FDynamicMesh3> after = e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
+        std::shared_ptr<const Geometry::FDynamicMesh3> after =
+             e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
         if ( after == before )
             return;
         CommandHistory::Get().PushCommand( std::make_unique<EditMeshCommand>(
@@ -1090,7 +1092,7 @@ namespace Desert::Editor::Commands
     Common::ResultStr<Common::UUID> RecordEditMeshSplit( const Common::UUID& uuid, const std::string& label,
                                                          std::shared_ptr<const Geometry::FDynamicMesh3> before,
                                                          std::shared_ptr<const Geometry::FDynamicMesh3> otherHalf,
-                                                         std::unique_ptr<ICommand>                 alongside )
+                                                         std::unique_ptr<ICommand>                      alongside )
     {
         if ( !Ready() )
             return Common::MakeFormattedError<Common::UUID>( "{}: the scene commands are not bound to a scene",

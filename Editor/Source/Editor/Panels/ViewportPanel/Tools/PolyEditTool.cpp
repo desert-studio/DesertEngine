@@ -198,14 +198,14 @@ namespace Desert::Editor::Tools
             if ( m_Dragging && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             {
                 const float ds = s - m_DragS;
-                auto dragView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
+                auto        dragView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
                 if ( !dragView.IsSuccess() )
                     LOG_ERROR( "[PolyEdit] the drag cannot read the entity's mesh: {0}", dragView.GetError() );
                 if ( std::abs( ds ) > 1e-4f && dragView.IsSuccess() )
                 {
                     // The component's mesh is immutable (EditableMesh.hpp): each step of the drag is a new
                     // mesh, so the one the drag started from stays intact for the undo record.
-                    auto            next = std::make_shared<Geometry::EditMesh>( *dragView.GetValue() );
+                    auto            next       = std::make_shared<Geometry::EditMesh>( *dragView.GetValue() );
                     const glm::vec3 deltaLocal = glm::vec3( glm::inverse( glm::mat3( world ) ) * ( ds * wN ) );
                     for ( const int vtx : m_SelVerts )
                         next->SetPosition( vtx, next->GetPosition( vtx ) + deltaLocal );
@@ -227,7 +227,9 @@ namespace Desert::Editor::Tools
                                     normals->SetElement( el, n );
                             }
                     }
-                    if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( target->Mesh(), std::move( *next ) ); set.IsSuccess() )
+                    if ( auto set =
+                              Geometry::Bridge::SetEditableMeshFromEditMesh( target->Mesh(), std::move( *next ) );
+                         set.IsSuccess() )
                     {
                         m_CentroidWorld += ds * wN;
                         m_DragS = s;
@@ -243,7 +245,7 @@ namespace Desert::Editor::Tools
 
             // Highlight the selected face (translucent green + outline).
             static const Geometry::EditMesh kNoMesh;
-            auto                            drawView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
+            auto drawView = Geometry::Bridge::EditMeshView( target->Mesh().EditableMesh );
             if ( !drawView.IsSuccess() )
             {
                 LOG_ERROR( "[PolyEdit] the highlight cannot read the entity's mesh: {0}", drawView.GetError() );

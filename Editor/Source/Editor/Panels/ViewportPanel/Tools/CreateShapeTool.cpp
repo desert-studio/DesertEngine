@@ -98,8 +98,7 @@ namespace Desert::Editor::Tools
         ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
         entity.GetComponent<ECS::TransformComponent>().Translation = position;
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
-        if ( auto set =
-                  Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
+        if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
              !set.IsSuccess() )
         {
             scene.DestroyEntity( entity );

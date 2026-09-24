@@ -242,8 +242,9 @@ namespace Desert::Editor::Core
                 break;
             }
             case MeshOperation::Subdivide:
-                result = WholeMesh( Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
-                                    selection.Mode() );
+                result =
+                     WholeMesh( Geometry::SubdivideMesh( beforeMesh, args.SubdivideLevels, args.SubdivideScheme ),
+                                selection.Mode() );
                 break;
             case MeshOperation::Mirror:
             {
@@ -302,8 +303,7 @@ namespace Desert::Editor::Core
                     return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterView.GetError() );
                 const glm::mat4 cutterToMesh = glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
                 result                       = WholeMesh(
-                     Geometry::TrimMesh( beforeMesh, *cutterView.GetValue(),
-                                                               cutterToMesh, args.TrimSide ),
+                     Geometry::TrimMesh( beforeMesh, *cutterView.GetValue(), cutterToMesh, args.TrimSide ),
                      selection.Mode() );
                 break;
             }

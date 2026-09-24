@@ -73,7 +73,7 @@ namespace Desert::Editor::Commands
     // undone / redone with the mesh as part of the SAME step (a mesh operation's selection change).
     void RecordEditMeshChange( const Common::UUID& uuid, const std::string& label,
                                std::shared_ptr<const Geometry::FDynamicMesh3> before,
-                               std::unique_ptr<ICommand>                 alongside = nullptr );
+                               std::unique_ptr<ICommand>                      alongside = nullptr );
 
     // Record a mesh operation that SPLIT the entity in two (Plane Cut, Keep Both Halves): the entity's CURRENT
     // EditableMesh is one half; a copy of the entity alone (not its children), named "<name> Half", is created
@@ -91,7 +91,7 @@ namespace Desert::Editor::Commands
     struct XformEntityState
     {
         Common::UUID                                    Entity;
-        std::shared_ptr<const Geometry::FDynamicMesh3>       Mesh;
+        std::shared_ptr<const Geometry::FDynamicMesh3>  Mesh;
         glm::vec3                                       Translation{ 0.0f };
         glm::vec3                                       Rotation{ 0.0f };
         glm::vec3                                       Scale{ 1.0f };

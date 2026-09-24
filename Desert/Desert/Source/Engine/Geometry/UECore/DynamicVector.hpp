@@ -5,6 +5,8 @@
 #include "Engine/Geometry/UECore/UECore.hpp"
 #include "Engine/Geometry/UECore/IndexTypes.hpp"
 
+#include <memory>
+
 namespace Desert::Geometry
 {
 
@@ -51,7 +53,7 @@ namespace Desert::Geometry
             Blocks.Reserve( N );
             for ( int32 k = 0; k < N; ++k )
             {
-                Blocks.Add( new TBlock( *Copy.Blocks[k] ) );
+                Blocks.Add( std::make_unique<TBlock>( *Copy.Blocks[k] ) );
             }
         }
 
@@ -73,7 +75,7 @@ namespace Desert::Geometry
                 CurBlockUsed = Copy.CurBlockUsed;
                 for ( int32 k = 0; k < N; ++k )
                 {
-                    Blocks.Add( new TBlock( *Copy.Blocks[k] ) );
+                    Blocks.Add( std::make_unique<TBlock>( *Copy.Blocks[k] ) );
                 }
             }
             return *this;
@@ -308,19 +310,16 @@ namespace Desert::Geometry
                                     // vector, or is set to zero if the vector is empty.
         unsigned int CurBlockUsed{ 0 }; //< Number of used items in the current block.
 
-        TArray<TBlock*> Blocks;
+        // UE's TArray<TBlock*> with a delete per block; unique_ptr here, so the vector owns its blocks by type.
+        TArray<std::unique_ptr<TBlock>> Blocks;
 
         void AddAllocatedBlock()
         {
-            Blocks.Add( new TBlock );
+            Blocks.Add( std::make_unique<TBlock>() );
         }
 
         void Empty( int32 NewReservedBlockCount = 0 )
         {
-            for ( int32 k = 0, N = Blocks.Num(); k < N; ++k )
-            {
-                delete Blocks[k];
-            }
             Blocks.Empty( NewReservedBlockCount );
         }
 
@@ -344,11 +343,6 @@ namespace Desert::Geometry
                 return;
             }
 
-            for ( int32 k = NewBlockCount; k < Blocks.Num(); ++k )
-            {
-                delete Blocks[k];
-                Blocks[k] = nullptr;
-            }
             Blocks.RemoveAt( NewBlockCount, Blocks.Num() - NewBlockCount, AllowShrinking );
         }
 
@@ -760,7 +754,7 @@ namespace Desert::Geometry
     {
         for ( uint32 BlockIndex = 0; BlockIndex <= CurBlock; ++BlockIndex )
         {
-            TBlock*      Block       = Blocks[BlockIndex];
+            TBlock*      Block       = Blocks[BlockIndex].get();
             const uint32 NumElements = BlockIndex < CurBlock ? BlockSize : CurBlockUsed;
             for ( uint32 ElementIndex = 0; ElementIndex < NumElements; ++ElementIndex )
             {

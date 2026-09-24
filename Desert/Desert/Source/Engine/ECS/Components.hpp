@@ -130,8 +130,8 @@ namespace Desert::ECS
         std::optional<Geometry::PrimitiveType> Primitive; // Optional primitive type for dynamic generation
         // A MESH BUILT IN THE EDITOR (CubeGrid, PolyEdit, later the Create/Model tools): the SOURCE OF TRUTH
         // for this entity's geometry, saved as-is (StaticMeshComponentSer::EditMesh). Immutable once set -
-        // an edit builds a new FDynamicMesh3 and hands it to ECS::SetEditableMesh (Engine/ECS/EditableMesh.hpp), so
-        // an undo record can keep the old one by reference and a snapshot never aliases a live edit.
+        // an edit builds a new FDynamicMesh3 and hands it to ECS::SetEditableMesh (Engine/ECS/EditableMesh.hpp),
+        // so an undo record can keep the old one by reference and a snapshot never aliases a live edit.
         std::shared_ptr<const Geometry::FDynamicMesh3> EditableMesh;
         // DERIVED from EditableMesh by ECS::SetEditableMesh (Geometry::ToRenderMesh), and only by it: null
         // exactly when EditableMesh is. What the render path, picking and the Details panel read.

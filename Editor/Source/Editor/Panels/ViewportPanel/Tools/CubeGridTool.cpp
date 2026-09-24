@@ -1000,7 +1000,8 @@ namespace Desert::Editor::Tools
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
+        if ( auto set =
+                  Geometry::Bridge::SetEditableMeshFromEditMesh( smc, std::move( imported.ExtractValue().Mesh ) );
              !set.IsSuccess() )
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
     }

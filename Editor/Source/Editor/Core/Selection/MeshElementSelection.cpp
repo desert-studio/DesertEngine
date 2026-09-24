@@ -65,7 +65,8 @@ namespace Desert::Editor::Core
         return "Unknown";
     }
 
-    void MeshElementSelection::Track( const Common::UUID& entity, std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
+    void MeshElementSelection::Track( const Common::UUID&                            entity,
+                                      std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
     {
         if ( static_cast<uint64_t>( entity ) != static_cast<uint64_t>( m_Entity ) )
         {
@@ -123,7 +124,11 @@ namespace Desert::Editor::Core
             m_Selection = Geometry::ElementSelection( mode );
             return Common::MakeSuccess( true );
         }
-        Commit( Geometry::ConvertSelection( *m_Mesh, m_Selection, mode ),
+        auto view = Geometry::Bridge::EditMeshView( m_Mesh );
+        if ( !view.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Mesh Selection: the edited mesh cannot be read: {}",
+                                                     view.GetError() );
+        Commit( Geometry::ConvertSelection( *view.GetValue(), m_Selection, mode ),
                 std::string( "Mesh Selection: " ) + Geometry::ToString( mode ) + " mode" );
         return Common::MakeSuccess( true );
     }
@@ -134,7 +139,11 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<bool>(
                  "Mesh Selection: {} needs the Select Elements tool on an entity with an editable mesh",
                  ToString( op ) );
-        const Geometry::EditMesh&  mesh = *m_Mesh;
+        auto view = Geometry::Bridge::EditMeshView( m_Mesh );
+        if ( !view.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Mesh Selection: the edited mesh cannot be read: {}",
+                                                     view.GetError() );
+        const Geometry::EditMesh&  mesh = *view.GetValue();
         Geometry::ElementSelection next( m_Selection.Mode() );
         switch ( op )
         {

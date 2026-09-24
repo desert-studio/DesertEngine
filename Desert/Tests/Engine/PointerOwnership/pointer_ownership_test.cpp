@@ -500,11 +500,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
     //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2
     //   Shared): 400 / 345 / 131 / 39 = 915.
-    EXPECT_EQ( CountOf( Form::Raw ), 400 );
-    EXPECT_EQ( CountOf( Form::Shared ), 345 );
-    EXPECT_EQ( CountOf( Form::Unique ), 131 );
-    EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 915 )
+    //   P8a (2026-09-24) brought the ported UE GeometryCore in: Raw +12, the register's UECore rows (back-
+    //   references to the parent mesh, iterators and enumerables over their container, views over a mesh the
+    //   caller holds); Unique +7, FDynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
+    //   material / polygroup layers and TDynamicVector::Blocks (UE's TArray<TBlock*> + delete, owned by type
+    //   here); Shared +3 and Weak +1, EditMeshBridge's view cache (weak key, shared EditMesh view) and the
+    //   EditMesh views the selection tools hold. Members retyped from EditMesh to FDynamicMesh3 do not move.
+    //   From the merge-base: 412 / 348 / 138 / 40 = 938.
+    EXPECT_EQ( CountOf( Form::Raw ), 412 );
+    EXPECT_EQ( CountOf( Form::Shared ), 348 );
+    EXPECT_EQ( CountOf( Form::Unique ), 138 );
+    EXPECT_EQ( CountOf( Form::Weak ), 40 );
+    EXPECT_EQ( (int)Members().size(), 938 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -759,7 +766,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // -> 343 with WP9: a cooked world's index, the Play snapshot and the cell source, co-held by the JobSystem
     // workers reading cells - see TheScanFindsTheCensusedPopulation.
     // -> 345 with M17: XformEntityState::Mesh and XformCommand::Gone::Mesh.
-    EXPECT_EQ( CountOf( Form::Shared ), 345 );
+    // -> 348 with P8a: EditMeshBridge's cached EditMesh view and the selection tools' EditMesh views.
+    EXPECT_EQ( CountOf( Form::Shared ), 348 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

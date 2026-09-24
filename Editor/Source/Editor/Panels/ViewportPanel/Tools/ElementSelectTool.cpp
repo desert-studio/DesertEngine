@@ -52,9 +52,10 @@ namespace Desert::Editor::Tools
                 LOG_ERROR( "[Select Elements] the entity's mesh cannot be read: {0}", view.GetError() );
                 return {};
             }
-            return { smc.EditableMesh, view.ExtractValue(), e.HasComponent<ECS::TransformComponent>()
-                                            ? e.GetComponent<ECS::TransformComponent>().GetTransform()
-                                            : glm::mat4( 1.0f ) };
+            return { smc.EditableMesh, view.ExtractValue(),
+                     e.HasComponent<ECS::TransformComponent>()
+                          ? e.GetComponent<ECS::TransformComponent>().GetTransform()
+                          : glm::mat4( 1.0f ) };
         }
 
         struct Painter
