@@ -369,3 +369,33 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
     EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
     fs::remove_all( dir );
 }
+
+// THE CLOUD LAYOUT PASS (AF7y, T6b2, container 1 -> 2). Written first; RED until the pass exists. A bare
+// "DCLY" v1 file is wrapped in the AF1 binary envelope with a fresh GUID, which the header-only read finds;
+// the painting's bytes survive unchanged inside it; a second run leaves the file byte-identical.
+TEST( SceneMigratorWritePath, ACloudLayoutIsWrappedInTheEnvelopeOnceAndASecondRunChangesNothing )
+{
+    const fs::path dir  = MakeTempDir( "AF7yCloudLayoutMigration" );
+    const fs::path file = dir / "Painted.dclayout";
+    std::string    v1   = std::string( "DCLY" ) + std::string( "\x01\0\0\0", 4 );
+    v1.resize( 48, '\0' );
+    {
+        std::ofstream out( file, std::ios::binary );
+        out.write( v1.data(), static_cast<std::streamsize>( v1.size() ) );
+    }
+
+    std::string report, errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    const std::string raised = ReadRaw( file );
+    ASSERT_NE( raised, v1 ) << "the v1 layout was not raised:\n" << report << errors;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError();
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::CloudLayout );
+    EXPECT_FALSE( header.GetValue().Guid.IsNull() );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v2 layout (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}

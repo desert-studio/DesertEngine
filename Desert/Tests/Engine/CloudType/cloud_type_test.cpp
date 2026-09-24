@@ -28,6 +28,7 @@
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/CloudLayout.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -1575,6 +1576,54 @@ TEST( CloudTypeLibrary, AShippedCloudMaterialsTypeSlotNamesARegisteredType )
          << " names no shipped cloud type: every type registers under HandleForGuid of its header GUID, so "
             "CloudTypeService::GetShape misses and the layer silently renders the built-in default. The "
             "slot still holds the pre-format-4 path-derived number; T6c (MATL 3) re-points it by GUID.";
+}
+
+// T6b2 (AF7y) - `.dclayout` 1 -> 2: THE LAYOUT IS WRAPPED IN THE AF1 BINARY ENVELOPE, like a `.detex`.
+// Written first; RED until T6b2 lands. The header is read by the one BinaryEnvelopeFormat (kind CloudLayout,
+// a GUID, the layout version under its own tag) without the painting being decoded, and a bare version-1
+// "DCLY" file is refused by name, pointing at Tools/SceneMigrator.
+namespace
+{
+    Desert::Assets::CloudLayoutData SmallMaskOnlyLayout()
+    {
+        auto canvas = Desert::Assets::MakeCloudLayoutCanvas( Desert::Assets::kCloudLayoutMinResolution );
+        EXPECT_TRUE( canvas );
+        auto painted = canvas.ExtractValue();
+        EXPECT_TRUE( Desert::Assets::SetCloudLayoutCanvasMask( painted, true ) );
+        auto made = Desert::Assets::MakeCloudLayoutFromCanvas( painted );
+        EXPECT_TRUE( made );
+        return made.ExtractValue();
+    }
+} // namespace
+
+TEST( CloudLayoutFormat, AnEncodedLayoutIsAnAssetEnvelopeWhoseHeaderNamesACloudLayout )
+{
+    const auto encoded = Desert::Assets::EncodeCloudLayout( SmallMaskOnlyLayout() );
+    ASSERT_TRUE( encoded ) << encoded.GetError();
+    const auto&                      bytes = encoded.GetValue();
+    const std::span<const std::byte> view( reinterpret_cast<const std::byte*>( bytes.data() ), bytes.size() );
+    ASSERT_TRUE( Common::Content::BinaryEnvelopeHeaderFormat().Recognises(
+         view.first( std::min( view.size(), Common::Content::ASSET_HEADER_SNIFF_BYTES ) ) ) )
+         << "a .dclayout does not open with the DAST envelope";
+    const auto header =
+         Common::Content::ReadEnvelopeHeader( view, Common::Content::AssetHeaderReadContext{ {}, true } );
+    ASSERT_TRUE( header ) << header.GetError();
+    EXPECT_EQ( header.GetValue().Asset.Kind, Common::Content::ContentKind::CloudLayout );
+    EXPECT_FALSE( header.GetValue().Asset.Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Asset.Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Asset.Subsystems[0].Version, 2u );
+    EXPECT_TRUE( Desert::Assets::DecodeCloudLayout( bytes ) ) << "the envelope does not read back";
+}
+
+TEST( CloudLayoutFormat, ABareVersionOneFileIsRefusedNamingTheMigrator )
+{
+    // The version-1 container as it shipped: "DCLY", u32 1, then the 40 bytes the payload header was.
+    std::vector<unsigned char> v1 = { 'D', 'C', 'L', 'Y', 1, 0, 0, 0 };
+    v1.resize( 48, 0 );
+    const auto refused = Desert::Assets::DecodeCloudLayout( v1 );
+    ASSERT_FALSE( refused ) << "a header-less version-1 layout was read";
+    EXPECT_NE( refused.GetError().find( "version 1" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }
 
 int main( int argc, char** argv )
