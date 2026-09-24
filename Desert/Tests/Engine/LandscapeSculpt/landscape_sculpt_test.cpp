@@ -27,7 +27,8 @@ namespace
     /// A deterministic bumpy field: large enough amplitude that smoothing has something to remove.
     uint16_t Noise( int32_t gx, int32_t gz )
     {
-        uint32_t h = static_cast<uint32_t>( gx * 73856093 ) ^ static_cast<uint32_t>( gz * 19349663 );
+        // Hashed in uint32_t: the products overflow int32_t, and signed overflow is undefined (UBSan).
+        uint32_t h = ( static_cast<uint32_t>( gx ) * 73856093u ) ^ ( static_cast<uint32_t>( gz ) * 19349663u );
         h ^= h >> 13;
         h *= 0x5bd1e995u;
         h ^= h >> 15;

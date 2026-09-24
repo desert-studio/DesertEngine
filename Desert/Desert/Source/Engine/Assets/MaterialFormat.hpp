@@ -19,6 +19,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace Desert::Assets
 {
@@ -35,11 +36,12 @@ namespace Desert::Assets
     // be saved again) assigns this back, so the minted GUID is the one every later save states.
     [[nodiscard]] inline MaterialData StampMaterialHeader( MaterialData material )
     {
-        material.Header =
+        auto header =
              StampTextHeader( material.Header, Common::Content::ContentKind::Material, MaterialTextSubsystems() );
         // An instance's one outgoing reference, stated where a reader of the header alone finds it.
-        if ( material.IsInstance() )
-            material.Header->Dependencies = { *material.Parent };
+        if ( const std::string* parent = material.ParentText() )
+            header.Dependencies = { *parent };
+        material.Header = std::move( header );
         return material;
     }
 
@@ -71,25 +73,34 @@ namespace Desert::Assets
             return Common::MakeError<MaterialData>(
                  "[Material] '" + std::string( source ) +
                  "' is not a readable material file: " + parsed.error().what() );
-        const int stated = StatedVersion( parsed.value().Header, kMaterialSchemaTag );
-        if ( stated != static_cast<int>( kMaterialSchemaVersion ) )
+        const MaterialData& material    = parsed.value();
+        const auto          wrongSchema = [&source]( int stated )
+        {
             return Common::MakeError<MaterialData>(
                  "[Material] '" + std::string( source ) + "' states material schema v" + std::to_string( stated ) +
                  " and this engine reads v" + std::to_string( kMaterialSchemaVersion ) +
                  " only (v0 = no header, v1 = a MaterialId beside the GUID: run Tools/SceneMigrator over it "
                  "once)" );
+        };
+        // No header at all is schema v0: refused here, by name, before anything reads the header.
+        if ( !material.Header.has_value() )
+            return wrongSchema( 0 );
+        const Common::Content::TextAssetHeaderSerialized& textHeader = *material.Header;
+        const int stated = StatedVersion( material.Header, kMaterialSchemaTag );
+        if ( stated != static_cast<int>( kMaterialSchemaVersion ) )
+            return wrongSchema( stated );
         const Common::Content::AssetHeaderReadContext context{ MaterialTextSubsystems() };
-        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
+        const auto header = Common::Content::TextHeaderToAssetHeader( textHeader, context );
         if ( !header )
             return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
                                                     "': " + header.GetError() );
         if ( header.GetValue().Kind != Common::Content::ContentKind::Material )
             return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
-                                                    "': the header says kind '" + parsed.value().Header->Kind +
+                                                    "': the header says kind '" + textHeader.Kind +
                                                     "', not 'Material'" );
-        if ( parsed.value().IsInstance() )
+        if ( const std::string* parentTextOrNull = material.ParentText() )
         {
-            const std::string& parentText = *parsed.value().Parent;
+            const std::string& parentText = *parentTextOrNull;
             const auto         parent     = Common::Content::AssetGuidFromText( parentText );
             if ( !parent || parent.GetValue().IsNull() )
                 return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) + "': Parent '" +
