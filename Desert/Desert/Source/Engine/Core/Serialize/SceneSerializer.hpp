@@ -1,11 +1,13 @@
 #pragma once
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
 
+#include <span>
 #include <string_view>
 
 namespace Desert::Core
@@ -49,9 +51,22 @@ namespace Desert::Core
         /// the same reason: nothing may compute this path except the caller that owns it.
         [[nodiscard]] Common::BoolResultStr SaveToFile( const Common::Filepath& path ) const;
 
+        /// Makes entities of @p records in the scene: the identity stitch, then the same three passes a whole
+        /// file goes through (create, fill and attach, instantiate prefabs). DeserializeFromJson calls it with
+        /// every record of the file; the world streamer calls it with the records of one cell, so a cell comes
+        /// back exactly as a load would have made it. Parents are resolved among @p records only — a unit of
+        /// the partition holds whole composites, so a parent is never in another call.
+        [[nodiscard]] Common::BoolResultStr InstantiateRecords( std::span<const Assets::EntityData> records,
+                                                                std::string_view sceneName ) const;
+
     private:
         Scene*                m_Scene;
         Assets::AssetManager* m_AssetManager;
     };
+
+    /// A mesh asset's box, from the cooked registry's Bounds column: read without loading the mesh, which is
+    /// the point — a partition that had to load every mesh to place it would be the eager boot this engine
+    /// removed. What the loader and the world streamer both plan a partition with.
+    [[nodiscard]] Rules::AssetBoundsSource RegistryMeshBounds();
 
 } // namespace Desert::Core

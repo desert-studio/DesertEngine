@@ -450,11 +450,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   and +2 Unique with SP1 (878 -> 880 after WP6 and M1): the start-up splash, owned by `Sandbox::m_Splash`
     //   from before the renderer exists until the editor layer takes it (`EditorLayer::m_Splash`). One object
     //   handed over once -- a move, never a second owner -- so Unique is the honest form and neither owes a row.
-    EXPECT_EQ( CountOf( Form::Raw ), 388 );
+    //   and WP5b (2026-09-24) added WorldStreamer::m_Scene and ::m_Assets (two rows) and two unique_ptrs,
+    //   EditorLayer::m_WorldStreamer and RuntimeLayer::m_WorldStreamer, each the one owner of the streamer of
+    //   the world it plays. Raw 388+2, Unique 123+2.
+    EXPECT_EQ( CountOf( Form::Raw ), 390 );
     EXPECT_EQ( CountOf( Form::Shared ), 331 );
-    EXPECT_EQ( CountOf( Form::Unique ), 123 );
+    EXPECT_EQ( CountOf( Form::Unique ), 125 );
     EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 880 )
+    EXPECT_EQ( (int)Members().size(), 884 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

@@ -242,6 +242,14 @@ namespace Desert::Player
                       m_Boot.Run( "Initialising the loaded scene", [this] { return m_Scene->Init(); } );
                  !init )
                 return init;
+            // A game has no Edit mode and never saves its world, so a partitioned one streams from its first
+            // frame: the file's records stay in memory and only the camera's neighbourhood stays entities.
+            auto streamer = m_Boot.Run(
+                 "Starting world streaming",
+                 [&] { return Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson.GetValue() ); } );
+            if ( !streamer )
+                return Common::MakeError( streamer.GetError() );
+            m_WorldStreamer = streamer.ExtractValue();
             LOG_INFO( "[Runtime] Scene loaded: {}", scenePath );
         }
         else
@@ -343,6 +351,7 @@ namespace Desert::Player
         }
 
         EngineContext::GetInstance().GetDevice()->WaitIdle(); // scene teardown frees GPU resources
+        m_WorldStreamer.reset();                              // streams the world about to be cleared
         m_Scene->Clear();                                     // keeps the gameplay systems, drops the entities
 
         // A notification raised by the level being left names an overlay canvas of THAT level. Carrying it
@@ -372,6 +381,13 @@ namespace Desert::Player
             LOG_ERROR( "[Runtime] Scene switch init failed: {}", init.GetError() );
             return;
         }
+        auto streamer = Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
+        if ( !streamer )
+        {
+            LOG_ERROR( "[Runtime] Scene switch could not stream the world: {}", streamer.GetError() );
+            return;
+        }
+        m_WorldStreamer = streamer.ExtractValue();
         m_Scene->SetState( Core::Scene::SceneState::Play );
         // THE SAME GATE AS THE BOOT'S, and this is the half that would have been forgotten. A level switch
         // is a second world handed over at run time — its clouds, its layouts, its themes are read on
@@ -620,6 +636,18 @@ namespace Desert::Player
         // nobody had ordered and the gate would never open. What must not run is TIME: without this the
         // player's first visible frame is already several frames into the game, with the physics stepped
         // and every script's OnUpdate called against a world they could not be seen reacting to.
+        // BEFORE the systems run, so no system sees an entity whose cell has just left.
+        if ( m_WorldStreamer )
+        {
+            m_WorldStreamClock += ts.GetSeconds();
+            if ( auto streamed = m_WorldStreamer->Tick( m_WorldStreamClock ); !streamed )
+            {
+                // The world stays as it is now and the game goes on in it; streaming does not.
+                LOG_ERROR( "[Runtime] world streaming stopped: {}", streamed.GetError() );
+                m_WorldStreamer.reset();
+            }
+        }
+
         if ( const auto frame = m_Scene->OnUpdate( m_Content.Loading() ? Common::Timestep( 0.0f ) : ts ); !frame )
             return Common::MakeError( frame.GetError() );
 

@@ -35,6 +35,7 @@
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include "Editor/Core/CommandLine.hpp"
 #include "Editor/Core/Control/ControlChannelOptions.hpp"
@@ -2563,6 +2564,20 @@ namespace Desert::Editor
         if ( registry )
             registry->Render();
 
+        // BEFORE the systems run, so no system sees an entity whose cell has just left.
+        if ( m_WorldStreamer && m_WorldStreamer->Streams( scene ) )
+        {
+            DESERT_PROFILE_SCOPE( "WorldStreamer::Tick" );
+            m_WorldStreamClock += ts.GetSeconds();
+            if ( auto streamed = m_WorldStreamer->Tick( m_WorldStreamClock ); !streamed )
+            {
+                // The world stays as it is now, and Play goes on in it; streaming does not.
+                LOG_ERROR( "[Scene] world streaming stopped: {0}", streamed.GetError() );
+                Editor::ToastManager::Push( "World streaming stopped — see the log", Editor::ToastLevel::Error );
+                m_WorldStreamer.reset();
+            }
+        }
+
         {
             DESERT_PROFILE_SCOPE( "Scene::OnUpdate" );
             if ( auto frame = scene.OnUpdate( ts ); !frame )
@@ -2641,6 +2656,7 @@ namespace Desert::Editor
             m_EditorState      = EditorState::Paused;
             m_PendingSceneStop = false;
             m_PlaySnapshot.clear();
+            m_WorldStreamer.reset();
         }
 
         // The editor must not stay bound to a scene that is about to stop existing. Rebinding BEFORE the
@@ -7500,6 +7516,20 @@ namespace Desert::Editor
         // Snapshot the authored scene so Stop can restore it exactly (play-time edits are discarded).
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         m_PlaySnapshot = serializer.SerializeToJson();
+        // AFTER the snapshot: streaming destroys every cell outside the camera's neighbourhood, and Stop
+        // restores what the snapshot holds. A world that cannot stream does not play half-loaded - it does not
+        // play, and says why.
+        auto streamer = Desert::Core::WorldStreamer::Begin( *m_MainScene, *m_AssetManager, m_PlaySnapshot );
+        if ( !streamer )
+        {
+            LOG_ERROR( "[Scene] Play refused: {0}", streamer.GetError() );
+            Editor::ToastManager::Push( "Play refused: the world could not stream — see the log",
+                                        Editor::ToastLevel::Error );
+            m_PlaySnapshot.clear();
+            return;
+        }
+        m_WorldStreamer    = streamer.ExtractValue();
+        m_WorldStreamClock = 0.0;
         // Play-time changes are discarded on Stop anyway, and the Stop restore recreates every entity —
         // an undo stack recorded against the authored scene must not fire into either state.
         CommandHistory::Get().Clear();
@@ -7515,6 +7545,7 @@ namespace Desert::Editor
 
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         CommandHistory::Get().Clear(); // anything recorded during Play targets entities about to be rebuilt
+        m_WorldStreamer.reset();       // before Clear: the snapshot below brings every cell back
         m_MainScene->Clear();
 
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
