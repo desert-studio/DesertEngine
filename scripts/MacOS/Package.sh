@@ -81,7 +81,7 @@ done
 # out fresh too, which is why no CI artifact ever carried one and why this could stay invisible: it
 # only ever affected a drop packaged on a developer's own machine, which is the one a developer
 # hands to somebody.
-for tree in Shaders Fonts Icons Splash; do
+for tree in Branding Shaders Fonts Icons Splash; do
     if [ ! -d "$ROOT/Editor/Resources/$tree" ]; then
         echo "Package.sh: engine resource tree Editor/Resources/$tree is missing" >&2
         exit 1
@@ -161,6 +161,6 @@ if [ ! -f "$OUT/Cooked/AssetRegistry.dreg" ]; then
 fi
 
 echo "Package.sh: packaged -> $OUT"
-echo "  engine resources: Shaders + Fonts + Icons + Splash (its picture is committed there)"
+echo "  engine resources: Branding + Shaders + Fonts + Icons + Splash (its picture is committed there)"
 echo "  project assets:   $COPIED files, the closure of $(basename "$PROJECT")'s DefaultScene"
 du -sh "$OUT"

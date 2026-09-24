@@ -237,6 +237,9 @@ TEST( TeardownOrder, StdExitAppearsOnlyBeforeTheApplicationExists )
 
     // Both hold a CreateApplication and nothing else that runs during a frame.
     const std::set<std::string> allowed = { "Sandbox.hpp", "Main.cpp" };
+    // A relay: RefuseToStart() reports a pre-window refusal and then calls std::exit(). It is legitimate
+    // only while every caller is itself one of the files above, which the walk below enforces.
+    const std::set<std::string> relays = { "StartupRefusal.cpp", "StartupRefusal.hpp" };
 
     size_t scanned = 0;
     for ( const auto& tree : trees )
@@ -248,10 +251,14 @@ TEST( TeardownOrder, StdExitAppearsOnlyBeforeTheApplicationExists )
             if ( !entry.is_regular_file() || ( p.extension() != ".cpp" && p.extension() != ".hpp" ) )
                 continue;
             ++scanned;
-            if ( allowed.count( p.filename().string() ) == 1 )
+            if ( allowed.count( p.filename().string() ) == 1 || relays.count( p.filename().string() ) == 1 )
                 continue;
 
             const std::string code = StripLineComments( ReadFile( p ) );
+            EXPECT_EQ( code.find( "RefuseToStart(" ), std::string::npos )
+                 << p.string()
+                 << " calls RefuseToStart(), which ends in std::exit(). Only CreateApplication may call it; "
+                    "inside a running frame use Application::Close(status) instead.";
             EXPECT_EQ( code.find( "std::exit(" ), std::string::npos )
                  << p.string()
                  << " calls std::exit() outside CreateApplication. Inside a running frame "
