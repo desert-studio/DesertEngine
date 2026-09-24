@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# handoff_check.sh [base=origin/dev] — everything a branch must pass before hand-off, in one call.
+# Runs every built test in build/Bin/Tests/Debug from the tree root (exit codes, 300 s cap, HANDOFF_JOBS=4 in
+# parallel, reds re-run alone), RepoOnlyIncludes --require-replacements, llvm@18 clang-format on changed lines,
+# and the .claude guard; warns on test binaries older than their .o or linked libs. Exit 0 = all green.
+# On green with a clean tree, writes .cache/handoff/<full HEAD sha>.ok (the summary line); any red deletes it.
+set -u
+source "$(dirname "$0")/_common.sh"
+[ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] && { dev_help "$0"; exit 0; }
+BASE="${1:-origin/dev}"
+cd "$DEV_ROOT" || exit 2
+git rev-parse -q --verify "$BASE^{commit}" >/dev/null || { echo "handoff_check: unknown base '$BASE'"; exit 2; }
+HEAD_SHA=$(git rev-parse HEAD)
+MARKER="$DEV_ROOT/.cache/handoff/$HEAD_SHA.ok"
+rm -f "$MARKER"
+# Keep the last five run directories; the older ones are only disk.
+ls -dt build/DevLogs/handoff-* 2>/dev/null | tail -n +6 | xargs rm -rf
+LOG=$(dev_logdir handoff)
+start=$(date +%s)
+fail=0
+
+# (a) every test binary, from the root: several suites resolve fixtures relative to the working directory.
+# Parallel for time; a suite that fails in parallel is re-run ALONE before it counts as red, so two suites
+# sharing a temp path cannot manufacture a red.
+BIN=build/Bin/Tests/Debug
+run_one() { dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"; }
+export -f run_one dev_capped
+bins=()
+for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
+total=${#bins[@]}
+[ "$total" -gt 0 ] && printf '%s\n' "${bins[@]}" | xargs -P "${HANDOFF_JOBS:-4}" -I{} bash -c 'run_one "$1" "$2"' _ {} "$LOG"
+passed=0; red=(); stale=()
+for t in "${bins[@]}"; do
+    name=$(basename "$t")
+    rc=$(cat "$LOG/$name.rc" 2>/dev/null || echo 255)
+    if [ "$rc" != 0 ]; then run_one "$t" "$LOG"; rc=$(cat "$LOG/$name.rc"); fi
+    if [ "$rc" = 0 ]; then passed=$((passed + 1)); else
+        tests=$(grep -a '^\[  FAILED  \] [A-Za-z_]' "$LOG/$name.log" | grep -av 'listed below' |
+                sed 's/^\[  FAILED  \] //; s/ (.*//; s/,.*//' | sort -u | head -3 | tr '\n' ' ')
+        [ "$rc" = 124 ] && tests="TIMEOUT 300s"
+        red+=("$name rc=$rc $tests")
+    fi
+    # (e) stale: the binary must be newer than its own objects and every library it links (Debug LDDEPS).
+    newest=$(ls -t "build/Tests/Intermediates/Debug/Debug/$name"/*.o 2>/dev/null | head -1)
+    if [ -n "$newest" ] && [ "$newest" -nt "$t" ]; then stale+=("$name<$(basename "$newest")"); continue; fi
+    [ -f "$name.make" ] || continue
+    for lib in $(awk '/^ifeq \(\$\(config\),debug\)/{d=1} /^ifeq \(\$\(config\),release\)/{d=0}
+                      d && /^LDDEPS \+=/{for(i=3;i<=NF;i++)print $i}' "$name.make"); do
+        if [ -f "$lib" ] && [ "$lib" -nt "$t" ]; then stale+=("$name<$(basename "$lib")"); break; fi
+    done
+done
+[ ${#red[@]} -gt 0 ] && fail=1
+[ "$total" -eq 0 ] && { red+=("no test binaries in $BIN — build the suites first"); fail=1; }
+
+# (b) repo-only includes
+if bash scripts/CI/RepoOnlyIncludes.sh --require-replacements >"$LOG/includes.log" 2>&1; then inc=ok; else inc=RED; fail=1; fi
+
+# (c) clang-format 18 on the changed lines (Homebrew v22 disagrees with CI; the gate names its binary)
+if PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckFormat.sh "$BASE" >"$LOG/format.log" 2>&1; then fmt=ok; else fmt=RED; fail=1; fi
+
+# (d) .claude: an agent cannot commit it, so anything the branch would bring into base on merge is a stale
+# or foreign copy (one such merge nearly rolled back the guard). Measured from the merge-base: a branch that
+# is merely behind base is not red, but a merge of base that kept an old .claude IS.
+mb=$(git merge-base "$BASE" HEAD)
+git diff --stat "$mb" HEAD -- .claude >"$LOG/claude.log" 2>&1
+if [ -s "$LOG/claude.log" ]; then cl=RED; fail=1; else cl=ok; fi
+behind=""; git diff --quiet "$BASE" HEAD -- .claude || behind=" (.claude differs from base itself)"
+
+# The verdict is about a COMMIT; with tracked edits outstanding it is about a working tree nobody can name.
+dirty=""; git diff --quiet HEAD -- . ':!.cache' || dirty=" DIRTY tree: no marker"
+
+secs=$(( $(date +%s) - start ))
+line="$passed/$total suites, includes $inc, format $fmt, .claude $cl — ${secs}s"
+{ echo "$line"; printf 'RED %s\n' "${red[@]:+${red[@]}}"; printf 'STALE %s\n' "${stale[@]:+${stale[@]}}"; } >"$LOG/summary.txt"
+echo "$line$behind$dirty; logs $LOG"
+i=0; for r in "${red[@]:+${red[@]}}"; do i=$((i + 1)); [ $i -le 6 ] && echo "  RED $r"; done
+[ ${#red[@]} -gt 6 ] && echo "  ... $(( ${#red[@]} - 6 )) more in $LOG/summary.txt"
+[ "$cl" = RED ] && echo "  .claude changed vs merge-base: $(grep -c '|' "$LOG/claude.log") file(s) — lead must fix"
+[ ${#stale[@]} -gt 0 ] && echo "  WARN ${#stale[@]} stale test binary(ies), e.g. ${stale[0]} — rebuild before trusting them"
+if [ $fail -eq 0 ] && [ -z "$dirty" ]; then
+    mkdir -p "$(dirname "$MARKER")" && echo "$line" >"$MARKER" && echo "  marker $MARKER"
+fi
+exit $fail
