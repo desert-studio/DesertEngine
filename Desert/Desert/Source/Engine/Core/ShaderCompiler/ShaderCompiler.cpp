@@ -108,7 +108,8 @@ namespace Desert::Core
         // the same compile again. Say so, with the path and the file system's reason.
         const auto stored = StoreCachedSpirv( key, spirv );
         if ( !stored )
-            LOG_WARN( "[ShaderCache] could not store {}: {}", SpirvCachePathForKey( key ).string(), stored.GetError() );
+            LOG_WARN( "[ShaderCache] could not store {}: {}", SpirvCachePathForKey( key ).string(),
+                      stored.GetError() );
         CountShaderCacheCompile( static_cast<bool>( stored ) );
         return Common::MakeSuccess( std::move( spirv ) );
     }

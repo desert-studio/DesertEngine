@@ -195,9 +195,9 @@ TEST( DerivedDataKey, OnlyTheCookersNameSavedCooked )
     const std::array<const char*, 2> kCookers = { "Editor/Source/Editor/Packaging/", "Tools/AssetRegistryTool/" };
     const fs::path                   repo     = RepoRoot();
     ASSERT_FALSE( repo.empty() );
-    size_t                           scanned = 0;
-    std::array<size_t, 2>            seen{};
-    std::vector<std::string>         roots( kEngineSourceRoots.begin(), kEngineSourceRoots.end() );
+    size_t                   scanned = 0;
+    std::array<size_t, 2>    seen{};
+    std::vector<std::string> roots( kEngineSourceRoots.begin(), kEngineSourceRoots.end() );
     roots.emplace_back( "Tools" );
     for ( const std::string& root : roots )
         for ( const fs::path& file : SourcesUnder( repo / root ) )

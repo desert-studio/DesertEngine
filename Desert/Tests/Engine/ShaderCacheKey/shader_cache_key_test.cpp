@@ -519,9 +519,9 @@ namespace
             const char* File;
             ShaderStage Stage;
         };
-        const std::array<Case, 3> cases = { Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute },
-                                            Case{ "Fog/HeightFog.shader", ShaderStage::Compute },
-                                            Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute } };
+        const std::array<Case, 3>         cases = { Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute },
+                                                    Case{ "Fog/HeightFog.shader", ShaderStage::Compute },
+                                                    Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute } };
         const Desert::Core::ShaderVariant authored{
              { { "Generated/CloudMedium.glslh",
                  "#include <Common/CloudMediumDefault.glslh>\n// an authored medium\n" } } };
@@ -533,11 +533,11 @@ namespace
             const std::string source  = StageSource( path, cases[i].Stage );
             const bool        variant = i == 2;
             for ( const bool debugInfo : { false, true } )
-                lines.push_back( std::format(
-                     "{}{} {} {:016x}", cases[i].File, variant ? "+variant" : "", debugInfo ? "debug" : "release",
-                     Desert::Core::ComputeShaderCacheKeyForProfile( cases[i].Stage, source, path, debugInfo,
-                                                                    variant ? authored
-                                                                            : Desert::Core::ShaderVariant{} ) ) );
+                lines.push_back( std::format( "{}{} {} {:016x}", cases[i].File, variant ? "+variant" : "",
+                                              debugInfo ? "debug" : "release",
+                                              Desert::Core::ComputeShaderCacheKeyForProfile(
+                                                   cases[i].Stage, source, path, debugInfo,
+                                                   variant ? authored : Desert::Core::ShaderVariant{} ) ) );
         }
         return lines;
     }
@@ -555,9 +555,9 @@ namespace
         if ( self.is_relative() )
             self = kStartDirectory / self;
         // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
-        const std::string command = std::format(
-             "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",
-             self.make_preferred().string(), kPrintKeysFlag );
+        const std::string command =
+             std::format( "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",
+                          self.make_preferred().string(), kPrintKeysFlag );
 #ifdef _WIN32
         // cmd /c strips the outer pair of quotes when the line starts with one; a second pair survives it.
         FILE* pipe = _popen( ( "\"" + command + "\"" ).c_str(), "r" );
@@ -567,7 +567,7 @@ namespace
         std::vector<std::string> keys;
         if ( pipe == nullptr )
             return keys;
-        std::string output;
+        std::string            output;
         std::array<char, 4096> buffer{};
         size_t                 got = 0;
         while ( ( got = fread( buffer.data(), 1, buffer.size(), pipe ) ) > 0 )
@@ -609,8 +609,8 @@ TEST_F( ShaderRootFixture, TwoProcessesComputeTheSameKeyForTheSameShader )
 
     const std::vector<std::string> first  = KeysFromAnotherProcess();
     const std::vector<std::string> second = KeysFromAnotherProcess();
-    ASSERT_EQ( first.size(), here.size() ) << "the child process printed " << first.size()
-                                           << " key line(s); it did not run the printer";
+    ASSERT_EQ( first.size(), here.size() )
+         << "the child process printed " << first.size() << " key line(s); it did not run the printer";
     EXPECT_EQ( first, here ) << "a key computed in another process differs: the cache misses on every start";
     EXPECT_EQ( second, first ) << "two child processes disagree about the same shader's key";
 }

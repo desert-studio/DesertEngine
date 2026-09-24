@@ -33,9 +33,10 @@ namespace Desert::Core
     // Whether the artifact actually landed on disk, and if not, the file system's reason. The runtime
     // compiler warns and carries on — a read-only install (inside an .app bundle) simply keeps no
     // cache, which is the documented contract, but a dev machine whose DDC silently stays cold pays
-    // every compile on every start, so the failure is logged and counted. The PACKAGER may not carry on: a cook that could not write is a cook that ships nothing under that key, and
-    // every player then pays the compile it was supposed to have been spared. Silence there would
-    // reintroduce П2 one artifact at a time, so the return value exists to be checked.
+    // every compile on every start, so the failure is logged and counted. The PACKAGER may not carry on: a cook
+    // that could not write is a cook that ships nothing under that key, and every player then pays the compile it
+    // was supposed to have been spared. Silence there would reintroduce П2 one artifact at a time, so the return
+    // value exists to be checked.
     Common::BoolResultStr StoreCachedSpirv( uint64_t key, const std::vector<uint32_t>& spirv );
 
     // What the shader cache did since the process started: loads served from the cache, fresh
