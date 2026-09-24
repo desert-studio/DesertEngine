@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "6bc7f03f392181ab087db81e9b01fc9c",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["a210ced5741f721e9e8fb6a007fd6b76", "f6247773f81ce72e73a148f8ad8efe8a"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -46,18 +46,23 @@
             "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 14207433254880240939
+            "Guid": "a210ced5741f721e9e8fb6a007fd6b76",
+            "Path": "assets:Clouds/Types/Cumulus_Congestus.decloudtype"
         },
         {
             "Name": "LayoutPattern",
-            "TextureHandle": 14593601515318033587
+            "Guid": "f6247773f81ce72e73a148f8ad8efe8a",
+            "Path": "assets:Clouds/Layouts/PTP_Channels_Red.dclayout"
         },
         {
             "Name": "LayoutMask",
-            "TextureHandle": 14593601515318033587
+            "Guid": "f6247773f81ce72e73a148f8ad8efe8a",
+            "Path": "assets:Clouds/Layouts/PTP_Channels_Red.dclayout"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

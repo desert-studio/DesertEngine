@@ -27,6 +27,12 @@
 
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/CloudLayout.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+#include <rflcpp/rfl/json.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
 // The LAYER's Detail Strength, for the one relation that is between the library and the layer: the cut's
@@ -82,7 +88,6 @@ namespace
     CloudTypeData LegalData()
     {
         CloudTypeData data;
-        data.FormatVersion = kCloudTypeFormatVersion;
         data.DisplayName   = "Test type";
         data.Notes         = "Written by the round-trip test.";
         data.Shape         = LegalShape();
@@ -281,7 +286,14 @@ TEST( CloudTypeFormat, ATypeSurvivesBeingWrittenAndReadBack )
     EXPECT_EQ( round.DisplayName, original.DisplayName );
     EXPECT_EQ( round.Notes, original.Notes );
     EXPECT_EQ( round.NoiseVolume, original.NoiseVolume );
-    EXPECT_EQ( round.FormatVersion.value_or( 0 ), kCloudTypeFormatVersion );
+    // The writer stamped a header: this build's kind and version, and a GUID a second write keeps.
+    ASSERT_TRUE( round.Header.has_value() );
+    EXPECT_EQ( round.Header->Kind, "CloudType" );
+    EXPECT_EQ( Desert::Assets::StatedVersion( round.Header, Desert::Assets::kCloudTypeSchemaTag ),
+               kCloudTypeFormatVersion );
+    auto again = ParseCloudType( WriteCloudType( round ) );
+    ASSERT_TRUE( again ) << again.GetError();
+    EXPECT_EQ( again.GetValue().Header->Guid, round.Header->Guid ) << "a rewrite minted a second identity";
 
     // Every one of the twelve, named individually rather than compared as bytes: a field that stopped
     // being written would otherwise be reported as "the structs differ" and leave the reader to find which.
@@ -305,7 +317,8 @@ TEST( CloudTypeFormat, ATypeSurvivesBeingWrittenAndReadBack )
 TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
 {
     // A file an artist wrote by hand, with nothing in it but the numbers that have no answer.
-    const std::string minimal = R"({"Shape":{
+    const std::string minimal =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
@@ -318,7 +331,8 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
 
     // And the other way round: a shape with a field MISSING is refused rather than defaulted, because a
     // number nobody wrote is not a number anybody chose.
-    const std::string incomplete = R"({"Shape":{
+    const std::string incomplete =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,
@@ -1511,8 +1525,123 @@ TEST( CloudTypeLibrary, TheCheapBakeGridIsKeptForEveryTypeThatFitsOnIt )
     EXPECT_EQ( raised, 2 );
 }
 
+// WITNESS (AF7y, before T6c): A SHIPPED CLOUD MATERIAL'S TYPE SLOT NAMES A TYPE THE SERVICE KNOWS.
+//
+// Since format 4 (T6b1) a type registers in Runtime::CloudTypeService under HandleForGuid of its header
+// GUID (CloudTypeAsset's constructor), and the slot is looked up by the bare number the `.demat` stores
+// (CloudMaterialValues ApplyCloudAssetRef -> CloudTypeService::GetShape). This joins those two ends on the
+// shipped files. EXPECTED RED UNTIL T6c: the `.demat` slots still carry the path-derived numbers minted
+// before the header existed, and a miss renders the built-in default rather than failing anything - the
+// AssetReferenceCensus stays green on it because its own handle rule hashes a `.decloudtype` by path.
+// M_Clouds_Demo_Clouds rather than M_CloudDefault: the default material authors no slot at all.
+TEST( CloudTypeLibrary, AShippedCloudMaterialsTypeSlotNamesARegisteredType )
+{
+    const std::filesystem::path types = LibraryDirectory();
+    ASSERT_FALSE( types.empty() );
+    const std::filesystem::path material =
+         types.parent_path().parent_path() / "Materials" / "M_Clouds_Demo_Clouds.demat";
+
+    std::ifstream in( material );
+    ASSERT_TRUE( in.good() ) << material.string() << " could not be opened";
+    const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+    const auto        parsed = rfl::json::read<MaterialData>( text );
+    ASSERT_TRUE( parsed ) << parsed.error().what();
+
+    const uint64_t slot = parsed.value().GetCloudAsset( "CloudType1" );
+    ASSERT_NE( slot, 0u ) << material.string() << " no longer authors CloudType1; pick a material that does";
+
+    // The handles the service would hold: one per shipped type, derived as the asset derives it.
+    std::map<uint64_t, std::string> registered;
+    for ( const auto& entry : std::filesystem::directory_iterator( types ) )
+    {
+        if ( entry.path().extension() != kCloudTypeExtension )
+            continue;
+        std::ifstream     file( entry.path() );
+        const std::string body( ( std::istreambuf_iterator<char>( file ) ), std::istreambuf_iterator<char>() );
+        const auto        type = ParseCloudType( body );
+        ASSERT_TRUE( type ) << entry.path().string() << ": " << type.GetError();
+        ASSERT_TRUE( type.GetValue().Header.has_value() ) << entry.path().string();
+        const auto guid = Common::Content::AssetGuidFromText( type.GetValue().Header->Guid );
+        ASSERT_TRUE( guid ) << entry.path().string();
+        registered[static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) )] =
+             entry.path().filename().string();
+    }
+    ASSERT_EQ( registered.size(), 9u );
+
+    EXPECT_TRUE( registered.count( slot ) )
+         << "M_Clouds_Demo_Clouds.demat CloudType1 = " << slot
+         << " names no shipped cloud type: every type registers under HandleForGuid of its header GUID, so "
+            "CloudTypeService::GetShape misses and the layer silently renders the built-in default. The "
+            "slot still holds the pre-format-4 path-derived number; T6c (MATL 3) re-points it by GUID.";
+}
+
+// T6b2 (AF7y) - `.dclayout` 1 -> 2: THE LAYOUT IS WRAPPED IN THE AF1 BINARY ENVELOPE, like a `.detex`.
+// Written first; RED until T6b2 lands. The header is read by the one BinaryEnvelopeFormat (kind CloudLayout,
+// a GUID, the layout version under its own tag) without the painting being decoded, and a bare version-1
+// "DCLY" file is refused by name, pointing at Tools/SceneMigrator.
+namespace
+{
+    Desert::Assets::CloudLayoutData SmallMaskOnlyLayout()
+    {
+        auto canvas = Desert::Assets::MakeCloudLayoutCanvas( Desert::Assets::kCloudLayoutMinResolution );
+        EXPECT_TRUE( canvas );
+        auto painted = canvas.ExtractValue();
+        EXPECT_TRUE( Desert::Assets::SetCloudLayoutCanvasMask( painted, true ) );
+        auto made = Desert::Assets::MakeCloudLayoutFromCanvas( painted );
+        EXPECT_TRUE( made );
+        return made.ExtractValue();
+    }
+} // namespace
+
+TEST( CloudLayoutFormat, AnEncodedLayoutIsAnAssetEnvelopeWhoseHeaderNamesACloudLayout )
+{
+    const auto encoded = Desert::Assets::EncodeCloudLayout( SmallMaskOnlyLayout() );
+    ASSERT_TRUE( encoded ) << encoded.GetError();
+    const auto&                      bytes = encoded.GetValue();
+    const std::span<const std::byte> view( reinterpret_cast<const std::byte*>( bytes.data() ), bytes.size() );
+    ASSERT_TRUE( Common::Content::BinaryEnvelopeHeaderFormat().Recognises(
+         view.first( std::min( view.size(), Common::Content::ASSET_HEADER_SNIFF_BYTES ) ) ) )
+         << "a .dclayout does not open with the DAST envelope";
+    const auto header =
+         Common::Content::ReadEnvelopeHeader( view, Common::Content::AssetHeaderReadContext{ {}, true } );
+    ASSERT_TRUE( header ) << header.GetError();
+    EXPECT_EQ( header.GetValue().Asset.Kind, Common::Content::ContentKind::CloudLayout );
+    EXPECT_FALSE( header.GetValue().Asset.Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Asset.Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Asset.Subsystems[0].Version, 2u );
+    EXPECT_TRUE( Desert::Assets::DecodeCloudLayout( bytes ) ) << "the envelope does not read back";
+}
+
+TEST( CloudLayoutFormat, ABareVersionOneFileIsRefusedNamingTheMigrator )
+{
+    // The version-1 container as it shipped: "DCLY", u32 1, then the 40 bytes the payload header was.
+    std::vector<unsigned char> v1 = { 'D', 'C', 'L', 'Y', 1, 0, 0, 0 };
+    v1.resize( 48, 0 );
+    const auto refused = Desert::Assets::DecodeCloudLayout( v1 );
+    ASSERT_FALSE( refused ) << "a header-less version-1 layout was read";
+    EXPECT_NE( refused.GetError().find( "version 1" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// FORMAT 3 IS REFUSED BY NAME (AF7v). A v3 file is a complete, legal type with no identity; reading it
+// would hand it a handle nothing can name again, so the refusal says what moved and which tool fixes it.
+TEST( CloudTypeFormat, AVersionThreeFileWithoutAHeaderIsRefusedNamingTheMigrator )
+{
+    CloudTypeData data = LegalData();
+    std::string   text = WriteCloudType( data );
+    const auto    at   = text.find( "\"Header\"" );
+    ASSERT_NE( at, std::string::npos );
+    const auto close = text.find( "}", text.find( "\"Dependencies\"", at ) );
+    text             = "{\"FormatVersion\":3," + text.substr( text.find_first_not_of( " \t\r\n,", close + 1 ) );
+
+    const auto refused = ParseCloudType( text );
+    ASSERT_FALSE( refused ) << "a header-less version-3 file was read";
+    EXPECT_NE( refused.GetError().find( "format version 3" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }

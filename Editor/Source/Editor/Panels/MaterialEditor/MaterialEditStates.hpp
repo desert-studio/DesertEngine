@@ -49,7 +49,8 @@ namespace Desert::Editor::MaterialEdit
         if ( a.EffectiveShaderName() != b.EffectiveShaderName() )
             return false;
 
-        if ( a.Params.size() != b.Params.size() || a.Textures.size() != b.Textures.size() )
+        if ( a.Params.size() != b.Params.size() || a.Textures.size() != b.Textures.size() ||
+             a.CloudAssets.size() != b.CloudAssets.size() || a.ShaderRefs.size() != b.ShaderRefs.size() )
             return false;
 
         // Sizes agree and MaterialData::SetParam/SetTexture never store a name twice, so "every entry of a
@@ -61,13 +62,18 @@ namespace Desert::Editor::MaterialEdit
                 return false;
         }
 
+        // The getters answer 0 both for "not bound" and for "absent", which is right here: a slot explicitly
+        // bound to nothing and a slot never written are the same material. Compared by the folded handle, so
+        // a stale path locator beside the same GUID is not an authored difference.
         for ( const auto& texture : a.Textures )
-        {
-            // GetTexture answers 0 both for "not bound" and for "absent", which is right here: a slot
-            // explicitly bound to nothing and a slot never written are the same material.
-            if ( b.GetTexture( texture.Name ) != texture.TextureHandle )
+            if ( b.GetTexture( texture.Name ) != a.GetTexture( texture.Name ) )
                 return false;
-        }
+        for ( const auto& cloud : a.CloudAssets )
+            if ( b.GetCloudAsset( cloud.Name ) != a.GetCloudAsset( cloud.Name ) )
+                return false;
+        for ( const auto& shader : a.ShaderRefs )
+            if ( b.GetShaderRef( shader.Name ) != a.GetShaderRef( shader.Name ) )
+                return false;
 
         return true;
     }
@@ -79,7 +85,9 @@ namespace Desert::Editor::MaterialEdit
     {
         destination.ShaderName = source.ShaderName;
         destination.Params     = source.Params;
-        destination.Textures   = source.Textures;
+        destination.Textures    = source.Textures;
+        destination.CloudAssets = source.CloudAssets;
+        destination.ShaderRefs  = source.ShaderRefs;
     }
 
     // THE TWO "DIRTY"S, AND THEY ARE NOT ONE FLAG.

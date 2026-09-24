@@ -852,86 +852,103 @@ namespace Desert::Core::Serialize
             return s;
         }
 
-        // ONE ASSET REFERENCE, TWO SPELLINGS, ONE ANSWER. A mesh or material reference travels as a stable
-        // GUID and as a path: the GUID is the rename-safe one and is tried first, the path is what an older
-        // file carries and is the fallback. Zero means "this scene named nothing that resolves here", which
-        // the caller distinguishes from a live handle.
-        //
-        // Extracted rather than written inline for the third time: the static and skinned mesh blocks each
-        // spell this out, the instanced one now needs it too, and three copies of a fallback ORDER is three
-        // places for the order to differ.
-        uint64_t ResolveAssetRef( const Reflection::AssetResolver& resolver, const std::optional<uint64_t>& guid,
-                                  const std::optional<std::string>& path, const char* type )
+        // AN ASSET REFERENCE IS NAMED BY THE ASSET'S HEADER GUID (materials SCNE 27, meshes SCNE 28); the path
+        // beside it is only a locator. The GUID's handle (HandleForGuid) is looked up first; on a miss - the
+        // asset is simply not loaded yet - the path loads it, and the file found there must BE that asset: a
+        // path that now holds a different asset leaves the reference empty with both named, instead of
+        // silently binding whatever sits at the old path. No GUID and no path is an empty reference; a path
+        // with no GUID is refused by name, because a path is not an identity.
+        uint64_t ResolveGuidRef( const Reflection::AssetResolver& resolver, const std::string& text,
+                                 const std::string& path, const char* type, const std::string& what )
         {
-            uint64_t handle = 0;
-            if ( guid )
+            if ( text.empty() )
             {
-                handle = resolver.FromGuid( *guid, type );
+                if ( !path.empty() )
+                    LOG_ERROR( "[ComponentRegistry] {0} states no GUID but a path '{1}' - the path is a locator, "
+                               "not an identity, so the reference stays empty",
+                               what, path );
+                return 0;
             }
-            if ( handle == 0 && path )
+            const auto guid = Common::Content::AssetGuidFromText( text );
+            if ( !guid )
             {
-                handle = resolver.FromPath( *path, type );
+                LOG_ERROR( "[ComponentRegistry] {0} states '{1}', which is not a GUID ({2}) - the reference stays "
+                           "empty",
+                           what, text, guid.GetError() );
+                return 0;
             }
-            return handle;
+            if ( guid.GetValue().IsNull() )
+            {
+                LOG_ERROR( "[ComponentRegistry] {0} states the null GUID - the reference stays empty", what );
+                return 0;
+            }
+            const uint64_t expected = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
+            if ( const uint64_t known = resolver.FromGuid( expected, type ); known != 0 )
+                return known;
+            const uint64_t located = path.empty() ? 0 : resolver.FromPath( path, type );
+            if ( located == expected )
+                return located;
+            LOG_ERROR( "[ComponentRegistry] {0} names GUID {1}, but its locator '{2}' {3} - the reference stays "
+                       "empty",
+                       what, text, path,
+                       located == 0 ? std::string( "loads no " ) + type
+                                    : "holds a different asset (handle " + std::to_string( located ) + ")" );
+            return 0;
         }
 
-        // A MATERIAL SLOT IS NAMED BY THE MATERIAL'S HEADER GUID (SCNE 27, AF7); the path beside it is only a
-        // locator. The GUID's handle (HandleForGuid) is looked up first; on a miss - the material is simply
-        // not loaded yet - the path loads it, and the file found there must BE that material: a path that
-        // now holds a different material leaves the slot empty with both named, instead of silently binding
-        // whatever sits at the old path. "" is an empty slot.
         uint64_t ResolveSlotRef( const Reflection::AssetResolver&               resolver,
                                  const std::optional<std::vector<std::string>>& guids,
                                  const std::optional<std::vector<std::string>>& paths, std::size_t slot )
         {
             const std::string text = ( guids && slot < guids->size() ) ? ( *guids )[slot] : std::string();
             const std::string path = ( paths && slot < paths->size() ) ? ( *paths )[slot] : std::string();
-            if ( text.empty() )
-            {
-                if ( !path.empty() )
-                    LOG_ERROR( "[ComponentRegistry] material slot {0} states no GUID but a path '{1}' - the path "
-                               "is a locator, not an identity, so the slot stays empty",
-                               slot, path );
-                return 0;
-            }
-            const auto guid = Common::Content::AssetGuidFromText( text );
-            if ( !guid )
-            {
-                LOG_ERROR( "[ComponentRegistry] material slot {0} states '{1}', which is not a GUID ({2}) - the "
-                           "slot stays empty",
-                           slot, text, guid.GetError() );
-                return 0;
-            }
-            const uint64_t expected = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
-            if ( const uint64_t known = resolver.FromGuid( expected, "MaterialAsset" ); known != 0 )
-                return known;
-            const uint64_t located = path.empty() ? 0 : resolver.FromPath( path, "MaterialAsset" );
-            if ( located == expected )
-                return located;
-            LOG_ERROR( "[ComponentRegistry] material slot {0} names GUID {1}, but its locator '{2}' {3} - the "
-                       "slot stays empty",
-                       slot, text, path,
-                       located == 0 ? std::string( "loads no material" )
-                                    : "holds a different material (handle " + std::to_string( located ) + ")" );
-            return 0;
+            return ResolveGuidRef( resolver, text, path, "MaterialAsset",
+                                   "material slot " + std::to_string( slot ) );
         }
 
-        // The GUID text a slot is saved under: the header GUID of the material the handle names, read from
-        // the loaded material, else from the cooked registry row of its file. A handle with neither is a
-        // material with no identity to save; it is NAMED and saved as an empty slot.
+        uint64_t ResolveMeshRef( const Reflection::AssetResolver& resolver, const std::optional<std::string>& guid,
+                                 const std::optional<std::string>& path, const char* type )
+        {
+            return ResolveGuidRef( resolver, guid.value_or( std::string() ), path.value_or( std::string() ), type,
+                                   std::string( type ) + " reference" );
+        }
+
+        // The GUID text a reference is saved under: the header GUID the loaded asset states, else the cooked
+        // registry row of its file. A handle with neither is an asset with no identity to save; it is NAMED
+        // and saved empty.
+        std::string GuidTextOrRegistry( uint64_t handle, const std::optional<Common::Content::AssetGuid>& loaded,
+                                        const char* kind )
+        {
+            if ( loaded && !loaded->IsNull() )
+                return Common::Content::AssetGuidToText( *loaded );
+            if ( const auto guid = Assets::ContentRegistry::GuidForHandle( handle ) )
+                return Common::Content::AssetGuidToText( *guid );
+            LOG_ERROR( "[ComponentRegistry] {0} handle {1} has no header GUID in the loaded asset or the content "
+                       "registry - its reference is saved empty",
+                       kind, handle );
+            return {};
+        }
+
         std::string MaterialGuidText( const Assets::AssetManager& mgr, uint64_t handle )
         {
             if ( handle == 0 )
                 return {};
+            std::optional<Common::Content::AssetGuid> loaded;
             if ( const auto material = mgr.FindByHandle<Assets::SurfaceMaterialAsset>( Common::UUID( handle ) ) )
-                if ( const auto guid = material->Data().Guid(); !guid.IsNull() )
-                    return Common::Content::AssetGuidToText( guid );
-            if ( const auto guid = Assets::ContentRegistry::GuidForHandle( handle ) )
-                return Common::Content::AssetGuidToText( *guid );
-            LOG_ERROR( "[ComponentRegistry] material handle {0} has no header GUID in the loaded material or the "
-                       "content registry - its slot is saved empty",
-                       handle );
-            return {};
+                loaded = material->Data().Guid();
+            return GuidTextOrRegistry( handle, loaded, "material" );
+        }
+
+        // Absent (not "") when the mesh has no identity, so the file carries no MeshGuid key at all.
+        std::optional<std::string> MeshGuidText( const Assets::AssetManager& mgr, uint64_t handle )
+        {
+            std::optional<Common::Content::AssetGuid> loaded;
+            if ( const auto mesh = mgr.FindByHandle<Assets::MeshAsset>( Common::UUID( handle ) ) )
+                loaded = mesh->Guid();
+            std::string text = GuidTextOrRegistry( handle, loaded, "mesh" );
+            if ( text.empty() )
+                return std::nullopt;
+            return text;
         }
     } // namespace
 
@@ -979,8 +996,7 @@ namespace Desert::Core::Serialize
                     if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "StaticMeshAsset" );
                          !p.empty() )
                         meshSer.MeshPath = p;
-                    // GUID = the stable handle itself (asset-database identity); rename-safe.
-                    meshSer.MeshGuid = static_cast<uint64_t>( smc.MeshHandle );
+                    meshSer.MeshGuid = MeshGuidText( assetManager, static_cast<uint64_t>( smc.MeshHandle ) );
                 }
 
                 if ( !smc.MaterialSlots.empty() )
@@ -1029,12 +1045,8 @@ namespace Desert::Core::Serialize
                 auto& smc      = entity.AddComponent<ECS::StaticMeshComponent>();
                 auto  resolver = MakeAssetResolver( assetManager );
 
-                // GUID first (rename-safe asset-database reference), path as fallback/back-compat.
-                uint64_t meshHandle = 0;
-                if ( meshData.MeshGuid )
-                    meshHandle = resolver.FromGuid( *meshData.MeshGuid, "StaticMeshAsset" );
-                if ( meshHandle == 0 && meshData.MeshPath )
-                    meshHandle = resolver.FromPath( *meshData.MeshPath, "StaticMeshAsset" );
+                const uint64_t meshHandle =
+                     ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "StaticMeshAsset" );
                 if ( meshHandle != 0 )
                     smc.MeshHandle = Common::UUID( meshHandle );
 
@@ -1105,8 +1117,7 @@ namespace Desert::Core::Serialize
                     if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
                          !p.empty() )
                         ser.MeshPath = p;
-                    // GUID = the stable handle itself (asset-database identity); rename-safe.
-                    ser.MeshGuid = static_cast<uint64_t>( ism.MeshHandle );
+                    ser.MeshGuid = MeshGuidText( assetManager, static_cast<uint64_t>( ism.MeshHandle ) );
                 }
 
                 if ( !ism.MaterialSlots.empty() )
@@ -1151,10 +1162,8 @@ namespace Desert::Core::Serialize
                 auto& ism      = entity.AddComponent<ECS::InstancedStaticMeshComponent>();
                 auto  resolver = MakeAssetResolver( assetManager );
 
-                // GUID first (rename-safe asset-database reference), path as fallback/back-compat --
-                // the same order the static path uses, and it did not before Г26.
                 const uint64_t meshHandle =
-                     ResolveAssetRef( resolver, data.MeshGuid, data.MeshPath, "StaticMeshAsset" );
+                     ResolveMeshRef( resolver, data.MeshGuid, data.MeshPath, "StaticMeshAsset" );
                 if ( meshHandle != 0 )
                 {
                     ism.MeshHandle = Common::UUID( meshHandle );
@@ -1283,7 +1292,7 @@ namespace Desert::Core::Serialize
                     if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
                          !p.empty() )
                         meshSer.MeshPath = p;
-                    meshSer.MeshGuid = static_cast<uint64_t>( smc.MeshHandle );
+                    meshSer.MeshGuid = MeshGuidText( assetManager, static_cast<uint64_t>( smc.MeshHandle ) );
                 }
 
                 if ( !smc.MaterialSlots.empty() )
@@ -1318,11 +1327,8 @@ namespace Desert::Core::Serialize
                 auto& smc      = entity.AddComponent<ECS::SkinnedMeshComponent>();
                 auto  resolver = MakeAssetResolver( assetManager );
 
-                uint64_t meshHandle = 0;
-                if ( meshData.MeshGuid )
-                    meshHandle = resolver.FromGuid( *meshData.MeshGuid, "SkinnedMeshAsset" );
-                if ( meshHandle == 0 && meshData.MeshPath )
-                    meshHandle = resolver.FromPath( *meshData.MeshPath, "SkinnedMeshAsset" );
+                const uint64_t meshHandle =
+                     ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "SkinnedMeshAsset" );
                 if ( meshHandle != 0 )
                     smc.MeshHandle = Common::UUID( meshHandle );
 

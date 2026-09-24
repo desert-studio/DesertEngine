@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "0e9b8e4ceacda82ab24a400acb62fa97",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["235a4677ab990d51e1ab19be0ad75fc2", "4935766ceb333c400238ec9d78b344c2", "f4458fd2d2ef186689c5b11bda29765b"]
     },
     "Params": [
         {
@@ -56,31 +56,40 @@
     "Textures": [
         {
             "Name": "u_AlbedoTexture",
-            "TextureHandle": 2547426019025423697
+            "Guid": "235a4677ab990d51e1ab19be0ad75fc2",
+            "Path": "assets:Meshes/texture_diffuse.detex"
         },
         {
             "Name": "u_NormalTexture",
-            "TextureHandle": 5275252748708953152
+            "Guid": "4935766ceb333c400238ec9d78b344c2",
+            "Path": "assets:Meshes/texture_normal.detex"
         },
         {
             "Name": "u_OpacityTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_MetallicTexture",
-            "TextureHandle": 17601632854292240486
+            "Guid": "f4458fd2d2ef186689c5b11bda29765b",
+            "Path": "assets:Meshes/texture_metallic.detex"
         },
         {
             "Name": "u_RoughnessTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_AOTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         },
         {
             "Name": "u_EmissiveTexture",
-            "TextureHandle": 0
+            "Guid": "",
+            "Path": ""
         }
-    ]
+    ],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

@@ -177,6 +177,12 @@ namespace Common::Utils
         // one name the same row. nullptr when neither names content.
         [[nodiscard]] const AssetRegistryEntry* FindByReference( uint64_t handle, std::string_view path ) const;
 
+        // THE ROW A GUID-NAMED REFERENCE NAMES (meshes, SCNE 28): the row stating that header GUID, else the
+        // path's stable key - a registry cooked before rows carried a GUID still answers by path. The null
+        // GUID asks by path alone. nullptr when neither names content.
+        [[nodiscard]] const AssetRegistryEntry* FindByGuidReference( const Content::AssetGuid& guid,
+                                                                     std::string_view          path ) const;
+
         // Every row of one kind, in key order. This is what replaces a directory walk at the call
         // site: `ListFilesRecursive(root)` filtered by extension becomes `OfKind("Texture")`.
         [[nodiscard]] std::vector<const AssetRegistryEntry*> OfKind( std::string_view kind ) const;

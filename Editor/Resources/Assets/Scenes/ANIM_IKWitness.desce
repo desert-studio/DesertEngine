@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "61dd81434856d2beae1e32fff4b9a93d",
         "Versions": {
-            "SCNE": 27,
+            "SCNE": 28,
             "UNIT": 1
         },
         "Dependencies": []
@@ -49,7 +49,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
-                "MeshGuid": 556331627295699705,
+                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
@@ -69,7 +69,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
-                "MeshGuid": 556331627295699705,
+                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
@@ -95,7 +95,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
-                "MeshGuid": 556331627295699705,
+                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
@@ -121,7 +121,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
-                "MeshGuid": 556331627295699705,
+                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
@@ -147,7 +147,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
-                "MeshGuid": 556331627295699705,
+                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },

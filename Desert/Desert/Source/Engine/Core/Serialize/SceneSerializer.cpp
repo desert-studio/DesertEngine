@@ -684,10 +684,11 @@ namespace Desert::Core
 
     Rules::AssetBoundsSource RegistryMeshBounds()
     {
-        return []( uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+        return []( const Common::Content::AssetGuid& guid,
+                   std::string_view                  path ) -> std::optional<Common::Math::AABB>
         {
             const Common::Utils::AssetRegistryEntry* row =
-                 Assets::ContentRegistry::Get().FindByReference( handle, path );
+                 Assets::ContentRegistry::Get().FindByGuidReference( guid, path );
             return row != nullptr ? row->Bounds : std::nullopt;
         };
     }

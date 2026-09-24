@@ -4,19 +4,42 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>
+#include <optional>
+#include <sstream>
 #include <span>
 
 namespace Desert::Assets
 {
-    // NOTHING IN THE BODY, AND THE EMPTINESS IS THE POINT. An earlier draft of this file derived the
-    // handle here — `m_Metadata.Handle = AssetHandle::FromCookedPath(...)` — copying what the three cloud
-    // assets beside it did at the time. That is no longer where identity comes from: `AssetBase`'s own
-    // constructor derives it from the path for every type at once, so a fourth statement of the same rule
-    // would be a fourth place it can drift from. A layout gets its identity BY CONSTRUCTION, and the two
-    // assignments left in the engine are the two that genuinely carry an identity of their own from a file.
     CloudLayoutAsset::CloudLayoutAsset( AssetPriority priority, const Common::Filepath& filepath )
          : AssetBase( priority, filepath, AssetTypeID::CloudLayout )
     {
+        // THE LAYOUT'S IDENTITY IS ITS ENVELOPE GUID (container 2), adopted HERE rather than in the load,
+        // for the mesh's reason: the asset manager keys its handle lookup at creation. Only the envelope
+        // header is read, through the VFS first like the load. A file with no readable header (absent: Save
+        // is about to create it; or a bare version-1 file) keeps the path-derived handle - the load refuses
+        // the latter by name, so no layout is ever READY under that handle.
+        namespace CC                              = Common::Content;
+        const CC::SubsystemVersion       kKnown[] = { { kCloudLayoutSubsystemTag, kCloudLayoutContainerVersion } };
+        const CC::AssetHeaderReadContext context{ kKnown };
+
+        std::optional<Common::ResultStr<CC::EnvelopeHeader>> header;
+        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
+                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
+                                      : std::nullopt;
+             packed.has_value() )
+        {
+            std::istringstream in( *packed );
+            header.emplace( CC::ReadEnvelopeHeader( in, context ) );
+        }
+        else if ( std::ifstream in( m_Metadata.Filepath, std::ios::binary ); in )
+            header.emplace( CC::ReadEnvelopeHeader( in, context ) );
+
+        if ( !header || !*header || header->GetValue().Asset.Kind != CC::ContentKind::CloudLayout ||
+             header->GetValue().Asset.Guid.IsNull() )
+            return;
+        m_Guid = header->GetValue().Asset.Guid;
+        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( CC::HandleForGuid( m_Guid ) ) ),
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr CloudLayoutAsset::LoadFromFile()

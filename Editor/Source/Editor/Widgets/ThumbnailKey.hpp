@@ -50,9 +50,10 @@ namespace Desert::Editor::ThumbnailKey
      * the difference between '/' and '_', so `Materials/Wood_Oak.demat` and `Materials/Wood/Oak.demat`
      * flatten to ONE name — two different assets sharing a cache entry, i.e. one of them showing the
      * other's picture with nothing able to tell them apart. Appending
-     * `Common::AssetHandle::FromKey(identity)` restores injectivity, and it is not a new number: it is
-     * precisely the path-derived handle the asset itself carries (`AssetHandle::FromCookedPath`), so the
-     * file is named after the asset's own id rather than after a second hash invented here.
+     * `Common::AssetHandle::FromKey(identity)` restores injectivity. It hashes the identity string only,
+     * so it is a property of the path, not of the asset: meshes and materials now carry a handle derived
+     * from their header GUID, and the cache name deliberately does not follow it -- a thumbnail is a
+     * picture of the file at this path.
      *
      * The readable half stays because it is what makes the cache inspectable from a shell — that is how
      * the absolute-path defect above was found.

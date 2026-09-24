@@ -114,14 +114,52 @@ namespace
         return false;
     }
 
-    Desert::Assets::MaterialData MaterialOf( const CloudMaterialMigrationReport& report, size_t index = 0 )
+    // The step produces MATL 2 (the tool raises it to 3 when it writes the file), so it is read back in the
+    // frozen v2 shape; the helpers below are that shape's queries.
+    using MaterialV2 = Desert::Migration::MaterialDataV2;
+
+    MaterialV2 MaterialOf( const CloudMaterialMigrationReport& report, size_t index = 0 )
     {
         EXPECT_GT( report.Materials.size(), index );
         if ( report.Materials.size() <= index )
             return {};
-        const auto parsed = rfl::json::read<Desert::Assets::MaterialData>( report.Materials[index].Json );
+        const auto parsed = rfl::json::read<MaterialV2>( report.Materials[index].Json );
         EXPECT_TRUE( parsed ) << report.Materials[index].Json;
-        return parsed ? parsed.value() : Desert::Assets::MaterialData{};
+        return parsed ? parsed.value() : MaterialV2{};
+    }
+
+    const glm::vec4* FindParamOf( const MaterialV2& material, std::string_view name )
+    {
+        for ( const auto& p : material.Params )
+            if ( p.Name == name )
+                return &p.Value;
+        return nullptr;
+    }
+    glm::vec4 ParamOf( const MaterialV2& material, std::string_view name )
+    {
+        const glm::vec4* v = FindParamOf( material, name );
+        return v != nullptr ? *v : glm::vec4( 0.0f );
+    }
+    float FloatOf( const MaterialV2& material, std::string_view name )
+    {
+        return ParamOf( material, name ).x;
+    }
+    void SetParamOf( MaterialV2& material, std::string_view name, const glm::vec4& value )
+    {
+        for ( auto& p : material.Params )
+            if ( p.Name == name )
+            {
+                p.Value = value;
+                return;
+            }
+        material.Params.push_back( { std::string( name ), value } );
+    }
+    uint64_t TextureOf( const MaterialV2& material, std::string_view name )
+    {
+        for ( const auto& t : material.Textures )
+            if ( t.Name == name )
+                return t.TextureHandle;
+        return 0;
     }
 } // namespace
 
@@ -157,33 +195,33 @@ TEST( SceneCloudMaterialMigration, EveryStatedLookKeyMovesVerbatimAndTheRestStay
     ASSERT_EQ( report.Materials.size(), 1u );
     EXPECT_EQ( report.Materials[0].RelativePath, "Materials/M_Clouds_Protocol_Clouds.demat" );
 
-    const Desert::Assets::MaterialData material = MaterialOf( report );
-    EXPECT_EQ( material.EffectiveShaderName(), "CloudRaymarch" );
+    const MaterialV2 material = MaterialOf( report );
+    EXPECT_EQ( material.ShaderName.value_or( "" ), "CloudRaymarch" );
     EXPECT_EQ( material.Params.size(), 28u );
-    EXPECT_FLOAT_EQ( material.GetFloat( "Coverage" ), 0.762f );
-    EXPECT_EQ( static_cast<int32_t>( material.GetFloat( "Seed" ) ), 7 );
-    EXPECT_EQ( material.GetParam( "LayoutOffset" ), glm::vec4( 100000.0f, -200000.0f, 0.0f, 0.0f ) );
-    EXPECT_EQ( material.GetParam( "AmbientScale" ), glm::vec4( 1.0f, 0.9f, 0.8f, 0.0f ) );
+    EXPECT_FLOAT_EQ( FloatOf( material, "Coverage" ), 0.762f );
+    EXPECT_EQ( static_cast<int32_t>( FloatOf( material, "Seed" ) ), 7 );
+    EXPECT_EQ( ParamOf( material, "LayoutOffset" ), glm::vec4( 100000.0f, -200000.0f, 0.0f, 0.0f ) );
+    EXPECT_EQ( ParamOf( material, "AmbientScale" ), glm::vec4( 1.0f, 0.9f, 0.8f, 0.0f ) );
 
     // The asset handles are the SAME path-derived FNV the runtime mints for these files — the relation
     // that keeps the material resolving to the artist's type on every machine.
-    EXPECT_EQ( material.GetTexture( "CloudType1" ), static_cast<uint64_t>( Common::AssetHandle::FromKey(
+    EXPECT_EQ( TextureOf( material, "CloudType1" ), static_cast<uint64_t>( Common::AssetHandle::FromKey(
                                                          "assets:Clouds/Types/Cumulus_Congestus.decloudtype" ) ) );
     const uint64_t painting =
          static_cast<uint64_t>( Common::AssetHandle::FromKey( "assets:Clouds/Layouts/Layout_Stripe.dclayout" ) );
-    EXPECT_EQ( material.GetTexture( "LayoutPattern" ), painting );
-    EXPECT_EQ( material.GetTexture( "LayoutMask" ), painting );
-    EXPECT_EQ( material.GetTexture( "CloudLayout" ), 0u )
+    EXPECT_EQ( TextureOf( material, "LayoutPattern" ), painting );
+    EXPECT_EQ( TextureOf( material, "LayoutMask" ), painting );
+    EXPECT_EQ( TextureOf( material, "CloudLayout" ), 0u )
          << "the pre-O-4 slot name survived into the material, so the shader will drop it and the sky "
             "loses its painting";
     // Empty slots produced NO entry: absent and empty spell the same null handle.
-    EXPECT_EQ( material.GetTexture( "CloudType2" ), 0u );
+    EXPECT_EQ( TextureOf( material, "CloudType2" ), 0u );
 
     // AND THE ALBEDO COMES OUT AS A COLOUR, from ONE run. The scene field it was taken from is a float, so
     // this function writes (0.98, 0, 0, 0) — the shape a `.demat` authored before the albedo became a
     // colour carries, and the shape the shader reads as pure red. It is raised here rather than left to
     // the material pass so that a v11 scene needs the tool once and not twice.
-    EXPECT_EQ( material.GetParam( "ScatteringAlbedo" ), glm::vec4( 0.98f, 0.98f, 0.98f, 0.0f ) )
+    EXPECT_EQ( ParamOf( material, "ScatteringAlbedo" ), glm::vec4( 0.98f, 0.98f, 0.98f, 0.0f ) )
          << "a v11 raise produced a SCALAR albedo, so the sky this scene renders after one run of the "
             "migrator is red";
 }
@@ -254,14 +292,12 @@ TEST( SceneCloudMaterialMigration, ItIsDeterministicToTheByte )
             "run dirties the repository";
 
     // And the derived identity is stable across runs by construction: FNV of the file's own path
-    // (MigrationGuidForPath), the header GUID's ONE fold to a handle (MaterialData::Handle).
-    const Desert::Assets::MaterialData material = MaterialOf( ra );
+    // (MigrationGuidForPath).
+    const MaterialV2 material = MaterialOf( ra );
     ASSERT_TRUE( material.Header.has_value() );
     const auto expectedGuid =
          Desert::Migration::MigrationGuidForPath( "Materials/M_Clouds_Protocol_Clouds.demat" );
-    EXPECT_TRUE( material.Guid() == expectedGuid );
-    EXPECT_EQ( static_cast<uint64_t>( material.Handle() ),
-               static_cast<uint64_t>( Desert::Assets::MaterialData::HandleOf( expectedGuid ) ) );
+    EXPECT_TRUE( Desert::Assets::MaterialData::GuidFromText( material.Header->Guid ) == expectedGuid );
 }
 
 TEST( SceneCloudMaterialMigration, ItIsIdempotent )
@@ -299,14 +335,14 @@ TEST( SceneCloudMaterialMigration, AValueOfTheWrongShapeIsNamedRemovedAndNotGues
     // become material entries (a guess about intent).
     const rfl::Generic::Object out = CloudPayloadOf( entities.front() );
     EXPECT_FALSE( Has( out, "Coverage" ) );
-    const Desert::Assets::MaterialData material = MaterialOf( report );
-    EXPECT_EQ( material.FindParam( "Coverage" ), nullptr );
-    EXPECT_EQ( material.GetTexture( "CloudType1" ), 0u );
-    EXPECT_EQ( material.GetTexture( "LayoutPattern" ), 0u );
-    EXPECT_EQ( material.GetTexture( "LayoutMask" ), 0u );
+    const MaterialV2 material = MaterialOf( report );
+    EXPECT_EQ( FindParamOf( material, "Coverage" ), nullptr );
+    EXPECT_EQ( TextureOf( material, "CloudType1" ), 0u );
+    EXPECT_EQ( TextureOf( material, "LayoutPattern" ), 0u );
+    EXPECT_EQ( TextureOf( material, "LayoutMask" ), 0u );
 
     // The good neighbours still moved.
-    EXPECT_FLOAT_EQ( material.GetFloat( "CoverageContrast" ), 1.0f );
+    EXPECT_FLOAT_EQ( FloatOf( material, "CoverageContrast" ), 1.0f );
 }
 
 TEST( SceneCloudMaterialMigration, ASecondCloudEntityGetsANumberedSiblingRatherThanAClobber )
@@ -364,42 +400,42 @@ TEST( SceneCloudMaterialMigration, MigrateSceneRunsItLastAndStampsTheFileSoItNev
 // as the O-4 layout split beside it.
 TEST( SceneCloudMaterialAlbedo, AScalarAlbedoIsBroadcastToANeutralColour )
 {
-    Desert::Assets::MaterialData material;
+    MaterialV2 material;
     material.ShaderName = "CloudRaymarch";
-    material.SetParam( "ScatteringAlbedo", glm::vec4( 0.98f, 0.0f, 0.0f, 0.0f ) );
-    material.SetParam( "Coverage", glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
+    SetParamOf( material, "ScatteringAlbedo", glm::vec4( 0.98f, 0.0f, 0.0f, 0.0f ) );
+    SetParamOf( material, "Coverage", glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
 
     const auto report = Desert::Migration::MigrateCloudMaterialAlbedoToColour( material );
 
     EXPECT_TRUE( report.Changed() );
     EXPECT_EQ( report.Broadcast, 1 );
-    EXPECT_EQ( material.GetParam( "ScatteringAlbedo" ), glm::vec4( 0.98f, 0.98f, 0.98f, 0.0f ) );
+    EXPECT_EQ( ParamOf( material, "ScatteringAlbedo" ), glm::vec4( 0.98f, 0.98f, 0.98f, 0.0f ) );
     // Its neighbours are scalars too and must NOT be touched: the step is about one parameter whose TYPE
     // changed, not about every value that happens to have zeroes after it.
-    EXPECT_EQ( material.GetParam( "Coverage" ), glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
+    EXPECT_EQ( ParamOf( material, "Coverage" ), glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
 }
 
 TEST( SceneCloudMaterialAlbedo, ItIsIdempotentByShapeRatherThanByAFlag )
 {
-    Desert::Assets::MaterialData material;
-    material.SetParam( "ScatteringAlbedo", glm::vec4( 0.98f, 0.0f, 0.0f, 0.0f ) );
+    MaterialV2 material;
+    SetParamOf( material, "ScatteringAlbedo", glm::vec4( 0.98f, 0.0f, 0.0f, 0.0f ) );
 
     EXPECT_EQ( Desert::Migration::MigrateCloudMaterialAlbedoToColour( material ).Broadcast, 1 );
 
-    const glm::vec4 afterFirst = material.GetParam( "ScatteringAlbedo" );
+    const glm::vec4 afterFirst = ParamOf( material, "ScatteringAlbedo" );
     EXPECT_FALSE( Desert::Migration::MigrateCloudMaterialAlbedoToColour( material ).Changed() )
          << "a second run found something to do, so the step is not idempotent and running the tool twice "
             "over a repository would keep rewriting files";
-    EXPECT_EQ( material.GetParam( "ScatteringAlbedo" ), afterFirst );
+    EXPECT_EQ( ParamOf( material, "ScatteringAlbedo" ), afterFirst );
 }
 
 TEST( SceneCloudMaterialAlbedo, AnAuthoredColourIsLeftExactlyAlone )
 {
-    Desert::Assets::MaterialData material;
-    material.SetParam( "ScatteringAlbedo", glm::vec4( 0.9f, 0.72f, 0.55f, 0.0f ) );
+    MaterialV2 material;
+    SetParamOf( material, "ScatteringAlbedo", glm::vec4( 0.9f, 0.72f, 0.55f, 0.0f ) );
 
     EXPECT_FALSE( Desert::Migration::MigrateCloudMaterialAlbedoToColour( material ).Changed() );
-    EXPECT_EQ( material.GetParam( "ScatteringAlbedo" ), glm::vec4( 0.9f, 0.72f, 0.55f, 0.0f ) );
+    EXPECT_EQ( ParamOf( material, "ScatteringAlbedo" ), glm::vec4( 0.9f, 0.72f, 0.55f, 0.0f ) );
 }
 
 // THE DEGENERATE INPUT, and it is correct rather than lucky. Black is black in one component and in
@@ -408,23 +444,23 @@ TEST( SceneCloudMaterialAlbedo, AnAuthoredColourIsLeftExactlyAlone )
 // answers agree.
 TEST( SceneCloudMaterialAlbedo, AZeroAlbedoIsAlreadyTheColourItWouldBecome )
 {
-    Desert::Assets::MaterialData material;
-    material.SetParam( "ScatteringAlbedo", glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f ) );
+    MaterialV2 material;
+    SetParamOf( material, "ScatteringAlbedo", glm::vec4( 0.0f, 0.0f, 0.0f, 0.0f ) );
 
     EXPECT_FALSE( Desert::Migration::MigrateCloudMaterialAlbedoToColour( material ).Changed() );
-    EXPECT_EQ( material.GetParam( "ScatteringAlbedo" ), glm::vec4( 0.0f ) );
+    EXPECT_EQ( ParamOf( material, "ScatteringAlbedo" ), glm::vec4( 0.0f ) );
 }
 
 // A material that never stated the parameter keeps not stating it: an absent override means "the schema's
 // default", and inventing an entry here would turn every silent material into one that pins a value.
 TEST( SceneCloudMaterialAlbedo, AMaterialThatDoesNotStateItIsNotGivenOne )
 {
-    Desert::Assets::MaterialData material;
-    material.SetParam( "Coverage", glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
+    MaterialV2 material;
+    SetParamOf( material, "Coverage", glm::vec4( 0.45f, 0.0f, 0.0f, 0.0f ) );
 
     EXPECT_FALSE( Desert::Migration::MigrateCloudMaterialAlbedoToColour( material ).Changed() );
     EXPECT_EQ( material.Params.size(), 1u );
-    EXPECT_EQ( material.GetParam( "ScatteringAlbedo" ), glm::vec4( 0.0f ) );
+    EXPECT_EQ( ParamOf( material, "ScatteringAlbedo" ), glm::vec4( 0.0f ) );
 }
 
 int main( int argc, char** argv )

@@ -103,6 +103,8 @@
 // repository. Desert/Tests/Engine/WorldPartition is what reaches this.
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -563,19 +565,20 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
 
     // THE MESH BLOCKS THAT NAME A MESH ASSET, and the two fields a reference is written as
-    // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the handle, and the path beside it.
+    // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the mesh's header GUID as text
+    // (SCNE 28), and the path beside it.
     inline constexpr std::array<std::string_view, 2> kMeshAssetComponents = { "StaticMesh", "SkinnedMesh" };
     inline constexpr std::string_view                kMeshHandleField     = "MeshGuid";
     inline constexpr std::string_view                kMeshPathField       = "MeshPath";
 
     // WHAT THE PARTITIONER MAY KNOW FROM OUTSIDE THE FILE: a mesh asset's box around its own origin, asked
-    // by the handle its block holds (0 when it holds none) and the path beside it.
+    // by the GUID its block names (null when it names none) and the path beside it.
     //
     // AN EMPTY SOURCE IS A STATED CONDITION, not a fallback: every mesh-asset record is then its position
     // and is counted in `PointOnlyRecords`, which is what a caller with no registry — a suite over one
     // file, a tool run outside a project — is actually able to say.
-    using AssetBoundsSource =
-         std::function<std::optional<Common::Math::AABB>( std::uint64_t handle, std::string_view path )>;
+    using AssetBoundsSource = std::function<std::optional<Common::Math::AABB>(
+         const Common::Content::AssetGuid& guid, std::string_view path )>;
 
     namespace Detail
     {
@@ -771,16 +774,19 @@ namespace Desert::Core::Rules
             AppendBoxCorners( world * glm::translate( glm::mat4( 1.0f ), centre ), half, out );
         }
 
-        // The handle a mesh block names. StaticMeshComponentSer writes it as a JSON integer (a uint64 above
-        // 2^63 reads back as the same bits through int64), so it is read as one and NEVER through a
-        // double: 53 bits of mantissa would name a different asset.
-        [[nodiscard]] inline std::uint64_t ReadHandle( const rfl::Generic::Object& block, std::string_view field )
+        // The GUID a mesh block names, written as GUID text (SCNE 28). Absent or unreadable text is the null
+        // GUID: the block names no asset the bounds source could answer for.
+        [[nodiscard]] inline Common::Content::AssetGuid ReadGuid( const rfl::Generic::Object& block,
+                                                                  std::string_view            field )
         {
             const auto value = block.get( std::string( field ) );
             if ( !value.has_value() )
-                return 0;
-            const auto whole = value.value().to_int64();
-            return whole.has_value() ? static_cast<std::uint64_t>( whole.value() ) : 0;
+                return {};
+            const auto text = value.value().to_string();
+            if ( !text.has_value() )
+                return {};
+            const auto guid = Common::Content::AssetGuidFromText( text.value() );
+            return guid ? guid.GetValue() : Common::Content::AssetGuid{};
         }
 
         // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
@@ -810,12 +816,12 @@ namespace Desert::Core::Rules
                     const auto mesh = BlockOf( record, key );
                     if ( !mesh.has_value() )
                         continue;
-                    const std::uint64_t handle = ReadHandle( mesh.value(), kMeshHandleField );
+                    const Common::Content::AssetGuid guid   = ReadGuid( mesh.value(), kMeshHandleField );
                     const auto          path   = mesh.value().get( std::string( kMeshPathField ) );
                     const std::string   text   = path.has_value() ? path.value().to_string().value_or( "" ) : "";
-                    if ( handle == 0 && text.empty() )
+                    if ( guid.IsNull() && text.empty() )
                         continue;
-                    if ( const auto box = bounds( handle, text ); box.has_value() )
+                    if ( const auto box = bounds( guid, text ); box.has_value() )
                         AppendBoundsCorners( world, box.value(), out );
                 }
             }

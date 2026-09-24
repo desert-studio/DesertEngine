@@ -35,7 +35,7 @@ namespace Ser = Desert::Assets::Serialization;
 
 namespace
 {
-    const std::vector<Common::UUID> kSlots = { Common::UUID( 1111 ), Common::UUID( 2222 ), Common::UUID( 3333 ) };
+    const std::vector<Common::Content::AssetGuid> kSlots = { { 1111, 1 }, { 2222, 2 }, { 3333, 3 } };
 
     struct Case
     {
@@ -297,7 +297,7 @@ TEST( DynamicMeshAsset, PolygroupsAndMaterialsSurviveTheFile )
         const Ser::MeshAssetData file = Decoded( Ser::EncodeMeshBinary( data.GetValue() ) );
         ASSERT_EQ( file.PolyGroups.size(), file.Indices.size() ) << c.Name;
         for ( size_t k = 0; k < file.Submeshes.size(); ++k )
-            EXPECT_EQ( file.Submeshes[k].MaterialHandle, kSlots[k] ) << c.Name << " submesh " << k;
+            EXPECT_EQ( file.Submeshes[k].MaterialGuid, kSlots[k] ) << c.Name << " submesh " << k;
 
         auto read = DynamicMeshFromMeshAssetData( file );
         ASSERT_TRUE( read.IsSuccess() ) << c.Name << ": " << read.GetError();

@@ -3,23 +3,25 @@
         "Kind": "Material",
         "Guid": "1a32f84f685d2419e52642eed0ce8936",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [0.95, 0.93, 0.88, 1.0]
+            "Value": [0.949999988079071, 0.9300000071525574, 0.8799999952316284, 1.0]
         },
         {
             "Name": "RoughnessFactor",
-            "Value": [0.35, 0, 0, 0]
+            "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
         },
         {
             "Name": "MetallicFactor",
-            "Value": [1.0, 0, 0, 0]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": []
+    "Textures": [],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

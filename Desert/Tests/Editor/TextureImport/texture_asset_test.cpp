@@ -16,6 +16,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <unordered_set>
 
 namespace fs = std::filesystem;
 using namespace Desert::Assets;
@@ -62,14 +63,17 @@ TEST( TextureAsset, RenamingTheAssetKeepsItsKeyAndItsHandle )
     const fs::path dir = fs::temp_directory_path() / "af3_texture_asset_rename";
     fs::remove_all( dir );
     fs::create_directories( dir );
-    const auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Texture, Common::UUID( 777 ),
-                                               "assets:Textures/T.png", Bytes( "not really a png" ),
-                                               { Fmt::TextureIntent::Colour } );
+    const auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Texture, "assets:Textures/T.png",
+                                               Bytes( "not really a png" ), { Fmt::TextureIntent::Colour } );
+    ASSERT_FALSE( asset.Guid.IsNull() ) << "a new texture asset was minted without an identity";
     ASSERT_TRUE( WriteTextureSourceAssetFile( dir / "A.detex", asset ).IsSuccess() );
     fs::rename( dir / "A.detex", dir / "Renamed.detex" );
     const auto back = ReadTextureSourceAssetFile( dir / "Renamed.detex" );
     ASSERT_TRUE( back.IsSuccess() ) << back.GetError();
-    EXPECT_EQ( static_cast<uint64_t>( back.GetValue().Handle() ), 777u );
+    EXPECT_EQ( back.GetValue().Guid, asset.Guid );
+    EXPECT_EQ( static_cast<uint64_t>( back.GetValue().Handle() ),
+               static_cast<uint64_t>( Common::Content::HandleForGuid( asset.Guid ) ) )
+         << "a texture's handle is the one fold of its header GUID, not a number of its own";
     const TextureBuildSettings s{ back.GetValue().Import.Settings, 1 };
     EXPECT_EQ( TextureDerivedDataKey( back.GetValue().Import.SourceHash, s ),
                TextureDerivedDataKey( asset.Import.SourceHash, { asset.Import.Settings, 1 } ) );
@@ -78,9 +82,8 @@ TEST( TextureAsset, RenamingTheAssetKeepsItsKeyAndItsHandle )
 
 TEST( TextureAsset, RoundTripIsByteIdenticalAndCarriesTheSource )
 {
-    const auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Skybox, Common::UUID( 0x1234 ),
-                                               "assets:Textures/HDR/Sky.hdr", Bytes( "#?RADIANCE fake" ),
-                                               { Fmt::TextureIntent::Unspecified } );
+    const auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Skybox, "assets:Textures/HDR/Sky.hdr",
+                                               Bytes( "#?RADIANCE fake" ), { Fmt::TextureIntent::Unspecified } );
     const auto first = EncodeTextureSourceAsset( asset );
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     const auto decoded = DecodeTextureSourceAsset( first.GetValue() );
@@ -95,22 +98,25 @@ TEST( TextureAsset, RoundTripIsByteIdenticalAndCarriesTheSource )
 
 TEST( TextureAsset, ASourceThatDoesNotMatchItsImportHashIsRefused )
 {
-    auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Texture, Common::UUID( 5 ), "assets:x.png",
-                                         Bytes( "abc" ), {} );
+    auto asset =
+         MakeTextureSourceAsset( Common::Content::ContentKind::Texture, "assets:x.png", Bytes( "abc" ), {} );
     asset.Source = Bytes( "abd" );
     EXPECT_FALSE( EncodeTextureSourceAsset( asset ).IsSuccess() );
 }
 
-// THE MIGRATION'S TWO CHECKS, on the committed tree: (1) no texture source is left outside an asset in
-// the loose roots — one asset per former source; (2) each asset's handle is the number its original
-// source path derived, i.e. the handle before the migration equals the handle after it, for every texture.
+// THE MIGRATION'S CHECKS, on the committed tree: (1) no texture source is left outside an asset in the
+// loose roots — one asset per former source; (2) each asset's Guid.Hi is still the number its original
+// source path derived. That number is no longer the handle (the handle is HandleForGuid of the whole GUID,
+// SCNE 28 step 6), but it is what the committed `.demat`s still name, and the MATL 3 migration maps it to
+// the GUID through this very relation; (3) no two assets fold to one handle.
 TEST( TextureAsset, EveryProjectTextureIsAnAssetAndKeepsItsHandle )
 {
     const fs::path repo = RepoRoot();
     ASSERT_FALSE( repo.empty() );
     const fs::path resources = repo / "Editor" / "Resources";
     Common::Constants::Path::SetProjectRoot( resources.parent_path(), "Resources/Assets" );
-    size_t assets = 0;
+    size_t                       assets = 0;
+    std::unordered_set<uint64_t> handles;
     for ( const char* sub : { "Assets/Textures", "Assets/Meshes" } )
     {
         for ( const auto& e : fs::recursive_directory_iterator( resources / sub ) )
@@ -125,7 +131,9 @@ TEST( TextureAsset, EveryProjectTextureIsAnAssetAndKeepsItsHandle )
             ASSERT_TRUE( a.IsSuccess() ) << a.GetError();
             const uint64_t before =
                  static_cast<uint64_t>( Common::AssetHandle::FromKey( a.GetValue().Import.SourceFile ) );
-            EXPECT_EQ( static_cast<uint64_t>( a.GetValue().Handle() ), before ) << e.path();
+            EXPECT_EQ( a.GetValue().Guid.Hi, before ) << e.path();
+            EXPECT_TRUE( handles.insert( static_cast<uint64_t>( a.GetValue().Handle() ) ).second )
+                 << e.path() << " folds to a handle another texture asset already has";
         }
     }
     EXPECT_EQ( assets, 11u ) << "9 images + 2 HDR panoramas were migrated";

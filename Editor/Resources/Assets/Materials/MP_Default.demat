@@ -3,11 +3,13 @@
         "Kind": "Material",
         "Guid": "358bc9f1414d0b0477ba9f42f026b305",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
     "ShaderName": "MatProbe",
     "Params": [],
-    "Textures": []
+    "Textures": [],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

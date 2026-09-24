@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "ca84b9af93f8b5cbb1ee0da2e47b5a5a",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["37ccfc9c6d6f4026333b84b1ae1b358f"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -18,10 +18,13 @@
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 6373301567770573347
+            "Guid": "37ccfc9c6d6f4026333b84b1ae1b358f",
+            "Path": "assets:Clouds/Types/Cumulus_Humilis.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

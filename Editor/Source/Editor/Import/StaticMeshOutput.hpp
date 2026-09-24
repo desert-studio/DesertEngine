@@ -71,14 +71,16 @@ namespace Desert::Editor
     // @p folder, registered in the content registry with its bounds, exactly as the importer's cook does.
     // Returns the path written. Nothing is written when the mesh is refused.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
-    WriteStaticMeshAsset( const Geometry::FDynamicMesh3& mesh, std::span<const Common::UUID> slotMaterials,
+    WriteStaticMeshAsset( const Geometry::FDynamicMesh3&              mesh,
+                          std::span<const Common::Content::AssetGuid> slotMaterials,
                           const std::filesystem::path& folder, std::string_view baseName )
     {
         auto data = Geometry::DynamicMeshToMeshAssetData( mesh, slotMaterials );
         if ( !data.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was not written as a static mesh: {}",
                                                                       baseName, data.GetError() );
-        const Assets::Serialization::MeshAssetData asset = data.ExtractValue();
+        Assets::Serialization::MeshAssetData asset = data.ExtractValue();
+        asset.Guid = Common::Content::AssetGuid::Generate(); // a new file: a new identity
 
         const std::filesystem::path path = UniqueStaticMeshPath( folder, baseName );
         if ( auto written = WriteCookedBytes( Assets::Serialization::EncodeMeshBinary( asset ), path,

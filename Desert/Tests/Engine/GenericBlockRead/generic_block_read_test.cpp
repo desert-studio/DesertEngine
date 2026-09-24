@@ -172,9 +172,9 @@ namespace
     constexpr std::size_t kTranslationY   = 13;
     constexpr std::size_t kTranslationZ   = 14;
 
-    // Two arbitrary but DISTINCT 64-bit handles: the point of the assertion is that each comes back as
+    // Two arbitrary but DISTINCT header GUID texts: the point of the assertion is that each comes back as
     // itself, so the values only have to be recognisable and different from one another.
-    constexpr uint64_t kMeshGuid     = 0x0123456789ABCDEFULL;
+    constexpr const char* kMeshGuid     = "0123456789abcdeffedcba9876543210"; // header GUID text (SCNE 28)
     constexpr const char* kMaterialGuid = "fedcba98765432100123456789abcdef"; // header GUID text (SCNE 27)
 
     constexpr float kGridStep  = 200.0F; // the 3x3 grid Г25's control frame used, in world units (cm)

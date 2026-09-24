@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d97152f93397f535160ff733b7c2cebc",
         "Versions": {
-            "SCNE": 27,
+            "SCNE": 28,
             "UNIT": 1
         },
         "Dependencies": []
@@ -62,7 +62,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/SkinProbe.skmesh",
-                "MeshGuid": -2180280456575790904,
+                "MeshGuid": "047623816f024edf9fd7a557f6501f7e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             }

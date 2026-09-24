@@ -6,9 +6,9 @@ namespace Desert::Geometry
 {
     namespace Ser = Assets::Serialization;
 
-    Ser::MeshAssetData MeshAssetDataFromRender( const RenderMeshData&         render,
-                                                std::span<const Common::UUID> slotMaterials,
-                                                std::vector<int32_t>          polyGroups )
+    Ser::MeshAssetData MeshAssetDataFromRender( const RenderMeshData&                       render,
+                                                std::span<const Common::Content::AssetGuid> slotMaterials,
+                                                std::vector<int32_t>                        polyGroups )
     {
         Ser::MeshAssetData data;
         data.IsSkinned = false;
@@ -26,14 +26,14 @@ namespace Desert::Geometry
         {
             const Submesh&   from = render.Submeshes[k];
             Ser::SubmeshData to;
-            to.Name           = from.Name.empty() ? "Section" + std::to_string( k ) : from.Name;
-            to.VertexOffset   = from.VertexOffset;
-            to.VertexCount    = from.VertexCount;
-            to.IndexOffset    = from.IndexOffset;
-            to.IndexCount     = from.IndexCount;
-            to.Transform      = from.Transform;
-            to.BoundingBox    = from.BoundingBox;
-            to.MaterialHandle = k < slotMaterials.size() ? slotMaterials[k] : Common::UUID::Null();
+            to.Name         = from.Name.empty() ? "Section" + std::to_string( k ) : from.Name;
+            to.VertexOffset = from.VertexOffset;
+            to.VertexCount  = from.VertexCount;
+            to.IndexOffset  = from.IndexOffset;
+            to.IndexCount   = from.IndexCount;
+            to.Transform    = from.Transform;
+            to.BoundingBox  = from.BoundingBox;
+            to.MaterialGuid = k < slotMaterials.size() ? slotMaterials[k] : Common::Content::AssetGuid{};
             data.Submeshes.push_back( std::move( to ) );
         }
 

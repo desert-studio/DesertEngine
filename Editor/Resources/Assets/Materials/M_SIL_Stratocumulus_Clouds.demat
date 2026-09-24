@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "07a3b038dfec80e024d28352527e9599",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["a76650ee6545b96c752111ed9f32308b"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -18,10 +18,13 @@
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 6853231821712990642
+            "Guid": "a76650ee6545b96c752111ed9f32308b",
+            "Path": "assets:Clouds/Types/Stratocumulus.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

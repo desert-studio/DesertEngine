@@ -300,8 +300,10 @@ namespace Desert::Runtime
         {
             for ( const auto& p : data.Params )
                 out.Params.emplace_back( p.Name, p.Value );
-            for ( const auto& t : data.Textures )
-                out.Textures.emplace_back( t.Name, t.TextureHandle );
+            // Textures, cloud assets and shader refs alike, each as its folded handle: the consumers bind by
+            // slot name (a sampler, ApplyCloudAssetRef) and never see a GUID or a path.
+            data.ForEachSlotHandle( [&out]( const std::string& name, uint64_t handle )
+                                    { out.Textures.emplace_back( name, handle ); } );
         };
 
         append( base->Data() );

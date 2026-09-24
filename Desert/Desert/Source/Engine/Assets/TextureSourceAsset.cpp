@@ -139,16 +139,13 @@ namespace Desert::Assets
         const CC::SubsystemVersion kKnown[] = { { kTextureAssetSubsystemTag, kTextureAssetSubsystemVersion } };
     } // namespace
 
-    TextureSourceAsset MakeTextureSourceAsset( const CC::ContentKind kind, const Common::UUID handle,
-                                               std::string sourceKey, std::vector<std::byte> sourceBytes,
+    TextureSourceAsset MakeTextureSourceAsset( const CC::ContentKind kind, std::string sourceKey,
+                                               std::vector<std::byte>      sourceBytes,
                                                const TextureImportSettings settings )
     {
         TextureSourceAsset asset;
-        asset.Kind    = kind;
-        asset.Guid.Hi = static_cast<uint64_t>( handle );
-        asset.Guid.Lo = CC::AssetGuid::Generate().Lo;
-        if ( asset.Guid.Lo == 0 )
-            asset.Guid.Lo = 1; // a null half is fine, a null GUID is not; Hi may legitimately be 0 only in tests
+        asset.Kind              = kind;
+        asset.Guid              = CC::AssetGuid::Generate();
         asset.Name              = std::filesystem::path( sourceKey ).stem().string();
         asset.Import.SourceFile = std::move( sourceKey );
         asset.Import.SourceHash = Common::Utils::PakContentHash( sourceBytes.data(), sourceBytes.size() );
@@ -255,7 +252,16 @@ namespace Desert::Assets
         char          magic[4] = {};
         if ( !in.read( magic, 4 ) )
             return false;
-        return magic[0] == 'D' && magic[1] == 'A' && magic[2] == 'S' && magic[3] == 'T';
+        if ( !( magic[0] == 'D' && magic[1] == 'A' && magic[2] == 'S' && magic[3] == 'T' ) )
+            return false;
+        // The magic is the ENVELOPE's, shared by every binary asset (a `.dclayout` since container 2), so
+        // the kind decides. Recorded, not judged: a texture whose TXAS version this build does not read is
+        // still a texture, and ReadTextureSourceAssetFile refuses it by name.
+        in.clear();
+        in.seekg( 0, std::ios::beg );
+        const auto header = CC::ReadEnvelopeHeader( in, CC::AssetHeaderReadContext{ {}, true } );
+        return header.IsSuccess() && ( header.GetValue().Asset.Kind == CC::ContentKind::Texture ||
+                                       header.GetValue().Asset.Kind == CC::ContentKind::Skybox );
     }
 
     std::vector<std::byte> SerializeTextureSettingsForKey( const TextureBuildSettings& settings )
@@ -318,7 +324,7 @@ namespace Desert::Assets
 
         TextureAssetKey key;
         key.Kind   = h.Asset.Kind;
-        key.Handle = Common::UUID( h.Asset.Guid.Hi );
+        key.Guid   = h.Asset.Guid;
         if ( impt )
         {
             auto info = DecodeImportInfo( bytes );

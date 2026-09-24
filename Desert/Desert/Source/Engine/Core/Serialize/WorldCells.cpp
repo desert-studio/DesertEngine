@@ -290,10 +290,12 @@ namespace Desert::Core::WorldCells
     {
         if ( registries.empty() )
             return {};
-        return [registries]( std::uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+        // First registry that answers wins, as KeyOfGuid does.
+        return
+             [registries]( const CC::AssetGuid& guid, std::string_view path ) -> std::optional<Common::Math::AABB>
         {
             for ( const auto& registry : registries )
-                if ( const auto* row = registry.FindByReference( handle, path ) )
+                if ( const auto* row = registry.FindByGuidReference( guid, path ) )
                     return row->Bounds;
             return std::nullopt;
         };

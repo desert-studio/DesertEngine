@@ -110,7 +110,10 @@ namespace Desert::Assets
             // the plural `GetMaterialHandles()`: it must answer with one handle per submesh, and it can
             // only do that if this loop writes one. The emptiness that was a crash is now a silence, which
             // is why the line still matters.
-            m_MaterialAssetHandles.emplace_back( s.MaterialHandle );
+            m_MaterialAssetHandles.emplace_back(
+                 s.MaterialGuid.IsNull() ? Common::UUID::Null()
+                                         : Common::UUID( static_cast<uint64_t>(
+                                                Common::Content::HandleForGuid( s.MaterialGuid ) ) ) );
             m_Submeshes.emplace_back( std::move( submesh ) );
         }
 

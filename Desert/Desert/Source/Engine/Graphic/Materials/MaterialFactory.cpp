@@ -87,13 +87,10 @@ namespace Desert::Graphic
         for ( const auto& p : data.Params )
             material.SetParamRaw( p.Name, p.Value );
 
-        // `MaterialData::Textures` is NOT a list of textures. It is the material's generic
-        // name -> asset-handle map, and the SHADER SCHEMA is what says which kind of asset each name
-        // stands for: an ordinary `Texture2D` sampler, a `TextureCube`, or a non-texture asset reference
-        // (`CloudType1`, `CloudLayout`) that a different service consumes entirely. Asking the schema is
-        // what lets the miss below be an ERROR instead of noise — a cloud material's four type slots and
-        // its layout slot are handles this loop must never even look for, and 17 of the 22 distinct
-        // handles in this repository's materials are exactly those.
+        // `MaterialData::Textures` holds the sampler slots only since MATL 3 (the cloud material's asset
+        // slots have a list of their own), but the SHADER SCHEMA still says what each name is: a `Texture2D`
+        // sampler, a `TextureCube` (bound by MaterialSkybox, not here), or a non-texture asset reference a
+        // different service consumes. Asking the schema is what lets the miss below be an ERROR, not noise.
         const auto& schema   = material.GetSchema();
         const auto  paramFor = [&schema]( const std::string& name ) -> const Core::Formats::ShaderParam*
         {
@@ -144,9 +141,9 @@ namespace Desert::Graphic
             material.SetTexture( param.Name, nullptr );
             LOG_ERROR( "[Materials] '{0}' names texture handle {1} in its '{2}' slot and no texture with "
                        "that handle is registered, so '{3}' samples that slot's schema default instead. A "
-                       "texture's handle is AssetHandle::FromCookedPath of its source image, so this "
-                       "usually means the image was renamed, moved, or cooked before the derivation "
-                       "changed; re-cook it (Assets > Rebuild Cooked Assets) and re-assign the slot.",
+                       "texture's handle is HandleForGuid of its .detex header GUID, which the slot names, so "
+                       "this means that texture asset is not in the project (deleted, or never imported); "
+                       "re-import it or re-assign the slot.",
                        asset.GetMetadata().Filepath.string(), handle, param.Name, material.GetShaderName() );
         }
 
@@ -157,7 +154,7 @@ namespace Desert::Graphic
         {
             for ( const auto& t : data.Textures )
             {
-                if ( t.TextureHandle == 0 || paramFor( t.Name ) )
+                if ( t.Guid.empty() || paramFor( t.Name ) )
                     continue;
 
                 LOG_WARN( "[Materials] '{0}' carries a value for '{1}', which the shader '{2}' does not "

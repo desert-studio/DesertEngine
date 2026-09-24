@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -128,6 +129,11 @@ namespace Desert::Assets
         /// why the PARAMS carry a number and the BAKE takes the bytes.
         uint32_t ContentHash = 0u;
 
+        /// The layout's identity, the GUID its envelope header states (container 2). Carried through every
+        /// edit so that re-saving a painting keeps the handle scenes and materials reference it by; null
+        /// only for a layout that has never been written, which the encoder then mints one for.
+        Common::Content::AssetGuid Guid;
+
         bool HasPattern() const
         {
             return !Pattern.empty();
@@ -239,23 +245,32 @@ namespace Desert::Assets
      */
     float SampleCloudLayoutMask( const CloudLayoutData& data, const glm::vec2& uv );
 
-    /// The container layout's version. Bumped when a FIELD moves, independently of anything about the
-    /// meaning of the pixels.
-    inline constexpr uint32_t kCloudLayoutContainerVersion = 1u;
+    /// The layout's own version, stated in the envelope header under kCloudLayoutSubsystemTag. Bumped when
+    /// a FIELD of the payload moves, independently of anything about the meaning of the pixels. Version 1
+    /// was a bare "DCLY" container with no header GUID; Tools/SceneMigrator wraps it into version 2.
+    inline constexpr uint32_t kCloudLayoutContainerVersion = 2u;
 
-    /// Byte length of the container header. Exposed because the round-trip test asserts the whole file
-    /// length, and a header that grew without this moving would pass a test that meant nothing.
-    inline constexpr size_t kCloudLayoutHeaderSize = 48u;
+    /// The subsystem tag the envelope header carries the layout version under.
+    inline constexpr uint32_t kCloudLayoutSubsystemTag = Common::Content::FourCC( "DCLY" );
 
-    /// The four bytes every container starts with.
-    inline constexpr char kCloudLayoutMagic[4] = { 'D', 'C', 'L', 'Y' };
+    /// Byte length of the fixed header that opens the envelope's Payload section, before the pixels.
+    /// Exposed because the round-trip test asserts the whole payload length, and a header that grew
+    /// without this moving would pass a test that meant nothing.
+    inline constexpr size_t kCloudLayoutHeaderSize = 40u;
+
+    /// The four bytes a version-1 file started with, before the envelope. Kept ONLY so the decoder can
+    /// refuse such a file by name and Tools/SceneMigrator can recognise what it wraps; nothing reads it.
+    inline constexpr char kCloudLayoutVersion1Magic[4] = { 'D', 'C', 'L', 'Y' };
 
     /// The extension the Content Browser, the file dialog and the drag-and-drop payload all agree on.
     inline constexpr const char* kCloudLayoutExtension = ".dclayout";
 
     /**
-     * @brief Serialises a layout into the container.
+     * @brief Serialises a layout into its AF1 binary envelope (kind CloudLayout, the layout's GUID, one
+     *        Payload section: the 40-byte header, then the tables).
      *
+     * The GUID travels in `data.Guid`; a null one is a layout never written before and gets a fresh GUID
+     * here, so an edit that carries its GUID through keeps the asset's handle.
      * The four channel means are RECOMPUTED here from the pattern rather than trusted from the argument,
      * which is the one place they can be made to agree with the pixels. A mean that travelled in from a
      * caller could describe a different painting than the one being written, and the symptom would be a
@@ -266,7 +281,8 @@ namespace Desert::Assets
     /**
      * @brief Parses a container back into a layout, or says why it could not.
      *
-     * REFUSES RATHER THAN GUESSES, each refusal naming the number that was wrong: a wrong magic, an
+     * REFUSES RATHER THAN GUESSES, each refusal naming the number that was wrong: a bare version-1 file
+     * (named, pointing at Tools/SceneMigrator), an envelope that does not read or is not a CloudLayout, an
      * unknown container version, a resolution outside its bounds, a payload length that disagrees with the
      * resolution, a truncated file, a checksum that does not match. A layout that decoded to zeros would
      * render as a sky with no cloud in it and nothing in the log — which is the shape of defect this

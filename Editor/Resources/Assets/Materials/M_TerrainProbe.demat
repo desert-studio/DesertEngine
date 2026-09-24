@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "c98ffe0750adbafe16f2b147ca5a8dcf",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
@@ -11,12 +11,14 @@
     "Params": [
         {
             "Name": "Tint",
-            "Value": [0.9, 0.25, 0.15, 1.0]
+            "Value": [0.8999999761581421, 0.25, 0.15000000596046448, 1.0]
         },
         {
             "Name": "DetailTiling",
             "Value": [16.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": []
+    "Textures": [],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "288c7ec795d155f34e882220d9526ee6",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["a01422c9b7880f416344bc6a17a9161b"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -18,10 +18,13 @@
             "Value": [1200000.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 13547504463028240791
+            "Guid": "a01422c9b7880f416344bc6a17a9161b",
+            "Path": "assets:Clouds/Types/Altocumulus.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

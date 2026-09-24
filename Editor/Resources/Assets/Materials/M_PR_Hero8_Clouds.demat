@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "2a0be059ed143f53ce10ee6467346a08",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["a718dc1391ddaa106c14d39239044e01"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
@@ -122,10 +122,13 @@
             "Value": [1.0, 1.0, 1.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 17151824050666325486
+            "Guid": "a718dc1391ddaa106c14d39239044e01",
+            "Path": "assets:Clouds/Types/Cumulonimbus.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

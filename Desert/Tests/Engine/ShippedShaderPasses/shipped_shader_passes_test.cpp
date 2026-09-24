@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -434,17 +435,20 @@ namespace
         return {};
     }
 
-    // The number in a `.demat`'s normal slot, or 0 for "no slot" and for "the slot is empty" alike --
-    // which are the same fact to every consumer: MaterialFactory binds the shader's 1x1 fallback for
-    // both, and the fragment stage's `textureSize(...) > 1` guard then skips the TBN multiply.
+    // The handle a `.demat`'s normal slot resolves to (HandleForGuid of the GUID it states, MATL 3), or 0 for
+    // "no slot" and for "the slot is empty" alike -- which are the same fact to every consumer: MaterialFactory
+    // binds the shader's 1x1 fallback for both, and the fragment stage's `textureSize(...) > 1` guard then
+    // skips the TBN multiply.
     uint64_t NormalTextureHandleOf( const std::string& demat )
     {
-        static const std::regex slot( R"("Name"\s*:\s*"u_NormalTexture"\s*,\s*"TextureHandle"\s*:\s*([0-9]+))" );
+        static const std::regex slot(
+             R"re("Name"\s*:\s*"u_NormalTexture"\s*,\s*"Guid"\s*:\s*"([0-9a-fA-F]*)")re" );
 
         std::smatch match;
-        if ( !std::regex_search( demat, match, slot ) )
+        if ( !std::regex_search( demat, match, slot ) || match[1].str().empty() )
             return 0;
-        return std::strtoull( match[1].str().c_str(), nullptr, 10 );
+        const auto guid = Common::Content::AssetGuidFromText( match[1].str() );
+        return guid ? static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) : 0u;
     }
 
     // Every `Materials/....demat` a scene spells, from whichever component spelled it -- StaticMesh,
@@ -560,9 +564,8 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
          << "not one shipped material binds u_NormalTexture, so the reconstruction census above is "
             "asserting the shape of a code path nothing in this repository can execute";
 
-    // The handle a `.demat` carries is FNV-1a of the SOURCE image's place inside the project behind its
-    // root tag -- the same derivation AssetReferenceCensus asserts, spelled from the file rather than
-    // from a project root this suite never opens.
+    // Every file's path-derived handle (FNV-1a of its place behind its root tag) and every `.detex`'s
+    // header-GUID handle -- the latter is what a MATL 3 slot resolves to.
     std::map<uint64_t, std::string> sourceByHandle;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( assets ) )
     {
@@ -584,7 +587,8 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
              Common::Content::DescribeContentFile( entry.path(), Common::Content::ContentKind::Texture );
         ASSERT_TRUE( described.HeaderError.empty() ) << key << ": " << described.HeaderError;
         ASSERT_TRUE( described.Header.has_value() ) << key << " is a texture asset that states no header";
-        sourceByHandle.emplace( described.Header->Guid.Hi, key );
+        sourceByHandle.emplace( static_cast<uint64_t>( Common::Content::HandleForGuid( described.Header->Guid ) ),
+                                key );
     }
 
     // Every material path any scene names, whatever component named it.

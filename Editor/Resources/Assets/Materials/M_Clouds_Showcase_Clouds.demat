@@ -3,21 +3,24 @@
         "Kind": "Material",
         "Guid": "732b2b6a48f6b68a5c5ab22f00719633",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["57d4bb1926b4607e95f65d4c092b2747"]
     },
     "ShaderName": "CloudRaymarch",
     "Params": [
         {
             "Name": "Coverage",
-            "Value": [0.55, 0.0, 0.0, 0.0]
+            "Value": [0.550000011920929, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": [
+    "Textures": [],
+    "CloudAssets": [
         {
             "Name": "CloudType1",
-            "TextureHandle": 415244014067535331
+            "Guid": "57d4bb1926b4607e95f65d4c092b2747",
+            "Path": "assets:Clouds/Types/Cumulus_Mediocris.decloudtype"
         }
-    ]
+    ],
+    "ShaderRefs": []
 }

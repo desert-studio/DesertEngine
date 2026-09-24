@@ -7,8 +7,8 @@ namespace Desert::Geometry
 {
     namespace Ser = Assets::Serialization;
 
-    Common::ResultStr<Ser::MeshAssetData> ToMeshAssetData( const EditMesh&               mesh,
-                                                           std::span<const Common::UUID> slotMaterials )
+    Common::ResultStr<Ser::MeshAssetData>
+    ToMeshAssetData( const EditMesh& mesh, std::span<const Common::Content::AssetGuid> slotMaterials )
     {
         if ( mesh.TriangleCount() == 0 )
             return Common::MakeFormattedError<Ser::MeshAssetData>(

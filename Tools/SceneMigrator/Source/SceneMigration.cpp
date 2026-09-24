@@ -24,7 +24,10 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -40,6 +43,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <fstream>
 #include <optional>
 #include <string>
 
@@ -1962,6 +1966,129 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // The header GUID of the mesh `meshPath` names, after checking that `oldHandle` is that file's
+        // path-derived handle. An error string names why not.
+        Common::ResultStr<Common::Content::AssetGuid> MeshGuidForBlock( uint64_t                     oldHandle,
+                                                                        const std::string&           meshPath,
+                                                                        const std::filesystem::path& assetsRoot )
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const fs::path  start = fs::absolute( assetsRoot, ec ).lexically_normal();
+            fs::path        project;
+            for ( fs::path at = start; !at.empty(); at = at.parent_path() )
+            {
+                if ( fs::is_regular_file( at / meshPath, ec ) )
+                {
+                    project = at;
+                    break;
+                }
+                if ( at == at.parent_path() )
+                    break;
+            }
+            if ( project.empty() )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "no file '" + meshPath + "' under any ancestor of " + start.generic_string() );
+
+            const fs::path file = ( project / meshPath ).lexically_normal();
+            // The key the writer hashed: the file's place under the Cooked tree or the assets root.
+            std::string       key;
+            const std::string underCooked =
+                 file.lexically_relative( project / Common::Constants::Path::COOKED_DIR_NAME ).generic_string();
+            const std::string underAssets = file.lexically_relative( start ).generic_string();
+            if ( !underCooked.empty() && underCooked.rfind( "..", 0 ) != 0 )
+                key = "cooked:" + underCooked;
+            else if ( !underAssets.empty() && underAssets.rfind( "..", 0 ) != 0 )
+                key = "assets:" + underAssets;
+            else
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + meshPath + "' lies under neither the Cooked tree nor the assets root" );
+            const uint64_t pathHandle = static_cast<uint64_t>( Common::AssetHandle::FromKey( key ) );
+            if ( pathHandle != oldHandle )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "is not the handle of '" + key + "' (" + std::to_string( pathHandle ) + ")" );
+
+            std::ifstream in( file, std::ios::binary );
+            std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+            in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+            const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
+            if ( !guid || guid->IsNull() )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() + "' states no mesh GUID (not a v3 mesh)" );
+            return Common::MakeSuccess( Common::Content::AssetGuid( *guid ) );
+        }
+
+        void RaiseMeshGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                             const std::filesystem::path& assetsRoot, MeshGuidsMigrationReport& report )
+        {
+            static constexpr auto kMeshComponents =
+                 std::to_array<const char*>( { "StaticMesh", "SkinnedMesh", "InstancedStaticMesh" } );
+            for ( const char* component : kMeshComponents )
+            {
+                const auto payload = components.get( component );
+                if ( !payload.has_value() )
+                    continue;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                const auto value = fields.value().get( "MeshGuid" );
+                if ( !value.has_value() )
+                    continue;
+                const std::string site = tag + " > " + component + ".MeshGuid";
+                const auto        id   = value.value().to_int64();
+                if ( !id.has_value() )
+                {
+                    report.UnknownNames.push_back( site + " is " + Describe( value.value() ) +
+                                                   ", not a mesh handle" );
+                    continue;
+                }
+                const auto        path = fields.value().get( "MeshPath" );
+                const std::string text = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                if ( text.empty() )
+                {
+                    report.UnknownNames.push_back( site + " = " + std::to_string( id.value() ) +
+                                                   " has no MeshPath to find its file by" );
+                    continue;
+                }
+                // The writer stored the u64 through a signed JSON integer.
+                const auto guid = MeshGuidForBlock( static_cast<uint64_t>( id.value() ), text, assetsRoot );
+                if ( !guid )
+                {
+                    report.UnknownNames.push_back( site + " = " + std::to_string( id.value() ) + " " +
+                                                   guid.GetError() );
+                    continue;
+                }
+                ++report.Rewritten;
+                rfl::Generic::Object kept;
+                for ( const auto& [key, field] : fields.value() )
+                    kept[key] = key == "MeshGuid"
+                                     ? rfl::Generic( Common::Content::AssetGuidToText( guid.GetValue() ) )
+                                     : field;
+                components[component] = rfl::Generic( std::move( kept ) );
+            }
+        }
+    } // namespace
+
+    MeshGuidsMigrationReport MigrateMeshGuidsV27ToV28( std::vector<Assets::EntityData>& entities,
+                                                       const std::filesystem::path&     assetsRoot )
+    {
+        MeshGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseMeshGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
+                RaiseMeshGuids( ( *entity.PrefabOverrides )[i].Components,
+                                tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, report );
+        }
+        return report;
+    }
+
     TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
                                                                      std::vector<Assets::EntityData>& entities,
                                                                      const std::filesystem::path&     assetsRoot )
@@ -2640,7 +2767,9 @@ namespace Desert::Migration
 
             ++cloudEntityIndex;
 
-            Assets::MaterialData material;
+            // MATL 2, the shape this step was written against: the material pass raises it to 3 when the file
+            // is written (WriteCloudMaterials), where the content root that translates its numbers is known.
+            MaterialDataV2 material;
             material.ShaderName = "CloudRaymarch"; // = Graphic::kCloudMaterialShaderName; the migration
                                                    // suite pins the two spellings together
 
@@ -2778,7 +2907,7 @@ namespace Desert::Migration
             // suite pin the output and the repository diff show only real change.
             material.Header = ::Common::Content::MakeTextHeader( ::Common::Content::ContentKind::Material,
                                                                  MigrationGuidForPath( "cloudmat:" + relPath ),
-                                                                 ::Desert::Assets::MaterialTextSubsystems() );
+                                                                 MaterialTextSubsystemsV2() );
 
             kept["Material"] = rfl::Generic( relPath );
 
@@ -2795,14 +2924,14 @@ namespace Desert::Migration
             // tool twice.
             MigrateCloudMaterialAlbedoToColour( material );
 
-            // The one .demat writer (MaterialFormat.hpp), so the file opens with its text header like every
-            // other material. Its GUID is the migration's, keyed on the path under the assets root - the same
-            // derivation step 26 gives a headerless file - so re-running the tool writes the same bytes.
+            // Canonical MATL 2 text, header first like every other material. Its GUID is the migration's, keyed on
+            // the path under the assets root - the same derivation step 26 gives a headerless file - so re-running
+            // the tool writes the same bytes.
             material.Header = Assets::StampTextHeader(
                  Common::Content::TextAssetHeaderSerialized{
                       .Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relPath ) ) },
-                 Common::Content::ContentKind::Material, Assets::MaterialTextSubsystems() );
-            auto text = Assets::WriteMaterialJson( material );
+                 Common::Content::ContentKind::Material, MaterialTextSubsystemsV2() );
+            auto text = Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( material ) );
             if ( !text )
             {
                 report.Rejected += 1;
@@ -2820,7 +2949,7 @@ namespace Desert::Migration
         return report;
     }
 
-    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( Assets::MaterialData& material )
+    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( MaterialDataV2& material )
     {
         CloudMaterialLayoutReport report;
 
@@ -2864,7 +2993,7 @@ namespace Desert::Migration
         return report;
     }
 
-    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( Assets::MaterialData& material )
+    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( MaterialDataV2& material )
     {
         CloudMaterialAlbedoReport report;
 
@@ -3516,6 +3645,24 @@ namespace Desert::Migration
                          "'" + name + "': " + std::to_string( report.MaterialGuids.UnknownNames.size() ) +
                          " material slot(s) state an old material id the register " +
                          kLegacyMaterialIdRegisterName + " does not know: " + names + ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Rewrites the MeshGuid VALUE under three component keys, in records and override records; no
+            // step above writes MeshGuid.
+            if ( statedSceneVersion < kSceneVersionMeshGuids )
+            {
+                report.MeshGuidsRaised = true;
+                report.MeshGuids       = MigrateMeshGuidsV27ToV28( entities, assetsRoot );
+                if ( !report.MeshGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.MeshGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name + "': " + std::to_string( report.MeshGuids.UnknownNames.size() ) +
+                                     " mesh reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
                     return;
                 }
             }

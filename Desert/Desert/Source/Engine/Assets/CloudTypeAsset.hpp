@@ -22,18 +22,22 @@ namespace Desert::Assets
      * about `Image3D`; `Runtime::CloudTypeService` is what hands a resolved type to the renderer. That is
      * the layer rule, and it is also what lets this class be covered by a GPU-free test.
      *
-     * ITS HANDLE IS DERIVED FROM ITS PATH, like a mesh's and unlike the random uuid AssetBase hands out.
-     * That matters because a scene does NOT store the handle: reflected asset fields go through
-     * Core::MakeAssetResolver and are written as PATHS (this is how every mesh, material and skybox
-     * reference in a `.desce` already works), so the handle only has to be stable and unique WITHIN a
-     * session. The random id the base class would have given it is neither — a second launch would hand
-     * the same file a different handle, which is the defect the noise volume slot next door still carries
-     * and which nothing has noticed only because no scene has ever had a volume in it.
+     * ITS HANDLE IS HandleForGuid OF ITS HEADER GUID (format 4), adopted in the constructor like a
+     * mesh's: the GUID is minted once (a new type's first save, or Tools/SceneMigrator for a v3 file) and
+     * kept through renames and moves, so the handle is the same in every session and on every machine.
+     * A file whose header cannot be read keeps the path-derived handle AssetBase gives it, and its load
+     * is refused by name.
      */
     class CloudTypeAsset final : public AssetBase
     {
     public:
         CloudTypeAsset( AssetPriority priority, const Common::Filepath& filepath );
+
+        /// The header GUID this type was created from; null when the file states none.
+        [[nodiscard]] const Common::Content::AssetGuid& Guid() const
+        {
+            return m_Guid;
+        }
 
         /// Reads and parses the file. A file that is missing, malformed, from an unknown format version or
         /// carrying numbers the generator cannot honour is an ERROR carrying the reason and the offending
@@ -103,7 +107,8 @@ namespace Desert::Assets
         static Common::BoolResultStr Save( const Common::Filepath& filepath, const CloudTypeData& data );
 
     private:
-        CloudTypeData m_Data;
+        Common::Content::AssetGuid m_Guid;
+        CloudTypeData              m_Data;
         AssetHandle   m_NoiseVolume;
         std::string   m_DisplayName;
         bool          m_Ready    = false;

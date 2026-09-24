@@ -9,6 +9,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <algorithm>
+#include <sstream>
 #include <iterator>
 
 namespace Desert::Assets
@@ -16,9 +17,35 @@ namespace Desert::Assets
     CloudTypeAsset::CloudTypeAsset( AssetPriority priority, const Common::Filepath& filepath )
          : AssetBase( priority, filepath, AssetTypeID::CloudType )
     {
-        // The path-derived handle this type used to compute for itself now comes from AssetBase, which
-        // derives it the same way for every asset type. See the comment on that constructor.
         m_DisplayName = m_Metadata.Filepath.stem().string();
+
+        // THE TYPE'S IDENTITY IS ITS HEADER GUID (format 4), adopted HERE rather than in the load, for the
+        // mesh's reason: the asset manager keys its handle lookup at creation. Only the header object is
+        // read, through the VFS first like the load. A file with no readable header (absent: Save is about
+        // to create it; or a version-3 file) keeps the path-derived handle - the load refuses the latter by
+        // name, so no type is ever READY under that handle.
+        std::string text;
+        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
+                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
+                                      : std::nullopt;
+             packed.has_value() )
+            text = packed.value();
+        else if ( auto read = Common::Utils::FileSystem::ReadFileContentIfExists( m_Metadata.Filepath );
+                  read && read.GetValue().has_value() )
+            text = *read.GetValue();
+        std::istringstream in( text );
+        const auto         object = Common::Content::ReadTextHeaderObject( in );
+        if ( !object )
+            return;
+        const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+        if ( !header )
+            return;
+        const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+        if ( !guid || guid.GetValue().IsNull() )
+            return;
+        m_Guid = guid.GetValue();
+        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr CloudTypeAsset::LoadFromFile()
@@ -142,8 +169,7 @@ namespace Desert::Assets
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
 
-        CloudTypeData written = data;
-        written.FormatVersion = kCloudTypeFormatVersion;
+        const CloudTypeData& written = data;
 
         const auto canonicalText = Common::Content::CanonicalJsonTextOfWriterOutput( WriteCloudType( written ) );
         if ( !canonicalText )

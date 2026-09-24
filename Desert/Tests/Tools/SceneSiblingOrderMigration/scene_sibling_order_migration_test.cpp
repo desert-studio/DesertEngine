@@ -155,7 +155,6 @@ TEST( SceneSiblingOrderMigration, TheStepIsTheOneBelowTheTextHeaderHead )
 {
     EXPECT_EQ( Migration::kSceneVersionSiblingOrder + 1, Migration::kSceneVersionTextHeader );
     EXPECT_EQ( Migration::kSceneVersionTextHeader + 1, Migration::kSceneVersionMaterialGuids );
-    EXPECT_EQ( Migration::kSceneVersionMaterialGuids, Desert::Core::kSceneVersion );
     EXPECT_EQ( Migration::kSceneVersionSiblingOrder, Migration::kSceneVersionTextureAssetRefs + 1 );
 }
 

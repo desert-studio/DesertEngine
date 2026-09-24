@@ -22,7 +22,9 @@ namespace Desert::Graphic
     struct MaterialOverrides
     {
         std::vector<std::pair<std::string, glm::vec4>> Params;   // shader param name -> value
-        std::vector<std::pair<std::string, uint64_t>>  Textures; // sampler name -> texture asset handle
+        // slot name -> asset handle: every sampler, cloud-asset and shader slot of the material chain
+        // (MaterialData::ForEachSlotHandle), each already folded from what the file states.
+        std::vector<std::pair<std::string, uint64_t>> Textures;
     };
 
     /**

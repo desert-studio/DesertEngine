@@ -66,8 +66,9 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    Common::ResultStr<Ser::MeshAssetData> DynamicMeshToMeshAssetData( const FDynamicMesh3&          mesh,
-                                                                      std::span<const Common::UUID> slotMaterials )
+    Common::ResultStr<Ser::MeshAssetData>
+    DynamicMeshToMeshAssetData( const FDynamicMesh3&                        mesh,
+                                std::span<const Common::Content::AssetGuid> slotMaterials )
     {
         if ( mesh.TriangleCount() == 0 )
             return Common::MakeFormattedError<Ser::MeshAssetData>(

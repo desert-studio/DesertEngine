@@ -482,7 +482,12 @@ namespace Desert::Editor
             return;
         }
 
-        m_Layout        = made.ExtractValue();
+        // THE PAINTING KEEPS ITS IDENTITY THROUGH AN EDIT: the canvas carries pixels only, so the GUID the
+        // file was loaded with is carried over by hand. Dropping it would mint a fresh GUID on the next
+        // save and orphan every scene and material that names this layout by its handle.
+        const Common::Content::AssetGuid guid = m_Layout.Guid;
+        m_Layout                              = made.ExtractValue();
+        m_Layout.Guid                         = guid;
         m_HasLayout     = true;
         m_PreviewDirty  = true;
         m_StatusIsError = false;
@@ -1691,7 +1696,12 @@ namespace Desert::Editor
         // LIFTED OUT OF THE BUTTON so SaveDocument runs it too. The whole sequence and not just the write:
         // the file, the re-registration that makes the material's slot show the new pixels without a
         // restart, and the copy's own document.
-        const auto written = Assets::CloudLayoutAsset::Save( target, m_Layout );
+        // A COPY IS A NEW ASSET and so gets a GUID of its own (the encoder mints one for a null GUID);
+        // writing the original's would make two files claim one handle.
+        Assets::CloudLayoutData toWrite = m_Layout;
+        if ( isCopy )
+            toWrite.Guid = {};
+        const auto written = Assets::CloudLayoutAsset::Save( target, toWrite );
         if ( !written )
         {
             m_Status        = "Bake failed: " + written.GetError();

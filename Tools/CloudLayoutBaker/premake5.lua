@@ -45,7 +45,9 @@ project "CloudLayoutBaker"
 
     -- Common: the Result type the container's refusals are carried in.
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
-    links { "Common", "Optick" }
+    -- ReflectCpp: the layout is written in the AF1 asset envelope (container 2), and Common's envelope
+    -- reader shares its object file with the text asset header, which parses JSON through reflect-cpp.
+    links { "Common", "Optick", "ReflectCpp" }
 
     filter "configurations:Debug"
         symbols "On"

@@ -58,13 +58,14 @@ using Desert::Core::Serialize::TextureSlotToPath;
 
 namespace
 {
-    // A handle far above 2^53, which is what a real one looks like: a texture takes its id from the
-    // `Handle` field of its own cooked file, and the ones in this repository are 19-digit numbers. The
-    // value is the one measured going wrong through the JSON double round trip (5355760296319878840 came
-    // back as 5355760296319879168), so a regression there shows up here as well as in the serializer's
-    // own suite.
-    constexpr uint64_t kProbeHandle = 5355760296319878840ull;
-    constexpr uint64_t kOtherHandle = 5355760296319878841ull;
+    // A texture takes its id from the GUID its own file states (HandleForGuid), so the fixtures fix the GUIDs
+    // and the handles follow. Both folds are far above 2^53, which is what a real one looks like: a JSON
+    // double round trip loses the low bits of such a number, so a regression there shows up here as well as
+    // in the serializer's own suite.
+    const Common::Content::AssetGuid kProbeGuid{ 5355760296319878840ull, 1ull };
+    const Common::Content::AssetGuid kOtherGuid{ 5355760296319878841ull, 2ull };
+    const uint64_t kProbeHandle = static_cast<uint64_t>( Common::Content::HandleForGuid( kProbeGuid ) );
+    const uint64_t kOtherHandle = static_cast<uint64_t>( Common::Content::HandleForGuid( kOtherGuid ) );
 
     // Restores the project root SetProjectRoot rewrites — the content directories are process-wide
     // state, so a test that opens a project and walks away leaves every test after it measuring that
@@ -104,12 +105,13 @@ namespace
     // the identity the file itself states — written by the engine's own writer, since a second writer of one
     // format is exactly the drift this suite exists to catch elsewhere. The source is a single byte: the
     // loader reads the header and IMPT only, and the pixels are not what is under test, the identity is.
-    void WriteCookedTexture( const std::filesystem::path& at, uint64_t handle )
+    void WriteCookedTexture( const std::filesystem::path& at, const Common::Content::AssetGuid& guid )
     {
         std::filesystem::create_directories( at.parent_path() );
-        const Desert::Assets::TextureSourceAsset asset = Desert::Assets::MakeTextureSourceAsset(
-             Common::Content::ContentKind::Texture, Common::UUID( handle ),
-             "assets:Textures/" + at.stem().string() + ".png", { std::byte{ 0x7F } }, {} );
+        Desert::Assets::TextureSourceAsset asset = Desert::Assets::MakeTextureSourceAsset(
+             Common::Content::ContentKind::Texture, "assets:Textures/" + at.stem().string() + ".png",
+             { std::byte{ 0x7F } }, {} );
+        asset.Guid         = guid; // the fixture's fixed identity in place of the freshly minted one
         const auto written = Desert::Assets::WriteTextureSourceAssetFile( at, asset );
         ASSERT_TRUE( written.IsSuccess() )
              << "could not write the fixture at " << at.string() << ": " << written.GetError();
@@ -182,7 +184,7 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
 
     // --- the machine that saves the scene --------------------------------------------------------
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeHandle );
+    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ann );
 
     AssetManager annsManager;
@@ -200,7 +202,7 @@ TEST( TextureSlotRoundTrip, AHandleStoredOnOneMachineNamesTheSameTextureOnAnothe
 
     // --- the machine that opens it ----------------------------------------------------------------
     const Checkout ci = MakeCheckout( "ci", "Assets" );
-    WriteCookedTexture( ci.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeHandle );
+    WriteCookedTexture( ci.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ci );
 
     AssetManager   cisManager;
@@ -228,7 +230,7 @@ TEST( TextureSlotRoundTrip, TheStoredFormCarriesNoPartOfTheMachineItWasWrittenOn
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeHandle );
+    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ann );
 
     AssetManager manager;
@@ -253,8 +255,8 @@ TEST( TextureSlotRoundTrip, AContentTextureAndACookedOneTakeDifferentRootsAndBot
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex", kProbeHandle );
-    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "T_Content.tex", kOtherHandle );
+    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Cooked.tex", kProbeGuid );
+    WriteCookedTexture( ann.Dir / "Content" / "Textures" / "T_Content.tex", kOtherGuid );
     Open( ann );
 
     AssetManager manager;
@@ -285,8 +287,8 @@ TEST( TextureSlotRoundTrip, TwoTexturesDoNotCollapseOntoOneReference )
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "A.tex", kProbeHandle );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "B.tex", kOtherHandle );
+    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "A.tex", kProbeGuid );
+    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "B.tex", kOtherGuid );
     Open( ann );
 
     AssetManager manager;
@@ -321,7 +323,7 @@ TEST( TextureSlotRoundTrip, EverySpellingOfOneFileResolvesToOneTexture )
     std::filesystem::remove_all( ScratchRoot() );
 
     const Checkout ann = MakeCheckout( "ann", "Content" );
-    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeHandle );
+    WriteCookedTexture( ann.Dir / "Cooked" / "Textures" / "T_Probe.tex", kProbeGuid );
     Open( ann );
 
     AssetManager manager;

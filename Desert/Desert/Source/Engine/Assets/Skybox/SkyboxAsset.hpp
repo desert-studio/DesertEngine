@@ -22,7 +22,15 @@ namespace Desert::Assets
             return AssetTypeID::Skybox;
         }
 
+        // The panorama `.detex`'s header GUID, adopted at creation; null when the file was absent or stated
+        // none then. A material's cube slot names the skybox by it (MATL 3).
+        [[nodiscard]] const Common::Content::AssetGuid& Guid() const
+        {
+            return m_Guid;
+        }
+
     private:
-        bool                          m_ReadyForUse = false;
+        bool                       m_ReadyForUse = false;
+        Common::Content::AssetGuid m_Guid;
     };
 } // namespace Desert::Assets

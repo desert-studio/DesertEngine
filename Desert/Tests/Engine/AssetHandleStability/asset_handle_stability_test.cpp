@@ -203,8 +203,11 @@ namespace
     // BOOLSUCCESS;` — it never opened the file it named, so a skybox whose .hdr had been moved or left
     // out of a package loaded, registered and reported ready while the sky came out black. It verifies
     // the file's presence now, and AssetManager::CreateAsset drops an asset whose Load fails, so the
-    // tests below have to give it something to find. The CONTENT is irrelevant: this asset carries an
-    // identity, and the panorama's bytes are read by the GPU environment bake, not by Load.
+    // tests below have to give it something to find. The HEADER matters and the pixels do not: the
+    // skybox adopts its panorama asset's header GUID at creation (MATL 3), so a headerless file logs an
+    // unreadable identity - which lands on the one line the child-process tests read back. The file is
+    // written through the importer's own writer, a fresh GUID per file; the panorama's bytes are read by
+    // the GPU environment bake, not by Load.
     class ScratchFile
     {
     public:
@@ -212,8 +215,14 @@ namespace
         {
             std::error_code ec;
             std::filesystem::create_directories( m_Path.parent_path(), ec );
-            std::ofstream out( m_Path, std::ios::binary );
-            out << "scratch";
+            const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
+            const auto asset   = Desert::Assets::MakeTextureSourceAsset( Common::Content::ContentKind::Skybox,
+                                                                         "assets:Sky/Scratch.hdr", source,
+                                                                         Desert::Assets::TextureImportSettings{} );
+            const auto written = Desert::Assets::WriteTextureSourceAssetFile( m_Path, asset );
+            if ( !written.IsSuccess() )
+                ADD_FAILURE() << "scratch skybox '" << m_Path.string()
+                              << "' was not written: " << written.GetError();
         }
 
         ~ScratchFile()
@@ -487,7 +496,7 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     {
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[]})";
+        out << R"({"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})";
     }
 
     Desert::Assets::SurfaceMaterialAsset material( AssetPriority::Medium, Common::Filepath( scratch ) );
@@ -887,15 +896,20 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 {
     // A real `.detex`, because the claim is about what Load does with the handle frozen into the header.
     const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.detex";
-    constexpr uint64_t kIdInTheFile = 4588246833979984450ull; // the value T_Checker.detex's header carries
+    // A fixed GUID in the header; the handle is its one fold (SCNE 28 step 6), never a number of its own.
+    Common::Content::AssetGuid kGuidInTheFile;
+    kGuidInTheFile.Hi           = 4588246833979984450ull; // T_Checker.detex's Guid.Hi
+    kGuidInTheFile.Lo           = 0x5eed5eed5eed5eedull;
+    const uint64_t kIdInTheFile = static_cast<uint64_t>( Common::Content::HandleForGuid( kGuidInTheFile ) );
     {
         // THROUGH THE IMPORTER'S OWN WRITER (AF3). A fixture hand-spelled here would be a second writer of
         // the envelope — the drift this suite is about. The source bytes are opaque to Load: it reads the
         // header and IMPT, never SRCE.
         const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
-        const auto                   asset = Desert::Assets::MakeTextureSourceAsset(
-             Common::Content::ContentKind::Texture, Common::UUID( kIdInTheFile ), "assets:Textures/T_Checker.png",
-             source, Desert::Assets::TextureImportSettings{} );
+        auto asset         = Desert::Assets::MakeTextureSourceAsset( Common::Content::ContentKind::Texture,
+                                                                     "assets:Textures/T_Checker.png", source,
+                                                                     Desert::Assets::TextureImportSettings{} );
+        asset.Guid         = kGuidInTheFile;
         const auto written = Desert::Assets::WriteTextureSourceAssetFile( scratch, asset );
         ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     }
@@ -904,6 +918,8 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 
     Common::Constants::Path::SetProjectRoot( "/ann/work/Game", "Content" );
     Desert::Assets::TextureAsset underOneRoot( AssetPriority::Medium, Common::Filepath( scratch ) );
+    EXPECT_EQ( static_cast<uint64_t>( underOneRoot.GetMetadata().Handle ), kIdInTheFile )
+         << "the identity must be adopted at creation, before any Load: the asset manager keys its lookup then";
     ASSERT_TRUE( underOneRoot.Load().IsSuccess() );
 
     Common::Constants::Path::SetProjectRoot( "/opt/ci/checkout/Game", "Assets" );
@@ -914,9 +930,8 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 
     EXPECT_EQ( static_cast<uint64_t>( underOneRoot.GetMetadata().Handle ), kIdInTheFile );
     EXPECT_EQ( static_cast<uint64_t>( underAnother.GetMetadata().Handle ), kIdInTheFile )
-         << "a texture stopped taking its identity from its own file. Every `.demat` in the repository "
-            "names its textures by that number, so the moment it becomes path-derived a change to the "
-            "derivation silently empties every texture slot.";
+         << "a texture stopped taking its identity from its own file's GUID. The moment it becomes "
+            "path-derived a change to the derivation silently empties every texture slot.";
 }
 
 TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMoving )
@@ -934,7 +949,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
-               R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})";
+               R"("Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})";
     }
 
     ProjectRootGuard guard;
@@ -1058,10 +1073,9 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 
     Desert::Assets::AssetManager manager;
 
-    // One SkyboxAsset, and nothing else in the registry. Its handle is derived from its path, and the
-    // derivation is type-blind by design (asserted at the top of this file), so this same number is what a
-    // CloudTypeAsset at this path would carry — which is exactly how a request for the wrong type arrives
-    // at a real record: a saved scene stores a bare 64-bit number with no type beside it.
+    // One SkyboxAsset, and nothing else in the registry. Its handle is its header GUID's fold, a number
+    // with no type in it — which is exactly how a request for the wrong type arrives at a real record: a
+    // saved scene stores a bare 64-bit number with no type beside it.
     const ScratchFile impostor( "RegistryProbe/Content/Impostor.asset" );
     const auto        sky = manager.CreateAsset<Desert::Assets::SkyboxAsset>(
          AssetPriority::Medium, Common::Filepath( "RegistryProbe/Content/Impostor.asset" ) );
@@ -1268,4 +1282,33 @@ int main( int argc, char** argv )
 
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// A CLOUD TYPE'S HANDLE IS HandleForGuid OF ITS HEADER GUID (AF7v), adopted at creation, before any load:
+// the same file under two paths is the same type, and the path no longer takes part.
+TEST( AssetHandleStability, ACloudTypeHandleIsHandleForGuidOfItsHeader )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "AF7vCloudTypeHandle";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path first = dir / "A.decloudtype";
+
+    Desert::Assets::CloudTypeData data = Desert::Assets::CloudTypeDefault();
+    ASSERT_TRUE( Desert::Assets::CloudTypeAsset::Save( first, data ) );
+
+    const Desert::Assets::CloudTypeAsset asset( Desert::Assets::AssetPriority{}, first );
+    ASSERT_FALSE( asset.Guid().IsNull() ) << "the constructor did not read the header GUID";
+    EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+               static_cast<uint64_t>( Common::Content::HandleForGuid( asset.Guid() ) ) );
+    EXPECT_NE( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+               static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( first ) ) );
+
+    const fs::path moved = dir / "Renamed.decloudtype";
+    fs::copy_file( first, moved );
+    const Desert::Assets::CloudTypeAsset renamed( Desert::Assets::AssetPriority{}, moved );
+    EXPECT_EQ( static_cast<uint64_t>( renamed.GetMetadata().Handle ),
+               static_cast<uint64_t>( asset.GetMetadata().Handle ) )
+         << "a rename changed the type's identity";
+    fs::remove_all( dir );
 }

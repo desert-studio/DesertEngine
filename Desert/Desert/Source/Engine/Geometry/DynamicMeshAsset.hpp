@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Common/Core/UUID.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
 
@@ -28,7 +28,8 @@ namespace Desert::Geometry
     // Refused on an empty mesh, a colour overlay, more than one UV layer or a polygroup layer; otherwise
     // only where ToRenderMesh refuses (no normal overlay, an unset element in a carried overlay).
     [[nodiscard]] Common::ResultStr<Assets::Serialization::MeshAssetData>
-    DynamicMeshToMeshAssetData( const FDynamicMesh3& mesh, std::span<const Common::UUID> slotMaterials );
+    DynamicMeshToMeshAssetData( const FDynamicMesh3&                        mesh,
+                                std::span<const Common::Content::AssetGuid> slotMaterials );
 
     // The asset's triangles welded back (DynamicMeshFromRenderMesh) with triangle groups from the file (all 0
     // for a file with none) and MaterialID = submesh index; triangle k is face k of the file. Refused on a

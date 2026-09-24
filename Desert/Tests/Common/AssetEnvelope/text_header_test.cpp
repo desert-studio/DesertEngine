@@ -3,6 +3,7 @@
 // stop it - and that the header is checked as strictly as the binary envelope's.
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <gtest/gtest.h>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace
 {
@@ -51,10 +53,12 @@ namespace
 
 TEST( TextAssetHeader, IsTheSecondRegisteredFormatAfterTheBinaryEnvelope )
 {
+    // The registry is pinned by NAME: a format added or dropped fails here with the list, not with a count
+    // that can be edited to match.
+    const std::vector<const IAssetHeaderFormat*> expected = { &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(),
+                                                              &MeshBinaryHeaderFormat() };
     const auto formats = AssetHeaderFormats();
-    ASSERT_EQ( formats.size(), 2u );
-    EXPECT_EQ( formats[0], &BinaryEnvelopeHeaderFormat() );
-    EXPECT_EQ( formats[1], &TextHeaderFormat() );
+    EXPECT_EQ( std::vector<const IAssetHeaderFormat*>( formats.begin(), formats.end() ), expected );
 }
 
 TEST( TextAssetHeader, ReadsTheHeaderOfAFileWhoseBodyIsNotJson )
