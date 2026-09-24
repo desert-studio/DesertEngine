@@ -15,15 +15,15 @@ namespace Desert::Geometry
     {
         TVector<T> Center    = TVector<T>::Zero();
         TVector<T> Direction = TVector<T>::UnitX();
-        T          Extent    = (T)0;
+        T          Extent    = static_cast<T>( 0 );
 
         TSegment3() = default;
 
+        // Extent's initializer normalizes Direction in place; declaration order puts Direction first.
         TSegment3( const TVector<T>& Point0, const TVector<T>& Point1 )
+             : Center( T( .5 ) * ( Point0 + Point1 ) ), Direction( Point1 - Point0 ),
+               Extent( T( .5 ) * Normalize( Direction ) )
         {
-            Center    = T( .5 ) * ( Point0 + Point1 );
-            Direction = Point1 - Point0;
-            Extent    = T( .5 ) * Normalize( Direction );
         }
 
         TVector<T> StartPoint() const
@@ -52,7 +52,7 @@ namespace Desert::Geometry
                 DistParameterOut = Extent;
                 return Desert::Geometry::DistanceSquared( Point, EndPoint() );
             }
-            else if ( DistParameterOut <= -Extent )
+            if ( DistParameterOut <= -Extent )
             {
                 DistParameterOut = -Extent;
                 return Desert::Geometry::DistanceSquared( Point, StartPoint() );
@@ -66,8 +66,8 @@ namespace Desert::Geometry
         T ProjectUnitRange( const TVector<T>& QueryPoint ) const
         {
             const T ProjT = ( QueryPoint - Center ).Dot( Direction );
-            const T Alpha = ( ( ProjT / Extent ) + (T)1 ) * (T)0.5;
-            return TMathUtil<T>::Clamp( Alpha, (T)0, (T)1 );
+            const T Alpha = ( ( ProjT / Extent ) + static_cast<T>( 1 ) ) * static_cast<T>( 0.5 );
+            return TMathUtil<T>::Clamp( Alpha, static_cast<T>( 0 ), static_cast<T>( 1 ) );
         }
     };
 

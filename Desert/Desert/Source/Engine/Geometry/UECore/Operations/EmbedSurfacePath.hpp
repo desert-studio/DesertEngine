@@ -45,8 +45,7 @@ namespace Desert::Geometry
         {
         }
 
-        explicit FMeshSurfacePoint( int VertexID )
-             : ElementID( VertexID ), BaryCoord( 1, 0, 0 ), PointType( ESurfacePointType::Vertex )
+        explicit FMeshSurfacePoint( int VertexID ) : ElementID( VertexID ), BaryCoord( 1, 0, 0 )
         {
         }
 
@@ -58,11 +57,11 @@ namespace Desert::Geometry
         /** A point on edge EdgeID at LerpParam from the edge's first vertex (GetEdgeV order) to its second. */
         static FMeshSurfacePoint MakeEdgePoint( int32 EdgeID, double LerpParam )
         {
-            return FMeshSurfacePoint( EdgeID, FVector3d( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge );
+            return { EdgeID, FVector3d( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge };
         }
 
         /** @return the parameter to pass to FDynamicMesh3::SplitEdge to split the edge at this point */
-        double GetEdgeSplitParam() const
+        [[nodiscard]] double GetEdgeSplitParam() const
         {
             UE_CHECK_SLOW( PointType == ESurfacePointType::Edge );
             return BaryCoord[1];
@@ -88,7 +87,7 @@ namespace Desert::Geometry
         /**
          * @return True if the Path exactly sticks to the mesh surface, and never jumps to disconnected elements
          */
-        bool IsConnected() const;
+        [[nodiscard]] bool IsConnected() const;
 
         /**
          * Embed a surface path in mesh provided that the path only crosses vertices and edges except at the start

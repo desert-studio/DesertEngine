@@ -24,9 +24,8 @@ namespace Desert::Geometry
         TVector<Real> ClosestTrianglePoint;
 
         TDistPoint3Triangle3( const TVector<Real>& PointIn, const TTriangle3<Real>& TriangleIn )
+             : Point( PointIn ), Triangle( TriangleIn )
         {
-            Point    = PointIn;
-            Triangle = TriangleIn;
         }
 
         Real GetSquared()
@@ -49,8 +48,12 @@ namespace Desert::Geometry
             const Real f10 = b0 + a00;
             const Real f01 = b0 + a01;
 
-            TVector2<Real> p0, p1, p;
-            Real           dt1, h0, h1;
+            TVector2<Real> p0;
+            TVector2<Real> p1;
+            TVector2<Real> p;
+            Real           dt1;
+            Real           h0;
+            Real           h1;
 
             // Compute the endpoints p0 and p1 of the segment.  The segment is
             // parameterized by L(z) = (1-z)*p0 + z*p1 for z in [0,1] and the
@@ -59,9 +62,9 @@ namespace Desert::Geometry
             // By design, F(L(z)) = 0 for cases (2), (4), (5), and (6).  Cases (1) and
             // (3) can correspond to no-intersection or intersection of F = 0 with the
             // Triangle.
-            if ( f00 >= (Real)0 )
+            if ( f00 >= static_cast<Real>( 0 ) )
             {
-                if ( f01 >= (Real)0 )
+                if ( f01 >= static_cast<Real>( 0 ) )
                 {
                     // (1) p0 = (0,0), p1 = (0,1), H(z) = G(L(z))
                     GetMinEdge02( a11, b1, p );
@@ -69,20 +72,20 @@ namespace Desert::Geometry
                 else
                 {
                     // (2) p0 = (0,t10), p1 = (t01,1-t01), H(z) = (t11 - t10)*G(L(z))
-                    p0[0] = (Real)0;
+                    p0[0] = static_cast<Real>( 0 );
                     p0[1] = f00 / ( f00 - f01 );
                     p1[0] = f01 / ( f01 - f10 );
-                    p1[1] = (Real)1 - p1[0];
+                    p1[1] = static_cast<Real>( 1 ) - p1[0];
                     dt1   = p1[1] - p0[1];
                     h0    = dt1 * ( a11 * p0[1] + b1 );
-                    if ( h0 >= (Real)0 )
+                    if ( h0 >= static_cast<Real>( 0 ) )
                     {
                         GetMinEdge02( a11, b1, p );
                     }
                     else
                     {
                         h1 = dt1 * ( a01 * p1[0] + a11 * p1[1] + b1 );
-                        if ( h1 <= (Real)0 )
+                        if ( h1 <= static_cast<Real>( 0 ) )
                         {
                             GetMinEdge12( a01, a11, b1, f10, f01, p );
                         }
@@ -93,9 +96,9 @@ namespace Desert::Geometry
                     }
                 }
             }
-            else if ( f01 <= (Real)0 )
+            else if ( f01 <= static_cast<Real>( 0 ) )
             {
-                if ( f10 <= (Real)0 )
+                if ( f10 <= static_cast<Real>( 0 ) )
                 {
                     // (3) p0 = (1,0), p1 = (0,1), H(z) = G(L(z)) - F(L(z))
                     GetMinEdge12( a01, a11, b1, f10, f01, p );
@@ -104,18 +107,18 @@ namespace Desert::Geometry
                 {
                     // (4) p0 = (t00,0), p1 = (t01,1-t01), H(z) = t11*G(L(z))
                     p0[0] = f00 / ( f00 - f10 );
-                    p0[1] = (Real)0;
+                    p0[1] = static_cast<Real>( 0 );
                     p1[0] = f01 / ( f01 - f10 );
-                    p1[1] = (Real)1 - p1[0];
+                    p1[1] = static_cast<Real>( 1 ) - p1[0];
                     h0    = p1[1] * ( a01 * p0[0] + b1 );
-                    if ( h0 >= (Real)0 )
+                    if ( h0 >= static_cast<Real>( 0 ) )
                     {
                         p = p0; // GetMinEdge01
                     }
                     else
                     {
                         h1 = p1[1] * ( a01 * p1[0] + a11 * p1[1] + b1 );
-                        if ( h1 <= (Real)0 )
+                        if ( h1 <= static_cast<Real>( 0 ) )
                         {
                             GetMinEdge12( a01, a11, b1, f10, f01, p );
                         }
@@ -126,23 +129,23 @@ namespace Desert::Geometry
                     }
                 }
             }
-            else if ( f10 <= (Real)0 )
+            else if ( f10 <= static_cast<Real>( 0 ) )
             {
                 // (5) p0 = (0,t10), p1 = (t01,1-t01), H(z) = (t11 - t10)*G(L(z))
-                p0[0] = (Real)0;
+                p0[0] = static_cast<Real>( 0 );
                 p0[1] = f00 / ( f00 - f01 );
                 p1[0] = f01 / ( f01 - f10 );
-                p1[1] = (Real)1 - p1[0];
+                p1[1] = static_cast<Real>( 1 ) - p1[0];
                 dt1   = p1[1] - p0[1];
                 h0    = dt1 * ( a11 * p0[1] + b1 );
-                if ( h0 >= (Real)0 )
+                if ( h0 >= static_cast<Real>( 0 ) )
                 {
                     GetMinEdge02( a11, b1, p );
                 }
                 else
                 {
                     h1 = dt1 * ( a01 * p1[0] + a11 * p1[1] + b1 );
-                    if ( h1 <= (Real)0 )
+                    if ( h1 <= static_cast<Real>( 0 ) )
                     {
                         GetMinEdge12( a01, a11, b1, f10, f01, p );
                     }
@@ -156,18 +159,18 @@ namespace Desert::Geometry
             {
                 // (6) p0 = (t00,0), p1 = (0,t11), H(z) = t11*G(L(z))
                 p0[0] = f00 / ( f00 - f10 );
-                p0[1] = (Real)0;
-                p1[0] = (Real)0;
+                p0[1] = static_cast<Real>( 0 );
+                p1[0] = static_cast<Real>( 0 );
                 p1[1] = f00 / ( f00 - f01 );
                 h0    = p1[1] * ( a01 * p0[0] + b1 );
-                if ( h0 >= (Real)0 )
+                if ( h0 >= static_cast<Real>( 0 ) )
                 {
                     p = p0; // GetMinEdge01
                 }
                 else
                 {
                     h1 = p1[1] * ( a11 * p1[1] + b1 );
-                    if ( h1 <= (Real)0 )
+                    if ( h1 <= static_cast<Real>( 0 ) )
                     {
                         GetMinEdge02( a11, b1, p );
                     }
@@ -178,7 +181,7 @@ namespace Desert::Geometry
                 }
             }
 
-            TriangleBaryCoords   = TVector<Real>( (Real)1 - p[0] - p[1], p[0], p[1] );
+            TriangleBaryCoords   = TVector<Real>( static_cast<Real>( 1 ) - p[0] - p[1], p[0], p[1] );
             ClosestTrianglePoint = Triangle.V[0] + p[0] * edge0 + p[1] * edge1;
             return DistanceSquared( Point, ClosestTrianglePoint );
         }
@@ -186,14 +189,14 @@ namespace Desert::Geometry
     private:
         void GetMinEdge02( Real const& a11, Real const& b1, TVector2<Real>& p ) const
         {
-            p[0] = (Real)0;
-            if ( b1 >= (Real)0 )
+            p[0] = static_cast<Real>( 0 );
+            if ( b1 >= static_cast<Real>( 0 ) )
             {
-                p[1] = (Real)0;
+                p[1] = static_cast<Real>( 0 );
             }
-            else if ( a11 + b1 <= (Real)0 )
+            else if ( a11 + b1 <= static_cast<Real>( 0 ) )
             {
-                p[1] = (Real)1;
+                p[1] = static_cast<Real>( 1 );
             }
             else
             {
@@ -205,30 +208,30 @@ namespace Desert::Geometry
                            TVector2<Real>& p ) const
         {
             const Real h0 = a01 + b1 - f10;
-            if ( h0 >= (Real)0 )
+            if ( h0 >= static_cast<Real>( 0 ) )
             {
-                p[1] = (Real)0;
+                p[1] = static_cast<Real>( 0 );
             }
             else
             {
                 const Real h1 = a11 + b1 - f01;
-                if ( h1 <= (Real)0 )
+                if ( h1 <= static_cast<Real>( 0 ) )
                 {
-                    p[1] = (Real)1;
+                    p[1] = static_cast<Real>( 1 );
                 }
                 else
                 {
                     p[1] = h0 / ( h0 - h1 );
                 }
             }
-            p[0] = (Real)1 - p[1];
+            p[0] = static_cast<Real>( 1 ) - p[1];
         }
 
         void GetMinInterior( TVector2<Real> const& p0, Real const& h0, TVector2<Real> const& p1, Real const& h1,
                              TVector2<Real>& p ) const
         {
             const Real z = h0 / ( h0 - h1 );
-            p            = ( (Real)1 - z ) * p0 + z * p1;
+            p            = ( static_cast<Real>( 1 ) - z ) * p0 + z * p1;
         }
     };
 

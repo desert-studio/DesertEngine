@@ -21,19 +21,20 @@ namespace Desert::Geometry
         {
             return Mesh->GetVertex( ElementID );
         }
-        else if ( PointType == ESurfacePointType::Edge )
+        if ( PointType == ESurfacePointType::Edge )
         {
-            FVector3d EA, EB;
+            FVector3d EA;
+            FVector3d EB;
             Mesh->GetEdgeV( ElementID, EA, EB );
             // Note this is equivalent to Lerp(EA, EB, BaryCoord[1])
             return BaryCoord[0] * EA + BaryCoord[1] * EB;
         }
-        else // PointType == ESurfacePointType::Triangle
-        {
-            FVector3d TA, TB, TC;
-            Mesh->GetTriVertices( ElementID, TA, TB, TC );
-            return BaryCoord[0] * TA + BaryCoord[1] * TB + BaryCoord[2] * TC;
-        }
+        // PointType == ESurfacePointType::Triangle
+        FVector3d TA;
+        FVector3d TB;
+        FVector3d TC;
+        Mesh->GetTriVertices( ElementID, TA, TB, TC );
+        return BaryCoord[0] * TA + BaryCoord[1] * TB + BaryCoord[2] * TC;
     }
 
     namespace
@@ -77,7 +78,8 @@ namespace Desert::Geometry
             for ( int EdgeSubIdx = 0; EdgeSubIdx < 3; EdgeSubIdx++ )
             {
                 const int EdgeID = TriEdgeIDs[EdgeSubIdx];
-                FVector3d EPosA, EPosB;
+                FVector3d EPosA;
+                FVector3d EPosB;
                 Mesh->GetEdgeV( EdgeID, EPosA, EPosB );
                 const FSegment3d EdgeSeg( EPosA, EPosB );
                 const double     DistSq = EdgeSeg.DistanceSquared( Pos );
@@ -176,7 +178,7 @@ namespace Desert::Geometry
         // used to track where the new vertices for *this* path start; used for bDoNotDuplicateFirstVertexID
         const int32 InitialPathIdx = PathVertices.Num();
 
-        if ( !Path.Num() )
+        if ( Path.Num() == 0 )
         {
             return true;
         }
@@ -184,7 +186,8 @@ namespace Desert::Geometry
         const int32              PathNum   = Path.Num();
         const FMeshSurfacePoint& OrigEndPt = Path[PathNum - 1].Key;
         // If FinalTri is split or poked, we will need to re-locate the last point in the path
-        int  StartProcessIdx = 0, EndSimpleProcessIdx = PathNum - 1;
+        int  StartProcessIdx         = 0;
+        int  EndSimpleProcessIdx     = PathNum - 1;
         bool bEndPointSpecialProcess = false;
         if ( PathNum > 1 && OrigEndPt.PointType == ESurfacePointType::Triangle )
         {

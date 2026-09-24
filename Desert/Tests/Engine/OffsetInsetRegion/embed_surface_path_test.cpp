@@ -41,7 +41,8 @@ namespace
     {
         const int eid = mesh.FindEdge( a, b );
         EXPECT_NE( eid, FDynamicMesh3::InvalidID );
-        FVector3d ea, eb;
+        FVector3d ea;
+        FVector3d eb;
         mesh.GetEdgeV( eid, ea, eb );
         return FMeshSurfacePoint::MakeEdgePoint( eid, Distance( ea, p ) / Distance( ea, eb ) );
     }
@@ -68,7 +69,9 @@ TEST( EmbedSurfacePath, StraightEdgePathAcrossAQuadBecomesMeshEdges )
 {
     FDynamicMesh3    mesh = Cube();
     FMeshSurfacePath path( &mesh );
-    const FVector3d  p0( 50, 0, Size ), p1( 50, 50, Size ), p2( 50, Size, Size );
+    const FVector3d  p0( 50, 0, Size );
+    const FVector3d  p1( 50, 50, Size );
+    const FVector3d  p2( 50, Size, Size );
     path.Path.Emplace( EdgePoint( mesh, 4, 5, p0 ), 2 );
     path.Path.Emplace( EdgePoint( mesh, 4, 6, p1 ), 3 );
     path.Path.Emplace( EdgePoint( mesh, 7, 6, p2 ), FDynamicMesh3::InvalidID );
@@ -89,7 +92,9 @@ TEST( EmbedSurfacePath, TriangleEndPointsArePokedAndTheEndIsRelocatedAfterTheSpl
     // (60,20) inside triangle 2 = (4,5,6); (40,80) inside triangle 3 = (4,6,7); the line crosses the diagonal at
     // (50,50). Splitting the diagonal cuts triangle 3 in two, so the end point must be found again before the
     // poke.
-    const FVector3d start( 60, 20, Size ), cross( 50, 50, Size ), end( 40, 80, Size );
+    const FVector3d start( 60, 20, Size );
+    const FVector3d cross( 50, 50, Size );
+    const FVector3d end( 40, 80, Size );
     path.Path.Emplace( FMeshSurfacePoint( 2, FVector3d( 0.4, 0.4, 0.2 ) ), 2 );
     path.Path.Emplace( EdgePoint( mesh, 4, 6, cross ), 3 );
     path.Path.Emplace( FMeshSurfacePoint( 3, FVector3d( 0.2, 0.4, 0.4 ) ), FDynamicMesh3::InvalidID );
@@ -101,6 +106,29 @@ TEST( EmbedSurfacePath, TriangleEndPointsArePokedAndTheEndIsRelocatedAfterTheSpl
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
     EXPECT_EQ( mesh.TriangleCount(), 12 + 2 + 2 + 2 );
     ExpectEmbedded( mesh, pathVertices, { start, cross, end } );
+}
+
+TEST( EmbedSurfacePath, PathStartingInsideATriangleGetsItsFirstVertexAtThatExactPoint )
+{
+    FDynamicMesh3    mesh = Cube();
+    FMeshSurfacePath path( &mesh );
+    // Triangle 2 = (4,5,6) = (0,0), (100,0), (100,100) at z = 100. Three unequal weights, so the point is neither
+    // a vertex, nor on an edge, nor the centroid a poke without its barycentric coordinate would land on.
+    const FVector3d start( 50, 20, Size );
+    const FVector3d corner( Size, 0, Size ); // vertex 5
+    path.Path.Emplace( FMeshSurfacePoint( 2, FVector3d( 0.5, 0.3, 0.2 ) ), 2 );
+    path.Path.Emplace( FMeshSurfacePoint( 5 ), FDynamicMesh3::InvalidID );
+    ASSERT_TRUE( path.IsConnected() );
+    ASSERT_LT( Distance( path.Path[0].Key.Pos( &mesh ), start ), 1e-9 );
+
+    TArray<int> pathVertices;
+    ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
+    // One poke: one triangle becomes three.
+    EXPECT_EQ( mesh.TriangleCount(), 12 + 2 );
+    ASSERT_EQ( pathVertices.Num(), 2 );
+    EXPECT_EQ( pathVertices[0], 8 ) << "the poke appends the path's first vertex";
+    EXPECT_EQ( pathVertices[1], 5 );
+    ExpectEmbedded( mesh, pathVertices, { start, corner } );
 }
 
 TEST( EmbedSurfacePath, AppendedPathDoesNotRepeatTheSharedVertexUnlessAsked )
