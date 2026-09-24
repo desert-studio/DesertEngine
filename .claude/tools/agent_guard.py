@@ -218,12 +218,15 @@ def main():
     event = data.get("hook_event_name", "PreToolUse")
     state, path = load_state(agent)
 
+    # A continued agent (the lead resumed it with SendMessage for the next step in the same code) gets a larger
+    # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
+    limit = state.get("limit", TURN_LIMIT)
     if event == "PostToolUse":
         calls = state.get("calls", 0)
-        if calls >= TURN_WARN:
+        if calls >= limit - (TURN_LIMIT - TURN_WARN):
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  f"[agent_guard] Вызов {calls}/{TURN_LIMIT}, осталось {TURN_LIMIT - calls}. Доделай ТЕКУЩИЙ шаг, "
-                  f"новый крупный не начинай; закоммить, запушь и отчитайся до {TURN_LIMIT}. Не останавливайся "
+                  f"[agent_guard] Вызов {calls}/{limit}, осталось {limit - calls}. Доделай ТЕКУЩИЙ шаг, "
+                  f"новый крупный не начинай; закоммить, запушь и отчитайся до {limit}. Не останавливайся "
                   f"раньше времени: каждый новый агент платит ~10 вызовов за вход в задачу."}})
         sys.exit(0)
 
@@ -234,11 +237,11 @@ def main():
     state["calls"] = state.get("calls", 0) + 1
     calls = state["calls"]
 
-    if calls > TURN_LIMIT:
+    if calls > limit:
         allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
         if not allowed:
             save_state(state, path)
-            deny(f"[agent_guard] Лимит {TURN_LIMIT} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
+            deny(f"[agent_guard] Лимит {limit} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
                  f"отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
 
     # Owner's rule: at most three programme agents. A sub-agent that spawns a general worker is a fourth
