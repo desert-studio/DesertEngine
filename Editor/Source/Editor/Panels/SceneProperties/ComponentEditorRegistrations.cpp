@@ -3,6 +3,7 @@
 // reflected component in the editor, copy one line below.
 
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -45,6 +46,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 // rfl serialization environment (the same three the mesh slot editor pulls in for the same reason) — a
 // fresh landscape material is written to disk with its stable GUID before the asset is created + registered.
@@ -190,19 +192,18 @@ namespace Desert::Editor
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
             path = dir / ( base + "_" + std::to_string( n ) + ext );
 
-        // Write the file FIRST (Terrain shader + a freshly stamped MaterialId), then create-with-load: the
+        // Write the file FIRST (Terrain shader + a freshly minted header GUID), then create-with-load: the
         // asset adopts its in-file GUID as the internal handle during Load, so the handle registered here is
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
             data.ShaderName = "Terrain";
-            data.MaterialId = ::Common::UUID::Generate();
             // The second step below is checked carefully and the first was not, even though the whole
             // point of this order is that the asset ADOPTS the GUID out of the file: an unwritten file
             // means CreateAsset loads defaults, the material is not a Terrain material at all, and the
             // handle is not the one any future run will resolve.
-            if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path.generic_string(),
+                                                                                     rfl::json::write( data ) );
                  !written )
             {
                 LOG_ERROR( "[Landscape] could not write the landscape material '{}': {} — the landscape's "
@@ -678,16 +679,14 @@ namespace Desert::Editor
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
             path = dir / ( base + "_" + std::to_string( n ) + ext );
 
-        // Write the file FIRST (cloud shader + a freshly stamped MaterialId), then create-with-load — the
+        // Write the file FIRST (cloud shader + a freshly minted header GUID), then create-with-load — the
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
             data.ShaderName = ::Desert::Graphic::kCloudMaterialShaderName;
-            data.MaterialId = ::Common::UUID::Generate();
-            // Checked for the same reason CreateLandscapeMaterial checks it, one function above.
-            if ( const auto written = ::Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
-                 !written )
+            // Checked for the same reason CreateLandscapeMaterial checks it, one function above. Through the
+            // one .demat writer, so the file opens with the header its loader requires.
+            if ( const auto written = ::Desert::Assets::WriteMaterialFile( path, data ); !written )
             {
                 LOG_ERROR( "[Clouds] could not write the cloud material '{}': {} — the layer's material "
                            "slot is unchanged.",

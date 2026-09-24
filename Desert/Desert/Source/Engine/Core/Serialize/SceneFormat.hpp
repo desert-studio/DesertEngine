@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -40,7 +41,7 @@ namespace Desert::Core
     // key, drops it from the FILES, and is made compulsory by this number moving. The loader therefore
     // needs no list of dead keys and must never grow one: "retired" is a fact about a conversion that has
     // already happened, not a rule the runtime carries.
-    inline constexpr int kSceneVersion = 23;
+    inline constexpr int kSceneVersion = 27;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -105,12 +106,13 @@ namespace Desert::Core
     // second copy of this struct anywhere is a format that can silently fork.
     struct SceneSerialized
     {
-        std::string                     SceneName;
+        // First, so it is the document's first member and readable without the body (TextAssetHeader.hpp).
+        // It is where the file states its two generations (SCNE, UNIT) - since v26 nowhere else.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               SceneName;
         std::vector<Assets::EntityData> Entities;
         // Scene-wide settings - reflected, so the whole block round-trips through the generic serializer.
         std::optional<rfl::Generic> Settings;
-        std::optional<int>          UnitVersion;
-        std::optional<int>          SceneVersion;
         // Absent = this world is not partitioned. See WorldPartitionSerialized.
         std::optional<WorldPartitionSerialized> WorldPartition;
     };
@@ -123,8 +125,17 @@ namespace Desert::Core
     // times too small on screen with nothing said about it.
     [[nodiscard]] inline bool SceneIsAtCurrentVersion( const SceneSerialized& scene )
     {
-        return scene.SceneVersion.value_or( 0 ) == kSceneVersion &&
-               scene.UnitVersion.value_or( 0 ) == kUnitVersion;
+        return Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ) == kSceneVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion;
+    }
+
+    // The subsystem versions a .desce / .deprefab of this build states, and the reading context built on them.
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SceneTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 2> versions = {
+             Common::Content::SubsystemVersion{ Assets::kSceneSchemaTag, static_cast<uint32_t>( kSceneVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) } };
+        return versions;
     }
 
     // The refusal, as a string: which file, what it is, what this engine needs, and the exact command that

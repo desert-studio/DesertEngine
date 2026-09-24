@@ -31,6 +31,8 @@
 // than by a second one that would have to be kept in step by hand (И11). See MigratePrefab.
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 
+#include "LegacyMaterialIds.hpp"
+
 #include <Common/Core/Constants.hpp>
 
 // EVERY REGISTRY BELOW IS AN std::array AND NONE IS A C ARRAY, WHICH IS A CORRECTNESS RULE HERE RATHER
@@ -51,7 +53,50 @@ namespace Desert::Migration
 {
     using Core::kSceneVersion;
     using Core::kUnitVersion;
-    using Core::SceneSerialized;
+
+    // THE TREE THIS TOOL READS AND WRITES: the engine's Core::SceneSerialized, member for member, PLUS the two
+    // top-level integers every file before v26 stated its generations in. The engine's struct lost them to
+    // the text header (AF6g), so it cannot say what generation an old file is - and a migrator that cannot
+    // read the generation runs every step on every file. They are read, never written: MigrateScene clears
+    // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
+    // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
+    // it from forking (a member added to the engine's struct and not here fails to compile).
+    struct SceneSerialized
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               SceneName;
+        std::vector<Assets::EntityData>                           Entities;
+        std::optional<rfl::Generic>                               Settings;
+        std::optional<Core::WorldPartitionSerialized>             WorldPartition;
+        // v25 and earlier only.
+        std::optional<int> UnitVersion;
+        std::optional<int> SceneVersion;
+    };
+    static_assert( rfl::named_tuple_t<SceneSerialized>::size() ==
+                        rfl::named_tuple_t<Core::SceneSerialized>::size() + 2,
+                   "Core::SceneSerialized gained or lost a member: mirror it in Migration::SceneSerialized, or "
+                   "this tool drops it from every scene it rewrites" );
+
+    // The same for a .deprefab: Assets::PrefabData plus the two pre-v26 integers.
+    struct PrefabData
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               Name;
+        std::vector<Assets::EntityData>                           Entities;
+        Common::UUID                                              Root;
+        // v25 and earlier only.
+        std::optional<int> SceneVersion;
+        std::optional<int> UnitVersion;
+    };
+    static_assert( rfl::named_tuple_t<PrefabData>::size() == rfl::named_tuple_t<Assets::PrefabData>::size() + 2,
+                   "Assets::PrefabData gained or lost a member: mirror it in Migration::PrefabData" );
+
+    // The engine's prefab, for the engine's writer (Assets::WritePrefabJson): everything but the two
+    // pre-v26 integers, which a migrated prefab no longer states.
+    [[nodiscard]] inline Assets::PrefabData ToEnginePrefab( const PrefabData& prefab )
+    {
+        return Assets::PrefabData{ prefab.Header, prefab.Name, prefab.Entities, prefab.Root };
+    }
 
     // Schema generation of a .desce file, and what each step of it means:
     //
@@ -252,12 +297,37 @@ namespace Desert::Migration
     //                   sample and written as `.dlht` files beside the file (MigrateProceduralTerrainV22ToV23).
     //                   The tracked corpus had SIX such blocks in four scenes (measured 2026-09-24).
     inline constexpr int kSceneVersionProceduralTerrain = 23;
+    //  24             - A TEXTURE IS NAMED BY ITS ASSET (AF3e). The per-texture cooked file is gone: a string
+    //                   `cooked:Textures/<p>.tex` names nothing any more, and the texture it meant is the asset
+    //                   `assets:Textures/<p>.detex` its source was imported into
+    //                   (MigrateTextureAssetRefsV23ToV24). The tracked corpus had TWO such strings, both in
+    //                   UI_SpriteSlots (measured 2026-09-24).
+    inline constexpr int kSceneVersionTextureAssetRefs = 24;
+    //  25             - RECORDS SORTED BY ID, SIBLING ORDER STATED (AF6c, decision D3). A .desce lists its
+    //                   entities by ascending id, so the file order is a function of the entity SET; the
+    //                   order among siblings moves into each record's `siblingIndex`, stamped from the order
+    //                   the v24 loader produced so no hierarchy moves (MigrateSiblingOrderV24ToV25). Scenes
+    //                   only: a .deprefab keeps hierarchy order and is untouched by this step.
+    inline constexpr int kSceneVersionSiblingOrder = 25;
+    //  26             - THE TEXT HEADER (AF6g). A .desce / .deprefab opens with the text asset header
+    //                   (Common/Content/TextAssetHeader.hpp): kind, GUID, and the two generations as SCNE /
+    //                   UNIT - the top-level SceneVersion / UnitVersion integers are gone. A file without a
+    //                   GUID gets one derived from its path (MigrationGuidForPath), so re-running the tool
+    //                   over the same tree states the same identities. No payload changes.
+    inline constexpr int kSceneVersionTextHeader = 26;
+    //  27             - MATERIAL SLOTS NAME A GUID (AF7). StaticMesh / SkinnedMesh / InstancedStaticMesh
+    //                   `MaterialGuids` held the material's MATL v1 u64 MaterialId, a number MATL 2 no longer
+    //                   states anywhere, so the loader missed on it every time and fell back to the path in
+    //                   silence. Each id becomes the 32-hex header GUID of the `.demat` that stated it, through
+    //                   the old-id register (LegacyMaterialIds.hpp); 0 becomes "" (an empty slot). An id the
+    //                   register does not know REFUSES the file, naming it (MigrateMaterialGuidsV26ToV27).
+    inline constexpr int kSceneVersionMaterialGuids = 27;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionProceduralTerrain == kSceneVersion,
+    static_assert( kSceneVersionMaterialGuids == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1327,6 +1397,69 @@ namespace Desert::Migration
                                                                        const std::filesystem::path&     sourceFile,
                                                                        const std::filesystem::path& assetsRoot );
 
+    // What MigrateTextureAssetRefsV23ToV24 did to one file.
+    struct MaterialGuidsMigrationReport
+    {
+        int Rewritten = 0; // slots that now state a material GUID
+        int Emptied   = 0; // slots that stated 0 (no material) and now state ""
+
+        // Ids the register does not know, as "Tag > StaticMesh.MaterialGuids[2] = 123". Non-empty REFUSES
+        // the file: the id names a material no register row states, and guessing one (or dropping the
+        // slot to its path) is exactly the silent fallback this step retires.
+        std::vector<std::string> UnknownNames;
+    };
+
+    // Raises StaticMesh / SkinnedMesh / InstancedStaticMesh `MaterialGuids` from v26 (MATL v1 u64 ids, read
+    // back as int64 and therefore often negative) to v27 (the GUID text of the `.demat` that stated the id).
+    // `legacyIds` is the old-id register of the file's assets root. A payload is rebuilt only when a slot
+    // changes. SHELF LIFE: deleted once no v26 file remains.
+    MaterialGuidsMigrationReport MigrateMaterialGuidsV26ToV27( std::vector<Assets::EntityData>& entities,
+                                                               const LegacyMaterialIdMap&       legacyIds );
+
+    struct TextureAssetRefsMigrationReport
+    {
+        int Rewritten = 0; // strings that now name a texture asset
+
+        // WHICH ones, as "Tag > UIPanel.Sprite = assets:Textures/T.detex". Named, like every step here.
+        std::vector<std::string> RewrittenNames;
+        // Rewritten, but no asset of that name lies under the assets root: the reference was already
+        // dangling (its cooked file is gone either way) and the operator has to see which.
+        std::vector<std::string> MissingNames;
+    };
+
+    // Raises a scene from schema v23 to v24: EVERY string value, at any depth of any component payload and
+    // of the scene's Settings, that reads `cooked:Textures/<p>.tex` becomes `assets:Textures/<p>.detex`.
+    // Every field, not a list of sites: a texture reference is a string in whatever field holds it
+    // (UIPanel.Sprite, UICanvas.Sprite, Settings.SplashSprite ...), and a list would miss the next one.
+    //
+    // THE MAPPING IS THE IMPORTER'S OWN: a source `Textures/<p>.<ext>` cooked to `cooked:Textures/<p>.tex`
+    // and is imported into `<p>.detex` beside it (TextureImporter::AssetPathFor), so the stem and folders
+    // carry over and only the root tag and extension change. `assetsRoot` is read only to NAME a target
+    // that does not exist; the rewrite happens regardless, because the old string resolves to nothing.
+    //
+    // Idempotent (a rewritten value no longer matches), but gated on its number like every step above.
+    // SHELF LIFE: deleted once no v23 file remains.
+    TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
+                                                                     std::vector<Assets::EntityData>& entities,
+                                                                     const std::filesystem::path&     assetsRoot );
+
+    // What MigrateSiblingOrderV24ToV25 did to one file.
+    struct SiblingOrderMigrationReport
+    {
+        size_t Indexed   = 0; // records that received a siblingIndex
+        size_t Reordered = 0; // records whose position in the file moved when sorted by id
+    };
+
+    // Stamps every record's `siblingIndex` with its place among its siblings AS THE v24 LOADER BUILT IT,
+    // then sorts the records by id. The v24 loader attached non-prefab records in file order (pass 2) and
+    // prefab instances after all of them, in file order (pass 3); roots were made in that same order. The
+    // index mirrors exactly that, so the loaded hierarchy is identical before and after. A parent that no
+    // record answers to counted as a root then and counts as one here.
+    //
+    // Idempotent in effect (a v25 file already carries the indices and is already sorted), but gated on
+    // its number like every step above. SHELF LIFE: deleted once no v24 scene remains.
+    SiblingOrderMigrationReport MigrateSiblingOrderV24ToV25( std::vector<Assets::EntityData>& entities );
+
     // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
     struct AnimGraphMigrationReport
     {
@@ -1438,8 +1571,15 @@ namespace Desert::Migration
         EditMeshMigrationReport    EditMesh;
         bool                             ProceduralTerrainRaised = false; // below kSceneVersionProceduralTerrain
         ProceduralTerrainMigrationReport ProceduralTerrain;
+        bool                             TextureAssetRefsRaised = false; // below kSceneVersionTextureAssetRefs
+        TextureAssetRefsMigrationReport  TextureAssetRefs;
+        bool                             SiblingOrderRaised = false; // below kSceneVersionSiblingOrder
+        bool                             TextHeaderRaised   = false; // below kSceneVersionTextHeader
+        SiblingOrderMigrationReport      SiblingOrder;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
+        bool                             MaterialGuidsRaised = false; // below kSceneVersionMaterialGuids
+        MaterialGuidsMigrationReport     MaterialGuids;
 
         bool Changed() const
         {
@@ -1448,9 +1588,18 @@ namespace Desert::Migration
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
-                   RetiredKeysRaised;
+                   TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
+                   MaterialGuidsRaised;
         }
     };
+
+    // THE MIGRATION'S GUID for a file that has none: derived from the file's path relative to the content
+    // root it belongs to (generic form), so a re-run over the same tree - on any machine - states the same
+    // identity, and a scene migrated on two branches is the same asset on both. This is the ONLY place a
+    // GUID is derived from anything: everywhere else it is minted once and then kept (StampTextHeader), and
+    // AssetEnvelope.hpp deliberately has no path constructor - a moved file keeps its GUID, so after
+    // migration the path this was derived from is history, not a key. Never null.
+    Common::Content::AssetGuid MigrationGuidForPath( const std::filesystem::path& relativeToContentRoot );
 
     // Raises a parsed scene file to the current generation of BOTH version integers and stamps them, so a
     // tree that has been through this function is one nothing will migrate again. This is the single entry
@@ -1472,7 +1621,7 @@ namespace Desert::Migration
     // files named after it); a Terrain block migrated without one is NAMED and left as it was.
     MigrateScene( SceneSerialized&             scene,
                   const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH,
-                  const std::filesystem::path& sourceFile = {} );
+                  const std::filesystem::path& sourceFile = {}, const LegacyMaterialIdMap& legacyIds = {} );
 
     // What MigratePrefab did to one `.deprefab`, on top of the chain's own report.
     struct PrefabMigrationOutcome
@@ -1531,8 +1680,8 @@ namespace Desert::Migration
                    "(0,0) stamp-only case has to be re-argued at the same time" );
 
     PrefabMigrationOutcome
-    MigratePrefab( Assets::PrefabData&          prefab,
+    MigratePrefab( PrefabData&                  prefab,
                    const std::filesystem::path& assetsRoot = Common::Constants::Path::ASSETS_PATH,
-                   const std::filesystem::path& sourceFile = {} );
+                   const std::filesystem::path& sourceFile = {}, const LegacyMaterialIdMap& legacyIds = {} );
 
 } // namespace Desert::Migration

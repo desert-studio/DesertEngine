@@ -281,7 +281,7 @@ TEST( SceneAnimGraphMigration, TheStepRunsThroughTheGateExactlyOnceAndOnlyBelowI
 {
     const auto sceneWith = []( int version, const std::string& blob )
     {
-        Desert::Core::SceneSerialized scene;
+        Desert::Migration::SceneSerialized scene;
         scene.SceneVersion = version;
         scene.UnitVersion  = Desert::Core::kUnitVersion;
         scene.Entities.push_back( EntityWithBlob( "Hero", rfl::Generic( blob ) ) );
@@ -293,7 +293,8 @@ TEST( SceneAnimGraphMigration, TheStepRunsThroughTheGateExactlyOnceAndOnlyBelowI
     const auto raised = Desert::Migration::MigrateScene( below );
     EXPECT_TRUE( raised.AnimGraphRaised );
     ASSERT_EQ( raised.AnimGraph.Graphs.size(), 1u );
-    EXPECT_EQ( below.SceneVersion.value_or( 0 ), Desert::Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( below.Header, Desert::Assets::kSceneSchemaTag ),
+               Desert::Core::kSceneVersion );
 
     // AT the step: a file already at the head is not run through it again.
     auto       current = sceneWith( Desert::Core::kSceneVersion, BlobFor( "Locomotion", "Walk" ) );
@@ -345,7 +346,7 @@ TEST( SceneAnimGraphMigration, EveryGraphTheCorpusNamesExistsAndParses )
         const std::string text = ReadAll( entry.path() );
         ASSERT_FALSE( text.empty() ) << entry.path();
 
-        const auto parsed = rfl::json::read<Desert::Core::SceneSerialized, rfl::DefaultIfMissing>( text );
+        const auto parsed = rfl::json::read<Desert::Migration::SceneSerialized, rfl::DefaultIfMissing>( text );
         ASSERT_TRUE( parsed ) << entry.path().string() << ": " << parsed.error().what();
 
         for ( const auto& entity : parsed.value().Entities )

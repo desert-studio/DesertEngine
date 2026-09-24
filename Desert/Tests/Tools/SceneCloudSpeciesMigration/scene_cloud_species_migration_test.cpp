@@ -278,7 +278,7 @@ TEST( SceneCloudSpeciesMigration, MigrateSceneRunsItAndStampsTheFileSoItNeverRun
     EXPECT_TRUE( report.CloudSpeciesRaised );
     EXPECT_EQ( report.CloudSpecies.FieldsDropped, 4 );
     EXPECT_TRUE( report.Changed() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
 
     // AND THE STEP AFTER THIS ONE RAN TOO, on the key this one wrote. The chain is the point: a v3 file
     // arrives with a scalar, leaves with a `.decloudtype` path, and the species integer exists only in

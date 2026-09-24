@@ -132,9 +132,9 @@ namespace
         return true;
     }
 
-    Core::SceneSerialized SceneAt( int sceneVersion, std::vector<Assets::EntityData> entities )
+    Desert::Migration::SceneSerialized SceneAt( int sceneVersion, std::vector<Assets::EntityData> entities )
     {
-        Core::SceneSerialized scene;
+        Desert::Migration::SceneSerialized scene;
         scene.SceneName    = "Fixture";
         scene.SceneVersion = sceneVersion;
         scene.UnitVersion  = Core::kUnitVersion;
@@ -411,7 +411,7 @@ TEST( SceneServiceAssetRootMigration, ASecondRunChangesNothing )
 
 TEST( SceneServiceAssetRootMigration, MigrateSceneRunsItForAV16FileAndStampsTheHead )
 {
-    Core::SceneSerialized scene =
+    Desert::Migration::SceneSerialized scene =
          SceneAt( Migration::kSceneVersionScriptRoot,
                   { EntityWith( "UIIcon", "Icon", std::string( "Resources/Icons/gear.svg" ) ) } );
 
@@ -419,7 +419,8 @@ TEST( SceneServiceAssetRootMigration, MigrateSceneRunsItForAV16FileAndStampsTheH
 
     EXPECT_TRUE( report.ServiceAssetRootRaised );
     EXPECT_EQ( report.ServiceAssetRoot.Refs, 1 );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Core::kSceneVersion );
     EXPECT_EQ( StringAt( PayloadOf( scene.Entities[0], "UIIcon" ), "Icon" ).value_or( "<none>" ),
                "engine:Icons/gear.svg" );
 }
@@ -429,7 +430,7 @@ TEST( SceneServiceAssetRootMigration, MigrateSceneRunsItForAV16FileAndStampsTheH
 // never ran on a corpus already stamped at it and the tool reported every file up to date.
 TEST( SceneServiceAssetRootMigration, AFileAlreadyAtTheHeadIsNotRunAgain )
 {
-    Core::SceneSerialized scene = SceneAt(
+    Desert::Migration::SceneSerialized scene = SceneAt(
          Core::kSceneVersion, { EntityWith( "UIIcon", "Icon", std::string( "Resources/Icons/gear.svg" ) ) } );
 
     const auto report = Migration::MigrateScene( scene, SandboxAssetsRoot() );
@@ -489,7 +490,7 @@ TEST( SceneServiceAssetRootMigrationCorpus, NoShippedSceneStatesAnUntaggedFontIc
         std::ifstream     in( entry.path(), std::ios::binary );
         std::stringstream buffer;
         buffer << in.rdbuf();
-        const auto parsed = rfl::json::read<Core::SceneSerialized>( buffer.str() );
+        const auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( buffer.str() );
         ASSERT_TRUE( parsed ) << entry.path().string() << " did not parse";
 
         for ( const auto& entity : parsed.value().Entities )

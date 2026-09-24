@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -116,5 +117,27 @@ namespace Desert::Editor::Core::Rules
         verdict.Message         = "'" + std::string( sceneName ) + "' was NOT saved — " + save.GetError() +
                           ". The scene is still open and still unsaved.";
         return verdict;
+    }
+
+    /**
+     * @brief Whether a save to `destination` writes the SAME asset the scene was opened as, so its GUID (the
+     * text header's identity) is kept - or a NEW one, whose header is dropped before the write so a fresh
+     * GUID is minted. Pure: two paths in, one bit out.
+     *
+     * A copy is a new asset, as in UE's Save As: two files stating one GUID would make every lookup by
+     * identity pick one of them at random. So the identity is kept only when the bytes go back to the file
+     * the scene came from; a scene with no file yet (File -> New Scene, a generated Starter or showcase) has
+     * no identity to keep - whatever header it still carries belonged to the scene it replaced.
+     *
+     * @param openScenePath the file the scene was opened from or last written to; empty when none.
+     * @param destination   the file this save writes.
+     */
+    [[nodiscard]] inline bool SaveKeepsAssetIdentity( std::string_view openScenePath,
+                                                      std::string_view destination )
+    {
+        if ( openScenePath.empty() )
+            return false;
+        return std::filesystem::path( openScenePath ).lexically_normal() ==
+               std::filesystem::path( destination ).lexically_normal();
     }
 } // namespace Desert::Editor::Core::Rules

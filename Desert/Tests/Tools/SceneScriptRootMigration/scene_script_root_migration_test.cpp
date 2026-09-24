@@ -152,9 +152,9 @@ namespace
         return true;
     }
 
-    Core::SceneSerialized SceneAt( int sceneVersion, std::vector<Assets::EntityData> entities )
+    Desert::Migration::SceneSerialized SceneAt( int sceneVersion, std::vector<Assets::EntityData> entities )
     {
-        Core::SceneSerialized scene;
+        Desert::Migration::SceneSerialized scene;
         scene.SceneName    = "Fixture";
         scene.SceneVersion = sceneVersion;
         scene.UnitVersion  = Core::kUnitVersion;
@@ -368,7 +368,7 @@ TEST( SceneScriptRootMigration, ASecondRunChangesNothing )
 
 TEST( SceneScriptRootMigration, MigrateSceneRunsItForAV15FileAndStampsTheHead )
 {
-    Core::SceneSerialized scene = SceneAt(
+    Desert::Migration::SceneSerialized scene = SceneAt(
          Migration::kSceneVersionMachineQuality,
          { ScriptedWith( std::vector<std::string>{ "Resources/Assets/Scripts/Examples/MoveAlongX.lua" } ) } );
 
@@ -376,7 +376,8 @@ TEST( SceneScriptRootMigration, MigrateSceneRunsItForAV15FileAndStampsTheHead )
 
     EXPECT_TRUE( report.ScriptRootRaised );
     EXPECT_EQ( report.ScriptRoot.Slots, 1 );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), Core::kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Core::kSceneVersion );
     EXPECT_EQ( ScriptKeyOf( scene.Entities[0] ).value_or( "<none>" ), "assets:Scripts/Examples/MoveAlongX.lua" );
 }
 
@@ -386,7 +387,7 @@ TEST( SceneScriptRootMigration, MigrateSceneRunsItForAV15FileAndStampsTheHead )
 // number and the tool reported "already up to date" over files it had not converted.
 TEST( SceneScriptRootMigration, AFileAlreadyAtTheHeadIsNotRunAgain )
 {
-    Core::SceneSerialized scene = SceneAt(
+    Desert::Migration::SceneSerialized scene = SceneAt(
          Core::kSceneVersion,
          { ScriptedWith( std::vector<std::string>{ "Resources/Assets/Scripts/Examples/MoveAlongX.lua" } ) } );
 
@@ -434,7 +435,7 @@ TEST( SceneScriptRootMigrationCorpus, NoShippedSceneStillStatesTheOldPathKey )
         std::ifstream     in( entry.path(), std::ios::binary );
         std::stringstream buffer;
         buffer << in.rdbuf();
-        const auto parsed = rfl::json::read<Core::SceneSerialized>( buffer.str() );
+        const auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( buffer.str() );
         ASSERT_TRUE( parsed ) << entry.path().string() << " did not parse";
 
         for ( const auto& entity : parsed.value().Entities )

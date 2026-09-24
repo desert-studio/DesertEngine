@@ -8,16 +8,19 @@
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 
 namespace Desert::Editor
 {
     // A material extracted from a source file, ready to cook into a .demat. Name is the human-readable
-    // source material name (-> the .demat filename, no handle in it). Data.MaterialId is the stable external
-    // handle the mesh submeshes reference.
+    // source material name (-> the .demat filename, no handle in it). Guid is the material's one identity,
+    // stated by the .demat's header; mesh submeshes reference its handle (MaterialData::HandleOf). It sits
+    // beside Data, not in it, because PBRSurfaceParams is the parameter block and carries no identity.
     struct ImportedMaterial
     {
         std::string             Name;
-        Assets::PBRSurfaceParams Data;
+        Assets::PBRSurfaceParams   Data;
+        Common::Content::AssetGuid Guid;
     };
 
     struct ImportResult

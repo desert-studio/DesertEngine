@@ -1,9 +1,11 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
-#include <Engine/Assets/ContainerBytes.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/Crc32c.hpp>
+#include <Common/Utilities/PakFile.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -22,71 +24,80 @@ namespace Desert::Core::WorldCells
 {
     namespace
     {
-        using Magic                        = std::array<unsigned char, 4>;
-        constexpr Magic       kIndexMagic  = { 'D', 'W', 'I', 'X' };
-        constexpr Magic       kCellMagic   = { 'D', 'W', 'C', 'L' };
-        constexpr std::size_t kHeaderSize  = 4 + 4 + 8;
-        constexpr std::size_t kTrailerSize = 4;
+        namespace CC = Common::Content;
 
-        std::vector<unsigned char> Wrap( const Magic& magic, const std::string& payload )
+        constexpr std::array<CC::SubsystemVersion, 1> kKnownSubsystems = {
+             { { kWorldFormatTag, kWorldFormatVersion } } };
+
+        // A cooked file's identity follows from what it IS -- this world's file of this name -- and from nothing
+        // else, so two cooks of one source stay byte-identical (a minted GUID would differ on every cook). UE
+        // names a cooked cell package the same way: the world plus the cell.
+        CC::AssetGuid GuidOf( std::string_view world, std::string_view fileName )
         {
-            std::vector<unsigned char> out;
-            out.reserve( kHeaderSize + payload.size() + kTrailerSize );
-            out.insert( out.end(), magic.begin(), magic.end() );
-            Assets::WriteU32( out, kContainerVersion );
-            Assets::WriteU64( out, static_cast<std::uint64_t>( payload.size() ) );
-            out.insert( out.end(), payload.begin(), payload.end() );
-            Assets::WriteU32( out, Common::Utils::Crc32c( out.data(), out.size() ) );
-            return out;
+            const std::string identity = std::string( world ) + '\n' + std::string( fileName );
+            const std::string salted   = "DesertWorldCell\n" + identity;
+            CC::AssetGuid     guid;
+            guid.Hi = Common::Utils::PakContentHash( identity.data(), identity.size() );
+            guid.Lo = Common::Utils::PakContentHash( salted.data(), salted.size() );
+            if ( guid.IsNull() )
+                guid.Lo = 1; // the envelope refuses a null GUID; both halves hashing to zero is the only way there
+            return guid;
         }
 
-        std::string MagicText( const unsigned char* at )
+        // The shared asset envelope (AF1) around the JSON payload, which is unchanged. Dependencies stay empty:
+        // a cell's records name assets by registry key, and a registry row carries no GUID to list here.
+        Common::ResultStr<std::vector<unsigned char>> Wrap( CC::ContentKind kind, std::string_view world,
+                                                            std::string_view fileName, const std::string& payload )
         {
-            std::string text;
-            for ( int i = 0; i < 4; ++i )
-                text += ( at[i] >= 0x20 && at[i] < 0x7F ) ? static_cast<char>( at[i] ) : '?';
-            return text;
+            CC::AssetEnvelope envelope;
+            envelope.Asset.Kind       = kind;
+            envelope.Asset.Guid       = GuidOf( world, fileName );
+            envelope.Asset.Subsystems = { kKnownSubsystems.begin(), kKnownSubsystems.end() };
+            CC::EnvelopeSectionData section;
+            section.Tag = CC::EnvelopeSection::Payload;
+            section.Bytes.resize( payload.size() );
+            std::memcpy( section.Bytes.data(), payload.data(), payload.size() );
+            envelope.Sections.push_back( std::move( section ) );
+            auto written = CC::WriteAssetEnvelope( envelope );
+            if ( !written )
+                return Common::MakeError<std::vector<unsigned char>>( "'" + std::string( fileName ) +
+                                                                      "': " + written.GetError() );
+            const std::vector<std::byte>& bytes = written.GetValue();
+            std::vector<unsigned char>    out( bytes.size() );
+            std::memcpy( out.data(), bytes.data(), bytes.size() );
+            return Common::MakeSuccess( std::move( out ) );
         }
 
-        // The payload, once the envelope is believed: magic, version, CHECKSUM, then the length.
-        Common::ResultStr<std::string> Unwrap( std::string_view fileName, const Magic& magic,
+        // The payload, once the envelope is believed: the envelope checks magic, header CRC, subsystem versions
+        // and every section's hash BEFORE any byte is handed on; this adds the kind and the exact format version.
+        Common::ResultStr<std::string> Unwrap( std::string_view fileName, CC::ContentKind kind,
                                                std::span<const unsigned char> bytes )
         {
             const std::string name( fileName );
-            const std::string expected( magic.begin(), magic.end() );
-            if ( bytes.size() < kHeaderSize + kTrailerSize )
+            auto              envelope = CC::ReadAssetEnvelope( std::as_bytes( bytes ), { kKnownSubsystems } );
+            if ( !envelope )
+                return Common::MakeError<std::string>( "'" + name + "': " + envelope.GetError() );
+            const CC::AssetHeader& asset = envelope.GetValue().Asset;
+            if ( asset.Kind != kind )
                 return Common::MakeError<std::string>(
-                     "'" + name + "' is " + std::to_string( bytes.size() ) + " bytes, shorter than the " +
-                     std::to_string( kHeaderSize + kTrailerSize ) + "-byte envelope of a cooked world file" );
-            const unsigned char* at = bytes.data();
-            if ( std::memcmp( at, magic.data(), magic.size() ) != 0 )
-                return Common::MakeError<std::string>( "'" + name + "' has magic '" + MagicText( at ) +
-                                                       "', expected '" + expected + "'" );
-            const std::uint32_t version = Assets::ReadU32( at + 4 );
-            if ( version != kContainerVersion )
+                     "'" + name + "' is a " + std::string( CC::KindSpec( asset.Kind ).Name ) +
+                     " asset, expected a " + std::string( CC::KindSpec( kind ).Name ) );
+            // The envelope accepts an OLDER version; a cooked world is re-derivable, so it is refused instead.
+            const auto stamped =
+                 std::find_if( asset.Subsystems.begin(), asset.Subsystems.end(),
+                               []( const CC::SubsystemVersion& s ) { return s.Tag == kWorldFormatTag; } );
+            if ( stamped == asset.Subsystems.end() )
+                return Common::MakeError<std::string>( "'" + name + "' carries no world format version ('" +
+                                                       CC::FourCCToString( kWorldFormatTag ) + "')" );
+            if ( stamped->Version != kWorldFormatVersion )
                 return Common::MakeError<std::string>(
-                     "'" + name + "' is cooked-world container version " + std::to_string( version ) +
-                     "; this build reads " + std::to_string( kContainerVersion ) + " only. Re-cook it." );
-            // The checksum before any length is believed: a flipped bit that keeps the lengths consistent is
-            // what the length check cannot see.
-            const std::size_t   covered = bytes.size() - kTrailerSize;
-            const std::uint32_t stored  = Assets::ReadU32( at + covered );
-            const std::uint32_t actual  = Common::Utils::Crc32c( at, covered );
-            if ( stored != actual )
-            {
-                char text[96];
-                std::snprintf( text, sizeof( text ), "checksum %08x does not match its contents' %08x", stored,
-                               actual );
-                return Common::MakeError<std::string>( "'" + name + "' is damaged: " + text + " (" +
-                                                       std::to_string( bytes.size() ) + " bytes)" );
-            }
-            const std::uint64_t payloadBytes = Assets::ReadU64( at + 8 );
-            if ( payloadBytes != covered - kHeaderSize )
-                return Common::MakeError<std::string>( "'" + name + "' states a payload of " +
-                                                       std::to_string( payloadBytes ) + " bytes and holds " +
-                                                       std::to_string( covered - kHeaderSize ) );
-            return Common::MakeSuccess(
-                 std::string( reinterpret_cast<const char*>( at + kHeaderSize ), covered - kHeaderSize ) );
+                     "'" + name + "' is world format version " + std::to_string( stamped->Version ) +
+                     "; this build reads " + std::to_string( kWorldFormatVersion ) + " only. Re-cook it." );
+            for ( const CC::EnvelopeSectionData& section : envelope.GetValue().Sections )
+                if ( section.Tag == CC::EnvelopeSection::Payload )
+                    return Common::MakeSuccess( std::string( reinterpret_cast<const char*>( section.Bytes.data() ),
+                                                             section.Bytes.size() ) );
+            return Common::MakeError<std::string>( "'" + name + "' has no Payload section" );
         }
 
         std::string ReasonName( Rules::AlwaysLoadedReason reason )
@@ -173,6 +184,22 @@ namespace Desert::Core::WorldCells
                 return m_ByHandle.emplace( handle, std::move( key ) ).first->second;
             }
 
+            // Built once on the first GUID asked for: the rows are indexed by handle and key only.
+            const std::string& KeyOfGuid( const CC::AssetGuid& guid )
+            {
+                if ( !m_ByGuidBuilt )
+                {
+                    m_ByGuidBuilt = true;
+                    for ( const auto& registry : m_Registries )
+                        for ( const auto& row : registry.Entries() )
+                            if ( row.Guid.has_value() && !row.Guid->IsNull() )
+                                m_ByGuid.emplace( std::pair{ row.Guid->Hi, row.Guid->Lo }, row.Key );
+                }
+                static const std::string none;
+                const auto               known = m_ByGuid.find( std::pair{ guid.Hi, guid.Lo } );
+                return known != m_ByGuid.end() ? known->second : none;
+            }
+
             const std::string& KeyOfPath( const std::string& text )
             {
                 const auto known = m_ByPath.find( text );
@@ -203,6 +230,15 @@ namespace Desert::Core::WorldCells
                 }
                 if ( const auto text = value.to_string(); text )
                 {
+                    // A material slot names its material by header GUID text (SCNE 27). The row is found by its
+                    // own Guid: a registry read by LoadFrom has Identity only for assets that were parsed, so the
+                    // handle the GUID folds to finds nothing for a material the cook never opened.
+                    if ( const auto guid = CC::AssetGuidFromText( text.value() );
+                         guid && !guid.GetValue().IsNull() )
+                    {
+                        Add( KeyOfGuid( guid.GetValue() ), keys );
+                        return;
+                    }
                     Common::UUID asHandle;
                     if ( Rules::Detail::ParseIdString( text.value(), asHandle ) )
                     {
@@ -244,6 +280,9 @@ namespace Desert::Core::WorldCells
             std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;
             std::unordered_map<std::uint64_t, std::string>            m_ByHandle;
             std::unordered_map<std::string, std::string>              m_ByPath;
+            // First registry wins, as in KeyOfHandle and KeyOfPath (emplace keeps the first row seen).
+            std::map<std::pair<std::uint64_t, std::uint64_t>, std::string> m_ByGuid;
+            bool                                                           m_ByGuidBuilt = false;
         };
     } // namespace
 
@@ -291,8 +330,7 @@ namespace Desert::Core::WorldCells
         WorldIndex& index       = cooked.Index;
         index.SceneName         = scene.SceneName;
         index.Settings          = scene.Settings;
-        index.SceneVersion      = scene.SceneVersion.value_or( 0 );
-        index.UnitVersion       = scene.UnitVersion.value_or( 0 );
+        index.Header            = scene.Header;
         index.WorldPartition    = *scene.WorldPartition;
         index.LevelCount        = plan.LevelCount;
         index.Records           = records.size();
@@ -380,20 +418,26 @@ namespace Desert::Core::WorldCells
                 for ( const std::size_t record : members[unit] )
                     payload.Records.push_back( records[record] );
             }
-            CookedFile file{ name, Wrap( kCellMagic, rfl::json::write( payload ) ) };
+            auto wrapped = Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, rfl::json::write( payload ) );
+            if ( !wrapped )
+                return Common::MakeError<CookedWorld>( wrapped.GetError() );
+            CookedFile file{ name, wrapped.ExtractValue() };
             index.Files.push_back(
                  { name, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
             cooked.Files.push_back( std::move( file ) );
         }
-        cooked.Files.push_back(
-             { std::string( kIndexFileName ), Wrap( kIndexMagic, rfl::json::write( index ) ) } );
+        auto wrappedIndex =
+             Wrap( CC::ContentKind::WorldIndex, scene.SceneName, kIndexFileName, rfl::json::write( index ) );
+        if ( !wrappedIndex )
+            return Common::MakeError<CookedWorld>( wrappedIndex.GetError() );
+        cooked.Files.push_back( { std::string( kIndexFileName ), wrappedIndex.ExtractValue() } );
         return Common::MakeSuccess( std::move( cooked ) );
     }
 
     Common::ResultStr<WorldIndex> ReadWorldIndex( std::string_view fileName, std::span<const unsigned char> bytes )
     {
         const std::string name( fileName );
-        auto              payload = Unwrap( fileName, kIndexMagic, bytes );
+        auto              payload = Unwrap( fileName, CC::ContentKind::WorldIndex, bytes );
         if ( !payload )
             return Common::MakeError<WorldIndex>( payload.GetError() );
         auto parsed = rfl::json::read<WorldIndex>( payload.GetValue() );
@@ -429,7 +473,7 @@ namespace Desert::Core::WorldCells
                                                  std::span<const unsigned char> bytes )
     {
         const std::string name( fileName );
-        auto              payload = Unwrap( fileName, kCellMagic, bytes );
+        auto              payload = Unwrap( fileName, CC::ContentKind::WorldCell, bytes );
         if ( !payload )
             return Common::MakeError<CellPayload>( payload.GetError() );
 
@@ -520,8 +564,7 @@ namespace Desert::Core::WorldCells
             SceneSerialized scene;
             scene.SceneName      = index.SceneName;
             scene.Settings       = index.Settings;
-            scene.SceneVersion   = index.SceneVersion;
-            scene.UnitVersion    = index.UnitVersion;
+            scene.Header         = index.Header;
             scene.WorldPartition = index.WorldPartition;
 
             std::map<std::string, CellPayload> read;

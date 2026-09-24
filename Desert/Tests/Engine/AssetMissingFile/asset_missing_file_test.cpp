@@ -114,7 +114,9 @@ TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsF
 // asset that can never be written at all.
 TEST( AssetMissingFile, AParsedMaterialSavesNormally )
 {
-    const fs::path path = PathWith( "fine.demat", R"({"Params":[],"Textures":[]})" );
+    const fs::path path = PathWith(
+         "fine.demat",
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})" );
 
     Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
     ASSERT_TRUE( material.Load().IsSuccess() );
@@ -140,7 +142,9 @@ TEST( AssetMissingFile, AParsedMaterialSavesNormally )
 // whose Ctrl-click text entry parses with `sscanf( buf, "%f", … )`; `%f` accepts `nan`, `inf` and `1e40`.
 TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParameter )
 {
-    const fs::path path = PathWith( "not_a_number.demat", R"({"Params":[],"Textures":[]})" );
+    const fs::path path = PathWith(
+         "not_a_number.demat",
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})" );
 
     for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
                               -std::numeric_limits<float>::infinity() } )

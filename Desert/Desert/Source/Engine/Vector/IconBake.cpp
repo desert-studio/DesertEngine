@@ -5,6 +5,8 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Utilities/PakFile.hpp>
 
 #include <cstring>
 #include <format>
@@ -62,25 +64,24 @@ namespace Desert::Vector
         return out;
     }
 
+    namespace
+    {
+        constexpr Common::DDC::Deriver kIconDeriver{
+             "IconCache", ".dicon", { 0x91c6e2b04f7a3d58ULL, 0x0d7f35a9c2e81b46ULL } };
+    } // namespace
+
     uint64_t IconCacheKey( const std::vector<uint8_t>& svg )
     {
-        constexpr uint64_t kFnvOffset = 1469598103934665603ull;
-        constexpr uint64_t kFnvPrime  = 1099511628211ull;
-
-        uint64_t h = kFnvOffset;
-        h ^= kBakedIconCacheVersion;
-        h *= kFnvPrime;
-        for ( uint8_t b : svg )
-        {
-            h ^= b;
-            h *= kFnvPrime;
-        }
-        return h;
+        // Payload = the SVG's bytes; the one setting is the serialized format's version, so a format
+        // bump makes every old .dicon unreachable rather than refused.
+        const uint64_t formatVersion = kBakedIconCacheVersion;
+        return Common::DDC::MakeKey( kIconDeriver, Common::Utils::PakContentHash( svg.data(), svg.size() ),
+                                     &formatVersion, sizeof( formatVersion ) );
     }
 
     std::filesystem::path IconCachePath( uint64_t key )
     {
-        return Common::Constants::Path::COOKED_PATH / "IconCache" / std::format( "{:016x}.dicon", key );
+        return Common::DDC::PathFor( kIconDeriver, key );
     }
 
     std::vector<uint8_t> SerializeBakedIcon( const BakedIcon& icon )
@@ -153,7 +154,7 @@ namespace Desert::Vector
         // Then the mounted archive — a packaged game's cooked bakes live ONLY here. Not routed
         // through FileSystem::ReadByteFileContent: that primitive logs an error for a missing file,
         // and a cache miss is the normal cold-start case, not an error.
-        if ( auto packed = Common::Utils::VFS::ReadFile( path ) )
+        if ( auto packed = Common::Utils::VFS::ReadFile( Common::DDC::PackagedPath( path ) ) )
             return DeserializeBakedIcon( reinterpret_cast<const uint8_t*>( packed->data() ), packed->size(), out );
 
         return false;

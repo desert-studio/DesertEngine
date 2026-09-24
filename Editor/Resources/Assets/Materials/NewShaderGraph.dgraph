@@ -1,1 +1,72 @@
-{"Name":"NewShaderGraph","NextId":11,"Domain":0,"Lit":false,"Nodes":[{"Id":1,"Kind":"ColorParam","ParamName":"BaseColor","Value":[0.800000011920929,0.4000000059604645,0.10000000149011612,1.0],"X":0.0,"Y":60.0,"Inputs":[],"Outputs":[{"Id":2,"Name":"Color","Type":2}]},{"Id":3,"Kind":"SurfaceOutput","ParamName":"","Value":[1.0,1.0,1.0,1.0],"X":320.0,"Y":40.0,"Inputs":[{"Id":4,"Name":"Albedo","Type":2},{"Id":5,"Name":"Emission","Type":2},{"Id":6,"Name":"Alpha","Type":0},{"Id":8,"Name":"Metallic","Type":0},{"Id":9,"Name":"Roughness","Type":0},{"Id":10,"Name":"Occlusion","Type":0}],"Outputs":[]}],"Links":[{"Id":7,"From":2,"To":4}]}
+{
+    "Name": "NewShaderGraph",
+    "NextId": 11,
+    "Domain": 0,
+    "Lit": false,
+    "Nodes": [
+        {
+            "Id": 1,
+            "Kind": "ColorParam",
+            "ParamName": "BaseColor",
+            "Value": [0.800000011920929, 0.4000000059604645, 0.10000000149011612, 1.0],
+            "X": 0.0,
+            "Y": 60.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 2,
+                    "Name": "Color",
+                    "Type": 2
+                }
+            ]
+        },
+        {
+            "Id": 3,
+            "Kind": "SurfaceOutput",
+            "ParamName": "",
+            "Value": [1.0, 1.0, 1.0, 1.0],
+            "X": 320.0,
+            "Y": 40.0,
+            "Inputs": [
+                {
+                    "Id": 4,
+                    "Name": "Albedo",
+                    "Type": 2
+                },
+                {
+                    "Id": 5,
+                    "Name": "Emission",
+                    "Type": 2
+                },
+                {
+                    "Id": 6,
+                    "Name": "Alpha",
+                    "Type": 0
+                },
+                {
+                    "Id": 8,
+                    "Name": "Metallic",
+                    "Type": 0
+                },
+                {
+                    "Id": 9,
+                    "Name": "Roughness",
+                    "Type": 0
+                },
+                {
+                    "Id": 10,
+                    "Name": "Occlusion",
+                    "Type": 0
+                }
+            ],
+            "Outputs": []
+        }
+    ],
+    "Links": [
+        {
+            "Id": 7,
+            "From": 2,
+            "To": 4
+        }
+    ]
+}

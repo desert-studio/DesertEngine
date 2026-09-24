@@ -1099,8 +1099,7 @@ namespace Desert::Editor
                 {
                     ECS::Entity root = entityRef->get();
                     prefabAsset->CreateFromEntity( root, *m_AssetManager );
-                    const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                         Common::Filepath( m_SavePrefabPath ), prefabAsset->Serialize() );
+                    const auto written = prefabAsset->SaveTo( Common::Filepath( m_SavePrefabPath ) );
 
                     if ( !written )
                     {

@@ -1,1 +1,13 @@
-{"ShaderName":"Skybox","Params":[],"Textures":[],"MaterialId":9016207958156802132}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "a905758b34fc48a57331fdd92a087920",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "ShaderName": "Skybox",
+    "Params": [],
+    "Textures": []
+}

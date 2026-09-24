@@ -243,6 +243,30 @@ TEST( SceneSaveOutcome, ASceneThatHasNeverBeenOnDiskIsNamedAfterItself )
     EXPECT_EQ( SceneSaveDestination( "", "Boss Arena", "Scene/", ".desce" ), "Scene/Boss_Arena.desce" );
 }
 
+// SAVE AS IS A NEW ASSET. The GUID in a .desce header is the scene's identity; a copy written under a
+// new path that kept it would leave two files claiming one asset.
+TEST( SceneSaveIdentity, TheFileItCameFromKeepsItsGuid )
+{
+    EXPECT_TRUE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                      "Assets/Scenes/Level.desce" ) );
+    // The same file spelled differently is still the same file.
+    EXPECT_TRUE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                      "Assets/Scenes/./Sub/../Level.desce" ) );
+}
+
+TEST( SceneSaveIdentity, ANewPathIsANewAsset )
+{
+    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                       "Assets/Scenes/Level_Copy.desce" ) );
+    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "Assets/Scenes/Level.desce",
+                                                                       "Assets/Other/Level.desce" ) );
+}
+
+TEST( SceneSaveIdentity, ASceneWithNoFileHasNoIdentityToKeep )
+{
+    EXPECT_FALSE( Desert::Editor::Core::Rules::SaveKeepsAssetIdentity( "", "Assets/Scenes/Starter.desce" ) );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

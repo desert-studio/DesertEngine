@@ -1,1 +1,34 @@
-{"Params": [{"Name": "AlbedoColor", "Value": [1.0, 1.0, 1.0, 1.0]}, {"Name": "MetallicFactor", "Value": [0.0, 0.0, 0.0, 0.0]}, {"Name": "RoughnessFactor", "Value": [0.85, 0.0, 0.0, 0.0]}, {"Name": "UVTiling", "Value": [500.0, 500.0, 0.0, 0.0]}], "Textures": [{"Name": "u_AlbedoTexture", "TextureHandle": 4588246833979984450}], "MaterialId": 6418972230554417713}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.85, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [500.0, 500.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "TextureHandle": 4588246833979984450
+        }
+    ]
+}

@@ -5,6 +5,7 @@
 #include <Editor/Panels/MaterialEditor/MaterialShaderRebuild.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
@@ -503,11 +504,8 @@ namespace Desert::Editor
         // ShaderName is the ONLY thing that makes this material the graph's; a material left over from an
         // earlier compile keeps whatever shader it had, so set it every time.
         asset->Data().ShaderName = m_Doc.Name;
-        auto& materialId         = asset->Data().MaterialId;
-        if ( !materialId.has_value() || materialId->IsNull() )
-        {
-            materialId = Common::UUID::Generate();
-        }
+        // Stamped in memory, so the GUID a first write mints is the one every later write states.
+        asset->Data() = Assets::StampMaterialHeader( std::move( asset->Data() ) );
         // Logged, and then carried on with deliberately: the preview material lives in memory for this
         // session and the registration below is what makes the preview render. The file only matters to
         // the NEXT session, so a failed write costs a stale preview material next launch — worth saying,

@@ -1,1 +1,12 @@
-{"Params":[],"Textures":[],"MaterialId":7114986674804299134}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "c3a2ebc1406d6a0730ccf06ee17b7f56",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "Params": [],
+    "Textures": []
+}

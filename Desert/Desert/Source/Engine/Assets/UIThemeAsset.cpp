@@ -1,4 +1,5 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -81,7 +82,10 @@ namespace Desert::Assets
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
 
-        const std::string text = WriteUITheme( data );
+        const auto canonicalText = Common::Content::CanonicalJsonTextOfWriterOutput( WriteUITheme( data ) );
+        if ( !canonicalText )
+            return Common::MakeError<bool>( canonicalText.GetError() );
+        const std::string& text = canonicalText.GetValue();
 
         // Through the write primitive, not a local std::ofstream (Д35): a theme is a few kilobytes —
         // smaller than one filebuf — so it is precisely the payload that never reaches the OS until the

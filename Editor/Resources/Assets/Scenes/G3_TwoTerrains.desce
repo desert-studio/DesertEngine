@@ -1,1 +1,685 @@
-{"SceneName":"G3_TwoTerrains","Entities":[{"id":7310021741400001,"Tag":"Sun","Translation":[-0.3499999940395355,-0.699999988079071,-0.44999998807907104],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"DirectionLight":{"Color":[1.0,1.0,1.0],"Intensity":1.0,"AtmosphereSunLight":true}},{"id":7310021741400002,"Tag":"Sky","Translation":[0.0,0.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"Skybox":{"SkyboxHandle":"","Intensity":1.0},"SkyAtmosphere":{"Enabled":true,"SunIntensity":22.0,"SunColor":[1.0,0.96,0.88],"SunAngularDiameter":2.2918310165405273}},{"id":7310021741400003,"Tag":"TerrainChecker","Translation":[-21000.0,0.0,-10000.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"Landscape":{"QuadsPerTile":255,"SpacingCm":15.686274528503418,"ZScale":3.515625},"LandscapeMaterial":{"Material":"Materials/M_G3_TerrainChecker.demat","GrassMode":1}},{"id":7310021741400004,"Tag":"TerrainPlain","Translation":[1000.0,0.0,-10000.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"Landscape":{"QuadsPerTile":255,"SpacingCm":15.686274528503418,"ZScale":10.15625},"LandscapeMaterial":{"Material":"Materials/M_G3_TerrainPlain.demat","GrassMode":1}},{"id":7310021741400005,"Tag":"Scale Post (1.8 m)","Translation":[0.0,0.0,-1500.0],"Rotation":[0.0,0.0,0.0],"Scale":[0.15000000596046448,1.7999999523162842,0.15000000596046448],"StaticMesh":{"Primitive":"Cube"}},{"id":14139591465500008517,"Tag":"TerrainChecker Tile 0_0","LandscapeTile":{"Landscape":"7310021741400003","TileX":0,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14139591465500008517.dlht"}},{"id":15208556050485368750,"Tag":"TerrainChecker Tile 1_0","LandscapeTile":{"Landscape":"7310021741400003","TileX":1,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/15208556050485368750.dlht"}},{"id":10504863819318263314,"Tag":"TerrainChecker Tile 2_0","LandscapeTile":{"Landscape":"7310021741400003","TileX":2,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10504863819318263314.dlht"}},{"id":1898658614684538848,"Tag":"TerrainChecker Tile 3_0","LandscapeTile":{"Landscape":"7310021741400003","TileX":3,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1898658614684538848.dlht"}},{"id":11307825136121944800,"Tag":"TerrainChecker Tile 4_0","LandscapeTile":{"Landscape":"7310021741400003","TileX":4,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11307825136121944800.dlht"}},{"id":2282751315417327572,"Tag":"TerrainChecker Tile 0_1","LandscapeTile":{"Landscape":"7310021741400003","TileX":0,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/2282751315417327572.dlht"}},{"id":6700483812159057663,"Tag":"TerrainChecker Tile 1_1","LandscapeTile":{"Landscape":"7310021741400003","TileX":1,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/6700483812159057663.dlht"}},{"id":6223693448079367070,"Tag":"TerrainChecker Tile 2_1","LandscapeTile":{"Landscape":"7310021741400003","TileX":2,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/6223693448079367070.dlht"}},{"id":10194274029672881653,"Tag":"TerrainChecker Tile 3_1","LandscapeTile":{"Landscape":"7310021741400003","TileX":3,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10194274029672881653.dlht"}},{"id":3437977225075825397,"Tag":"TerrainChecker Tile 4_1","LandscapeTile":{"Landscape":"7310021741400003","TileX":4,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3437977225075825397.dlht"}},{"id":13683847744952981151,"Tag":"TerrainChecker Tile 0_2","LandscapeTile":{"Landscape":"7310021741400003","TileX":0,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13683847744952981151.dlht"}},{"id":7441566162943197918,"Tag":"TerrainChecker Tile 1_2","LandscapeTile":{"Landscape":"7310021741400003","TileX":1,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7441566162943197918.dlht"}},{"id":12998054759439527145,"Tag":"TerrainChecker Tile 2_2","LandscapeTile":{"Landscape":"7310021741400003","TileX":2,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/12998054759439527145.dlht"}},{"id":8525897167276534560,"Tag":"TerrainChecker Tile 3_2","LandscapeTile":{"Landscape":"7310021741400003","TileX":3,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/8525897167276534560.dlht"}},{"id":4005684272586579653,"Tag":"TerrainChecker Tile 4_2","LandscapeTile":{"Landscape":"7310021741400003","TileX":4,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4005684272586579653.dlht"}},{"id":13911333189603593047,"Tag":"TerrainChecker Tile 0_3","LandscapeTile":{"Landscape":"7310021741400003","TileX":0,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13911333189603593047.dlht"}},{"id":5710109555744683174,"Tag":"TerrainChecker Tile 1_3","LandscapeTile":{"Landscape":"7310021741400003","TileX":1,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5710109555744683174.dlht"}},{"id":3202185892103781528,"Tag":"TerrainChecker Tile 2_3","LandscapeTile":{"Landscape":"7310021741400003","TileX":2,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3202185892103781528.dlht"}},{"id":1664369492442274479,"Tag":"TerrainChecker Tile 3_3","LandscapeTile":{"Landscape":"7310021741400003","TileX":3,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1664369492442274479.dlht"}},{"id":14621378694642521931,"Tag":"TerrainChecker Tile 4_3","LandscapeTile":{"Landscape":"7310021741400003","TileX":4,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14621378694642521931.dlht"}},{"id":14700595386023265797,"Tag":"TerrainChecker Tile 0_4","LandscapeTile":{"Landscape":"7310021741400003","TileX":0,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14700595386023265797.dlht"}},{"id":14953458643715926919,"Tag":"TerrainChecker Tile 1_4","LandscapeTile":{"Landscape":"7310021741400003","TileX":1,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14953458643715926919.dlht"}},{"id":13816187284253525180,"Tag":"TerrainChecker Tile 2_4","LandscapeTile":{"Landscape":"7310021741400003","TileX":2,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13816187284253525180.dlht"}},{"id":17959159743720275283,"Tag":"TerrainChecker Tile 3_4","LandscapeTile":{"Landscape":"7310021741400003","TileX":3,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17959159743720275283.dlht"}},{"id":1079343606234595652,"Tag":"TerrainChecker Tile 4_4","LandscapeTile":{"Landscape":"7310021741400003","TileX":4,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1079343606234595652.dlht"}},{"id":17269368749528931952,"Tag":"TerrainPlain Tile 0_0","LandscapeTile":{"Landscape":"7310021741400004","TileX":0,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17269368749528931952.dlht"}},{"id":7136352683913827322,"Tag":"TerrainPlain Tile 1_0","LandscapeTile":{"Landscape":"7310021741400004","TileX":1,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7136352683913827322.dlht"}},{"id":11146067486683134422,"Tag":"TerrainPlain Tile 2_0","LandscapeTile":{"Landscape":"7310021741400004","TileX":2,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11146067486683134422.dlht"}},{"id":8566978775750307345,"Tag":"TerrainPlain Tile 3_0","LandscapeTile":{"Landscape":"7310021741400004","TileX":3,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/8566978775750307345.dlht"}},{"id":13698932293366319779,"Tag":"TerrainPlain Tile 4_0","LandscapeTile":{"Landscape":"7310021741400004","TileX":4,"TileZ":0,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13698932293366319779.dlht"}},{"id":4459609067371845214,"Tag":"TerrainPlain Tile 0_1","LandscapeTile":{"Landscape":"7310021741400004","TileX":0,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4459609067371845214.dlht"}},{"id":17980529733751588335,"Tag":"TerrainPlain Tile 1_1","LandscapeTile":{"Landscape":"7310021741400004","TileX":1,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17980529733751588335.dlht"}},{"id":16880126168322484078,"Tag":"TerrainPlain Tile 2_1","LandscapeTile":{"Landscape":"7310021741400004","TileX":2,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/16880126168322484078.dlht"}},{"id":17897814715666174129,"Tag":"TerrainPlain Tile 3_1","LandscapeTile":{"Landscape":"7310021741400004","TileX":3,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17897814715666174129.dlht"}},{"id":4202662370123154685,"Tag":"TerrainPlain Tile 4_1","LandscapeTile":{"Landscape":"7310021741400004","TileX":4,"TileZ":1,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4202662370123154685.dlht"}},{"id":3354561897683486278,"Tag":"TerrainPlain Tile 0_2","LandscapeTile":{"Landscape":"7310021741400004","TileX":0,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3354561897683486278.dlht"}},{"id":3935059941509137403,"Tag":"TerrainPlain Tile 1_2","LandscapeTile":{"Landscape":"7310021741400004","TileX":1,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3935059941509137403.dlht"}},{"id":16438699695907860214,"Tag":"TerrainPlain Tile 2_2","LandscapeTile":{"Landscape":"7310021741400004","TileX":2,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/16438699695907860214.dlht"}},{"id":14780545736905199093,"Tag":"TerrainPlain Tile 3_2","LandscapeTile":{"Landscape":"7310021741400004","TileX":3,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14780545736905199093.dlht"}},{"id":4416490062810327308,"Tag":"TerrainPlain Tile 4_2","LandscapeTile":{"Landscape":"7310021741400004","TileX":4,"TileZ":2,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4416490062810327308.dlht"}},{"id":7120846084722932246,"Tag":"TerrainPlain Tile 0_3","LandscapeTile":{"Landscape":"7310021741400004","TileX":0,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7120846084722932246.dlht"}},{"id":858951070901459976,"Tag":"TerrainPlain Tile 1_3","LandscapeTile":{"Landscape":"7310021741400004","TileX":1,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/858951070901459976.dlht"}},{"id":5165378544274085974,"Tag":"TerrainPlain Tile 2_3","LandscapeTile":{"Landscape":"7310021741400004","TileX":2,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5165378544274085974.dlht"}},{"id":552553028708678611,"Tag":"TerrainPlain Tile 3_3","LandscapeTile":{"Landscape":"7310021741400004","TileX":3,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/552553028708678611.dlht"}},{"id":11692722598547063634,"Tag":"TerrainPlain Tile 4_3","LandscapeTile":{"Landscape":"7310021741400004","TileX":4,"TileZ":3,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11692722598547063634.dlht"}},{"id":617190809073116995,"Tag":"TerrainPlain Tile 0_4","LandscapeTile":{"Landscape":"7310021741400004","TileX":0,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/617190809073116995.dlht"}},{"id":5956319789856725724,"Tag":"TerrainPlain Tile 1_4","LandscapeTile":{"Landscape":"7310021741400004","TileX":1,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5956319789856725724.dlht"}},{"id":3247434968917253149,"Tag":"TerrainPlain Tile 2_4","LandscapeTile":{"Landscape":"7310021741400004","TileX":2,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3247434968917253149.dlht"}},{"id":10036623360204464982,"Tag":"TerrainPlain Tile 3_4","LandscapeTile":{"Landscape":"7310021741400004","TileX":3,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10036623360204464982.dlht"}},{"id":4600921004673520800,"Tag":"TerrainPlain Tile 4_4","LandscapeTile":{"Landscape":"7310021741400004","TileX":4,"TileZ":4,"HeightFile":"Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4600921004673520800.dlht"}}],"Settings":{"RenderingPath":1,"EnableSSAO":true,"GlobalIllumination":1,"GIIntensity":2.0,"EnableSSR":false,"SSRIntensity":1.0,"SSRMaxDistance":4000.0,"EnableShadows":true,"ShadowBias":0.004999999888241291,"CascadeSplitLambda":0.6000000238418579,"Tonemapper":0,"Exposure":1.0,"Gamma":2.200000047683716,"WhitePoint":8.0,"AutoExposure":false,"AutoExposureKey":0.18000000715255737,"AutoExposureSpeed":1.5,"AutoExposureMin":0.019999999552965164,"AutoExposureMax":8.0,"EnableBloom":false,"BloomThreshold":2.0,"BloomIntensity":0.800000011920929,"LensDispersion":0.0,"EnableLensFlare":false,"LensFlareIntensity":0.3499999940395355,"LensFlareTint":[1.0,1.0,1.0],"LensFlareThreshold":4.0,"LensFlareGhostCount":4,"LensFlareGhostSpacing":0.3499999940395355,"LensFlareGhostSizeNear":1.0,"LensFlareGhostSizeFar":3.0,"LensFlareGhostTintInner":[1.0,0.8600000143051147,0.6200000047683716],"LensFlareGhostTintOuter":[0.44999998807907104,0.6800000071525574,1.0],"LensFlareHaloIntensity":0.25,"LensFlareHaloRadius":0.18000000715255737,"LensFlareStreakIntensity":8.0,"LensFlareStreakLength":0.3499999940395355,"LensFlareStreakAngle":0.0,"LensFlareChromaShift":0.15000000596046448,"Gravity":981.0,"SplashSprite":"","SplashDuration":0.0,"SplashFade":0.4000000059604645},"UnitVersion":1,"SceneVersion":23}
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "d911e1788ca30dfafe332f0910cc045d",
+        "Versions": {
+            "SCNE": 27,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "SceneName": "G3_TwoTerrains",
+    "Entities": [
+        {
+            "id": 7310021741400001,
+            "siblingIndex": 0,
+            "Tag": "Sun",
+            "Translation": [-0.3499999940395355, -0.699999988079071, -0.44999998807907104],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 1.0,
+                "AtmosphereSunLight": true
+            }
+        },
+        {
+            "id": 7310021741400002,
+            "siblingIndex": 1,
+            "Tag": "Sky",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Skybox": {
+                "SkyboxHandle": "",
+                "Intensity": 1.0
+            },
+            "SkyAtmosphere": {
+                "Enabled": true,
+                "SunIntensity": 22.0,
+                "SunColor": [1.0, 0.96, 0.88],
+                "SunAngularDiameter": 2.2918310165405273
+            }
+        },
+        {
+            "id": 7310021741400003,
+            "siblingIndex": 2,
+            "Tag": "TerrainChecker",
+            "Translation": [-21000.0, 0.0, -10000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Landscape": {
+                "QuadsPerTile": 255,
+                "SpacingCm": 15.686274528503418,
+                "ZScale": 3.515625
+            },
+            "LandscapeMaterial": {
+                "Material": "Materials/M_G3_TerrainChecker.demat",
+                "GrassMode": 1
+            }
+        },
+        {
+            "id": 7310021741400004,
+            "siblingIndex": 3,
+            "Tag": "TerrainPlain",
+            "Translation": [1000.0, 0.0, -10000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Landscape": {
+                "QuadsPerTile": 255,
+                "SpacingCm": 15.686274528503418,
+                "ZScale": 10.15625
+            },
+            "LandscapeMaterial": {
+                "Material": "Materials/M_G3_TerrainPlain.demat",
+                "GrassMode": 1
+            }
+        },
+        {
+            "id": 7310021741400005,
+            "siblingIndex": 4,
+            "Tag": "Scale Post (1.8 m)",
+            "Translation": [0.0, 0.0, -1500.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.15000000596046448, 1.7999999523162842, 0.15000000596046448],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 552553028708678611,
+            "siblingIndex": 48,
+            "Tag": "TerrainPlain Tile 3_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 3,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/552553028708678611.dlht"
+            }
+        },
+        {
+            "id": 617190809073116995,
+            "siblingIndex": 50,
+            "Tag": "TerrainPlain Tile 0_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 0,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/617190809073116995.dlht"
+            }
+        },
+        {
+            "id": 858951070901459976,
+            "siblingIndex": 46,
+            "Tag": "TerrainPlain Tile 1_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 1,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/858951070901459976.dlht"
+            }
+        },
+        {
+            "id": 1079343606234595652,
+            "siblingIndex": 29,
+            "Tag": "TerrainChecker Tile 4_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 4,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1079343606234595652.dlht"
+            }
+        },
+        {
+            "id": 1664369492442274479,
+            "siblingIndex": 23,
+            "Tag": "TerrainChecker Tile 3_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 3,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1664369492442274479.dlht"
+            }
+        },
+        {
+            "id": 1898658614684538848,
+            "siblingIndex": 8,
+            "Tag": "TerrainChecker Tile 3_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 3,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/1898658614684538848.dlht"
+            }
+        },
+        {
+            "id": 2282751315417327572,
+            "siblingIndex": 10,
+            "Tag": "TerrainChecker Tile 0_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 0,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/2282751315417327572.dlht"
+            }
+        },
+        {
+            "id": 3202185892103781528,
+            "siblingIndex": 22,
+            "Tag": "TerrainChecker Tile 2_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 2,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3202185892103781528.dlht"
+            }
+        },
+        {
+            "id": 3247434968917253149,
+            "siblingIndex": 52,
+            "Tag": "TerrainPlain Tile 2_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 2,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3247434968917253149.dlht"
+            }
+        },
+        {
+            "id": 3354561897683486278,
+            "siblingIndex": 40,
+            "Tag": "TerrainPlain Tile 0_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 0,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3354561897683486278.dlht"
+            }
+        },
+        {
+            "id": 3437977225075825397,
+            "siblingIndex": 14,
+            "Tag": "TerrainChecker Tile 4_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 4,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3437977225075825397.dlht"
+            }
+        },
+        {
+            "id": 3935059941509137403,
+            "siblingIndex": 41,
+            "Tag": "TerrainPlain Tile 1_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 1,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/3935059941509137403.dlht"
+            }
+        },
+        {
+            "id": 4005684272586579653,
+            "siblingIndex": 19,
+            "Tag": "TerrainChecker Tile 4_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 4,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4005684272586579653.dlht"
+            }
+        },
+        {
+            "id": 4202662370123154685,
+            "siblingIndex": 39,
+            "Tag": "TerrainPlain Tile 4_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 4,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4202662370123154685.dlht"
+            }
+        },
+        {
+            "id": 4416490062810327308,
+            "siblingIndex": 44,
+            "Tag": "TerrainPlain Tile 4_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 4,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4416490062810327308.dlht"
+            }
+        },
+        {
+            "id": 4459609067371845214,
+            "siblingIndex": 35,
+            "Tag": "TerrainPlain Tile 0_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 0,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4459609067371845214.dlht"
+            }
+        },
+        {
+            "id": 4600921004673520800,
+            "siblingIndex": 54,
+            "Tag": "TerrainPlain Tile 4_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 4,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/4600921004673520800.dlht"
+            }
+        },
+        {
+            "id": 5165378544274085974,
+            "siblingIndex": 47,
+            "Tag": "TerrainPlain Tile 2_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 2,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5165378544274085974.dlht"
+            }
+        },
+        {
+            "id": 5710109555744683174,
+            "siblingIndex": 21,
+            "Tag": "TerrainChecker Tile 1_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 1,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5710109555744683174.dlht"
+            }
+        },
+        {
+            "id": 5956319789856725724,
+            "siblingIndex": 51,
+            "Tag": "TerrainPlain Tile 1_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 1,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/5956319789856725724.dlht"
+            }
+        },
+        {
+            "id": 6223693448079367070,
+            "siblingIndex": 12,
+            "Tag": "TerrainChecker Tile 2_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 2,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/6223693448079367070.dlht"
+            }
+        },
+        {
+            "id": 6700483812159057663,
+            "siblingIndex": 11,
+            "Tag": "TerrainChecker Tile 1_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/6700483812159057663.dlht"
+            }
+        },
+        {
+            "id": 7120846084722932246,
+            "siblingIndex": 45,
+            "Tag": "TerrainPlain Tile 0_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 0,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7120846084722932246.dlht"
+            }
+        },
+        {
+            "id": 7136352683913827322,
+            "siblingIndex": 31,
+            "Tag": "TerrainPlain Tile 1_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7136352683913827322.dlht"
+            }
+        },
+        {
+            "id": 7441566162943197918,
+            "siblingIndex": 16,
+            "Tag": "TerrainChecker Tile 1_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 1,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/7441566162943197918.dlht"
+            }
+        },
+        {
+            "id": 8525897167276534560,
+            "siblingIndex": 18,
+            "Tag": "TerrainChecker Tile 3_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 3,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/8525897167276534560.dlht"
+            }
+        },
+        {
+            "id": 8566978775750307345,
+            "siblingIndex": 33,
+            "Tag": "TerrainPlain Tile 3_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 3,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/8566978775750307345.dlht"
+            }
+        },
+        {
+            "id": 10036623360204464982,
+            "siblingIndex": 53,
+            "Tag": "TerrainPlain Tile 3_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 3,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10036623360204464982.dlht"
+            }
+        },
+        {
+            "id": 10194274029672881653,
+            "siblingIndex": 13,
+            "Tag": "TerrainChecker Tile 3_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 3,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10194274029672881653.dlht"
+            }
+        },
+        {
+            "id": 10504863819318263314,
+            "siblingIndex": 7,
+            "Tag": "TerrainChecker Tile 2_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 2,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/10504863819318263314.dlht"
+            }
+        },
+        {
+            "id": 11146067486683134422,
+            "siblingIndex": 32,
+            "Tag": "TerrainPlain Tile 2_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 2,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11146067486683134422.dlht"
+            }
+        },
+        {
+            "id": 11307825136121944800,
+            "siblingIndex": 9,
+            "Tag": "TerrainChecker Tile 4_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 4,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11307825136121944800.dlht"
+            }
+        },
+        {
+            "id": 11692722598547063634,
+            "siblingIndex": 49,
+            "Tag": "TerrainPlain Tile 4_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 4,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/11692722598547063634.dlht"
+            }
+        },
+        {
+            "id": 12998054759439527145,
+            "siblingIndex": 17,
+            "Tag": "TerrainChecker Tile 2_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 2,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/12998054759439527145.dlht"
+            }
+        },
+        {
+            "id": 13683847744952981151,
+            "siblingIndex": 15,
+            "Tag": "TerrainChecker Tile 0_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 0,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13683847744952981151.dlht"
+            }
+        },
+        {
+            "id": 13698932293366319779,
+            "siblingIndex": 34,
+            "Tag": "TerrainPlain Tile 4_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 4,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13698932293366319779.dlht"
+            }
+        },
+        {
+            "id": 13816187284253525180,
+            "siblingIndex": 27,
+            "Tag": "TerrainChecker Tile 2_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 2,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13816187284253525180.dlht"
+            }
+        },
+        {
+            "id": 13911333189603593047,
+            "siblingIndex": 20,
+            "Tag": "TerrainChecker Tile 0_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 0,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/13911333189603593047.dlht"
+            }
+        },
+        {
+            "id": 14139591465500008517,
+            "siblingIndex": 5,
+            "Tag": "TerrainChecker Tile 0_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14139591465500008517.dlht"
+            }
+        },
+        {
+            "id": 14621378694642521931,
+            "siblingIndex": 24,
+            "Tag": "TerrainChecker Tile 4_3",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 4,
+                "TileZ": 3,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14621378694642521931.dlht"
+            }
+        },
+        {
+            "id": 14700595386023265797,
+            "siblingIndex": 25,
+            "Tag": "TerrainChecker Tile 0_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 0,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14700595386023265797.dlht"
+            }
+        },
+        {
+            "id": 14780545736905199093,
+            "siblingIndex": 43,
+            "Tag": "TerrainPlain Tile 3_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 3,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14780545736905199093.dlht"
+            }
+        },
+        {
+            "id": 14953458643715926919,
+            "siblingIndex": 26,
+            "Tag": "TerrainChecker Tile 1_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 1,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/14953458643715926919.dlht"
+            }
+        },
+        {
+            "id": 15208556050485368750,
+            "siblingIndex": 6,
+            "Tag": "TerrainChecker Tile 1_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/15208556050485368750.dlht"
+            }
+        },
+        {
+            "id": 16438699695907860214,
+            "siblingIndex": 42,
+            "Tag": "TerrainPlain Tile 2_2",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 2,
+                "TileZ": 2,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/16438699695907860214.dlht"
+            }
+        },
+        {
+            "id": 16880126168322484078,
+            "siblingIndex": 37,
+            "Tag": "TerrainPlain Tile 2_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 2,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/16880126168322484078.dlht"
+            }
+        },
+        {
+            "id": 17269368749528931952,
+            "siblingIndex": 30,
+            "Tag": "TerrainPlain Tile 0_0",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17269368749528931952.dlht"
+            }
+        },
+        {
+            "id": 17897814715666174129,
+            "siblingIndex": 38,
+            "Tag": "TerrainPlain Tile 3_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 3,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17897814715666174129.dlht"
+            }
+        },
+        {
+            "id": 17959159743720275283,
+            "siblingIndex": 28,
+            "Tag": "TerrainChecker Tile 3_4",
+            "LandscapeTile": {
+                "Landscape": "7310021741400003",
+                "TileX": 3,
+                "TileZ": 4,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17959159743720275283.dlht"
+            }
+        },
+        {
+            "id": 17980529733751588335,
+            "siblingIndex": 36,
+            "Tag": "TerrainPlain Tile 1_1",
+            "LandscapeTile": {
+                "Landscape": "7310021741400004",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "Resources/Assets/Scenes/G3_TwoTerrains_Landscape/17980529733751588335.dlht"
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 1,
+        "EnableSSAO": true,
+        "GlobalIllumination": 1,
+        "GIIntensity": 2.0,
+        "EnableSSR": false,
+        "SSRIntensity": 1.0,
+        "SSRMaxDistance": 4000.0,
+        "EnableShadows": true,
+        "ShadowBias": 0.004999999888241291,
+        "CascadeSplitLambda": 0.6000000238418579,
+        "Tonemapper": 0,
+        "Exposure": 1.0,
+        "Gamma": 2.200000047683716,
+        "WhitePoint": 8.0,
+        "AutoExposure": false,
+        "AutoExposureKey": 0.18000000715255737,
+        "AutoExposureSpeed": 1.5,
+        "AutoExposureMin": 0.019999999552965164,
+        "AutoExposureMax": 8.0,
+        "EnableBloom": false,
+        "BloomThreshold": 2.0,
+        "BloomIntensity": 0.800000011920929,
+        "LensDispersion": 0.0,
+        "EnableLensFlare": false,
+        "LensFlareIntensity": 0.3499999940395355,
+        "LensFlareTint": [1.0, 1.0, 1.0],
+        "LensFlareThreshold": 4.0,
+        "LensFlareGhostCount": 4,
+        "LensFlareGhostSpacing": 0.3499999940395355,
+        "LensFlareGhostSizeNear": 1.0,
+        "LensFlareGhostSizeFar": 3.0,
+        "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+        "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
+        "LensFlareHaloIntensity": 0.25,
+        "LensFlareHaloRadius": 0.18000000715255737,
+        "LensFlareStreakIntensity": 8.0,
+        "LensFlareStreakLength": 0.3499999940395355,
+        "LensFlareStreakAngle": 0.0,
+        "LensFlareChromaShift": 0.15000000596046448,
+        "Gravity": 981.0,
+        "SplashSprite": "",
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    }
+}

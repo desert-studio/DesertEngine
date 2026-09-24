@@ -28,6 +28,8 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -50,7 +52,7 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
-#include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <cstdio>
 #include <cstring>
@@ -883,29 +885,19 @@ TEST( AssetHandleStability, EveryAssetTypeAgreesAcrossProjectRoots )
 
 TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMoving )
 {
-    // A real cooked `.tex`, because the claim is about what Load does with the file's Handle field.
-    const auto         scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.tex";
-    constexpr uint64_t kIdInTheFile = 16135626166276358966ull; // the value T_Checker.tex actually carries
+    // A real `.detex`, because the claim is about what Load does with the handle frozen into the header.
+    const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.detex";
+    constexpr uint64_t kIdInTheFile = 4588246833979984450ull; // the value T_Checker.detex's header carries
     {
-        // THROUGH THE ENGINE'S OWN ENCODER (B17). A `.tex` is a binary container now, and a fixture
-        // hand-spelled here would be a second writer of the format — the drift this suite is about.
-        namespace Ser = Desert::Assets::Serialization;
-
-        Ser::TextureAssetData data;
-        data.Handle = Common::UUID( kIdInTheFile );
-        data.Width  = 1;
-        data.Height = 1;
-        data.Format = Desert::Core::Formats::ImageFormat::RGBA8F;
-
-        const std::vector<unsigned char> base( 4, 0x7F );
-        auto                             chain = Ser::BuildMipChain( 1, 1, data.Format, base, data.Pixels );
-        ASSERT_TRUE( chain.IsSuccess() ) << chain.GetError();
-        data.Levels = chain.ExtractValue();
-
-        const std::string bytes = Ser::EncodeTextureBinary( data );
-        std::ofstream     out( scratch, std::ios::binary );
-        ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+        // THROUGH THE IMPORTER'S OWN WRITER (AF3). A fixture hand-spelled here would be a second writer of
+        // the envelope — the drift this suite is about. The source bytes are opaque to Load: it reads the
+        // header and IMPT, never SRCE.
+        const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
+        const auto                   asset = Desert::Assets::MakeTextureSourceAsset(
+             Common::Content::ContentKind::Texture, Common::UUID( kIdInTheFile ), "assets:Textures/T_Checker.png",
+             source, Desert::Assets::TextureImportSettings{} );
+        const auto written = Desert::Assets::WriteTextureSourceAssetFile( scratch, asset );
+        ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     }
 
     ProjectRootGuard guard;
@@ -929,14 +921,20 @@ TEST( AssetHandleStability, ATexturesIdComesFromItsFileAndSurvivesTheProjectMovi
 
 TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMoving )
 {
-    // The same claim for the other class that carries its own id. `MaterialId` is what a mesh's
-    // surface and a scene's material override both key on.
+    // The same claim for the other class that carries its own id. A material's identity is its header
+    // GUID, and its handle is that GUID through Common::Content::HandleForGuid - the number a mesh's
+    // surface, a scene's material override and an instance's Parent all fold to. The LOAD path must arrive
+    // at that same number, or every reference misses the material it names.
     const auto scratch = std::filesystem::temp_directory_path() / "desert_assethandlestability_rooted.demat";
-    constexpr uint64_t kIdInTheFile = 6418972230554417713ull; // M_CheckerFloor.demat's actual MaterialId
+    constexpr const char* kGuidInTheFile = "45d579b03cc0d0a8df2e4cb025d6bea5"; // M_CheckerFloor.demat's GUID
+    const auto            guid           = Common::Content::AssetGuidFromText( kGuidInTheFile );
+    ASSERT_TRUE( guid );
+    const uint64_t kIdInTheFile = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
     {
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[],"MaterialId":6418972230554417713})";
+        out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
+               R"("Versions":{"MATL":2},"Dependencies":[]},"Params":[],"Textures":[]})";
     }
 
     ProjectRootGuard guard;

@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstddef>
+#include <filesystem>
 #include <string>
 
 namespace Desert::Editor
@@ -14,7 +17,7 @@ namespace Desert::Editor
         size_t FontsCached     = 0;
         size_t IconsBaked      = 0;
         size_t IconsCached     = 0;
-        size_t TexturesCooked  = 0; // `.tex` containers written this pass
+        size_t TexturesCooked  = 0; // platform data built into the DDC this pass
         size_t TexturesCached  = 0; // already cooked from the same source bytes by the same rules
         size_t Failures        = 0; // parse/compile/bake failures (each logged where it happened)
         // Artifacts that were produced and then did NOT reach the disk. Counted apart from Failures
@@ -28,13 +31,15 @@ namespace Desert::Editor
     // Pays, ONCE and at packaging time, every deterministic startup cost the runtime would otherwise
     // pay on the player's machine: compiles every stage of every pass of every shipped .shader,
     // bakes the default-size ASCII atlas of every shipped .ttf, and bakes the SDF layers of every
-    // shipped .svg — each into its content-addressed home under the project's Cooked/ tree
-    // (ShaderCache / FontCache / IconCache), through the exact key/path/store seams the runtime
-    // reads back (ShaderSpirvCache, Text/FontCache, Vector/IconBake). The census tree
-    // { COOKED_PATH, "Cooked" } then carries the artifacts into Content.dpak.
+    // shipped .svg — each into the DerivedDataCache (Common/Content/DerivedDataCache.hpp) through the
+    // exact key/path/store seams the runtime reads back (ShaderSpirvCache, Text/FontCache,
+    // Vector/IconBake). The buckets a game reads — and the driver's pipeline blobs — are then COPIED into
+    // Saved/Cooked/<Platform>/, wiped first so a package never carries a previous cook's leftovers, and
+    // that directory is the census tree packed under "Cooked" (PackagedContentTrees.hpp). The DDC itself
+    // never ships and the editor never reads Saved/Cooked.
     //
     // AND IT COOKS THE TEXTURES — every source under `LooseTextureRoots()`, through the editor's own
-    // `TextureImporter` (not a copy of it), into Cooked/Textures/. A texture is the one asset the runtime
+    // `TextureImporter` (not a copy of it), into the DDC's Texture bucket. A texture is the one asset the runtime
     // CANNOT produce for itself: it holds no image decoder (T3.3 removed the last one, the sky
     // panorama's), so a package without the `.tex` is a floor with no checkerboard and a sky with no
     // panorama, with nothing on the player's machine able to repair it. Before this, a package carried
@@ -50,4 +55,12 @@ namespace Desert::Editor
     // editor's: a Debug editor packaging a Release game must cook Release keys, or the shipped cache
     // is dead on arrival.
     CookStats CookContentCaches( bool spirvDebugInfo );
+
+    // A PACKAGE CARRIES NO TEXTURE SOURCE (AM0). The editor's `.detex` holds the imported image (SRCE) and
+    // its import record (IMPT); both are the editor's alone, so the archive gets the cooked form instead
+    // (Assets::CookTextureAssetForRuntime: header + Meta + the key record), written here under the asset's
+    // relative path. CookContentCaches wipes this directory first, like Saved/Cooked/<Platform>.
+    std::filesystem::path                    CookedTextureAssetStage();
+    Common::ResultStr<std::filesystem::path> StageCookedTextureAsset( const std::filesystem::path& editorAsset,
+                                                                      const std::filesystem::path& relative );
 } // namespace Desert::Editor

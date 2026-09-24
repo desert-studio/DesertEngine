@@ -1,1 +1,27 @@
-{"ShaderName":"CloudRaymarch","Params":[{"Name":"Coverage","Value":[0.7620000243186951,0.0,0.0,0.0]},{"Name":"WeatherTileSize","Value":[1200000.0,0.0,0.0,0.0]}],"Textures":[{"Name":"CloudType1","TextureHandle":14207433254880240939}],"MaterialId":16657280504388947716}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "3117919ba155db5f98b358e6f77e48d8",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "ShaderName": "CloudRaymarch",
+    "Params": [
+        {
+            "Name": "Coverage",
+            "Value": [0.7620000243186951, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "WeatherTileSize",
+            "Value": [1200000.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "CloudType1",
+            "TextureHandle": 14207433254880240939
+        }
+    ]
+}

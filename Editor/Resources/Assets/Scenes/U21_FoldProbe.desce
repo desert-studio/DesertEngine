@@ -1,1 +1,198 @@
-{"SceneName":"U21_FoldProbe","Entities":[{"id":926001,"Tag":"Control Sphere (never folded)","Translation":[-400.0,0.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Sphere"}},{"id":926003,"Tag":"Sun","Translation":[-30.0,-75.0,-55.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"DirectionLight":{"Color":[1.0,1.0,1.0],"Intensity":12.0}},{"id":921000,"Tag":"Block","Translation":[0.0,0.0,-300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0]},{"id":921100,"parent":921000,"Tag":"Fold Cube 0","Translation":[200.0,-200.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921101,"parent":921000,"Tag":"Fold Cube 1","Translation":[200.0,0.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921102,"parent":921000,"Tag":"Fold Cube 2","Translation":[200.0,200.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921103,"parent":921000,"Tag":"Fold Cube 3","Translation":[400.0,-200.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921104,"parent":921000,"Tag":"Fold Cube 4","Translation":[400.0,0.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921105,"parent":921000,"Tag":"Fold Cube 5","Translation":[400.0,200.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921106,"parent":921000,"Tag":"Fold Cube 6","Translation":[600.0,-200.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921107,"parent":921000,"Tag":"Fold Cube 7","Translation":[600.0,0.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}},{"id":921108,"parent":921000,"Tag":"Fold Cube 8","Translation":[600.0,200.0,300.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"StaticMesh":{"Primitive":"Cube"}}],"Settings":{"RenderingPath":1,"EnableSSAO":true,"GlobalIllumination":1,"GIIntensity":2.0,"EnableSSR":false,"SSRIntensity":1.0,"SSRMaxDistance":4000.0,"EnableShadows":true,"ShadowBias":0.004999999888241291,"CascadeSplitLambda":0.6000000238418579,"Tonemapper":0,"Exposure":1.0,"Gamma":2.200000047683716,"WhitePoint":8.0,"AutoExposure":false,"AutoExposureKey":0.18000000715255737,"AutoExposureSpeed":1.5,"AutoExposureMin":0.019999999552965164,"AutoExposureMax":8.0,"EnableBloom":false,"BloomThreshold":2.0,"BloomIntensity":0.800000011920929,"LensDispersion":0.0,"EnableLensFlare":false,"LensFlareIntensity":0.3499999940395355,"LensFlareTint":[1.0,1.0,1.0],"LensFlareThreshold":4.0,"LensFlareGhostCount":4,"LensFlareGhostSpacing":0.3499999940395355,"LensFlareGhostSizeNear":1.0,"LensFlareGhostSizeFar":3.0,"LensFlareGhostTintInner":[1.0,0.8600000143051147,0.6200000047683716],"LensFlareGhostTintOuter":[0.44999998807907104,0.6800000071525574,1.0],"LensFlareHaloIntensity":0.25,"LensFlareHaloRadius":0.18000000715255737,"LensFlareStreakIntensity":8.0,"LensFlareStreakLength":0.3499999940395355,"LensFlareStreakAngle":0.0,"LensFlareChromaShift":0.15000000596046448,"Gravity":981.0,"SplashSprite":"","SplashDuration":0.0,"SplashFade":0.4000000059604645},"UnitVersion":1,"SceneVersion":23}
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "95d0efb149c9be373351ac877465b556",
+        "Versions": {
+            "SCNE": 27,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "SceneName": "U21_FoldProbe",
+    "Entities": [
+        {
+            "id": 921000,
+            "siblingIndex": 2,
+            "Tag": "Block",
+            "Translation": [0.0, 0.0, -300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0]
+        },
+        {
+            "id": 921100,
+            "parent": 921000,
+            "siblingIndex": 0,
+            "Tag": "Fold Cube 0",
+            "Translation": [200.0, -200.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921101,
+            "parent": 921000,
+            "siblingIndex": 1,
+            "Tag": "Fold Cube 1",
+            "Translation": [200.0, 0.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921102,
+            "parent": 921000,
+            "siblingIndex": 2,
+            "Tag": "Fold Cube 2",
+            "Translation": [200.0, 200.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921103,
+            "parent": 921000,
+            "siblingIndex": 3,
+            "Tag": "Fold Cube 3",
+            "Translation": [400.0, -200.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921104,
+            "parent": 921000,
+            "siblingIndex": 4,
+            "Tag": "Fold Cube 4",
+            "Translation": [400.0, 0.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921105,
+            "parent": 921000,
+            "siblingIndex": 5,
+            "Tag": "Fold Cube 5",
+            "Translation": [400.0, 200.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921106,
+            "parent": 921000,
+            "siblingIndex": 6,
+            "Tag": "Fold Cube 6",
+            "Translation": [600.0, -200.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921107,
+            "parent": 921000,
+            "siblingIndex": 7,
+            "Tag": "Fold Cube 7",
+            "Translation": [600.0, 0.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 921108,
+            "parent": 921000,
+            "siblingIndex": 8,
+            "Tag": "Fold Cube 8",
+            "Translation": [600.0, 200.0, 300.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 926001,
+            "siblingIndex": 0,
+            "Tag": "Control Sphere (never folded)",
+            "Translation": [-400.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "StaticMesh": {
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 926003,
+            "siblingIndex": 1,
+            "Tag": "Sun",
+            "Translation": [-30.0, -75.0, -55.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 12.0
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 1,
+        "EnableSSAO": true,
+        "GlobalIllumination": 1,
+        "GIIntensity": 2.0,
+        "EnableSSR": false,
+        "SSRIntensity": 1.0,
+        "SSRMaxDistance": 4000.0,
+        "EnableShadows": true,
+        "ShadowBias": 0.004999999888241291,
+        "CascadeSplitLambda": 0.6000000238418579,
+        "Tonemapper": 0,
+        "Exposure": 1.0,
+        "Gamma": 2.200000047683716,
+        "WhitePoint": 8.0,
+        "AutoExposure": false,
+        "AutoExposureKey": 0.18000000715255737,
+        "AutoExposureSpeed": 1.5,
+        "AutoExposureMin": 0.019999999552965164,
+        "AutoExposureMax": 8.0,
+        "EnableBloom": false,
+        "BloomThreshold": 2.0,
+        "BloomIntensity": 0.800000011920929,
+        "LensDispersion": 0.0,
+        "EnableLensFlare": false,
+        "LensFlareIntensity": 0.3499999940395355,
+        "LensFlareTint": [1.0, 1.0, 1.0],
+        "LensFlareThreshold": 4.0,
+        "LensFlareGhostCount": 4,
+        "LensFlareGhostSpacing": 0.3499999940395355,
+        "LensFlareGhostSizeNear": 1.0,
+        "LensFlareGhostSizeFar": 3.0,
+        "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+        "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
+        "LensFlareHaloIntensity": 0.25,
+        "LensFlareHaloRadius": 0.18000000715255737,
+        "LensFlareStreakIntensity": 8.0,
+        "LensFlareStreakLength": 0.3499999940395355,
+        "LensFlareStreakAngle": 0.0,
+        "LensFlareChromaShift": 0.15000000596046448,
+        "Gravity": 981.0,
+        "SplashSprite": "",
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    }
+}

@@ -1,1 +1,13 @@
-{"ShaderName":"CloudRaymarch","Params":[],"Textures":[],"MaterialId":3209575480641023076}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "54b3a3ffe67f4531c60b825dc61546bc",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "ShaderName": "CloudRaymarch",
+    "Params": [],
+    "Textures": []
+}

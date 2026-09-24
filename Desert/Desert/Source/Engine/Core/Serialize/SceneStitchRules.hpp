@@ -3,7 +3,11 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <numeric>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -119,9 +123,9 @@ namespace Desert::Core::Rules
 
     struct StitchPlan
     {
-        std::vector<PlannedEntity> Created;       // pass 1, in file order
+        std::vector<PlannedEntity> Created;       // pass 1, in sibling order (siblingIndex, then file order)
         std::vector<PlannedLoad>   Loads;         // pass 2, same order and same length as Created
-        std::vector<PlannedPrefab> PrefabRecords; // records carrying a PrefabPath, in file order
+        std::vector<PlannedPrefab> PrefabRecords; // records carrying a PrefabPath, in sibling order
 
         size_t Minted            = 0; // entities whose id was invented because the file did not name one
         size_t Shadowed          = 0; // records whose id was already claimed - their payload lands on the CLAIMANT
@@ -159,10 +163,23 @@ namespace Desert::Core::Rules
         std::vector<size_t> winner;
         winner.reserve( records.size() );
 
+        // THE ORDER RECORDS ARE VISITED IN IS THE SIBLING ORDER. Since scene v25 the file is sorted by id,
+        // so a record's position says nothing; `siblingIndex` does. Visiting in that order makes every
+        // later step - creation, the attach in pass 2, the prefab pass - put siblings where the file
+        // says, because each of them appends. A record without one sorts last, in file order.
+        std::vector<size_t> visit( records.size() );
+        std::iota( visit.begin(), visit.end(), size_t{ 0 } );
+        std::stable_sort( visit.begin(), visit.end(),
+                          [&]( size_t a, size_t b )
+                          {
+                              return records[a].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() ) <
+                                     records[b].siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+                          } );
+
         std::unordered_map<Common::UUID, size_t> byId;
 
         // Pass 1 - decide identities.
-        for ( size_t record = 0; record < records.size(); ++record )
+        for ( const size_t record : visit )
         {
             const Assets::EntityData& data = records[record];
             const bool                isPrefab = data.PrefabPath.has_value();
@@ -226,4 +243,33 @@ namespace Desert::Core::Rules
         return plan;
     }
 
+    // ONE ATTACH OF A LOAD: `Child` hangs off `Parent`, at the place `SiblingIndex` names (a record without
+    // one - older than scene v25 - carries the maximum, and keeps the order it was collected in). A
+    // default-constructed `Parent` (the null entity) makes `Child` a root, placed among the roots the same way.
+    template <typename Handle>
+    struct PendingAttach
+    {
+        Handle   Parent;
+        Handle   Child;
+        uint32_t SiblingIndex = std::numeric_limits<uint32_t>::max();
+    };
+
+    // THE ATTACHES ARE MADE LAST, ALL TOGETHER, IN SIBLING ORDER. Pass 2 knows the ordinary children and
+    // pass 3 the prefab instances; attaching each where it was found put every prefab instance after all
+    // of its ordinary siblings, so an ordinary child saved AFTER a prefab sibling came back before it.
+    // Collected from both passes (pass 2's first) and stably sorted here, each parent's children arrive
+    // in the order the file states - and a file with no indices keeps the v24 order exactly. Roots too: a
+    // prefab root is instantiated after every ordinary root, and without its attach it loaded last.
+    template <typename Handle>
+    void OrderAttaches( std::vector<PendingAttach<Handle>>& attaches )
+    {
+        std::stable_sort( attaches.begin(), attaches.end(),
+                          []( const PendingAttach<Handle>& a, const PendingAttach<Handle>& b )
+                          { return a.SiblingIndex < b.SiblingIndex; } );
+    }
+
+    inline uint32_t SiblingIndexOf( const Assets::EntityData& record )
+    {
+        return record.siblingIndex.value_or( std::numeric_limits<uint32_t>::max() );
+    }
 } // namespace Desert::Core::Rules

@@ -18,13 +18,12 @@ namespace Desert::Editor::TextureDnD
             return s_Importer;
         }
 
-        // A registered texture is identified by its DETERMINISTIC cooked .tex path — that's the value
-        // stored in AssetMetadata::Filepath. Matching by the dropped SOURCE path (different dir/extension)
-        // or by filename stem is unreliable, so resolve via the cooked path. We compare lexically-normalized
-        // paths so separator differences (Cooked/Textures vs Cooked\Textures) don't cause false misses.
+        // A registered texture is identified by its `.detex` asset path -- the value stored in
+        // AssetMetadata::Filepath. A dropped SOURCE image maps to the asset beside it; paths are compared
+        // lexically-normalized so separator differences don't cause false misses.
         Assets::AssetHandle FindRegistered( const Assets::AssetManager& mgr, const std::string& sourcePath )
         {
-            const auto cooked = TextureImporter::CookedMetaPath( sourcePath ).lexically_normal();
+            const auto cooked = TextureImporter::AssetPathFor( sourcePath ).lexically_normal();
 
             for ( const auto& [handle, tex] :
                   const_cast<Assets::AssetManager&>( mgr ).FindAllByType<Assets::TextureAsset>() )

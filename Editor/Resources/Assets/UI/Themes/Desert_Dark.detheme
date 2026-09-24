@@ -1,199 +1,103 @@
 {
     "FormatVersion": 1,
     "DisplayName": "Desert Dark",
-    "Notes": "The engine's own look, stated as tokens. Every colour, radius and spacing here is the value the matching component field DEFAULTS to, digit for digit, and Desert/Tests/Engine/UIStyle asserts that agreement slot by slot rather than leaving it to be maintained by hand \u2014 a preset table and the saved scenes disagreeing is a defect this engine has already shipped once. WHAT THAT DOES AND DOES NOT MEAN: an element left at its defaults renders identically with this theme and with none, so this theme is the control half of a theme A/B. It does NOT mean switching it on changes nothing \u2014 an element whose author typed a colour of its own IS repainted, because a bound slot comes from the theme. That is the feature, and it is measured: on UI_ThemeProbe the opted-out panel is 0 of 22 500 pixels different across every theme change, and the themed background is 100 % different. The HighContrastColors table is deliberately short: it holds only the tokens whose foreground/background separation is too low, and every token without a row here keeps its ordinary value.",
+    "Notes": "The engine's own look, stated as tokens. Every colour, radius and spacing here is the value the matching component field DEFAULTS to, digit for digit, and Desert/Tests/Engine/UIStyle asserts that agreement slot by slot rather than leaving it to be maintained by hand — a preset table and the saved scenes disagreeing is a defect this engine has already shipped once. WHAT THAT DOES AND DOES NOT MEAN: an element left at its defaults renders identically with this theme and with none, so this theme is the control half of a theme A/B. It does NOT mean switching it on changes nothing — an element whose author typed a colour of its own IS repainted, because a bound slot comes from the theme. That is the feature, and it is measured: on UI_ThemeProbe the opted-out panel is 0 of 22 500 pixels different across every theme change, and the themed background is 100 % different. The HighContrastColors table is deliberately short: it holds only the tokens whose foreground/background separation is too low, and every token without a row here keeps its ordinary value.",
     "Colors": [
         {
             "Name": "Surface",
-            "Value": [
-                0.15,
-                0.16,
-                0.2
-            ]
+            "Value": [0.15, 0.16, 0.2]
         },
         {
             "Name": "SurfaceDeep",
-            "Value": [
-                0.1,
-                0.11,
-                0.14
-            ]
+            "Value": [0.1, 0.11, 0.14]
         },
         {
             "Name": "Field",
-            "Value": [
-                0.16,
-                0.17,
-                0.21
-            ]
+            "Value": [0.16, 0.17, 0.21]
         },
         {
             "Name": "Track",
-            "Value": [
-                0.12,
-                0.13,
-                0.16
-            ]
+            "Value": [0.12, 0.13, 0.16]
         },
         {
             "Name": "Accent",
-            "Value": [
-                0.2,
-                0.4,
-                0.7
-            ]
+            "Value": [0.2, 0.4, 0.7]
         },
         {
             "Name": "AccentHover",
-            "Value": [
-                0.3,
-                0.52,
-                0.82
-            ]
+            "Value": [0.3, 0.52, 0.82]
         },
         {
             "Name": "AccentPressed",
-            "Value": [
-                0.15,
-                0.3,
-                0.55
-            ]
+            "Value": [0.15, 0.3, 0.55]
         },
         {
             "Name": "Selected",
-            "Value": [
-                0.85,
-                0.42,
-                0.18
-            ]
+            "Value": [0.85, 0.42, 0.18]
         },
         {
             "Name": "SelectedInk",
-            "Value": [
-                1.0,
-                0.55,
-                0.2
-            ]
+            "Value": [1.0, 0.55, 0.2]
         },
         {
             "Name": "Disabled",
-            "Value": [
-                0.22,
-                0.24,
-                0.28
-            ]
+            "Value": [0.22, 0.24, 0.28]
         },
         {
             "Name": "OnSurface",
-            "Value": [
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Value": [1.0, 1.0, 1.0]
         },
         {
             "Name": "Muted",
-            "Value": [
-                0.45,
-                0.47,
-                0.52
-            ]
+            "Value": [0.45, 0.47, 0.52]
         },
         {
             "Name": "Positive",
-            "Value": [
-                0.3,
-                0.65,
-                0.35
-            ]
+            "Value": [0.3, 0.65, 0.35]
         },
         {
             "Name": "Info",
-            "Value": [
-                0.3,
-                0.6,
-                0.9
-            ]
+            "Value": [0.3, 0.6, 0.9]
         },
         {
             "Name": "Focus",
-            "Value": [
-                0.3,
-                0.55,
-                0.9
-            ]
+            "Value": [0.3, 0.55, 0.9]
         },
         {
             "Name": "Highlight",
-            "Value": [
-                0.26,
-                0.4,
-                0.62
-            ]
+            "Value": [0.26, 0.4, 0.62]
         },
         {
             "Name": "Knob",
-            "Value": [
-                0.9,
-                0.92,
-                0.96
-            ]
+            "Value": [0.9, 0.92, 0.96]
         },
         {
             "Name": "Scrollbar",
-            "Value": [
-                0.35,
-                0.37,
-                0.44
-            ]
+            "Value": [0.35, 0.37, 0.44]
         },
         {
             "Name": "Danger",
-            "Value": [
-                0.72,
-                0.22,
-                0.2
-            ]
+            "Value": [0.72, 0.22, 0.2]
         },
         {
             "Name": "DangerHover",
-            "Value": [
-                0.84,
-                0.3,
-                0.26
-            ]
+            "Value": [0.84, 0.3, 0.26]
         },
         {
             "Name": "DangerPressed",
-            "Value": [
-                0.52,
-                0.14,
-                0.12
-            ]
+            "Value": [0.52, 0.14, 0.12]
         },
         {
             "Name": "ToggleBox",
-            "Value": [
-                0.18,
-                0.19,
-                0.24
-            ]
+            "Value": [0.18, 0.19, 0.24]
         },
         {
             "Name": "DropHighlight",
-            "Value": [
-                0.35,
-                0.75,
-                1.0
-            ]
+            "Value": [0.35, 0.75, 1.0]
         },
         {
             "Name": "OnField",
-            "Value": [
-                0.92,
-                0.94,
-                0.98
-            ]
+            "Value": [0.92, 0.94, 0.98]
         }
     ],
     "Metrics": [
@@ -427,59 +331,31 @@
     "HighContrastColors": [
         {
             "Name": "Surface",
-            "Value": [
-                0.02,
-                0.02,
-                0.03
-            ]
+            "Value": [0.02, 0.02, 0.03]
         },
         {
             "Name": "SurfaceDeep",
-            "Value": [
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0]
         },
         {
             "Name": "Field",
-            "Value": [
-                0.04,
-                0.04,
-                0.05
-            ]
+            "Value": [0.04, 0.04, 0.05]
         },
         {
             "Name": "OnSurface",
-            "Value": [
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Value": [1.0, 1.0, 1.0]
         },
         {
             "Name": "Muted",
-            "Value": [
-                0.8,
-                0.82,
-                0.86
-            ]
+            "Value": [0.8, 0.82, 0.86]
         },
         {
             "Name": "Accent",
-            "Value": [
-                0.1,
-                0.45,
-                1.0
-            ]
+            "Value": [0.1, 0.45, 1.0]
         },
         {
             "Name": "Focus",
-            "Value": [
-                1.0,
-                0.85,
-                0.1
-            ]
+            "Value": [1.0, 0.85, 0.1]
         }
     ]
 }

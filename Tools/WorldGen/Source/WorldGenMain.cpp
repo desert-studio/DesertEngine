@@ -68,7 +68,7 @@ namespace Desert::WorldGen
         // SceneSerializer.cpp:159 names for SplashSprite, met again on the way in.
         struct MaterialIdentityOnly
         {
-            uint64_t MaterialId = 0;
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         };
 
         // The material's own file is the only place its identity is written down, so the generator READS
@@ -84,12 +84,16 @@ namespace Desert::WorldGen
 
             const auto parsed = rfl::json::read<MaterialIdentityOnly>( text.GetValue() );
             if ( !parsed.has_value() )
-                return Common::MakeError<MaterialRef>( "material '" + relative +
-                                                       "' states no readable MaterialId" );
-            if ( parsed.value().MaterialId == 0 )
-                return Common::MakeError<MaterialRef>( "material '" + relative + "' has MaterialId 0" );
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' states no readable header" );
+            if ( !parsed.value().Header )
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' has no header" );
+            const auto guid = Common::Content::AssetGuidFromText( parsed.value().Header->Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<MaterialRef>( "material '" + relative + "' states no GUID" );
 
-            return Common::MakeSuccess<MaterialRef>( { relative, parsed.value().MaterialId } );
+            // A scene names a material by its header GUID's text (SCNE 27); the loader folds it to a handle.
+            return Common::MakeSuccess<MaterialRef>(
+                 { relative, Common::Content::AssetGuidToText( guid.GetValue() ) } );
         }
 
         // THE WORLD'S PALETTE. Four untextured colours for the buildings and the one textured material
@@ -282,9 +286,14 @@ namespace Desert::WorldGen
             return 3;
         }
 
+        // Regenerating an existing world keeps that file's identity; a first write mints one. Resolved once,
+        // so the --verify rebuild below produces the same bytes.
+        const Common::Content::AssetGuid worldGuid =
+             ExistingWorldGuid( outPath ).value_or( Common::Content::AssetGuid::Generate() );
+
         const auto build = [&]( std::string& json, WorldStats& stats ) -> bool
         {
-            auto scene = BuildWorld( spec, palette, ground.GetValue(), stats );
+            auto scene = BuildWorld( spec, palette, ground.GetValue(), worldGuid, stats );
 
             // --partition: the world states a WorldPartition block. By default its level-0 cell IS the
             // generator's tile, so every ground tile is exactly one cell and what the plan promotes is what

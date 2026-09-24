@@ -1,1 +1,25 @@
-{"Params":[{"Name":"AlbedoColor","Value":[0.10000000149011612,0.10000000149011612,0.10000000149011612,1.0]},{"Name":"EmissiveColor","Value":[0.20000000298023224,0.800000011920929,1.0,1.0]},{"Name":"EmissiveIntensity","Value":[6.0,0.0,0.0,0.0]}],"Textures":[],"MaterialId":4026564876139847258}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "b272c29047a884c02a065b782ae62ea5",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.10000000149011612, 0.10000000149011612, 0.10000000149011612, 1.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.20000000298023224, 0.800000011920929, 1.0, 1.0]
+        },
+        {
+            "Name": "EmissiveIntensity",
+            "Value": [6.0, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": []
+}

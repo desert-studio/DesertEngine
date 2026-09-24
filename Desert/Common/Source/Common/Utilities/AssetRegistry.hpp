@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 
@@ -57,8 +58,16 @@ namespace Common::Utils
     //
     // ── THE FORM, AND WHY IT IS NOT JSON ──────────────────────────────────────────────────────────
     //
-    //   DesertAssetRegistry 2
-    //   <size> <kind> <identity:16 hex | -> <deps: 16 hex, comma separated | -> <bounds | -> <key>
+    //   DesertAssetRegistry 3
+    //   <size> <kind> <header | -> <identity:16 hex | -> <deps: 16 hex, comma separated | -> <bounds | -> <key>
+    //
+    // <header> is what the file's OWN HEADER states, read without the body (UE builds FAssetData from
+    // the package summary the same way): `<guid:32 hex>;<TAG>=<version>,...` with the tags sorted, or
+    // `<guid>;` when it states no versions, or `-` for content that states no header (a shader, a font).
+    // It is the one identity column a Common-only tool CAN compute, so `check` asserts it: a row whose
+    // GUID is not the file's GUID is a registry that would resolve a reference to the wrong asset.
+    //
+    // VERSION 2 had no header column; `Parse` reads it as rows with none, and the next cook fills it.
     //
     // <bounds> is min x,y,z then max x,y,z, each the 8-hex-digit BIT PATTERN of an IEEE float, comma
     // separated. Bits and not decimal because the value must survive a round trip exactly and identically
@@ -91,6 +100,9 @@ namespace Common::Utils
         std::string           Key; // stable key, e.g. "assets:Materials/M_Rock.demat"
         uint64_t              Size = 0;
         std::string           Kind;         // the scan this file belongs to; see Common/Content/ContentKinds.hpp
+        // The GUID and subsystem versions the file's header states; no GUID for content with no header.
+        std::optional<Content::AssetGuid>      Guid;
+        std::vector<Content::SubsystemVersion> Versions; // sorted by tag
         uint64_t              Identity = 0; // the handle the FILE declares, or 0 when it declares none
         std::vector<uint64_t> Dependencies; // handles this asset names, read once at cook
         // The asset's box around its own origin, in world units; absent for content with no extent.
@@ -202,17 +214,6 @@ namespace Common::Utils
         // makes it reproducible — the same command on any clean clone produces the same bytes — and it
         // is the file `Desert/Tests/Editor/CookedRegistryGate` holds against the repository.
         [[nodiscard]] static std::filesystem::path DefaultPath();
-
-        // THE COOK REGISTRY: rows for files a cook GENERATED. Written by the editor and by nothing
-        // else, never committed (it matches the `Editor/Cooked/*` rule that already excludes what it
-        // describes), and packed — because a packaged game is built from a cook's output and needs the
-        // rows for it. Read AFTER the project registry and overriding it key by key, which is the same
-        // rule the pak stack uses for the same reason (`VFS.hpp:21` — later mounts win).
-        //
-        // A row goes here when the project registry does not already have its key. That test needs no
-        // git and no filesystem: the engine cannot ask what a repository tracks, and a rule it can
-        // evaluate is the only kind it can be held to.
-        [[nodiscard]] static std::filesystem::path CookOutputPath();
 
         // Reads and parses the registry at `path`, through the VFS — so a packaged game reads it out
         // of `Content.dpak` exactly as a loose checkout reads it off disk.

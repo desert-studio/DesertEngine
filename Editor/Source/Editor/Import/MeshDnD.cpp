@@ -1,3 +1,4 @@
+#include <Common/Content/ContentScan.hpp>
 #include "MeshDnD.hpp"
 #include "ImportManager.hpp"
 #include "CookPaths.hpp"
@@ -36,23 +37,24 @@ namespace Desert::Editor::MeshDnD
             return CookPaths::CookedMesh( sourcePath, ".skmesh" );
         }
 
-        // Register every cooked texture (Cooked/Textures/*.tex) into the AssetManager + TextureService so a
-        // just-imported material's texture handles RESOLVE this session. MaterialFactory binds textures
-        // EAGERLY at material-register time (GetTextureService()->Get(handle)), so textures MUST be registered
-        // BEFORE the materials — otherwise the bind silently no-ops and the slot shows "missing" until the
-        // next launch (when AssetPreloader scans them). Idempotent (skips already-registered). Mirrors the
-        // preloader's texture loop. The mesh's cook already produced these .tex via ExtractMaterials.
+        // Register every texture asset (`.detex` of kind Texture under the assets root) into the AssetManager +
+        // TextureService so a just-imported material's texture handles RESOLVE this session. MaterialFactory binds
+        // textures EAGERLY at material-register time (GetTextureService()->Get(handle)), so textures MUST be
+        // registered BEFORE the materials — otherwise the bind silently no-ops and the slot shows "missing" until
+        // the next launch (when AssetPreloader scans them). Idempotent (skips already-registered). Mirrors the
+        // preloader's texture loop. The mesh's cook already imported these assets via ExtractMaterials.
         void RegisterCookedTextures( Assets::AssetManager& mgr )
         {
             namespace fs = std::filesystem;
             std::error_code ec;
-            const fs::path  root = Common::Constants::Path::TEXTURE_PATH_COOKED;
+            const fs::path  root = Common::Constants::Path::ASSETS_PATH;
             if ( !fs::exists( root, ec ) )
                 return;
 
             for ( const auto& f : fs::recursive_directory_iterator( root, ec ) )
             {
-                if ( !f.is_regular_file( ec ) || f.path().extension() != ".tex" )
+                if ( !f.is_regular_file( ec ) ||
+                     Common::Content::KindOfContentFile( f.path() ) != Common::Content::ContentKind::Texture )
                     continue;
                 const std::string p = f.path().generic_string();
                 auto asset = mgr.FindByPath<Assets::TextureAsset>( p );
@@ -61,7 +63,7 @@ namespace Desert::Editor::MeshDnD
                 if ( !asset )
                     continue;
                 if ( !asset->IsReadyForUse() )
-                    asset->Load(); // syncs metadata handle to the .tex handle (material refs key by it)
+                    asset->Load(); // syncs metadata handle to the asset header's handle (material refs key by it)
                 // Was `if ( !GetTextureService()->Get( h ) ) Register( a )`: the guard UPLOADED the texture
                 // it was asking about, and the registration behind it uploaded it again. One shell write.
                 Runtime::EnsureTextureRegistered( mgr, static_cast<uint64_t>( asset->GetMetadata().Handle ) );

@@ -142,13 +142,22 @@ namespace
 TEST( SceneUnitMigration, StampedSceneIsLeftByteIdentical )
 {
     SceneSerialized scene = Parse( kUnstampedScene );
-    scene.UnitVersion     = kUnitVersion;
-    // "Current" means current on BOTH counters. This line used to be absent, because when the test was
-    // written the only other migration was gated on a version an unstamped scene already satisfied. It is
-    // here now so that adding a third migration cannot make this test quietly assert nothing: a fixture
-    // that is not fully stamped would go through MigrateScene and the "byte-identical" claim would be
-    // about a tree that never had anything to migrate.
-    scene.SceneVersion = kSceneVersion;
+    // Since v26 "current" is stated in the HEADER (SCNE, UNIT), not the top-level SceneVersion/UnitVersion
+    // integers those fields still parse for backward compatibility - MigrateScene reads them only when
+    // there is no Header at all. Stamping the fixture with the old ints therefore no longer reaches
+    // "already current": MigrateScene would see an absent Header, run no step (both stated versions are
+    // already the head), but then unconditionally mint a FRESH GUID into the header it stamps every tree
+    // with, which is exactly the byte the "identical" claim below would catch as a false migration. A
+    // scene that is really already current carries a header, with a GUID some earlier save minted -
+    // fixed here so the fixture is reproducible.
+    scene.Header = Common::Content::MakeTextHeader(
+         Common::Content::ContentKind::Scene,
+         Common::Content::AssetGuid{ 0x1111111111111111ull, 0x2222222222222222ull },
+         Desert::Core::SceneTextSubsystems() );
+    // The legacy top-level ints parsed from the fixture are dropped by every MigrateScene (the header is
+    // their one home now), so a scene that is really current carries neither of them.
+    scene.SceneVersion = std::nullopt;
+    scene.UnitVersion  = std::nullopt;
 
     const std::string          before = Json( scene );
     const FileMigrationReport  report = MigrateScene( scene );
@@ -169,7 +178,8 @@ TEST( SceneUnitMigration, UnstampedSceneIsMigratedExactlyOnce )
     const FileMigrationReport first = MigrateScene( scene );
     EXPECT_TRUE( first.UnitsRaised );
     EXPECT_EQ( first.Units.Rejected, 0 );
-    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion ) << "the migration did not stamp the file";
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion )
+         << "the migration did not stamp the file";
 
     // Every number the census names, at its authored value x100.
     EXPECT_DOUBLE_EQ( Field( scene, kLight, "PointLight", "Radius" ), 1200.0 );
@@ -312,7 +322,7 @@ TEST( SceneUnitMigration, MalformedValuesAreRejectedNotGuessed )
 
     // ...and the file is stamped anyway, because a rejected value is not a reason to migrate the whole
     // scene a second time next load and reject it again.
-    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -343,6 +353,9 @@ TEST( SceneUnitMigration, BothVersionsAreRaisedIndependently )
     old.SceneVersion    = std::nullopt; // sky schema v0 as well as units v0
 
     EntityData           sky = Entity( "Sky" );
+    // An id above every fixture id: the v24 -> v25 step a v0 scene also runs stable-sorts entities by id,
+    // and with no id (UUID 0) the sky would move to the front and shift every kFloor..kGround index.
+    sky.id = Common::UUID( 100 );
     rfl::Generic::Object skybox;
     skybox["Procedural"]     = true;
     skybox["SunIntensity"]   = 22.0;
@@ -355,8 +368,8 @@ TEST( SceneUnitMigration, BothVersionsAreRaisedIndependently )
     EXPECT_TRUE( report.SkyRaised );
     EXPECT_TRUE( report.UnitsRaised );
     EXPECT_EQ( report.Sky.Entities, 1 );
-    EXPECT_EQ( old.SceneVersion.value_or( 0 ), kSceneVersion );
-    EXPECT_EQ( old.UnitVersion.value_or( 0 ), kUnitVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( old.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 
     // The sky payload the sky migration wrote carries no length, so the unit migration cannot have
     // touched it: 22 is an intensity and 2.29 is an angle in degrees.

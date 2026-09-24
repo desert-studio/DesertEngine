@@ -6,6 +6,8 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Utilities/PakFile.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -14,40 +16,33 @@
 
 namespace Desert::Text
 {
+    namespace
+    {
+        constexpr Common::DDC::Deriver kFontDeriver{
+             "FontCache", ".dfont", { 0x2f94d7a15c0e3b86ULL, 0xb31e6d08a4c97f25ULL } };
+    } // namespace
+
     uint64_t FontCacheKey( const std::vector<uint8_t>& ttf, float pixelHeight,
                            const std::vector<uint32_t>& extraCodepoints )
     {
-        constexpr uint64_t kFnvOffset = 1469598103934665603ull;
-        constexpr uint64_t kFnvPrime  = 1099511628211ull;
-
-        uint64_t h = kFnvOffset;
-        h ^= static_cast<uint64_t>( static_cast<int>( pixelHeight ) );
-        h *= kFnvPrime;
-        h ^= static_cast<uint64_t>( kGlyphPadding );
-        h *= kFnvPrime;
-        h ^= static_cast<uint64_t>( kAtlasWidth );
-        h *= kFnvPrime;
-        // The band is a float; hash it at 1/256 of a texel so a change smaller than the quantizer can
-        // still produce a different key.
-        constexpr float kBandHashScale = 256.0F;
-        h ^= static_cast<uint64_t>( kDistanceRangeTexels * kBandHashScale );
-        h *= kFnvPrime;
-        for ( uint8_t b : ttf )
-        {
-            h ^= b;
-            h *= kFnvPrime;
-        }
-        for ( uint32_t cp : extraCodepoints ) // a different glyph set is a different atlas
-        {
-            h ^= cp;
-            h *= kFnvPrime;
-        }
-        return h;
+        // Payload = the TTF's bytes; settings = every bake parameter, in a fixed order. The band is a
+        // float; it is hashed at 1/256 of a texel so a change smaller than the quantizer can still
+        // produce a different key. A different glyph set is a different atlas, so the extra
+        // codepoints are settings too.
+        constexpr float       kBandHashScale = 256.0F;
+        std::vector<uint64_t> settings       = { static_cast<uint64_t>( static_cast<int>( pixelHeight ) ),
+                                                 static_cast<uint64_t>( kGlyphPadding ),
+                                                 static_cast<uint64_t>( kAtlasWidth ),
+                                                 static_cast<uint64_t>( kDistanceRangeTexels * kBandHashScale ) };
+        for ( uint32_t cp : extraCodepoints )
+            settings.push_back( cp );
+        return Common::DDC::MakeKey( kFontDeriver, Common::Utils::PakContentHash( ttf.data(), ttf.size() ),
+                                     settings.data(), settings.size() * sizeof( uint64_t ) );
     }
 
     std::filesystem::path FontCachePath( uint64_t key )
     {
-        return Common::Constants::Path::COOKED_PATH / "FontCache" / std::format( "{:016x}.dfont", key );
+        return Common::DDC::PathFor( kFontDeriver, key );
     }
 
     BakedFont BakeFontForCache( const std::vector<uint8_t>& ttf, float pixelHeight,
@@ -121,7 +116,7 @@ namespace Desert::Text
         // Then the mounted archive — a packaged game's cooked atlases live ONLY here. Not routed
         // through FileSystem::ReadByteFileContent: that primitive logs an error for a missing file,
         // and a cache miss is the normal cold-start case, not an error.
-        if ( auto packed = Common::Utils::VFS::ReadFile( path ) )
+        if ( auto packed = Common::Utils::VFS::ReadFile( Common::DDC::PackagedPath( path ) ) )
         {
             // Copied rather than cast: the archive hands back chars and the decoder wants bytes, and
             // every way of re-pointing one at the other is either a reinterpret_cast or a trip through

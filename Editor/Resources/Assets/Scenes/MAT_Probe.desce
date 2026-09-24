@@ -1,1 +1,207 @@
-{"SceneName":"Shader Graph Material Probe","Entities":[{"id":1001,"Tag":"Sun","Translation":[-0.30000001192092896,-0.550000011920929,-0.7799999713897705],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"DirectionLight":{"Color":[1.0,1.0,1.0],"Intensity":1.0}},{"id":1002,"Tag":"Sky","Translation":[0.0,0.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"Skybox":{"SkyboxHandle":"","Intensity":1.0},"SkyAtmosphere":{"Enabled":true,"SkyBrightness":1.0,"SunIntensity":22.0,"TimeOfDay":12.0}},{"id":2000,"Tag":"Ground","Translation":[0.0,-60.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[24.0,0.20000000298023224,16.0],"StaticMesh":{"MaterialPaths":["Materials/CB_White.demat"],"MaterialGuids":[7519796792557509740],"Primitive":"Cube"}},{"id":2009,"Tag":"A_ReferencePBR","Translation":[-500.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/CB_Orange.demat"],"MaterialGuids":[9017610081296696595],"Primitive":"Sphere"}},{"id":2005,"Tag":"B_GraphConstUnlit","Translation":[-300.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/MP_Const.demat"],"MaterialGuids":[5555555555555555555],"Primitive":"Sphere"}},{"id":2006,"Tag":"C_GraphConstLit","Translation":[-100.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/MP_LitConst.demat"],"MaterialGuids":[6666666666666666666],"Primitive":"Sphere"}},{"id":2007,"Tag":"D_GraphParamUnlit","Translation":[100.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/MP_Unlit.demat"],"MaterialGuids":[4444444444444444444],"Primitive":"Sphere"}},{"id":2001,"Tag":"E_ParamLitDefault","Translation":[300.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/MP_Default.demat"],"MaterialGuids":[1111111111111111111],"Primitive":"Sphere"}},{"id":2002,"Tag":"F_ParamLitBlendMax","Translation":[500.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/MP_BlendMax.demat"],"MaterialGuids":[2222222222222222222],"Primitive":"Sphere"}},{"id":2003,"Tag":"G_ParamLitGreen","Translation":[700.0,20.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.2000000476837158,1.2000000476837158,1.2000000476837158],"StaticMesh":{"MaterialPaths":["Materials/MP_GreenTint.demat"],"MaterialGuids":[3333333333333333333],"Primitive":"Sphere"}},{"id":9001,"Tag":"Camera","Translation":[0.0,60.0,900.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"Camera":{"IsMainCamera":true,"FOV":45.0,"Near":10.000000149011612,"Far":5000000.0}}],"Settings":{"RenderingPath":1,"EnableSSAO":false,"GlobalIllumination":1,"GIIntensity":2.0,"EnableSSR":false,"SSRIntensity":1.0,"SSRMaxDistance":4000.0,"EnableShadows":false,"ShadowBias":0.004999999888241291,"CascadeSplitLambda":0.6000000238418579,"Tonemapper":0,"Exposure":1.0,"Gamma":2.200000047683716,"WhitePoint":8.0,"AutoExposure":false,"AutoExposureKey":0.18000000715255737,"AutoExposureSpeed":1.5,"AutoExposureMin":0.019999999552965164,"AutoExposureMax":8.0,"EnableBloom":false,"BloomThreshold":2.0,"BloomIntensity":0.800000011920929,"LensDispersion":0.0,"EnableLensFlare":false,"LensFlareIntensity":0.3499999940395355,"LensFlareTint":[1.0,1.0,1.0],"LensFlareThreshold":4.0,"LensFlareGhostCount":4,"LensFlareGhostSpacing":0.3499999940395355,"LensFlareGhostSizeNear":1.0,"LensFlareGhostSizeFar":3.0,"LensFlareGhostTintInner":[1.0,0.8600000143051147,0.6200000047683716],"LensFlareGhostTintOuter":[0.44999998807907104,0.6800000071525574,1.0],"LensFlareHaloIntensity":0.25,"LensFlareHaloRadius":0.18000000715255737,"LensFlareStreakIntensity":8.0,"LensFlareStreakLength":0.3499999940395355,"LensFlareStreakAngle":0.0,"LensFlareChromaShift":0.15000000596046448,"Gravity":981.0,"SplashSprite":"","SplashDuration":0.0,"SplashFade":0.4000000059604645},"UnitVersion":1,"SceneVersion":23}
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "4c79309c00ab52aa6612a1223bc815d3",
+        "Versions": {
+            "SCNE": 27,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "SceneName": "Shader Graph Material Probe",
+    "Entities": [
+        {
+            "id": 1001,
+            "siblingIndex": 0,
+            "Tag": "Sun",
+            "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "DirectionLight": {
+                "Color": [1.0, 1.0, 1.0],
+                "Intensity": 1.0
+            }
+        },
+        {
+            "id": 1002,
+            "siblingIndex": 1,
+            "Tag": "Sky",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Skybox": {
+                "SkyboxHandle": "",
+                "Intensity": 1.0
+            },
+            "SkyAtmosphere": {
+                "Enabled": true,
+                "SkyBrightness": 1.0,
+                "SunIntensity": 22.0,
+                "TimeOfDay": 12.0
+            }
+        },
+        {
+            "id": 2000,
+            "siblingIndex": 2,
+            "Tag": "Ground",
+            "Translation": [0.0, -60.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [24.0, 0.20000000298023224, 16.0],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
+                "Primitive": "Cube"
+            }
+        },
+        {
+            "id": 2001,
+            "siblingIndex": 7,
+            "Tag": "E_ParamLitDefault",
+            "Translation": [300.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_Default.demat"],
+                "MaterialGuids": ["358bc9f1414d0b0477ba9f42f026b305"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2002,
+            "siblingIndex": 8,
+            "Tag": "F_ParamLitBlendMax",
+            "Translation": [500.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_BlendMax.demat"],
+                "MaterialGuids": ["3a694efc0e834f76822205c934681465"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2003,
+            "siblingIndex": 9,
+            "Tag": "G_ParamLitGreen",
+            "Translation": [700.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_GreenTint.demat"],
+                "MaterialGuids": ["9c738945524d749f06c5277c4a444df2"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2005,
+            "siblingIndex": 4,
+            "Tag": "B_GraphConstUnlit",
+            "Translation": [-300.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_Const.demat"],
+                "MaterialGuids": ["6969dc1f8d457806e5cf208867250443"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2006,
+            "siblingIndex": 5,
+            "Tag": "C_GraphConstLit",
+            "Translation": [-100.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_LitConst.demat"],
+                "MaterialGuids": ["5fd4737b3cc218b5bc0ecceccd3664ca"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2007,
+            "siblingIndex": 6,
+            "Tag": "D_GraphParamUnlit",
+            "Translation": [100.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/MP_Unlit.demat"],
+                "MaterialGuids": ["5d471f9abf28a145fb71c73153860d68"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 2009,
+            "siblingIndex": 3,
+            "Tag": "A_ReferencePBR",
+            "Translation": [-500.0, 20.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
+            "StaticMesh": {
+                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
+                "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 9001,
+            "siblingIndex": 10,
+            "Tag": "Camera",
+            "Translation": [0.0, 60.0, 900.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "IsMainCamera": true,
+                "FOV": 45.0,
+                "Near": 10.000000149011612,
+                "Far": 5000000.0
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 1,
+        "EnableSSAO": false,
+        "GlobalIllumination": 1,
+        "GIIntensity": 2.0,
+        "EnableSSR": false,
+        "SSRIntensity": 1.0,
+        "SSRMaxDistance": 4000.0,
+        "EnableShadows": false,
+        "ShadowBias": 0.004999999888241291,
+        "CascadeSplitLambda": 0.6000000238418579,
+        "Tonemapper": 0,
+        "Exposure": 1.0,
+        "Gamma": 2.200000047683716,
+        "WhitePoint": 8.0,
+        "AutoExposure": false,
+        "AutoExposureKey": 0.18000000715255737,
+        "AutoExposureSpeed": 1.5,
+        "AutoExposureMin": 0.019999999552965164,
+        "AutoExposureMax": 8.0,
+        "EnableBloom": false,
+        "BloomThreshold": 2.0,
+        "BloomIntensity": 0.800000011920929,
+        "LensDispersion": 0.0,
+        "EnableLensFlare": false,
+        "LensFlareIntensity": 0.3499999940395355,
+        "LensFlareTint": [1.0, 1.0, 1.0],
+        "LensFlareThreshold": 4.0,
+        "LensFlareGhostCount": 4,
+        "LensFlareGhostSpacing": 0.3499999940395355,
+        "LensFlareGhostSizeNear": 1.0,
+        "LensFlareGhostSizeFar": 3.0,
+        "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+        "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
+        "LensFlareHaloIntensity": 0.25,
+        "LensFlareHaloRadius": 0.18000000715255737,
+        "LensFlareStreakIntensity": 8.0,
+        "LensFlareStreakLength": 0.3499999940395355,
+        "LensFlareStreakAngle": 0.0,
+        "LensFlareChromaShift": 0.15000000596046448,
+        "Gravity": 981.0,
+        "SplashSprite": "",
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    }
+}

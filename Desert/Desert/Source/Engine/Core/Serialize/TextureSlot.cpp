@@ -31,9 +31,9 @@ namespace Desert::Core::Serialize
         {
             LOG_ERROR( "[Textures] Handle {0} is set on a texture slot and the cooked asset registry has "
                        "no row for it, so the slot is being written out EMPTY and the reference is lost. "
-                       "Cooked textures live under '{1}'; if the file is there, the registry is stale — "
+                       "Texture assets (.detex) live under '{1}'; if the file is there, the registry is stale — "
                        "run 'AssetRegistryTool cook'.",
-                       handle, Common::Constants::Path::TEXTURE_PATH_COOKED.string() );
+                       handle, Common::Constants::Path::ASSETS_PATH.string() );
             return "";
         }
 
@@ -59,10 +59,8 @@ namespace Desert::Core::Serialize
         if ( !asset )
         {
             LOG_ERROR( "[Textures] Texture '{0}' named by the scene did not resolve (it expands to '{1}'; "
-                       "cooked textures live under '{2}', content textures under '{3}'). The slot stays "
-                       "unset.",
-                       stored, full.string(), Common::Constants::Path::TEXTURE_PATH_COOKED.string(),
-                       Common::Constants::Path::TEXTUREDIR_PATH.string() );
+                       "texture assets (.detex) live under '{2}'). The slot stays unset.",
+                       stored, full.string(), Common::Constants::Path::ASSETS_PATH.string() );
             return 0;
         }
 

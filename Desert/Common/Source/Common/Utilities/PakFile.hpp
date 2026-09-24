@@ -142,7 +142,7 @@ namespace Common::Utils
     // that changed is that reading one mip now costs decompressing the whole texture.
     //
     // MEASURED, NOT FEARED (2026-09-23, this tree, the archive's own Lz4Block at the threshold above).
-    // `Editor/Cooked/Textures/T_Checker.tex` is 5 592 752 bytes and LZ4 takes it to 65 825 — it saves
+    // The cooked `T_Checker.tex` is 5 592 752 bytes and LZ4 takes it to 65 825 — it saves
     // 98.8 % where the packer asks for 37.5 %, so the entry WOULD be compressed, by a factor of 26
     // more than the policy demands. Over the fourteen textures this repository can cook, twelve clear
     // the threshold as whole files. A `.tex` is a mip chain of raw pixels, and raw pixels are not PNG:

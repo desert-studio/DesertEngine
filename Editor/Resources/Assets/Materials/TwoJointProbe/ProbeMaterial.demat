@@ -1,1 +1,86 @@
-{"Params":[{"Name":"AlbedoColor","Value":[0.800000011920929,0.5,0.20000000298023224,1.0]},{"Name":"MetallicFactor","Value":[0.0,0.0,0.0,0.0]},{"Name":"RoughnessFactor","Value":[0.6000000238418579,0.0,0.0,0.0]},{"Name":"AOStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"EmissiveColor","Value":[0.0,0.0,0.0,1.0]},{"Name":"EmissiveIntensity","Value":[1.0,0.0,0.0,0.0]},{"Name":"AlphaCutoff","Value":[0.0,0.0,0.0,0.0]},{"Name":"Transmission","Value":[0.0,0.0,0.0,0.0]},{"Name":"IOR","Value":[1.5,0.0,0.0,0.0]},{"Name":"GlassTint","Value":[1.0,1.0,1.0,1.0]},{"Name":"UVTiling","Value":[1.0,1.0,0.0,0.0]}],"Textures":[{"Name":"u_AlbedoTexture","TextureHandle":0},{"Name":"u_NormalTexture","TextureHandle":0},{"Name":"u_OpacityTexture","TextureHandle":0},{"Name":"u_MetallicTexture","TextureHandle":0},{"Name":"u_RoughnessTexture","TextureHandle":0},{"Name":"u_AOTexture","TextureHandle":0},{"Name":"u_EmissiveTexture","TextureHandle":0}],"MaterialId":15581338169056695747}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "b7b348f393d3a8378855ec314eaa4768",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.800000011920929, 0.5, 0.20000000298023224, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.6000000238418579, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AOStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "EmissiveIntensity",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AlphaCutoff",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Transmission",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "IOR",
+            "Value": [1.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "GlassTint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "UVTiling",
+            "Value": [1.0, 1.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "u_AlbedoTexture",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "u_NormalTexture",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "u_OpacityTexture",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "u_MetallicTexture",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "u_RoughnessTexture",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "u_AOTexture",
+            "TextureHandle": 0
+        },
+        {
+            "Name": "u_EmissiveTexture",
+            "TextureHandle": 0
+        }
+    ]
+}

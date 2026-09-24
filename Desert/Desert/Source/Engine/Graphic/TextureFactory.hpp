@@ -27,7 +27,7 @@ namespace Desert::Graphic
                 return nullptr;
             }
 
-            const auto textureResult = Texture2D::CreateFromCooked( asset->GetMetadata().Filepath );
+            const auto textureResult = Texture2D::CreateFromAsset( asset->GetMetadata().Filepath );
             if ( !textureResult.IsSuccess() )
             {
                 LOG_ERROR( "[TextureFactory] Building the GPU texture for cooked asset '{0}' failed: {1}",

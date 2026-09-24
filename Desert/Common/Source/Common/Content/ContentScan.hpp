@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <cstdint>
@@ -40,7 +43,18 @@ namespace Common::Content
     {
         ContentKind Kind = ContentKind::StaticMesh;
         uint64_t    Size = 0;
+        // What the file's own header states, read WITHOUT the body (ReadAssetHeaderIfStated, RecordOnly):
+        // std::nullopt for content that states none. HeaderError is set instead when a header format
+        // claims the file and the header is malformed — never folded into "states none".
+        std::optional<AssetHeader> Header;
+        std::string                HeaderError;
+        // A cooked mesh's box as its 64-byte header states it (MeshBinaryHeader.hpp); std::nullopt for every
+        // other kind and for a mesh file whose header this host cannot read (the loader names that one).
+        std::optional<MeshHeaderBounds> MeshBounds;
     };
+
+    // The file at `file`, of `kind`: its size and its header, read the way the registry cook reads it.
+    [[nodiscard]] ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind );
 
     // Every content file under every census root, keyed by the STABLE KEY the engine identifies it by,
     // sorted (std::map) so two scans of one tree produce one order.
@@ -56,6 +70,50 @@ namespace Common::Content
     [[nodiscard]] std::optional<ContentKind> KindOfContentFile( const std::filesystem::path& file );
 
     [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots();
+
+    // ── THE REGISTRY BUILDS ITSELF (UE: FAssetDataGatherer + CachedAssetRegistry.bin) ──────────────────
+    //
+    // The editor's registry is not a file anybody commits: it is this walk, reading each file's HEADER only,
+    // plus a local cache that spares re-reading headers of files that did not change. A missing or unreadable
+    // cache costs one full header scan and nothing else — it is derived state, exactly like UE's
+    // Intermediate/CachedAssetRegistry.bin, and so it lives outside git. A packaged game reads the cooked
+    // registry the packager writes instead (`AssetRegistry::DefaultPath`, inside the pak).
+    //
+    // A cached row is reused when its file's size AND modification time are the ones the cache recorded
+    // (UE invalidates by the package's timestamp the same way); it keeps the columns only a parse can learn
+    // (identity, dependency edges). Any other file is described afresh and starts without them — except a
+    // mesh's box, which its header states (MeshBinaryHeader.hpp) and the header-only read therefore learns.
+    struct RegistryCache
+    {
+        Utils::AssetRegistry                Registry;
+        std::map<std::string, std::int64_t> Modified; // key -> file modification time, as the cache saw it
+    };
+
+    struct GatheredRegistry
+    {
+        Utils::AssetRegistry     Registry;
+        std::size_t              FromCache = 0; // rows reused without opening the file
+        std::size_t              Read      = 0; // rows whose header was read by this gather
+        std::vector<std::string> Refused;       // one sentence per file that could not enter, naming it
+        // Keys of meshes read by this gather whose header states no box (cooked before the header carried
+        // one). Only a body read can learn their box; the gather does not decode meshes (Common does not
+        // link the mesh reader), so the caller that can — the editor — does it once and the cache keeps it.
+        std::vector<std::string> MeshesWithoutHeaderBounds;
+    };
+
+    // <projectDir>/Intermediate/AssetRegistry.cache — this machine's, never committed (.gitignore).
+    [[nodiscard]] std::filesystem::path RegistryCachePath();
+
+    // The row a file's header-only description makes, or a refusal naming why it cannot be one (a malformed
+    // header, or a header stating another kind than the file's place).
+    [[nodiscard]] ResultStr<Utils::AssetRegistryEntry> RegistryRowFor( const std::string& key,
+                                                                       const ContentFile& file );
+
+    [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache );
+
+    // The cache text: every row's modification time, then the registry itself in its own form.
+    [[nodiscard]] std::string              SerializeRegistryCache( const Utils::AssetRegistry& registry );
+    [[nodiscard]] ResultStr<RegistryCache> ParseRegistryCache( std::string_view text );
 
     // ── AND THE OTHER LIST, WHICH IS NOT THE SAME LIST ────────────────────────────────────────────
     //
@@ -93,6 +151,8 @@ namespace Common::Content
             OrphanRow,  ///< a row, no file — the loader will fail to read it once per boot, for ever
             WrongKind,  ///< recorded as one kind, is another — the loader builds the wrong class
             StaleSize,  ///< the file was edited after the cook
+            BadHeader,  ///< the file's header is malformed, or states another kind than its place does
+            StaleHeader ///< the row's GUID/versions are not the ones the file's header states
         };
 
         Kind        What = Kind::MissingRow;

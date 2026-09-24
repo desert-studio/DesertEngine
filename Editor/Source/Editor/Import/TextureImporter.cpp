@@ -8,6 +8,9 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include "TextureIntentFile.hpp"
+#include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Utilities/PakFile.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
@@ -39,7 +42,7 @@ namespace Desert::Editor
         /// of leaving the old ones encoded by the old rule with nothing to say so. Before this the
         /// freshness check compared the source hash and the two identity fields only, which was right
         /// while the cook had no settings of its own; it has some now.
-        inline constexpr uint32_t kBlockEncoderVersion = 1;
+        inline constexpr uint32_t kBlockEncoderVersion = Assets::kTextureBlockEncoderVersion;
 
         // ── TWO SOURCES FOR ONE ANSWER, AND WHAT HAPPENS WHEN THEY DISAGREE ──────────────────────
         //
@@ -264,20 +267,6 @@ namespace Desert::Editor
         }
     } // namespace
 
-    static std::filesystem::path BuildCookedPath( const std::filesystem::path& sourcePath,
-                                                  const std::string&           extension )
-    {
-        // Path formula is shared (CookPaths::CookedTexture); this wrapper ensures the dir exists for writing.
-        const auto result = Editor::CookPaths::CookedTexture( sourcePath, extension );
-        std::filesystem::create_directories( result.parent_path() );
-        return result;
-    }
-
-    std::filesystem::path TextureImporter::CookedMetaPath( const std::filesystem::path& source )
-    {
-        return BuildCookedPath( source, ".tex" );
-    }
-
     TextureCookResult TextureImporter::Cook( const std::filesystem::path& path )
     {
         // Bulk cooking runs mesh imports in PARALLEL; two meshes often share textures, and two threads
@@ -293,125 +282,43 @@ namespace Desert::Editor
             return { m_Cache[abs], TextureCookOutcome::Fresh };
         }
 
-        const auto meta = BuildCookedPath( path, ".tex" );
-
-        // Deterministic, always: the handle is a function of the source path, so wiping Cooked/ and
-        // re-cooking yields the SAME id and every material/scene reference keyed by it still resolves.
-        //
-        // This used to read the handle back out of an existing `.tex` instead, "back-compat with older
-        // random-handle cooks". That branch did not preserve compatibility, it preserved the DEFECT: a
-        // texture cooked in the random era kept its per-launch id frozen on disk for ever, and the moment
-        // anyone deleted Cooked/ the id changed and every reference to it died. One such handle was still
-        // in the repository (T_Checker.tex, referenced by M_CheckerFloor.demat); both files were re-stamped
-        // with the derived id by the change that deleted this branch.
-        //
-        // THROUGH FromCookedPath, and `path` rather than `abs`. Hashing the canonical ABSOLUTE string was
-        // the last producer of asset identity that keyed on where the project sits, and it is the one that
-        // reached the repository: T_Checker.tex carried 16135626166276358966, which is FNV-1a of
-        // `/Users/<a developer>/…/Textures/T_Checker.png`, and M_CheckerFloor.demat named the texture by
-        // that number. It resolved only because both files were shipped together with the number already
-        // frozen; re-cooking that texture on any other machine minted a different id and emptied the
-        // material's slot. FromCookedPath keys on the source's place INSIDE the project, so the re-cook
-        // now agrees between machines. The same two files are re-stamped by this change, exactly as the
-        // paragraph above records being done last time.
-        const Common::UUID handle = Common::AssetHandle::FromCookedPath( path );
-
-        // The SAME key the handle is hashed from is what SourcePath stores: the source's place inside the
-        // project behind its root's tag (`assets:Textures/T.png`), never the spelling of this machine's
-        // checkout. The paragraph above celebrates curing the HANDLE of machine-dependence; SourcePath used
-        // to be written one line below it as the weakly-canonical ABSOLUTE path — the identical defect, and
-        // the one the runtime actually loads pixels through (TextureFactory reads it back verbatim). A
-        // naive relative(source, ASSETS_PATH) is not an option for the same reason TextureSlot.cpp records:
-        // COOKED_PATH is a SIBLING of the assets root, so some legitimate sources relativize to `../` and
-        // fall back to the absolute spelling anyway. StableKeyForPath owns the root table and the fallback.
-        const std::string sourceKey = Common::AssetHandle::StableKeyForPath( path );
-
-        // THE SOURCE'S BYTES, READ ONCE AND USED FOR BOTH QUESTIONS: is the cook stale, and what goes
-        // into the container. A decode needs them anyway, so the CRC is not a second pass over the file.
-        const auto sourceBytes = Common::Utils::FileSystem::ReadFileContent( path );
-        if ( !sourceBytes.IsSuccess() )
+        // THE ASSET IS THE SOURCE OF TRUTH (AF3). A raw image handed in is IMPORTED first — its bytes go
+        // inside `<stem>.detex` — and from then on only the asset is read: its header holds the handle, its
+        // IMPT the provenance and settings, its SRCE the bytes the platform data is derived from.
+        std::filesystem::path assetPath = path;
+        if ( assetPath.extension() != Assets::kTextureAssetExtension )
+        {
+            auto imported = ImportSourceAsset( path );
+            if ( !imported.IsSuccess() )
+            {
+                LOG_ERROR( "[TextureImporter] '{0}' could not be imported into a texture asset ({1}); no cooked "
+                           "texture was written and the null handle is returned.",
+                           abs, imported.GetError() );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            }
+            assetPath = imported.GetValue();
+        }
+        const auto assetRead = Assets::ReadTextureSourceAssetFile( assetPath );
+        if ( !assetRead.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' could not be read ({1}); no cooked texture was written and "
                        "the null handle is returned.",
-                       abs, sourceBytes.GetError() );
+                       assetPath.string(), assetRead.GetError() );
             return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
-        const uint64_t sourceHash = Assets::Serialization::SourceSignature( sourceBytes.GetValue().data(),
-                                                                            sourceBytes.GetValue().size() );
-
-        // WHAT THE AUTHOR SAID THIS TEXTURE IS FOR. Read BEFORE the freshness check, because it is part
-        // of what freshness means: `CookSignature` folds it in, so editing a `.detex` re-cooks a source
-        // whose own bytes have not moved.
-        //
-        // A `.detex` THAT CANNOT BE UNDERSTOOD IS AN ERROR AND NOT A DEFAULT. Somebody wrote the file;
-        // treating it as absence would step past an instruction and then compress on a measurement,
-        // which is the one outcome the authored field exists to prevent. The cook carries on with
-        // `Unspecified`, so the texture still exists and is correct — and, because the policy never
-        // asks for a block format for `Unspecified` without saying the choice rests on a measurement
-        // alone, the mistake is loud twice.
-        const TextureIntentRead authored = ReadTextureIntent( path );
-        if ( authored.Where == TextureIntentSource::Malformed )
-        {
-            LOG_ERROR( "[TextureImporter] '{0}' has an authored intent file that was not used: {1}. The "
-                       "texture is cooked as though no intent were authored.",
-                       TextureIntentPath( path ).string(), authored.Problem );
-        }
+        const Assets::TextureSourceAsset& asset     = assetRead.GetValue();
+        const Common::UUID                handle    = asset.Handle();
+        const std::string                 sourceKey = asset.Import.SourceFile;
+        const std::string                 sourceBytesStorage( reinterpret_cast<const char*>( asset.Source.data() ),
+                                                              asset.Source.size() );
+        const uint64_t                    sourceHash = asset.Import.SourceHash;
+        TextureIntentRead                 authored;
+        authored.Intent = asset.Import.Settings.Intent;
+        authored.Where  = authored.Intent == Fmt::TextureIntent::Unspecified ? TextureIntentSource::NotAuthored
+                                                                             : TextureIntentSource::Authored;
+        const Assets::TextureBuildSettings buildSettings{ asset.Import.Settings, kBlockEncoderVersion };
+        const uint64_t                     ddcKey = Assets::TextureDerivedDataKey( sourceHash, buildSettings );
         const uint64_t cookSignature = CookSignature( kBlockEncoderVersion, authored.Intent );
-
-        // FRESHNESS IS A FACT ABOUT BYTES NOW, NOT ABOUT TIMESTAMPS. The `.tex` records the CRC-32C of
-        // the source it was cooked from; the cook is up to date exactly when that number still matches,
-        // and when the two identity fields agree with their derivations.
-        //
-        // WHAT THE mtime COMPARISON THIS REPLACED COULD NOT DO, in this repository's own words: "git
-        // sets mtimes to checkout time, so a committed stale .tex was up to date for ever by
-        // construction". It also could not see the case an artist actually produces — a PNG re-exported
-        // with the same content, or edited and then restored — and it re-cooked on every clone. Reading
-        // and hashing the source costs one pass at 8.17 GB/s (Common/Utilities/Crc32c.hpp), against a
-        // decode plus a full mip chain for the answer "nothing changed".
-        // Not cooked yet is the normal first-run answer, not an ERROR line (FileSystem.hpp, IfExists).
-        if ( const auto existing = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
-                  meta, Assets::Serialization::kTextureBinaryPrefixBytes );
-             existing.IsSuccess() && existing.GetValue().has_value() )
-        {
-            const auto stored =
-                 Assets::Serialization::DecodeTextureHeader( existing.GetValue().value(), meta.string() );
-            // THE COOK'S OWN SETTINGS ARE PART OF FRESHNESS NOW. `EncoderHash` is "was this made the
-            // way I am asking for it now" (TextureBinary.hpp), and until the encoder existed the cook
-            // had no settings, so comparing it would have been comparing zero with zero. It has some:
-            // a threshold changed in `kBlockPsnrFloorDb` must re-cook every texture, not leave the old
-            // ones encoded by the old rule with nothing in the file able to say which rule that was.
-            if ( stored.IsSuccess() && stored.GetValue().SourceContentHash == sourceHash &&
-                 stored.GetValue().EncoderHash == cookSignature &&
-                 static_cast<uint64_t>( stored.GetValue().Handle ) == static_cast<uint64_t>( handle ) &&
-                 stored.GetValue().SourcePath == sourceKey )
-            {
-                m_Cache[abs] = handle; // up to date AND consistent — keep the cooked container as it is
-                // A FRESH `.tex` IS STILL CONTENT, and the registry is the only way the boot finds it. The
-                // write path enters its row (WriteCookedBytes); this path writes nothing, so a container
-                // an earlier session cooked — or one whose row was lost with a deleted cook registry —
-                // would be on the disk, correct, and invisible to every preload. The packager is the case
-                // that made it matter: it ships the registry this pass leaves behind.
-                Assets::ContentRegistry::NoteFile( meta );
-                return { handle, TextureCookOutcome::Fresh };
-            }
-
-            if ( !stored.IsSuccess() )
-            {
-                LOG_INFO( "[TextureImporter] Re-cooking '{0}': {1}", meta.string(), stored.GetError() );
-            }
-            else
-            {
-                LOG_INFO( "[TextureImporter] Re-cooking '{0}': it stores Handle={1} SourcePath='{2}' "
-                          "source signature {3:#018x} cook signature {4:#018x} (intent {5}); the source "
-                          "now derives Handle={6} SourcePath='{7}' signature {8:#018x} cook signature "
-                          "{9:#018x} (intent {10}).",
-                          meta.string(), static_cast<uint64_t>( stored.GetValue().Handle ),
-                          stored.GetValue().SourcePath, stored.GetValue().SourceContentHash,
-                          stored.GetValue().EncoderHash, Fmt::TextureIntentName( stored.GetValue().Intent ),
-                          static_cast<uint64_t>( handle ), sourceKey, sourceHash, cookSignature,
-                          Fmt::TextureIntentName( authored.Intent ) );
-            }
-        }
 
         // A SOURCE FORMAT IS AN INPUT, NOT A STORAGE FORMAT — `Docs/Textures/T2_CONTAINER_DECISION.md`.
         // This is the ONE place in the project that decodes one, and everything downstream reads the
@@ -421,9 +328,20 @@ namespace Desert::Editor
         // source including `.hdr` — a field that was simultaneously wrong and unread, because the
         // loader sniffed the source file itself and decided again. The container's format field is the
         // answer now, so it has to be the true one.
-        const bool isHDR =
-             stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
-                                      static_cast<int>( sourceBytes.GetValue().size() ) ) != 0;
+        // THE DERIVED DATA CACHE (AF5). The platform data — mip chain and BC levels — is keyed by the source
+        // bytes, the settings and the deriver's GUID, never by this asset's path. A hit skips the decode and
+        // the encode entirely; the identity fields (handle, provenance) are per asset and live only in the
+        // `.detex`. FRESH == THE DDC HOLDS THE KEY (AF3c). There is no per-asset cooked file any more: the runtime
+        // reads the asset's header and asks the DDC (Assets::LoadTexturePlatformData), so an entry under
+        // this key IS the texture's platform data, whichever asset with the same source put it there.
+        if ( Common::DDC::Get( Assets::kTextureDeriver, ddcKey ).has_value() )
+        {
+            m_Cache[abs] = handle;
+            Assets::ContentRegistry::NoteFile( assetPath );
+            return { handle, TextureCookOutcome::Fresh };
+        }
+        const bool isHDR = stbi_is_hdr_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
+                                                    static_cast<int>( sourceBytesStorage.size() ) ) != 0;
 
         int                                w = 0, h = 0, ch = 0;
         std::vector<unsigned char>         base;
@@ -432,8 +350,8 @@ namespace Desert::Editor
         if ( isHDR )
         {
             float* pixels =
-                 stbi_loadf_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
-                                         static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
+                 stbi_loadf_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
+                                         static_cast<int>( sourceBytesStorage.size() ), &w, &h, &ch, 4 );
             if ( !pixels )
             {
                 const char* reason = stbi_failure_reason();
@@ -450,8 +368,8 @@ namespace Desert::Editor
         else
         {
             stbi_uc* pixels =
-                 stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytes.GetValue().data() ),
-                                        static_cast<int>( sourceBytes.GetValue().size() ), &w, &h, &ch, 4 );
+                 stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( sourceBytesStorage.data() ),
+                                        static_cast<int>( sourceBytesStorage.size() ), &w, &h, &ch, 4 );
             if ( !pixels )
             {
                 // No `.tex` is written and the null handle is returned: a failed decode used to fall
@@ -475,14 +393,15 @@ namespace Desert::Editor
         // machine as an empty material slot.
         if ( !Common::AssetHandle::IsProjectRelativeKey( sourceKey ) )
         {
-            LOG_WARN( "[TextureImporter] '{0}' lies outside every content root, so its cooked container "
+            LOG_WARN( "[TextureImporter] '{0}' lies outside every content root, so its texture asset "
                       "stores the absolute path and will not resolve on another machine.",
                       abs );
         }
 
+        // THE ENTRY IS PURE DERIVED DATA (AF3e): no handle, no source path. It is keyed by content, so every
+        // asset with these bytes and settings reads it, and an identity stamped here would be whichever
+        // asset derived it first. Identity lives in the `.detex` header alone.
         Assets::Serialization::TextureAssetData data;
-        data.Handle            = handle;
-        data.SourcePath        = sourceKey;
         data.SourceContentHash = sourceHash;
         data.Width             = static_cast<uint32_t>( w );
         data.Height            = static_cast<uint32_t>( h );
@@ -575,7 +494,7 @@ namespace Desert::Editor
                 // the file was already logged above.
                 LOG_WARN( "[TextureImporter] '{0}' is kept uncompressed because its authored intent could "
                           "not be read; the cook does not guess past a '{1}' that exists.",
-                          abs, TextureIntentPath( path ).filename().string() );
+                          abs, assetPath.filename().string() );
             }
             else if ( authored.Where != TextureIntentSource::Authored )
             {
@@ -590,7 +509,7 @@ namespace Desert::Editor
                               "for it, so there is nothing to cross-check the choice against. Put a "
                               "'{{\"Intent\": \"...\"}}' in '{5}' to say what it is for.",
                               abs, probe.Grade.Psnr, probe.Grade.MaxAbsoluteDelta, probe.Pixels.size(),
-                              data.Pixels.size(), TextureIntentPath( path ).filename().string() );
+                              data.Pixels.size(), assetPath.filename().string() );
                     data.Format = probeFormat;
                     data.Levels = probe.Levels;
                     data.Pixels = std::move( probe.Pixels );
@@ -619,7 +538,7 @@ namespace Desert::Editor
                               "The authored refusal stands and the texture is stored uncompressed; if "
                               "the intent is wrong, '{5}' is where to change it.",
                               abs, Fmt::TextureIntentName( authored.Intent ), policy.Because, probe.Grade.Psnr,
-                              probe.Grade.MaxAbsoluteDelta, TextureIntentPath( path ).filename().string() );
+                              probe.Grade.MaxAbsoluteDelta, assetPath.filename().string() );
                 }
                 else
                 {
@@ -658,22 +577,81 @@ namespace Desert::Editor
             }
         }
 
-        // A HANDLE IS ONLY RETURNED FOR A CONTAINER THAT IS ON THE DISK. The write used to be unchecked
-        // (Д31-D), and the handle plus the cache entry went back regardless — so the very next lookup
-        // was served out of memory and the missing `.tex` was not noticed until the next session.
-        if ( const auto written = WriteCookedBytes( Assets::Serialization::EncodeTextureBinary( data ), meta );
-             !written )
+        // A HANDLE IS ONLY RETURNED FOR PLATFORM DATA THAT IS STORED. The DDC entry is the one place the
+        // runtime finds it; a build that could not be Put would be a texture nobody can load.
+        const std::string encoded = Assets::Serialization::EncodeTextureBinary( data );
+        if ( const auto stored = Common::DDC::Put( Assets::kTextureDeriver, ddcKey, encoded ); !stored )
         {
-            LOG_ERROR( "[TextureImporter] '{0}' was decoded but its cooked container was not written: {1}. "
-                       "The null handle is returned and nothing is cached, so importing again after fixing "
-                       "the cause works without restarting the editor.",
-                       abs, written.GetError() );
+            LOG_ERROR( "[TextureImporter] '{0}' was built but its platform data could not be stored in the DDC "
+                       "({1}): {2}. The null handle is returned and nothing is cached.",
+                       assetPath.string(), Common::DDC::PathFor( Assets::kTextureDeriver, ddcKey ).string(),
+                       stored.GetError() );
             return { Common::AssetHandle::Null(), TextureCookOutcome::Unwritten };
         }
 
         m_Cache[abs] = handle;
-
+        Assets::ContentRegistry::NoteFile( assetPath );
         return { handle, TextureCookOutcome::Cooked };
+    }
+
+    Common::ResultStr<std::filesystem::path>
+    TextureImporter::ImportSourceAsset( const std::filesystem::path& source )
+    {
+        namespace fs             = std::filesystem;
+        const fs::path assetPath = TextureIntentPath( source ); // `<stem>.detex` beside the file
+        const auto     rawRead   = Common::Utils::FileSystem::ReadFileContent( source );
+        if ( !rawRead.IsSuccess() )
+            return Common::MakeError<fs::path>( rawRead.GetError() );
+        const std::string&     raw = rawRead.GetValue();
+        std::vector<std::byte> bytes( reinterpret_cast<const std::byte*>( raw.data() ),
+                                      reinterpret_cast<const std::byte*>( raw.data() ) + raw.size() );
+        const uint64_t         hash      = Common::Utils::PakContentHash( bytes.data(), bytes.size() );
+        const std::string      sourceKey = Common::AssetHandle::StableKeyForPath( source );
+
+        // REIMPORT: the asset exists. Identity (GUID -> handle) and settings are the asset's and are kept;
+        // only a source whose CONTENT changed is taken in again. Same hash = nothing to do (no mtime).
+        if ( Assets::IsTextureSourceAssetFile( assetPath ) )
+        {
+            auto existing = Assets::ReadTextureSourceAssetFile( assetPath );
+            if ( !existing.IsSuccess() )
+                return Common::MakeError<fs::path>( existing.GetError() );
+            if ( existing.GetValue().Import.SourceHash == hash )
+                return Common::MakeSuccess( assetPath );
+            Assets::TextureSourceAsset updated = existing.ExtractValue();
+            updated.Import.SourceFile          = sourceKey;
+            updated.Import.SourceHash          = hash;
+            updated.Source                     = std::move( bytes );
+            if ( auto w = Assets::WriteTextureSourceAssetFile( assetPath, updated ); !w.IsSuccess() )
+                return Common::MakeError<fs::path>( w.GetError() );
+            return Common::MakeSuccess( assetPath );
+        }
+
+        // FIRST IMPORT. The handle is the number this texture has always had -- derived once from the
+        // source's place, then frozen into the header. A legacy `{"Intent": ...}` sidecar at the asset's
+        // path is the authored setting and is folded into ImportInfo; the asset replaces it.
+        Assets::TextureImportSettings settings;
+        const TextureIntentRead       authored = ReadTextureIntent( source );
+        if ( authored.Where == TextureIntentSource::Authored )
+        {
+            settings.Intent = authored.Intent;
+        }
+        else if ( authored.Where == TextureIntentSource::Malformed )
+        {
+            // The old cook kept such a texture uncompressed rather than guess; `Data` is that same outcome
+            // written down, so the choice survives the sidecar being replaced.
+            LOG_ERROR( "[TextureImporter] '{0}' has an authored intent file that was not used: {1}. The asset "
+                       "is imported as Data (uncompressed); set its intent to change that.",
+                       assetPath.string(), authored.Problem );
+            settings.Intent = Fmt::TextureIntent::Data;
+        }
+        const fs::path rel  = fs::relative( source, Common::Constants::Path::SKYBOX_PATH );
+        const bool     sky  = !rel.empty() && rel.begin()->string() != "..";
+        const auto     kind = sky ? Common::Content::ContentKind::Skybox : Common::Content::ContentKind::Texture;
+        const Assets::TextureSourceAsset asset = Assets::MakeTextureSourceAsset(
+             kind, Common::AssetHandle::FromCookedPath( source ), sourceKey, std::move( bytes ), settings );
+        if ( auto w = Assets::WriteTextureSourceAssetFile( assetPath, asset ); !w.IsSuccess() )
+            return Common::MakeError<fs::path>( w.GetError() );
+        return Common::MakeSuccess( assetPath );
     }
 
     Common::UUID TextureImporter::Import( const std::filesystem::path& path )
@@ -706,7 +684,17 @@ namespace Desert::Editor
                 std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
                 // THE ONE ORDERED LIST, asked rather than re-spelled -- see TextureSourceFormats.hpp for the
                 // two hand-written copies that had already drifted before it existed.
+                if ( ext == Assets::kTextureAssetExtension )
+                {
+                    // A legacy JSON sidecar is not an asset; its image is listed below and imports it.
+                    if ( Assets::IsTextureSourceAssetFile( entry.path() ) )
+                        sources.push_back( entry.path() );
+                    continue;
+                }
                 if ( TextureSourceFormatRank( ext ) == kTextureSourceExtensionCount )
+                    continue;
+                // An image whose asset exists is that asset's provenance, not a second texture.
+                if ( Assets::IsTextureSourceAssetFile( TextureIntentPath( entry.path() ) ) )
                     continue;
 
                 sources.push_back( entry.path() );
@@ -717,34 +705,27 @@ namespace Desert::Editor
         return sources;
     }
 
-    LooseTextureCookStats TextureImporter::CookLooseTextures()
+    std::filesystem::path TextureImporter::AssetPathFor( const std::filesystem::path& source )
     {
-        LooseTextureCookStats stats;
-        for ( const std::filesystem::path& source : LooseTextureSources() )
-        {
-            // AN EXTENDED-RANGE SOURCE IS COOKED LIKE EVERY OTHER, and it used to be skipped on the claim
-            // that "this cook forces RGBA8". It does not: `Cook` reads an `.hdr` with `stbi_loadf` and
-            // writes RGBA32F, and never offers a float source a block format. The skip is what kept the
-            // sky panorama's decoder in the RUNTIME — the environment read the `.hdr` itself because
-            // nothing else had ever turned it into a `.tex`. It reads the cooked panorama now, so this
-            // pass is the panorama's producer and must not step over it.
-            switch ( Cook( source ).Outcome )
-            {
-                case TextureCookOutcome::Cooked:
-                    ++stats.Cooked;
-                    break;
-                case TextureCookOutcome::Fresh:
-                    ++stats.Fresh;
-                    break;
-                case TextureCookOutcome::Failed:
-                    ++stats.Failed;
-                    break;
-                case TextureCookOutcome::Unwritten:
-                    ++stats.Unwritten;
-                    break;
-            }
-        }
-        return stats;
+        return source.extension() == Assets::kTextureAssetExtension ? source : TextureIntentPath( source );
+    }
+
+    Common::ResultStr<std::string> TextureImporter::BuildPlatformData( const std::filesystem::path& asset )
+    {
+        TextureImporter importer;
+        const auto      cooked = importer.Cook( asset );
+        if ( cooked.Outcome == TextureCookOutcome::Failed || cooked.Outcome == TextureCookOutcome::Unwritten )
+            return Common::MakeFormattedError<std::string>(
+                 "texture asset '{}' could not be derived (the importer logged why)", asset.string() );
+        const auto key = Assets::ReadTextureAssetKey( asset );
+        if ( !key.IsSuccess() )
+            return Common::MakeError<std::string>( key.GetError() );
+        auto entry = Common::DDC::Get( Assets::kTextureDeriver, key.GetValue().DerivedDataKey );
+        if ( !entry )
+            return Common::MakeFormattedError<std::string>(
+                 "texture asset '{}' was derived but its DDC entry {:016x} is not readable", asset.string(),
+                 key.GetValue().DerivedDataKey );
+        return Common::MakeSuccess( std::move( *entry ) );
     }
 
 } // namespace Desert::Editor

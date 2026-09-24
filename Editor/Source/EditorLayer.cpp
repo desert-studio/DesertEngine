@@ -1,14 +1,21 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Content/CanonicalText.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include "EditorLayer.hpp"
+
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <functional>
 
@@ -159,6 +166,43 @@
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // MESHES COOKED BEFORE THEIR HEADER STATED A BOX (MeshBinaryHeader.hpp): the gather reads headers
+        // only and cannot learn their box, so the editor — which links the mesh reader — reads each body
+        // ONCE and hands the box to the registry, whose local cache keeps it from then on. Said in one line
+        // naming them, because a re-cook is what makes the read unnecessary.
+        void NoteBoundsOfMeshesCookedWithoutThem( const std::vector<std::string>& keys )
+        {
+            if ( keys.empty() )
+                return;
+            std::string named;
+            for ( const std::string& key : keys )
+            {
+                named += named.empty() ? key : ", " + key;
+                const std::filesystem::path file  = Common::AssetHandle::PathForStableKey( key );
+                const auto                  bytes = Common::Utils::FileSystem::ReadFileContent( file );
+                if ( !bytes )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be read for its box: {}", key, bytes.GetError() );
+                    continue;
+                }
+                const auto mesh = Assets::Serialization::ReadMeshAssetData( bytes.GetValue(), file.string() );
+                if ( !mesh )
+                {
+                    LOG_ERROR( "[ContentRegistry] '{}' could not be decoded for its box: {}", key,
+                               mesh.GetError() );
+                    continue;
+                }
+                Assets::ContentRegistry::NoteBounds( file,
+                                                     Assets::Serialization::MeshDataBounds( mesh.GetValue() ) );
+            }
+            LOG_WARN( "[ContentRegistry] {} mesh(es) state no box in their header, so their bodies were read once "
+                      "(the local cache keeps the boxes); re-cook them to drop the read: {}",
+                      keys.size(), named );
+        }
+    } // namespace
+
     // THE MENU BAR'S OWN MENUS, named once. Read by DrawMenuBar, which opens whichever one is held, and
     // by BuildPaletteCommands, which offers exactly these as commands. Two readers of one list, so the
     // palette cannot offer a menu the bar does not draw — the shape a hand-copied second list always ends
@@ -365,14 +409,20 @@ namespace Desert::Editor
         // mtimes.
         //
         // AND THE TEXTURES THAT LIVE BESIDE A MESH. `Assets/Meshes/*.png` cook to
-        // `Cooked/Textures/Assets/Meshes/*.tex`, and they are written only when the MESH is re-imported --
+        // their `.detex` assets beside the mesh, and they were written only when the MESH was re-imported --
         // which the boot scan skips whenever the `.stmesh` is newer than its source. So a container version
         // bump left four of them stranded at version 1 and every launch printed four load failures that no
         // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
-        m_StartupStages.push_back(
-             { "Cooking textures...", [this] { (void)m_ImportManager->CookLooseTextures(); } } );
+        m_StartupStages.push_back( { "Importing textures...", [this]
+                                     {
+                                         // The editor derives texture platform data on a DDC miss; a packaged game
+                                         // has no builder.
+                                         Assets::SetTexturePlatformDataBuilder(
+                                              &TextureImporter::BuildPlatformData );
+                                         (void)m_ImportManager->ImportLooseTextures();
+                                     } } );
         m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
                                      [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
         m_StartupStages.push_back(
@@ -649,11 +699,22 @@ namespace Desert::Editor
         // A REFUSAL ENDS THE RUN, on the terms §1.4 sets: an editor that starts with a registry it
         // could not parse is an editor showing an empty Content Browser over a project full of files,
         // and "looks almost right" is the failure mode that costs the most to find.
-        const auto registry = Assets::ContentRegistry::Load();
+        std::vector<std::string> unboxedMeshes;
+        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
         if ( !registry )
             return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
                   Assets::ContentRegistry::Get().Count(), registry.GetValue() );
+        NoteBoundsOfMeshesCookedWithoutThem( unboxedMeshes );
+
+        // The committed registry file is gone (AF9): nothing reads it, and a developer tree may still hold
+        // the last copy, untracked. It is harmless — said once so nobody mistakes it for the live registry.
+        if ( const std::filesystem::path stale = Common::Constants::Path::CurrentProjectRoot().ProjectDir /
+                                                 Common::Constants::Path::COOKED_DIR_NAME / "AssetRegistry.dreg";
+             Common::Utils::FileSystem::Exists( stale ) )
+            LOG_WARN( "[ContentRegistry] '{}' is a stale file from before the registry was gathered at start; "
+                      "nothing reads it and it can be deleted",
+                      stale.string() );
 
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
         // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
@@ -1353,7 +1414,7 @@ namespace Desert::Editor
                                                   std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
-                                                : Common::Utils::FileSystem::WriteContentToFileAtomic(
+                                                : Common::Content::WriteCanonicalJsonFileAtomic(
                                                        path, serializer.SerializeToJson() );
                         if ( written )
                         {
@@ -5533,7 +5594,7 @@ namespace Desert::Editor
             // Cooked Assets" could not rebuild. Found the day the container's version moved: the menu
             // entry whose whole job is "the cooked form is stale, make it again" left `T_Checker.tex`
             // stale, and the only remedy left was to drag the file back into the editor.
-            (void)m_ImportManager->CookLooseTextures();
+            (void)m_ImportManager->ImportLooseTextures();
         }
 
         if ( m_AssetPreloader )
@@ -5682,6 +5743,10 @@ namespace Desert::Editor
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
         LOG_INFO( "[Startup] the editor is on screen and the splash is closed" );
+        // The counters are cumulative since process start, so this is every shader and pipeline cost paid before
+        // the first real frame, including the pipelines the renderers build after the preload.
+        LOG_INFO( "[Startup] shader work before the first frame: {}",
+                  ::Desert::Core::FormatShaderPhaseTimes( ::Desert::Core::ReadShaderPhaseTimes() ) );
     }
 
     void EditorLayer::UpdateContentSettling()
@@ -7039,13 +7104,27 @@ namespace Desert::Editor
         // write SerializeToJson() itself, which was the same save spelled twice — and the moment the save
         // grew a step (a landscape writes its tile files beside the scene before the scene names them),
         // this copy would have written a .desce naming tile files that were never written.
+        const auto                    previousHeader = ForgetAssetIdentityUnlessSameFile( path );
         Desert::Core::SceneSerializer serializer( m_MainScene.get(), m_AssetManager.get() );
         if ( const auto written = serializer.SaveToFile( Common::Filepath( path ) ); !written )
         {
+            // Nothing was written, so the scene is still the asset it was.
+            m_MainScene->SetAssetHeader( previousHeader );
             LOG_ERROR( "[Scene] Could not write '{}': {}", path, written.GetError() );
             return false;
         }
         return true;
+    }
+
+    std::optional<Common::Content::TextAssetHeaderSerialized>
+    EditorLayer::ForgetAssetIdentityUnlessSameFile( const std::string& destination )
+    {
+        auto previous = m_MainScene->GetAssetHeader();
+        // A save under another path is a new asset (Rules::SaveKeepsAssetIdentity): dropping the header
+        // makes the serializer mint a fresh GUID instead of copying this one into a second file.
+        if ( !Editor::Core::Rules::SaveKeepsAssetIdentity( m_OpenScenePath.generic_string(), destination ) )
+            m_MainScene->SetAssetHeader( std::nullopt );
+        return previous;
     }
 
     Common::Filepath EditorLayer::SceneSaveDestination() const
@@ -7061,10 +7140,13 @@ namespace Desert::Editor
 
     bool EditorLayer::SaveOpenScene()
     {
-        const Common::Filepath destination = SceneSaveDestination();
-        const auto             verdict     = Editor::Core::Rules::DecideAfterSceneSave(
+        const Common::Filepath destination    = SceneSaveDestination();
+        const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
+        const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
              m_MainScene->Serialize( m_AssetManager.get(), destination ), m_MainScene->GetSceneName(),
              destination.string() );
+        if ( !verdict.MarkSceneSaved )
+            m_MainScene->SetAssetHeader( previousHeader );
 
         if ( verdict.MarkSceneSaved )
         {
@@ -8148,7 +8230,7 @@ namespace Desert::Editor
                                           std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                 const auto written =
                      ec ? Common::MakeFormattedError( "could not create {}: {}", dir.string(), ec.message() )
-                        : Common::Utils::FileSystem::WriteContentToFileAtomic( path, text );
+                        : Common::Content::WriteCanonicalJsonFileAtomic( path, text );
                 // BRACES ARE REQUIRED ON BOTH ARMS: the LOG_ macros are not single statements, so a
                 // braceless if/else here does not compile. The autosave block above is written the same
                 // way for the same reason.

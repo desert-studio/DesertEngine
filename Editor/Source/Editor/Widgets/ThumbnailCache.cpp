@@ -2,6 +2,7 @@
 
 #include <Editor/Widgets/ThumbnailKey.hpp>
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -25,8 +26,7 @@ namespace Desert::Editor
         // texture an artist happened to file under a folder called Thumbnails — and this predicate is the
         // one thing standing between a decode failure and `remove()`.
         std::error_code ec;
-        const auto      root =
-             std::filesystem::weakly_canonical( Common::Constants::Path::COOKED_PATH / "Thumbnails", ec );
+        const auto      root = std::filesystem::weakly_canonical( Common::DDC::BucketDir( "Thumbnails" ), ec );
         if ( ec )
             return false;
 
@@ -41,7 +41,7 @@ namespace Desert::Editor
     void ThumbnailCache::PurgeOldVersions()
     {
         std::error_code             ec;
-        const std::filesystem::path root( Common::Constants::Path::COOKED_PATH / "Thumbnails" );
+        const std::filesystem::path root( Common::DDC::BucketDir( "Thumbnails" ) );
         if ( !std::filesystem::exists( root, ec ) )
             return;
         const std::string keep = "v" + std::to_string( ThumbnailKey::CacheVersion() );

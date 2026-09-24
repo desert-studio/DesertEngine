@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Common/Content/ContentScan.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
@@ -569,6 +570,19 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
             continue;
         const std::string key = "assets:" + std::filesystem::relative( entry.path(), assets ).generic_string();
         sourceByHandle.emplace( static_cast<uint64_t>( Common::AssetHandle::FromKey( key ) ), key );
+
+        // A `.detex` carries its source image inside it (AF3), so the image's own file is gone from disk and
+        // its key derives nothing above. The engine resolves the number a `.demat` names through the handle
+        // the `.detex` header DECLARES -- TextureSourceAsset.cpp stamps it into Guid.Hi at import and
+        // ReadTextureAssetKey hands Guid.Hi to TextureAsset::LoadFromFile, whose handle the registry then
+        // indexes (ContentRegistry NoteAsset -> AssetRegistry::SetIdentity) -- so that is the number read here.
+        const auto kind = Common::Content::KindOfContentFile( entry.path() );
+        if ( !kind || *kind != Common::Content::ContentKind::Texture )
+            continue;
+        const Common::Content::ContentFile described = Common::Content::DescribeContentFile( entry.path(), *kind );
+        ASSERT_TRUE( described.HeaderError.empty() ) << key << ": " << described.HeaderError;
+        ASSERT_TRUE( described.Header.has_value() ) << key << " is a texture asset that states no header";
+        sourceByHandle.emplace( described.Header->Guid.Hi, key );
     }
 
     // Every material path any scene names, whatever component named it.

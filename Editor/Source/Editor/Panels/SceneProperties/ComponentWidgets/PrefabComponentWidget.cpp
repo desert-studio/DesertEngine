@@ -86,15 +86,17 @@ namespace Desert::Editor
             if ( ImGui::Button( ICON_MDI_REFRESH " Apply to Prefab" ) )
             {
                 asset->CreateFromEntity( entity, *m_AssetManager );
-                const std::string serialized = asset->Serialize();
+                const auto        serializedText = asset->Serialize();
+                const std::string serialized     = serializedText ? serializedText.GetValue() : std::string();
                 // The directory is created for the same reason SceneCommands::ApplyPrefabInstance
                 // creates it — an ofstream into a missing directory writes nothing at all — and this
                 // twin of that function was the one place that did not.
                 std::error_code dirEc;
                 std::filesystem::create_directories( asset->GetMetadata().Filepath.parent_path(), dirEc );
 
-                const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                     asset->GetMetadata().Filepath, serialized );
+                const auto written = ( serializedText ? Common::Utils::FileSystem::WriteContentToFileAtomic(
+                                                             asset->GetMetadata().Filepath, serialized )
+                                                      : Common::MakeError<bool>( serializedText.GetError() ) );
                 if ( written )
                 {
                     LOG_INFO( "Prefab applied: {0}", asset->GetMetadata().Filepath.string() );

@@ -1,1 +1,63 @@
-{"ShaderName":"CloudRaymarch","Params":[{"Name":"Coverage","Value":[0.3499999940395355,0.0,0.0,0.0]},{"Name":"WeatherTileSize","Value":[1200000.0,0.0,0.0,0.0]},{"Name":"LayoutPatternStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"LayoutMaskStrength","Value":[1.0,0.0,0.0,0.0]},{"Name":"LayoutRepeats","Value":[1.0,0.0,0.0,0.0]},{"Name":"LayoutOffset","Value":[-2020000.0,-2400000.0,0.0,0.0]},{"Name":"PlacementScatter","Value":[0.25,0.0,0.0,0.0]},{"Name":"PlacementDensity","Value":[3.0,0.0,0.0,0.0]},{"Name":"PlacementSizeVariety","Value":[0.3499999940395355,0.0,0.0,0.0]}],"Textures":[{"Name":"CloudType1","TextureHandle":14207433254880240939},{"Name":"LayoutPattern","TextureHandle":2794277680771267855},{"Name":"LayoutMask","TextureHandle":2794277680771267855}],"MaterialId":1798724501947826027}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "9bcfcb99bc5c63b4b9ff2fa7eeba98ff",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "ShaderName": "CloudRaymarch",
+    "Params": [
+        {
+            "Name": "Coverage",
+            "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "WeatherTileSize",
+            "Value": [1200000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutPatternStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutMaskStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutRepeats",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "LayoutOffset",
+            "Value": [-2020000.0, -2400000.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PlacementScatter",
+            "Value": [0.25, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PlacementDensity",
+            "Value": [3.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "PlacementSizeVariety",
+            "Value": [0.3499999940395355, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "CloudType1",
+            "TextureHandle": 14207433254880240939
+        },
+        {
+            "Name": "LayoutPattern",
+            "TextureHandle": 2794277680771267855
+        },
+        {
+            "Name": "LayoutMask",
+            "TextureHandle": 2794277680771267855
+        }
+    ]
+}

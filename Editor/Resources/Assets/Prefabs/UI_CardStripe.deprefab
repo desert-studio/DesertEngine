@@ -1,1 +1,67 @@
-{"Name":"UI_CardStripe","Entities":[{"id":7101,"Tag":"Card Stripe","Translation":[0.0,0.0,0.0],"Rotation":[0.0,0.0,0.0],"Scale":[1.0,1.0,1.0],"UILayout":{"AnchorMin":[0.0,0.0],"AnchorMax":[1.0,0.0],"OffsetMin":[0.0,0.0],"OffsetMax":[0.0,24.0],"CustomMinimumSize":[0.0,0.0],"Rotation":0.0,"Scale":[1.0,1.0],"Pivot":[0.5,0.5],"ClipContents":false,"Visibility":0,"HitTest":0,"AspectRatio":0.0,"AspectMode":1,"FlexGrow":0.0,"FitWidth":false,"FitHeight":false},"UIPanel":{"Color":[0.1599999964237213,0.6200000047683716,0.9100000262260437],"Opacity":1.0,"CornerRadius":0.0,"BackdropBlur":0.0,"Sprite":"","SpriteBorder":[0.0,0.0,0.0,0.0],"Material":"","Video":"","Circle":false,"RingWidth":0.0,"RingColorA":[1.0,0.47999998927116394,0.15000000596046448],"RingColorB":[0.18000000715255737,0.8899999856948853,1.0],"Pulse":false,"PulseSpeed":2.5,"PulseMin":0.3499999940395355,"UseGradient":false,"GradientColor":[0.10000000149011612,0.10999999940395355,0.14000000059604645],"BorderWidth":0.0,"BorderColor":[0.0,0.0,0.0],"Shadow":false,"ShadowColor":[0.0,0.0,0.0],"ShadowOffset":[3.0,4.0],"Glow":false,"GlowColor":[0.30000001192092896,0.6000000238418579,1.0],"GlowSize":12.0}}],"Root":7101,"SceneVersion":23,"UnitVersion":1}
+{
+    "Header": {
+        "Kind": "Prefab",
+        "Guid": "19f6830c2ac6aa465c2a2907b883cf63",
+        "Versions": {
+            "SCNE": 27,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
+    "Name": "UI_CardStripe",
+    "Entities": [
+        {
+            "id": 7101,
+            "Tag": "Card Stripe",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "UILayout": {
+                "AnchorMin": [0.0, 0.0],
+                "AnchorMax": [1.0, 0.0],
+                "OffsetMin": [0.0, 0.0],
+                "OffsetMax": [0.0, 24.0],
+                "CustomMinimumSize": [0.0, 0.0],
+                "Rotation": 0.0,
+                "Scale": [1.0, 1.0],
+                "Pivot": [0.5, 0.5],
+                "ClipContents": false,
+                "Visibility": 0,
+                "HitTest": 0,
+                "AspectRatio": 0.0,
+                "AspectMode": 1,
+                "FlexGrow": 0.0,
+                "FitWidth": false,
+                "FitHeight": false
+            },
+            "UIPanel": {
+                "Color": [0.1599999964237213, 0.6200000047683716, 0.9100000262260437],
+                "Opacity": 1.0,
+                "CornerRadius": 0.0,
+                "BackdropBlur": 0.0,
+                "Sprite": "",
+                "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
+                "Material": "",
+                "Video": "",
+                "Circle": false,
+                "RingWidth": 0.0,
+                "RingColorA": [1.0, 0.47999998927116394, 0.15000000596046448],
+                "RingColorB": [0.18000000715255737, 0.8899999856948853, 1.0],
+                "Pulse": false,
+                "PulseSpeed": 2.5,
+                "PulseMin": 0.3499999940395355,
+                "UseGradient": false,
+                "GradientColor": [0.10000000149011612, 0.10999999940395355, 0.14000000059604645],
+                "BorderWidth": 0.0,
+                "BorderColor": [0.0, 0.0, 0.0],
+                "Shadow": false,
+                "ShadowColor": [0.0, 0.0, 0.0],
+                "ShadowOffset": [3.0, 4.0],
+                "Glow": false,
+                "GlowColor": [0.30000001192092896, 0.6000000238418579, 1.0],
+                "GlowSize": 12.0
+            }
+        }
+    ],
+    "Root": 7101
+}

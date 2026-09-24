@@ -9,6 +9,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -247,15 +248,17 @@ namespace Desert::Editor
         return def;
     }
 
-    // Deterministic 64-bit id from a stable key. Re-importing the same source yields the SAME material id,
-    // so a mesh submesh's reference survives re-cooks (unlike a random UUID).
+    // Deterministic material GUID from a stable key. Re-importing the same source yields the SAME GUID, so a
+    // mesh submesh's reference (the GUID's handle) survives re-cooks, as a random one would not. The two
+    // halves are two keyed folds, so no second derivation rule exists beside AssetHandle::FromKey.
     //
     // The FNV-1a loop this used to hold was one of THREE hand-written copies of the same derivation
     // (here, TextureImporter, and Common::AssetHandle::FromKey). Three copies of one rule is how two of
     // them drift; there is now one, and it lives with the handle type.
-    static Common::UUID StableMaterialId( const std::string& key )
+    static Common::Content::AssetGuid StableMaterialGuid( const std::string& key )
     {
-        return Common::AssetHandle::FromKey( key );
+        return { static_cast<uint64_t>( Common::AssetHandle::FromKey( key ) ),
+                 static_cast<uint64_t>( Common::AssetHandle::FromKey( "guid-lo:" + key ) ) };
     }
 
     // Extract every source material into the unified, reflected PBRSurfaceParams (the .demat schema). Recovers
@@ -279,7 +282,7 @@ namespace Desert::Editor
             auto& d      = out.Data;
             // Keyed on the mesh's place in the project, NOT on its file stem — see CookPaths::MaterialKey
             // for what the stem-only key merged and why the repository is one same-named file away from it.
-            d.MaterialId = StableMaterialId( CookPaths::MaterialKey( sourcePath, out.Name, i ) );
+            out.Guid = StableMaterialGuid( CookPaths::MaterialKey( sourcePath, out.Name, i ) );
 
             // Locate a material's texture FILE on disk. FBX/glTF often store an unusable path (the author's
             // absolute build path, relativized to a long "../../.../mnt/prod/.../foo.jpg" that escapes the
@@ -438,8 +441,7 @@ namespace Desert::Editor
             submesh.VertexCount    = mesh->mNumVertices;
             submesh.IndexCount     = mesh->mNumFaces * 3;
             submesh.Transform      = glm::mat4( 1.0f );
-            submesh.MaterialHandle = materialData[mesh->mMaterialIndex].Data.MaterialId.value_or(
-                 Common::UUID::Null() );
+            submesh.MaterialHandle = Assets::MaterialData::HandleOf( materialData[mesh->mMaterialIndex].Guid );
 
             // ============================
             // VERTICES

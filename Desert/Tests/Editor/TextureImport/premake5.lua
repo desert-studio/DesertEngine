@@ -18,6 +18,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- the cook measures its own BC7 output before keeping it
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",

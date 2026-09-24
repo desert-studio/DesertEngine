@@ -1,1 +1,45 @@
-{"Name":"ScriptDriven","Entry":"Wave","Parameters":[{"Name":"Go","Type":0,"Default":0.0}],"States":[{"Name":"Wave","Clip":"TwoBoneProbe_Wave","Loop":true,"Speed":1.0,"X":0.0,"Y":0.0,"Transitions":[{"To":"Twist","Blend":0.0,"HasExitTime":false,"ExitTime":1.0,"Conditions":[{"Parameter":"Go","Op":6,"Value":0.0}]}]},{"Name":"Twist","Clip":"TwoBoneProbe_Twist","Loop":true,"Speed":1.0,"X":260.0,"Y":0.0,"Transitions":[]}]}
+{
+    "Name": "ScriptDriven",
+    "Entry": "Wave",
+    "Parameters": [
+        {
+            "Name": "Go",
+            "Type": 0,
+            "Default": 0.0
+        }
+    ],
+    "States": [
+        {
+            "Name": "Wave",
+            "Clip": "TwoBoneProbe_Wave",
+            "Loop": true,
+            "Speed": 1.0,
+            "X": 0.0,
+            "Y": 0.0,
+            "Transitions": [
+                {
+                    "To": "Twist",
+                    "Blend": 0.0,
+                    "HasExitTime": false,
+                    "ExitTime": 1.0,
+                    "Conditions": [
+                        {
+                            "Parameter": "Go",
+                            "Op": 6,
+                            "Value": 0.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "Name": "Twist",
+            "Clip": "TwoBoneProbe_Twist",
+            "Loop": true,
+            "Speed": 1.0,
+            "X": 260.0,
+            "Y": 0.0,
+            "Transitions": []
+        }
+    ]
+}

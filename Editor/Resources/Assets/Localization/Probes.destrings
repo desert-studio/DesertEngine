@@ -1,18 +1,18 @@
 {
-  "FormatVersion": 1,
-  "DisplayName": "Probe scenes",
-  "Entries": [
-    {
-      "Key": "probe.title",
-      "Comment": "The ONE translated label in UI_ElementProbe. Every other string in that scene is a literal on purpose: the scene is the negative control of 'a language change moves a key and cannot move a literal', and translating the rest would delete the control.",
-      "Forms": {
-        "en": {
-          "other": "UI element probe"
-        },
-        "ru": {
-          "other": "Проба элементов UI"
+    "FormatVersion": 1,
+    "DisplayName": "Probe scenes",
+    "Entries": [
+        {
+            "Key": "probe.title",
+            "Comment": "The ONE translated label in UI_ElementProbe. Every other string in that scene is a literal on purpose: the scene is the negative control of 'a language change moves a key and cannot move a literal', and translating the rest would delete the control.",
+            "Forms": {
+                "en": {
+                    "other": "UI element probe"
+                },
+                "ru": {
+                    "other": "Проба элементов UI"
+                }
+            }
         }
-      }
-    }
-  ]
+    ]
 }

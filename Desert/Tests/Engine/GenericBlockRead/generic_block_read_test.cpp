@@ -175,7 +175,7 @@ namespace
     // Two arbitrary but DISTINCT 64-bit handles: the point of the assertion is that each comes back as
     // itself, so the values only have to be recognisable and different from one another.
     constexpr uint64_t kMeshGuid     = 0x0123456789ABCDEFULL;
-    constexpr uint64_t kMaterialGuid = 0xFEDCBA9876543210ULL;
+    constexpr const char* kMaterialGuid = "fedcba98765432100123456789abcdef"; // header GUID text (SCNE 27)
 
     constexpr float kGridStep  = 200.0F; // the 3x3 grid Г25's control frame used, in world units (cm)
     constexpr float kGridStart = 200.0F;
@@ -318,7 +318,7 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
     written.MeshPath           = "Cooked/Meshes/Grass.stmesh";
     written.MeshGuid           = kMeshGuid;
     written.MaterialPaths      = std::vector<std::string>{ "Materials/M_Grass.demat" };
-    written.MaterialGuids      = std::vector<uint64_t>{ kMaterialGuid };
+    written.MaterialGuids      = std::vector<std::string>{ kMaterialGuid };
     written.InstanceTransforms = NineDistinctInstances();
 
     const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
@@ -333,7 +333,8 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
     EXPECT_EQ( read.MeshPath, "Cooked/Meshes/Grass.stmesh" );
 
     ASSERT_TRUE( read.MaterialGuids.has_value() );
-    const std::vector<uint64_t>& guids = read.MaterialGuids.value(); // NOLINT(bugprone-unchecked-optional-access)
+    const std::vector<std::string>& guids =
+         read.MaterialGuids.value(); // NOLINT(bugprone-unchecked-optional-access)
     ASSERT_EQ( guids.size(), 1U );
     EXPECT_EQ( guids.at( 0 ), kMaterialGuid );
 

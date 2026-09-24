@@ -590,9 +590,12 @@ namespace Desert::Editor
                     std::error_code dirEc;
                     std::filesystem::create_directories( fullPath.parent_path(), dirEc );
 
-                    const std::string serialized = newPrefab->Serialize();
+                    const auto        serializedText = newPrefab->Serialize();
+                    const std::string serialized     = serializedText ? serializedText.GetValue() : std::string();
                     const auto        written =
-                         Common::Utils::FileSystem::WriteContentToFileAtomic( fullPath, serialized );
+                         ( serializedText
+                                ? Common::Utils::FileSystem::WriteContentToFileAtomic( fullPath, serialized )
+                                : Common::MakeError<bool>( serializedText.GetError() ) );
                     if ( !written )
                     {
                         LOG_ERROR( "[Prefab] '{}' was NOT written: {} — the entity is unchanged and is "

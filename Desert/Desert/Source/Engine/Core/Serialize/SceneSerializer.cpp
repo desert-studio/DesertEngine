@@ -20,6 +20,8 @@
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include <Common/Core/Units.hpp>
+#include <Common/Content/CanonicalText.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 #include <cmath>
 #include <filesystem>
@@ -32,6 +34,25 @@ namespace Desert::Core
 {
     namespace
     {
+        // The entity's place among its siblings as the scene holds it: its position in the parent's
+        // Children, or - for a root - the running count of roots saved so far. The scene's root order IS
+        // its entity order, so the count is that order restated.
+        uint32_t SiblingIndexOf( const ECS::Entity& entity, uint32_t& nextRootIndex )
+        {
+            if ( entity.HasComponent<ECS::RelationshipComponent>() )
+            {
+                const entt::entity parent = entity.GetComponent<ECS::RelationshipComponent>().Parent;
+                if ( parent != entt::null )
+                {
+                    const auto& siblings =
+                         entity.GetRegistry()->get<ECS::RelationshipComponent>( parent ).Children;
+                    const auto found = std::find( siblings.begin(), siblings.end(), entity.GetHandle() );
+                    return static_cast<uint32_t>( found - siblings.begin() );
+                }
+            }
+            return nextRootIndex++;
+        }
+
         // "Is this key one an ENTITY RECORD's writer states whenever it has one?" — the meta members
         // EntitySerializer fills in, plus every component key the registry holds.
         //
@@ -168,9 +189,12 @@ namespace Desert::Core
     std::string SceneSerializer::SerializeToJson() const
     {
         SceneSerialized scene;
-        scene.SceneName    = m_Scene->GetSceneName();
-        scene.UnitVersion  = kUnitVersion;
-        scene.SceneVersion = kSceneVersion;
+        // The GUID survives the save (StampTextHeader keeps the loaded one); a scene that never had one gets
+        // it minted here, and remembers it, so the next save states the same identity.
+        scene.Header = Assets::StampTextHeader( m_Scene->GetAssetHeader(), Common::Content::ContentKind::Scene,
+                                                SceneTextSubsystems() );
+        m_Scene->SetAssetHeader( scene.Header );
+        scene.SceneName = m_Scene->GetSceneName();
 
         // Helper to check if any ancestor has a PrefabComponent
         auto isPrefabChild = [&]( ECS::Entity entity ) -> bool
@@ -192,6 +216,7 @@ namespace Desert::Core
             return false;
         };
 
+        uint32_t nextRootIndex = 0;
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
             if ( isPrefabChild( const_cast<ECS::Entity&>(entity) ) )
@@ -199,6 +224,7 @@ namespace Desert::Core
                 continue;
             }
             Assets::EntityData data = Serialize::EntitySerializer::SerializeEntity( entity, *m_AssetManager );
+            data.siblingIndex       = SiblingIndexOf( entity, nextRootIndex );
 
             // A PREFAB INSTANCE IS A LINK PLUS ITS DIFFERENCES, AND NOTHING ELSE.
             //
@@ -260,6 +286,16 @@ namespace Desert::Core
 
             scene.Entities.push_back( std::move( data ) );
         }
+
+        // Records sorted by id (scene v25): the file order is then a function of the SET of entities, not
+        // of the order they were created or last reparented in, so adding one entity changes only its own
+        // lines and the siblingIndex of its later siblings - never the position of every record after it.
+        std::stable_sort( scene.Entities.begin(), scene.Entities.end(),
+                          []( const Assets::EntityData& a, const Assets::EntityData& b )
+                          {
+                              return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
+                                     static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
+                          } );
 
         // Scene-wide settings via the generic reflection serializer (no hand-written mirror struct).
         //
@@ -336,6 +372,7 @@ namespace Desert::Core
         }
 
         const SceneSerialized scene = loadable.ExtractValue();
+        m_Scene->SetAssetHeader( scene.Header );
         phases.Lap( "parse the file into typed records (version gate)", scene.Entities.size() );
 
         LOG_INFO( "Loading scene: {0}", scene.SceneName );
@@ -534,14 +571,20 @@ namespace Desert::Core
         if ( phases != nullptr )
             phases->Lap( "create entities", plan.Created.size() );
 
-        // Pass 2 — deserialize normal entities and wire up hierarchy
-        for ( const auto& load : plan.Loads )
+        // Pass 2 — deserialize normal entities; their parent links are collected, and made after pass 3
+        std::vector<Rules::PendingAttach<ECS::Entity>> attaches;
+        for ( size_t slot = 0; slot < plan.Loads.size(); ++slot )
         {
+            const auto& load   = plan.Loads[slot];
             ECS::Entity entity = created[load.Target];
             Serialize::EntitySerializer::DeserializeEntity( records[load.Record], entity, *m_AssetManager );
 
+            // A root is an attach to no parent; a shadowed record's root is its target's, placed once.
             if ( load.Parent != Rules::kNoSlot )
-                m_Scene->Attach( created[load.Parent], entity );
+                attaches.push_back(
+                     { created[load.Parent], entity, Rules::SiblingIndexOf( records[load.Record] ) } );
+            else if ( load.Target == slot )
+                attaches.push_back( { ECS::Entity{}, entity, Rules::SiblingIndexOf( records[load.Record] ) } );
         }
         if ( phases != nullptr )
             phases->Lap( "deserialize components and attach", plan.Loads.size() );
@@ -611,16 +654,30 @@ namespace Desert::Core
             if ( entityData->id.has_value() && !entityData->id->IsNull() )
                 entityMap[*entityData->id] = prefabRoot;
 
-            // Attach to parent if one exists (e.g. prefab nested under a regular entity)
+            // Attach to parent if one exists (e.g. prefab nested under a regular entity); otherwise it is a
+            // root, and takes its place among the other roots in pass 4.
+            ECS::Entity parent;
             if ( entityData->parent.has_value() && !entityData->parent->IsNull() )
-            {
-                auto parentIt = entityMap.find( *entityData->parent );
-                if ( parentIt != entityMap.end() )
-                    m_Scene->Attach( parentIt->second, prefabRoot );
-            }
+                if ( const auto parentIt = entityMap.find( *entityData->parent ); parentIt != entityMap.end() )
+                    parent = parentIt->second;
+            attaches.push_back( { parent, prefabRoot, Rules::SiblingIndexOf( *entityData ) } );
         }
         if ( phases != nullptr )
             phases->Lap( "instantiate prefabs", plan.PrefabRecords.size() );
+
+        // Pass 4 — the hierarchy, every parent link at once in sibling order (Rules::OrderAttaches).
+        Rules::OrderAttaches( attaches );
+        std::vector<ECS::Entity> roots;
+        for ( const auto& attach : attaches )
+        {
+            if ( attach.Parent )
+                m_Scene->Attach( attach.Parent, attach.Child );
+            else
+                roots.push_back( attach.Child );
+        }
+        m_Scene->ArrangeRoots( roots );
+        if ( phases != nullptr )
+            phases->Lap( "attach in sibling order", attaches.size() );
 
         return BOOLSUCCESS;
     }
@@ -660,7 +717,13 @@ namespace Desert::Core
             return Common::MakeFormattedError( "could not save the landscape of '{}': {}", m_Scene->GetSceneName(),
                                                tiles.GetError() );
 
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, SerializeToJson() );
+        // The file is the canonical text (AF6), not rfl's single line: one field per line is what makes a
+        // scene's git diff name the fields that changed and two edits to different entities merge.
+        const auto text = Common::Content::CanonicalJsonText( SerializeToJson() );
+        if ( !text )
+            return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),
+                                               text.GetError() );
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, text.GetValue() );
              !written )
             return Common::MakeFormattedError( "could not write {}: {}", path.string(), written.GetError() );
 

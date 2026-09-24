@@ -1,11 +1,12 @@
 #include "EnvironmentBake.hpp"
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
 
-#include <Engine/Assets/CookedTexturePath.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
@@ -87,50 +88,30 @@ namespace Desert::Graphic
 
     std::filesystem::path EnvironmentBakePath( const uint64_t sourceSignature, const uint64_t bakeSignature )
     {
-        const uint64_t parts[2] = { sourceSignature, bakeSignature };
-        return Common::Constants::Path::COOKED_PATH / "EnvironmentCache" /
-               fmt::format( "{:016x}.tex", Fnv1a( parts, sizeof( parts ) ) );
+        // Payload = the panorama's own signature; setting = the cube's shape (which cube, size, mips).
+        constexpr Common::DDC::Deriver kEnvironmentDeriver{
+             "EnvironmentCache", ".tex", { 0x5e0b8d3712f4a6c9ULL, 0xe47a2c9150b3d68fULL } };
+        return Common::DDC::PathFor( kEnvironmentDeriver,
+                                     Common::DDC::MakeKey( kEnvironmentDeriver, sourceSignature, &bakeSignature,
+                                                           sizeof( bakeSignature ) ) );
     }
 
     Common::ResultStr<CookedPanorama> FindCookedPanorama( const std::filesystem::path& hdr )
     {
-        CookedPanorama panorama;
-        panorama.Path = Assets::CookedTexturePath( hdr, ".tex" );
-
-        auto prefix =
-             Common::Utils::FileSystem::ReadFileContentPrefix( panorama.Path, Ser::kTextureBinaryPrefixBytes );
-        if ( !prefix.IsSuccess() )
-        {
-            return Common::MakeFormattedError<CookedPanorama>(
-                 "'{}' has no cooked panorama at '{}' ({}). The source is cooked by the editor's texture "
-                 "pass; the runtime reads only the cooked form.",
-                 hdr.string(), panorama.Path.string(), prefix.GetError() );
-        }
-
-        // THE ONE-READ COMMON CASE, AND THE SECOND READ WHEN IT IS NOT. A metadata block longer than the
-        // prefix window (a very long source key) is legal; the header says how long it is.
-        const uint64_t needed = Ser::TextureBinaryMetadataBytes( prefix.GetValue() );
-        if ( needed > prefix.GetValue().size() )
-        {
-            prefix = Common::Utils::FileSystem::ReadFileContentPrefix( panorama.Path,
-                                                                       static_cast<std::size_t>( needed ) );
-            if ( !prefix.IsSuccess() )
-                return Common::MakeError<CookedPanorama>( prefix.GetError() );
-        }
-
-        const auto header = Ser::DecodeTextureHeader( prefix.GetValue(), panorama.Path.string() );
-        if ( !header.IsSuccess() )
-            return Common::MakeError<CookedPanorama>( header.GetError() );
-
+        // THE ASSET IS WHERE THE PANORAMA IS FOUND (AF3c). Its key (IMPT, or PAYL cooked) has the source hash,
+        // which is both the bake's key and the input of the panorama's own DDC entry; one prefix read.
+        const auto key = Assets::ReadTextureAssetKey( hdr );
+        if ( !key.IsSuccess() )
+            return Common::MakeFormattedError<CookedPanorama>( "the panorama asset cannot be read: {}",
+                                                               key.GetError() );
         // A ZERO SIGNATURE IS NOT A SIGNATURE. It is what the cache key would be built from, and a key
         // built from "unknown" would let every panorama that lacks one share a single cache entry.
-        if ( header.GetValue().SourceContentHash == 0 )
-        {
+        if ( key.GetValue().SourceHash == 0 )
             return Common::MakeFormattedError<CookedPanorama>(
-                 "the cooked panorama '{}' records no source signature, so its bake cannot be keyed.",
-                 panorama.Path.string() );
-        }
-        panorama.SourceSignature = header.GetValue().SourceContentHash;
+                 "the panorama asset '{}' records no source hash, so its bake cannot be keyed.", hdr.string() );
+        CookedPanorama panorama;
+        panorama.Path            = hdr;
+        panorama.SourceSignature = key.GetValue().SourceHash;
         return Common::MakeSuccess( std::move( panorama ) );
     }
 

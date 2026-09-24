@@ -119,6 +119,12 @@ namespace Common::Settings
 
         CloudQuality CloudQualityTier = CloudQuality::High;
 
+        // Where this machine keeps the DerivedDataCache (Common/Content/DerivedDataCache.hpp; UE's
+        // [DerivedDataBackendGraph] Path). Empty = <projectDir>/DerivedDataCache; relative = against the
+        // project directory; absolute = anywhere. Per machine because it is a question of which disk,
+        // and every entry under it is rebuildable, so pointing it at an empty directory costs time only.
+        std::string DerivedDataCachePath;
+
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN -------------------------------------------
         // NOT A SETTING AND NOT A KEY OF ITS OWN. rfl::ExtraFields is spread flat at this struct's own
         // level on write and captures every top-level key the fields above did not claim on read, so the

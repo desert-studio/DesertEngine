@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Common/Core/Constants.hpp>
-#include <Engine/Assets/CookedTexturePath.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -42,14 +41,6 @@ namespace Desert::Editor::CookPaths
         fs::path result = Common::Constants::Path::MESH_PATH_COOKED / rel;
         result.replace_extension( ext );
         return result;
-    }
-
-    // Source texture -> Cooked/Textures/<rel>.<ext>. THE FORMULA IS THE ENGINE'S
-    // (`Engine/Assets/CookedTexturePath.hpp`): the runtime has to find a cooked sky panorama from the
-    // `.hdr` name a SkyboxAsset holds, and two copies of this ladder are the drift this file exists to end.
-    inline std::filesystem::path CookedTexture( const std::filesystem::path& source, const std::string& ext )
-    {
-        return ::Desert::Assets::CookedTexturePath( source, ext );
     }
 
     // A MESH'S IDENTITY, WITH ITS DIRECTORY IN IT: the cooked path relative to Cooked/Meshes, extension

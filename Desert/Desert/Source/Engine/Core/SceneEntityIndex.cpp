@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <ranges>
+#include <unordered_set>
 
 namespace Desert::Core
 {
@@ -49,6 +50,36 @@ namespace Desert::Core
             return nullptr;
         const auto slot = m_SlotOf.find( byId->second );
         return slot == m_SlotOf.end() ? nullptr : &m_Entities[slot->second];
+    }
+
+    void SceneEntityIndex::Arrange( const std::vector<entt::entity>& order )
+    {
+        std::vector<std::size_t>        from;
+        std::unordered_set<std::size_t> seen;
+        from.reserve( order.size() );
+        for ( const entt::entity handle : order )
+            if ( const auto slot = m_SlotOf.find( handle );
+                 slot != m_SlotOf.end() && seen.insert( slot->second ).second )
+                from.push_back( slot->second );
+
+        std::vector<std::size_t> slots = from;
+        std::sort( slots.begin(), slots.end() );
+
+        std::vector<ECS::Entity>  entities;
+        std::vector<Common::UUID> ids;
+        entities.reserve( from.size() );
+        ids.reserve( from.size() );
+        for ( const std::size_t slot : from )
+        {
+            entities.push_back( m_Entities[slot] );
+            ids.push_back( m_Ids[slot] );
+        }
+        for ( std::size_t i = 0; i < from.size(); ++i )
+        {
+            m_Entities[slots[i]]              = entities[i];
+            m_Ids[slots[i]]                   = ids[i];
+            m_SlotOf[entities[i].GetHandle()] = slots[i];
+        }
     }
 
     void SceneEntityIndex::Clear()

@@ -60,6 +60,12 @@ namespace Desert::Core
 
         void Clear();
 
+        // Puts the listed entities in the listed order, each into one of the slots the listed entities
+        // occupy now - every other entity keeps its slot. The loader states the root order this way: a
+        // prefab root is created after every ordinary entity, so creation order alone put it after all
+        // ordinary roots. Handles this index does not hold, and repeats, are skipped. O(k log k).
+        void Arrange( const std::vector<entt::entity>& order );
+
     private:
         // Parallel to m_Entities: the UUID each slot was added under, so a swap can re-point the moved
         // entity's lookup without asking the registry for its UUIDComponent.

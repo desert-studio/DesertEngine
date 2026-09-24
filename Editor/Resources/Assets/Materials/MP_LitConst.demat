@@ -1,1 +1,13 @@
-{"ShaderName":"MatLitConst","Params":[],"Textures":[],"MaterialId":6666666666666666666}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "5fd4737b3cc218b5bc0ecceccd3664ca",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "ShaderName": "MatLitConst",
+    "Params": [],
+    "Textures": []
+}

@@ -28,8 +28,8 @@ namespace Desert::Assets
     // numbers, so a file missing one was written by something older (every pre-Д28 build, in this case).
     [[nodiscard]] inline bool PrefabIsAtCurrentVersion( const PrefabData& prefab )
     {
-        return prefab.SceneVersion.value_or( 0 ) == Core::kSceneVersion &&
-               prefab.UnitVersion.value_or( 0 ) == Core::kUnitVersion;
+        return StatedVersion( prefab.Header, kSceneSchemaTag ) == Core::kSceneVersion &&
+               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion;
     }
 
     // The refusal, as a string: which file, what it is, what this engine needs, and the exact command
@@ -50,6 +50,6 @@ namespace Desert::Assets
     // PrefabAsset::Serialize goes through here, and so does anything else that ever writes a prefab, so
     // "what the saver writes" and "what the gate accepts" meet in a single function a test can hold
     // together: WritePrefabJson(tree) must always satisfy ParseLoadablePrefab.
-    [[nodiscard]] std::string WritePrefabJson( PrefabData prefab );
+    [[nodiscard]] Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab );
 
 } // namespace Desert::Assets

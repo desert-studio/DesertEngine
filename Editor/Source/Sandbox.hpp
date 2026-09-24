@@ -13,7 +13,6 @@
 #include <Engine/Project/StartupLayout.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashScreen.hpp>
-#include <Engine/Assets/CookedTexturePath.hpp>
 #include <Common/Core/Version.hpp>
 
 #include <Common/Core/Logger.hpp>

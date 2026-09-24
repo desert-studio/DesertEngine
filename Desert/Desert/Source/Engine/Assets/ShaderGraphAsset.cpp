@@ -1,4 +1,5 @@
 #include <Engine/Assets/ShaderGraphAsset.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -83,7 +84,7 @@ namespace Desert::Assets
 
         // Atomic, for SaveControlRigFile's reason: a failed write must not cost the author the graph they
         // already had on disk.
-        if ( const auto ok = Common::Utils::FileSystem::WriteContentToFileAtomic(
+        if ( const auto ok = Common::Content::WriteCanonicalJsonFileAtomic(
                   filepath, Serialization::ShaderGraph::Serialize( doc ) );
              !ok )
         {

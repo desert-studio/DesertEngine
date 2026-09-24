@@ -1,4 +1,6 @@
 #include "SceneMigration.hpp"
+#include <unordered_map>
+#include <unordered_set>
 
 // The graph model and its JSON round trip, for the v20 -> v21 step: the blob it moves out of the entity
 // IS this type serialized, so reading it with anything else would be a second statement of the format.
@@ -19,6 +21,7 @@
 #include <Engine/Assets/CloudTypeData.hpp>
 
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -1813,6 +1816,177 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // `cooked:Textures/<p>.tex` -> `assets:Textures/<p>.detex`; nullopt for any other string.
+        std::optional<std::string> TextureAssetRefFor( const std::string& text )
+        {
+            constexpr std::string_view kOldPrefix = "cooked:Textures/";
+            constexpr std::string_view kOldExt    = ".tex";
+            if ( text.size() <= kOldPrefix.size() + kOldExt.size() || !text.starts_with( kOldPrefix ) ||
+                 !text.ends_with( kOldExt ) )
+                return std::nullopt;
+            const std::string middle =
+                 text.substr( kOldPrefix.size(), text.size() - kOldPrefix.size() - kOldExt.size() );
+            return "assets:Textures/" + middle + ".detex";
+        }
+
+        // Rewrites every matching string under @p value, at any depth. Returns true when anything changed;
+        // @p where is the dotted field path the report names.
+        bool RewriteTextureRefs( rfl::Generic& value, const std::string& where,
+                                 const std::filesystem::path& assetsRoot, TextureAssetRefsMigrationReport& report )
+        {
+            if ( const auto text = value.to_string(); text.has_value() )
+            {
+                const auto rewritten = TextureAssetRefFor( text.value() );
+                if ( !rewritten.has_value() )
+                    return false;
+                const std::string name = where + " = " + rewritten.value();
+                report.Rewritten += 1;
+                report.RewrittenNames.push_back( name );
+                std::error_code ec;
+                const auto      relative = rewritten->substr( std::string_view( "assets:" ).size() );
+                if ( !std::filesystem::is_regular_file( assetsRoot / relative, ec ) )
+                    report.MissingNames.push_back( name );
+                value = rfl::Generic( rewritten.value() );
+                return true;
+            }
+            if ( const auto fields = value.to_object(); fields.has_value() )
+            {
+                // Rebuilt rather than edited in place: rfl::Object has no in-place assignment through its
+                // iterators (the same reason every step above rebuilds).
+                rfl::Generic::Object kept;
+                bool                 changed = false;
+                for ( const auto& [key, child] : fields.value() )
+                {
+                    rfl::Generic copy = child;
+                    changed |= RewriteTextureRefs( copy, where + "." + key, assetsRoot, report );
+                    kept[key] = std::move( copy );
+                }
+                if ( changed )
+                    value = rfl::Generic( std::move( kept ) );
+                return changed;
+            }
+            if ( const auto items = value.to_array(); items.has_value() )
+            {
+                rfl::Generic::Array kept;
+                bool                changed = false;
+                for ( size_t i = 0; i < items.value().size(); ++i )
+                {
+                    rfl::Generic copy = items.value()[i];
+                    changed |=
+                         RewriteTextureRefs( copy, where + "[" + std::to_string( i ) + "]", assetsRoot, report );
+                    kept.push_back( std::move( copy ) );
+                }
+                if ( changed )
+                    value = rfl::Generic( std::move( kept ) );
+                return changed;
+            }
+            return false;
+        }
+    } // namespace
+
+    MaterialGuidsMigrationReport MigrateMaterialGuidsV26ToV27( std::vector<Assets::EntityData>& entities,
+                                                               const LegacyMaterialIdMap&       legacyIds )
+    {
+        // The three components whose payload states material slots by `MaterialGuids` (PrefabData.hpp).
+        static constexpr auto kSlotComponents =
+             std::to_array<const char*>( { "StaticMesh", "SkinnedMesh", "InstancedStaticMesh" } );
+
+        MaterialGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            for ( const char* component : kSlotComponents )
+            {
+                const auto payload = entity.Components.get( component );
+                if ( !payload.has_value() )
+                    continue;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                const auto slots = fields.value().get( "MaterialGuids" );
+                if ( !slots.has_value() )
+                    continue;
+                const auto rows = slots.value().to_array();
+                if ( !rows.has_value() )
+                {
+                    report.UnknownNames.push_back( tag + " > " + component + ".MaterialGuids is " +
+                                                   Describe( slots.value() ) + ", not an array" );
+                    continue;
+                }
+
+                rfl::Generic::Array rewritten;
+                bool                changed = false;
+                for ( size_t i = 0; i < rows.value().size(); ++i )
+                {
+                    const rfl::Generic& row = rows.value()[i];
+                    const std::string   site =
+                         tag + " > " + component + ".MaterialGuids[" + std::to_string( i ) + "]";
+                    const auto id = row.to_int64();
+                    if ( !id.has_value() )
+                    {
+                        report.UnknownNames.push_back( site + " is " + Describe( row ) +
+                                                       ", not an old material id" );
+                        rewritten.push_back( row );
+                        continue;
+                    }
+                    changed = true;
+                    // The writer stored the u64 through a signed JSON integer; the register keys the u64.
+                    const auto oldId = static_cast<uint64_t>( id.value() );
+                    if ( oldId == 0 )
+                    {
+                        ++report.Emptied;
+                        rewritten.push_back( rfl::Generic( std::string() ) );
+                        continue;
+                    }
+                    const auto at = legacyIds.find( oldId );
+                    if ( at == legacyIds.end() )
+                    {
+                        report.UnknownNames.push_back( site + " = " + std::to_string( oldId ) );
+                        rewritten.push_back( row );
+                        continue;
+                    }
+                    ++report.Rewritten;
+                    rewritten.push_back( rfl::Generic( Common::Content::AssetGuidToText( at->second ) ) );
+                }
+                if ( !changed )
+                    continue;
+
+                rfl::Generic::Object kept;
+                for ( const auto& [key, value] : fields.value() )
+                    kept[key] = key == "MaterialGuids" ? rfl::Generic( std::move( rewritten ) ) : value;
+                entity.Components[component] = rfl::Generic( std::move( kept ) );
+            }
+        }
+        return report;
+    }
+
+    TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
+                                                                     std::vector<Assets::EntityData>& entities,
+                                                                     const std::filesystem::path&     assetsRoot )
+    {
+        TextureAssetRefsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag  = entity.Tag.value_or( "Entity" );
+            auto              kept = entity.Components;
+            kept.clear();
+            bool changed = false;
+            for ( const auto& [component, payload] : entity.Components )
+            {
+                rfl::Generic copy = payload;
+                changed |= RewriteTextureRefs( copy, tag + " > " + component, assetsRoot, report );
+                kept[component] = std::move( copy );
+            }
+            if ( changed )
+                entity.Components = std::move( kept );
+        }
+        if ( settings.has_value() )
+            RewriteTextureRefs( settings.value(), "Settings", assetsRoot, report );
+        return report;
+    }
+
     TextKeySigilMigrationReport MigrateTextKeySigilV18ToV19( std::vector<Assets::EntityData>& entities )
     {
         // WHERE AN AUTHORED, READER-FACING STRING CAN SIT IN A .desce. Four rows, and the set is the
@@ -2599,11 +2773,12 @@ namespace Desert::Migration
             const std::string suffix  = cloudEntityIndex > 1 ? "_" + std::to_string( cloudEntityIndex ) : "";
             const std::string relPath = "Materials/M_" + base + "_Clouds" + suffix + ".demat";
 
-            // DERIVED, NOT GENERATED: the MaterialId is the FNV of the file's own relative path, so two
-            // runs of this migration produce byte-identical files and byte-identical scenes - which is
-            // what lets the suite pin the output and the repository diff show only real change.
-            material.MaterialId = ::Common::UUID(
-                 static_cast<uint64_t>( ::Common::AssetHandle::FromKey( "cloudmat:" + relPath ) ) );
+            // DERIVED, NOT GENERATED: the GUID comes from the file's own relative path, so two runs of this
+            // migration produce byte-identical files and byte-identical scenes - which is what lets the
+            // suite pin the output and the repository diff show only real change.
+            material.Header = ::Common::Content::MakeTextHeader( ::Common::Content::ContentKind::Material,
+                                                                 MigrationGuidForPath( "cloudmat:" + relPath ),
+                                                                 ::Desert::Assets::MaterialTextSubsystems() );
 
             kept["Material"] = rfl::Generic( relPath );
 
@@ -2620,7 +2795,22 @@ namespace Desert::Migration
             // tool twice.
             MigrateCloudMaterialAlbedoToColour( material );
 
-            report.Materials.push_back( { relPath, rfl::json::write( material ) } );
+            // The one .demat writer (MaterialFormat.hpp), so the file opens with its text header like every
+            // other material. Its GUID is the migration's, keyed on the path under the assets root - the same
+            // derivation step 26 gives a headerless file - so re-running the tool writes the same bytes.
+            material.Header = Assets::StampTextHeader(
+                 Common::Content::TextAssetHeaderSerialized{
+                      .Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relPath ) ) },
+                 Common::Content::ContentKind::Material, Assets::MaterialTextSubsystems() );
+            auto text = Assets::WriteMaterialJson( material );
+            if ( !text )
+            {
+                report.Rejected += 1;
+                report.RejectedNames.push_back( relPath + ": the material could not be written - " +
+                                                text.GetError() );
+                continue;
+            }
+            report.Materials.push_back( { relPath, std::move( text.GetValue() ) } );
 
             entity.Components["VolumetricCloud"] = rfl::Generic( std::move( kept ) );
             report.Entities += 1;
@@ -3105,7 +3295,7 @@ namespace Desert::Migration
         void RunSteps( std::vector<Assets::EntityData>& entities, std::optional<rfl::Generic>* settings,
                        const std::string& name, int statedSceneVersion, int statedUnitVersion,
                        const std::filesystem::path& assetsRoot, const std::filesystem::path& sourceFile,
-                       FileMigrationReport& report )
+                       const LegacyMaterialIdMap& legacyIds, FileMigrationReport& report )
         {
             // Stands in for the block a prefab does not have. Never read back by the caller: the two
             // steps below that take it are both guarded on has_value(), so an absent block is a no-op
@@ -3304,6 +3494,32 @@ namespace Desert::Migration
                 report.ProceduralTerrain = MigrateProceduralTerrainV22ToV23( entities, sourceFile, assetsRoot );
             }
 
+            // Rewrites string VALUES only, never keys, and no step above writes a `cooked:Textures/` value, so
+            // nothing depends on its place in the chain; before the retirement pass, like every other step.
+            if ( statedSceneVersion < kSceneVersionTextureAssetRefs )
+            {
+                report.TextureAssetRefsRaised = true;
+                report.TextureAssetRefs = MigrateTextureAssetRefsV23ToV24( settingsRef, entities, assetsRoot );
+            }
+
+            // Rewrites array VALUES under three component keys; no step above writes MaterialGuids.
+            if ( statedSceneVersion < kSceneVersionMaterialGuids )
+            {
+                report.MaterialGuidsRaised = true;
+                report.MaterialGuids       = MigrateMaterialGuidsV26ToV27( entities, legacyIds );
+                if ( !report.MaterialGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.MaterialGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.MaterialGuids.UnknownNames.size() ) +
+                         " material slot(s) state an old material id the register " +
+                         kLegacyMaterialIdRegisterName + " does not know: " + names + ". Nothing was written.";
+                    return;
+                }
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;
@@ -3323,13 +3539,118 @@ namespace Desert::Migration
         }
     } // namespace
 
+    SiblingOrderMigrationReport MigrateSiblingOrderV24ToV25( std::vector<Assets::EntityData>& entities )
+    {
+        SiblingOrderMigrationReport report;
+
+        // Which ids the v24 loader could attach to in pass 2: non-prefab records only (a prefab record's
+        // entity did not exist yet). Pass 3 also resolved parents among prefab roots made before it.
+        std::unordered_set<uint64_t> normalIds;
+        for ( const auto& record : entities )
+            if ( !record.PrefabPath.has_value() && record.id.has_value() )
+                normalIds.insert( static_cast<uint64_t>( *record.id ) );
+
+        constexpr uint64_t                     kRoot = 0;
+        std::unordered_map<uint64_t, uint32_t> next; // parent id (kRoot for roots) -> next index
+        std::unordered_set<uint64_t>           madePrefabs;
+        const auto                             stamp = [&]( Assets::EntityData& record, bool resolves )
+        {
+            const bool hasParent = record.parent.has_value() && !record.parent->IsNull() && resolves;
+            record.siblingIndex  = next[hasParent ? static_cast<uint64_t>( *record.parent ) : kRoot]++;
+            ++report.Indexed;
+        };
+        for ( auto& record : entities )
+            if ( !record.PrefabPath.has_value() )
+                stamp( record, record.parent.has_value() &&
+                                    normalIds.contains( static_cast<uint64_t>( *record.parent ) ) );
+        for ( auto& record : entities )
+        {
+            if ( !record.PrefabPath.has_value() )
+                continue;
+            const bool resolves =
+                 record.parent.has_value() && ( normalIds.contains( static_cast<uint64_t>( *record.parent ) ) ||
+                                                madePrefabs.contains( static_cast<uint64_t>( *record.parent ) ) );
+            stamp( record, resolves );
+            if ( record.id.has_value() )
+                madePrefabs.insert( static_cast<uint64_t>( *record.id ) );
+        }
+
+        std::vector<uint64_t> before;
+        before.reserve( entities.size() );
+        for ( const auto& record : entities )
+            before.push_back( static_cast<uint64_t>( record.id.value_or( Common::UUID( 0 ) ) ) );
+        std::stable_sort( entities.begin(), entities.end(),
+                          []( const Assets::EntityData& a, const Assets::EntityData& b )
+                          {
+                              return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
+                                     static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
+                          } );
+        for ( size_t i = 0; i < entities.size(); ++i )
+            if ( before[i] != static_cast<uint64_t>( entities[i].id.value_or( Common::UUID( 0 ) ) ) )
+                ++report.Reordered;
+        return report;
+    }
+
+    namespace
+    {
+        // FNV-1a, 64 bit. Chosen for being specified in four lines and identical on every platform and
+        // compiler - the GUID it feeds is written into files and must not depend on a library's version.
+        uint64_t Fnv1a64( std::string_view bytes, uint64_t basis )
+        {
+            uint64_t hash = basis;
+            for ( const char c : bytes )
+            {
+                hash ^= static_cast<uint8_t>( c );
+                hash *= 0x100000001b3ull;
+            }
+            return hash;
+        }
+    } // namespace
+
+    Common::Content::AssetGuid MigrationGuidForPath( const std::filesystem::path& relativeToContentRoot )
+    {
+        const std::string          key = relativeToContentRoot.generic_string();
+        Common::Content::AssetGuid guid;
+        guid.Hi = Fnv1a64( key, 0xcbf29ce484222325ull );
+        guid.Lo = Fnv1a64( key, 0x84222325cbf29ce4ull );
+        if ( guid.IsNull() )
+            guid.Lo = 1;
+        return guid;
+    }
+
+    namespace
+    {
+        // The v26 header a migrated file leaves with: its own GUID when it already states one, else the
+        // migration's (MigrationGuidForPath, keyed on the path under the content root). A tree built in
+        // memory has no path to key on, so it is a new asset and gets a fresh GUID, as a new file would.
+        Common::Content::TextAssetHeaderSerialized
+        MigrationHeader( const std::optional<Common::Content::TextAssetHeaderSerialized>& stated,
+                         Common::Content::ContentKind kind, const std::filesystem::path& assetsRoot,
+                         const std::filesystem::path& sourceFile )
+        {
+            Common::Content::AssetGuid guid;
+            if ( stated )
+                if ( const auto parsed = Common::Content::AssetGuidFromText( stated->Guid ); parsed )
+                    guid = parsed.GetValue();
+            if ( guid.IsNull() )
+                guid = sourceFile.empty() ? Common::Content::AssetGuid::Generate()
+                                          : MigrationGuidForPath( sourceFile.lexically_relative( assetsRoot ) );
+            return Common::Content::MakeTextHeader( kind, guid, Core::SceneTextSubsystems() );
+        }
+    } // namespace
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
-                                      const std::filesystem::path& sourceFile )
+                                      const std::filesystem::path& sourceFile,
+                                      const LegacyMaterialIdMap&   legacyIds )
     {
         FileMigrationReport report;
 
-        const int statedSceneVersion = scene.SceneVersion.value_or( 0 );
-        const int statedUnitVersion  = scene.UnitVersion.value_or( 0 );
+        // Since v26 the header states the generations; before it, the two top-level integers did.
+        const int statedSceneVersion = scene.Header
+                                            ? Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag )
+                                            : scene.SceneVersion.value_or( 0 );
+        const int statedUnitVersion  = scene.Header ? Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag )
+                                                    : scene.UnitVersion.value_or( 0 );
 
         // A file from a LATER build is refused, not stamped down. Every gate in RunSteps is
         // `stated < step`, so a v18 tree matched no step and fell through to the unconditional stamp
@@ -3346,24 +3667,48 @@ namespace Desert::Migration
         }
 
         RunSteps( scene.Entities, &scene.Settings, scene.SceneName, statedSceneVersion, statedUnitVersion,
-                  assetsRoot, sourceFile, report );
+                  assetsRoot, sourceFile, legacyIds, report );
+        if ( !report.Refused.empty() )
+            return report; // unstamped: the file is FAILED by every caller and written by none
+
+        // Scene-only, so outside RunSteps (which prefabs share): a prefab keeps its records in hierarchy
+        // order. After every entity-level step, because it reorders the records those steps walk.
+        if ( statedSceneVersion < kSceneVersionSiblingOrder )
+        {
+            report.SiblingOrderRaised = true;
+            report.SiblingOrder       = MigrateSiblingOrderV24ToV25( scene.Entities );
+        }
 
         // Stamped whether or not anything moved: an empty scene at version 0 is still a scene at version 0,
         // and leaving it unstamped is how every load ends up re-running a migration that already happened.
-        scene.SceneVersion = kSceneVersion;
-        scene.UnitVersion  = kUnitVersion;
+        if ( statedSceneVersion < kSceneVersionTextHeader )
+            report.TextHeaderRaised = true;
+        scene.Header =
+             MigrationHeader( scene.Header, Common::Content::ContentKind::Scene, assetsRoot, sourceFile );
+        scene.SceneVersion = std::nullopt;
+        scene.UnitVersion  = std::nullopt;
 
         return report;
     }
 
-    PrefabMigrationOutcome MigratePrefab( Assets::PrefabData& prefab, const std::filesystem::path& assetsRoot,
-                                          const std::filesystem::path& sourceFile )
+    PrefabMigrationOutcome MigratePrefab( PrefabData& prefab, const std::filesystem::path& assetsRoot,
+                                          const std::filesystem::path& sourceFile,
+                                          const LegacyMaterialIdMap&   legacyIds )
     {
         PrefabMigrationOutcome outcome;
-        outcome.FoundSceneVersion = prefab.SceneVersion.value_or( 0 );
-        outcome.FoundUnitVersion  = prefab.UnitVersion.value_or( 0 );
+        outcome.FoundSceneVersion = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kSceneSchemaTag )
+                                                  : prefab.SceneVersion.value_or( 0 );
+        outcome.FoundUnitVersion  = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kUnitSchemaTag )
+                                                  : prefab.UnitVersion.value_or( 0 );
+        const auto stamp          = [&]()
+        {
+            prefab.Header =
+                 MigrationHeader( prefab.Header, Common::Content::ContentKind::Prefab, assetsRoot, sourceFile );
+            prefab.SceneVersion = std::nullopt;
+            prefab.UnitVersion  = std::nullopt;
+        };
 
-        if ( Assets::PrefabIsAtCurrentVersion( prefab ) )
+        if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -3382,9 +3727,8 @@ namespace Desert::Migration
         // and unit steps are not safe to re-run.
         if ( outcome.FoundSceneVersion == 0 && outcome.FoundUnitVersion == 0 )
         {
-            prefab.SceneVersion = kSceneVersion;
-            prefab.UnitVersion  = kUnitVersion;
-            outcome.StampOnly   = true;
+            stamp();
+            outcome.StampOnly = true;
             return outcome;
         }
 
@@ -3402,10 +3746,14 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, nullptr, prefab.Name, outcome.FoundSceneVersion, outcome.FoundUnitVersion,
-                  assetsRoot, sourceFile, outcome.Steps );
+                  assetsRoot, sourceFile, legacyIds, outcome.Steps );
+        if ( !outcome.Steps.Refused.empty() )
+        {
+            outcome.Refused = outcome.Steps.Refused;
+            return outcome;
+        }
 
-        prefab.SceneVersion = kSceneVersion;
-        prefab.UnitVersion  = kUnitVersion;
+        stamp();
 
         return outcome;
     }

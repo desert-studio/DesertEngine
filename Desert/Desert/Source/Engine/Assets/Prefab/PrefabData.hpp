@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
@@ -29,7 +31,7 @@ namespace Desert::Assets
         std::optional<std::string>                  MeshPath;
         std::optional<uint64_t>                     MeshGuid;
         std::optional<std::vector<std::string>>     MaterialPaths;
-        std::optional<std::vector<uint64_t>>        MaterialGuids;
+        std::optional<std::vector<std::string>>     MaterialGuids; // material header GUID text (SCNE 27)
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
@@ -48,7 +50,7 @@ namespace Desert::Assets
         std::optional<std::string>              MeshPath;
         std::optional<uint64_t>                 MeshGuid;
         std::optional<std::vector<std::string>> MaterialPaths;
-        std::optional<std::vector<uint64_t>>    MaterialGuids;
+        std::optional<std::vector<std::string>> MaterialGuids; // material header GUID text (SCNE 27)
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         // Written only when false, like the static twin's flag above.
         std::optional<bool> CastShadows;
@@ -69,7 +71,7 @@ namespace Desert::Assets
         std::optional<std::string>                       MeshPath;
         std::optional<uint64_t>                           MeshGuid;
         std::optional<std::vector<std::string>>          MaterialPaths;
-        std::optional<std::vector<uint64_t>>              MaterialGuids;
+        std::optional<std::vector<std::string>>           MaterialGuids; // material header GUID text (SCNE 27)
         std::optional<Geometry::PrimitiveType>           Primitive;
         std::optional<std::vector<std::array<float, 16>>> InstanceTransforms;
         // Absent = component default (true), and written only when false — the same shape the static
@@ -214,6 +216,13 @@ namespace Desert::Assets
         std::optional<Common::UUID> id;
         std::optional<Common::UUID> parent;
 
+        // Where this entity stands among its siblings (same `parent`, or the scene's roots when absent).
+        // Since scene v25 a .desce lists its records sorted by id, so the file order no longer says
+        // anything and a child's place under its parent has to be stated. It is a SORT KEY, not a dense
+        // slot: the loader orders siblings by it, ties falling back to file order. Written by the scene
+        // saver only; a .deprefab keeps its records in hierarchy order and does not state it.
+        std::optional<uint32_t> siblingIndex;
+
         std::optional<std::string> PrefabPath;
 
         std::optional<std::string> Tag;
@@ -241,21 +250,11 @@ namespace Desert::Assets
 
     struct PrefabData
     {
-        std::string             Name;
-        std::vector<EntityData> Entities;
-        Common::UUID            Root;
-
-        // THE SAME TWO GENERATION INTEGERS A .desce CARRIES, deliberately not a third numbering scheme: a
-        // prefab's payload is the scene's own EntityData, written by the same ComponentRegistry, so a
-        // schema step that moves Core::kSceneVersion moves this file's format with it whether anyone
-        // remembered prefabs or not. Before Д28 nothing here said which generation a .deprefab was — a
-        // format change broke prefabs silently and the user's load was where it surfaced (the crash Ф1
-        // fixed was this class of defect). The saver stamps both (WritePrefabJson), the loader requires
-        // both (ParseLoadablePrefab in PrefabFormat.hpp), and Tools/SceneMigrator converts anything else.
-        //
-        // Optional so an OLD file still PARSES - into a tree the gate then refuses BY NAME instead of a
-        // read error. Absent = version 0, not "current" (see PrefabIsAtCurrentVersion).
-        std::optional<int> SceneVersion;
-        std::optional<int> UnitVersion;
+        // First member: the header (Common/Content/TextAssetHeader.hpp) - the prefab's GUID and the two
+        // generations it states (SCNE, UNIT); since scene v26 nowhere else.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               Name;
+        std::vector<EntityData>                                   Entities;
+        Common::UUID                                              Root;
     };
 } // namespace Desert::Assets

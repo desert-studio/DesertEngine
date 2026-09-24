@@ -67,6 +67,10 @@ namespace Common::Content
         AnimGraph,
         Retarget,
         StringTable,
+        WorldCell,
+        WorldIndex,
+        Scene,
+        Prefab,
         COUNT,
     };
 
@@ -96,11 +100,17 @@ namespace Common::Content
              /* SkinnedMesh          */ { "SkinnedMesh", E::SKINNED_MESH, &P::MESH_PATH_COOKED },
              /* Skeleton             */ { "Skeleton", ".skeleton", &P::MESH_PATH_COOKED },
              /* Animation            */ { "Animation", ".anim", &P::MESH_PATH_COOKED },
-             /* Texture              */ { "Texture", ".tex", &P::TEXTURE_PATH_COOKED },
+             // Texture assets (.detex, AF3) sit anywhere under the assets root -- loose, beside a mesh, in a
+             // pack -- and the Skybox root nests inside it: the two kinds share an extension and are told
+             // apart by the longest root that contains the file (ContentScan's KindOfContentFile).
+             // NOT A TEXTURE: the painted cloud masks (Clouds/Layouts/*.png) stay plain PNGs, because a
+             // .dclayout reads their texels on the CPU at bake time (CloudLayoutAsset) -- they are the
+             // layout's source data, never sampled on the GPU, so there is no platform data to derive.
+             /* Texture              */ { "Texture", ".detex", &P::ASSETS_PATH },
              // Materials are editable CONTENT (the project's Materials/ dir): imported per-mesh
              // subfolders and editor-created files both land there, in the unified .demat format.
              /* Material             */ { "Material", E::MATERIAL_EXTENSION, &P::MATERIAL_PATH },
-             /* Skybox               */ { "Skybox", ".hdr", &P::SKYBOX_PATH },
+             /* Skybox               */ { "Skybox", ".detex", &P::SKYBOX_PATH },
              /* Shader               */ { "Shader", ".shader", &P::SHADERDIR_PATH },
              // The four cloud kinds. CloudNoiseVolume's root is `Clouds/` itself, which CONTAINS the
              // other three roots — that is not a mistake to tidy up: the extension is what separates
@@ -114,6 +124,15 @@ namespace Common::Content
              /* AnimGraph            */ { "AnimGraph", ".danimgraph", &P::ANIM_GRAPH_PATH },
              /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH },
              /* StringTable          */ { "StringTable", ".destrings", &P::LOCALIZATION_PATH },
+             // A partitioned world's cooked cells and its index (WP8, in the AF1 envelope since AF2) sit beside
+             // their scene, in `Worlds/X.dwworld/` (WorldCells::CookedWorldDirectory). Derived by the cook and
+             // never committed; the extensions are WorldCells' kCellExtension and kIndexFileName's, which the
+             // WorldCells suite holds equal to these.
+             /* WorldCell            */ { "WorldCell", ".dwcell", &P::SCENE_PATH },
+             /* WorldIndex           */ { "WorldIndex", ".dwindex", &P::SCENE_PATH },
+             // Scenes and prefabs are assets with an identity (AF6f): their text header names this kind.
+             /* Scene                */ { "Scene", E::SCENE_EXTENSION, &P::SCENE_PATH },
+             /* Prefab               */ { "Prefab", E::PREFAB_EXTENSION, &P::PREFAB_PATH },
         } };
     }
 

@@ -1,0 +1,468 @@
+{
+    "Ids": [
+        {
+            "MaterialId": 146708463336532908,
+            "Guid": "de518e10f039e575641d5feae38ae860"
+        },
+        {
+            "MaterialId": 168946661492082814,
+            "Guid": "29ae4a94857a92450f49defa33cc0104"
+        },
+        {
+            "MaterialId": 185005164894481170,
+            "Guid": "f8e0ca8759ab3f1ba120daddde4a6784"
+        },
+        {
+            "MaterialId": 308002897746384934,
+            "Guid": "91bde2ac45c15dd230d961a447b6fba7"
+        },
+        {
+            "MaterialId": 635350962481253399,
+            "Guid": "d503fe0bf901bc360e97b3365b937d53"
+        },
+        {
+            "MaterialId": 689279296889386280,
+            "Guid": "e6cd7605b9a661dfac83684e99091c44"
+        },
+        {
+            "MaterialId": 746170824497437242,
+            "Guid": "1a32f84f685d2419e52642eed0ce8936"
+        },
+        {
+            "MaterialId": 1008377614206981607,
+            "Guid": "c98ffe0750adbafe16f2b147ca5a8dcf"
+        },
+        {
+            "MaterialId": 1008377614206982001,
+            "Guid": "c2407e5571ff7898af741eafd1abdfeb"
+        },
+        {
+            "MaterialId": 1008377614206982002,
+            "Guid": "239102b0b0735153c9b59f5e6558ca50"
+        },
+        {
+            "MaterialId": 1111111111111111111,
+            "Guid": "358bc9f1414d0b0477ba9f42f026b305"
+        },
+        {
+            "MaterialId": 1206172861606969181,
+            "Guid": "7d1d48e58a3c4cbf04868ea516630b72"
+        },
+        {
+            "MaterialId": 1569209127309681324,
+            "Guid": "6336872c8642f7daeea018f4449c1529"
+        },
+        {
+            "MaterialId": 1798724501947826027,
+            "Guid": "9bcfcb99bc5c63b4b9ff2fa7eeba98ff"
+        },
+        {
+            "MaterialId": 1820073035653820619,
+            "Guid": "8c72c9c7c64d1367398b8af70ba59284"
+        },
+        {
+            "MaterialId": 2222222222222222222,
+            "Guid": "3a694efc0e834f76822205c934681465"
+        },
+        {
+            "MaterialId": 2605842999670143031,
+            "Guid": "732b2b6a48f6b68a5c5ab22f00719633"
+        },
+        {
+            "MaterialId": 2697848050202282720,
+            "Guid": "ecc7b35b1ec5b3eb2698dca7d5e20394"
+        },
+        {
+            "MaterialId": 2782200551559291929,
+            "Guid": "33e572a04c3edf8ed3d872e10230a97b"
+        },
+        {
+            "MaterialId": 2784048508007158418,
+            "Guid": "67453cc93d54de259726f17c6cf70536"
+        },
+        {
+            "MaterialId": 2985334364344323355,
+            "Guid": "b33524f57b8f411039fb457c1c34be51"
+        },
+        {
+            "MaterialId": 3209575480641023076,
+            "Guid": "54b3a3ffe67f4531c60b825dc61546bc"
+        },
+        {
+            "MaterialId": 3333333333333333333,
+            "Guid": "9c738945524d749f06c5277c4a444df2"
+        },
+        {
+            "MaterialId": 3436368975138753644,
+            "Guid": "a4b66e17d0a34557c73e89c23a46b9f8"
+        },
+        {
+            "MaterialId": 4015749061921348516,
+            "Guid": "e71ff67b2d1649e6d2787be69933b7d5"
+        },
+        {
+            "MaterialId": 4026564876139847258,
+            "Guid": "b272c29047a884c02a065b782ae62ea5"
+        },
+        {
+            "MaterialId": 4316528567473605322,
+            "Guid": "233fe010a6e0a0733c4421444278402e"
+        },
+        {
+            "MaterialId": 4402289808675898575,
+            "Guid": "57e7e6f3c502e037510d53219f9af5ae"
+        },
+        {
+            "MaterialId": 4440232585812034214,
+            "Guid": "fe4a2d8222fbf1bfbbfffd40cc0959ca"
+        },
+        {
+            "MaterialId": 4444444444444444444,
+            "Guid": "5d471f9abf28a145fb71c73153860d68"
+        },
+        {
+            "MaterialId": 4689765669016845411,
+            "Guid": "a849328dedac15852ea59eb6cc7e4176"
+        },
+        {
+            "MaterialId": 4958558474483748124,
+            "Guid": "a507de677ab8496c6c8ff4347bdb67e1"
+        },
+        {
+            "MaterialId": 4962362590980231166,
+            "Guid": "aa2ce453d12bada6ca43a5b196a72963"
+        },
+        {
+            "MaterialId": 4994474392029279885,
+            "Guid": "cebb6ddd2efdb6371532f037d7700bcc"
+        },
+        {
+            "MaterialId": 5555555555555555555,
+            "Guid": "6969dc1f8d457806e5cf208867250443"
+        },
+        {
+            "MaterialId": 5598007435876741661,
+            "Guid": "07a3b038dfec80e024d28352527e9599"
+        },
+        {
+            "MaterialId": 6031977445120031001,
+            "Guid": "40e8fc4221d33289cca9e025f87dab0a"
+        },
+        {
+            "MaterialId": 6031977445120031002,
+            "Guid": "e0792c5065612c4f073796096540f18a"
+        },
+        {
+            "MaterialId": 6233866120919168071,
+            "Guid": "fc03302edb3da90ca92f39efa528a851"
+        },
+        {
+            "MaterialId": 6268404635080857860,
+            "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57"
+        },
+        {
+            "MaterialId": 6418972230554417713,
+            "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5"
+        },
+        {
+            "MaterialId": 6666666666666666666,
+            "Guid": "5fd4737b3cc218b5bc0ecceccd3664ca"
+        },
+        {
+            "MaterialId": 6741027460583468116,
+            "Guid": "73a82b56fbd67428ae942e1c6e37accb"
+        },
+        {
+            "MaterialId": 6862229283140202488,
+            "Guid": "3f1b351af3ddce3d2bee4c67d1897354"
+        },
+        {
+            "MaterialId": 7023486545201786888,
+            "Guid": "731f4f827c7b881bed18f470df8653e8"
+        },
+        {
+            "MaterialId": 7114986674804299134,
+            "Guid": "c3a2ebc1406d6a0730ccf06ee17b7f56"
+        },
+        {
+            "MaterialId": 7242160867016779942,
+            "Guid": "8158702059ff87917fb1f1a308a9dacc"
+        },
+        {
+            "MaterialId": 7419002153360118821,
+            "Guid": "53e7930a82e65578715e5c2659a4ae9f"
+        },
+        {
+            "MaterialId": 7519796792557509740,
+            "Guid": "04f3bb576e64e248daad7640edbe91c5"
+        },
+        {
+            "MaterialId": 7542426904884125638,
+            "Guid": "ca84b9af93f8b5cbb1ee0da2e47b5a5a"
+        },
+        {
+            "MaterialId": 7777777777777777771,
+            "Guid": "f4263dfdcb77af201c6050be35f5394f"
+        },
+        {
+            "MaterialId": 7790961940816174470,
+            "Guid": "b6fe1282a710945b8504b728fe38ba52"
+        },
+        {
+            "MaterialId": 7883023039679385037,
+            "Guid": "5b859d5044a1a0ccfc885b4a786b8661"
+        },
+        {
+            "MaterialId": 8340788528055159704,
+            "Guid": "6ccd98ac47e91467a2ad37f7408cd904"
+        },
+        {
+            "MaterialId": 8410567471333826334,
+            "Guid": "c2b4590ba347366b4b7390aa584b3bd2"
+        },
+        {
+            "MaterialId": 8612049182725717389,
+            "Guid": "411bbc8457ead6eab594dcb66a246a19"
+        },
+        {
+            "MaterialId": 8630766902889757455,
+            "Guid": "b6df26e549dc159e9ecd291422db4cc9"
+        },
+        {
+            "MaterialId": 8780927756774477602,
+            "Guid": "3e514b8cc25232e37fe951766b6ed47e"
+        },
+        {
+            "MaterialId": 8888888888888888888,
+            "Guid": "58b25001fd9a29362681f26b0c4ebf67"
+        },
+        {
+            "MaterialId": 8910597409375155668,
+            "Guid": "1d337480dfe86dc3870c67bbf2b5ebda"
+        },
+        {
+            "MaterialId": 9016207958156802131,
+            "Guid": "a01d82f279125104155bb44907dd93a5"
+        },
+        {
+            "MaterialId": 9016207958156802132,
+            "Guid": "a905758b34fc48a57331fdd92a087920"
+        },
+        {
+            "MaterialId": 9017610081296696595,
+            "Guid": "df51ca6ed9cb71779a9b5634db0863bc"
+        },
+        {
+            "MaterialId": 9468715266886465916,
+            "Guid": "877910cdce38586fe8c854b44c0abba8"
+        },
+        {
+            "MaterialId": 9766407849923482501,
+            "Guid": "8d8f039e11a60108670d6a4ae05f9629"
+        },
+        {
+            "MaterialId": 10057417073908977751,
+            "Guid": "582f0def2b00efe8f1018b02af8340dd"
+        },
+        {
+            "MaterialId": 10268003992972511490,
+            "Guid": "2731f4b41a1ce80f8f52cea1bb617496"
+        },
+        {
+            "MaterialId": 10298038835155425400,
+            "Guid": "e9e390351cbb5bb3b90a89ff768e74e4"
+        },
+        {
+            "MaterialId": 10911584417144452102,
+            "Guid": "d2d858f5ab21de1985b7e8c91bb58dea"
+        },
+        {
+            "MaterialId": 11290240473464910336,
+            "Guid": "6bc7f03f392181ab087db81e9b01fc9c"
+        },
+        {
+            "MaterialId": 11800363237644377467,
+            "Guid": "b7de7b6da944bded0382e39126712944"
+        },
+        {
+            "MaterialId": 12148595205889937913,
+            "Guid": "88204c80060d80e7ebf5173d38f05fae"
+        },
+        {
+            "MaterialId": 12201067369178727069,
+            "Guid": "1138830e1ab5cfca8f2b15a8b2042983"
+        },
+        {
+            "MaterialId": 12239811749784959650,
+            "Guid": "2993e180422dbb8a8e7acfb89406be8f"
+        },
+        {
+            "MaterialId": 12265987218260434269,
+            "Guid": "b15fb21e65ca9e9e574fd69d1aa31877"
+        },
+        {
+            "MaterialId": 12571177528499100716,
+            "Guid": "e940f495ab97979f2f7f08320f94b2a8"
+        },
+        {
+            "MaterialId": 12623557852884305884,
+            "Guid": "78427e437fd0857519523929bbc6ae28"
+        },
+        {
+            "MaterialId": 12860328661371805714,
+            "Guid": "418afdfe567cadef3d08fb95a4d70aee"
+        },
+        {
+            "MaterialId": 12928487987083156044,
+            "Guid": "02a74d5bec4236c300fc86c6c13a97a8"
+        },
+        {
+            "MaterialId": 12998815656819290133,
+            "Guid": "1d329766c5c4c2d83fcfdafc37df272b"
+        },
+        {
+            "MaterialId": 13015567913415235850,
+            "Guid": "288c7ec795d155f34e882220d9526ee6"
+        },
+        {
+            "MaterialId": 13015730421278863676,
+            "Guid": "d27106039e9adb87a41069d7ce898854"
+        },
+        {
+            "MaterialId": 13078451711678970588,
+            "Guid": "d7fe8df2b37a783532f28ae9d396ac1a"
+        },
+        {
+            "MaterialId": 13218202317807511616,
+            "Guid": "b7d9511ce5bcc1964751ad356dd99bc7"
+        },
+        {
+            "MaterialId": 13331177148823626541,
+            "Guid": "cf96d95df17d5ca88087032a0d2bc1f1"
+        },
+        {
+            "MaterialId": 13392569818755346090,
+            "Guid": "d85d458cca28da444ac2939074e0b757"
+        },
+        {
+            "MaterialId": 13785312979782306265,
+            "Guid": "9f3d4f0bb90f356828bfc9dacab2e61d"
+        },
+        {
+            "MaterialId": 14148630837092627253,
+            "Guid": "0dd5d298d94e125e3b06ca58142287af"
+        },
+        {
+            "MaterialId": 14427996688824197128,
+            "Guid": "f748ea218bfda9055083bc5a0cb94d64"
+        },
+        {
+            "MaterialId": 14428604248887103832,
+            "Guid": "1ff7bf41d54b6c595b934944215d82aa"
+        },
+        {
+            "MaterialId": 14475535881755139444,
+            "Guid": "f6f923426f71eb4a270b1db46ebceeff"
+        },
+        {
+            "MaterialId": 14572249182127564089,
+            "Guid": "0d7f234fc14e1f8ef95528082a290ebd"
+        },
+        {
+            "MaterialId": 14687266879539898955,
+            "Guid": "777ba9786ba494260bb2365631e47fe7"
+        },
+        {
+            "MaterialId": 14823449842892723099,
+            "Guid": "d543a6dedf88e918ec82a0a72220fe47"
+        },
+        {
+            "MaterialId": 14865828219049652681,
+            "Guid": "015c6ad94421f5ea19132f879f717bcb"
+        },
+        {
+            "MaterialId": 15512158228750294378,
+            "Guid": "691eb51b4283322934c3d5c1fb9ffdb6"
+        },
+        {
+            "MaterialId": 15558711022777713244,
+            "Guid": "d65618ffa2d46b21deb88f08e0452ce6"
+        },
+        {
+            "MaterialId": 15581338169056695747,
+            "Guid": "b7b348f393d3a8378855ec314eaa4768"
+        },
+        {
+            "MaterialId": 15937785653841507631,
+            "Guid": "c924ee8ef3e9b430e4fc3d2e0c8dcd5b"
+        },
+        {
+            "MaterialId": 16054590162709670939,
+            "Guid": "31ff3efa4dd422925f5d0534e2164753"
+        },
+        {
+            "MaterialId": 16078145751679031858,
+            "Guid": "138b37aa7370d14ffe297abc9a6ac336"
+        },
+        {
+            "MaterialId": 16316029914829424800,
+            "Guid": "567a5c69b19b41cf9c248477828cfaac"
+        },
+        {
+            "MaterialId": 16592721734632815878,
+            "Guid": "f4a365b8572d370bd2c201d01f409baa"
+        },
+        {
+            "MaterialId": 16657280504388947716,
+            "Guid": "3117919ba155db5f98b358e6f77e48d8"
+        },
+        {
+            "MaterialId": 16809149810617077011,
+            "Guid": "f19593762f19be4d47cadcb269c4e878"
+        },
+        {
+            "MaterialId": 16812725336093661457,
+            "Guid": "3cac456286293463b516718906b23e28"
+        },
+        {
+            "MaterialId": 17032254934661961738,
+            "Guid": "6d4ec62745a3d047881a0dbbbd2352a6"
+        },
+        {
+            "MaterialId": 17086242739020207643,
+            "Guid": "270564bcae4b0950d23c458904da303f"
+        },
+        {
+            "MaterialId": 17191698820900005988,
+            "Guid": "92df8ccec0a37c7b167d340608973810"
+        },
+        {
+            "MaterialId": 17252955172887417083,
+            "Guid": "6ea57eeda1fe163823207a592a76067d"
+        },
+        {
+            "MaterialId": 17337598620988634616,
+            "Guid": "12fe8a31b660dcbb5691dc7d36768daa"
+        },
+        {
+            "MaterialId": 17633150761805817739,
+            "Guid": "b3937061d95f9744042f6c7811390607"
+        },
+        {
+            "MaterialId": 17955490653248971586,
+            "Guid": "0e9b8e4ceacda82ab24a400acb62fa97"
+        },
+        {
+            "MaterialId": 18027858728572122140,
+            "Guid": "2a0be059ed143f53ce10ee6467346a08"
+        },
+        {
+            "MaterialId": 18268269890742310854,
+            "Guid": "8c0b9b6f88be3df33cc6388bceab6292"
+        },
+        {
+            "MaterialId": 18430488097449812600,
+            "Guid": "97b5c0ca465354c551faae7fd3e43680"
+        }
+    ]
+}

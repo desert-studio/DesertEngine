@@ -29,6 +29,8 @@
 #include <chrono>
 #include <optional>
 
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <filesystem>
 #include <unordered_map>
 
@@ -414,6 +416,10 @@ namespace Desert::Editor
         // the file that was there (if any) is unchanged. Both callers generate startup content, so a
         // false here means the project's own default scene is not on disk.
         [[nodiscard]] bool SaveSceneTo( const std::string& path );
+        // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a
+        // new asset with a new GUID); returns the header it had, for a failed save to put back.
+        std::optional<Common::Content::TextAssetHeaderSerialized>
+        ForgetAssetIdentityUnlessSameFile( const std::string& destination );
 
         // WHERE Ctrl+S goes: the file the scene was opened from, or — for a scene that has never been on
         // disk — one named after it, which is the only thing there is to name it after. That fallback is

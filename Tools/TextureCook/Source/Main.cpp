@@ -1,11 +1,15 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
 //   TextureCook <project.deproj> <source> [<source> ...]
+//   TextureCook <project.deproj> --emit <asset.detex> <out.tex>
+//
+// `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
+// ONE file: Resources/Splash/Splash.tex, which the splash reads before the engine (and so the DDC) exists.
 //
 // Each <source> is a path relative to the directory the project's editor runs from (the one holding
 // `Resources/` — the tool works from the descriptor's folder, as GamePackager does), and lands where the
-// editor would put it: `Assets::CookedTexturePath`. The cook is `TextureImporter::Cook` itself, so an
-// up-to-date `.tex` is reported Fresh and not rewritten.
+// editor would put it: the `.detex` asset beside the source, its platform data in the DDC. The cook is
+// `TextureImporter::Cook` itself, so an up-to-date `.tex` is reported Fresh and not rewritten.
 //
 // Exit status: 0 when every source ends with a correct `.tex` on the disk (Cooked or Fresh), 1 when any
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
@@ -13,13 +17,13 @@
 #include <ToolMain.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
-#include <Engine/Assets/CookedTexturePath.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -30,7 +34,8 @@ namespace
     {
         std::fprintf( stderr,
                       "usage: TextureCook <project.deproj> <source> [<source> ...]\n"
-                      "  <source> is relative to the project's folder, e.g. Resources/Splash/Splash.jpg\n" );
+                      "       TextureCook <project.deproj> --emit <asset.detex> <out.tex>\n"
+                      "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n" );
         return 2;
     }
 
@@ -88,6 +93,29 @@ int main( int argc, char** argv )
                  return 2;
              }
 
+             if ( std::string( args[2] ) == "--emit" )
+             {
+                 if ( count != 5 )
+                     return Usage();
+                 const auto bytes = Desert::Editor::TextureImporter::BuildPlatformData( args[3] );
+                 if ( !bytes.IsSuccess() )
+                 {
+                     std::fprintf( stderr, "TextureCook: %s\n", bytes.GetError().c_str() );
+                     return 1;
+                 }
+                 std::ofstream out( args[4], std::ios::binary | std::ios::trunc );
+                 out.write( bytes.GetValue().data(), static_cast<std::streamsize>( bytes.GetValue().size() ) );
+                 out.close();
+                 if ( !out )
+                 {
+                     std::fprintf( stderr, "TextureCook: could not write '%s'\n", args[4] );
+                     return 1;
+                 }
+                 std::fprintf( stdout, "TextureCook: emitted %s -> %s (%zu bytes)\n", args[3], args[4],
+                               bytes.GetValue().size() );
+                 return 0;
+             }
+
              Desert::Editor::TextureImporter importer;
              int                             status = 0;
              for ( int i = 2; i < count; ++i )
@@ -104,7 +132,7 @@ int main( int argc, char** argv )
                  const bool ok     = result.Outcome == Desert::Editor::TextureCookOutcome::Cooked ||
                                  result.Outcome == Desert::Editor::TextureCookOutcome::Fresh;
                  std::fprintf( ok ? stdout : stderr, "TextureCook: %s %s -> %s\n", OutcomeName( result.Outcome ),
-                               args[i], Desert::Assets::CookedTexturePath( source, ".tex" ).string().c_str() );
+                               args[i], Desert::Editor::TextureImporter::AssetPathFor( source ).string().c_str() );
                  if ( !ok )
                      status = 1;
              }

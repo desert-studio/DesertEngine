@@ -6,6 +6,7 @@
 #include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <rflcpp/rfl/json.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 
 #include "CollectionsPanel.hpp"
 
@@ -248,15 +249,14 @@ namespace Desert::Editor
                 const std::string key = "meshes/" + SanitizeName( mat.Name ) +
                                         std::string( Common::Constants::Extensions::MATERIAL_EXTENSION );
 
-                // THE COOK HAS TO BE DETERMINISTIC OR THE COMPARISON MEANS NOTHING. MaterialId is a random
-                // UUID, so re-cooking a material with a fresh one would produce different bytes every run
-                // and read as "the source changed it" for ever — and would renumber an identity that
-                // meshes and scenes already reference. The existing file's own id is therefore reused.
-                std::optional<Common::UUID> identity;
+                // THE COOK HAS TO BE DETERMINISTIC OR THE COMPARISON MEANS NOTHING. The header GUID is a
+                // material's identity, so re-cooking with a fresh one would produce different bytes every run,
+                // read as "the source changed it" for ever, and renumber an identity that meshes and scenes
+                // already reference. The existing file's own header is therefore reused.
+                std::optional<Common::Content::TextAssetHeaderSerialized> header;
                 if ( const auto at = diskBytes.find( key ); at != diskBytes.end() )
-                    if ( const auto parsed = rfl::json::read<Assets::MaterialData>( at->second );
-                         parsed.has_value() )
-                        identity = parsed.value().MaterialId;
+                    if ( const auto parsed = Assets::ParseMaterialJson( key, at->second ); parsed )
+                        header = parsed.GetValue().Header;
 
                 Assets::PBRSurfaceParams p;
                 p.AlbedoTexture    = albedo;
@@ -266,10 +266,17 @@ namespace Desert::Editor
                 p.AOTexture        = ao;
                 p.OpacityTexture   = opacity;
                 p.AlphaCutoff      = mat.AlphaCutoff.value_or( mat.Opacity ? 0.5f : 0.0f );
-                p.MaterialId       = identity ? *identity : Common::UUID::Generate();
 
-                Assets::MaterialData data  = p.ToMaterialData();
-                std::string          bytes = rfl::json::write( data );
+                Assets::MaterialData data = p.ToMaterialData();
+                data.Header               = header;
+                data                      = Assets::StampMaterialHeader( std::move( data ) );
+                auto text                 = Assets::WriteMaterialJson( data );
+                if ( !text )
+                {
+                    LOG_ERROR( "[Collections] material '{}' was not cooked: {}", key, text.GetError() );
+                    continue;
+                }
+                std::string bytes = std::move( text.GetValue() );
                 incoming.Insert( { key, static_cast<uint64_t>( bytes.size() ),
                                    Common::Utils::PakContentHash( bytes.data(), bytes.size() ) } );
                 cooked.emplace_back( key, std::move( data ) );

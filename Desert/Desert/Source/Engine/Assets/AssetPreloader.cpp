@@ -1,6 +1,7 @@
 #include "AssetPreloader.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -473,6 +474,8 @@ namespace Desert::Assets
 
         ProcessAssetKind<ShaderAsset>( Common::Content::ContentKind::Shader, m_AssetManager,
                                        AssetPriority::Medium );
+        const auto                   assetsLoaded = std::chrono::steady_clock::now();
+        const Core::ShaderPhaseTimes before       = Core::ReadShaderPhaseTimes();
 
         size_t count = 0;
         if ( auto manager = m_AssetManager.lock() )
@@ -488,6 +491,25 @@ namespace Desert::Assets
              std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - start )
                   .count();
         LOG_INFO( "[AssetPreloader] {} shader program(s) ready in {} ms", count, ms );
+        // The split of that total. "other" is Register()'s own bookkeeping outside every timed phase; the
+        // phases are summed over the programs registered HERE, so the line adds up to the total above.
+        Core::ShaderPhaseTimes during  = Core::ReadShaderPhaseTimes();
+        double                 timedMs = 0.0;
+        for ( size_t i = 0; i < during.Nanoseconds.size(); ++i )
+        {
+            during.Nanoseconds[i] -= before.Nanoseconds[i];
+            during.Calls[i] -= before.Calls[i];
+            timedMs += during.Milliseconds( static_cast<Core::ShaderPhase>( i ) );
+        }
+        const double assetMs = std::chrono::duration<double, std::milli>( assetsLoaded - start ).count();
+        LOG_INFO( "[AssetPreloader] shader phases: asset load {:.1f} ms, {}, other {:.1f} ms", assetMs,
+                  Core::FormatShaderPhaseTimes( during ), static_cast<double>( ms ) - assetMs - timedMs );
+        // Cumulative for the process, which at this point is startup: a cold cache shows as hits 0.
+        const Core::ShaderCacheCounts cache = Core::ReadShaderCacheCounts();
+        LOG_INFO( "[ShaderCache] shader map {} hit(s) / {} miss(es); SPIR-V {} hit(s), {} compiled, {} store "
+                  "failure(s) in {}",
+                  cache.MapHits, cache.MapMisses, cache.Hits, cache.Compiled, cache.StoreFailures,
+                  Core::ShaderCacheDir().string() );
     }
 
 } // namespace Desert::Assets

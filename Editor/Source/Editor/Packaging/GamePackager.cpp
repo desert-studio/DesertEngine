@@ -16,6 +16,7 @@
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -50,13 +51,20 @@ namespace Desert::Editor
         };
 
         // Lists every file under `from` as ("<keyPrefix>/<relative>", source), skipping raw mesh
-        // sources when asked.
+        // sources and packing texture assets in their cooked form when asked (the project asset tree).
         //
         // IT COLLECTS INSTEAD OF WRITING, and that is the whole seam the chunked layout needed. It
         // used to stream straight into one `PakWriter`, which fixed the number of archives at one in
         // the only function that knows what the files are; now the list is built first and
         // `WriteChunkedPaks` decides which archive each entry belongs to. Nothing else about the
         // traversal changed.
+        // The pak key the cooked registry ships under — the one path the packager writes rather than collects.
+        std::string ShippedRegistryKey()
+        {
+            return ( fs::path( Common::Constants::Path::COOKED_DIR_NAME ) / "AssetRegistry.dreg" )
+                 .generic_string();
+        }
+
         bool CollectTree( const fs::path& from, const std::string& keyPrefix, bool skipRawMeshSources,
                           std::vector<std::pair<std::string, fs::path>>& files, CopyStats& stats,
                           std::string& error )
@@ -85,7 +93,23 @@ namespace Desert::Editor
                     error = "cannot relativize " + src.string() + ": " + ec.message();
                     return false;
                 }
-                files.emplace_back( keyPrefix + "/" + rel.generic_string(), src );
+                // A registry left on the disk from before the registry built itself (AF9) is not packed:
+                // the one the pak carries is written from this process's gather below, under the same key,
+                // and a stale copy would collide with it or, worse, be the one the game read.
+                if ( keyPrefix + "/" + rel.generic_string() == ShippedRegistryKey() )
+                    continue;
+                fs::path packed = src;
+                if ( skipRawMeshSources && src.extension() == Assets::kTextureAssetExtension )
+                {
+                    auto staged = StageCookedTextureAsset( src, rel );
+                    if ( !staged.IsSuccess() )
+                    {
+                        error = staged.GetError();
+                        return false;
+                    }
+                    packed = staged.GetValue();
+                }
+                files.emplace_back( keyPrefix + "/" + rel.generic_string(), packed );
                 ++stats.Files;
                 // The error_code overload returns uintmax_t(-1) on failure, so an unchecked add here
                 // does not report a slightly wrong size — it reports 16 exabytes, and the package's own
@@ -95,7 +119,7 @@ namespace Desert::Editor
                 // directory walk failed", and letting a size query write into that slot would report a
                 // walk failure for a file that was read perfectly well.
                 std::error_code sizeEc;
-                const auto      size = fs::file_size( src, sizeEc );
+                const auto      size = fs::file_size( packed, sizeEc );
                 if ( !sizeEc )
                     stats.Bytes += size;
             }
@@ -229,62 +253,43 @@ namespace Desert::Editor
         }
     } // namespace
 
-    // THE SHIPPING GATE — refused here, at the moment a build is made, and not only in CI.
+    // THE PACKAGE SHIPS THE REGISTRY OF THE DISK IT PACKS, by construction: the registry is gathered
+    // here, after the cook, from the content roots this package is built from (UE's cook builds its
+    // registry the same way — it is an output of the cook, never an input a person keeps in step).
+    // A packaged game has no content roots to fall back to, so a content file with no row does not
+    // reach the player; gathering at this moment makes "on disk" and "in the registry" one list.
     //
-    // Since GAP_ANALYSIS T2.4 neither host scans the content roots at boot: `Cooked/AssetRegistry.dreg`
-    // IS the list of what a project has. So a content file with no row does not reach the packaged
-    // game, and the failure is PACKAGED-BUILD-ONLY — the editor that made the build had the file open
-    // a second earlier. That is the exact class `PackagedContentTrees.hpp` exists for: a hand-typed
-    // tree list forgot fonts and icons, a built game contained not one `.ttf`, and the first frame with
-    // text died.
-    //
-    // CI holds a RELATED relation (`Desert/Tests/Editor/CookedRegistryGate`) and the two are
-    // deliberately not the same question, which is worth naming here because the difference looks like
-    // an inconsistency until it is stated:
-    //
-    //   * THE GATE asks the REPOSITORY — the project registry against `git ls-files` — because that
-    //     file is committed and a committed file is a claim about what a clean clone carries.
-    //   * THIS asks THE DISK, because packaging packs a directory. What is in that directory is
-    //     exactly and only what will be in the archive, whatever git thinks of it: a developer's
-    //     `Editor/Cooked/` output is untracked by design and is still the content the player gets.
-    //
-    // So both ends are held, by one comparison (`Common::Content::Compare`) over two lists, and
-    // the registry the package ships is the STACK — the project's rows plus this cook's own — because
-    // both files sit under the Cooked tree the packager already packs.
-    //
-    // IT REFUSES RATHER THAN REPAIRING, deliberately. Re-cooking here would mean a package whose
-    // content differs from the registry the repository holds, i.e. a build nobody else can reproduce;
-    // and repairing a staleness nobody was told about is how "on disk means shipped" stopped being
-    // true in the first place. The message names the command.
-    std::string ContentRegistryDisagreement()
+    // What remains a refusal is a file that COULD NOT ENTER the registry (its header refused): it
+    // is on the disk and would be packed, yet no row names it, so the game could never load it.
+    // Every such file is named, not the first — one fix per file, one attempt for all of them.
+    std::string GatherShippedRegistry()
     {
-        // A MISSING REGISTRY IS AN EMPTY ONE, NOT A REFUSAL, and the distinction is the difference
-        // between a gate and an obstacle. A project with no content of any census kind — a fresh one,
-        // or the minimal fixture `Desert/Tests/Editor/PackagedContent` builds — has nothing to record
-        // and must package fine; an empty registry against an empty tree is AGREEMENT. The same
-        // comparison then reports every file as a missing row when there IS content, which is exactly
-        // the message that case needs. (Measured: the first version refused outright and turned three
-        // PackagedContent cases red over a project that was correct.)
-        //
-        // THE STACK, not the committed file alone: `Load` reads the project registry and then this
-        // cook's own over it, and what the package ships is both. Comparing only the committed half
-        // against the disk would report every locally cooked mesh as missing — which is what the first
-        // version of the gate did, on the machine of the one person who had not run the cook.
-        const auto problems =
-             Common::Content::Compare( Assets::ContentRegistry::Get(), Common::Content::ScanContentRoots(),
-                                       "on the disk this package is built from" );
-        if ( problems.empty() )
-            return {};
+        std::vector<std::string> refused;
+        std::vector<std::string> unboxed;
+        const auto               gathered = Assets::ContentRegistry::Gather( &refused, &unboxed );
+        if ( !gathered )
+            return "The asset registry could not be gathered: " + gathered.GetError();
 
-        std::string text = std::to_string( problems.size() ) +
-                           " disagreement(s) between the cooked asset registry and the CONTENT ROOTS ON "
-                           "THIS DISK — which is the question packaging asks, because packaging packs a "
-                           "directory. (The CI gate asks a different one: the committed registry against "
-                           "what git tracks.) A package built now would not match this project:";
-        // EVERY one of them, not the first: one re-cook fixes them all, and a message that reports one
-        // per attempt turns one command into as many attempts as there are files.
-        for ( const Common::Content::RegistryDisagreement& problem : problems )
-            text += "\n  " + problem.Detail;
+        std::string text;
+        if ( !refused.empty() )
+        {
+            text = std::to_string( refused.size() ) +
+                   " content file(s) on the disk this package is built from could not enter the asset registry, "
+                   "so the packaged game could not load them:";
+            for ( const std::string& refusal : refused )
+                text += "\n  " + refusal;
+        }
+        // A mesh cooked before its header stated its box would ship a row without one, and the game's world
+        // partition would place it by its origin alone. The packager does not decode meshes (the standalone
+        // tool does not link the mesh reader), so it names them instead of shipping them boxless.
+        if ( !unboxed.empty() )
+        {
+            text += ( text.empty() ? "" : "\n" ) + std::to_string( unboxed.size() ) +
+                    " mesh(es) state no box in their header — re-cook them in the editor (Assets > Rebuild "
+                    "Cooked Assets) before packaging:";
+            for ( const std::string& key : unboxed )
+                text += "\n  " + key;
+        }
         return text;
     }
 
@@ -295,13 +300,12 @@ namespace Desert::Editor
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
 
-        // THE COOK FIRST, because it is a PRODUCER OF THE REGISTRY the check below reads. Cook BEFORE
+        // THE COOK FIRST, because it is a PRODUCER OF THE REGISTRY the gather below reads. Cook BEFORE
         // packing: every deterministic startup cost — shader SPIR-V, font atlases, icon SDFs, and the
         // textures the runtime has no decoder for — is paid here, once, into the project's Cooked/
         // tree, so the census below ships the artifacts and the player's first launch reads instead
-        // of rebuilding. The texture cook enters or updates a registry row per `.tex`; checking the
-        // registry against the disk BEFORE it would compare against a Cooked/Textures/ the cook is
-        // about to change, and refuse a project the cook would have made consistent. It writes only
+        // of rebuilding. The cook writes files the registry must name, so the gather comes after
+        // it; gathering before would ship a registry missing this cook's own output. It writes only
         // into the project's own cache, never into the output directory, so the rule below still holds.
         // Cooked for the TARGET runtime's profile (options.Config), not this editor's: a Debug editor
         // packaging a Release game must produce Release cache keys or the shipped cache never hits.
@@ -309,7 +313,7 @@ namespace Desert::Editor
 
         // BEFORE ANYTHING IS WRITTEN. A refusal after the output directory exists leaves half a
         // package behind, and half a package is the thing somebody ships by accident.
-        if ( const std::string stale = ContentRegistryDisagreement(); !stale.empty() )
+        if ( const std::string stale = GatherShippedRegistry(); !stale.empty() )
             return { false, stale, "" };
 
         const std::string projectName = ProjectContext::Current().Name;
@@ -402,10 +406,13 @@ namespace Desert::Editor
         std::string                                      divisionSummary;
         {
             for ( const PackagedTree& tree : PackagedContentTrees() )
-                if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
+                if ( !CollectTree( tree.Source, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats,
                                    error ) )
                     return { false, error, "" };
 
+            // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
+            // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
+            baseBlobs.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
             if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
                 return { false, error, "" };
 
@@ -667,12 +674,12 @@ namespace Desert::Editor
         // developer launches next to this editor, which is built in the same configuration. (A
         // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
         // writable; only the shipped package must never rely on that.) FIRST, for PackageGame's
-        // reason: the texture cook writes registry rows the check below reads.
+        // reason: the cook writes files the gather below must name.
         const CookStats cook = CookContentCaches( Core::SpirvDebugInfoThisBuild() );
 
-        // The same refusal PackageGame makes, for the same reason: this archive is what a developer's
-        // Runtime mounts, so a stale registry here is a dev build that silently lacks content.
-        if ( const std::string stale = ContentRegistryDisagreement(); !stale.empty() )
+        // The same gather PackageGame makes, for the same reason: this archive is what a developer's
+        // Runtime mounts, so its registry must name what the archive holds.
+        if ( const std::string stale = GatherShippedRegistry(); !stale.empty() )
             return { false, stale, "" };
 
         std::error_code ec;
@@ -685,9 +692,12 @@ namespace Desert::Editor
         std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
         for ( const PackagedTree& tree : PackagedContentTrees() )
-            if ( !CollectTree( *tree.Tree, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
+            if ( !CollectTree( tree.Source, tree.PakKey, tree.StripRawMeshSources, contentFiles, stats, error ) )
                 return { false, error, "" };
 
+        // THE COOKED REGISTRY IS WRITTEN HERE, at packaging, from the registry this process gathered: the
+        // packaged game has no content roots to gather from, and nothing in git carries one (AF9a).
+        baseBlobs.emplace_back( ShippedRegistryKey(), Assets::ContentRegistry::Get().Serialize() );
         if ( !CollectCookedWorlds( contentFiles, baseBlobs, stats, error ) )
             return { false, error, "" };
 

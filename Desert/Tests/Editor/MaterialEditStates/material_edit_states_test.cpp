@@ -14,7 +14,7 @@
 //      step, in both directions, because the two are different questions (the scene vs the file) and
 //      collapsing them was the reason task U6 could not put a dot on a document tab.
 //
-//   2. THE IDENTITY. The working copy is a second material asset with a MaterialId of its own, so the
+//   2. THE IDENTITY. The working copy is a second material asset with a header GUID of its own, so the
 //      transfer between states must move the AUTHORED half and nothing else. A whole-struct assignment
 //      would hand one of the two ids to the other, and MaterialService keys the mesh -> material link on
 //      exactly that id: whichever registered first would then answer for both, and a mesh in the level
@@ -200,30 +200,35 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
 
 TEST( MaterialEditStates, TransferMovesValuesAndNeverIdentity )
 {
-    MaterialData subject     = Authored( "StaticMeshPBR", { { "RoughnessFactor", 0.9f } } );
-    subject.MaterialId       = Common::UUID( uint64_t{ 111 } );
-    subject.ParentMaterialId = Common::UUID( uint64_t{ 777 } );
+    namespace Content = Common::Content;
+    const Content::AssetGuid subjectGuid{ 0x111ull, 0x1ull };
+    const Content::AssetGuid copyGuid{ 0x222ull, 0x2ull };
+    const Content::AssetGuid parentGuid{ 0x777ull, 0x7ull };
+
+    MaterialData subject = Authored( "StaticMeshPBR", { { "RoughnessFactor", 0.9f } } );
+    subject.Header       = Content::MakeTextHeader( Content::ContentKind::Material, subjectGuid, {} );
+    subject.SetParent( parentGuid );
 
     MaterialData copy = subject;
-    copy.MaterialId   = Common::UUID( uint64_t{ 222 } ); // CreateWorkingCopy generates a fresh one
+    copy.Header->Guid = Content::AssetGuidToText( copyGuid ); // CreateWorkingCopy mints a fresh one
     copy.SetParam( "RoughnessFactor", glm::vec4( 0.2f, 0.0f, 0.0f, 0.0f ) );
 
     // Apply: values from the copy into the subject, identity untouched in both.
     MaterialEdit::CopyAuthoredValues( subject, copy );
     EXPECT_EQ( subject.GetFloat( "RoughnessFactor" ), 0.2f );
-    EXPECT_EQ( static_cast<uint64_t>( *subject.MaterialId ), 111u )
-         << "Apply must not hand the working copy's MaterialId to the subject: two materials claiming one "
-            "id makes the mesh -> material link resolve to whichever registered first";
-    EXPECT_EQ( static_cast<uint64_t>( *copy.MaterialId ), 222u );
-    EXPECT_EQ( static_cast<uint64_t>( *subject.ParentMaterialId ), 777u )
+    EXPECT_EQ( subject.Guid(), subjectGuid )
+         << "Apply must not hand the working copy's GUID to the subject: two materials claiming one "
+            "handle makes the mesh -> material link resolve to whichever registered first";
+    EXPECT_EQ( copy.Guid(), copyGuid );
+    EXPECT_EQ( subject.ParentGuid(), parentGuid )
          << "this window cannot re-parent a material, so a transfer of the parent could only be an accident";
 
     // Discard: the other direction, same rule.
     subject.SetParam( "RoughnessFactor", glm::vec4( 0.7f, 0.0f, 0.0f, 0.0f ) );
     MaterialEdit::CopyAuthoredValues( copy, subject );
     EXPECT_EQ( copy.GetFloat( "RoughnessFactor" ), 0.7f );
-    EXPECT_EQ( static_cast<uint64_t>( *copy.MaterialId ), 222u );
-    EXPECT_EQ( static_cast<uint64_t>( *subject.MaterialId ), 111u );
+    EXPECT_EQ( copy.Guid(), copyGuid );
+    EXPECT_EQ( subject.Guid(), subjectGuid );
 }
 
 TEST( MaterialEditStates, EqualityIsAboutTheValuesAndNotTheirOrder )

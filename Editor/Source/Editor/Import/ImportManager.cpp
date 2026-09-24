@@ -12,7 +12,9 @@
 
 #include <Common/Core/Constants.hpp>
 
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -278,7 +280,7 @@ namespace Desert::Editor
         // Imported materials are EDITABLE CONTENT, not cooked intermediates -> write them into the content
         // tree at Resources/Assets/Materials/<meshRelativeId>/<materialName>.demat (browsable + editable in
         // the asset browser, reusable), like UE.
-        // Meaningful name, NO handle in it (stable identity lives in the file: PBRSurfaceParams::MaterialId).
+        // Meaningful name, NO handle in it (stable identity lives in the file: its header GUID).
         // Unified .demat schema (legacy ".mat" cooker output is gone; SurfaceMaterialAsset::Load still READS old).
         //
         // The per-mesh subfolder is CookPaths::MaterialFolder and not `MATERIAL_PATH / stem` spelled here.
@@ -296,8 +298,15 @@ namespace Desert::Editor
         std::error_code ec;
         if ( std::filesystem::exists( path, ec ) )
             return BOOLSUCCESS; // deliberately kept, not a failure to write
-        // Typed extraction -> unified canon (the only on-disk material format).
-        return WriteCookedJson( material.Data.ToMaterialData(), path );
+        // Typed extraction -> unified canon (the only on-disk material format), under the GUID the importer
+        // derived, so the file states the identity the mesh's submeshes already reference.
+        auto data       = material.Data.ToMaterialData();
+        data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
+                                                           Assets::MaterialTextSubsystems() );
+        const auto text = Assets::WriteMaterialJson( data );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "material '{}' refused: {}", path.string(), text.GetError() );
+        return WriteCookedBytes( text.GetValue(), path );
     }
 
     Common::UUID ImportManager::ImportTexture( const std::filesystem::path& path )
@@ -305,33 +314,37 @@ namespace Desert::Editor
         return m_TextureImporter->Import( path );
     }
 
-    LooseTextureCookStats ImportManager::CookLooseTextures()
+    size_t ImportManager::ImportLooseTextures()
     {
-        // WHY THIS IS NOT `ImportAllFromDirectory`. That one walks `m_Importers`, which holds MESH
-        // importers, and a texture has never been in it: a loose `.png` reached its cooked form only as
-        // a mesh's material dependency or through a drag-and-drop. So `Assets/Textures/` had NO automatic
-        // producer at all, and a stale cook there (a container version moved, a source re-exported) stayed
-        // stale until somebody dragged the file back into the editor. The walk itself lives in
-        // `TextureImporter::CookLooseTextures` now, because the packager runs the same one.
-        return m_TextureImporter->CookLooseTextures();
+        // IMPORT, NOT COOK (AF3c). A loose image dropped under `LooseTextureRoots()` becomes its `.detex`
+        // asset here; its platform data is derived on first use (Assets::LoadTexturePlatformData -> the
+        // builder this editor registers) or by the packager, and lives in the DDC, never beside the asset.
+        size_t imported = 0;
+        for ( const std::filesystem::path& source : LooseTextureSources() )
+        {
+            if ( source.extension() == Assets::kTextureAssetExtension )
+                continue;
+            if ( const auto asset = TextureImporter::ImportSourceAsset( source ); asset.IsSuccess() )
+                ++imported;
+            else
+                LOG_ERROR( "[ImportManager] '{}' was not imported into a texture asset: {}", source.string(),
+                           asset.GetError() );
+        }
+        return imported;
     }
 
     Assets::AssetHandle ImportManager::ImportAndRegisterTexture( Assets::AssetManager&         mgr,
                                                                  const std::filesystem::path& source )
     {
-        // Cook the source -> Cooked/Textures/<name>.tex (metadata names the source by its root-tagged key).
-        // A failed cook (the importer logged why) returns the null handle and writes NO .tex, so stop here:
-        // CreateAsset on the missing cooked file would only fail later, inside TextureAsset::Load, with a
-        // read error about a .tex this function already knows was never written.
+        // Import + derive the texture (the importer logs a failure and returns the null handle), then create
+        // the TextureAsset on its `.detex` -- the asset IS the file the runtime reads (header + DDC key).
         if ( static_cast<uint64_t>( m_TextureImporter->Import( source ) ) == 0 )
         {
             return Common::UUID::Null();
         }
 
-        const auto cookedMeta = TextureImporter::CookedMetaPath( source );
+        const auto cookedMeta = TextureImporter::AssetPathFor( source );
 
-        // Create + load the TextureAsset from the cooked .tex (Load reads the handle + source path, and
-        // syncs the metadata handle), then register it so TextureService can resolve it at draw time.
         auto asset = mgr.CreateAsset<Assets::TextureAsset>( Assets::AssetPriority::Low, cookedMeta.string() );
         if ( !asset )
         {

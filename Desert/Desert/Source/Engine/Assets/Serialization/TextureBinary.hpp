@@ -2,7 +2,7 @@
 
 // THE COOKED TEXTURE CONTAINER — why a `.tex` carries pixels now, and what it has to be able to refuse.
 //
-// WHAT IT REPLACED, MEASURED IN THIS TREE. `Editor/Cooked/Textures/T_Checker.tex` was 133 bytes of JSON
+// WHAT IT REPLACED, MEASURED IN THIS TREE. The cooked `T_Checker.tex` was 133 bytes of JSON
 // naming a PNG and carrying not one pixel. Every load re-decoded that PNG and then built the mip chain
 // on the GPU with `vkCmdBlitImage`. Neither half survives contact with the next step of
 // `Docs/World/PROGRAMME.md` §5: a block-compressed format has `blitDst=0` on this device (re-measured

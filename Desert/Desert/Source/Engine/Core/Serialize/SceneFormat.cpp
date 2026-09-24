@@ -32,7 +32,8 @@ namespace Desert::Core
 
     std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene )
     {
-        return RefuseSceneVersion( source, scene.SceneVersion.value_or( 0 ), scene.UnitVersion.value_or( 0 ) );
+        return RefuseSceneVersion( source, Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ),
+                                   Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) );
     }
 
     Common::ResultStr<SceneSerialized> ParseLoadableScene( std::string_view source, const std::string& json )
@@ -47,6 +48,18 @@ namespace Desert::Core
 
         if ( !SceneIsAtCurrentVersion( parsed.value() ) )
             return Common::MakeError<SceneSerialized>( RefuseSceneVersion( source, parsed.value() ) );
+
+        // The header is the file's identity as well as its versions: a malformed one, or one naming another
+        // kind, is refused here rather than half-believed (the AF1 gate: header kind == kind of the extension).
+        const Common::Content::AssetHeaderReadContext context{ SceneTextSubsystems() };
+        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
+        if ( !header )
+            return Common::MakeError<SceneSerialized>(
+                 fmt::format( "[SceneSerializer] '{0}': {1}. Nothing was loaded.", source, header.GetError() ) );
+        if ( header.GetValue().Kind != Common::Content::ContentKind::Scene )
+            return Common::MakeError<SceneSerialized>( fmt::format(
+                 "[SceneSerializer] '{0}': the header says kind '{1}', not 'Scene'. Nothing was loaded.", source,
+                 parsed.value().Header->Kind ) );
 
         return Common::MakeSuccess( std::move( parsed.value() ) );
     }

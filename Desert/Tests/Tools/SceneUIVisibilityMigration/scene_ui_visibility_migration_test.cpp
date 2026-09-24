@@ -330,7 +330,7 @@ TEST( SceneUIVisibilityMigration, RunningItTwiceChangesNothingTheSecondTime )
 
 TEST( SceneUIVisibilityMigration, MigrateSceneRunsItForAV9FileAndStampsTheHead )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneName    = "Fixture";
     scene.SceneVersion = 9;
     scene.UnitVersion  = Core::kUnitVersion;
@@ -340,8 +340,9 @@ TEST( SceneUIVisibilityMigration, MigrateSceneRunsItForAV9FileAndStampsTheHead )
 
     EXPECT_TRUE( report.UIVisibilityRaised );
     EXPECT_EQ( report.UIVisibility.HitTestSet, 1 );
-    ASSERT_TRUE( scene.SceneVersion.has_value() );
-    EXPECT_EQ( *scene.SceneVersion, Core::kSceneVersion );
+    ASSERT_TRUE( scene.Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Core::kSceneVersion );
     EXPECT_EQ( *IntAt( LayoutOf( scene.Entities[0] ), "HitTest" ),
                static_cast<int>( ECS::UIHitTest::ChildrenOnly ) );
 }
@@ -350,7 +351,7 @@ TEST( SceneUIVisibilityMigration, MigrateSceneRunsItForAV9FileAndStampsTheHead )
 // kSceneVersion is what stops the next head bump from re-running every earlier step.
 TEST( SceneUIVisibilityMigration, AFileAtTheHeadDoesNotRunTheStep )
 {
-    Core::SceneSerialized scene;
+    Desert::Migration::SceneSerialized scene;
     scene.SceneVersion = Core::kSceneVersion;
     scene.UnitVersion  = Core::kUnitVersion;
 
@@ -390,7 +391,7 @@ TEST( SceneUIVisibilityMigrationCorpus, NoShippedSceneStillStatesTheOldBooleans 
         std::ifstream     in( entry.path(), std::ios::binary );
         std::stringstream buffer;
         buffer << in.rdbuf();
-        const auto parsed = rfl::json::read<Core::SceneSerialized>( buffer.str() );
+        const auto parsed = rfl::json::read<Desert::Migration::SceneSerialized>( buffer.str() );
         ASSERT_TRUE( parsed ) << entry.path().string() << " did not parse";
 
         for ( const auto& entity : parsed.value().Entities )

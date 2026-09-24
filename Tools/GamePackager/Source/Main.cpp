@@ -180,7 +180,7 @@ int main( int argc, char** argv )
              options.OutputDir = outputDir;
 
              // The one thing the editor does for itself that a bare process does not (see the header).
-             const auto registry = Desert::Assets::ContentRegistry::Load();
+             const auto registry = Desert::Assets::ContentRegistry::Gather();
              if ( !registry )
                  return Fail( "the cooked asset registry: " + registry.GetError() );
 

@@ -4,6 +4,7 @@
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/ExternalRenderPass.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
 #include <Engine/Core/Camera.hpp>
 
@@ -213,6 +214,18 @@ namespace Desert::Core
             m_SceneName = name;
         }
 
+        // The .desce's text header as loaded (or as last stamped by a save): it carries the scene's GUID,
+        // which is the scene's identity and is kept from save to save - never re-derived.
+        [[nodiscard]] const std::optional<Common::Content::TextAssetHeaderSerialized>& GetAssetHeader() const
+        {
+            return m_AssetHeader;
+        }
+
+        void SetAssetHeader( std::optional<Common::Content::TextAssetHeaderSerialized> header )
+        {
+            m_AssetHeader = std::move( header );
+        }
+
         [[nodiscard]] std::optional<std::reference_wrapper<const ECS::Entity>>
         FindEntityByID( const Common::UUID& uuid ) const;
 
@@ -329,6 +342,10 @@ namespace Desert::Core
         // Removes the child from its parent (if any) and makes it a root entity.
         void Detach( ECS::Entity child );
 
+        // The root order is the entity order (the saver counts roots in it): puts @p roots in the given
+        // order, each into a slot one of them holds now. See SceneEntityIndex::Arrange.
+        void ArrangeRoots( const std::vector<ECS::Entity>& roots );
+
         void DestroyEntity( ECS::Entity entity );
 
         // Sets VisibilityComponent on the entity and its entire subtree (UE-like hierarchical visibility).
@@ -397,6 +414,7 @@ namespace Desert::Core
 
         SceneSettings m_Settings;
         std::string   m_SceneName;
+        std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
         rfl::Generic::Object m_LoadedDocument;

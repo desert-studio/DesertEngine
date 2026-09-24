@@ -10,9 +10,11 @@
 #include <Engine/Vector/IconBake.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -20,6 +22,8 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -240,12 +244,28 @@ namespace Desert::Editor
             // file, the freshness key and the path formula all live in TextureImporter; a packager copy
             // of any of them would be a second opinion on what a shipped texture is. Each failure was
             // logged where it happened, with the file's name.
-            TextureImporter             importer;
-            const LooseTextureCookStats textures = importer.CookLooseTextures();
-            stats.TexturesCooked += textures.Cooked;
-            stats.TexturesCached += textures.Fresh;
-            stats.Failures += textures.Failed;
-            stats.StoreFailures += textures.Unwritten;
+            // Every texture asset the package carries gets its platform data into the DDC here; the
+            // Texture bucket is then staged like every other (StageCookedEntries), and the game reads it
+            // there -- it has no builder, so an entry missing now is a load error in the game.
+            TextureImporter importer;
+            for ( const fs::path& source : LooseTextureSources() )
+            {
+                switch ( importer.Cook( source ).Outcome )
+                {
+                    case TextureCookOutcome::Cooked:
+                        ++stats.TexturesCooked;
+                        break;
+                    case TextureCookOutcome::Fresh:
+                        ++stats.TexturesCached;
+                        break;
+                    case TextureCookOutcome::Failed:
+                        ++stats.Failures;
+                        break;
+                    case TextureCookOutcome::Unwritten:
+                        ++stats.StoreFailures;
+                        break;
+                }
+            }
 
             // THE ROWS GO WHERE THE RUNTIME READS THEM. The texture cook entered every `.tex` into the
             // content registry as it went (WriteCookedBytes on a write, NoteFile on a fresh one), and the
@@ -264,15 +284,54 @@ namespace Desert::Editor
                 }
             }
         }
+
+        // Copies the DDC buckets a game reads into Saved/Cooked/<Platform>/ under the same relative layout.
+        // WHOLE BUCKETS, not a list of what this pass touched: a fixture or an earlier cook's entry under a
+        // key the runtime will ask for is exactly as valid (the key is its inputs), and the pipeline blob
+        // is keyed by the driver, which no cook can enumerate. Thumbnails are the editor's alone and stay.
+        void StageCookedEntries( CookStats& stats )
+        {
+            constexpr std::string_view kShippedBuckets[] = { "ShaderCache",      "FontCache",     "IconCache",
+                                                             "EnvironmentCache", "PipelineCache", "Texture" };
+            const fs::path             cooked            = Common::DDC::PlatformCookedDir();
+            const fs::path             ddcRoot           = Common::DDC::Root();
+            std::error_code            ec;
+            fs::remove_all( cooked, ec );
+            fs::create_directories( cooked, ec );
+
+            for ( const std::string_view bucket : kShippedBuckets )
+            {
+                const fs::path dir = Common::DDC::BucketDir( bucket );
+                if ( !fs::is_directory( dir, ec ) )
+                    continue;
+                for ( const auto& file : fs::recursive_directory_iterator( dir, ec ) )
+                {
+                    if ( !file.is_regular_file( ec ) )
+                        continue;
+                    const fs::path target = cooked / file.path().lexically_normal().lexically_relative( ddcRoot );
+                    fs::create_directories( target.parent_path(), ec );
+                    fs::copy_file( file.path(), target, fs::copy_options::overwrite_existing, ec );
+                    if ( ec )
+                    {
+                        LOG_ERROR( "[PackageCook] could not stage {} into {}: {}", file.path().string(),
+                                   target.string(), ec.message() );
+                        ++stats.StoreFailures;
+                    }
+                }
+            }
+        }
     } // namespace
 
     CookStats CookContentCaches( bool spirvDebugInfo )
     {
         CookStats stats;
+        std::error_code wipe;
+        fs::remove_all( CookedTextureAssetStage(), wipe );
         CookShaders( spirvDebugInfo, stats );
         CookFonts( stats );
         CookIcons( stats );
         CookTextures( stats );
+        StageCookedEntries( stats );
 
         LOG_INFO( "[PackageCook] shaders {} compiled / {} cached, fonts {} baked / {} cached, icons {} "
                   "baked / {} cached, textures {} cooked / {} cached, {} failure(s), {} unwritten",
@@ -288,5 +347,33 @@ namespace Desert::Editor
                        stats.StoreFailures );
         }
         return stats;
+    }
+
+    fs::path CookedTextureAssetStage()
+    {
+        return Common::Constants::Path::CurrentProjectRoot().ProjectDir / "Saved" / "CookedAssets" /
+               std::string( Common::DDC::CookPlatformName() );
+    }
+
+    Common::ResultStr<fs::path> StageCookedTextureAsset( const fs::path& editorAsset, const fs::path& relative )
+    {
+        const auto raw = Common::Utils::FileSystem::ReadFileContent( editorAsset );
+        if ( !raw.IsSuccess() )
+            return Common::MakeError<fs::path>( raw.GetError() );
+        const auto cooked = Assets::CookTextureAssetForRuntime( std::span<const std::byte>(
+             reinterpret_cast<const std::byte*>( raw.GetValue().data() ), raw.GetValue().size() ) );
+        if ( !cooked.IsSuccess() )
+            return Common::MakeFormattedError<fs::path>( "texture asset '{}' cannot be cooked for the package: {}",
+                                                         editorAsset.string(), cooked.GetError() );
+        const fs::path  target = CookedTextureAssetStage() / relative;
+        std::error_code ec;
+        fs::create_directories( target.parent_path(), ec );
+        std::ofstream out( target, std::ios::binary | std::ios::trunc );
+        out.write( reinterpret_cast<const char*>( cooked.GetValue().data() ),
+                   static_cast<std::streamsize>( cooked.GetValue().size() ) );
+        if ( !out )
+            return Common::MakeFormattedError<fs::path>( "the cooked texture asset '{}' was not written",
+                                                         target.string() );
+        return Common::MakeSuccess( target );
     }
 } // namespace Desert::Editor

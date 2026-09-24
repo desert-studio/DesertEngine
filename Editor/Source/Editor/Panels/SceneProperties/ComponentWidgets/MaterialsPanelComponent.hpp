@@ -62,7 +62,7 @@ namespace Desert::Editor
         // material", and it answers it by handing the question to the window that owns it.
         void OpenMaterialEditor( const Assets::SurfaceMaterialAsset& asset ) const;
 
-        // Creates a child material-instance asset (.demat with ParentMaterialId) next to the other
+        // Creates a child material-instance asset (.demat with a Parent GUID) next to the other
         // materials and registers its shell (lazy — instances have no runtime Material of their own).
         Assets::AssetHandle CreateAndRegisterMaterialInstance( const Assets::SurfaceMaterialAsset& parent );
 

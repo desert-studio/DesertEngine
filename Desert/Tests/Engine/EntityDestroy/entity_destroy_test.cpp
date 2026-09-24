@@ -83,6 +83,30 @@ TEST( EntityDestroy, RemovingFromTheMiddleKeepsEveryOtherLookupRight )
     EXPECT_EQ( reg.alive(), 50u );
 }
 
+// The loader states the root order through Arrange (a prefab root is created after every ordinary entity):
+// the listed entities take the slots they held, in the listed order; everything else stays where it was,
+// and every lookup still finds its own entity - including a later swap-with-last removal.
+TEST( EntityDestroy, ArrangePermutesOnlyTheListedSlots )
+{
+    entt::registry            reg;
+    Core::SceneEntityIndex    index;
+    std::vector<entt::entity> made;
+    for ( int i = 0; i < 6; ++i )
+        made.push_back( Make( reg, index ) );
+
+    // Roots at slots 0, 2, 5 (a "prefab root" last); slots 1, 3, 4 are children and must not move.
+    index.Arrange( { made[5], made[0], made[2], made[5], entt::entity{ 999 } } );
+    std::vector<entt::entity> order;
+    for ( const ECS::Entity& e : index.All() )
+        order.push_back( e.GetHandle() );
+    EXPECT_EQ( order, ( std::vector<entt::entity>{ made[5], made[1], made[0], made[3], made[4], made[2] } ) );
+    ExpectIndexConsistent( reg, index );
+
+    Core::DestroyEntityTree( reg, index, made[5] );
+    ExpectIndexConsistent( reg, index );
+    EXPECT_EQ( index.Size(), 5u );
+}
+
 TEST( EntityDestroy, ADuplicatedUuidDoesNotOrphanTheNewerEntity )
 {
     entt::registry         reg;

@@ -25,6 +25,8 @@
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderMapCache.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShaderReflection.hpp>
@@ -44,13 +46,16 @@
 #include <iostream>
 
 #include <algorithm>
+#include <cctype>
 #include <array>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -488,6 +493,137 @@ TEST_F( ShaderRootFixture, SubstitutingTheShippedMediumMovesTheKeyOfTheRealCloud
             "would pass on the closure rather than on the variant";
 
     EXPECT_NE( shipped, ComputeShaderCacheKey( ShaderStage::Compute, source, path, authored ) );
+}
+
+// ---- The key across processes -----------------------------------------------------------------------
+//
+// Every assertion above compares two keys computed in ONE process, so a key that folded in anything
+// per-process — a pointer, std::hash of a string (seeded per run by some standard libraries), iteration
+// order of an unordered container keyed by address — would pass all of them and still miss the cache on
+// every start, because the cache is only ever read by the NEXT process. This test asks two fresh
+// processes (this same binary, run with --print-shader-keys) for the keys of real shipped shaders and
+// requires both to print the number this process computed.
+
+namespace
+{
+    // Captured during static initialisation, before any fixture moves the working directory, so a
+    // relative argv[0] still resolves.
+    const std::filesystem::path kStartDirectory = std::filesystem::current_path();
+
+    constexpr const char* kPrintKeysFlag = "--print-shader-keys";
+    constexpr const char* kKeyLinePrefix = "SHADERKEY ";
+
+    // Real shipped programs, both debug-info profiles, and one substituting variant: each input the
+    // compiler folds into the key is represented.
+    std::vector<std::string> KeysOfRealShaders()
+    {
+        struct Case
+        {
+            const char* File;
+            ShaderStage Stage;
+        };
+        const std::array<Case, 3>         cases = { Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute },
+                                                    Case{ "Fog/HeightFog.shader", ShaderStage::Compute },
+                                                    Case{ "Clouds/CloudRaymarch.shader", ShaderStage::Compute } };
+        const Desert::Core::ShaderVariant authored{
+             { { "Generated/CloudMedium.glslh",
+                 "#include <Common/CloudMediumDefault.glslh>\n// an authored medium\n" } } };
+
+        std::vector<std::string> lines;
+        for ( size_t i = 0; i < cases.size(); ++i )
+        {
+            const auto        path    = ShaderPath( cases[i].File );
+            const std::string source  = StageSource( path, cases[i].Stage );
+            const bool        variant = i == 2;
+            for ( const bool debugInfo : { false, true } )
+                lines.push_back( std::format( "{}{} {} {:016x}", cases[i].File, variant ? "+variant" : "",
+                                              debugInfo ? "debug" : "release",
+                                              Desert::Core::ComputeShaderCacheKeyForProfile(
+                                                   cases[i].Stage, source, path, debugInfo,
+                                                   variant ? authored : Desert::Core::ShaderVariant{} ) ) );
+        }
+        // The shader map's key: raw program text, no parse — the warm start's only question.
+        for ( const char* file : { "Clouds/CloudRaymarch.shader", "Fog/HeightFog.shader" } )
+        {
+            const auto path = ShaderPath( file );
+            lines.push_back(
+                 std::format( "{} shadermap {:016x}", file,
+                              Desert::Core::ComputeShaderMapKey( ReadFile( path ), path, "", false ) ) );
+        }
+        return lines;
+    }
+
+    bool AskedToPrintKeys()
+    {
+        const auto& argv = ::testing::internal::GetArgvs();
+        return std::find( argv.begin(), argv.end(), std::string( kPrintKeysFlag ) ) != argv.end();
+    }
+
+    // Runs this binary as a child that prints the keys; returns the key lines in order.
+    std::vector<std::string> KeysFromAnotherProcess()
+    {
+        std::filesystem::path self( ::testing::internal::GetArgvs().at( 0 ) );
+        if ( self.is_relative() )
+            self = kStartDirectory / self;
+        // Double quotes: cmd.exe does not treat single quotes as quoting, POSIX sh accepts both.
+        const std::string command =
+             std::format( "\"{}\" --gtest_filter=ShaderRootFixture.PrintsTheKeysForAnotherProcess {} 2>&1",
+                          self.make_preferred().string(), kPrintKeysFlag );
+#ifdef _WIN32
+        // cmd /c strips the outer pair of quotes when the line starts with one; a second pair survives it.
+        FILE* pipe = _popen( ( "\"" + command + "\"" ).c_str(), "r" );
+#else
+        FILE* pipe = popen( command.c_str(), "r" );
+#endif
+        std::vector<std::string> keys;
+        if ( pipe == nullptr )
+            return keys;
+        std::string            output;
+        std::array<char, 4096> buffer{};
+        size_t                 got = 0;
+        while ( ( got = fread( buffer.data(), 1, buffer.size(), pipe ) ) > 0 )
+            output.append( buffer.data(), got );
+#ifdef _WIN32
+        _pclose( pipe );
+#else
+        pclose( pipe );
+#endif
+        std::istringstream in( output );
+        std::string        line;
+        while ( std::getline( in, line ) )
+        {
+            if ( !line.empty() && line.back() == '\r' )
+                line.pop_back();
+            if ( line.rfind( kKeyLinePrefix, 0 ) == 0 )
+                keys.push_back( line.substr( std::string_view( kKeyLinePrefix ).size() ) );
+        }
+        return keys;
+    }
+} // namespace
+
+// The child half. Run without the flag it computes nothing and passes; it exists to be the process the
+// test below starts.
+TEST_F( ShaderRootFixture, PrintsTheKeysForAnotherProcess )
+{
+    if ( !AskedToPrintKeys() )
+        return;
+    for ( const std::string& line : KeysOfRealShaders() )
+        std::cout << kKeyLinePrefix << line << std::endl;
+}
+
+TEST_F( ShaderRootFixture, TwoProcessesComputeTheSameKeyForTheSameShader )
+{
+    if ( AskedToPrintKeys() )
+        return;
+    const std::vector<std::string> here = KeysOfRealShaders();
+    ASSERT_EQ( here.size(), 8u );
+
+    const std::vector<std::string> first  = KeysFromAnotherProcess();
+    const std::vector<std::string> second = KeysFromAnotherProcess();
+    ASSERT_EQ( first.size(), here.size() )
+         << "the child process printed " << first.size() << " key line(s); it did not run the printer";
+    EXPECT_EQ( first, here ) << "a key computed in another process differs: the cache misses on every start";
+    EXPECT_EQ( second, first ) << "two child processes disagree about the same shader's key";
 }
 
 // ---- The include closure ----------------------------------------------------------------------------
@@ -2269,8 +2405,167 @@ TEST_F( ShaderRootFixture, AMediumMaySampleTheLayersOwnNoiseVolumeInEveryConsume
     }
 }
 
+// ---- The shader map (warm start without a parse) ------------------------------------------------------
+
+TEST_F( ShaderRootFixture, TheShaderMapKeyMovesWhenAHeaderTheRawTextIncludesChanges )
+{
+    const auto dir = std::filesystem::temp_directory_path() / "desert_shadermap_key";
+    std::filesystem::create_directories( dir );
+    const auto        program = dir / "Probe.shader";
+    const auto        header  = dir / "Probe.glslh";
+    const std::string text    = "Shader \"Probe\" { Compute { #include \"Probe.glslh\"\n void main() {} } }\n";
+    std::ofstream( header, std::ios::binary | std::ios::trunc ) << "float probe = 1.0;\n";
+
+    const uint64_t before = Desert::Core::ComputeShaderMapKey( text, program, "", false );
+    EXPECT_EQ( before, Desert::Core::ComputeShaderMapKey( text, program, "", false ) ) << "same input, two keys";
+    EXPECT_NE( before, Desert::Core::ComputeShaderMapKey( text, program, "", true ) ) << "profile ignored";
+    EXPECT_NE( before, Desert::Core::ComputeShaderMapKey( text, program, "Shadow", false ) ) << "pass ignored";
+
+    // Different SIZE as well as content: the per-process file cache is invalidated by size or write time,
+    // and a write inside one timestamp tick must still be seen.
+    std::ofstream( header, std::ios::binary | std::ios::trunc ) << "float probe = 2.0; // edited\n";
+    const uint64_t after = Desert::Core::ComputeShaderMapKey( text, program, "", false );
+    EXPECT_NE( before, after ) << "editing an included header left the shader map key where it was: a warm "
+                                  "start would serve the old program";
+    std::filesystem::remove_all( dir );
+}
+
+TEST_F( ShaderRootFixture, TheShaderMapKeyHashesTheHeaderTheParserInjects )
+{
+    // The text names no header at all; MaterialTransport.glslh is written in by the parser. It must be in
+    // the closure the key hashes, or editing it would leave every material program on its old binary.
+    const auto program = ShaderPath( "Unlit/Unlit.shader" );
+    const auto closure = Desert::Core::CollectShaderIncludes(
+         std::string( "#include <" ) + std::string( Desert::Core::Preprocess::kParserInjectedIncludes[0] ) + ">\n",
+         program );
+    ASSERT_FALSE( closure.empty() ) << "the injected header does not resolve from the shader root";
+}
+
+TEST_F( ShaderRootFixture, EveryShippedProgramsMetadataIsTheSameAfterTheShaderMap )
+{
+    namespace PP    = Desert::Core::Preprocess;
+    size_t programs = 0;
+    for ( const auto& entry :
+          std::filesystem::recursive_directory_iterator( s_RepoRoot / "Editor" / "Resources" / "Shaders" ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        const std::string text = ReadFile( entry.path() );
+        if ( !PP::DShaderParser::IsDShader( text ) )
+            continue;
+        const auto parsed = PP::DShaderParser::Parse( text );
+        ASSERT_TRUE( parsed.IsSuccess() ) << entry.path() << ": " << parsed.GetError();
+        if ( parsed.GetValue().Meta.IsMediumProgram() )
+            EXPECT_TRUE( PP::DShaderParser::MayDeclareMedium( text ) ) << entry.path()
+                                                                       << " declares a Medium the "
+                                                                          "precheck says it cannot";
+        std::vector<std::string> passes{ "" };
+        for ( const auto& name : parsed.GetValue().Meta.PassNames )
+            passes.push_back( name );
+        for ( const auto& pass : passes )
+        {
+            Desert::Core::ShaderMap map;
+            map.Meta = PP::ShaderPreprocess::ParseProgramMetaForPass( text, pass );
+            map.Stages.push_back( { Desert::Core::Formats::ShaderStage::Compute, { 0x07230203u, 7u, 9u } } );
+            const std::string bytes = Desert::Core::SerializeShaderMap( map );
+            const auto        back  = Desert::Core::DeserializeShaderMap( bytes );
+            ASSERT_TRUE( back.IsSuccess() ) << entry.path() << " pass '" << pass << "': " << back.GetError();
+            EXPECT_TRUE( back.GetValue() == map ) << entry.path() << " pass '" << pass
+                                                  << "': the metadata changed on its way through the shader map";
+            EXPECT_FALSE(
+                 Desert::Core::DeserializeShaderMap( std::string_view( bytes ).substr( 0, bytes.size() - 1 ) )
+                      .IsSuccess() )
+                 << "a truncated shader map was accepted";
+            ++programs;
+        }
+    }
+    std::cout << "[ShaderMap] round-tripped " << programs << " program(s)\n";
+    EXPECT_GE( programs, 70u ) << "the shader walk found too few programs to be the shipped set";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+namespace
+{
+    // What counts as a change of the map's producer: the code, not its layout. Line endings (a Windows
+    // checkout converts them), whitespace (clang-format) and comments are dropped, so re-formatting or
+    // re-wording does not demand a new fingerprint; anything the compiler sees does.
+    std::string ProducerCodeOnly( const std::string& text )
+    {
+        std::string out;
+        out.reserve( text.size() );
+        for ( size_t i = 0; i < text.size(); ++i )
+        {
+            if ( text.compare( i, 2, "//" ) == 0 )
+            {
+                i = text.find( '\n', i );
+                if ( i == std::string::npos )
+                    break;
+                continue;
+            }
+            if ( text.compare( i, 2, "/*" ) == 0 )
+            {
+                i = text.find( "*/", i + 2 );
+                if ( i == std::string::npos )
+                    break;
+                ++i;
+                continue;
+            }
+            if ( !std::isspace( static_cast<unsigned char>( text[i] ) ) )
+                out += text[i];
+        }
+        return out;
+    }
+
+    void MixFnv( uint64_t& hash, std::string_view bytes )
+    {
+        for ( const char c : bytes )
+            hash = ( hash ^ static_cast<unsigned char>( c ) ) * 0x100000001b3ULL;
+    }
+
+    uint64_t ProducerFingerprint( const std::filesystem::path& repoRoot, std::string& missing )
+    {
+        uint64_t hash = 0xcbf29ce484222325ULL;
+        for ( const std::string_view relative : Desert::Core::kShaderMapProducerSources )
+        {
+            const auto file = repoRoot / relative;
+            if ( !std::filesystem::exists( file ) )
+                missing += std::string( relative ) + " ";
+            MixFnv( hash, relative );
+            MixFnv( hash, std::string_view( "\0", 1 ) );
+            MixFnv( hash, ProducerCodeOnly( ReadFile( file ) ) );
+            MixFnv( hash, std::string_view( "\0", 1 ) );
+        }
+        return hash;
+    }
+} // namespace
+
+// The shader map key hashes the program's text, so a change to the parser, the preprocessor or the metadata
+// types would otherwise keep serving maps the OLD code produced — on every machine with a warm cache and
+// nowhere the change was tested. The recorded fingerprint is part of the deriver's version: re-recording it
+// is what moves the keys, so the only way to make this test green again is also the migration.
+TEST_F( ShaderRootFixture, TheShaderMapProducerFingerprintIsRecorded )
+{
+    std::string    missing;
+    const uint64_t actual = ProducerFingerprint( s_RepoRoot, missing );
+    ASSERT_TRUE( missing.empty() ) << "kShaderMapProducerSources names files that do not exist: " << missing;
+    EXPECT_EQ( actual, Desert::Core::kShaderMapProducerFingerprint ) << std::format(
+         "the code that produces a shader map changed; every cached map was produced by the old code. Set "
+         "kShaderMapProducerFingerprint = 0x{:016x}ULL in ShaderMapCache.hpp (it moves every shader map key); "
+         "bump kShaderMapFormatVersion as well if the byte layout changed.",
+         actual );
+}
+
+// The normalisation is what keeps the pin quiet on a reformat and on a Windows checkout; if it stopped
+// dropping those, the test above would be red on the platform nobody ran it on.
+TEST( ShaderMapProducerFingerprint, LineEndingsWhitespaceAndCommentsDoNotCount )
+{
+    const std::string unixText    = "int a = 1; // one\n/* block */ int b;\n";
+    const std::string windowsText = "int a = 1; // one, reworded\r\n/* other */\tint   b;\r\n";
+    EXPECT_EQ( ProducerCodeOnly( unixText ), ProducerCodeOnly( windowsText ) );
+    EXPECT_NE( ProducerCodeOnly( unixText ), ProducerCodeOnly( "int a = 2; // one\nint b;\n" ) );
 }

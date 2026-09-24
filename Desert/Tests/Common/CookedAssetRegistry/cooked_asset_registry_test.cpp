@@ -192,7 +192,7 @@ TEST( CookedAssetRegistry, AMalformedFileIsARefusalAndNotAnEmptyProject )
     EXPECT_FALSE( AssetRegistry::Parse( "" ) );
     EXPECT_FALSE( AssetRegistry::Parse( "DesertContentManifest 1\n" ) ) << "another Desert text format "
                                                                            "was accepted as a registry";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 3\n" ) ) << "a future version was read as "
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n" ) ) << "a future version was read as "
                                                                          "though it were this one";
     EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\n512 Material - -\n" ) )
          << "a row missing its key column was accepted";
@@ -248,7 +248,7 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
     EXPECT_FALSE( none->Bounds.has_value() ) << "a row with no extent came back with one";
 
     EXPECT_EQ( parsed.GetValue().Serialize(), text ) << "a second write of what was read is a different file";
-    EXPECT_EQ( text.rfind( "DesertAssetRegistry 2\n", 0 ), 0u );
+    EXPECT_EQ( text.rfind( "DesertAssetRegistry 3\n", 0 ), 0u );
 }
 
 // VERSION 1 IS READ, AS ROWS WITH NO BOUNDS, AND WRITTEN BACK AS 2 — the migration is Parse itself. Every
@@ -270,9 +270,9 @@ TEST( CookedAssetRegistry, AVersionOneFileMigratesToRowsWithNoBoundsAndKeepsEver
     EXPECT_EQ( material->Dependencies, ( std::vector<uint64_t>{ 7 } ) );
     EXPECT_FALSE( material->Bounds.has_value() );
 
-    EXPECT_EQ( read.Serialize(), "DesertAssetRegistry 2\n"
-                                 "229 Material a3c34fd7f85f1d7b 0000000000000007 - assets:Materials/M A.demat\n"
-                                 "3536 StaticMesh - - - cooked:Meshes/StaticProbe.stmesh\n" );
+    EXPECT_EQ( read.Serialize(), "DesertAssetRegistry 3\n"
+                                 "229 Material - a3c34fd7f85f1d7b 0000000000000007 - assets:Materials/M A.demat\n"
+                                 "3536 StaticMesh - - - - cooked:Meshes/StaticProbe.stmesh\n" );
 }
 
 // A BOX NO POINT IS INSIDE IS NOT DATA. Five fields, a NaN, an inverted box and a decimal spelling are
@@ -523,4 +523,99 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── AF7: THE HEADER COLUMN ────────────────────────────────────────────────────────────────────────
+//
+// The registry records what each file's OWN HEADER states - GUID and subsystem versions - read without
+// the body, the way UE's asset registry reads a package summary. It is the one identity a Common-only
+// cook can compute, so it is the one `check` asserts.
+
+namespace
+{
+    Common::Content::AssetGuid GuidOf( uint64_t hi, uint64_t lo )
+    {
+        Common::Content::AssetGuid guid;
+        guid.Hi = hi;
+        guid.Lo = lo;
+        return guid;
+    }
+} // namespace
+
+TEST( CookedAssetRegistry, TheHeaderColumnSurvivesARoundTripWithItsVersionsSorted )
+{
+    AssetRegistryEntry row = Row( "assets:Materials/M.demat", "Material", 229 );
+    row.Guid               = GuidOf( 0xb7de7b6da944bdedull, 0x0382e39126712944ull );
+    row.Versions = { { Common::Content::FourCC( "UNIT" ), 1 }, { Common::Content::FourCC( "MATL" ), 2 } };
+    AssetRegistry registry;
+    ASSERT_TRUE( registry.Insert( row ) );
+
+    const std::string text = registry.Serialize();
+    EXPECT_NE( text.find( " b7de7b6da944bded0382e39126712944;MATL=2,UNIT=1 " ), std::string::npos ) << text;
+
+    const auto parsed = AssetRegistry::Parse( text );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    const AssetRegistryEntry* back = parsed.GetValue().FindByKey( "assets:Materials/M.demat" );
+    ASSERT_NE( back, nullptr );
+    ASSERT_TRUE( back->Guid.has_value() );
+    EXPECT_EQ( *back->Guid, *row.Guid );
+    EXPECT_EQ( back->Versions.size(), 2u );
+    EXPECT_EQ( parsed.GetValue().Serialize(), text );
+}
+
+TEST( CookedAssetRegistry, AVersionTwoFileIsReadAsRowsWithNoHeaderColumn )
+{
+    const auto parsed =
+         AssetRegistry::Parse( "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n" );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
+    const AssetRegistryEntry* row = parsed.GetValue().FindByKey( "assets:M.demat" );
+    ASSERT_NE( row, nullptr );
+    EXPECT_EQ( row->Identity, 9u );
+    EXPECT_FALSE( row->Guid.has_value() );
+}
+
+TEST( CookedAssetRegistry, AMalformedHeaderColumnIsRefused )
+{
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 3\n5 Material zz - - - assets:M.demat\n" ) );
+    EXPECT_FALSE( AssetRegistry::Parse(
+         "DesertAssetRegistry 3\n5 Material 00000000000000000000000000000000; - - - assets:M.demat\n" ) )
+         << "a null GUID is no identity";
+    EXPECT_FALSE( AssetRegistry::Parse(
+         "DesertAssetRegistry 3\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - assets:M.demat\n" ) );
+}
+
+TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )
+{
+    AssetRegistryEntry row = Row( "assets:Materials/M.demat", "Material", 900 );
+    row.Guid               = GuidOf( 1, 2 );
+    row.Versions           = { { Common::Content::FourCC( "MATL" ), 1 } };
+    AssetRegistry registry;
+    ASSERT_TRUE( registry.Insert( row ) );
+
+    auto onDisk = Disk( { { "assets:Materials/M.demat", { Common::Content::ContentKind::Material, 900 } } } );
+    Common::Content::AssetHeader header;
+    header.Kind                   = Common::Content::ContentKind::Material;
+    header.Guid                   = GuidOf( 1, 2 );
+    header.Subsystems             = { { Common::Content::FourCC( "MATL" ), 1 } };
+    onDisk.begin()->second.Header = header;
+    EXPECT_TRUE( Common::Content::Compare( registry, onDisk, "on disk" ).empty() ) << "an agreeing header";
+
+    onDisk.begin()->second.Header->Guid = GuidOf( 1, 3 );
+    EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
+                          Common::Content::RegistryDisagreement::Kind::StaleHeader, "assets:Materials/M.demat" ) );
+
+    onDisk.begin()->second.Header->Guid                  = GuidOf( 1, 2 );
+    onDisk.begin()->second.Header->Subsystems[0].Version = 2;
+    EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
+                          Common::Content::RegistryDisagreement::Kind::StaleHeader, "assets:Materials/M.demat" ) )
+         << "a version raise the registry did not record";
+
+    onDisk.begin()->second.Header->Kind = Common::Content::ContentKind::Scene;
+    EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
+                          Common::Content::RegistryDisagreement::Kind::BadHeader, "assets:Materials/M.demat" ) );
+
+    onDisk.begin()->second.Header.reset();
+    onDisk.begin()->second.HeaderError = "text header: null GUID";
+    EXPECT_TRUE( Reports( Common::Content::Compare( registry, onDisk, "on disk" ),
+                          Common::Content::RegistryDisagreement::Kind::BadHeader, "assets:Materials/M.demat" ) );
 }

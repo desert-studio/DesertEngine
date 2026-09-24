@@ -1,1 +1,13 @@
-{"ShaderName":"MatProbe","Params":[],"Textures":[],"MaterialId":1111111111111111111}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "358bc9f1414d0b0477ba9f42f026b305",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "ShaderName": "MatProbe",
+    "Params": [],
+    "Textures": []
+}

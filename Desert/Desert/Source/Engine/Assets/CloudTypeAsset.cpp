@@ -1,4 +1,5 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -144,7 +145,10 @@ namespace Desert::Assets
         CloudTypeData written = data;
         written.FormatVersion = kCloudTypeFormatVersion;
 
-        const std::string text = WriteCloudType( written );
+        const auto canonicalText = Common::Content::CanonicalJsonTextOfWriterOutput( WriteCloudType( written ) );
+        if ( !canonicalText )
+            return Common::MakeError<bool>( canonicalText.GetError() );
+        const std::string& text = canonicalText.GetValue();
 
         // Through the write primitive, not a local std::ofstream (Д35). A `.decloudtype` is a few
         // hundred bytes — smaller than one filebuf — so it is precisely the payload that never reaches

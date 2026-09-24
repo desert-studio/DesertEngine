@@ -14,7 +14,8 @@
 // re-stamped project-relative with no migration. It is FALSE, and it is falsifiable by arithmetic:
 // `ANIM_RigWitness_NoRig.desce` stores `"MeshPath":"Cooked/Meshes/IKProbe.skmesh"` beside
 // `"MeshGuid":556331627295699705`, and that number is exactly `FromCookedPath` of that path. Ten such
-// pairs are committed, plus 95 `TextureHandle` and 113 `MaterialId` numbers in `.demat` files.
+// pairs are committed, plus 95 `TextureHandle` numbers and 113 adopted-id entries in `.demat` files
+// (now bridged through the legacy register, since MATL 2 moved material identity to the header GUID).
 //
 // So the derivation is load-bearing for committed content, and `TestB` below is what makes moving it a RED
 // BUILD naming the file rather than a silent emptying discovered a session later. (`AssetReferenceCensus`
@@ -29,8 +30,8 @@
 //
 // And the two kinds of row are deliberately both here, because they fail in opposite directions:
 //   * `MeshPath` + `MeshGuid` is a PATH-DERIVED handle. It breaks if the derivation moves.
-//   * `MaterialPaths` + `MaterialGuids` is an ADOPTED handle — the `MaterialId` written inside the named
-//     `.demat`, a random authored id that no derivation produces. It breaks if the adoption is dropped.
+//   * `MaterialPaths` + `MaterialGuids` names the material by its header GUID TEXT (SCNE 27; before, an
+//     adopted legacy id). It breaks if the path and the GUID stop naming one file.
 // An index that only recorded derivations would be empty for exactly the references that exist most.
 
 #include <gtest/gtest.h>
@@ -42,6 +43,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -191,6 +193,7 @@ namespace
         std::string Field; // which pair of fields it came from, for the failure message
         std::string Path;
         uint64_t    Handle = 0;
+        std::string Guid; // material rows: the header GUID text the scene states (SCNE 27)
     };
 
     // Pulls every such pair out of one parsed scene document. The walk is recursive because a component
@@ -268,11 +271,10 @@ namespace
                 for ( size_t at = 0; at < p.size() && at < g.size(); ++at )
                 {
                     const auto text  = p[at].to_string();
-                    const auto value = g[at].to_int64();
-                    if ( !text || !value || text->empty() || *value == 0 )
+                    const auto value = g[at].to_string();
+                    if ( !text || !value || text->empty() || value->empty() )
                         continue;
-                    materials.push_back(
-                         { scene, "MaterialPaths/MaterialGuids", *text, static_cast<uint64_t>( *value ) } );
+                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *text, 0, *value } );
                 }
             }
         }
@@ -299,16 +301,37 @@ namespace
         }
     }
 
-    // The `MaterialId` a `.demat` carries, or 0. Read as raw text rather than through MaterialData so a
-    // schema change to that struct cannot make this census quietly stop finding the field.
-    uint64_t MaterialIdIn( const fs::path& demat )
+    // The quoted string value that follows `key` in `text`, starting the search at `from` — tolerant of
+    // the whitespace both `LegacyMaterialIds.json` and a `.demat` pretty-print between the colon and the
+    // opening quote (`"Guid": "..."`, not `"Guid":"..."`). Returns {} and leaves `at` at npos on failure.
+    std::string QuotedValueAfter( const std::string& text, const std::string& key, size_t from, size_t& at )
     {
-        const std::string text = ReadAll( demat );
-        const std::string key  = "\"MaterialId\":";
-        const size_t      at   = text.rfind( key );
+        at = text.find( key, from );
         if ( at == std::string::npos )
-            return 0;
-        return std::strtoull( text.c_str() + at + key.size(), nullptr, 10 );
+            return {};
+        size_t cursor = at + key.size();
+        while ( cursor < text.size() && std::isspace( static_cast<unsigned char>( text[cursor] ) ) )
+            ++cursor;
+        if ( cursor >= text.size() || text[cursor] != '"' )
+        {
+            at = std::string::npos;
+            return {};
+        }
+        const size_t end = text.find( '"', cursor + 1 );
+        if ( end == std::string::npos )
+        {
+            at = std::string::npos;
+            return {};
+        }
+        return text.substr( cursor + 1, end - cursor - 1 );
+    }
+
+    // The header GUID text a `.demat` states, read as raw text (not through a struct) so a schema change to
+    // MaterialData cannot make this census quietly stop finding the field.
+    std::string GuidOfDemat( const fs::path& demat )
+    {
+        size_t at = 0;
+        return QuotedValueAfter( ReadAll( demat ), "\"Guid\":", 0, at );
     }
 } // namespace
 
@@ -439,18 +462,11 @@ TEST( AssetHandleInverse, EveryPathAndHandleAShippedSceneWritesForOneReferenceAg
             continue; // a scene naming a material this checkout does not have is AssetReferenceCensus's job
         ++checked;
 
-        // An ADOPTED id: the number in the scene is the `MaterialId` inside the named `.demat`, not a
-        // derivation of its path. Asserting it against FromCookedPath would be asserting the wrong thing
-        // and would go red on correct content.
-        EXPECT_EQ( MaterialIdIn( demat ), row.Handle )
-             << row.Scene << " writes '" << row.Path << "' beside " << row.Handle
-             << ", but that file carries MaterialId " << MaterialIdIn( demat )
-             << ". A material's handle IS its in-file id, so these two must be one number.";
-
-        EXPECT_NE( static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( demat ) ), row.Handle )
-             << row.Path << " happens to derive its own MaterialId. That is not a defect, but this "
-             << "assertion exists to keep the two kinds of identity distinguishable — if it ever fires, "
-             << "the adopted case above has stopped being tested by this row.";
+        // SCNE 27: the scene names the material by the header GUID of the file its path locates.
+        EXPECT_EQ( GuidOfDemat( demat ), row.Guid )
+             << row.Scene << " writes '" << row.Path << "' beside GUID " << row.Guid << ", but that file's header "
+             << "states " << GuidOfDemat( demat ) << ". The GUID is the identity and the path its locator, so "
+             << "they must name one file.";
     }
     std::cout << "[  COUNT   ] " << meshes.size() << " MeshPath/MeshGuid pairs, " << checked << " of "
               << materials.size() << " MaterialPaths/MaterialGuids pairs resolvable in this checkout\n";

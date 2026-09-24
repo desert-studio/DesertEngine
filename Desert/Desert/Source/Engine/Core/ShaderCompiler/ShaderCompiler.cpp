@@ -59,11 +59,24 @@ namespace Desert::Core
         // source + every included file's content (recursive) + the VARIANT's substituted bytes.
         // Content-addressed, so any edit produces a fresh key — no mtime races — and two materials
         // substituting two different cloud media are two artifacts rather than one served twice.
-        const uint64_t key = ComputeShaderCacheKeyForProfile( stage, source, shaderPath, spirvDebugInfo, variant );
+        uint64_t key = 0;
+        {
+            const ScopedShaderPhase timer( ShaderPhase::CacheKey );
+            key = ComputeShaderCacheKeyForProfile( stage, source, shaderPath, spirvDebugInfo, variant );
+        }
 
-        if ( auto cached = TryLoadCachedSpirv( key ) )
+        std::optional<std::vector<uint32_t>> cached;
+        {
+            const ScopedShaderPhase timer( ShaderPhase::SpirvLoad );
+            cached = TryLoadCachedSpirv( key );
+        }
+        if ( cached )
+        {
+            CountShaderCacheHit();
             return Common::MakeSuccess( std::move( *cached ) );
+        }
 
+        const ScopedShaderPhase  compileTimer( ShaderPhase::Compile );
         static shaderc::Compiler compiler;
         shaderc::CompileOptions  options;
 
@@ -101,7 +114,13 @@ namespace Desert::Core
                   Graphic::Shader::GetStringShaderStage( stage ), compileMs );
 
         std::vector<uint32_t> spirv( result.begin(), result.end() );
-        StoreCachedSpirv( key, spirv );
+        // A failed store is not fatal to THIS compile, but it keeps the cache cold: the next start pays
+        // the same compile again. Say so, with the path and the file system's reason.
+        const auto stored = StoreCachedSpirv( key, spirv );
+        if ( !stored )
+            LOG_WARN( "[ShaderCache] could not store {}: {}", SpirvCachePathForKey( key ).string(),
+                      stored.GetError() );
+        CountShaderCacheCompile( static_cast<bool>( stored ) );
         return Common::MakeSuccess( std::move( spirv ) );
     }
 

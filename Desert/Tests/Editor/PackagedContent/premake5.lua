@@ -46,6 +46,7 @@ project(test_name)
         -- measures its own output against, and stb_image as the one decoder in the closure. The same
         -- four files Tests/Editor/TextureImport compiles, so nothing here is a second texture cook.
         "%{wks.location}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp",
         "%{wks.location}/ThirdParty/stb/stb_image.cpp",

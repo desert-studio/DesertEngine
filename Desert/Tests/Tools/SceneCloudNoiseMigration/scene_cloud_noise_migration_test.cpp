@@ -185,7 +185,7 @@ TEST( SceneCloudNoiseMigration, MigrateSceneRunsItAndStampsTheFileSoItNeverRunsA
     EXPECT_TRUE( report.CloudNoiseRaised );
     EXPECT_EQ( report.CloudNoise.FieldsDropped, 4 );
     EXPECT_TRUE( report.Changed() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     // The head has moved PAST this migration — v4 is the cloud species — so what is asserted is that this
     // step is still on the way to it and still gated on its own constant. Written as an inequality rather
     // than deleted: an equality here would have to be edited by every future migration, which is how a

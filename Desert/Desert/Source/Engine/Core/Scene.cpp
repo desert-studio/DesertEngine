@@ -966,6 +966,15 @@ namespace Desert::Core
         parentRel.Children.push_back( child.GetHandle() );
     }
 
+    void Scene::ArrangeRoots( const std::vector<ECS::Entity>& roots )
+    {
+        std::vector<entt::entity> handles;
+        handles.reserve( roots.size() );
+        for ( const ECS::Entity& root : roots )
+            handles.push_back( root.GetHandle() );
+        m_Entities.Arrange( handles );
+    }
+
     void Scene::Detach( ECS::Entity child )
     {
         if ( !child || !child.HasComponent<ECS::RelationshipComponent>() )

@@ -280,7 +280,7 @@ TEST( SceneCloudSetMigration, MigrateSceneRunsItAndStampsTheFileSoItNeverRunsAga
     EXPECT_TRUE( report.CloudSetRaised );
     EXPECT_EQ( report.CloudSet.SlotsCarried, 1 );
     EXPECT_TRUE( report.Changed() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
     // The stamp is the HEAD, which is at or past this step — it was exactly this step until v7 moved the
     // head for the terrain's material. What this line pins is that the file leaves MigrateScene raised past
     // the point this suite is about, not that this suite owns the head.

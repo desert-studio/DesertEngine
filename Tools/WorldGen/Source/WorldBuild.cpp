@@ -1,10 +1,16 @@
 #include "WorldBuild.hpp"
 
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <optional>
 
 namespace Desert::WorldGen
 {
@@ -90,12 +96,17 @@ namespace Desert::WorldGen
     } // namespace
 
     Core::SceneSerialized BuildWorld( const WorldSpec& spec, const std::vector<MaterialRef>& buildingMaterials,
-                                      const MaterialRef& groundMaterial, WorldStats& stats )
+                                      const MaterialRef& groundMaterial, const Common::Content::AssetGuid& guid,
+                                      WorldStats& stats )
     {
         Core::SceneSerialized scene;
-        scene.SceneName    = spec.Name;
-        scene.SceneVersion = Core::kSceneVersion;
-        scene.UnitVersion  = Core::kUnitVersion;
+        scene.SceneName = spec.Name;
+        // The GUID is the caller's: kept from the output file's own header when regenerating (see
+        // ExistingWorldGuid below), freshly minted for a file that does not exist yet - the same rule every
+        // other text asset follows. NOT derived from the spec's name (architect's decision, AF6k): a name
+        // is not an identity, and two never-before-written files of one spec must not collide on it.
+        scene.Header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Scene, guid,
+                                                        Core::SceneTextSubsystems() );
 
         stats          = WorldStats{};
         stats.Cells    = spec.Cells * spec.Cells;
@@ -192,7 +203,7 @@ namespace Desert::WorldGen
 
                     Assets::StaticMeshComponentSer mesh;
                     mesh.MaterialPaths              = std::vector<std::string>{ groundMaterial.Path };
-                    mesh.MaterialGuids              = std::vector<uint64_t>{ groundMaterial.Guid };
+                    mesh.MaterialGuids              = std::vector<std::string>{ groundMaterial.Guid };
                     mesh.Primitive                  = Geometry::PrimitiveType::Cube;
                     ground.Components["StaticMesh"] = AsBlock( mesh );
                     scene.Entities.push_back( std::move( ground ) );
@@ -250,7 +261,7 @@ namespace Desert::WorldGen
                     const auto&                    material = buildingMaterials[static_cast<size_t>(
                          Range( Mix( d5 ), 0, static_cast<int>( buildingMaterials.size() ) - 1 ) )];
                     mesh.MaterialPaths                      = std::vector<std::string>{ material.Path };
-                    mesh.MaterialGuids                      = std::vector<uint64_t>{ material.Guid };
+                    mesh.MaterialGuids                      = std::vector<std::string>{ material.Guid };
                     mesh.Primitive                          = Geometry::PrimitiveType::Cube;
                     building.Components["StaticMesh"]       = AsBlock( mesh );
                     scene.Entities.push_back( std::move( building ) );
@@ -261,5 +272,22 @@ namespace Desert::WorldGen
 
         stats.Entities = static_cast<int>( scene.Entities.size() );
         return scene;
+    }
+
+    std::optional<Common::Content::AssetGuid> ExistingWorldGuid( const std::filesystem::path& outputFile )
+    {
+        std::ifstream in( outputFile, std::ios::binary );
+        if ( !in )
+            return std::nullopt;
+        const auto object = Common::Content::ReadTextHeaderObject( in );
+        if ( !object.IsSuccess() )
+            return std::nullopt;
+        const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+        if ( !header.IsSuccess() )
+            return std::nullopt;
+        const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+        if ( !guid.IsSuccess() )
+            return std::nullopt;
+        return guid.GetValue();
     }
 } // namespace Desert::WorldGen

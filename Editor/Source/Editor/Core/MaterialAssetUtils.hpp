@@ -5,6 +5,8 @@
 // runtime-only script seed, not an authoring surface.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Common/Content/CanonicalText.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/MaterialParamDiff.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -120,16 +122,13 @@ namespace Desert::Editor::MaterialAssetUtils
         if ( !onDisk )
         {
             Assets::MaterialData data;
-            data.MaterialId = Common::UUID::Generate(); // a brand-new material's stable, file-borne GUID
             for ( const auto& param : params )
                 data.SetParam( param.Name, param.Value );
             // REFUSED rather than carried on: the CreateAsset below would load the file that was not
             // written, get canonical defaults, and hand back a handle for a material that has none of
             // the authored parameters and no file behind it. The caller (a startup scene builder) would
             // then put that handle into a mesh slot and save it into a .desce.
-            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
-                      path.generic_string(), rfl::json::write( data ) );
-                 !written )
+            if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
             {
                 LOG_ERROR( "[Material] '{}' was not created: {}", path.generic_string(), written.GetError() );
                 return outcome;

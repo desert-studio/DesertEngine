@@ -1,1 +1,25 @@
-{"Params": [{"Name": "AlbedoColor", "Value": [0.95, 0.93, 0.88, 1.0]}, {"Name": "RoughnessFactor", "Value": [0.35, 0, 0, 0]}, {"Name": "MetallicFactor", "Value": [1.0, 0, 0, 0]}], "Textures": [], "MaterialId": 746170824497437242}
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "1a32f84f685d2419e52642eed0ce8936",
+        "Versions": {
+            "MATL": 2
+        },
+        "Dependencies": []
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.95, 0.93, 0.88, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.35, 0, 0, 0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [1.0, 0, 0, 0]
+        }
+    ],
+    "Textures": []
+}

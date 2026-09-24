@@ -22,7 +22,7 @@ namespace Desert::Editor::MaterialEdit
     // the Material Editor can change, and nothing else.
     //
     // The other half is IDENTITY: MaterialId, which is this asset's own name in the asset database, and
-    // ParentMaterialId, which is its place in the material-instance chain. Keeping the two halves apart is
+    // Parent, which is its place in the material-instance chain. Keeping the two halves apart is
     // load-bearing rather than tidy, because a document's WORKING COPY is a second material asset
     // registered beside the subject (see SurfaceMaterialAsset::CreateWorkingCopy for why it has to be a
     // second asset and not a spare struct). The copy therefore carries a MaterialId of its own, and a
@@ -31,7 +31,7 @@ namespace Desert::Editor::MaterialEdit
     // mesh -> material link on exactly that id, so whichever of the two registered first would then answer
     // for both, and a mesh in the level would start drawing the preview's material.
     //
-    // ParentMaterialId is copied by NEITHER function, for the same reason and one more: it names somebody
+    // Parent is copied by NEITHER function, for the same reason and one more: it names somebody
     // else. An instance's working copy must resolve through the same parent chain the subject does, and
     // this window offers no way to re-parent a material, so a transfer of it could only ever be an
     // accident.

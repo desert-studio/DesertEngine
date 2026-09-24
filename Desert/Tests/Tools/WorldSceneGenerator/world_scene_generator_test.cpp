@@ -31,6 +31,7 @@
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -39,6 +40,7 @@
 #include <filesystem>
 #include <fstream>
 #include <cctype>
+#include <cstring>
 #include <set>
 #include <sstream>
 #include <string>
@@ -134,18 +136,40 @@ namespace
 // 1. THE PROPERTY THE INSTRUMENT'S USEFULNESS RESTS ON
 // ---------------------------------------------------------------------------------------------------
 
-// 1a. Two runs of one spec are the same bytes. This is the claim the brief asked to be PINNED rather than
-// hoped for: without it, "start-up fell by 2 seconds" could be a fact about the scene rather than about
-// the engine, and nobody could tell which.
-TEST( WorldSceneGenerator, TheSameSpecGeneratedTwiceIsTheSameFile )
+// 1a. Regenerating over the SAME file is the same bytes. Architect's decision (AF6k): the world's GUID is
+// no longer derived from the spec's name - it is kept from the output file's own header, the same rule
+// every other text asset follows, minted fresh only when that file does not yet exist. So it is the FILE,
+// regenerated, that pins determinism (and what --verify measures against), not the spec alone.
+TEST( WorldSceneGenerator, RegeneratingTheSameFileKeepsItsGuid )
 {
+    const auto path = Scratch() / "regenerate.desce";
+    std::filesystem::remove( path );
+
     std::string first;
     std::string second;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "twice_a.desce", first ), 0 ) << first;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "twice_b.desce", second ), 0 ) << second;
+    ASSERT_EQ( GenerateSmoke( path, first ), 0 ) << first;
+    ASSERT_EQ( GenerateSmoke( path, second ), 0 ) << second;
 
     ASSERT_FALSE( first.empty() );
-    EXPECT_EQ( first, second );
+    EXPECT_EQ( first, second ) << "regenerating over the same file must keep its GUID";
+}
+
+// 1b. Two NEVER-BEFORE-WRITTEN files of the one spec are two different assets: if the GUID were still
+// derived from the spec's name, these would collide on it. Each gets its own freshly minted GUID instead.
+TEST( WorldSceneGenerator, TwoNewFilesOfTheSameSpecGetDifferentGuids )
+{
+    const auto pathA = Scratch() / "fresh_a.desce";
+    const auto pathB = Scratch() / "fresh_b.desce";
+    std::filesystem::remove( pathA );
+    std::filesystem::remove( pathB );
+
+    std::string a;
+    std::string b;
+    ASSERT_EQ( GenerateSmoke( pathA, a ), 0 ) << a;
+    ASSERT_EQ( GenerateSmoke( pathB, b ), 0 ) << b;
+
+    ASSERT_FALSE( a.empty() );
+    EXPECT_NE( a, b ) << "two never-before-written files must not collide on a name-derived GUID";
 }
 
 // 1b. And the tool says so itself, before it writes. --verify is what a human running the generator gets
@@ -380,11 +404,11 @@ TEST( WorldSceneGenerator, TheGeneratedSceneStatesBothVersionIntegersExplicitly 
     // the analyser - a fresh expression each time, so neither can tell that the check two lines up was
     // about the same value.
     const SceneSerialized& scene = parsed.value();
-    ASSERT_TRUE( scene.SceneVersion.has_value() )
+    ASSERT_TRUE( scene.Header.has_value() )
          << "an absent version integer reads as version 0, and the loader refuses the file";
-    ASSERT_TRUE( scene.UnitVersion.has_value() );
-    EXPECT_EQ( scene.SceneVersion.value_or( 0 ), kSceneVersion );
-    EXPECT_EQ( scene.UnitVersion.value_or( 0 ), kUnitVersion );
+    ASSERT_TRUE( scene.Header.has_value() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), kSceneVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -515,13 +539,19 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
 
             const auto material = rfl::json::read<rfl::Generic>( ReadAll( onDisk ) );
             ASSERT_TRUE( material.has_value() );
-            const auto stated = material->to_object().value().get( "MaterialId" );
-            ASSERT_TRUE( stated.has_value() ) << *relative << " states no MaterialId";
+            const auto header = material->to_object().value().get( "Header" );
+            ASSERT_TRUE( header.has_value() ) << *relative << " states no Header";
+            const auto guid = header->to_object().value().get( "Guid" );
+            ASSERT_TRUE( guid.has_value() ) << *relative << " Header states no Guid";
+            const auto guidText = guid->to_string();
+            ASSERT_TRUE( guidText.has_value() ) << *relative << " Header.Guid is not a string";
 
-            // Compared as TEXT, because a handle above 2^53 does not survive rfl::Generic's numeric
-            // accessors - which is the defect this suite's own generator hit on its first run, when
-            // to_int() turned 6418972230554417713 into 155908657.
-            EXPECT_EQ( rfl::json::write( ( *guidList )[i] ), rfl::json::write( stated.value() ) ) << *relative;
+            // SCNE 27: a slot names the material by its header GUID's TEXT, so the relation is string
+            // equality with the file's own Header.Guid - no number, no register, no lossy accessor.
+            const auto entry = ( *guidList )[i].to_string();
+            ASSERT_TRUE( entry.has_value() ) << *relative << ": the scene's MaterialGuids entry is not a string";
+            EXPECT_EQ( *entry, *guidText )
+                 << *relative << ": the scene's MaterialGuids entry is not this file's header GUID";
             ++checked;
         }
     }

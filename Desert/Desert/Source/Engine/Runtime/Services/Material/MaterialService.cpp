@@ -103,17 +103,17 @@ namespace Desert::Runtime
             return BOOLSUCCESS; // the same file re-registering: rebuild, as before
 
         // BOTH files, and the id, because the message has to be actionable without a debugger: the fix is
-        // to change the MaterialId in one of the two `.demat` files and re-point the scenes that name it.
+        // to give one of the two `.demat` files a new header GUID and re-point the scenes that name it.
         // The FIRST registration keeps the identity — refusing is what makes the outcome deterministic
         // rather than a property of the order the asset scan happened to run in.
-        LOG_ERROR( "[MaterialService] Two materials claim MaterialId {}: '{}' already holds it, so '{}' was "
-                   "REFUSED and will not resolve. A `.demat`'s MaterialId is its asset handle, so a shared "
-                   "one makes a mesh slot, an Edit button and a double-click open whichever of the two "
-                   "registered first. Give one of them a different MaterialId and re-point every scene "
-                   "that names it.",
+        LOG_ERROR( "[MaterialService] Two materials claim handle {}: '{}' already holds it, so '{}' was "
+                   "REFUSED and will not resolve. A `.demat`'s handle is its header GUID folded "
+                   "(HandleForGuid), so a shared one makes a mesh slot, an Edit button and a double-click "
+                   "open whichever of the two registered first. Give one of them a new header GUID and "
+                   "re-point every scene that names it.",
                    static_cast<uint64_t>( handle ), held.generic_string(), want.generic_string() );
 
-        return Common::MakeFormattedError<bool>( "MaterialId {} is already held by '{}'; '{}' was refused",
+        return Common::MakeFormattedError<bool>( "material handle {} is already held by '{}'; '{}' was refused",
                                                  static_cast<uint64_t>( handle ), held.generic_string(),
                                                  want.generic_string() );
     }
@@ -423,7 +423,7 @@ namespace Desert::Runtime
         if ( it != m_ExternalToInternal.end() )
             return it->second;
 
-        // Identity fallback: file materials ADOPT their in-file MaterialId as the asset handle,
+        // Identity fallback: file materials ADOPT their header GUID's handle as the asset handle,
         // so for them external id == internal handle. This makes resolution independent of the
         // order the external->internal map fills in (the map stays authoritative for imported
         // materials whose ids genuinely diverge).
