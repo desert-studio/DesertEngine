@@ -40,7 +40,7 @@ TREE_SEARCH = [
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
-EDITOR_BUILD = re.compile(r"\bmake\b[^;&|]*\bEditor\b")
+EDITOR_BUILD = re.compile(r"(^|[;&|(]\s*|\s)make\s[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4

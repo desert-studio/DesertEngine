@@ -680,7 +680,8 @@ jobs:
       #      of compile CPU, measured on macOS by B2 over the same premake scripts;
       #   2. no parallelism INSIDE a project (no /MP, see BuildScripts/Workspace.lua).
       # The MultiToolTask that ccache needs anyway (one source per cl.exe) is also the answer to 2 --
-      # see Directory.Build.props for each property and Directory.Build.targets for /Zi -> /Z7.
+      # see BuildScripts/MSBuild/Ccache.props for each property and Ccache.targets for /Zi -> /Z7.
+      # Both are imported by NAME on the msbuild line below, never as Directory.Build.* from the root.
       #
       # MEASURED, first green run 35863890019 (9feaa1ee) against the eleven complete Release builds
       # before it (111.5-119.9 min, median 115.8): Build Release 74.7, Debug 36.0 (was 67.6-75.1),
@@ -734,7 +735,9 @@ jobs:
         shell: cmd
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
-          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal
+          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
+            "-p:ForceImportBeforeCppTargets=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.props" ^
+            "-p:ForceImportAfterCppTargets=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.targets"
 
       # Every outcome prints: a cache that saw nothing must not look like a build that needed nothing.
       # The disk and the largest archives are here because /Z7 moves debug information INTO the objects

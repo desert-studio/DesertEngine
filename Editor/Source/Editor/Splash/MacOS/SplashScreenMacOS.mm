@@ -83,6 +83,13 @@ namespace Desert::Editor::Splash
             // The same policy GLFW sets a moment later. Without it a process started from a terminal is a
             // background app, and its first window is ordered in behind the terminal.
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+            // A bare executable has no bundle, so the Dock would show the generic "exec" icon. A missing
+            // file keeps that generic icon and says so once; it is not a reason to stop the start.
+            if ( NSImage* icon = [[NSImage alloc] initWithContentsOfFile:ToNS( kAppIcon.string() )] )
+                [NSApp setApplicationIconImage:icon];
+            else
+                LOG_WARN( "[Splash] application icon '{}' not found; the Dock keeps the generic icon",
+                          kAppIcon.string() );
 
             NSScreen*     screen  = [NSScreen mainScreen];
             const NSRect  visible = screen ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );

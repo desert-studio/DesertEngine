@@ -14,8 +14,8 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <random>
 #include <set>
-#include <unistd.h>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -45,7 +45,7 @@ namespace
         void SetUp() override
         {
             m_Saved = Common::Constants::Path::CurrentProjectRoot();
-            m_Dir   = fs::temp_directory_path() / ( "StaticMeshOutput_" + std::to_string( ::getpid() ) );
+            m_Dir = fs::temp_directory_path() / ( "StaticMeshOutput_" + std::to_string( std::random_device{}() ) );
             fs::remove_all( m_Dir );
             fs::create_directories( m_Dir / "Assets" );
             Common::Constants::Path::SetProjectRoot( m_Dir, "Assets" );
