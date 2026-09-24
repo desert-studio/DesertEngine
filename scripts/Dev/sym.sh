@@ -32,6 +32,9 @@ pat+="|using[[:space:]]+$n[[:space:]]*="
 pat+="|^[[:space:]]*([A-Za-z_][A-Za-z0-9_:<>,*& ]*[[:space:]*&])?[A-Za-z0-9_:<>]*[A-Za-z0-9_>]::$n[[:space:]]*\\([^;]*$"
 pat+="|^[A-Za-z_][A-Za-z0-9_:<>,*& ]*[[:space:]*&]$n[[:space:]]*\\("
 pat+="|^[[:space:]]+(static |virtual |inline |constexpr |explicit |friend |\\[\\[nodiscard\\]\\] )*[A-Za-z_][A-Za-z0-9_:<>,*& ]*[[:space:]*&]$n[[:space:]]*\\([^;]*\\)[^;=]*(;|\\{|$)"
+# an indented definition whose parameter list continues on the next line (inside a namespace block):
+# `    Report MigrateTextureGuidsV28ToV29( std::vector<X>& entities,` was not found (T6f).
+pat+="|^[[:space:]]+[A-Za-z_][A-Za-z0-9_:<>,*& ]*[[:space:]*&]$n[[:space:]]*\\([^;)]*,[[:space:]]*$"
 pat+="|(constexpr|const|inline|static)[^=(;]*[[:space:]]$n[[:space:]]*(=|\\{|;|\\[))"
 hits=$(search -E -e "$pat" | grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(//|\*|return |if |else|while |for |case )')
 if [ -n "$qual" ]; then
