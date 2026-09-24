@@ -223,6 +223,14 @@ namespace
             {
                 // Everything after `=` is an initialiser; the member name is already behind us.
                 closePending( i );
+                // ...unless the `=` is part of an operator's NAME (`operator==`, `operator<=>`): the `(`
+                // that marks a member function comes after it, so without this the declaration
+                // `bool operator==( ... ) const = default;` read as a data member called `operator`.
+                if ( lastIdent == "operator" )
+                {
+                    sawParen = true;
+                    angle    = 0;
+                }
                 while ( i < body.size() && body[i] != ';' )
                     ++i;
                 flush();
@@ -425,6 +433,19 @@ TEST( ShaderSchemaConsumers, TheScanSeesTheSchemaAtAll )
         ASSERT_GE( fields.size(), 3u ) << source.Struct << " yielded only " << fields.size()
                                        << " data members — the enumeration, not the schema, is what is wrong";
     }
+}
+
+TEST( ShaderSchemaConsumers, AnOperatorIsAFunctionNotAField )
+{
+    // ShaderRenderState gained `bool operator==( const ShaderRenderState& ) const = default;` and the
+    // scan reported a field called `operator`: the `=` of the operator's name was read as an initialiser.
+    const std::string              body   = "int Before = 1;\n"
+                                            "bool operator==( const S& ) const = default;\n"
+                                            "auto operator<=>( const S& ) const = default;\n"
+                                            "S& operator=( const S& ) = default;\n"
+                                            "std::optional<int> After;\n";
+    const std::vector<std::string> fields = DataMembers( body );
+    EXPECT_EQ( fields, ( std::vector<std::string>{ "Before", "After" } ) );
 }
 
 TEST( ShaderSchemaConsumers, EveryFieldOfTheSchemaIsInTheRegister )
