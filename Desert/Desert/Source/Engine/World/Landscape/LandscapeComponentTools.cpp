@@ -3,11 +3,14 @@
 // LandscapeEdModeComponentTools.cpp :963-1100 (FLandscapeToolStrokeCopy) and :1330-1530
 // (FLandscapeToolStrokePaste, PasteMode), adapted: the mirror point and the copy corners come from palette
 // commands instead of the transform widget and the gizmo; the copy is a rectangle held as exact sample offsets
-// from its centre instead of the gizmo's normalised heights, and the paste drops that centre onto the landscape at
-// the paste point (UE: the gizmo's Z); weight layers, gizmo rotation/scale and the selection-ratio falloff are not
-// ported (with a rectangle every ratio is 1); UE's silent returns on a bad mirror line or an empty copy are
-// refusals; source samples beyond the landscape take the edge sample; every write goes through the stroke's height
-// cache, so one command undoes in one step.
+// above its lowest sample, which is where UE's FitToSelection puts the gizmo's Z (LandscapeEdit.cpp:4813-4885,
+// GetLandscapeCenterPos: MinZ - MarginZ; the margin cancels between copy and paste), instead of the gizmo's
+// normalised heights (LandscapeGizmoActor.cpp:819-866: GetNormalizedHeight subtracts the gizmo's Z,
+// GetLandscapeHeight adds the paste gizmo's Z back); the paste gizmo stands on the landscape sample nearest the
+// paste point; weight layers, gizmo rotation/scale and the selection-ratio falloff are not ported (with a
+// rectangle every ratio is 1); UE's silent returns on a bad mirror line or an empty copy are refusals; source
+// samples beyond the landscape take the edge sample; every write goes through the stroke's height cache, so one
+// command undoes in one step.
 
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
@@ -185,7 +188,9 @@ namespace Desert::World::Landscape
         buffer.SizeX                   = rect.X2 - rect.X1 + 1;
         buffer.SizeZ                   = rect.Z2 - rect.Z1 + 1;
         const std::vector<uint16_t>& v = read.GetValue();
-        const int32_t base = v[static_cast<size_t>( ( buffer.SizeZ / 2 ) * buffer.SizeX + buffer.SizeX / 2 )];
+        // The copy gizmo's Z: the region's lowest sample (UE GetLandscapeCenterPos), so every offset is >= 0 as
+        // UE's clamped normalised height is.
+        const int32_t base = *std::min_element( v.begin(), v.end() );
         buffer.Relative.reserve( v.size() );
         for ( const uint16_t h : v )
             buffer.Relative.push_back( static_cast<int32_t>( h ) - base );
@@ -222,6 +227,8 @@ namespace Desert::World::Landscape
             return Common::MakeError( read.GetError() );
         std::vector<uint16_t> data  = read.GetValue();
         const int32_t         width = rect.X2 - rect.X1 + 1;
+        // The paste gizmo's Z (LandscapeEdModeComponentTools.cpp:1501, GetLandscapeHeight): the height under the
+        // paste point, so the copy's lowest sample lands there and the rest stand above it.
         const int32_t         base  = data[static_cast<size_t>( ( cz - rect.Z1 ) * width + ( cx - rect.X1 ) )];
         for ( int32_t z = rect.Z1; z <= rect.Z2; ++z )
             for ( int32_t x = rect.X1; x <= rect.X2; ++x )

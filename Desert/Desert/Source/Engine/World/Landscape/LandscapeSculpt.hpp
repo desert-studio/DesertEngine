@@ -317,7 +317,8 @@ namespace Desert::World::Landscape
 
     /**
      * UE's gizmo SelectedData for a rectangular selection: heights of SizeX x SizeZ samples (row-major, X fastest)
-     * stored RELATIVE to the region's centre sample (SizeX / 2, SizeZ / 2), exactly, in sample steps.
+     * stored RELATIVE to the region's lowest sample (UE's copy gizmo Z), exactly, in sample steps; every entry >=
+     * 0.
      */
     struct LandscapeCopyBuffer
     {
@@ -414,9 +415,10 @@ namespace Desert::World::Landscape
                                            const LandscapeMirrorSettings& mirror );
 
         /**
-         * FLandscapeToolStrokePaste for the heightmap with a gizmo dropped at @p atCm: the buffer's centre sample
-         * lands on the lattice sample nearest @p atCm at that sample's height, the rest keep their relative
-         * heights. Refuses an empty buffer and a paste centre outside the landscape.
+         * FLandscapeToolStrokePaste for the heightmap with a gizmo dropped at @p atCm: the buffer is centred on
+         * the lattice sample nearest @p atCm and its lowest sample lands at that sample's height (UE: source
+         * height above the copy gizmo + the paste gizmo's Z), the rest keep their heights above it. Refuses an
+         * empty buffer and a paste centre outside the landscape.
          */
         Common::BoolResultStr ApplyPaste( const LandscapeCopyBuffer& buffer, glm::vec3 atCm,
                                           LandscapePasteMode mode, const LandscapeBrushSettings& brush );

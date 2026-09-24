@@ -1085,6 +1085,16 @@ namespace
         brush.FalloffFraction = 0.0f;
         return brush;
     }
+
+    /// UE's copy gizmo Z (GetLandscapeCenterPos: the region's MinZ): the lowest Noise sample of a region.
+    int32_t NoiseMin( int32_t x1, int32_t z1, int32_t x2, int32_t z2 )
+    {
+        int32_t m = 65535;
+        for ( int32_t z = z1; z <= z2; ++z )
+            for ( int32_t x = x1; x <= x2; ++x )
+                m = std::min( m, int32_t( Noise( x, z ) ) );
+        return m;
+    }
 } // namespace
 
 TEST( LandscapeSculpt, CopyThenPasteElsewhereKeepsTheRelativeHeightsAcrossSeams )
@@ -1109,12 +1119,45 @@ TEST( LandscapeSculpt, CopyThenPasteElsewhereKeepsTheRelativeHeightsAcrossSeams 
     for ( int32_t dz = -6; dz <= 6; ++dz )
         for ( int32_t dx = -5; dx <= 5; ++dx )
             EXPECT_EQ( int32_t( w.At( 31 + dx, 31 + dz ) ) - base,
-                       int32_t( Noise( 10 + dx, 14 + dz ) ) - int32_t( Noise( 10, 14 ) ) )
+                       int32_t( Noise( 10 + dx, 14 + dz ) ) - NoiseMin( 5, 8, 15, 20 ) )
                  << dx << "," << dz;
     EXPECT_EQ( w.At( 25, 31 ), Noise( 25, 31 ) ) << "outside the pasted rectangle";
     EXPECT_EQ( w.At( 31, 38 ), Noise( 31, 38 ) );
     ExpectSeamsEqual( w );
     ExpectUndoRedo( w, stroke, original );
+}
+
+namespace
+{
+    /// A 3000-step cosine hill (radius 4 samples) at (10, 10) on flat 20000, and a flat 30000 plateau for x >= 36.
+    uint16_t HillAndPlateau( int32_t x, int32_t z )
+    {
+        if ( x >= 36 )
+            return 30000;
+        const double r = std::sqrt( double( ( x - 10 ) * ( x - 10 ) + ( z - 10 ) * ( z - 10 ) ) );
+        return static_cast<uint16_t>(
+             20000.0 + ( r < 4.0 ? 1500.0 * ( 1.0 + std::cos( r / 4.0 * 3.14159265358979 ) ) : 0.0 ) );
+    }
+} // namespace
+
+// UE's paste height is the source's height above the copy gizmo plus the paste gizmo's Z
+// (LandscapeGizmoActor.cpp:819-866, LandscapeEdModeComponentTools.cpp:1501): a hill copied from low ground and
+// pasted on a plateau stands on the plateau with its full height, instead of sinking its peak to the plateau.
+TEST( LandscapeSculpt, PasteStandsTheCopyOnThePasteGizmosHeight )
+{
+    World w( HillAndPlateau );
+    auto  copied = CopyLandscapeHeights( w.Root, w.Lookup(), w.Bounds(), glm::vec3( 400.0f, 0.0f, 400.0f ),
+                                         glm::vec3( 1600.0f, 0.0f, 1600.0f ) );
+    ASSERT_TRUE( copied.IsSuccess() );
+    LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+    ASSERT_TRUE( stroke
+                      .ApplyPaste( copied.GetValue(), glm::vec3( 4800.0f, 0.0f, 3000.0f ),
+                                   LandscapePasteMode::Both, WholeCopy() )
+                      .IsSuccess() );
+    EXPECT_EQ( w.At( 48, 30 ), 33000 ) << "the peak stands 3000 steps above the plateau";
+    EXPECT_EQ( w.At( 42, 24 ), 30000 ) << "the copy's foot meets the plateau";
+    EXPECT_EQ( w.At( 54, 36 ), 30000 );
+    EXPECT_EQ( w.At( 10, 10 ), 23000 ) << "the source is untouched";
 }
 
 TEST( LandscapeSculpt, PasteRaiseOnlyLiftsAndLowerOnlySinks )
@@ -1133,7 +1176,8 @@ TEST( LandscapeSculpt, PasteRaiseOnlyLiftsAndLowerOnlySinks )
             for ( int32_t dx = -5; dx <= 5; ++dx )
             {
                 const int32_t orig = Noise( 10 + dx, 10 + dz );
-                const int32_t dest = int32_t( Noise( 10, 10 ) ) + Noise( 45 + dx, 45 + dz ) - Noise( 45, 45 );
+                const int32_t dest =
+                     int32_t( Noise( 10, 10 ) ) + Noise( 45 + dx, 45 + dz ) - NoiseMin( 40, 40, 50, 50 );
                 const int32_t now  = w.At( 10 + dx, 10 + dz );
                 const bool    take = mode == LandscapePasteMode::Raise ? dest > orig : dest < orig;
                 EXPECT_EQ( now, take ? dest : orig ) << dx << "," << dz;
@@ -1198,8 +1242,9 @@ TEST( LandscapeSculpt, PasteFadesIntoTheReliefAlongTheBrushFalloff )
                       .ApplyPaste( copied.GetValue(), glm::vec3( 1000.0f, 0.0f, 1000.0f ),
                                    LandscapePasteMode::Both, brush )
                       .IsSuccess() );
-    EXPECT_EQ( w.At( 10, 10 ), Noise( 10, 10 ) ) << "the centre keeps the paste point's height";
-    EXPECT_EQ( int32_t( w.At( 11, 10 ) ) - Noise( 10, 10 ), Noise( 46, 45 ) - Noise( 45, 45 ) )
+    EXPECT_EQ( int32_t( w.At( 10, 10 ) ) - Noise( 10, 10 ), Noise( 45, 45 ) - NoiseMin( 40, 40, 50, 50 ) )
+         << "the copy's lowest sample stands at the paste point's height";
+    EXPECT_EQ( int32_t( w.At( 11, 10 ) ) - Noise( 10, 10 ), Noise( 46, 45 ) - NoiseMin( 40, 40, 50, 50 ) )
          << "inside the full-weight circle the copy lands exactly";
     for ( int32_t d = -5; d <= 5; ++d )
         for ( const auto& [x, z] : { std::pair{ 10 + d, 5 }, std::pair{ 10 + d, 15 }, std::pair{ 5, 10 + d },
