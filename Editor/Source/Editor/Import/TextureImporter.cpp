@@ -717,11 +717,14 @@ namespace Desert::Editor
         return sources;
     }
 
-    LooseTextureCookStats TextureImporter::CookLooseTextures()
+    LooseTextureCookStats TextureImporter::CookLooseTextures( const Assets::ItemProgress& progress )
     {
-        LooseTextureCookStats stats;
-        for ( const std::filesystem::path& source : LooseTextureSources() )
+        LooseTextureCookStats                    stats;
+        const std::vector<std::filesystem::path> sources = LooseTextureSources();
+        for ( std::size_t i = 0; i < sources.size(); ++i )
         {
+            const std::filesystem::path& source = sources[i];
+            Assets::ReportItem( progress, source.filename().string(), i, sources.size() );
             // AN EXTENDED-RANGE SOURCE IS COOKED LIKE EVERY OTHER, and it used to be skipped on the claim
             // that "this cook forces RGBA8". It does not: `Cook` reads an `.hdr` with `stbi_loadf` and
             // writes RGBA32F, and never offers a float source a block format. The skip is what kept the

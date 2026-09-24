@@ -334,6 +334,15 @@ namespace Desert::Editor
     // Cognitive complexity 27 against a threshold of 19, PRE-EXISTING and reported for any edit inside
     // this constructor (Г26 added the autosave-migration call below). Named as debt, not fixed here.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    namespace
+    {
+        // The splash's cost per item of each weighed stage (EditorLayer::MakeSplashPlan).
+        constexpr double kSecondsPerShader      = 0.05;
+        constexpr double kSecondsPerTextureCook = 0.004;
+        constexpr double kSecondsPerAssetRow    = 0.0002;
+        constexpr double kSecondsPerSceneRead   = 0.05;
+    } // namespace
+
     EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName,
                               std::unique_ptr<Splash::SplashScreen> splash )
          : Common::Layer( layerName ), m_Application( application ), m_Splash( std::move( splash ) )
@@ -371,10 +380,13 @@ namespace Desert::Editor
         // automatic path could clear. Both directories are `LooseTextureRoots()`, the list the packager
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
-        m_StartupStages.push_back(
-             { "Cooking textures...", [this] { (void)m_ImportManager->CookLooseTextures(); } } );
-        m_StartupStages.push_back( { "Preloading meshes, textures and materials...",
-                                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } } );
+        m_StartupStages.push_back( { "Cooking textures...",
+                                     [this] { (void)m_ImportManager->CookLooseTextures( SplashItems() ); },
+                                     kSecondsPerTextureCook, [] { return LooseTextureSources().size(); } } );
+        m_StartupStages.push_back( { "Preloading meshes, textures and materials...", [this]
+                                     { m_AssetPreloader->PreloadCookedAssetsAndMaterials( SplashItems() ); },
+                                     kSecondsPerAssetRow,
+                                     [] { return Assets::AssetPreloader::CookedAssetRowCount(); } } );
         m_StartupStages.push_back(
              { "Preloading environments...", [this] { m_AssetPreloader->PreloadSkyboxes(); } } );
         m_StartupStages.push_back(
@@ -658,8 +670,9 @@ namespace Desert::Editor
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
         // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
         // start, and one call: the splash says what it is before it begins, and cannot say more during it.
-        ReportSplashStep( "Compiling shaders...", kSplashShaderStep );
-        m_AssetPreloader->PreloadShaders();
+        MakeSplashPlan();
+        BeginSplashStage( m_ShaderStage );
+        m_AssetPreloader->PreloadShaders( SplashItems() );
 
         BuildSceneSystems( *m_MainScene );
 
@@ -1114,7 +1127,7 @@ namespace Desert::Editor
                 // accumulation rule is how the two numbers stop being comparable. The SCHEDULER stays
                 // here: running one stage per frame behind a progress overlay is this layer's own
                 // arrangement and has nothing to do with timing. See Engine/Core/BootTimeline.hpp.
-                ReportSplashStep( m_StartupStages[m_StartupNext].Label, m_StartupNext + 1 );
+                BeginSplashStage( m_StartupStages[m_StartupNext].ProgressStage );
                 const auto stageStart = std::chrono::steady_clock::now();
                 m_StartupStages[m_StartupNext].Run();
                 const double stageMs =
@@ -1128,7 +1141,9 @@ namespace Desert::Editor
                     // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
                     // indistinguishable from an editor that has hung, and this wait is the one the
                     // demand-driven model introduced.
-                    ReportSplashStep( "Loading scene content...", SplashSettleStep() );
+                    const auto& loader = Assets::AsyncAssetLoader::Get();
+                    m_SettleBase       = loader.StartedCount() - loader.Outstanding();
+                    BeginSplashStage( m_SettleStage, loader.Outstanding() );
                     m_Boot.LogSummary();
                     LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
                               "about a project it has actually read.",
@@ -5668,10 +5683,42 @@ namespace Desert::Editor
         m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
     }
 
-    void EditorLayer::ReportSplashStep( const std::string& label, const size_t step )
+    // SECONDS PER ITEM, MEASURED — so the bar's share of a stage is the share of the wait it is. A Debug
+    // start of this project on the M-series development machine, read off the "[Startup] ... item(s) in"
+    // lines below; a machine twice as fast halves every stage alike and the shares do not move.
+    void EditorLayer::MakeSplashPlan()
     {
-        if ( m_Splash )
-            m_Splash->SetStatus( label, step, SplashStepCount() );
+        m_ShaderStage = m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader,
+                                             Assets::AssetPreloader::ShaderRowCount() );
+        for ( StartupStage& stage : m_StartupStages )
+            stage.ProgressStage = m_Progress.AddStage( stage.Label, stage.SecondsPerItem,
+                                                       stage.CountItems ? stage.CountItems() : 1 );
+        // The scene's reads are started by the scene load and counted only when the settle begins.
+        m_SettleStage = m_Progress.AddStage( "Loading scene content...", kSecondsPerSceneRead, 1 );
+    }
+
+    void EditorLayer::BeginSplashStage( const std::size_t stage, const std::optional<std::size_t> items )
+    {
+        const double now =
+             std::chrono::duration<double>( std::chrono::steady_clock::now() - m_ProgressEpoch ).count();
+        if ( const auto finished = m_Progress.BeginStage( stage, now, items ) )
+            LOG_INFO( "[Startup] {} {} item(s) in {:.2f} s", finished->Name, finished->Units, finished->Seconds );
+        PushSplash();
+    }
+
+    void EditorLayer::PushSplash()
+    {
+        if ( m_Splash && !m_Revealed )
+            m_Splash->SetProgress( m_Progress.Snapshot() );
+    }
+
+    Assets::ItemProgress EditorLayer::SplashItems()
+    {
+        return [this]( const std::string& item, const std::size_t done, const std::size_t total )
+        {
+            m_Progress.Step( item, done, total );
+            PushSplash();
+        };
     }
 
     // SHOWN AFTER THE FIRST REAL FRAME IS PRESENTED, NOT BEFORE IT IS DRAWN. The window has been presented
@@ -5682,6 +5729,11 @@ namespace Desert::Editor
     {
         if ( !Splash::MayReveal( CurrentRevealState() ) )
             return;
+        const double now =
+             std::chrono::duration<double>( std::chrono::steady_clock::now() - m_ProgressEpoch ).count();
+        if ( const auto finished = m_Progress.Finish( now ) )
+            LOG_INFO( "[Startup] {} {} item(s) in {:.2f} s", finished->Name, finished->Units, finished->Seconds );
+        PushSplash();
         m_Revealed = true;
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
@@ -5714,8 +5766,9 @@ namespace Desert::Editor
             if ( ContentSettling() && !m_Revealed && loader.Outstanding() != m_SplashOutstandingShown )
             {
                 m_SplashOutstandingShown = loader.Outstanding();
-                ReportSplashStep( fmt::format( "Loading scene content ({} pending)...", loader.Outstanding() ),
-                                  SplashSettleStep() );
+                const std::size_t items  = loader.StartedCount() - m_SettleBase;
+                m_Progress.Step( "Scene assets", items - loader.Outstanding(), items );
+                PushSplash();
             }
             return;
         }

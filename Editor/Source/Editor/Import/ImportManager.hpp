@@ -22,7 +22,7 @@ namespace Desert::Editor
 
         /// Cook every texture source under `LooseTextureRoots()` whose cooked form is missing or stale.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
-        LooseTextureCookStats CookLooseTextures();
+        LooseTextureCookStats CookLooseTextures( const Assets::ItemProgress& progress = {} );
 
         // Cook a source texture into Cooked/Textures/*.tex, create+register a TextureAsset, and return its
         // handle (the same handle TextureService keys by). Returns a zero handle on failure. Drives the

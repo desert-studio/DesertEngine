@@ -149,10 +149,12 @@ namespace Desert::Editor::Splash
                                 kStageAlpha, kCAAlignmentRight, scale );
             m_Stage   = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kStageFontSize weight:NSFontWeightRegular],
                                        kStageAlpha, kCAAlignmentLeft, scale );
-            m_Counter = MakeTextLayer( m_Root,
-                                       [NSFont monospacedDigitSystemFontOfSize:kCounterFontSize
+            m_Percent = MakeTextLayer( m_Root,
+                                       [NSFont monospacedDigitSystemFontOfSize:kPercentFontSize
                                                                         weight:NSFontWeightRegular],
                                        kStageAlpha, kCAAlignmentRight, scale );
+            m_Item    = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kItemFontSize weight:NSFontWeightRegular],
+                                       kItemAlpha, kCAAlignmentLeft, scale );
 
             m_Track                 = [[CALayer alloc] init];
             CGColorRef track        = MakeColour( 1, 1, 1, kBarTrackAlpha );
@@ -168,7 +170,7 @@ namespace Desert::Editor::Splash
 
             m_Project.string = ToNS( content.ProjectName );
             m_Version.string = ToNS( content.Version );
-            ApplyStatus( Status{} );
+            ApplyStatus( ProgressSnapshot{} );
 
             // THE MOTION, handed to Core Animation whole. An explicit animation committed once is run by
             // the render server frame by frame on its own clock, so nothing in this process — neither the
@@ -219,11 +221,11 @@ namespace Desert::Editor::Splash
             Close();
         }
 
-        void SetStatus( const std::string& label, const std::size_t index, const std::size_t total ) override
+        void SetProgress( const ProgressSnapshot& progress ) override
         {
             {
                 std::lock_guard<std::mutex> lock( m_Mutex );
-                m_Pending = Status{ label, index, total };
+                m_Pending = progress;
             }
             m_Wake.notify_one();
         }
@@ -259,32 +261,28 @@ namespace Desert::Editor::Splash
             [m_Window performSelector:@selector( orderOut: ) withObject:nil afterDelay:kFadeOutSeconds];
 
             for ( CALayer* layer : { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage,
-                                     (CALayer*)m_Counter, m_Track, m_Fill, m_Image, m_Root } )
+                                     (CALayer*)m_Percent, (CALayer*)m_Item, m_Track, m_Fill, m_Image, m_Root } )
                 [layer release];
             [m_Window release];
             m_Window = nil;
         }
 
     private:
-        struct Status
-        {
-            std::string Label;
-            std::size_t Index = 0;
-            std::size_t Total = 0;
-        };
-
         // Called inside a transaction the caller owns.
-        void ApplyStatus( const Status& status )
+        void ApplyStatus( const ProgressSnapshot& status )
         {
-            const Layout layout = ComputeLayout( ProgressFraction( status.Index, status.Total ) );
+            const Layout layout = ComputeLayout( status.Fraction );
             m_Project.frame     = ToCG( layout.Project );
             m_Version.frame     = ToCG( layout.Version );
             m_Stage.frame       = ToCG( layout.Stage );
-            m_Counter.frame     = ToCG( layout.Counter );
+            m_Percent.frame     = ToCG( layout.Percent );
+            m_Item.frame        = ToCG( layout.Item );
             m_Track.frame       = ToCG( layout.BarTrack );
             m_Fill.frame        = ToCG( layout.BarFill );
-            m_Stage.string      = ToNS( status.Label );
-            m_Counter.string    = ToNS( FormatProgress( status.Index, status.Total ) );
+            m_Stage.string      = ToNS( status.Stage );
+            m_Item.string       = ToNS( status.Item );
+            // No stage yet means no plan yet: a "0%" there would be a number that says nothing.
+            m_Percent.string = ToNS( status.Stage.empty() ? std::string{} : FormatPercent( status.Fraction ) );
         }
 
         void Run()
@@ -322,7 +320,7 @@ namespace Desert::Editor::Splash
 
             for ( ;; )
             {
-                Status status;
+                ProgressSnapshot status;
                 {
                     std::unique_lock<std::mutex> lock( m_Mutex );
                     m_Wake.wait( lock, [this] { return m_Stop || m_Pending.has_value(); } );
@@ -347,14 +345,15 @@ namespace Desert::Editor::Splash
         CATextLayer* m_Project = nil;
         CATextLayer* m_Version = nil;
         CATextLayer* m_Stage   = nil;
-        CATextLayer* m_Counter = nil;
+        CATextLayer* m_Percent = nil;
+        CATextLayer* m_Item    = nil;
         CALayer*     m_Track   = nil;
         CALayer*     m_Fill    = nil;
 
         std::thread             m_Thread;
         std::mutex              m_Mutex;
         std::condition_variable m_Wake;
-        std::optional<Status>   m_Pending;
+        std::optional<ProgressSnapshot> m_Pending;
         bool                    m_Stop   = false;
         bool                    m_Closed = false;
     };

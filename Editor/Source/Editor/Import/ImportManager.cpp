@@ -305,7 +305,7 @@ namespace Desert::Editor
         return m_TextureImporter->Import( path );
     }
 
-    LooseTextureCookStats ImportManager::CookLooseTextures()
+    LooseTextureCookStats ImportManager::CookLooseTextures( const Assets::ItemProgress& progress )
     {
         // WHY THIS IS NOT `ImportAllFromDirectory`. That one walks `m_Importers`, which holds MESH
         // importers, and a texture has never been in it: a loose `.png` reached its cooked form only as
@@ -313,7 +313,7 @@ namespace Desert::Editor
         // producer at all, and a stale cook there (a container version moved, a source re-exported) stayed
         // stale until somebody dragged the file back into the editor. The walk itself lives in
         // `TextureImporter::CookLooseTextures` now, because the packager runs the same one.
-        return m_TextureImporter->CookLooseTextures();
+        return m_TextureImporter->CookLooseTextures( progress );
     }
 
     Assets::AssetHandle ImportManager::ImportAndRegisterTexture( Assets::AssetManager&         mgr,

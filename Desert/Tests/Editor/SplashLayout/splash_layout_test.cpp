@@ -15,47 +15,26 @@
 
 namespace Splash = Desert::Editor::Splash;
 
-// --- The counter ------------------------------------------------------------------------------------
-
-TEST( SplashLayout, TheCounterNamesTheStepBeingRunAndTheShareAlreadyDone )
-{
-    EXPECT_EQ( Splash::FormatProgress( 0, 17 ), "1 / 17   0%" );
-    EXPECT_EQ( Splash::FormatProgress( 8, 17 ), "9 / 17   47%" );
-    // The last step reads M / M, and the bar does not yet claim it is finished.
-    EXPECT_EQ( Splash::FormatProgress( 16, 17 ), "17 / 17   94%" );
-}
-
-TEST( SplashLayout, APlanNotKnownYetDrawsNoCounterAndAnEmptyBar )
-{
-    // Before the editor has built its stage list (the renderer is still coming up) there is nothing
-    // honest to count; "1 / 0" or "0 / 0   0%" would be a number that says nothing.
-    EXPECT_EQ( Splash::FormatProgress( 0, 0 ), "" );
-    EXPECT_EQ( Splash::ProgressFraction( 0, 0 ), 0.0 );
-    EXPECT_EQ( Splash::ComputeLayout( Splash::ProgressFraction( 0, 0 ) ).BarFill.W, 0.0f );
-}
-
-TEST( SplashLayout, AnIndexPastTheEndIsClampedRatherThanOverdrawn )
-{
-    EXPECT_EQ( Splash::FormatProgress( 40, 17 ), "17 / 17   100%" );
-    EXPECT_EQ( Splash::ProgressFraction( 40, 17 ), 1.0 );
-}
-
 // --- The layout -------------------------------------------------------------------------------------
 
 TEST( SplashLayout, TheElementsSitWhereTheDesignPutsThem )
 {
     const Splash::Layout layout = Splash::ComputeLayout( 0.0 );
     EXPECT_EQ( layout.Project.X, 48.0f );
-    EXPECT_EQ( layout.Project.Y, 58.0f );
+    EXPECT_EQ( layout.Project.Y, 80.0f );
     EXPECT_EQ( layout.Stage.X, 48.0f );
-    EXPECT_EQ( layout.Stage.Y, 36.0f );
+    EXPECT_EQ( layout.Stage.Y, 58.0f );
+    EXPECT_EQ( layout.Item.X, 48.0f );
+    EXPECT_EQ( layout.Item.Y, 38.0f );
+    // The item line has no right-hand neighbour and runs margin to margin.
+    EXPECT_EQ( layout.Item.X + layout.Item.W, Splash::kWidth - 48.0f );
     EXPECT_EQ( layout.BarTrack.Y, 22.0f );
     EXPECT_EQ( layout.BarTrack.H, 2.0f );
     // The bar has the same 48-point margin on both sides.
     EXPECT_EQ( layout.BarTrack.X, 48.0f );
     EXPECT_EQ( layout.BarTrack.X + layout.BarTrack.W, Splash::kWidth - 48.0f );
     // The right-aligned column ends on the same margin.
-    EXPECT_EQ( layout.Counter.X + layout.Counter.W, Splash::kWidth - 48.0f );
+    EXPECT_EQ( layout.Percent.X + layout.Percent.W, Splash::kWidth - 48.0f );
     EXPECT_EQ( layout.Version.X + layout.Version.W, Splash::kWidth - 48.0f );
 }
 
@@ -76,13 +55,15 @@ TEST( SplashLayout, TheFillIsTheTrackTimesTheFractionFromTheSameOrigin )
 
 TEST( SplashLayout, NoTwoTextBoxesOverlap )
 {
-    // The stage label and the counter share a line and each owns a half of it; the project and the
-    // version likewise. A label that grew under the counter would be unreadable on both.
+    // The stage label and the percentage share a line and each owns a half of it; the project and the
+    // version likewise. A label that grew under the percentage would be unreadable on both.
     const Splash::Layout layout = Splash::ComputeLayout( 0.5 );
-    EXPECT_LE( layout.Stage.X + layout.Stage.W, layout.Counter.X );
+    EXPECT_LE( layout.Stage.X + layout.Stage.W, layout.Percent.X );
     EXPECT_LE( layout.Project.X + layout.Project.W, layout.Version.X );
-    // And the text sits above the bar, not on it.
-    EXPECT_GE( layout.Stage.Y, layout.BarTrack.Y + layout.BarTrack.H );
+    EXPECT_EQ( layout.Percent.Y, layout.Stage.Y );
+    // The lines stack without touching: bar, item, stage, project — each box above the one below.
+    EXPECT_GE( layout.Item.Y, layout.BarTrack.Y + layout.BarTrack.H );
+    EXPECT_GE( layout.Stage.Y, layout.Item.Y + layout.Item.H );
     EXPECT_GE( layout.Project.Y, layout.Stage.Y + layout.Stage.H );
 }
 

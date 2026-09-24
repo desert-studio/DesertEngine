@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/ItemProgress.hpp>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -65,7 +66,8 @@ namespace Desert::Editor
         // Cooks every texture source under `LooseTextureRoots()`. THERE IS NO `force` PARAMETER, and
         // there must not be one: freshness is a fact about the source's bytes, so "force" would mean
         // "re-cook things that are already correct".
-        LooseTextureCookStats CookLooseTextures();
+        // @p progress names each source as it is cooked (the splash's item line).
+        LooseTextureCookStats CookLooseTextures( const Assets::ItemProgress& progress = {} );
 
         // The cooked metadata (.tex) path a given source texture is cooked into (Cooked/Textures/...).
         // Public so callers can CreateAsset<TextureAsset>() on it right after Import().

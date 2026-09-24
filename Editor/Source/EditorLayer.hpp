@@ -27,6 +27,8 @@
 #include "Editor/Splash/RevealGate.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
+#include <Engine/Assets/ItemProgress.hpp>
+
 #include <chrono>
 #include <optional>
 
@@ -678,26 +680,32 @@ namespace Desert::Editor
         {
             std::string           Label;
             std::function<void()> Run;
+            // What one item of this stage costs on the splash's bar, in measured seconds per item, and how
+            // many items there are — asked when the plan is made, before any stage runs. Empty = one item.
+            double                       SecondsPerItem = 0.01;
+            std::function<std::size_t()> CountItems;
+            std::size_t                  ProgressStage = 0; // its id in m_Progress
         };
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;
 
-        // ===== The splash's steps, and the moment the editor is shown =====
+        // ===== The splash's progress, and the moment the editor is shown =====
         //
-        // THE STEPS THE SPLASH COUNTS are the shader preload (OnAttach — not a stage, because the render
-        // systems resolve their shaders in their constructors and it has to finish before they exist),
-        // every entry of m_StartupStages, and the settle wait after them. One count, derived here, so the
-        // "N / M" a person reads cannot drift from the list that is actually run.
-        static constexpr size_t kSplashShaderStep = 0;
-        size_t                  SplashStepCount() const
-        {
-            return m_StartupStages.size() + 2;
-        }
-        size_t SplashSettleStep() const
-        {
-            return m_StartupStages.size() + 1;
-        }
-        void ReportSplashStep( const std::string& label, size_t step );
+        // THE BAR IS WEIGHED IN WORK (Splash/SplashProgress.hpp): the shader preload (OnAttach — not a
+        // stage, because the render systems resolve their shaders in their constructors), every entry of
+        // m_StartupStages and the settle wait after them, each weighted by its item count times a measured
+        // cost per item. The plan is made once the cooked registry is read, which is what counts the items.
+        void MakeSplashPlan();
+        void BeginSplashStage( std::size_t stage, std::optional<std::size_t> items = std::nullopt );
+        void PushSplash();
+        // The item line of the stage running now, for an engine call that works through a list.
+        Assets::ItemProgress                  SplashItems();
+        Splash::ProgressModel                 m_Progress;
+        std::chrono::steady_clock::time_point m_ProgressEpoch = std::chrono::steady_clock::now();
+        std::size_t                           m_ShaderStage   = 0;
+        std::size_t                           m_SettleStage   = 0;
+        // Scene loads already finished when the settle began: the settle counts only the rest.
+        std::size_t m_SettleBase = 0;
         // Every condition the splash hand-over depends on, read off this layer for Splash::MayReveal.
         Splash::RevealState CurrentRevealState() const;
         // Called at every presented frame; the first one presented after the start is over shows the

@@ -5,6 +5,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <array>
 #include <chrono>
 
 #include "Shader/ShaderAsset.hpp"
@@ -51,10 +52,24 @@ namespace Desert::Assets
         // clips never arrived". It is deliberately not `[[nodiscard]]`: the other ten call sites have
         // nothing to do with the number, and a warning at each of them would be noise standing in for a
         // rule that applies to one of them.
+        // The kinds `PreloadCookedAssetsAndMaterials` creates, in its order: the stage's work, counted.
+        constexpr std::array kCookedAssetKinds = {
+             Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::Texture,
+             Common::Content::ContentKind::Animation,  Common::Content::ContentKind::Skeleton,
+             Common::Content::ContentKind::Material,   Common::Content::ContentKind::SkinnedMesh };
+
+        // Progress across several ProcessAssetKind calls: one count of the whole call's rows.
+        struct RowProgress
+        {
+            const ItemProgress* Report = nullptr;
+            std::size_t         Done   = 0;
+            std::size_t         Total  = 0;
+        };
+
         template <typename AssetType, typename... Args>
         size_t ProcessAssetKind( Common::Content::ContentKind       kind,
                                  const std::weak_ptr<AssetManager>& assetManager, AssetPriority priority,
-                                 Args&&... args )
+                                 RowProgress* rows, Args&&... args )
         {
             size_t matched = 0;
 
@@ -72,6 +87,8 @@ namespace Desert::Assets
             for ( const auto& candidate : ContentRegistry::FilesOfKind( kind ) )
             {
                 ++matched;
+                if ( rows && rows->Report )
+                    ReportItem( *rows->Report, candidate.filename().string(), rows->Done++, rows->Total );
 
                 if ( auto manager = assetManager.lock() )
                 {
@@ -113,36 +130,37 @@ namespace Desert::Assets
         }
     } // namespace
 
-    void AssetPreloader::PreloadCookedAssetsAndMaterials()
+    void AssetPreloader::PreloadCookedAssetsAndMaterials( const ItemProgress& progress )
     {
+        RowProgress rows{ &progress, 0, CookedAssetRowCount() };
         // Meshes are scanned as UNPARSED shells (loadAfterCreate=false): the handle is path-derived in the
         // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy). Textures/materials
         // are cheap to parse (small metadata) so they load now to expose their stored handle / external id,
         // but their GPU build is still deferred (RegisterAsset, below).
         ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager,
-                                           AssetPriority::Low,
+                                           AssetPriority::Low, &rows,
                                            /*loadAfterCreate=*/false );
 
-        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager,
-                                        AssetPriority::Low );
+        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager, AssetPriority::Low,
+                                        &rows );
 
         // The count is kept because the animation library's population needs it, and needing it is what
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
         // the tail of this function cannot be moved above this statement, because its argument would not
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
         const size_t animationFilesFound = ProcessAssetKind<AnimationAsset>(
-             Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low );
+             Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low, &rows );
 
         ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
-                                         AssetPriority::Low );
+                                         AssetPriority::Low, &rows );
 
         // Materials are editable CONTENT (the project's Materials/ dir): imported (per-mesh
         // subfolders) and editor-created both land here, in the unified .demat format.
         ProcessAssetKind<SurfaceMaterialAsset>( Common::Content::ContentKind::Material, m_AssetManager,
-                                                AssetPriority::Low );
+                                                AssetPriority::Low, &rows );
 
         ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager,
-                                            AssetPriority::Low,
+                                            AssetPriority::Low, &rows,
                                             /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
@@ -263,8 +281,8 @@ namespace Desert::Assets
         // THE SCAN ITSELF STAYS and is not vestigial: it mints every `.hdr`'s handle, which is what lets
         // the picker's dropdown offer the project's skyboxes (it lists `FindAllByType<SkyboxAsset>()`
         // from the asset manager, not the service) and what a scene's stored reference resolves against.
-        ProcessAssetKind<SkyboxAsset>( Common::Content::ContentKind::Skybox, m_AssetManager,
-                                       AssetPriority::Medium );
+        ProcessAssetKind<SkyboxAsset>( Common::Content::ContentKind::Skybox, m_AssetManager, AssetPriority::Medium,
+                                       nullptr );
     }
 
     void AssetPreloader::PreloadCloudNoiseVolumes()
@@ -289,7 +307,7 @@ namespace Desert::Assets
         // the path->handle index still answers for a volume nothing has read (`Common::AssetPathIndex`),
         // and the Content Browser and the component slot can still OFFER the project's volumes.
         ProcessAssetKind<CloudNoiseVolumeAsset>( Common::Content::ContentKind::CloudNoiseVolume, m_AssetManager,
-                                                 AssetPriority::Medium, /*loadAfterCreate=*/false );
+                                                 AssetPriority::Medium, nullptr, /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -322,7 +340,7 @@ namespace Desert::Assets
         // synthesise where a 128^3 volume costs ten seconds, and because the sky of a project that has
         // deleted every file in Clouds/Types must still be the sky it was.
         ProcessAssetKind<CloudTypeAsset>( Common::Content::ContentKind::CloudType, m_AssetManager,
-                                          AssetPriority::Medium );
+                                          AssetPriority::Medium, nullptr );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -343,7 +361,7 @@ namespace Desert::Assets
         // already there rather than draw its elements' own colours for the first second of every session
         // — which would look exactly like a theme that does not work.
         ProcessAssetKind<UIThemeAsset>( Common::Content::ContentKind::UITheme, m_AssetManager,
-                                        AssetPriority::Medium );
+                                        AssetPriority::Medium, nullptr );
 
         if ( auto manager = m_AssetManager.lock() )
         {
@@ -365,7 +383,7 @@ namespace Desert::Assets
         // stages have one: a rig has no process-wide runtime form — the pipeline stage is built per
         // ENTITY, against that entity's own skeleton, by AnimationECSSystem.
         ProcessAssetKind<ControlRigAsset>( Common::Content::ContentKind::ControlRig, m_AssetManager,
-                                           AssetPriority::Medium );
+                                           AssetPriority::Medium, nullptr );
     }
 
     void AssetPreloader::PreloadAnimGraphs()
@@ -380,7 +398,7 @@ namespace Desert::Assets
         // There is no service register loop beside this call: a graph has no process-wide runtime form —
         // the evaluator is per ENTITY, built by AnimationECSSystem from the object this asset owns.
         ProcessAssetKind<AnimGraphAsset>( Common::Content::ContentKind::AnimGraph, m_AssetManager,
-                                          AssetPriority::Medium );
+                                          AssetPriority::Medium, nullptr );
     }
 
     void AssetPreloader::PreloadRetargets()
@@ -394,7 +412,7 @@ namespace Desert::Assets
         // There is no service register loop beside this call: a retarget has no process-wide runtime form
         // — the retargeter is per ENTITY, against that entity's own skeleton, built by AnimationECSSystem.
         ProcessAssetKind<RetargetAsset>( Common::Content::ContentKind::Retarget, m_AssetManager,
-                                         AssetPriority::Medium );
+                                         AssetPriority::Medium, nullptr );
     }
 
     void AssetPreloader::PreloadCloudModellingVolumes()
@@ -411,7 +429,7 @@ namespace Desert::Assets
         // than a cloud they did not put there. `CloudModellingService::RequireBody` says the same thing by
         // answering Null — never Pending — for an empty handle.
         ProcessAssetKind<CloudModellingVolumeAsset>( Common::Content::ContentKind::CloudModellingVolume,
-                                                     m_AssetManager, AssetPriority::Medium,
+                                                     m_AssetManager, AssetPriority::Medium, nullptr,
                                                      /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
@@ -435,7 +453,7 @@ namespace Desert::Assets
         // repository does and what the phase's acceptance criterion requires stay byte-identical. That is
         // also why an empty handle resolves to Null and never to Pending — there is nothing to wait for.
         ProcessAssetKind<CloudLayoutAsset>( Common::Content::ContentKind::CloudLayout, m_AssetManager,
-                                            AssetPriority::Medium,
+                                            AssetPriority::Medium, nullptr,
                                             /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
@@ -461,24 +479,40 @@ namespace Desert::Assets
         // literals, which is every project that predates this stage; the scan matches nothing, no table is
         // published, and every literal element draws exactly what it drew before.
         ProcessAssetKind<StringTableAsset>( Common::Content::ContentKind::StringTable, m_AssetManager,
-                                            AssetPriority::High );
+                                            AssetPriority::High, nullptr );
     }
 
-    void AssetPreloader::PreloadShaders()
+    std::size_t AssetPreloader::CookedAssetRowCount()
+    {
+        std::size_t rows = 0;
+        for ( const Common::Content::ContentKind kind : kCookedAssetKinds )
+            rows += ContentRegistry::FilesOfKind( kind ).size();
+        return rows;
+    }
+
+    std::size_t AssetPreloader::ShaderRowCount()
+    {
+        return ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ).size();
+    }
+
+    void AssetPreloader::PreloadShaders( const ItemProgress& progress )
     {
         // Timed as a phase: Register() compiles every stage of every pass, so this line is the whole
         // "shader startup cost" in one number — against it, the per-miss lines ShaderCompiler prints
         // say how much was real compilation rather than cache reads.
         const auto start = std::chrono::steady_clock::now();
 
-        ProcessAssetKind<ShaderAsset>( Common::Content::ContentKind::Shader, m_AssetManager,
-                                       AssetPriority::Medium );
+        ProcessAssetKind<ShaderAsset>( Common::Content::ContentKind::Shader, m_AssetManager, AssetPriority::Medium,
+                                       nullptr );
 
         size_t count = 0;
         if ( auto manager = m_AssetManager.lock() )
         {
-            for ( const auto& [handle, shaderAsset] : manager->FindAllByType<Assets::ShaderAsset>() )
+            const auto shaders = manager->FindAllByType<Assets::ShaderAsset>();
+            for ( const auto& [handle, shaderAsset] : shaders )
             {
+                ReportItem( progress, shaderAsset->GetMetadata().Filepath.filename().string(), count,
+                            shaders.size() );
                 Runtime::ResourceRegistry::GetShaderService()->Register( shaderAsset );
                 ++count;
             }
