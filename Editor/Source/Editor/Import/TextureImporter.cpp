@@ -330,8 +330,8 @@ namespace Desert::Editor
         // answer now, so it has to be the true one.
         // THE DERIVED DATA CACHE (AF5). The platform data — mip chain and BC levels — is keyed by the source
         // bytes, the settings and the deriver's GUID, never by this asset's path. A hit skips the decode and
-        // the encode entirely; the identity fields (handle, provenance) are per asset and are stamped here.
-        // FRESH == THE DDC HOLDS THE KEY (AF3c). There is no per-asset cooked file any more: the runtime
+        // the encode entirely; the identity fields (handle, provenance) are per asset and live only in the
+        // `.detex`. FRESH == THE DDC HOLDS THE KEY (AF3c). There is no per-asset cooked file any more: the runtime
         // reads the asset's header and asks the DDC (Assets::LoadTexturePlatformData), so an entry under
         // this key IS the texture's platform data, whichever asset with the same source put it there.
         if ( Common::DDC::Get( Assets::kTextureDeriver, ddcKey ).has_value() )
@@ -393,14 +393,15 @@ namespace Desert::Editor
         // machine as an empty material slot.
         if ( !Common::AssetHandle::IsProjectRelativeKey( sourceKey ) )
         {
-            LOG_WARN( "[TextureImporter] '{0}' lies outside every content root, so its cooked container "
+            LOG_WARN( "[TextureImporter] '{0}' lies outside every content root, so its texture asset "
                       "stores the absolute path and will not resolve on another machine.",
                       abs );
         }
 
+        // THE ENTRY IS PURE DERIVED DATA (AF3e): no handle, no source path. It is keyed by content, so every
+        // asset with these bytes and settings reads it, and an identity stamped here would be whichever
+        // asset derived it first. Identity lives in the `.detex` header alone.
         Assets::Serialization::TextureAssetData data;
-        data.Handle            = handle;
-        data.SourcePath        = sourceKey;
         data.SourceContentHash = sourceHash;
         data.Width             = static_cast<uint32_t>( w );
         data.Height            = static_cast<uint32_t>( h );

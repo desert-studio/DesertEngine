@@ -506,6 +506,20 @@ namespace
                 out << "; LEFT IN PLACE, not baked: " << name;
             out << ")";
         }
+        if ( report.TextureAssetRefsRaised )
+        {
+            out << " scene v" << Desert::Migration::kSceneVersionProceduralTerrain << "->v"
+                << Desert::Migration::kSceneVersionTextureAssetRefs << " (";
+            if ( report.TextureAssetRefs.Rewritten > 0 )
+                out << report.TextureAssetRefs.Rewritten << " texture reference(s) now name the asset:";
+            else
+                out << "stamp only - no cooked:Textures/ reference in this file";
+            for ( const auto& name : report.TextureAssetRefs.RewrittenNames )
+                out << " " << name << ";";
+            for ( const auto& name : report.TextureAssetRefs.MissingNames )
+                out << "; NO ASSET under the assets root: " << name;
+            out << ")";
+        }
         if ( report.DebugViewRaised )
         {
             out << " scene v" << Desert::Migration::kSceneVersionCloudMaterial << "->v"

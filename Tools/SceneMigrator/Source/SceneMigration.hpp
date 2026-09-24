@@ -252,12 +252,18 @@ namespace Desert::Migration
     //                   sample and written as `.dlht` files beside the file (MigrateProceduralTerrainV22ToV23).
     //                   The tracked corpus had SIX such blocks in four scenes (measured 2026-09-24).
     inline constexpr int kSceneVersionProceduralTerrain = 23;
+    //  24             - A TEXTURE IS NAMED BY ITS ASSET (AF3e). The per-texture cooked file is gone: a string
+    //                   `cooked:Textures/<p>.tex` names nothing any more, and the texture it meant is the asset
+    //                   `assets:Textures/<p>.detex` its source was imported into
+    //                   (MigrateTextureAssetRefsV23ToV24). The tracked corpus had TWO such strings, both in
+    //                   UI_SpriteSlots (measured 2026-09-24).
+    inline constexpr int kSceneVersionTextureAssetRefs = 24;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionProceduralTerrain == kSceneVersion,
+    static_assert( kSceneVersionTextureAssetRefs == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1327,6 +1333,34 @@ namespace Desert::Migration
                                                                        const std::filesystem::path&     sourceFile,
                                                                        const std::filesystem::path& assetsRoot );
 
+    // What MigrateTextureAssetRefsV23ToV24 did to one file.
+    struct TextureAssetRefsMigrationReport
+    {
+        int Rewritten = 0; // strings that now name a texture asset
+
+        // WHICH ones, as "Tag > UIPanel.Sprite = assets:Textures/T.detex". Named, like every step here.
+        std::vector<std::string> RewrittenNames;
+        // Rewritten, but no asset of that name lies under the assets root: the reference was already
+        // dangling (its cooked file is gone either way) and the operator has to see which.
+        std::vector<std::string> MissingNames;
+    };
+
+    // Raises a scene from schema v23 to v24: EVERY string value, at any depth of any component payload and
+    // of the scene's Settings, that reads `cooked:Textures/<p>.tex` becomes `assets:Textures/<p>.detex`.
+    // Every field, not a list of sites: a texture reference is a string in whatever field holds it
+    // (UIPanel.Sprite, UICanvas.Sprite, Settings.SplashSprite ...), and a list would miss the next one.
+    //
+    // THE MAPPING IS THE IMPORTER'S OWN: a source `Textures/<p>.<ext>` cooked to `cooked:Textures/<p>.tex`
+    // and is imported into `<p>.detex` beside it (TextureImporter::AssetPathFor), so the stem and folders
+    // carry over and only the root tag and extension change. `assetsRoot` is read only to NAME a target
+    // that does not exist; the rewrite happens regardless, because the old string resolves to nothing.
+    //
+    // Idempotent (a rewritten value no longer matches), but gated on its number like every step above.
+    // SHELF LIFE: deleted once no v23 file remains.
+    TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
+                                                                     std::vector<Assets::EntityData>& entities,
+                                                                     const std::filesystem::path&     assetsRoot );
+
     // What MigrateAnimGraphV20ToV21 did, returned rather than logged, like every report above.
     struct AnimGraphMigrationReport
     {
@@ -1438,6 +1472,8 @@ namespace Desert::Migration
         EditMeshMigrationReport    EditMesh;
         bool                             ProceduralTerrainRaised = false; // below kSceneVersionProceduralTerrain
         ProceduralTerrainMigrationReport ProceduralTerrain;
+        bool                             TextureAssetRefsRaised = false; // below kSceneVersionTextureAssetRefs
+        TextureAssetRefsMigrationReport  TextureAssetRefs;
         bool                       RetiredKeysRaised = false;
         RetiredKeysMigrationReport RetiredKeys;
 
@@ -1448,7 +1484,7 @@ namespace Desert::Migration
                    GravityUnitsRaised || UIVisibilityRaised || SSRUnitsRaised || CloudMaterialRaised ||
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
-                   RetiredKeysRaised;
+                   TextureAssetRefsRaised || RetiredKeysRaised;
         }
     };
 

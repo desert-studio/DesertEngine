@@ -386,9 +386,9 @@ TEST( SceneProceduralTerrainMigration, ASecondRunDoesNothingAndTheIdsAreStable )
 
 // ── 6. The head, the corpus and the sources ─────────────────────────────────────────────────────────
 
-TEST( SceneProceduralTerrainMigration, TheStepIsTheHeadAndTheHeadIsWhatTheEngineRequires )
+TEST( SceneProceduralTerrainMigration, TheStepFollowsEditMeshAndPrecedesTextureAssetRefs )
 {
-    EXPECT_EQ( Migration::kSceneVersionProceduralTerrain, Desert::Core::kSceneVersion );
+    EXPECT_EQ( Migration::kSceneVersionProceduralTerrain + 1, Migration::kSceneVersionTextureAssetRefs );
     EXPECT_EQ( Migration::kSceneVersionProceduralTerrain, Migration::kSceneVersionEditMesh + 1 );
 }
 

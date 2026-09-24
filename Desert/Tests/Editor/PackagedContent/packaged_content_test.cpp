@@ -1594,7 +1594,21 @@ namespace
                 ADD_FAILURE() << file.string() << " is in the archive and does not decode: " << decoded.GetError();
                 continue;
             }
-            out.emplace( decoded.GetValue().SourcePath, decoded.GetValue() );
+            // Keyed by the ASSET's provenance: the platform data is content-keyed and names no source (AF3e).
+            const auto key = Desert::Assets::ReadTextureAssetKey( file );
+            if ( !key )
+            {
+                ADD_FAILURE() << file.string()
+                              << " is listed and its asset header does not read: " << key.GetError();
+                continue;
+            }
+            // The shipped entry is pure derived data: it names no asset. The identity the player resolves
+            // the texture by is the `.detex` header's, and that is what the map carries forward.
+            EXPECT_EQ( static_cast<uint64_t>( decoded.GetValue().Handle ), 0u ) << file.string();
+            EXPECT_TRUE( decoded.GetValue().SourcePath.empty() ) << file.string();
+            auto data   = decoded.ExtractValue();
+            data.Handle = key.GetValue().Handle;
+            out.emplace( key.GetValue().SourceFile, std::move( data ) );
         }
         return out;
     }

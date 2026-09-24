@@ -1813,6 +1813,101 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // `cooked:Textures/<p>.tex` -> `assets:Textures/<p>.detex`; nullopt for any other string.
+        std::optional<std::string> TextureAssetRefFor( const std::string& text )
+        {
+            constexpr std::string_view kOldPrefix = "cooked:Textures/";
+            constexpr std::string_view kOldExt    = ".tex";
+            if ( text.size() <= kOldPrefix.size() + kOldExt.size() || !text.starts_with( kOldPrefix ) ||
+                 !text.ends_with( kOldExt ) )
+                return std::nullopt;
+            const std::string middle =
+                 text.substr( kOldPrefix.size(), text.size() - kOldPrefix.size() - kOldExt.size() );
+            return "assets:Textures/" + middle + ".detex";
+        }
+
+        // Rewrites every matching string under @p value, at any depth. Returns true when anything changed;
+        // @p where is the dotted field path the report names.
+        bool RewriteTextureRefs( rfl::Generic& value, const std::string& where,
+                                 const std::filesystem::path& assetsRoot, TextureAssetRefsMigrationReport& report )
+        {
+            if ( const auto text = value.to_string(); text.has_value() )
+            {
+                const auto rewritten = TextureAssetRefFor( text.value() );
+                if ( !rewritten.has_value() )
+                    return false;
+                const std::string name = where + " = " + rewritten.value();
+                report.Rewritten += 1;
+                report.RewrittenNames.push_back( name );
+                std::error_code ec;
+                const auto      relative = rewritten->substr( std::string_view( "assets:" ).size() );
+                if ( !std::filesystem::is_regular_file( assetsRoot / relative, ec ) )
+                    report.MissingNames.push_back( name );
+                value = rfl::Generic( rewritten.value() );
+                return true;
+            }
+            if ( const auto fields = value.to_object(); fields.has_value() )
+            {
+                // Rebuilt rather than edited in place: rfl::Object has no in-place assignment through its
+                // iterators (the same reason every step above rebuilds).
+                rfl::Generic::Object kept;
+                bool                 changed = false;
+                for ( const auto& [key, child] : fields.value() )
+                {
+                    rfl::Generic copy = child;
+                    changed |= RewriteTextureRefs( copy, where + "." + key, assetsRoot, report );
+                    kept[key] = std::move( copy );
+                }
+                if ( changed )
+                    value = rfl::Generic( std::move( kept ) );
+                return changed;
+            }
+            if ( const auto items = value.to_array(); items.has_value() )
+            {
+                rfl::Generic::Array kept;
+                bool                changed = false;
+                for ( size_t i = 0; i < items.value().size(); ++i )
+                {
+                    rfl::Generic copy = items.value()[i];
+                    changed |=
+                         RewriteTextureRefs( copy, where + "[" + std::to_string( i ) + "]", assetsRoot, report );
+                    kept.push_back( std::move( copy ) );
+                }
+                if ( changed )
+                    value = rfl::Generic( std::move( kept ) );
+                return changed;
+            }
+            return false;
+        }
+    } // namespace
+
+    TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
+                                                                     std::vector<Assets::EntityData>& entities,
+                                                                     const std::filesystem::path&     assetsRoot )
+    {
+        TextureAssetRefsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag  = entity.Tag.value_or( "Entity" );
+            auto              kept = entity.Components;
+            kept.clear();
+            bool changed = false;
+            for ( const auto& [component, payload] : entity.Components )
+            {
+                rfl::Generic copy = payload;
+                changed |= RewriteTextureRefs( copy, tag + " > " + component, assetsRoot, report );
+                kept[component] = std::move( copy );
+            }
+            if ( changed )
+                entity.Components = std::move( kept );
+        }
+        if ( settings.has_value() )
+            RewriteTextureRefs( settings.value(), "Settings", assetsRoot, report );
+        return report;
+    }
+
     TextKeySigilMigrationReport MigrateTextKeySigilV18ToV19( std::vector<Assets::EntityData>& entities )
     {
         // WHERE AN AUTHORED, READER-FACING STRING CAN SIT IN A .desce. Four rows, and the set is the
@@ -3302,6 +3397,14 @@ namespace Desert::Migration
             {
                 report.ProceduralTerrainRaised = true;
                 report.ProceduralTerrain = MigrateProceduralTerrainV22ToV23( entities, sourceFile, assetsRoot );
+            }
+
+            // Rewrites string VALUES only, never keys, and no step above writes a `cooked:Textures/` value, so
+            // nothing depends on its place in the chain; before the retirement pass, like every other step.
+            if ( statedSceneVersion < kSceneVersionTextureAssetRefs )
+            {
+                report.TextureAssetRefsRaised = true;
+                report.TextureAssetRefs = MigrateTextureAssetRefsV23ToV24( settingsRef, entities, assetsRoot );
             }
 
             if ( statedSceneVersion < kSceneVersion )

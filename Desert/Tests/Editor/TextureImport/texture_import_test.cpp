@@ -329,7 +329,15 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
 
     const std::string text   = ReadAll( meta );
     const auto        stored = CookedHeader( meta );
-    EXPECT_EQ( (uint64_t)stored.Handle, (uint64_t)handle );
+    // THE IDENTITY LIVES IN THE `.detex`, NOT IN THE DDC ENTRY (AF3e). The entry is keyed by content, so
+    // any asset with the same bytes and settings reads it; a handle or a path written into it would be
+    // whichever asset happened to derive it first.
+    const auto assetKey = Desert::Assets::ReadTextureAssetKey( TextureImporter::AssetPathFor( source ) );
+    ASSERT_TRUE( assetKey.IsSuccess() ) << assetKey.GetError();
+    EXPECT_EQ( (uint64_t)assetKey.GetValue().Handle, (uint64_t)handle );
+    EXPECT_EQ( assetKey.GetValue().SourceFile, "assets:Textures/T_Test.bmp" );
+    EXPECT_EQ( (uint64_t)stored.Handle, 0u ) << "the DDC entry carries an asset's handle";
+    EXPECT_TRUE( stored.SourcePath.empty() ) << "the DDC entry carries an asset's path: " << stored.SourcePath;
     EXPECT_EQ( stored.Width, 4u );
     EXPECT_EQ( stored.Height, 3u );
 
@@ -340,10 +348,6 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     EXPECT_EQ( stored.FileSize, text.size() );
     EXPECT_GT( text.size(), 4u * 3u * 4u ) << "the cooked file is smaller than its own base level";
 
-    // SourcePath is the same root-tagged key the handle is hashed from, with no part of this checkout in
-    // it. The absolute form is the defect that reached the repository: T_Checker.tex shipped carrying a
-    // developer's home directory.
-    EXPECT_EQ( stored.SourcePath, "assets:Textures/T_Test.bmp" );
     EXPECT_EQ( text.find( m_Root.generic_string() ), std::string::npos )
          << "the cooked file contains the checkout directory";
 
@@ -511,6 +515,24 @@ TEST_F( TextureImport, TwoAssetsOfTheSameImageShareOneDerivedDataEntry )
     EXPECT_NE( (uint64_t)a.Handle, (uint64_t)b.Handle );
 
     EXPECT_EQ( PlatformData( inside ), PlatformData( outside ) );
+
+    // ONE ENTRY, AND IT NAMES NEITHER ASSET. The first cook used to stamp its own handle and path into
+    // the shared entry, so the second asset read the first one's identity out of its platform data.
+    const std::string entry = ReadAll( PlatformData( inside ) );
+    const auto        info  = CookedHeader( PlatformData( inside ) );
+    for ( const Common::UUID owner : { a.Handle, b.Handle } )
+    {
+        const uint64_t id = static_cast<uint64_t>( owner );
+        EXPECT_NE( (uint64_t)info.Handle, id );
+        EXPECT_EQ( entry.find( std::string( reinterpret_cast<const char*>( &id ), sizeof( id ) ) ),
+                   std::string::npos )
+             << "the DDC entry carries the handle " << id;
+    }
+    EXPECT_EQ( (uint64_t)info.Handle, 0u );
+    EXPECT_TRUE( info.SourcePath.empty() ) << info.SourcePath;
+    for ( const char* name : { "T_Test", "T_Other", "Collections", "Sub/" } )
+        EXPECT_EQ( entry.find( name ), std::string::npos ) << "the DDC entry names '" << name << "'";
+
     const std::string ddcRoot = Common::DDC::Root().string();
     EXPECT_EQ( PlatformData( inside ).string().rfind( ddcRoot, 0 ), 0u );
     EXPECT_FALSE( fs::exists( Common::Constants::Path::COOKED_PATH / "Textures" ) )

@@ -1,6 +1,10 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
 //   TextureCook <project.deproj> <source> [<source> ...]
+//   TextureCook <project.deproj> --emit <asset.detex> <out.tex>
+//
+// `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
+// ONE file: Resources/Splash/Splash.tex, which the splash reads before the engine (and so the DDC) exists.
 //
 // Each <source> is a path relative to the directory the project's editor runs from (the one holding
 // `Resources/` — the tool works from the descriptor's folder, as GamePackager does), and lands where the
@@ -19,6 +23,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -29,7 +34,8 @@ namespace
     {
         std::fprintf( stderr,
                       "usage: TextureCook <project.deproj> <source> [<source> ...]\n"
-                      "  <source> is relative to the project's folder, e.g. Resources/Splash/Splash.jpg\n" );
+                      "       TextureCook <project.deproj> --emit <asset.detex> <out.tex>\n"
+                      "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n" );
         return 2;
     }
 
@@ -85,6 +91,29 @@ int main( int argc, char** argv )
                  std::fprintf( stderr, "TextureCook: could not open '%s' (missing or corrupt .deproj)\n",
                                deproj.string().c_str() );
                  return 2;
+             }
+
+             if ( std::string( args[2] ) == "--emit" )
+             {
+                 if ( count != 5 )
+                     return Usage();
+                 const auto bytes = Desert::Editor::TextureImporter::BuildPlatformData( args[3] );
+                 if ( !bytes.IsSuccess() )
+                 {
+                     std::fprintf( stderr, "TextureCook: %s\n", bytes.GetError().c_str() );
+                     return 1;
+                 }
+                 std::ofstream out( args[4], std::ios::binary | std::ios::trunc );
+                 out.write( bytes.GetValue().data(), static_cast<std::streamsize>( bytes.GetValue().size() ) );
+                 out.close();
+                 if ( !out )
+                 {
+                     std::fprintf( stderr, "TextureCook: could not write '%s'\n", args[4] );
+                     return 1;
+                 }
+                 std::fprintf( stdout, "TextureCook: emitted %s -> %s (%zu bytes)\n", args[3], args[4],
+                               bytes.GetValue().size() );
+                 return 0;
              }
 
              Desert::Editor::TextureImporter importer;
