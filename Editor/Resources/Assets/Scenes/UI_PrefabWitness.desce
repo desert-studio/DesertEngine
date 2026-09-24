@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "449124a6534e5b6bfed671446ad8fa4c",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "SceneName": "UI_PrefabWitness",
     "Entities": [
         {
@@ -106,7 +115,5 @@
         "SplashSprite": "",
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
-    },
-    "UnitVersion": 1,
-    "SceneVersion": 25
+    }
 }

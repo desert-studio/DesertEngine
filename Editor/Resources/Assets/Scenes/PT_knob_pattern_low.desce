@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "c5a60e586c1169f48e357e3250e30eed",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "SceneName": "PT_knob_pattern_low",
     "Entities": [
         {
@@ -134,7 +143,5 @@
         "SplashSprite": "",
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
-    },
-    "UnitVersion": 1,
-    "SceneVersion": 25
+    }
 }

@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "2da2387a87064ed6bd33c61d6d5a7fc7",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "SceneName": "Desert Sandbox",
     "Entities": [
         {
@@ -392,7 +401,5 @@
         "SplashSprite": "",
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
-    },
-    "UnitVersion": 1,
-    "SceneVersion": 25
+    }
 }

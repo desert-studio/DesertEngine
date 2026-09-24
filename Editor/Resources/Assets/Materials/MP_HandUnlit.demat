@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Material",
+        "Guid": "58b25001fd9a29362681f26b0c4ebf67",
+        "Versions": {
+            "MATL": 1
+        },
+        "Dependencies": []
+    },
     "ShaderName": "Unlit",
     "Params": [],
     "Textures": [],

@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "c59b852a40433a52b2bf640c19bd802d",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "SceneName": "R14_ProtocolOn",
     "Entities": [
         {
@@ -182,7 +191,5 @@
         "SplashSprite": "",
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
-    },
-    "UnitVersion": 1,
-    "SceneVersion": 25
+    }
 }

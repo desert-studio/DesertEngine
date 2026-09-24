@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "cb8249fc78c336c0050fcd723266c3f9",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "SceneName": "Animation Two-Bone IK Witness (controls removed)",
     "Entities": [
         {
@@ -255,7 +264,5 @@
         "SplashSprite": "",
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
-    },
-    "UnitVersion": 1,
-    "SceneVersion": 25
+    }
 }

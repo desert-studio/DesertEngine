@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Material",
+        "Guid": "33e572a04c3edf8ed3d872e10230a97b",
+        "Versions": {
+            "MATL": 1
+        },
+        "Dependencies": []
+    },
     "Params": [
         {
             "Name": "AlbedoColor",

@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Material",
+        "Guid": "9c738945524d749f06c5277c4a444df2",
+        "Versions": {
+            "MATL": 1
+        },
+        "Dependencies": []
+    },
     "ShaderName": "MatProbe",
     "Params": [
         {

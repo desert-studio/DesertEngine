@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Material",
+        "Guid": "8c0b9b6f88be3df33cc6388bceab6292",
+        "Versions": {
+            "MATL": 1
+        },
+        "Dependencies": []
+    },
     "ShaderName": "CloudRaymarch",
     "Params": [
         {

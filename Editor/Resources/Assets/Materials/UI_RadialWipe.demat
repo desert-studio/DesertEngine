@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Material",
+        "Guid": "53e7930a82e65578715e5c2659a4ae9f",
+        "Versions": {
+            "MATL": 1
+        },
+        "Dependencies": []
+    },
     "ShaderName": "UIMatRadialWipe",
     "Params": [
         {

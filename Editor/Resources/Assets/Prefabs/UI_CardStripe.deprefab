@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Prefab",
+        "Guid": "19f6830c2ac6aa465c2a2907b883cf63",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "Name": "UI_CardStripe",
     "Entities": [
         {
@@ -54,7 +63,5 @@
             }
         }
     ],
-    "Root": 7101,
-    "SceneVersion": 25,
-    "UnitVersion": 1
+    "Root": 7101
 }

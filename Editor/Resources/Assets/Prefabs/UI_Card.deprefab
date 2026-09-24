@@ -1,4 +1,13 @@
 {
+    "Header": {
+        "Kind": "Prefab",
+        "Guid": "37d52634d940d6c1be0f623515668528",
+        "Versions": {
+            "SCNE": 26,
+            "UNIT": 1
+        },
+        "Dependencies": []
+    },
     "Name": "UI_Card",
     "Entities": [
         {
@@ -59,7 +68,5 @@
             "PrefabPath": "Resources/Assets/Prefabs/UI_CardStripe.deprefab"
         }
     ],
-    "Root": 7201,
-    "SceneVersion": 25,
-    "UnitVersion": 1
+    "Root": 7201
 }

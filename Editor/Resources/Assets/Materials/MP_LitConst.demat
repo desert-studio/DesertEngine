@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Material",
+        "Guid": "5fd4737b3cc218b5bc0ecceccd3664ca",
+        "Versions": {
+            "MATL": 1
+        },
+        "Dependencies": []
+    },
     "ShaderName": "MatLitConst",
     "Params": [],
     "Textures": [],
