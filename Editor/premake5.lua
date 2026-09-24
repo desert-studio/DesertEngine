@@ -134,6 +134,9 @@ project "Editor"
         -- physical-atmosphere fields pushed its Debug object file past COFF's 65k-section limit
         -- (error C1128). /bigobj lifts the format cap and costs nothing at runtime.
         buildoptions { "/bigobj" }
+        -- The application icon: the .exe's icon in Explorer and, because the resource is named GLFW_ICON,
+        -- the icon GLFW gives every window it creates (Resources/Branding/README.md).
+        files { "Resources/Branding/Editor.rc" }
 
     -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
     -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
