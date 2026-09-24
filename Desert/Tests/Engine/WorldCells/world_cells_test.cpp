@@ -341,7 +341,9 @@ TEST( WorldCells, AUnitsAssetsAreWhatItsRecordsNameAndWhatThoseDependOn )
     material.Kind         = "Material";
     const auto materialGuid = Common::Content::AssetGuidFromText( kMaterialGuid );
     ASSERT_TRUE( materialGuid ) << materialGuid.GetError();
-    material.Identity = static_cast<std::uint64_t>( Common::Content::HandleForGuid( materialGuid.GetValue() ) );
+    // Gathered, not parsed: the row carries the header GUID and no Identity, exactly what a registry read by
+    // AssetRegistry::LoadFrom holds for a material the cook never opened.
+    material.Guid = materialGuid.GetValue();
     material.Dependencies = { kTextureId };
     Common::Utils::AssetRegistryEntry texture;
     texture.Key      = "assets:Textures/T_Brick.tex";
