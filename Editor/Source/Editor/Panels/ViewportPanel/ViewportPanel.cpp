@@ -1560,10 +1560,10 @@ namespace Desert::Editor
             }
         }
 
-        // --- Landscape mode: Sculpt / Smooth (LandscapeSculptTool); LMB strokes, Shift lowers ---
+        // --- Landscape mode: LMB strokes, Shift lowers (LandscapeSculptTool); its settings are the Landscape
+        // panel ---
         if ( landscapeMode )
         {
-            m_LandscapeTool.DrawPanel( m_ViewportData.ViewportPos );
             if ( const auto camera = ViewCamera() )
             {
                 auto [mx, my]       = GetMouseViewportSpace();

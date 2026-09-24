@@ -18,8 +18,9 @@ namespace Desert::Editor::Core
      * the command palette offers as commands.
      *
      * WHY ONE TABLE. Synthetic mouse input is closed on this machine, so a setting only a hand can change is a
-     * setting no unattended run can photograph. The panel draws NOTHING but the rows of LandscapeToolControls()
-     * (plus read-outs), and the palette offers exactly those rows: a widget without a command cannot be written.
+     * setting no unattended run can photograph. The palette offers exactly the rows of LandscapeToolControls();
+     * the Landscape panel draws its tool strip and action buttons from those rows, and its sliders
+     * (LandscapeToolProperties) edit only fields those rows step: a widget without a command cannot be written.
      */
     enum class LandscapeTool : uint8_t
     {
@@ -554,5 +555,238 @@ namespace Desert::Editor::Core
         controls.push_back( { "Copy: copy region", "Copy", {}, paste, LandscapeStrokeRequest::Copy } );
         controls.push_back( { "Paste: at viewport centre", "Paste", {}, paste, LandscapeStrokeRequest::Paste } );
         return controls;
+    }
+
+    /**
+     * @brief One row of the Landscape panel's Tool Settings section: UE's ULandscapeEditorObject property with
+     *        its ShowForTools, UIMin/UIMax (the slider's travel) and ClampMin/ClampMax (what typing may reach).
+     *
+     * Ported from UE 5.8 Engine/Source/Editor/LandscapeEditor/Public/LandscapeEditorObject.h:320-760, adapted: a
+     * UPROPERTY's meta becomes this row, Slate's property grid becomes the panel's property rows. Each row edits a
+     * field LandscapeToolControls() already steps from the palette, so a value the panel can set is still a value
+     * an unattended run can set (see that table's WHY).
+     */
+    struct LandscapeToolProperty
+    {
+        enum class Kind : uint8_t
+        {
+            Float,
+            Int,
+            Bool,
+            Choice,
+        };
+
+        const char*                                           Label = "";
+        Kind                                                  Type  = Kind::Float;
+        std::function<bool( const LandscapeSculptSettings& )> Shown;
+        std::function<float*( LandscapeSculptSettings& )>     Float;
+        std::function<int32_t*( LandscapeSculptSettings& )>   Int;
+        std::function<bool*( LandscapeSculptSettings& )>      Bool;
+        /// Choice rows: the option names, and the current option's index / setting it.
+        std::vector<std::string>                             Options;
+        std::function<int( LandscapeSculptSettings& )>       Chosen;
+        std::function<void( LandscapeSculptSettings&, int )> Choose;
+        float                                                UIMin    = 0.0f;
+        float                                                UIMax    = 1.0f;
+        float                                                ClampMin = 0.0f;
+        float                                                ClampMax = 1.0f;
+        /// UE's SliderExponent above 1: the slider spends its travel on the small end.
+        bool Logarithmic = false;
+    };
+
+    template <typename E, typename Name, typename Field>
+    LandscapeToolProperty MakeLandscapeChoice( const char*                                           label,
+                                               std::function<bool( const LandscapeSculptSettings& )> shown,
+                                               std::vector<E> values, Name name, Field field )
+    {
+        LandscapeToolProperty p;
+        p.Label = label;
+        p.Type  = LandscapeToolProperty::Kind::Choice;
+        p.Shown = std::move( shown );
+        for ( const E v : values )
+            p.Options.emplace_back( name( v ) );
+        p.Chosen = [values, field]( LandscapeSculptSettings& s )
+        { return static_cast<int>( std::find( values.begin(), values.end(), field( s ) ) - values.begin() ); };
+        p.Choose = [values, field]( LandscapeSculptSettings& s, int index )
+        { field( s ) = values[static_cast<size_t>( index )]; };
+        return p;
+    }
+
+    /// The brush falloff shapes in UE's order (ELandscapeBrushFalloffType: Smooth, Linear, Spherical, Tip).
+    inline std::vector<World::Landscape::LandscapeBrushFalloff> LandscapeFalloffShapes()
+    {
+        using World::Landscape::LandscapeBrushFalloff;
+        return { LandscapeBrushFalloff::Smooth, LandscapeBrushFalloff::Linear, LandscapeBrushFalloff::Spherical,
+                 LandscapeBrushFalloff::Tip };
+    }
+
+    /// Whether the tool paints with the circle brush (UE: its ValidBrushes are not BrushSet_Dummy).
+    inline bool LandscapeToolUsesBrush( LandscapeTool tool )
+    {
+        return tool != LandscapeTool::Ramp && tool != LandscapeTool::Mirror;
+    }
+
+    /// Tool Settings rows in UE's declaration order; ranges are UE's meta unless a named constant here is tighter.
+    inline std::vector<LandscapeToolProperty> LandscapeToolProperties()
+    {
+        namespace L = World::Landscape;
+        using S     = LandscapeSculptSettings;
+        using Kind  = LandscapeToolProperty::Kind;
+        using Shown = std::function<bool( const S& )>;
+        auto is  = []( LandscapeTool tool ) -> Shown { return [tool]( const S& s ) { return s.Tool == tool; }; };
+        auto flt = []( const char* label, Shown shown, std::function<float*( S& )> f, float uiMin, float uiMax,
+                       float clampMin, float clampMax, bool log )
+        {
+            LandscapeToolProperty p;
+            p.Label       = label;
+            p.Type        = Kind::Float;
+            p.Shown       = std::move( shown );
+            p.Float       = std::move( f );
+            p.UIMin       = uiMin;
+            p.UIMax       = uiMax;
+            p.ClampMin    = clampMin;
+            p.ClampMax    = clampMax;
+            p.Logarithmic = log;
+            return p;
+        };
+        auto integer = []( const char* label, Shown shown, std::function<int32_t*( S& )> f, int32_t uiMin,
+                           int32_t uiMax, int32_t clampMin, int32_t clampMax )
+        {
+            LandscapeToolProperty p;
+            p.Label    = label;
+            p.Type     = Kind::Int;
+            p.Shown    = std::move( shown );
+            p.Int      = std::move( f );
+            p.UIMin    = static_cast<float>( uiMin );
+            p.UIMax    = static_cast<float>( uiMax );
+            p.ClampMin = static_cast<float>( clampMin );
+            p.ClampMax = static_cast<float>( clampMax );
+            return p;
+        };
+        auto boolean = []( const char* label, Shown shown, std::function<bool*( S& )> f )
+        {
+            LandscapeToolProperty p;
+            p.Label = label;
+            p.Type  = Kind::Bool;
+            p.Shown = std::move( shown );
+            p.Bool  = std::move( f );
+            return p;
+        };
+        // UE's ToolStrength ShowForTools: every heightmap tool but Ramp and Mirror.
+        const Shown strength = []( const S& s )
+        { return s.Tool != LandscapeTool::Ramp && s.Tool != LandscapeTool::Mirror; };
+
+        std::vector<LandscapeToolProperty> rows;
+        rows.push_back( flt(
+             "Tool Strength", strength, []( S& s ) { return &s.Brush.Strength; }, 0.0f, 1.0f,
+             kLandscapeMinStrength, kLandscapeMaxStrength, false ) );
+        // Flatten (LandscapeEditorObject.h:353-383).
+        rows.push_back( MakeLandscapeChoice(
+             "Flatten Mode", is( LandscapeTool::Flatten ),
+             std::vector<L::LandscapeFlattenMode>{
+                  L::LandscapeFlattenMode::Both, L::LandscapeFlattenMode::Raise, L::LandscapeFlattenMode::Lower,
+                  L::LandscapeFlattenMode::Interval, L::LandscapeFlattenMode::Terrace },
+             LandscapeFlattenModeName, []( S& s ) -> L::LandscapeFlattenMode& { return s.Flatten.Mode; } ) );
+        rows.push_back( boolean( "Use Slope Flatten", is( LandscapeTool::Flatten ),
+                                 []( S& s ) { return &s.Flatten.UseSlopeFlatten; } ) );
+        rows.push_back( boolean( "Pick Value Per Apply", is( LandscapeTool::Flatten ),
+                                 []( S& s ) { return &s.Flatten.PickValuePerApply; } ) );
+        rows.push_back( flt(
+             "Terrace Interval", is( LandscapeTool::Flatten ), []( S& s ) { return &s.Flatten.TerraceIntervalCm; },
+             1.0f, 32768.0f, L::kLandscapeMinTerraceIntervalCm, L::kLandscapeMaxTerraceIntervalCm, true ) );
+        rows.push_back( flt(
+             "Terrace Smoothing", is( LandscapeTool::Flatten ), []( S& s ) { return &s.Flatten.TerraceSmooth; },
+             0.0001f, 1.0f, L::kLandscapeMinTerraceSmooth, L::kLandscapeMaxTerraceSmooth, true ) );
+        // Ramp (:398-403).
+        rows.push_back( flt(
+             "Ramp Width", is( LandscapeTool::Ramp ), []( S& s ) { return &s.Ramp.WidthCm; }, 1.0f,
+             L::kLandscapeMaxRampWidthUiCm, L::kLandscapeMinRampWidthCm, kLandscapeMaxRadiusCm, true ) );
+        rows.push_back( flt(
+             "Side Falloff", is( LandscapeTool::Ramp ), []( S& s ) { return &s.Ramp.SideFalloff; }, 0.0f, 1.0f,
+             0.0f, 1.0f, false ) );
+        rows.push_back( MakeLandscapeChoice(
+             "Ramp Mode", is( LandscapeTool::Ramp ),
+             std::vector<L::LandscapeRampMode>{ L::LandscapeRampMode::Both, L::LandscapeRampMode::Raise,
+                                                L::LandscapeRampMode::Lower },
+             LandscapeRampModeName, []( S& s ) -> L::LandscapeRampMode& { return s.Ramp.Mode; } ) );
+        // Smooth (:409-418).
+        rows.push_back( integer(
+             "Filter Kernel Radius", is( LandscapeTool::Smooth ),
+             []( S& s ) { return &s.Smooth.FilterKernelRadius; }, 0, 7, L::kLandscapeSmoothMinRadius,
+             L::kLandscapeSmoothMaxRadius ) );
+        rows.push_back( boolean( "Detail Smooth", is( LandscapeTool::Smooth ),
+                                 []( S& s ) { return &s.Smooth.DetailSmooth; } ) );
+        rows.push_back( flt(
+             "Detail Scale", is( LandscapeTool::Smooth ), []( S& s ) { return &s.Smooth.DetailScale; }, 0.0f,
+             L::kLandscapeMaxDetailScale, 0.0f, L::kLandscapeMaxDetailScale, false ) );
+        // Erosion (:423-444).
+        rows.push_back( integer(
+             "Threshold", is( LandscapeTool::Erosion ), []( S& s ) { return &s.Erosion.Threshold; }, 0, 128, 0,
+             L::kLandscapeMaxErosionThreshold ) );
+        rows.push_back( integer(
+             "Iterations", is( LandscapeTool::Erosion ), []( S& s ) { return &s.Erosion.Iterations; }, 1, 150, 1,
+             L::kLandscapeMaxErosionIterations ) );
+        rows.push_back(
+             MakeLandscapeChoice( "Noise Mode", is( LandscapeTool::Erosion ),
+                                  std::vector<L::LandscapeErosionNoiseMode>{ L::LandscapeErosionNoiseMode::Both,
+                                                                             L::LandscapeErosionNoiseMode::Raise,
+                                                                             L::LandscapeErosionNoiseMode::Lower },
+                                  LandscapeErosionNoiseModeName,
+                                  []( S& s ) -> L::LandscapeErosionNoiseMode& { return s.Erosion.NoiseMode; } ) );
+        rows.push_back( flt(
+             "Noise Scale", is( LandscapeTool::Erosion ), []( S& s ) { return &s.Erosion.NoiseScale; }, 1.1f,
+             256.0f, L::kLandscapeMinNoiseScale, L::kLandscapeMaxNoiseScale, false ) );
+        // Hydro Erosion (:449-474).
+        rows.push_back( integer(
+             "Rain Amount", is( LandscapeTool::HydroErosion ), []( S& s ) { return &s.HydroErosion.RainAmount; },
+             1, 256, 1, L::kLandscapeMaxRainAmount ) );
+        rows.push_back( flt(
+             "Sediment Capacity", is( LandscapeTool::HydroErosion ),
+             []( S& s ) { return &s.HydroErosion.SedimentCapacity; }, L::kLandscapeMinSedimentCapacity, 1.0f,
+             L::kLandscapeMinSedimentCapacity, 1.0f, false ) );
+        rows.push_back( integer(
+             "Iterations", is( LandscapeTool::HydroErosion ), []( S& s ) { return &s.HydroErosion.Iterations; }, 1,
+             150, 1, L::kLandscapeMaxErosionIterations ) );
+        rows.push_back( MakeLandscapeChoice(
+             "Initial Rain Distribution", is( LandscapeTool::HydroErosion ),
+             std::vector<L::LandscapeRainMode>{ L::LandscapeRainMode::Both, L::LandscapeRainMode::Positive },
+             LandscapeRainModeName, []( S& s ) -> L::LandscapeRainMode& { return s.HydroErosion.RainMode; } ) );
+        rows.push_back( flt(
+             "Rain Distribution Scale", is( LandscapeTool::HydroErosion ),
+             []( S& s ) { return &s.HydroErosion.RainScale; }, 1.1f, 256.0f, L::kLandscapeMinNoiseScale,
+             L::kLandscapeMaxNoiseScale, false ) );
+        rows.push_back( boolean( "Detail Smooth", is( LandscapeTool::HydroErosion ),
+                                 []( S& s ) { return &s.HydroErosion.DetailSmooth; } ) );
+        rows.push_back( flt(
+             "Detail Scale", is( LandscapeTool::HydroErosion ), []( S& s ) { return &s.HydroErosion.DetailScale; },
+             0.0f, L::kLandscapeMaxHydroDetailScale, 0.0f, L::kLandscapeMaxHydroDetailScale, false ) );
+        // Noise (:479-484).
+        rows.push_back( MakeLandscapeChoice(
+             "Noise Mode", is( LandscapeTool::Noise ),
+             std::vector<L::LandscapeNoiseMode>{ L::LandscapeNoiseMode::Both, L::LandscapeNoiseMode::Add,
+                                                 L::LandscapeNoiseMode::Sub },
+             LandscapeNoiseModeName, []( S& s ) -> L::LandscapeNoiseMode& { return s.Noise.Mode; } ) );
+        rows.push_back( flt(
+             "Noise Scale", is( LandscapeTool::Noise ), []( S& s ) { return &s.Noise.NoiseScale; }, 1.1f, 256.0f,
+             L::kLandscapeMinNoiseScale, L::kLandscapeMaxNoiseScale, false ) );
+        // Copy/Paste (:500-527).
+        rows.push_back( MakeLandscapeChoice(
+             "Paste Mode", is( LandscapeTool::CopyPaste ),
+             std::vector<L::LandscapePasteMode>{ L::LandscapePasteMode::Both, L::LandscapePasteMode::Raise,
+                                                 L::LandscapePasteMode::Lower },
+             LandscapePasteModeName, []( S& s ) -> L::LandscapePasteMode& { return s.PasteMode; } ) );
+        // Mirror (:531-540).
+        rows.push_back( MakeLandscapeChoice(
+             "Operation", is( LandscapeTool::Mirror ),
+             std::vector<L::LandscapeMirrorOp>{
+                  L::LandscapeMirrorOp::MinusXToPlusX, L::LandscapeMirrorOp::PlusXToMinusX,
+                  L::LandscapeMirrorOp::MinusZToPlusZ, L::LandscapeMirrorOp::PlusZToMinusZ,
+                  L::LandscapeMirrorOp::RotateMinusXToPlusX, L::LandscapeMirrorOp::RotatePlusXToMinusX,
+                  L::LandscapeMirrorOp::RotateMinusZToPlusZ, L::LandscapeMirrorOp::RotatePlusZToMinusZ },
+             LandscapeMirrorOpName, []( S& s ) -> L::LandscapeMirrorOp& { return s.Mirror.Op; } ) );
+        rows.push_back( integer(
+             "Smoothing Width", is( LandscapeTool::Mirror ), []( S& s ) { return &s.Mirror.SmoothingWidth; }, 0,
+             L::kLandscapeMaxMirrorSmoothingUi, 0, L::kLandscapeMaxMirrorSmoothing ) );
+        return rows;
     }
 } // namespace Desert::Editor::Core

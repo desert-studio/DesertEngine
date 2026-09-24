@@ -93,6 +93,7 @@
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
+#include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
@@ -721,6 +722,7 @@ namespace Desert::Editor
             m_Panels.Adopt( std::move( fileExplorer ) );
         }
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
+        m_Panels.Add<Editor::LandscapePanel>();
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
@@ -4394,7 +4396,7 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
-        // LANDSCAPE SCULPT / SMOOTH. Every widget of the tool panel is a row of LandscapeToolControls() and is
+        // LANDSCAPE SCULPT. Every setting of the Landscape panel is stepped by a row of LandscapeToolControls(),
         // offered here from that same table; the stroke itself is the click a hand would make at the viewport
         // centre, because PaletteCommand::Run takes no coordinates -- aim the camera, then stroke.
         commands.push_back( { "Landscape", "Sculpt mode", []

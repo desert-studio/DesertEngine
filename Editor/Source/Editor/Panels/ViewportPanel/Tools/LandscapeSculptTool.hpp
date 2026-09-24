@@ -22,8 +22,6 @@ namespace Desert::Editor::Tools
     class LandscapeSculptTool
     {
     public:
-        void DrawPanel( const glm::vec2& viewportPos );
-
         /// @p mouseRay under the cursor, @p centreRay through the viewport centre (palette strokes use it).
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
                      const Common::Math::Ray& centreRay, bool hovered, float deltaSeconds );
