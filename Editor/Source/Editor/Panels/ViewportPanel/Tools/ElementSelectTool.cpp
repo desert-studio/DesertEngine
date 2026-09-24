@@ -3,6 +3,7 @@
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -31,8 +32,7 @@ namespace Desert::Editor::Tools
             glm::mat4                                 World{ 1.0f };
         };
 
-        // The selected entity's editable mesh and world transform; none for an entity drawn from an asset or
-        // a primitive (it has no EditMesh to select in).
+        // The selected entity's tool target mesh and world transform; none for a primitive (nothing to lift).
         Target FindTarget( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             if ( static_cast<uint64_t>( id ) == 0 )
@@ -43,16 +43,18 @@ namespace Desert::Editor::Tools
             ECS::Entity e = ref->get();
             if ( !e.HasComponent<ECS::StaticMeshComponent>() )
                 return {};
-            const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-            if ( !smc.EditableMesh )
+            // Any static mesh is a target (UE ToolTarget): its EditableMesh, or its asset lifted.
+            auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+            if ( !target.IsSuccess() )
                 return {};
-            auto view = Geometry::Bridge::EditMeshView( smc.EditableMesh );
+            const auto mesh = target.GetValue().Mesh;
+            auto       view = Geometry::Bridge::EditMeshView( mesh );
             if ( !view.IsSuccess() )
             {
                 LOG_ERROR( "[Select Elements] the entity's mesh cannot be read: {0}", view.GetError() );
                 return {};
             }
-            return { smc.EditableMesh, view.ExtractValue(),
+            return { mesh, view.ExtractValue(),
                      e.HasComponent<ECS::TransformComponent>()
                           ? e.GetComponent<ECS::TransformComponent>().GetTransform()
                           : glm::mat4( 1.0f ) };

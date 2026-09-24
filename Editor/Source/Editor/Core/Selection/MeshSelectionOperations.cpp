@@ -7,6 +7,8 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
+
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
 
@@ -177,15 +179,20 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<bool>( "Mesh {}: entity {} is not in the scene",
                                                      ToString( operation ), static_cast<uint64_t>( entity ) );
         ECS::Entity e = ref->get();
-        if ( !e.HasComponent<ECS::StaticMeshComponent>() ||
-             !e.GetComponent<ECS::StaticMeshComponent>().EditableMesh )
-            return Common::MakeFormattedError<bool>( "Mesh {}: entity {} has no editable mesh",
+        if ( !e.HasComponent<ECS::StaticMeshComponent>() )
+            return Common::MakeFormattedError<bool>( "Mesh {}: entity {} has no static mesh",
                                                      ToString( operation ), static_cast<uint64_t>( entity ) );
-        auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
+        auto& smc    = e.GetComponent<ECS::StaticMeshComponent>();
+        auto  target = GetToolTargetMesh( smc );
+        if ( !target.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Mesh {}: entity {}: {}", ToString( operation ),
+                                                     static_cast<uint64_t>( entity ), target.GetError() );
         // The component may have moved on since the tool last looked (an undo this frame): the selection is
         // pruned against the mesh the operation will actually run on.
-        state.Track( entity, smc.EditableMesh );
-        const std::shared_ptr<const Geometry::FDynamicMesh3> before    = smc.EditableMesh;
+        state.Track( entity, target.GetValue().Mesh );
+        const std::shared_ptr<const Geometry::FDynamicMesh3> before = target.GetValue().Mesh;
+        // What undo restores: null for a lifted asset, so one undo removes the lift and the edit together.
+        const std::shared_ptr<const Geometry::FDynamicMesh3> committed = target.GetValue().Committed;
         const Geometry::ElementSelection                     selection = state.Selection();
         auto                                                 view      = Geometry::Bridge::EditMeshView( before );
         if ( !view.IsSuccess() )
@@ -291,14 +298,14 @@ namespace Desert::Editor::Core
                     return Common::MakeFormattedError<bool>( "Mesh Trim: the cutter entity {} is not in the scene",
                                                              static_cast<uint64_t>( args.TrimCutter ) );
                 ECS::Entity cutter = cutterRef->get();
-                if ( !cutter.HasComponent<ECS::StaticMeshComponent>() ||
-                     !cutter.GetComponent<ECS::StaticMeshComponent>().EditableMesh )
-                    return Common::MakeFormattedError<bool>(
-                         "Mesh Trim: the cutter entity {} has no editable mesh",
-                         static_cast<uint64_t>( args.TrimCutter ) );
+                if ( !cutter.HasComponent<ECS::StaticMeshComponent>() )
+                    return Common::MakeFormattedError<bool>( "Mesh Trim: the cutter entity {} has no static mesh",
+                                                             static_cast<uint64_t>( args.TrimCutter ) );
+                auto cutterTarget = GetToolTargetMesh( cutter.GetComponent<ECS::StaticMeshComponent>() );
+                if ( !cutterTarget.IsSuccess() )
+                    return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterTarget.GetError() );
                 // WORLD transforms, parent chains included: either entity may be a child.
-                auto cutterView = Geometry::Bridge::EditMeshView(
-                     cutter.GetComponent<ECS::StaticMeshComponent>().EditableMesh );
+                auto cutterView = Geometry::Bridge::EditMeshView( cutterTarget.GetValue().Mesh );
                 if ( !cutterView.IsSuccess() )
                     return Common::MakeError<bool>( "Mesh Trim, cutter: " + cutterView.GetError() );
                 const glm::mat4 cutterToMesh = glm::inverse( e.GetWorldTransform() ) * cutter.GetWorldTransform();
@@ -348,8 +355,8 @@ namespace Desert::Editor::Core
              MeshElementSelection::MakeSelectionChange( entity, selection, outcome.Selection, label );
         if ( otherHalf )
         {
-            auto split =
-                 Commands::RecordEditMeshSplit( entity, label, before, otherHalf, std::move( selectionChange ) );
+            auto split = Commands::RecordEditMeshSplit( entity, label, committed, otherHalf,
+                                                        std::move( selectionChange ) );
             if ( !split.IsSuccess() )
             {
                 // Nothing was recorded: the source goes back to the mesh it had. The copy's creation may have
@@ -357,7 +364,14 @@ namespace Desert::Editor::Core
                 auto                  source = scene.FindEntityByID( entity );
                 Common::BoolResultStr back   = Common::MakeError<bool>( "the entity is gone" );
                 if ( source && source->get().HasComponent<ECS::StaticMeshComponent>() )
-                    back = ECS::SetEditableMesh( source->get().GetComponent<ECS::StaticMeshComponent>(), before );
+                {
+                    auto& sourceMesh = source->get().GetComponent<ECS::StaticMeshComponent>();
+                    back             = Common::MakeSuccess( true );
+                    if ( committed )
+                        back = ECS::SetEditableMesh( sourceMesh, committed );
+                    else
+                        ECS::ClearEditableMesh( sourceMesh );
+                }
                 state.Restore( entity, selection );
                 state.Track( entity, before );
                 if ( !back.IsSuccess() )
@@ -369,7 +383,7 @@ namespace Desert::Editor::Core
                       otherHalf->TriangleCount(), static_cast<uint64_t>( split.GetValue() ) );
         }
         else
-            Commands::RecordEditMeshChange( entity, label, before, std::move( selectionChange ) );
+            Commands::RecordEditMeshChange( entity, label, committed, std::move( selectionChange ) );
         LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d})", label,
                   after->TriangleCount(), after->TriangleCount() - before->TriangleCount(), after->VertexCount(),
                   after->VertexCount() - before->VertexCount() );

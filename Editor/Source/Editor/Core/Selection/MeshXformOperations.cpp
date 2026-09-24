@@ -1,4 +1,5 @@
 #include "MeshXformOperations.hpp"
+#include "ModelingToolTarget.hpp"
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
@@ -50,11 +51,9 @@ namespace Desert::Editor::Core
                     return Common::MakeFormattedError<Out>( "{}: entity {} is not in the scene", ToString( op ),
                                                             static_cast<uint64_t>( id ) );
                 ECS::Entity e = ref->get();
-                if ( !e.HasComponent<ECS::StaticMeshComponent>() ||
-                     !e.GetComponent<ECS::StaticMeshComponent>().EditableMesh ||
-                     !e.HasComponent<ECS::TransformComponent>() )
-                    return Common::MakeFormattedError<Out>( "{}: entity {} has no editable mesh", ToString( op ),
-                                                            static_cast<uint64_t>( id ) );
+                if ( !e.HasComponent<ECS::StaticMeshComponent>() || !e.HasComponent<ECS::TransformComponent>() )
+                    return Common::MakeFormattedError<Out>( "{}: entity {} has no static mesh or no transform",
+                                                            ToString( op ), static_cast<uint64_t>( id ) );
                 if ( refuseChildren && e.HasComponent<ECS::RelationshipComponent>() &&
                      !e.GetComponent<ECS::RelationshipComponent>().Children.empty() )
                     return Common::MakeFormattedError<Out>(
@@ -62,8 +61,11 @@ namespace Desert::Editor::Core
                          "first",
                          ToString( op ), static_cast<uint64_t>( id ),
                          e.GetComponent<ECS::RelationshipComponent>().Children.size() );
-                auto view =
-                     Geometry::Bridge::EditMeshView( e.GetComponent<ECS::StaticMeshComponent>().EditableMesh );
+                auto target = GetToolTargetMesh( e.GetComponent<ECS::StaticMeshComponent>() );
+                if ( !target.IsSuccess() )
+                    return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
+                                                            static_cast<uint64_t>( id ), target.GetError() );
+                auto view = Geometry::Bridge::EditMeshView( target.GetValue().Mesh );
                 if ( !view.IsSuccess() )
                     return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
                                                             static_cast<uint64_t>( id ), view.GetError() );
