@@ -46,14 +46,14 @@ namespace
         for ( size_t i = 0; i < vertices.size(); ++i )
         {
             const V& v = vertices[i];
-            json += ( i ? "," : "" ) + std::string( "{\"Position\":[" ) + std::to_string( v.px ) + "," +
+            json += ( ( i != 0u ) ? "," : "" ) + std::string( "{\"Position\":[" ) + std::to_string( v.px ) + "," +
                     std::to_string( v.py ) + "," + std::to_string( v.pz ) + "],\"Normal\":[" +
                     std::to_string( v.nx ) + "," + std::to_string( v.ny ) + "," + std::to_string( v.nz ) +
                     "],\"TexCoord\":[" + std::to_string( v.u ) + "," + std::to_string( v.v ) + "]}";
         }
         json += "],\"CustomIndices\":[";
         for ( size_t i = 0; i < indices.size(); ++i )
-            json += ( i ? "," : "" ) + std::to_string( indices[i] );
+            json += ( ( i != 0u ) ? "," : "" ) + std::to_string( indices[i] );
         return json + "]}";
     }
 
@@ -83,8 +83,9 @@ namespace
              { { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 } },  { { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 } } };
         for ( const Face& f : faces )
         {
-            const unsigned base  = static_cast<unsigned>( vertices.size() );
-            const float    cu[4] = { -1, 1, 1, -1 }, cv[4] = { -1, -1, 1, 1 };
+            const auto  base  = static_cast<unsigned>( vertices.size() );
+            const float cu[4] = { -1, 1, 1, -1 };
+            const float cv[4] = { -1, -1, 1, 1 };
             for ( int k = 0; k < 4; ++k )
             {
                 V v{};
@@ -95,7 +96,7 @@ namespace
                 v.u = ( cu[k] + 1 ) * 0.5f, v.v = ( cv[k] + 1 ) * 0.5f;
                 vertices.push_back( v );
             }
-            for ( unsigned i : { 0u, 1u, 2u, 2u, 3u, 0u } )
+            for ( unsigned const i : { 0u, 1u, 2u, 2u, 3u, 0u } )
                 indices.push_back( base + i );
         }
     }
@@ -148,22 +149,23 @@ TEST( SceneEditMeshMigration, ACubesRenderArraysBecomeEightCornersAndDrawTheSame
 
     const auto mesh = LoadedEditMesh( entities[0] );
     ASSERT_TRUE( mesh.has_value() );
-    EXPECT_EQ( mesh->VertexCount(), 8 );
-    EXPECT_EQ( mesh->TriangleCount(), 12 );
-    EXPECT_TRUE( mesh->IsManifold() );
+    EXPECT_EQ( mesh.value().VertexCount(), 8 );    // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_EQ( mesh.value().TriangleCount(), 12 ); // NOLINT(bugprone-unchecked-optional-access)
+    EXPECT_TRUE( mesh.value().IsManifold() );      // NOLINT(bugprone-unchecked-optional-access)
     // v21 never stored a tangent: the honest statement of that is no layer, not a layer of zeros.
-    EXPECT_EQ( mesh->Attributes().Tangents(), nullptr );
+    EXPECT_EQ( mesh.value().Attributes().Tangents(), nullptr ); // NOLINT(bugprone-unchecked-optional-access)
 
     // Drawn, it is the v21 cube: every v21 triangle appears with the same three (position, normal, UV)
     // corners. Compared as a multiset of corner triples, because the render order is the conversion's own.
-    auto render = Desert::Geometry::ToRenderMesh( *mesh );
+    auto render = Desert::Geometry::ToRenderMesh( mesh.value() ); // NOLINT(bugprone-unchecked-optional-access)
     ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
     const auto& out = render.GetValue();
     EXPECT_EQ( out.Vertices.size(), 24u );
     ASSERT_EQ( out.Submeshes.size(), 1u );
     using Corner   = std::tuple<float, float, float, float, float, float, float, float>;
     using Triangle = std::vector<Corner>;
-    std::map<Triangle, int> expected, actual;
+    std::map<Triangle, int> expected;
+    std::map<Triangle, int> actual;
     const auto              sorted = []( Triangle t )
     {
         std::sort( t.begin(), t.end() );

@@ -136,6 +136,13 @@ namespace
          Row{ "HeightFogECSSystem.hpp", Verdict::Honours,
               "emits the frame's fog; the renderer keeps fog state across frames, so a hidden volume "
               "that is still collected stays on screen forever." },
+         Row{ "LandscapeCollision.hpp", Verdict::MustNot,
+              "the tile's Jolt heightfield (LS-7). Same argument as PhysicsECSSystem: ground you can "
+              "hide in the outliner and still stand on is a different feature from ground that is not "
+              "there, and one outliner tick must not drop every body resting on a tile through it." },
+         Row{ "LandscapeECSSystem.hpp", Verdict::Honours,
+              "it draws the tiles: a hidden tile is not drawn (IsHidden) but its GPU copy is still "
+              "refreshed, so showing it again shows the current heights." },
          Row{ "LocomotionSystem.hpp", Verdict::MustNot,
               "picks a clip NAME from a character's speed; hiding a character must not change which "
               "animation it is playing when it comes back." },
@@ -191,6 +198,7 @@ namespace
     };
 
     constexpr std::array kHonourSites = {
+         Site{ "LandscapeECSSystem.hpp", "landscape tiles", "gpu.NeighbourMask = mask;" },
          Site{ "MeshECSSystem.hpp", "static meshes", "StaticMeshComponent& mesh," },
          Site{ "MeshECSSystem.hpp", "instanced static meshes (ISM)", "InstancedStaticMeshComponent& ism" },
          Site{ "MeshECSSystem.hpp", "skinned meshes", "SkinnedMeshComponent& mesh," },
@@ -278,6 +286,19 @@ namespace
     {
         return root + "Desert/Desert/Source/Engine/ECS/System/" + file;
     }
+
+    // A system's code: its header and, when it has one, the .cpp beside it. Most systems are header-only;
+    // LandscapeECSSystem keeps its walk in the .cpp, and a census reading only the header would find its
+    // check nowhere and every MustNot system's forbidden call nowhere either.
+    std::string SystemCode( const std::string& root, const char* file )
+    {
+        std::string       code = ReadFile( SystemPath( root, file ) );
+        const std::string hpp  = SystemPath( root, file );
+        const std::string cpp  = hpp.substr( 0, hpp.size() - 4 ) + ".cpp";
+        if ( hpp.ends_with( ".hpp" ) && std::filesystem::exists( cpp ) )
+            code += "\n" + ReadFile( cpp );
+        return StripComments( code );
+    }
 } // namespace
 
 // Every system file on disk must have a verdict, and every verdict must name a file that exists.
@@ -362,7 +383,7 @@ TEST( VisibilityCensus, EveryWalkThatMustHonourAsksTheOnePredicate )
 
     for ( const Site& site : kHonourSites )
     {
-        const std::string code = StripComments( ReadFile( SystemPath( root, site.File ) ) );
+        const std::string code = SystemCode( root, site.File );
         ASSERT_FALSE( code.empty() ) << site.File << " is empty or unreadable";
 
         const size_t anchor = code.find( site.Anchor );
@@ -399,7 +420,7 @@ TEST( VisibilityCensus, EveryHonoursVerdictIsBackedByAtLeastOneSite )
                                << " is recorded as honouring visibility but no site row anchors WHERE, "
                                   "so deleting its check would not be seen.";
 
-        const std::string code = StripComments( ReadFile( SystemPath( root, row.File ) ) );
+        const std::string code = SystemCode( root, row.File );
         EXPECT_NE( code.find( "Engine/ECS/EntityVisibility.hpp" ), std::string::npos )
              << row.File << " calls the predicate without including the header that declares it.";
     }
@@ -426,7 +447,7 @@ TEST( VisibilityCensus, NoSystemQuietlyReversesAMustNotVerdict )
         if ( row.Result == Verdict::Honours )
             continue;
 
-        const std::string code = StripComments( ReadFile( SystemPath( root, row.File ) ) );
+        const std::string code = SystemCode( root, row.File );
         ASSERT_FALSE( code.empty() ) << row.File << " is empty or unreadable";
 
         EXPECT_EQ( code.find( "IsHidden" ), std::string::npos )

@@ -450,6 +450,9 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   and +2 Unique with SP1 (878 -> 880 after WP6 and M1): the start-up splash, owned by `Sandbox::m_Splash`
     //   from before the renderer exists until the editor layer takes it (`EditorLayer::m_Splash`). One object
     //   handed over once -- a move, never a second owner -- so Unique is the honest form and neither owes a row.
+    //   and WP5b (2026-09-24) added WorldStreamer::m_Scene and ::m_Assets (two rows) and two unique_ptrs,
+    //   EditorLayer::m_WorldStreamer and RuntimeLayer::m_WorldStreamer, each the one owner of the streamer of
+    //   the world it plays. Raw 388+2, Unique 123+2.
     //     ENV1 (2026-09-24) added one raw member, SampledCube::Cube, with its row: the cubemap preview's
     //     resolver now answers the cube AND the look it is read with. Raw 388+1.
     //     M4 (2026-09-23) added three shared_ptr<const Geometry::EditMesh> members, and each is shared ON
@@ -461,6 +464,11 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
     //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
     //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 389+2, Shared 331+1.
+    //   LS-5 (2026-09-24): Raw 391+4-1: LandscapeTileNeighbours' four sides, an argument pack (a row each);
+    //   the terrain pass's per-frame Group::Material left with the pass's lambda (groups are named by key). Shared
+    //   335+2: TerrainRenderer's G-buffer and shadow pipelines. Unique 123+2: its ProgramMaterials holds three
+    //   materials per texture set where the map held one. Weak 38+1: MeshRenderer::m_ShadowCasters — the terrain,
+    //   another render system of the same SceneRenderer.
     //   M13 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason (the mesh is
     //   immutable once on a component): MeshElementSelection::m_Mesh, the mesh the element selection was
     //   last checked against - its IDENTITY is how an edit is noticed and the selection pruned - and the
@@ -470,11 +478,11 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   an attribute layer of the mesh the operation is building - and EditMeshCommand::m_Alongside
     //   (unique), the selection change undone and redone with a mesh operation as one step. Raw 391+1,
     //   Unique 123+1.
-    EXPECT_EQ( CountOf( Form::Raw ), 392 );
-    EXPECT_EQ( CountOf( Form::Shared ), 337 );
-    EXPECT_EQ( CountOf( Form::Unique ), 124 );
-    EXPECT_EQ( CountOf( Form::Weak ), 38 );
-    EXPECT_EQ( (int)Members().size(), 891 )
+    EXPECT_EQ( CountOf( Form::Raw ), 401 );
+    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    EXPECT_EQ( CountOf( Form::Unique ), 129 );
+    EXPECT_EQ( CountOf( Form::Weak ), 39 );
+    EXPECT_EQ( (int)Members().size(), 908 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -720,9 +728,12 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 331 -> 332 with LS-4: LandscapeECSSystem::TileGpu::Heightmap, a GPU image — the case this test's
     // opening paragraph describes (the cache, the descriptor sets and the deletion queue all hold it).
     // 334 -> 335: M4's three and LS-4's one, merged 2026-09-24.
+    // 335 -> 337 with LS-5: TerrainRenderer's G-buffer and shadow-caster pipelines, from the pipeline cache
+    // that co-holds every pipeline it hands out.
     // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
     // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 337 );
+    // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
+    EXPECT_EQ( CountOf( Form::Shared ), 339 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

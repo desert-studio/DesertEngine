@@ -1458,8 +1458,13 @@ namespace Desert::Editor
                     {
                         LOG_ERROR( "{}", placed.GetError() );
                     }
-                    else if ( const ECS::Entity root = placed.GetValue() )
+                    else if ( ECS::Entity root = placed.GetValue() )
                     {
+                        // A world prefab lands on the surface under the cursor; a UI prefab keeps the layout
+                        // its canvas gives it.
+                        const auto surface = SurfaceAtCursor();
+                        if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
+                            root.GetComponent<ECS::TransformComponent>().Translation = surface->Point;
                         Commands::NotifyCreated( { root.GetComponent<ECS::UUIDComponent>().UUID } );
                     }
                 }
@@ -1477,6 +1482,8 @@ namespace Desert::Editor
                 const std::string name = std::filesystem::path( path ).stem().string();
                 auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
                 e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
+                if ( const auto surface = SurfaceAtCursor() )
+                    e.GetComponent<ECS::TransformComponent>().Translation = surface->Point;
                 const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
                 Core::SelectionManager::SetSelected( uuid );
                 Commands::NotifyCreated( { uuid } ); // undo removes the pending entity; the async cook
@@ -2377,11 +2384,11 @@ namespace Desert::Editor
         smc.RuntimeMaterialInstances.clear();
     }
 
-    void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )
+    std::optional<::Desert::Core::RaycastHit> ViewportPanel::SurfaceAtCursor() const
     {
         const auto mainCamera = ViewCamera();
-        if ( !mainCamera || !m_AssetManager )
-            return;
+        if ( !mainCamera || !m_Scene )
+            return std::nullopt;
 
         // Same screen->world ray the click-picker uses (mouse position is already viewport-local).
         const auto ray = Common::Math::Ray::FromScreenPosition(
@@ -2391,7 +2398,18 @@ namespace Desert::Editor
 
         ::Desert::Core::RaycastHit hit;
         if ( !m_Scene->Raycast( ray, hit ) )
+            return std::nullopt;
+        return hit;
+    }
+
+    void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )
+    {
+        if ( !m_AssetManager )
             return;
+        const auto found = SurfaceAtCursor();
+        if ( !found )
+            return;
+        const ::Desert::Core::RaycastHit& hit = *found;
         auto ref = m_Scene->FindEntityByID( hit.Entity );
         if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
             return;

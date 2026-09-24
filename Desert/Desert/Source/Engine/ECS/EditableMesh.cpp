@@ -19,7 +19,7 @@ namespace Desert::ECS
         auto render = Geometry::ToRenderMesh( *mesh );
         if ( !render.IsSuccess() )
             return Common::MakeError<bool>( "SetEditableMesh: " + render.GetError() );
-        Geometry::RenderMeshData data = render.ExtractValue();
+        Geometry::RenderMeshData const data = render.ExtractValue();
 
         auto runtime = std::make_shared<DynamicMesh>( data.Vertices, data.Indices, data.Submeshes );
         if ( auto uploaded = runtime->Invalidate(); !uploaded.IsSuccess() )

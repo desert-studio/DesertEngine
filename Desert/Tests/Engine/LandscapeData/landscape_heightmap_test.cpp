@@ -1,5 +1,5 @@
 // The landscape's GPU heightmap path (LS-4), tested through the SAME TEXT the terrain shader compiles:
-// Shaders/Common/LandscapeHeight.glslh, included here as C++. Two questions:
+// Shaders/Common/LandscapeHeight.glslh, included here as C++. Three questions:
 //
 //   1. Does the tessellation-evaluation stage compute the height the CPU reports? The GPU starts from an
 //      R16_UNORM texel (s / 65535 as a float), not from the uint16 the CPU holds, so the integer has to
@@ -8,9 +8,13 @@
 //      sample indices and evaluates the far column of one tile at fraction 1 and the near column of the
 //      next at fraction 0; these tests run that evaluation from both sides of every seam of a 2x2 layout
 //      at every tessellation level the pass can emit and compare the bits.
+//   3. Is the NORMAL on a shared edge one value (LS-5)? The gradient at a border sample is a central
+//      difference through the neighbour's ring row, so both tiles must give the same bits — and the CPU's
+//      SampleLandscapeNormal must give the GPU's.
 //
-// The shader-side glue that is not in the .glslh — the texelFetch clamp and the patch bilerp order — is
-// restated below as TesHeight; it mirrors LandscapeMain/TileHeightCm in Terrain.shader line for line.
+// The shader-side glue that is not in the .glslh — the ring texel addressing, the neighbour mask and the
+// patch bilerp order — is restated below (TileHeightCm, TileGradient, TesHeight, TesNormal); it mirrors
+// Programs/Terrain/TerrainTessEval.glslh line for line.
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Common/Core/GlslAsCpp.hpp>
@@ -50,27 +54,86 @@ namespace
         return b;
     }
 
-    // One tile as the shader sees it: the texel grid, the tile's first global sample, the frame numbers.
+    // One tile as the shader sees it: the texel grid as LandscapeECSSystem uploads it (the samples with the
+    // neighbours' ring, LandscapeBorderedSamples), the neighbour mask, the tile's first global sample, the
+    // frame numbers.
     struct GpuTile
     {
-        const LandscapeTileData* Tile   = nullptr;
-        float                    FirstX = 0.0f;
-        float                    FirstZ = 0.0f;
-        float                    Quads  = 0.0f;
-        float                    ZScale = 100.0f;
+        std::vector<uint16_t> Texels;
+        int                   Width  = 0; // samples + 2
+        float                 Mask   = 0.0f;
+        float                 FirstX = 0.0f;
+        float                 FirstZ = 0.0f;
+        float                 Quads  = 0.0f;
+        float                 ZScale = 100.0f;
     };
 
-    // Terrain.shader, TileHeightCm: clamp into the tile, fetch, recover the integer, decode.
+    GpuTile MakeGpuTile( const LandscapeTileData& tile, const LandscapeTileNeighbours& neighbours, float firstX,
+                         float firstZ, float quads, float zScale )
+    {
+        GpuTile t;
+        t.Texels = LandscapeBorderedSamples( tile, neighbours );
+        t.Width  = static_cast<int>( tile.SamplesX() ) + 2;
+        t.Mask   = static_cast<float>( LandscapeNeighbourMask( neighbours ) );
+        t.FirstX = firstX;
+        t.FirstZ = firstZ;
+        t.Quads  = quads;
+        t.ZScale = zScale;
+        return t;
+    }
+
+    // TerrainTessEval.glslh, TileHeightCm: texel (x + 1, z + 1), recover the integer, decode. The index
+    // is asserted in range rather than clamped, as the shader relies on it being.
     float TileHeightCm( const GpuTile& t, int x, int z )
     {
-        const int   last  = static_cast<int>( t.Quads );
-        const int   cx    = std::clamp( x, 0, last );
-        const int   cz    = std::clamp( z, 0, last );
-        const float unorm = UnormOf( t.Tile->Sample( static_cast<uint32_t>( cx ), static_cast<uint32_t>( cz ) ) );
+        EXPECT_TRUE( x >= -1 && z >= -1 && x + 1 < t.Width && z + 1 < t.Width ) << x << ", " << z;
+        const float unorm = UnormOf( t.Texels[static_cast<size_t>( z + 1 ) * static_cast<size_t>( t.Width ) +
+                                              static_cast<size_t>( x + 1 )] );
         return LandscapeHeightCmFromSample( LandscapeSampleFromUnorm( unorm ), t.ZScale );
     }
 
-    // Terrain.shader, LandscapeMain: the height at global sample coordinate (gx, gz).
+    // TerrainTessEval.glslh, NeighbourPresent.
+    float NeighbourPresent( const GpuTile& t, int bit )
+    {
+        return static_cast<float>( ( static_cast<int>( std::lround( t.Mask ) ) >> bit ) & 1 );
+    }
+
+    // TerrainTessEval.glslh, TileGradient.
+    glm::vec2 TileGradient( const GpuTile& t, int x, int z, float spacing )
+    {
+        const float last = t.Quads;
+        const float xa   = LandscapeGradientLow( static_cast<float>( x ), NeighbourPresent( t, 0 ) );
+        const float xb   = LandscapeGradientHigh( static_cast<float>( x ), last, NeighbourPresent( t, 1 ) );
+        const float za   = LandscapeGradientLow( static_cast<float>( z ), NeighbourPresent( t, 2 ) );
+        const float zb   = LandscapeGradientHigh( static_cast<float>( z ), last, NeighbourPresent( t, 3 ) );
+        return { LandscapeGradient( TileHeightCm( t, static_cast<int>( xa ), z ),
+                                    TileHeightCm( t, static_cast<int>( xb ), z ), xb - xa, spacing ),
+                 LandscapeGradient( TileHeightCm( t, x, static_cast<int>( za ) ),
+                                    TileHeightCm( t, x, static_cast<int>( zb ) ), zb - za, spacing ) };
+    }
+
+    // TerrainTessEval.glslh, LandscapeMain's normal at global sample coordinate (gx, gz).
+    glm::vec3 TesNormal( const GpuTile& t, float gx, float gz, float spacing )
+    {
+        const float     samples = t.Quads + 1.0f;
+        const float     lx      = gx - t.FirstX;
+        const float     lz      = gz - t.FirstZ;
+        const float     cellX   = LandscapeCellOf( lx, samples );
+        const float     cellZ   = LandscapeCellOf( lz, samples );
+        const int       cx      = static_cast<int>( cellX );
+        const int       cz      = static_cast<int>( cellZ );
+        const float     fx      = lx - cellX;
+        const float     fz      = lz - cellZ;
+        const glm::vec2 d00     = TileGradient( t, cx, cz, spacing );
+        const glm::vec2 d10     = TileGradient( t, cx + 1, cz, spacing );
+        const glm::vec2 d01     = TileGradient( t, cx, cz + 1, spacing );
+        const glm::vec2 d11     = TileGradient( t, cx + 1, cz + 1, spacing );
+        const float     dx      = LandscapeBilinear( d00.x, d10.x, d01.x, d11.x, fx, fz );
+        const float     dz      = LandscapeBilinear( d00.y, d10.y, d01.y, d11.y, fx, fz );
+        return glm::normalize( glm::vec3( -dx, 1.0f, -dz ) );
+    }
+
+    // TerrainTessEval.glslh, LandscapeMain: the height at global sample coordinate (gx, gz).
     float TesHeight( const GpuTile& t, float gx, float gz )
     {
         const float samples = t.Quads + 1.0f;
@@ -85,7 +148,7 @@ namespace
                                   lz - cellZ );
     }
 
-    // Terrain.shader, LandscapeMain's patch point: X from the u edge, Z from the v edge.
+    // TerrainTessEval.glslh, LandscapeMain's patch point: X from the u edge, Z from the v edge.
     glm::vec2 PatchPoint( glm::vec2 g0, glm::vec2 g1, glm::vec2 /*g2*/, glm::vec2 g3, float u, float v )
     {
         return { LandscapeLerp( g0.x, g1.x, u ), LandscapeLerp( g0.y, g3.y, v ) };
@@ -161,7 +224,7 @@ TEST( LandscapeHeightmap, TheTessellatedSurfaceIsTheCpuSampling )
     frame.SpacingCm = 1.0f;
     frame.ZScale    = 100.0f;
     frame.BaseY     = 0.0f;
-    const GpuTile gpu{ &tile, 0.0f, 0.0f, static_cast<float>( quads ), frame.ZScale };
+    const GpuTile gpu = MakeGpuTile( tile, {}, 0.0f, 0.0f, static_cast<float>( quads ), frame.ZScale );
 
     for ( uint32_t iz = 0; iz <= quads * 4u; ++iz )
         for ( uint32_t ix = 0; ix <= quads * 4u; ++ix )
@@ -170,7 +233,9 @@ TEST( LandscapeHeightmap, TheTessellatedSurfaceIsTheCpuSampling )
             const float gz  = static_cast<float>( iz ) * 0.25f;
             const auto  cpu = SampleLandscapeHeight( tile, frame, gx, gz );
             ASSERT_TRUE( cpu.has_value() );
-            ASSERT_EQ( Bits( TesHeight( gpu, gx, gz ) ), Bits( *cpu ) ) << "at (" << gx << ", " << gz << ")";
+            ASSERT_EQ( Bits( TesHeight( gpu, gx, gz ) ),
+                       Bits( cpu.value() ) ) // NOLINT(bugprone-unchecked-optional-access)
+                 << "at (" << gx << ", " << gz << ")";
         }
 }
 
@@ -206,8 +271,8 @@ TEST( LandscapeHeightmap, TwoByTwoTilesAgreeBitForBitOnEverySharedEdge )
                                                CutTile( quads, 0, 1 ), CutTile( quads, 1, 1 ) };
     auto                             gpuOf = [&]( uint32_t tx, uint32_t tz )
     {
-        return GpuTile{ &tiles[tz * 2u + tx], static_cast<float>( tx * quads ), static_cast<float>( tz * quads ),
-                        static_cast<float>( quads ), 100.0f };
+        return MakeGpuTile( tiles[tz * 2u + tx], {}, static_cast<float>( tx * quads ),
+                            static_cast<float>( tz * quads ), static_cast<float>( quads ), 100.0f );
     };
     auto world = [&]( const GpuTile& t, glm::vec2 g )
     { return glm::vec3( originX + g.x * spacing, baseY + TesHeight( t, g.x, g.y ), originZ + g.y * spacing ); };
@@ -276,4 +341,210 @@ TEST( LandscapeHeightmap, TheDifferenceFormOfLerpWouldOpenASeam )
             EXPECT_EQ( Bits( LandscapeLerp( a, b, 1.0f ) ), Bits( b ) );
             EXPECT_EQ( Bits( LandscapeLerp( a, b, 0.0f ) ), Bits( a ) );
         }
+}
+
+// ── 3. The normal on a seam (LS-5) ─────────────────────────────────────────────────────────────────────
+
+namespace
+{
+    // A 2x2 landscape cut from the global field, each tile knowing its loaded neighbours.
+    struct TwoByTwo
+    {
+        static constexpr uint32_t kQuads = 15u;
+
+        std::array<LandscapeTileData, 4> Tiles = { CutTile( kQuads, 0, 0 ), CutTile( kQuads, 1, 0 ),
+                                                   CutTile( kQuads, 0, 1 ), CutTile( kQuads, 1, 1 ) };
+
+        [[nodiscard]] const LandscapeTileData& At( uint32_t tx, uint32_t tz ) const
+        {
+            return Tiles[tz * 2u + tx];
+        }
+
+        [[nodiscard]] LandscapeTileNeighbours NeighboursOf( uint32_t tx, uint32_t tz ) const
+        {
+            LandscapeTileNeighbours n;
+            n.West  = tx == 1u ? &At( 0u, tz ) : nullptr;
+            n.East  = tx == 0u ? &At( 1u, tz ) : nullptr;
+            n.South = tz == 1u ? &At( tx, 0u ) : nullptr;
+            n.North = tz == 0u ? &At( tx, 1u ) : nullptr;
+            return n;
+        }
+
+        // Tile frames on a unit spacing at the origin, so world -> grid is exact on the CPU side.
+        [[nodiscard]] static LandscapeFrame FrameOf( uint32_t tx, uint32_t tz )
+        {
+            LandscapeFrame f;
+            f.OriginX   = static_cast<float>( tx * kQuads );
+            f.OriginZ   = static_cast<float>( tz * kQuads );
+            f.SpacingCm = 1.0f;
+            f.ZScale    = 100.0f;
+            return f;
+        }
+
+        [[nodiscard]] GpuTile Gpu( uint32_t tx, uint32_t tz, bool withNeighbours ) const
+        {
+            return MakeGpuTile( At( tx, tz ), withNeighbours ? NeighboursOf( tx, tz ) : LandscapeTileNeighbours{},
+                                static_cast<float>( tx * kQuads ), static_cast<float>( tz * kQuads ),
+                                static_cast<float>( kQuads ), 100.0f );
+        }
+    };
+
+    bool SameBits( const glm::vec3& a, const glm::vec3& b )
+    {
+        return Bits( a.x ) == Bits( b.x ) && Bits( a.y ) == Bits( b.y ) && Bits( a.z ) == Bits( b.z );
+    }
+
+    // Every point of the seams of a 2x2 layout, in quarter samples, as (tile A, tile B, global g): the
+    // vertical seam x = kQuads between (0, tz) and (1, tz), the horizontal z = kQuads between (tx, 0), (tx, 1).
+    struct SeamPoint
+    {
+        uint32_t  ax, az, bx, bz;
+        glm::vec2 G;
+    };
+
+    std::vector<SeamPoint> SeamPoints()
+    {
+        const auto             q = static_cast<float>( TwoByTwo::kQuads );
+        std::vector<SeamPoint> points;
+        for ( uint32_t i = 0; i <= 2u * TwoByTwo::kQuads * 4u; ++i )
+        {
+            const float    along = static_cast<float>( i ) * 0.25f;
+            const uint32_t side  = along < q ? 0u : 1u;
+            points.push_back( { 0u, side, 1u, side, { q, along } } );
+            points.push_back( { side, 0u, side, 1u, { along, q } } );
+            // A point exactly on the crossing belongs to all four; the other pair of tiles says it too.
+            if ( along == q )
+            {
+                points.push_back( { 0u, 1u, 1u, 1u, { q, along } } );
+                points.push_back( { 1u, 0u, 1u, 1u, { along, q } } );
+            }
+        }
+        return points;
+    }
+} // namespace
+
+TEST( LandscapeHeightmap, TheBorderedSamplesCarryTheNeighboursNextRow )
+{
+    const TwoByTwo                land;
+    const LandscapeTileNeighbours n = land.NeighboursOf( 0u, 0u ); // east and north present
+    EXPECT_EQ( LandscapeNeighbourMask( n ), 2u | 8u );
+
+    const auto&                 tile  = land.At( 0u, 0u );
+    const std::vector<uint16_t> ring  = LandscapeBorderedSamples( tile, n );
+    const uint32_t              s     = tile.SamplesX();
+    const uint32_t              width = s + 2u;
+    ASSERT_EQ( ring.size(), static_cast<size_t>( width ) * ( s + 2u ) );
+    auto at = [&]( int x, int z )
+    { return ring[static_cast<size_t>( z + 1 ) * width + static_cast<size_t>( x + 1 )]; };
+
+    for ( uint32_t i = 0; i < s; ++i )
+    {
+        // Interior: the tile's own samples.
+        EXPECT_EQ( at( static_cast<int>( i ), 3 ), tile.Sample( i, 3u ) );
+        // East ring: the east neighbour's SECOND column (its first is this tile's last) = global x = s.
+        EXPECT_EQ( at( static_cast<int>( s ), static_cast<int>( i ) ), land.At( 1u, 0u ).Sample( 1u, i ) );
+        EXPECT_EQ( at( static_cast<int>( s ), static_cast<int>( i ) ), FieldSample( s, i ) );
+        // North ring: the north neighbour's second row = global z = s.
+        EXPECT_EQ( at( static_cast<int>( i ), static_cast<int>( s ) ), FieldSample( i, s ) );
+        // Absent west / south: the nearest own sample, never differenced (the mask bit is 0).
+        EXPECT_EQ( at( -1, static_cast<int>( i ) ), tile.Sample( 0u, i ) );
+        EXPECT_EQ( at( static_cast<int>( i ), -1 ), tile.Sample( i, 0u ) );
+    }
+}
+
+// THE acceptance relation: on every seam point of a 2x2 layout the two tiles give the normal the same bits
+// — on the GPU (the TES mirror over the uploaded texels) and on the CPU (SampleLandscapeNormal) — and the
+// CPU's normal is the GPU's.
+TEST( LandscapeHeightmap, TheNormalOnASeamIsOneValueFromBothTilesCpuAndGpu )
+{
+    const TwoByTwo land;
+    uint64_t       compared = 0u;
+    for ( const SeamPoint& p : SeamPoints() )
+    {
+        const glm::vec3 gpuA = TesNormal( land.Gpu( p.ax, p.az, true ), p.G.x, p.G.y, 1.0f );
+        const glm::vec3 gpuB = TesNormal( land.Gpu( p.bx, p.bz, true ), p.G.x, p.G.y, 1.0f );
+        const auto      cpuA = SampleLandscapeNormal( land.At( p.ax, p.az ), TwoByTwo::FrameOf( p.ax, p.az ),
+                                                      land.NeighboursOf( p.ax, p.az ), p.G.x, p.G.y );
+        const auto      cpuB = SampleLandscapeNormal( land.At( p.bx, p.bz ), TwoByTwo::FrameOf( p.bx, p.bz ),
+                                                      land.NeighboursOf( p.bx, p.bz ), p.G.x, p.G.y );
+        ASSERT_TRUE( cpuA.has_value() && cpuB.has_value() ) << p.G.x << ", " << p.G.y;
+        ASSERT_TRUE( SameBits( gpuA, gpuB ) ) << "GPU seam normal differs at (" << p.G.x << ", " << p.G.y << ")";
+        ASSERT_TRUE( SameBits( cpuA.value(), cpuB.value() ) ) // NOLINT(bugprone-unchecked-optional-access)
+             << "CPU seam normal differs at (" << p.G.x << ", " << p.G.y << ")";
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
+        ASSERT_TRUE( SameBits( cpuA.value(), gpuA ) )
+             << "CPU != GPU at (" << p.G.x << ", " << p.G.y << ")"; // NOLINT(bugprone-unchecked-optional-access)
+        // NOLINTEND(bugprone-unchecked-optional-access)
+        ++compared;
+    }
+    EXPECT_EQ( compared, 2u * ( 2u * TwoByTwo::kQuads * 4u + 1u ) + 2u );
+}
+
+// Everywhere, not only on the seam: the CPU normal is the GPU's at every quarter-sample of every tile, so
+// the ring changes nothing inside a tile and the CPU follows the GPU onto the ring.
+TEST( LandscapeHeightmap, TheCpuNormalIsTheGpuNormalOverEveryTile )
+{
+    const TwoByTwo land;
+    for ( uint32_t tz = 0; tz < 2u; ++tz )
+        for ( uint32_t tx = 0; tx < 2u; ++tx )
+        {
+            const GpuTile gpu = land.Gpu( tx, tz, true );
+            for ( uint32_t iz = 0; iz <= TwoByTwo::kQuads * 4u; ++iz )
+                for ( uint32_t ix = 0; ix <= TwoByTwo::kQuads * 4u; ++ix )
+                {
+                    const float gx =
+                         static_cast<float>( tx * TwoByTwo::kQuads ) + static_cast<float>( ix ) * 0.25f;
+                    const float gz =
+                         static_cast<float>( tz * TwoByTwo::kQuads ) + static_cast<float>( iz ) * 0.25f;
+                    const auto cpu = SampleLandscapeNormal( land.At( tx, tz ), TwoByTwo::FrameOf( tx, tz ),
+                                                            land.NeighboursOf( tx, tz ), gx, gz );
+                    ASSERT_TRUE( cpu.has_value() );
+                    // NOLINTBEGIN(bugprone-unchecked-optional-access)
+                    ASSERT_TRUE( SameBits( cpu.value(), TesNormal( gpu, gx, gz, 1.0f ) ) )
+                         << gx << ", " << gz; // NOLINT(bugprone-unchecked-optional-access)
+                    // NOLINTEND(bugprone-unchecked-optional-access)
+                }
+        }
+}
+
+// The negative control: WITHOUT the ring (each tile one-sided on its border, as LS-4 shipped) the two
+// tiles disagree on the seam of this field — which is the line of light, and what proves the test above
+// can see it.
+TEST( LandscapeHeightmap, WithoutTheRingTheSeamNormalsDisagree )
+{
+    const TwoByTwo land;
+    uint32_t       differing = 0u;
+    for ( const SeamPoint& p : SeamPoints() )
+        if ( !SameBits( TesNormal( land.Gpu( p.ax, p.az, false ), p.G.x, p.G.y, 1.0f ),
+                        TesNormal( land.Gpu( p.bx, p.bz, false ), p.G.x, p.G.y, 1.0f ) ) )
+            ++differing;
+    EXPECT_GT( differing, 50u ) << "the one-sided border no longer shows a seam: the positive test proves nothing";
+}
+
+// On the landscape's own edge nothing lies beyond, and the gradient stays one-sided: a plane's normal is
+// the plane's there too, not a slope halved against a repeated edge sample.
+TEST( LandscapeHeightmap, OnTheLandscapesOwnEdgeTheGradientIsOneSided )
+{
+    const uint32_t        n = 8u;
+    std::vector<uint16_t> ramp( static_cast<size_t>( n ) * n );
+    for ( uint32_t z = 0; z < n; ++z )
+        for ( uint32_t x = 0; x < n; ++x )
+            ramp[static_cast<size_t>( z ) * n + x] =
+                 static_cast<uint16_t>( 30000u + 128u * x ); // 1 cm/cm at ZScale 100
+    const auto tile = LandscapeTileData::FromSamples( n, n, std::move( ramp ) );
+    ASSERT_TRUE( tile.IsSuccess() );
+    LandscapeFrame frame;
+    frame.SpacingCm   = 100.0f;
+    frame.ZScale      = 100.0f;
+    const GpuTile gpu = MakeGpuTile( tile.GetValue(), {}, 0.0f, 0.0f, static_cast<float>( n - 1u ), 100.0f );
+    for ( const float g : { 0.0f, 3.5f, 7.0f } )
+    {
+        const glm::vec3 expected = glm::normalize( glm::vec3( -1.0f, 1.0f, 0.0f ) );
+        const glm::vec3 gpuN     = TesNormal( gpu, g, g, frame.SpacingCm );
+        const auto      cpuN     = SampleLandscapeNormal( tile.GetValue(), frame, {}, g * 100.0f, g * 100.0f );
+        ASSERT_TRUE( cpuN.has_value() );
+        EXPECT_NEAR( gpuN.x, expected.x, 1e-6f ) << g;
+        EXPECT_NEAR( gpuN.y, expected.y, 1e-6f ) << g;
+        EXPECT_TRUE( SameBits( cpuN.value(), gpuN ) ) << g; // NOLINT(bugprone-unchecked-optional-access)
+    }
 }

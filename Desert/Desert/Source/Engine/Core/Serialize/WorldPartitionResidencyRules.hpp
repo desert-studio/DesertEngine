@@ -50,7 +50,7 @@
 // Activation runs on the main thread, so it is what a frame pays for. Each Loaded unit that is wanted is
 // activated in priority order — always-loaded composites first, then cells in the query's nearest-first order —
 // while the frame's estimated activation time stays within `ActivationBudgetMs`. The estimate is the unit's
-// record count times `MsPerRecord`; WP5b replaces the coefficient with a measured one. Activation stops at the
+// record count times `MsPerRecord`, a coefficient measured in WP5b (see its field). Activation stops at the
 // first unit that does not fit rather than skipping to a cheaper one behind it: priority is the order the world
 // fills in around the camera, and a cheap far cell must not overtake a nearer one. The first activation of
 // a frame always goes ahead even when it alone exceeds the budget; otherwise a unit larger than the budget
@@ -113,9 +113,13 @@ namespace Desert::Core::Rules
     {
         // Main-thread time one frame may spend activating, milliseconds.
         double ActivationBudgetMs = 2.0;
-        // Estimated activation cost of one record. A placeholder coefficient until WP5b measures it; it is a
-        // setting and not a constant so that measurement lands without touching this file.
-        double MsPerRecord = 0.05;
+        // Activation cost of one record, MEASURED (WP5b, 2026-09-24): WorldStreamer times every
+        // SceneSerializer::InstantiateRecords it makes and logs the total at the end of Play. Release editor,
+        // World_Grid8km with a 128 m grid (StaticMesh cubes, ~9 records a unit), headless --play flights across
+        // the map on an M-series Mac: 0.0152 ms/record over 3350 records, 0.0198 over 3159. Rounded UP to the
+        // worse run, so a frame is not promised more than it gets; a world of heavier records (prefab
+        // instances, skinned meshes) is a new measurement, and the streamer's log line is where it comes from.
+        double MsPerRecord = 0.02;
         // The hysteresis band: a resident unit is kept while within LoadingRange·RangeScale·(1 + UnloadMargin).
         float UnloadMargin = 0.25f;
         // Loads in flight at once.

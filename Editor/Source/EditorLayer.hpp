@@ -3,6 +3,7 @@
 #include <Engine/Assets/ContentGate.hpp>
 
 #include <Engine/Core/BootTimeline.hpp>
+#include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Runtime/AssetHotReload.hpp>
@@ -467,6 +468,10 @@ namespace Desert::Editor
         // CloseSceneView, which discards a play snapshot on the strength of it.
         EditorState m_EditorState = EditorState::Paused;
         std::string m_PlaySnapshot;        // serialized scene captured on Play, restored on Stop
+        // A partitioned world in Play keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp);
+        // null in Edit and for a world without a WorldPartition block. Ended before Stop restores the snapshot.
+        std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
+        double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
         bool        m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 
     private:

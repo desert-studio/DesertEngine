@@ -1372,6 +1372,82 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
     EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap (R16)
 }
 
+// ---- The terrain's three programs (LS-5): one patch, three things written ---------------------------------
+//
+// Terrain.shader (forward), TerrainGBuffer.shader (deferred) and TerrainShadow.shader (cascade depth) share
+// their patch stages through Programs/Terrain/*.glslh. What must hold between them, and would not be seen on
+// screen until it had already been wrong for a while:
+//   - the G-buffer program's Properties are the forward program's, param for param: a terrain's .demat names
+//     `Terrain`, and the renderer writes the SAME param row into whichever program the render path uses —
+//     a block that drifted would read Tint where DetailTiling was written, in Deferred only;
+//   - the shadow program binds only what a caster reads — TerrainUB (the main camera's View: the LOD it
+//     tessellates with), TerrainInstances[] and the heightmap — and no Materials[] row it is never given.
+TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyThePatch )
+{
+    const auto parse = [&]( const char* file )
+    { return Desert::Core::Preprocess::DShaderParser::Parse( ReadFile( ShaderPath( file ) ) ); };
+    const auto forward = parse( "Terrain/Terrain.shader" );
+    const auto gbuffer = parse( "Terrain/TerrainGBuffer.shader" );
+    const auto shadow  = parse( "Terrain/TerrainShadow.shader" );
+    ASSERT_TRUE( forward.IsSuccess() && gbuffer.IsSuccess() && shadow.IsSuccess() );
+
+    const auto& fp = forward.GetValue().Meta.Params;
+    const auto& gp = gbuffer.GetValue().Meta.Params;
+    ASSERT_EQ( fp.size(), gp.size() ) << "TerrainGBuffer's Properties block is no longer Terrain's";
+    ASSERT_FALSE( fp.empty() );
+    for ( size_t i = 0; i < fp.size(); ++i )
+    {
+        EXPECT_EQ( fp[i].Name, gp[i].Name ) << i;
+        EXPECT_EQ( fp[i].DisplayName, gp[i].DisplayName ) << i;
+        EXPECT_EQ( fp[i].Type, gp[i].Type ) << fp[i].Name;
+        EXPECT_EQ( fp[i].IsTexture, gp[i].IsTexture ) << fp[i].Name;
+        EXPECT_EQ( fp[i].Default, gp[i].Default ) << fp[i].Name;
+    }
+
+    // Only the forward program is a user's choice; the other two are the renderer's.
+    EXPECT_EQ( forward.GetValue().Meta.Domain, Desert::Core::Formats::ShaderDomain::Terrain );
+    EXPECT_NE( gbuffer.GetValue().Meta.Domain, Desert::Core::Formats::ShaderDomain::Terrain );
+    EXPECT_NE( shadow.GetValue().Meta.Domain, Desert::Core::Formats::ShaderDomain::Terrain );
+
+    struct StageToCompileTerrain
+    {
+        ShaderStage         Stage;
+        shaderc_shader_kind Kind;
+    };
+    const StageToCompileTerrain stages[] = {
+         { ShaderStage::Vertex, shaderc_vertex_shader },
+         { ShaderStage::TessControl, shaderc_tess_control_shader },
+         { ShaderStage::TessEvaluation, shaderc_tess_evaluation_shader },
+         { ShaderStage::Fragment, shaderc_fragment_shader },
+    };
+    const auto reflect = [&]( const char* file )
+    {
+        const auto                     path = ShaderPath( file );
+        ShaderResource::ReflectionData data;
+        for ( const auto& [stage, kind] : stages )
+        {
+            const auto spirv = CompileStage( StageSource( path, stage ), path, kind );
+            EXPECT_FALSE( spirv.empty() ) << file << " stage " << static_cast<int>( stage ) << " did not compile";
+            if ( !spirv.empty() )
+                ShaderReflection::ReflectStage( spirv, stage, data );
+        }
+        const auto set = data.ShaderDescriptorSets.find( 0 );
+        return set == data.ShaderDescriptorSets.end() ? std::vector<VkDescriptorSetLayoutBinding>{}
+                                                      : ShaderReflection::BuildLayoutBindings( set->second );
+    };
+
+    const auto g = reflect( "Terrain/TerrainGBuffer.shader" );
+    EXPECT_TRUE( HasBinding( g, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << DescribeBindings( g ); // Materials[]
+    EXPECT_TRUE( HasBinding( g, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << DescribeBindings( g );
+    EXPECT_TRUE( HasBinding( g, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << DescribeBindings( g );
+
+    const auto c = reflect( "Terrain/TerrainShadow.shader" );
+    EXPECT_EQ( c.size(), 3u ) << DescribeBindings( c );
+    EXPECT_TRUE( HasBinding( c, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB: the camera's View
+    EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
+    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap
+}
+
 // ---- The particle state: one layout, three statements of it, and the dispatch that divides by a fourth --
 //
 // The particle subsystem carried the defect shape this file exists for, in its purest form. Two shaders
