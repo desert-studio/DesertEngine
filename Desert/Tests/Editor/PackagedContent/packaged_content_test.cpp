@@ -16,6 +16,7 @@
 #include <Editor/Packaging/GamePackager.hpp>
 #include <Editor/Packaging/PackageCook.hpp>
 #include <Editor/Packaging/PackageTarget.hpp>
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Editor/Packaging/PackagedContentTrees.hpp>
 
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
@@ -627,18 +628,25 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     EXPECT_EQ( loadedIcon.Aspect, icon.Aspect );
 
     // The archive keys, spelled BY HAND. The load/store pair above shares one path function, so a
-    // mutation of that function alone (renaming "ShaderCache", dropping the "Cooked" prefix) would
-    // move both ends together and stay green — these three literals are the external contract that
-    // must not drift, because every already-shipped archive spells its entries this way.
+    // mutation of that function alone (renaming a bucket, dropping the "Cooked" prefix) would move both
+    // ends together and stay green — these literals are the external contract between a packager and the
+    // runtime it ships with. AF5 layout (UE's file store): Cooked/Buckets/<Bucket>/<h0h1>/<h2h3>/<h4..>.
+    const auto fannedOut = []( const uint64_t key, const char* extension )
+    {
+        const std::string hex = std::format( "{:016x}", key );
+        return fs::path( hex.substr( 0, 2 ) ) / hex.substr( 2, 2 ) / ( hex.substr( 4 ) + extension );
+    };
     EXPECT_TRUE(
-         Common::Utils::VFS::ReadFile( pkg / "Cooked" / "ShaderCache" / std::format( "{:016x}.spv", spirvKey ) )
+         Common::Utils::VFS::ReadFile( pkg / "Cooked" / "Buckets" / "FontCache" / fannedOut( fontKey, ".dfont" ) )
               .has_value() );
     EXPECT_TRUE(
-         Common::Utils::VFS::ReadFile( pkg / "Cooked" / "FontCache" / std::format( "{:016x}.dfont", fontKey ) )
+         Common::Utils::VFS::ReadFile( pkg / "Cooked" / "Buckets" / "IconCache" / fannedOut( iconKey, ".dicon" ) )
               .has_value() );
-    EXPECT_TRUE(
-         Common::Utils::VFS::ReadFile( pkg / "Cooked" / "IconCache" / std::format( "{:016x}.dicon", iconKey ) )
-              .has_value() );
+    // The shader's DDC key wraps the compile key with the deriver's GUID, so only its bucket is spelled.
+    const std::string spirvRel =
+         Desert::Core::SpirvCachePathForKey( spirvKey ).lexically_relative( Common::DDC::Root() ).generic_string();
+    EXPECT_EQ( spirvRel.rfind( "Buckets/ShaderCache/", 0 ), 0u ) << spirvRel;
+    EXPECT_TRUE( Common::Utils::VFS::ReadFile( pkg / "Cooked" / spirvRel ).has_value() );
 }
 
 // The cook produces artifacts under the very keys the runtime computes when it loads the same shader —
@@ -747,7 +755,9 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
 
     // Occupy Cooked/ShaderCache with a regular file, so create_directories cannot make the folder
     // and every store into it fails.
-    const fs::path cacheDir = Desert::Core::SpirvCachePathForKey( 0 ).parent_path();
+    // The whole ShaderCache bucket (AF5: entries fan out two directory levels below it), so every key's
+    // write fails rather than the one key that happens to share a fan-out directory with key 0.
+    const fs::path cacheDir = Common::DDC::BucketDir( "ShaderCache" );
     fs::create_directories( cacheDir.parent_path() );
     WriteFile( cacheDir, "not a directory" );
     ASSERT_TRUE( fs::is_regular_file( cacheDir ) );

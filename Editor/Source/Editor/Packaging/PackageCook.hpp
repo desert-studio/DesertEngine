@@ -1,9 +1,7 @@
 #pragma once
 
 #include <cstddef>
-#include <filesystem>
 #include <string>
-#include <vector>
 
 namespace Desert::Editor
 {
@@ -25,10 +23,6 @@ namespace Desert::Editor
         // fixture does), while an unwritten artifact is a cook that silently shipped nothing under a
         // key the runtime will ask for, which is П2 happening again one file at a time.
         size_t StoreFailures = 0;
-        // Every DDC entry this pass produced or found under its key, as a loose DDC path — what
-        // StageCookedEntries copies into Saved/Cooked/<Platform>. An entry that failed never reached the
-        // disk and is skipped there, so a failure is counted once, above, and not again as a missing file.
-        std::vector<std::filesystem::path> DerivedEntries;
     };
 
     // Pays, ONCE and at packaging time, every deterministic startup cost the runtime would otherwise
@@ -36,7 +30,7 @@ namespace Desert::Editor
     // bakes the default-size ASCII atlas of every shipped .ttf, and bakes the SDF layers of every
     // shipped .svg — each into the DerivedDataCache (Common/Content/DerivedDataCache.hpp) through the
     // exact key/path/store seams the runtime reads back (ShaderSpirvCache, Text/FontCache,
-    // Vector/IconBake). The entries it produced — and the driver's pipeline blobs — are then COPIED into
+    // Vector/IconBake). The buckets a game reads — and the driver's pipeline blobs — are then COPIED into
     // Saved/Cooked/<Platform>/, wiped first so a package never carries a previous cook's leftovers, and
     // that directory is the census tree packed under "Cooked" (PackagedContentTrees.hpp). The DDC itself
     // never ships and the editor never reads Saved/Cooked.

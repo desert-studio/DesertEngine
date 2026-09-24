@@ -90,7 +90,6 @@ namespace Desert::Editor
                     {
                         const uint64_t key =
                              Core::ComputeShaderCacheKeyForProfile( stage, source, file, spirvDebugInfo );
-                        stats.DerivedEntries.push_back( Core::SpirvCachePathForKey( key ) );
                         if ( Core::TryLoadCachedSpirv( key ) )
                         {
                             ++stats.ShadersCached;
@@ -156,7 +155,6 @@ namespace Desert::Editor
                     // different glyph set is a different key by design); the shipped default covers
                     // the common case and the default font.
                     const uint64_t  key = Text::FontCacheKey( ttf, Text::kDefaultBakePixelHeight, {} );
-                    stats.DerivedEntries.push_back( Text::FontCachePath( key ) );
                     Text::BakedFont existing;
                     if ( Text::TryLoadBakedFont( Text::FontCachePath( key ), existing ) )
                     {
@@ -210,7 +208,6 @@ namespace Desert::Editor
                     }
 
                     const uint64_t    key = Vector::IconCacheKey( svg );
-                    stats.DerivedEntries.push_back( Vector::IconCachePath( key ) );
                     Vector::BakedIcon existing;
                     if ( Vector::TryLoadBakedIcon( Vector::IconCachePath( key ), existing ) )
                     {
@@ -269,44 +266,40 @@ namespace Desert::Editor
             }
         }
 
-        // Copies one DDC entry to the same relative place under `cooked`. False only when it exists in the
-        // DDC and could not be copied — a missing entry is a failure the cook already counted.
-        bool StageEntry( const fs::path& entry, const fs::path& ddcRoot, const fs::path& cooked )
-        {
-            std::error_code ec;
-            if ( !fs::is_regular_file( entry, ec ) )
-                return true;
-            const fs::path target = cooked / entry.lexically_normal().lexically_relative( ddcRoot );
-            fs::create_directories( target.parent_path(), ec );
-            fs::copy_file( entry, target, fs::copy_options::overwrite_existing, ec );
-            if ( ec )
-            {
-                LOG_ERROR( "[PackageCook] could not stage {} into {}: {}", entry.string(), target.string(),
-                           ec.message() );
-                return false;
-            }
-            return true;
-        }
-
+        // Copies the DDC buckets a game reads into Saved/Cooked/<Platform>/ under the same relative layout.
+        // WHOLE BUCKETS, not a list of what this pass touched: a fixture or an earlier cook's entry under a
+        // key the runtime will ask for is exactly as valid (the key is its inputs), and the pipeline blob
+        // is keyed by the driver, which no cook can enumerate. Thumbnails are the editor's alone and stay.
         void StageCookedEntries( CookStats& stats )
         {
+            constexpr std::string_view kShippedBuckets[] = { "ShaderCache", "FontCache", "IconCache",
+                                                              "EnvironmentCache", "PipelineCache" };
             const fs::path  cooked  = Common::DDC::PlatformCookedDir();
             const fs::path  ddcRoot = Common::DDC::Root();
             std::error_code ec;
             fs::remove_all( cooked, ec );
             fs::create_directories( cooked, ec );
 
-            for ( const fs::path& entry : stats.DerivedEntries )
-                if ( !StageEntry( entry, ddcRoot, cooked ) )
-                    ++stats.StoreFailures;
-
-            // The pipeline blob is keyed by the driver, not by content the cook can enumerate: every blob
-            // this machine holds ships, and a player's driver discards the ones that are not its own.
-            const fs::path pipelines = Common::DDC::BucketDir( "PipelineCache" );
-            if ( fs::is_directory( pipelines, ec ) )
-                for ( const auto& file : fs::recursive_directory_iterator( pipelines, ec ) )
-                    if ( file.is_regular_file( ec ) && !StageEntry( file.path(), ddcRoot, cooked ) )
+            for ( const std::string_view bucket : kShippedBuckets )
+            {
+                const fs::path dir = Common::DDC::BucketDir( bucket );
+                if ( !fs::is_directory( dir, ec ) )
+                    continue;
+                for ( const auto& file : fs::recursive_directory_iterator( dir, ec ) )
+                {
+                    if ( !file.is_regular_file( ec ) )
+                        continue;
+                    const fs::path target = cooked / file.path().lexically_normal().lexically_relative( ddcRoot );
+                    fs::create_directories( target.parent_path(), ec );
+                    fs::copy_file( file.path(), target, fs::copy_options::overwrite_existing, ec );
+                    if ( ec )
+                    {
+                        LOG_ERROR( "[PackageCook] could not stage {} into {}: {}", file.path().string(),
+                                   target.string(), ec.message() );
                         ++stats.StoreFailures;
+                    }
+                }
+            }
         }
     } // namespace
 
