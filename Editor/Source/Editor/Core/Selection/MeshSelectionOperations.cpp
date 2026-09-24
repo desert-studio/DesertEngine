@@ -49,26 +49,34 @@ namespace Desert::Editor::Core
                 return "Subdivide";
             case MeshOperation::Mirror:
                 return "Mirror";
+            case MeshOperation::PlaneCut:
+                return "Plane Cut";
+            case MeshOperation::Trim:
+                return "Trim";
         }
         return "Unknown";
     }
 
     namespace
     {
-        // The mirror plane in the MESH's space. A plane through the entity's origin along its own axis is that
-        // axis's coordinate plane whatever the transform. A world plane is mapped through the inverse
-        // transform; the mesh-space reflection equals the world one only when the transform is a similarity
-        // (rotation and uniform scale), so a sheared or non-uniformly scaled AND rotated entity is refused
-        // rather than mirrored across a plane the user did not pick.
-        Common::ResultStr<Geometry::CutPlane> MirrorPlane( ECS::Entity entity, const MeshOperationArgs& args )
+        // A plane perpendicular to an axis, `offset` cm along it from the origin, in the MESH's space (Mirror's
+        // and Plane Cut's). A plane along the entity's own axis is that axis's coordinate plane whatever the
+        // transform. A world plane is mapped through the inverse transform; the mesh-space plane is the world
+        // one, cut or reflection, only when the transform is a similarity (rotation and uniform scale), so a
+        // sheared or non-uniformly scaled AND rotated entity is refused rather than cut across a plane the
+        // user did not pick.
+        Common::ResultStr<Geometry::CutPlane> AxisPlane( ECS::Entity entity, int axisIndex, bool inWorld,
+                                                         bool keepNegative, float offset, const char* what )
         {
-            if ( args.MirrorAxis < 0 || args.MirrorAxis > 2 )
+            if ( axisIndex < 0 || axisIndex > 2 )
                 return Common::MakeFormattedError<Geometry::CutPlane>(
-                     "Mesh Mirror: the axis must be 0 (X), 1 (Y) or 2 (Z), not {}", args.MirrorAxis );
+                     "{}: the axis must be 0 (X), 1 (Y) or 2 (Z), not {}", what, axisIndex );
             glm::vec3 axis( 0.0f );
-            axis[args.MirrorAxis] = args.MirrorKeepNegative ? -1.0f : 1.0f;
-            if ( !args.MirrorWorld )
-                return Common::MakeSuccess( Geometry::CutPlane{ glm::vec3( 0.0f ), axis } );
+            axis[axisIndex] = keepNegative ? -1.0f : 1.0f;
+            glm::vec3 origin( 0.0f );
+            origin[axisIndex] = offset;
+            if ( !inWorld )
+                return Common::MakeSuccess( Geometry::CutPlane{ origin, axis } );
             const glm::mat4 world = entity.HasComponent<ECS::TransformComponent>()
                                          ? entity.GetComponent<ECS::TransformComponent>().GetTransform()
                                          : glm::mat4( 1.0f );
@@ -79,16 +87,16 @@ namespace Desert::Editor::Core
                 for ( int j = 0; j < 3; ++j )
                     if ( std::abs( gram[i][j] - ( i == j ? s : 0.0f ) ) > 1e-4f * s )
                         return Common::MakeFormattedError<Geometry::CutPlane>(
-                             "Mesh Mirror: the entity's transform is not a rotation with a uniform scale (column "
-                             "lengths {:.4f}, {:.4f}, {:.4f}) - a world plane has no mirror image in its mesh; "
-                             "mirror in local space or reset the scale",
-                             std::sqrt( gram[0][0] ), std::sqrt( gram[1][1] ), std::sqrt( gram[2][2] ) );
+                             "{}: the entity's transform is not a rotation with a uniform scale (column "
+                             "lengths {:.4f}, {:.4f}, {:.4f}) - a world plane has no image in its mesh; "
+                             "work in local space or reset the scale",
+                             what, std::sqrt( gram[0][0] ), std::sqrt( gram[1][1] ), std::sqrt( gram[2][2] ) );
             if ( !( s > 0.0f ) )
-                return Common::MakeError<Geometry::CutPlane>(
-                     "Mesh Mirror: the entity's transform has zero scale" );
+                return Common::MakeFormattedError<Geometry::CutPlane>( "{}: the entity's transform has zero scale",
+                                                                       what );
             const glm::mat4 toMesh = glm::inverse( world );
             // Normals map by the inverse transpose; for a similarity that is the inverse's rotation part.
-            const glm::vec3 point  = glm::vec3( toMesh * glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f ) );
+            const glm::vec3 point  = glm::vec3( toMesh * glm::vec4( origin, 1.0f ) );
             const glm::vec3 normal = glm::transpose( linear ) * axis;
             return Common::MakeSuccess( Geometry::CutPlane{ point, normal } );
         }
@@ -116,6 +124,8 @@ namespace Desert::Editor::Core
             case MeshOperation::Clean:
             case MeshOperation::Subdivide:
             case MeshOperation::Mirror:
+            case MeshOperation::PlaneCut:
+            case MeshOperation::Trim:
                 return false;
             case MeshOperation::Extrude:
             case MeshOperation::PushPull:
@@ -141,6 +151,14 @@ namespace Desert::Editor::Core
         args.MirrorWorld        = ms.ElementMirrorWorld;
         args.MirrorKeepNegative = ms.ElementMirrorKeepNegative;
         args.MirrorMode         = ms.ElementMirrorMode;
+        args.PlaneCutAxis         = ms.ElementPlaneCutAxis;
+        args.PlaneCutOffset       = ms.ElementPlaneCutOffset;
+        args.PlaneCutWorld        = ms.ElementPlaneCutWorld;
+        args.PlaneCutKeepNegative = ms.ElementPlaneCutKeepNegative;
+        args.PlaneCutFill         = ms.ElementPlaneCutFill;
+        args.PlaneCutMode         = ms.ElementPlaneCutMode;
+        args.TrimCutter           = ms.ElementTrimCutter;
+        args.TrimSide             = ms.ElementTrimSide;
         return args;
     }
 
@@ -171,6 +189,7 @@ namespace Desert::Editor::Core
         const Geometry::ElementSelection                selection = state.Selection();
 
         Common::ResultStr<Geometry::MeshEditOutcome> result;
+        std::shared_ptr<const Geometry::EditMesh>    otherHalf; // Plane Cut, Keep Both Halves
         switch ( operation )
         {
             case MeshOperation::Delete:
@@ -224,11 +243,60 @@ namespace Desert::Editor::Core
                 break;
             case MeshOperation::Mirror:
             {
-                auto plane = MirrorPlane( e, args );
+                auto plane = AxisPlane( e, args.MirrorAxis, args.MirrorWorld, args.MirrorKeepNegative, 0.0f,
+                                        "Mesh Mirror" );
                 if ( !plane.IsSuccess() )
                     return Common::MakeError<bool>( plane.GetError() );
                 result = WholeMesh(
                      Geometry::MirrorMesh( *before, plane.GetValue(), args.MirrorMode, args.WeldTolerance ),
+                     selection.Mode() );
+                break;
+            }
+            case MeshOperation::PlaneCut:
+            {
+                auto plane = AxisPlane( e, args.PlaneCutAxis, args.PlaneCutWorld, args.PlaneCutKeepNegative,
+                                        args.PlaneCutOffset, "Mesh Plane Cut" );
+                if ( !plane.IsSuccess() )
+                    return Common::MakeError<bool>( plane.GetError() );
+                auto cut =
+                     Geometry::PlaneCutMesh( *before, plane.GetValue(), args.PlaneCutMode, args.PlaneCutFill );
+                if ( !cut.IsSuccess() )
+                    return Common::MakeError<bool>( cut.GetError() );
+                Geometry::PlaneCutOutcome halves = cut.ExtractValue();
+                if ( halves.OtherHalf )
+                    otherHalf = std::make_shared<const Geometry::EditMesh>( std::move( *halves.OtherHalf ) );
+                result = Common::MakeSuccess( std::move( halves.Kept ) );
+                break;
+            }
+            case MeshOperation::Trim:
+            {
+                if ( args.TrimCutter.IsNull() )
+                    return Common::MakeError<bool>( "Mesh Trim: no cutter - select the cutter entity (a closed "
+                                                    "convex mesh) and press Pick Cutter in the Modeling panel" );
+                if ( args.TrimCutter == entity )
+                    return Common::MakeError<bool>( "Mesh Trim: the cutter is the mesh being edited - a mesh "
+                                                    "cannot trim itself" );
+                auto cutterRef = scene.FindEntityByID( args.TrimCutter );
+                if ( !cutterRef )
+                    return Common::MakeFormattedError<bool>( "Mesh Trim: the cutter entity {} is not in the scene",
+                                                             static_cast<uint64_t>( args.TrimCutter ) );
+                ECS::Entity cutter = cutterRef->get();
+                if ( !cutter.HasComponent<ECS::StaticMeshComponent>() ||
+                     !cutter.GetComponent<ECS::StaticMeshComponent>().EditableMesh )
+                    return Common::MakeFormattedError<bool>(
+                         "Mesh Trim: the cutter entity {} has no editable mesh",
+                         static_cast<uint64_t>( args.TrimCutter ) );
+                // The entities' own transforms, as Mirror's world plane reads them.
+                const auto worldOf = []( ECS::Entity of )
+                {
+                    return of.HasComponent<ECS::TransformComponent>()
+                                ? of.GetComponent<ECS::TransformComponent>().GetTransform()
+                                : glm::mat4( 1.0f );
+                };
+                const glm::mat4 cutterToMesh = glm::inverse( worldOf( e ) ) * worldOf( cutter );
+                result                       = WholeMesh(
+                     Geometry::TrimMesh( *before, *cutter.GetComponent<ECS::StaticMeshComponent>().EditableMesh,
+                                                               cutterToMesh, args.TrimSide ),
                      selection.Mode() );
                 break;
             }
@@ -255,13 +323,43 @@ namespace Desert::Editor::Core
         else if ( operation == MeshOperation::Mirror )
             label = fmt::format( "Mesh {} {} {}{}", ToString( operation ), Geometry::ToString( args.MirrorMode ),
                                  args.MirrorWorld ? "world " : "", "XYZ"[args.MirrorAxis] );
+        else if ( operation == MeshOperation::PlaneCut )
+            label = fmt::format( "Mesh {} {} {}{}{} {:+g} cm", ToString( operation ),
+                                 Geometry::ToString( args.PlaneCutMode ), args.PlaneCutWorld ? "world " : "",
+                                 args.PlaneCutKeepNegative ? "-" : "+", "XYZ"[args.PlaneCutAxis],
+                                 args.PlaneCutOffset );
+        else if ( operation == MeshOperation::Trim )
+            label = fmt::format( "Mesh {} {}", ToString( operation ), Geometry::ToString( args.TrimSide ) );
         // Selection first, then the mesh: Track prunes the NEW selection against the new mesh (nothing to
         // drop), instead of the old one against it (every re-created triangle reported as lost).
         state.Restore( entity, outcome.Selection );
         state.Track( entity, after );
-        Commands::RecordEditMeshChange(
-             entity, label, before,
-             MeshElementSelection::MakeSelectionChange( entity, selection, outcome.Selection, label ) );
+        auto selectionChange =
+             MeshElementSelection::MakeSelectionChange( entity, selection, outcome.Selection, label );
+        if ( otherHalf )
+        {
+            auto split =
+                 Commands::RecordEditMeshSplit( entity, label, before, otherHalf, std::move( selectionChange ) );
+            if ( !split.IsSuccess() )
+            {
+                // Nothing was recorded: the source goes back to the mesh it had. The copy's creation may have
+                // moved the component storage, so the component is looked up again.
+                auto                  source = scene.FindEntityByID( entity );
+                Common::BoolResultStr back   = Common::MakeError<bool>( "the entity is gone" );
+                if ( source && source->get().HasComponent<ECS::StaticMeshComponent>() )
+                    back = ECS::SetEditableMesh( source->get().GetComponent<ECS::StaticMeshComponent>(), before );
+                state.Restore( entity, selection );
+                state.Track( entity, before );
+                if ( !back.IsSuccess() )
+                    return Common::MakeFormattedError<bool>( "{} (and putting the uncut mesh back failed: {})",
+                                                             split.GetError(), back.GetError() );
+                return Common::MakeError<bool>( split.GetError() );
+            }
+            LOG_INFO( "[Mesh Selection] {0}: the other half ({1} triangles) is on the new entity {2}", label,
+                      otherHalf->TriangleCount(), static_cast<uint64_t>( split.GetValue() ) );
+        }
+        else
+            Commands::RecordEditMeshChange( entity, label, before, std::move( selectionChange ) );
         LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d})", label,
                   after->TriangleCount(), after->TriangleCount() - before->TriangleCount(), after->VertexCount(),
                   after->VertexCount() - before->VertexCount() );

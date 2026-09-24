@@ -481,11 +481,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   WP8 (2026-09-24) added two: CookedCellSource::m_Index (raw, with a row) - the world index a cooked cell
     //   source reads against - and WorldStreamer::m_Source (unique), where a unit's records are read from.
     //   Raw 401+1, Unique 129+1.
+    //   M16b (2026-09-24) added two, SceneCommands' SplitCopyCommand (Plane Cut's second half on a new entity):
+    //   m_Mesh (shared) - the same immutable EditMesh EditMeshCommand's m_Before/m_After hold, by reference so
+    //   a redo puts back exactly that half - and m_Alongside (unique), the companion command it owns, as
+    //   EditMeshCommand::m_Alongside. Shared 339+1, Unique 130+1.
     EXPECT_EQ( CountOf( Form::Raw ), 402 );
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
-    EXPECT_EQ( CountOf( Form::Unique ), 130 );
+    EXPECT_EQ( CountOf( Form::Shared ), 340 );
+    EXPECT_EQ( CountOf( Form::Unique ), 131 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 910 )
+    EXPECT_EQ( (int)Members().size(), 912 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -736,7 +740,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
     // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
     // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
-    EXPECT_EQ( CountOf( Form::Shared ), 339 );
+    // 339 -> 340 with M16b: SplitCopyCommand::m_Mesh, the same immutable EditMesh.
+    EXPECT_EQ( CountOf( Form::Shared ), 340 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

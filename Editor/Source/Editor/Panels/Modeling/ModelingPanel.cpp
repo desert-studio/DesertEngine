@@ -4,6 +4,7 @@
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
+#include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
@@ -544,6 +545,51 @@ namespace Desert::Editor
                  cut ? Geometry::MirrorMode::CutAndMirror : Geometry::MirrorMode::AddMirroredCopy;
         if ( ImGui::Button( Core::ToString( MO::Mirror ), ImVec2( -1.0f, 0.0f ) ) )
             operate( MO::Mirror );
+
+        // Plane Cut (UE's Plane Cut tool): an axis plane at an offset; the positive side is kept.
+        ImGui::SetNextItemWidth( half );
+        ImGui::Combo( "##ElementPlaneCutAxis", &ms.ElementPlaneCutAxis, axes, 3 );
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( half );
+        ImGui::DragFloat( "##ElementPlaneCutOffset", &ms.ElementPlaneCutOffset, 0.5f, -100000.0f, 100000.0f,
+                          "At %.1f cm" );
+        ImGui::Checkbox( "World##PlaneCut", &ms.ElementPlaneCutWorld );
+        ImGui::SameLine();
+        ImGui::Checkbox( "Keep -##PlaneCut", &ms.ElementPlaneCutKeepNegative );
+        ImGui::SameLine();
+        ImGui::Checkbox( "Fill##PlaneCut", &ms.ElementPlaneCutFill );
+        bool both = ms.ElementPlaneCutMode == Geometry::PlaneCutMode::KeepBothHalves;
+        if ( ImGui::Checkbox( "Keep both halves (new entity)", &both ) )
+            ms.ElementPlaneCutMode =
+                 both ? Geometry::PlaneCutMode::KeepBothHalves : Geometry::PlaneCutMode::DiscardNegativeSide;
+        if ( ImGui::Button( Core::ToString( MO::PlaneCut ), ImVec2( -1.0f, 0.0f ) ) )
+            operate( MO::PlaneCut );
+
+        // Trim (UE's Trim tool): another entity's closed convex mesh cuts this one; the cut stays open.
+        if ( ImGui::Button( "Pick Cutter", ImVec2( half, 0.0f ) ) )
+        {
+            // The first selected entity that is not the one being edited.
+            ms.ElementTrimCutter = Common::UUID::Null();
+            for ( const Common::UUID& id : Core::SelectionManager::GetSelection() )
+                if ( id != Core::MeshElementSelection::Get().Entity() )
+                {
+                    ms.ElementTrimCutter = id;
+                    break;
+                }
+            if ( ms.ElementTrimCutter.IsNull() )
+                LOG_WARN( "Mesh Trim: select the cutter entity (besides the edited one) before Pick Cutter" );
+        }
+        ImGui::SameLine();
+        if ( ms.ElementTrimCutter.IsNull() )
+            ImGui::TextDisabled( "no cutter" );
+        else
+            ImGui::Text( "cutter %llu",
+                         static_cast<unsigned long long>( static_cast<uint64_t>( ms.ElementTrimCutter ) ) );
+        bool outside = ms.ElementTrimSide == Geometry::TrimSide::RemoveOutside;
+        if ( ImGui::Checkbox( "Keep only the inside", &outside ) )
+            ms.ElementTrimSide = outside ? Geometry::TrimSide::RemoveOutside : Geometry::TrimSide::RemoveInside;
+        if ( ImGui::Button( Core::ToString( MO::Trim ), ImVec2( -1.0f, 0.0f ) ) )
+            operate( MO::Trim );
         ImGui::Spacing();
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
         ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );

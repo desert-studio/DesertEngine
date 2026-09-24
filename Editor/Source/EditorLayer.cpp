@@ -4462,7 +4462,8 @@ namespace Desert::Editor
               { Core::MeshOperation::Delete, Core::MeshOperation::Extrude, Core::MeshOperation::PushPull,
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
-                Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror } )
+                Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
+                Core::MeshOperation::Trim } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ), [this, op]
                                   {

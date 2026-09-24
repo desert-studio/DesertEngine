@@ -200,7 +200,6 @@ namespace Desert::Geometry
         {
             std::vector<char> inSet( static_cast<size_t>( mesh.MaxTriangleId() ), 0 );
             std::set<int>     targetSet( targets.begin(), targets.end() );
-            int               material = 0;
             for ( const int v : targets )
                 for ( const int t : mesh.GetVertexTriangles( v ) )
                 {
@@ -216,156 +215,15 @@ namespace Desert::Geometry
                                  "the faces around vertex {} allow",
                                  what, o, d / glm::length( plane.Normal ), v );
                     }
-                    material = mesh.Attributes().GetMaterialId( t );
                 }
-            if ( auto split = SplitAlongPlane( mesh, inSet, plane, what ); !split.IsSuccess() )
-                return Common::MakeError<int>( split.GetError() );
-
-            // The corner goes; what remains of each cut triangle keeps its attributes.
-            std::vector<int> removed;
-            for ( int t = 0; t < mesh.MaxTriangleId(); ++t )
-                if ( mesh.IsTriangle( t ) && t < static_cast<int>( inSet.size() ) && inSet[t] &&
-                     SideOf( mesh, t, plane ) > 0 )
-                    removed.push_back( t );
-            // The rim: each edge of a removed triangle that a kept triangle still has, directed the way the
-            // CAP must run it (against the kept triangle).
-            std::map<int, int>               next;   // cap vertex -> the next one round the cap
-            std::map<int, int>               keptAt; // cap vertex -> a kept triangle at it (attribute source)
-            std::vector<std::pair<int, int>> rim;
-            for ( const int t : removed )
-                for ( const int e : mesh.GetTriangleEdges( t ) )
-                {
-                    const auto& tris  = mesh.GetEdgeTriangles( e );
-                    const int   other = tris[0] == t ? tris[1] : tris[0];
-                    if ( other == InvalidId )
-                        return Common::MakeFormattedError<int>(
-                             "{}: the corner reaches the mesh's open border at edge {} - there is no solid to cap",
-                             what, e );
-                    if ( std::find( removed.begin(), removed.end(), other ) != removed.end() )
-                        continue;
-                    const auto& c = mesh.GetTriangle( other );
-                    const int   j = [&]
-                    {
-                        for ( int k = 0; k < 3; ++k )
-                            if ( mesh.GetTriangleEdges( other )[k] == e )
-                                return k;
-                        return 0;
-                    }();
-                    // `other` runs c[j] -> c[j+1]; the cap runs it back.
-                    const int from = c[( j + 1 ) % 3];
-                    const int to   = c[j];
-                    if ( next.count( from ) )
-                        return Common::MakeFormattedError<int>(
-                             "{}: the cut outline passes vertex {} twice - the corner is not a simple cap", what,
-                             from );
-                    next[from]   = to;
-                    keptAt[from] = other;
-                    keptAt[to]   = other;
-                }
-            if ( next.size() < 3 )
-                return Common::MakeFormattedError<int>( "{}: the cut outline has {} corners - nothing to cap",
-                                                        what, next.size() );
-            std::vector<int> loop{ next.begin()->first };
-            while ( true )
-            {
-                const auto it = next.find( loop.back() );
-                if ( it == next.end() )
-                    return Common::MakeFormattedError<int>( "{}: the cut outline is open at vertex {}", what,
-                                                            loop.back() );
-                if ( it->second == loop.front() )
-                    break;
-                loop.push_back( it->second );
-                if ( loop.size() > next.size() )
-                    return Common::MakeFormattedError<int>(
-                         "{}: the cut outline is more than one loop - the corner is not a simple cap", what );
-            }
-            if ( loop.size() != next.size() )
+            auto cut = CutAwayPositiveSide( mesh, inSet, plane, true, what );
+            if ( !cut.IsSuccess() )
+                return Common::MakeError<int>( cut.GetError() );
+            if ( cut.GetValue().CapLoops != 1 )
                 return Common::MakeFormattedError<int>(
-                     "{}: the cut outline has {} corners but its first loop only {} - it is more than one loop",
-                     what, next.size(), loop.size() );
-
-            // Colour and UV sources, read before the corner goes (a kept triangle's element at each cap vertex).
-            for ( const int t : removed )
-                if ( const EditResult r = mesh.RemoveTriangle( t, true ); r != EditResult::Ok )
-                    return Common::MakeFormattedError<int>( "{}: removing triangle {} refused: {}", what, t,
-                                                            ToString( r ) );
-            auto tris = Triangulate( mesh, loop, plane.Normal, what );
-            if ( !tris.IsSuccess() )
-                return Common::MakeError<int>( tris.GetError() );
-
-            const int           group = NewPolyGroup( mesh );
-            std::vector<int>    cap;
-            EditMeshAttributes& attributes = mesh.Attributes();
-            for ( const auto& tri : tris.GetValue() )
-            {
-                int t = InvalidId;
-                if ( const EditResult r = mesh.AppendTriangle( tri[0], tri[1], tri[2], t ); r != EditResult::Ok )
-                    return Common::MakeFormattedError<int>( "{}: the cap triangle ({}, {}, {}) refused: {}", what,
-                                                            tri[0], tri[1], tri[2], ToString( r ) );
-                attributes.SetPolyGroup( t, group );
-                attributes.SetMaterialId( t, material );
-                cap.push_back( t );
-            }
-
-            // UVs: a planar projection in the cap's plane, anchored at the first rim vertex's UV on its kept
-            // neighbour, at the neighbours' texel density.
-            std::vector<int> around;
-            for ( const auto& [v, t] : keptAt )
-                around.push_back( t );
-            const glm::vec3 n  = glm::normalize( plane.Normal );
-            const glm::vec3 ax = glm::normalize( mesh.GetPosition( loop[1] ) - mesh.GetPosition( loop[0] ) );
-            const glm::vec3 ay = glm::cross( n, ax );
-            for ( int layer = 0; layer < attributes.UVLayerCount(); ++layer )
-            {
-                UVOverlay&         uv      = *attributes.UV( layer );
-                const float        density = TexelDensity( mesh, uv, around );
-                const int          anchorT = keptAt.at( loop[0] );
-                const glm::vec2    origin  = uv.IsSetTriangle( anchorT )
-                                                  ? uv.GetElement( uv.GetElementAtVertex( mesh, anchorT, loop[0] ) )
-                                                  : glm::vec2( 0.0f );
-                std::map<int, int> element;
-                for ( const int v : loop )
-                {
-                    const glm::vec3 d = mesh.GetPosition( v ) - mesh.GetPosition( loop[0] );
-                    element[v] =
-                         uv.AppendElement( origin + density * glm::vec2( glm::dot( d, ax ), glm::dot( d, ay ) ) );
-                }
-                for ( const int t : cap )
-                {
-                    const auto& c = mesh.GetTriangle( t );
-                    if ( const EditResult r =
-                              uv.SetTriangle( mesh, t, { element[c[0]], element[c[1]], element[c[2]] } );
-                         r != EditResult::Ok )
-                        return Common::MakeFormattedError<int>( "{}: cap UVs on triangle {} refused: {}", what, t,
-                                                                ToString( r ) );
-                }
-            }
-            if ( ColorOverlay* colors = attributes.Colors() )
-            {
-                std::map<int, int> element;
-                for ( const int v : loop )
-                {
-                    const int       t     = keptAt.at( v );
-                    const glm::vec4 value = colors->IsSetTriangle( t )
-                                                 ? colors->GetElement( colors->GetElementAtVertex( mesh, t, v ) )
-                                                 : glm::vec4( 1.0f );
-                    element[v]            = colors->AppendElement( value );
-                }
-                for ( const int t : cap )
-                {
-                    const auto& c = mesh.GetTriangle( t );
-                    if ( const EditResult r =
-                              colors->SetTriangle( mesh, t, { element[c[0]], element[c[1]], element[c[2]] } );
-                         r != EditResult::Ok )
-                        return Common::MakeFormattedError<int>( "{}: cap colours on triangle {} refused: {}", what,
-                                                                t, ToString( r ) );
-                }
-            }
-            if ( auto r = RebuildNormalsByPolyGroupAt( mesh, loop ); !r.IsSuccess() )
-                return Common::MakeFormattedError<int>( "{}: {}", what, r.GetError() );
-            if ( auto r = ComputeTangentsAt( mesh, cap ); !r.IsSuccess() )
-                return Common::MakeFormattedError<int>( "{}: {}", what, r.GetError() );
-            return Common::MakeSuccess( group );
+                     "{}: the cut outline is {} loops - the corner is not a simple cap", what,
+                     cut.GetValue().CapLoops );
+            return Common::MakeSuccess( cut.GetValue().Group );
         }
 
         Common::ResultStr<CutPlane> EdgeBevelPlane( const EditMesh& mesh, int e, float width )
@@ -594,6 +452,209 @@ namespace Desert::Geometry
             return Common::MakeSuccess( true );
         }
     } // namespace
+
+    Common::BoolResultStr SplitMeshAlongPlane( EditMesh& mesh, std::vector<char>& inSet, const CutPlane& plane,
+                                               const char* what )
+    {
+        return SplitAlongPlane( mesh, inSet, plane, what );
+    }
+
+    Common::ResultStr<PlaneCutCap> CutAwayPositiveSide( EditMesh& mesh, std::vector<char>& inSet,
+                                                        const CutPlane& plane, bool fillHole, const char* what )
+    {
+        if ( auto split = SplitAlongPlane( mesh, inSet, plane, what ); !split.IsSuccess() )
+            return Common::MakeError<PlaneCutCap>( split.GetError() );
+
+        // What goes: the working triangles on the positive side, and a triangle lying IN the plane whose face
+        // looks against the normal - the solid behind it is the removed side, so it is that side's wall. One
+        // facing along the normal already closes the kept side and stays.
+        std::vector<char> gone( static_cast<size_t>( mesh.MaxTriangleId() ), 0 );
+        std::vector<int>  removed;
+        for ( int t = 0; t < mesh.MaxTriangleId(); ++t )
+        {
+            if ( !mesh.IsTriangle( t ) || t >= static_cast<int>( inSet.size() ) || !inSet[t] )
+                continue;
+            const int side = SideOf( mesh, t, plane );
+            if ( side == 0 )
+            {
+                const auto&     c    = mesh.GetTriangle( t );
+                const glm::vec3 face = glm::cross( mesh.GetPosition( c[1] ) - mesh.GetPosition( c[0] ),
+                                                   mesh.GetPosition( c[2] ) - mesh.GetPosition( c[0] ) );
+                if ( glm::dot( face, plane.Normal ) >= 0.0f )
+                    continue;
+            }
+            else if ( side < 0 )
+                continue;
+            gone[t] = 1;
+            removed.push_back( t );
+        }
+        PlaneCutCap result;
+        result.RemovedTriangles = static_cast<int>( removed.size() );
+
+        // The rim: each edge between a removed and a kept triangle, directed the way the CAP must run it
+        // (against the kept triangle). An edge of a removed triangle on the open border is no rim.
+        std::map<int, int> next;   // cap vertex -> the next one round its loop
+        std::map<int, int> keptAt; // cap vertex -> a kept triangle at it (attribute source)
+        if ( fillHole )
+            for ( const int t : removed )
+                for ( const int e : mesh.GetTriangleEdges( t ) )
+                {
+                    const auto& tris  = mesh.GetEdgeTriangles( e );
+                    const int   other = tris[0] == t ? tris[1] : tris[0];
+                    if ( other == InvalidId || gone[other] )
+                        continue;
+                    const auto& c     = mesh.GetTriangle( other );
+                    const auto& edges = mesh.GetTriangleEdges( other );
+                    const int   j = static_cast<int>( std::find( edges.begin(), edges.end(), e ) - edges.begin() );
+                    // `other` runs c[j] -> c[j+1]; the cap runs it back.
+                    const int from = c[( j + 1 ) % 3];
+                    const int to   = c[j];
+                    if ( next.count( from ) )
+                        return Common::MakeFormattedError<PlaneCutCap>(
+                             "{}: the cut outline passes vertex {} twice - the section is not a simple outline",
+                             what, from );
+                    next[from]   = to;
+                    keptAt[from] = other;
+                    keptAt[to]   = other;
+                }
+
+        std::vector<std::vector<int>> loops;
+        std::set<int>                 visited;
+        for ( const auto& [start, unused] : next )
+        {
+            if ( visited.count( start ) )
+                continue;
+            std::vector<int> loop{ start };
+            visited.insert( start );
+            while ( true )
+            {
+                const auto it = next.find( loop.back() );
+                if ( it == next.end() )
+                    return Common::MakeFormattedError<PlaneCutCap>(
+                         "{}: the cut outline is open at vertex {} - the mesh's open border crosses the plane "
+                         "there, so there is no solid to cap (cut without filling the hole)",
+                         what, loop.back() );
+                if ( it->second == loop.front() )
+                    break;
+                if ( !visited.insert( it->second ).second )
+                    return Common::MakeFormattedError<PlaneCutCap>(
+                         "{}: the cut outline passes vertex {} twice - the section is not a simple outline", what,
+                         it->second );
+                loop.push_back( it->second );
+            }
+            if ( loop.size() < 3 )
+                return Common::MakeFormattedError<PlaneCutCap>(
+                     "{}: a cut outline at vertex {} has {} corners - nothing to cap", what, start, loop.size() );
+            // Newell's area along the normal: an outline around solid runs counter-clockwise seen from the
+            // removed side; a clockwise one is a HOLE inside another outline (a tube cut across).
+            glm::vec3 area( 0.0f );
+            for ( size_t i = 0; i < loop.size(); ++i )
+                area +=
+                     glm::cross( mesh.GetPosition( loop[i] ), mesh.GetPosition( loop[( i + 1 ) % loop.size()] ) );
+            if ( !( glm::dot( area, plane.Normal ) > 0.0f ) )
+                return Common::MakeFormattedError<PlaneCutCap>(
+                     "{}: the {}-corner cut outline at vertex {} runs clockwise - it is a hole inside another "
+                     "outline (a tube or ring cut across), and a cap with holes is not built (cut without "
+                     "filling the hole)",
+                     what, loop.size(), start );
+            loops.push_back( std::move( loop ) );
+        }
+
+        const int material = keptAt.empty() ? 0 : mesh.Attributes().GetMaterialId( keptAt.begin()->second );
+        for ( const int t : removed )
+            if ( const EditResult r = mesh.RemoveTriangle( t, true ); r != EditResult::Ok )
+                return Common::MakeFormattedError<PlaneCutCap>( "{}: removing triangle {} refused: {}", what, t,
+                                                                ToString( r ) );
+        if ( loops.empty() )
+            return Common::MakeSuccess( result );
+
+        result.Group                   = NewPolyGroup( mesh );
+        result.CapLoops                = static_cast<int>( loops.size() );
+        EditMeshAttributes& attributes = mesh.Attributes();
+        std::vector<int>    around;
+        for ( const auto& [v, t] : keptAt )
+            around.push_back( t );
+        std::vector<int> cap;
+        std::vector<int> rimVertices;
+        const glm::vec3  n = glm::normalize( plane.Normal );
+        for ( const std::vector<int>& loop : loops )
+        {
+            auto tris = Triangulate( mesh, loop, plane.Normal, what );
+            if ( !tris.IsSuccess() )
+                return Common::MakeError<PlaneCutCap>( tris.GetError() );
+            std::vector<int> loopCap;
+            for ( const auto& tri : tris.GetValue() )
+            {
+                int t = InvalidId;
+                if ( const EditResult r = mesh.AppendTriangle( tri[0], tri[1], tri[2], t ); r != EditResult::Ok )
+                    return Common::MakeFormattedError<PlaneCutCap>(
+                         "{}: the cap triangle ({}, {}, {}) refused: {}", what, tri[0], tri[1], tri[2],
+                         ToString( r ) );
+                attributes.SetPolyGroup( t, result.Group );
+                attributes.SetMaterialId( t, material );
+                loopCap.push_back( t );
+            }
+
+            // UVs: a planar projection in the cap's plane, anchored at the loop's first vertex's UV on its kept
+            // neighbour, at the neighbours' texel density.
+            const glm::vec3 ax = glm::normalize( mesh.GetPosition( loop[1] ) - mesh.GetPosition( loop[0] ) );
+            const glm::vec3 ay = glm::cross( n, ax );
+            for ( int layer = 0; layer < attributes.UVLayerCount(); ++layer )
+            {
+                UVOverlay&         uv      = *attributes.UV( layer );
+                const float        density = TexelDensity( mesh, uv, around );
+                const int          anchorT = keptAt.at( loop[0] );
+                const glm::vec2    origin  = uv.IsSetTriangle( anchorT )
+                                                  ? uv.GetElement( uv.GetElementAtVertex( mesh, anchorT, loop[0] ) )
+                                                  : glm::vec2( 0.0f );
+                std::map<int, int> element;
+                for ( const int v : loop )
+                {
+                    const glm::vec3 d = mesh.GetPosition( v ) - mesh.GetPosition( loop[0] );
+                    element[v] =
+                         uv.AppendElement( origin + density * glm::vec2( glm::dot( d, ax ), glm::dot( d, ay ) ) );
+                }
+                for ( const int t : loopCap )
+                {
+                    const auto& c = mesh.GetTriangle( t );
+                    if ( const EditResult r =
+                              uv.SetTriangle( mesh, t, { element[c[0]], element[c[1]], element[c[2]] } );
+                         r != EditResult::Ok )
+                        return Common::MakeFormattedError<PlaneCutCap>( "{}: cap UVs on triangle {} refused: {}",
+                                                                        what, t, ToString( r ) );
+                }
+            }
+            if ( ColorOverlay* colors = attributes.Colors() )
+            {
+                std::map<int, int> element;
+                for ( const int v : loop )
+                {
+                    const int       t     = keptAt.at( v );
+                    const glm::vec4 value = colors->IsSetTriangle( t )
+                                                 ? colors->GetElement( colors->GetElementAtVertex( mesh, t, v ) )
+                                                 : glm::vec4( 1.0f );
+                    element[v]            = colors->AppendElement( value );
+                }
+                for ( const int t : loopCap )
+                {
+                    const auto& c = mesh.GetTriangle( t );
+                    if ( const EditResult r =
+                              colors->SetTriangle( mesh, t, { element[c[0]], element[c[1]], element[c[2]] } );
+                         r != EditResult::Ok )
+                        return Common::MakeFormattedError<PlaneCutCap>(
+                             "{}: cap colours on triangle {} refused: {}", what, t, ToString( r ) );
+                }
+            }
+            cap.insert( cap.end(), loopCap.begin(), loopCap.end() );
+            rimVertices.insert( rimVertices.end(), loop.begin(), loop.end() );
+        }
+        result.CapTriangles = static_cast<int>( cap.size() );
+        if ( auto r = RebuildNormalsByPolyGroupAt( mesh, rimVertices ); !r.IsSuccess() )
+            return Common::MakeFormattedError<PlaneCutCap>( "{}: {}", what, r.GetError() );
+        if ( auto r = ComputeTangentsAt( mesh, cap ); !r.IsSuccess() )
+            return Common::MakeFormattedError<PlaneCutCap>( "{}: {}", what, r.GetError() );
+        return Common::MakeSuccess( result );
+    }
 
     Common::ResultStr<CutPlane> CutPlaneFromScreenLine( const glm::mat4& modelViewProj, const glm::vec2& ndcA,
                                                         const glm::vec2& ndcB )
