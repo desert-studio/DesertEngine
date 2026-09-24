@@ -42,7 +42,7 @@ namespace Desert::Editor::Tools
         // step. Refused, with nothing left in the scene, when the shape does not become a mesh.
         [[nodiscard]] static Common::ResultStr<Common::UUID>
         Place( ::Desert::Core::Scene& scene, const Core::ModelingState::ShapeSettings& settings,
-               const glm::vec3& position );
+               const Core::ModelingState::OutputSettings& output, const glm::vec3& position );
 
     private:
         // The preview's box is the built shape's; rebuilt only when a setting changes.

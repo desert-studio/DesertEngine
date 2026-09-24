@@ -2,6 +2,8 @@
 
 #include "InstanceFold.hpp"
 
+#include <Editor/Import/StaticMeshOutput.hpp>
+
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 
@@ -13,6 +15,8 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Logger.hpp>
@@ -29,7 +33,7 @@ namespace Desert::Editor::Commands
     {
         // NOTE: fully qualified — inside Desert::Editor, an unqualified `Core::` means Editor::Core.
         ::Desert::Core::Scene*                s_Scene        = nullptr;
-        const ::Desert::Assets::AssetManager* s_AssetManager = nullptr;
+        ::Desert::Assets::AssetManager*       s_AssetManager = nullptr;
 
         // Editor clipboard: serialized subtree snapshots (NOT entity references), so pasting works even
         // after the originals were deleted or the scene changed.
@@ -643,11 +647,66 @@ namespace Desert::Editor::Commands
             std::vector<Common::UUID>                    m_Roots;
             std::vector<std::vector<Assets::EntityData>> m_Snapshots;
         };
+
+        // The file written and loaded, and the handle the component will hold; the component itself is not
+        // touched, so a caller can decide whether the swap is its own undo step.
+        struct WrittenStaticMesh
+        {
+            std::filesystem::path Path;
+            Assets::AssetHandle   Handle;
+        };
+
+        Common::ResultStr<WrittenStaticMesh> WriteEntityAsStaticMesh( ECS::Entity& e, std::string_view folder,
+                                                                      std::string_view name )
+        {
+            const std::string& tag = e.GetComponent<ECS::TagComponent>().Tag;
+            if ( !e.HasComponent<ECS::StaticMeshComponent>() )
+                return Common::MakeFormattedError<WrittenStaticMesh>( "'{}' has no mesh component", tag );
+            const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
+            if ( !smc.EditableMesh )
+                return Common::MakeFormattedError<WrittenStaticMesh>(
+                     "'{}' has no EditMesh to convert; it already draws {}", tag,
+                     smc.MeshHandle.IsNull() ? std::string( "a primitive or nothing" )
+                                             : std::string( "a mesh asset" ) );
+
+            auto target = Editor::StaticMeshOutputFolder( folder );
+            if ( !target.IsSuccess() )
+                return Common::MakeError<WrittenStaticMesh>( target.GetError() );
+
+            std::vector<Common::UUID> slots( smc.MaterialSlots.begin(), smc.MaterialSlots.end() );
+            auto written = Editor::WriteStaticMeshAsset( *smc.EditableMesh, slots, target.GetValue(),
+                                                         name.empty() ? std::string_view( tag ) : name );
+            if ( !written.IsSuccess() )
+                return Common::MakeError<WrittenStaticMesh>( written.GetError() );
+            const std::filesystem::path path = written.ExtractValue();
+
+            // Registered and BUILT now (MeshDnD's reason): an entity must never be handed a handle that
+            // draws air, and the refusal names the file.
+            auto created = s_AssetManager->CreateAsset<Assets::StaticMeshAsset>( Assets::AssetPriority::High,
+                                                                                 path.generic_string() );
+            if ( !created )
+                return Common::MakeFormattedError<WrittenStaticMesh>(
+                     "'{}' was written and could not be loaded back; the parse error is logged above",
+                     path.generic_string() );
+            if ( const auto readiness = Runtime::EnsureMeshDrawable( created, *s_AssetManager );
+                 readiness != Runtime::MeshReadiness::Drawable )
+                return Common::MakeError<WrittenStaticMesh>(
+                     Runtime::ExplainMeshReadiness( readiness, path.generic_string() ) );
+            return Common::MakeSuccess( WrittenStaticMesh{ path, created->GetMetadata().Handle } );
+        }
+
+        void PointAtStaticMesh( ECS::Entity& e, const Assets::AssetHandle& handle )
+        {
+            auto& smc      = e.GetComponent<ECS::StaticMeshComponent>();
+            smc.MeshHandle = handle;
+            smc.Primitive.reset();
+            ECS::ClearEditableMesh( smc );
+        }
     } // namespace
 
     // ---------------------------------------------------------------- public helpers
 
-    void SetContext( ::Desert::Core::Scene* scene, const ::Desert::Assets::AssetManager* assetManager )
+    void SetContext( ::Desert::Core::Scene* scene, ::Desert::Assets::AssetManager* assetManager )
     {
         s_Scene        = scene;
         s_AssetManager = assetManager;
@@ -1213,5 +1272,42 @@ namespace Desert::Editor::Commands
         CommandHistory::Get().PushCommand(
              std::make_unique<EntityStateCommand>( std::move( before ), std::move( after ) ) );
         OnStructuralChange(); // the mutation itself may have relocated component pools
+    }
+
+    Common::ResultStr<std::filesystem::path> OutputStaticMesh( const Common::UUID& uuid, std::string_view folder,
+                                                               std::string_view name )
+    {
+        if ( !Ready() )
+            return Common::MakeError<std::filesystem::path>( "no scene or asset manager is bound to the editor" );
+        auto e = FindEntity( uuid );
+        if ( !e )
+            return Common::MakeFormattedError<std::filesystem::path>( "no entity {}", uuid.ToString() );
+        auto written = WriteEntityAsStaticMesh( *e, folder, name );
+        if ( !written.IsSuccess() )
+            return Common::MakeError<std::filesystem::path>( written.GetError() );
+        PointAtStaticMesh( *e, written.GetValue().Handle );
+        return Common::MakeSuccess( written.GetValue().Path );
+    }
+
+    Common::ResultStr<std::filesystem::path> ConvertToStaticMesh( const Common::UUID& uuid,
+                                                                  std::string_view folder, std::string_view name )
+    {
+        if ( !Ready() )
+            return Common::MakeError<std::filesystem::path>( "no scene or asset manager is bound to the editor" );
+        auto e = FindEntity( uuid );
+        if ( !e )
+            return Common::MakeFormattedError<std::filesystem::path>( "no entity {}", uuid.ToString() );
+        // The file first, outside the undo step: a refusal leaves no history entry and no half-converted entity.
+        auto written = WriteEntityAsStaticMesh( *e, folder, name );
+        if ( !written.IsSuccess() )
+            return Common::MakeError<std::filesystem::path>( written.GetError() );
+        const Assets::AssetHandle handle = written.GetValue().Handle;
+        MutateEntityUndoable( uuid,
+                              [&]()
+                              {
+                                  if ( auto live = FindEntity( uuid ) )
+                                      PointAtStaticMesh( *live, handle );
+                              } );
+        return Common::MakeSuccess( written.GetValue().Path );
     }
 } // namespace Desert::Editor::Commands

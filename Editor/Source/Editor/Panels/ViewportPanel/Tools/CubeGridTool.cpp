@@ -1170,6 +1170,18 @@ namespace Desert::Editor::Tools
                     }
                 }
 
+                // Output: Static Mesh (after the collider, which reads the EditMesh's render bounds): the
+                // blockout becomes a new asset before the creation is recorded. A refused write does NOT
+                // accept - the session stays open with its cells, and the log says why, so nothing the user
+                // built is lost and nothing other than what Output asked for enters the scene.
+                if ( ms.Output.Type == Core::ModelingState::OutputType::StaticMesh )
+                    if ( auto written = Commands::OutputStaticMesh( m_Entity, ms.Output.Folder, ms.Output.Name );
+                         !written.IsSuccess() )
+                    {
+                        LOG_ERROR( "[CubeGrid] Accept refused: {}", written.GetError() );
+                        return;
+                    }
+
                 // ONE undo step for the whole blockout session, with the collider it just got: undo removes
                 // the entity (snapshotting it, EditMesh included, through the scene serializer), redo brings
                 // it back under the same UUID. The per-edit regenerations before Accept are the tool's own

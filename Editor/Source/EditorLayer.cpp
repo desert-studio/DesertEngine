@@ -4203,6 +4203,22 @@ namespace Desert::Editor
                                   Commands::NotifyCreated( { uuid } );
                                   return PaletteCommandDone();
                               } } );
+        // UE's Convert to Static Mesh: the selected EditMesh entity's geometry becomes a new .stmesh asset,
+        // written where the modeling tools' Output settings say (Modeling panel, "Output Type").
+        commands.push_back(
+             { "Entity", "Convert to Static Mesh", []
+               {
+                   const auto& selection = Core::SelectionManager::GetSelection();
+                   if ( selection.size() != 1 )
+                       return Common::MakeFormattedError<bool>(
+                            "select exactly one object to convert ({} selected)", selection.size() );
+                   const auto& out     = Core::ModelingState::Get().Output;
+                   const auto  written = Commands::ConvertToStaticMesh( selection.front(), out.Folder, out.Name );
+                   if ( !written.IsSuccess() )
+                       return Common::MakeError<bool>( written.GetError() );
+                   LOG_INFO( "[Modeling] converted to static mesh '{}'", written.GetValue().generic_string() );
+                   return Common::MakeSuccess( true );
+               } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(
