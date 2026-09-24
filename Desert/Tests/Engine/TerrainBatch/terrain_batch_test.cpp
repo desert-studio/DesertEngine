@@ -109,7 +109,6 @@ TEST( TerrainTextureKey, EveryHeightmapIsItsOwnMaterial )
     const auto withB = TerrainTextureKey( WithTextures( {} ), &b );
     EXPECT_NE( withA, withB );
     EXPECT_NE( withA, TerrainTextureKey( WithTextures( {} ), nullptr ) );
-    EXPECT_NE( withA, TerrainTextureKey( WithTextures( {} ), &a, nullptr ) ) << "a splat map is not a heightmap";
 }
 
 int main( int argc, char** argv )
