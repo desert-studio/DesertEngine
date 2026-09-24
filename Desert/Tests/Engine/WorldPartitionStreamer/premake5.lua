@@ -19,6 +19,8 @@ project(test_name)
     }
 
     includedirs {
+        -- LandscapeData.cpp compiles Shaders/Common/LandscapeHeight.glslh as C++.
+        "%{wks.location}/Editor/Resources/Shaders",
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
     }
