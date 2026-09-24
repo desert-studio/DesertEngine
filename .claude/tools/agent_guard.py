@@ -40,11 +40,11 @@ TREE_SEARCH = [
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
-EDITOR_BUILD = re.compile(r"(^|[;&|(]\s*|\s)make\s[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
+EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
-SELF_WAIT = re.compile(r"pgrep\s+-x\s+make")  # a command that waits for the other build itself is allowed
+SELF_WAIT = re.compile(r"pgrep\s+-x\s+make|build_quiet\.sh")  # a command that waits for the other build itself is allowed
 GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")

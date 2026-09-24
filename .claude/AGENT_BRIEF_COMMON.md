@@ -11,6 +11,7 @@
 - Сборка ТОЛЬКО через общий ccache и `-j3`:
   `export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1 CCACHE_BASEDIR=/Users/daniilsavcenko/Desktop/Programming/C++`
   `make <Проект> config=debug -j3 CC="ccache clang" CXX="ccache clang++" > <лог> 2>&1; tail -5 <лог>`
+- **Сборка — ОДНИМ вызовом, в фоне** (Bash с `run_in_background: true`): `/Users/daniilsavcenko/.claude/tools/build_quiet.sh <дерево> <лог> <Проект…>` — сам ждёт чужую make, собирает с ccache -j4 и печатает только `OK` или первые ошибки (`error:`, `No rule…`, `Undefined symbols`). Не пиши циклы ожидания и не читай лог целиком — каждый лишний вызов перечитывает весь твой контекст. Считается в лимит сборок Editor, упавшая — тоже: сначала собери сюиту/один TU.
 - PCH «modified since the precompiled header» / путь в чужое дерево → удали свои `*.gch`, пересобери.
 - Тестовые `.make` есть только после `CI=true premake5 gmake`. Никогда не убивай чужие процессы `make`.
 - Ожидание > 5 мин — кусками ≤ 4.5 мин: `for i in $(seq 27); do grep -q "<маркер>" <лог> && break; sleep 10; done`
