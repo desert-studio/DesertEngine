@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
-            "SCNE": 27,
+            "SCNE": 28,
             "UNIT": 1
         },
         "Dependencies": []
@@ -62,7 +62,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/TwoBoneProbe.skmesh",
-                "MeshGuid": 5756835276253557057,
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
@@ -106,7 +106,7 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/TwoBoneProbe.skmesh",
-                "MeshGuid": 5756835276253557057,
+                "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },

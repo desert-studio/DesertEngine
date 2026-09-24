@@ -136,6 +136,39 @@ def strip_scene_v27(old, new, ext):
     return swap_material_slots(old, new)
 
 
+_MESH_PAIRS = {}  # old MeshGuid handle -> new GUID text, gathered over every SCNE 27 -> 28 file
+
+
+def swap_mesh_guids(old, new):
+    """Replaces every integer MeshGuid in `old` by the GUID text at the same place in `new`, recording each
+    handle -> GUID pair. False when the two documents do not line up."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        for key, value in old.items():
+            if key == "MeshGuid" and isinstance(value, int):
+                if not isinstance(new.get(key), str):
+                    return False
+                _MESH_PAIRS.setdefault(value, set()).add(new[key])
+                old[key] = new[key]
+            elif key in new and not swap_mesh_guids(value, new[key]):
+                return False
+    elif isinstance(old, list) and isinstance(new, list):
+        return all(swap_mesh_guids(a, b) for a, b in zip(old, new))
+    return True
+
+
+def strip_scene_v28(old, new, ext):
+    """SCNE 27 -> 28 (AF7o): the version and the MeshGuid spelling (path handle -> header GUID text) are the
+    only change. The pairing is judged once the corpus is read."""
+    if ext not in (".desce", ".deprefab") or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_v = old.get("Header", {}).get("Versions", {})
+    new_v = new.get("Header", {}).get("Versions", {})
+    if old_v.get("SCNE") != 27 or new_v.get("SCNE") != 28:
+        return False
+    old_v["SCNE"] = 28
+    return swap_mesh_guids(old, new)
+
+
 def material_header_guids(root, files):
     guids = set()
     for path in files:
@@ -163,6 +196,7 @@ def main():
         if isinstance(old, dict) and "Header" in old:
             # The base is past AF6: both sides state the header, and only AF7h's slot spelling may differ.
             strip_scene_v27(old, new, ext)
+            strip_scene_v28(old, new, ext)
             if old != new:
                 differ.append(path)
             compared += 1
@@ -186,11 +220,19 @@ def main():
             if guid not in known:
                 differ.append(f"slot GUID {guid} (was handle {handle}) names no .demat header")
     differ += [f"GUID {g} came from {len(h)} handles" for g, h in by_guid.items() if len(h) != 1]
+    mesh_by_guid = {}
+    for handle, guids in _MESH_PAIRS.items():
+        if len(guids) != 1:
+            differ.append(f"mesh handle {handle} became {len(guids)} GUIDs: {sorted(guids)}")
+        for guid in guids:
+            mesh_by_guid.setdefault(guid, set()).add(handle)
+    differ += [f"mesh GUID {g} came from {len(h)} handles" for g, h in mesh_by_guid.items() if len(h) != 1]
 
     for path in differ:
         print(f"DIFFERS {path}")
     print(f"compare_corpus: {compared} file(s) compared against {base}, {len(differ)} differ, "
-          f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID")
+          f"{fresh} new since it; {len(_SLOT_PAIRS)} slot handle(s) paired to a GUID, "
+          f"{len(_MESH_PAIRS)} mesh handle(s) paired to a GUID")
     return 1 if differ else 0
 
 

@@ -708,13 +708,7 @@ TEST( WorldPartitionMeshAssets, TheCorpusHasFewerPointOnlyRecordsWithTheGathered
          [&]( const Common::Content::AssetGuid& guid, std::string_view path ) -> std::optional<Common::Math::AABB>
     {
         ++asked;
-        const Common::Utils::AssetRegistryEntry* row = nullptr;
-        if ( !guid.IsNull() )
-            for ( const auto& candidate : rows.Entries() )
-                if ( candidate.Guid.has_value() && *candidate.Guid == guid )
-                    row = &candidate;
-        if ( row == nullptr )
-            row = rows.FindByReference( 0, path );
+        const Common::Utils::AssetRegistryEntry* row = rows.FindByGuidReference( guid, path );
         if ( row == nullptr || !row->Bounds.has_value() )
             return std::nullopt;
         ++answers;

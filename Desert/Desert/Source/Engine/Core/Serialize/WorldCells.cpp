@@ -290,19 +290,12 @@ namespace Desert::Core::WorldCells
     {
         if ( registries.empty() )
             return {};
-        // A mesh block names its mesh by header GUID (SCNE 28); the row stating that GUID answers first,
-        // the path beside it only when no registry row states the GUID (a registry cooked before rows
-        // carried one). First registry wins, as KeyOfGuid does.
+        // First registry that answers wins, as KeyOfGuid does.
         return
              [registries]( const CC::AssetGuid& guid, std::string_view path ) -> std::optional<Common::Math::AABB>
         {
-            if ( !guid.IsNull() )
-                for ( const auto& registry : registries )
-                    for ( const auto& row : registry.Entries() )
-                        if ( row.Guid.has_value() && *row.Guid == guid )
-                            return row.Bounds;
             for ( const auto& registry : registries )
-                if ( const auto* row = registry.FindByReference( 0, path ) )
+                if ( const auto* row = registry.FindByGuidReference( guid, path ) )
                     return row->Bounds;
             return std::nullopt;
         };

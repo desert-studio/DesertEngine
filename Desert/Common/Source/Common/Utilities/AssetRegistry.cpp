@@ -349,6 +349,16 @@ namespace Common::Utils
         return FindByKey( AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) );
     }
 
+    const AssetRegistryEntry* AssetRegistry::FindByGuidReference( const Content::AssetGuid& guid,
+                                                                  std::string_view          path ) const
+    {
+        if ( !guid.IsNull() )
+            for ( const AssetRegistryEntry& row : m_Entries )
+                if ( row.Guid.has_value() && *row.Guid == guid )
+                    return &row;
+        return FindByReference( 0, path );
+    }
+
     const AssetRegistryEntry* AssetRegistry::FindByKey( std::string_view key ) const
     {
         const auto at = std::lower_bound( m_Entries.begin(), m_Entries.end(), key,

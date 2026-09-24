@@ -684,16 +684,11 @@ namespace Desert::Core
 
     Rules::AssetBoundsSource RegistryMeshBounds()
     {
-        // The row stating the block's mesh GUID (SCNE 28) answers; the path only when no row states it.
         return []( const Common::Content::AssetGuid& guid,
                    std::string_view                  path ) -> std::optional<Common::Math::AABB>
         {
-            const auto& registry = Assets::ContentRegistry::Get();
-            if ( !guid.IsNull() )
-                for ( const auto& row : registry.Entries() )
-                    if ( row.Guid.has_value() && *row.Guid == guid )
-                        return row.Bounds;
-            const Common::Utils::AssetRegistryEntry* row = registry.FindByReference( 0, path );
+            const Common::Utils::AssetRegistryEntry* row =
+                 Assets::ContentRegistry::Get().FindByGuidReference( guid, path );
             return row != nullptr ? row->Bounds : std::nullopt;
         };
     }
