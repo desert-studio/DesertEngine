@@ -2982,7 +2982,7 @@ namespace Desert::Migration
                         for ( uint32_t x = 0; x < side; ++x )
                             samples[static_cast<size_t>( z ) * side + x] =
                                  all[static_cast<size_t>( tz * grid.QuadsPerTile + z ) * rowSamples +
-                                     tx * grid.QuadsPerTile + x];
+                                     static_cast<size_t>( tx ) * grid.QuadsPerTile + x];
                     auto tile =
                          World::Landscape::LandscapeTileData::FromSamples( side, side, std::move( samples ) );
                     if ( !tile )

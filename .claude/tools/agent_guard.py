@@ -12,7 +12,9 @@ The owner: «Заставь агентов выполнять это». So the r
   3. no `sleep` longer than 270 s in one call (the prompt cache expires at 5 minutes);
   4. at most two editor builds per worker;
   5. one `make` on the machine at a time, at most -j4 (16 GB RAM; 2026-09-24 parallel builds OOM-killed it);
-  6. one editor/runtime process (GPU) at a time (2026-09-24 concurrent editors hung WindowServer: kernel panic).
+  6. one editor/runtime process (GPU) at a time (2026-09-24 concurrent editors hung WindowServer: kernel panic);
+  7. economy (ledger 2026-09-24: shell search+read = 50-80 % of cost): Explore only on haiku; no code read before
+     the agent has read .claude/CODEMAP.md or asked Explore; code read in ranges of <= 150 lines, never `cat` whole.
 
 The lead's own session (no agent id in the hook input) and Explore agents are never restricted.
 Every decision is appended to ~/.claude/agent-guard/log.jsonl so the effect can be measured.
@@ -38,12 +40,15 @@ TREE_SEARCH = [
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
-EDITOR_BUILD = re.compile(r"\bmake\b[^;&|]*\bEditor\b")
+EDITOR_BUILD = re.compile(r"(^|[;&|(]\s*|\s)make\s[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
 MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
 MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
 MAX_MAKE_JOBS = 4
 SELF_WAIT = re.compile(r"pgrep\s+-x\s+make")  # a command that waits for the other build itself is allowed
 GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
+CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
+CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
+MAX_READ_LINES = 150
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 
@@ -99,8 +104,8 @@ def editor_running():
     """One editor/runtime (GPU) at a time: concurrent MoltenVK editors hung WindowServer and the watchdog
     panicked the kernel on 2026-09-24 08:05."""
     try:
-        return subprocess.run(["pgrep", "-f", "Bin/(Debug|Release)/(Editor|Runtime)"],
-                              capture_output=True).returncode == 0
+        # -x on the process NAME: `pgrep -f <path>` also matched the waiting shell's own command line and spun
+        return any(subprocess.run(["pgrep", "-x", n], capture_output=True).returncode == 0 for n in ("Editor", "Runtime"))
     except OSError:
         return False
 
@@ -128,6 +133,9 @@ def self_check():
         "long sleep": {"tool_name": "Bash", "tool_input": {"command": "sleep 600"}},
         "make -j8": {"tool_name": "Bash", "tool_input": {"command": "make Editor -j8"}},
         "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
+        "explore not on haiku": {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"}},
+        "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
+        "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
     }
     failed = []
@@ -185,6 +193,37 @@ def main():
             deny(f"[agent_guard] Лимит {TURN_LIMIT} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, "
                  f"отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
 
+    # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
+    if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
+            (tin.get("model") or "").lower() != "haiku":
+        save_state(state, path)
+        deny("[agent_guard] Explore запускается на haiku: Agent(subagent_type: \"Explore\", model: \"haiku\", ...). "
+             "Он только находит файлы; дорогая модель тут — пустая трата.", data, agent)
+    if tool == "Bash" and "CODEMAP.md" in cmd or (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md")):
+        state["map_read"] = True
+    reading_code = (tool == "Read" and CODE_FILE.search(tin.get("file_path") or "")) or \
+                   (tool == "Bash" and CODE_READ.search(cmd) and CODE_FILE.search(cmd))
+    if reading_code and not state.get("map_read") and not state.get("explored"):
+        save_state(state, path)
+        deny("[agent_guard] Сначала карта: прочитай свой раздел .claude/CODEMAP.md (grep -n '^## ' .claude/CODEMAP.md, "
+             "затем sed -n по диапазону) или спроси Explore на haiku — и только потом читай код.", data, agent)
+    if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore":
+        state["explored"] = True
+    if tool == "Read" and CODE_FILE.search(tin.get("file_path") or "") and \
+            (not tin.get("limit") or int(tin.get("limit") or 0) > MAX_READ_LINES):
+        save_state(state, path)
+        deny(f"[agent_guard] Код читается диапазоном ≤ {MAX_READ_LINES} строк: Read(file_path, offset, limit≤{MAX_READ_LINES}) "
+             f"или sed -n 'A,Bp'. Целый файл — главная статья расхода.", data, agent)
+    if tool == "Bash" and CODE_FILE.search(cmd):
+        if re.search(r"(^|[;&|(]\s*)cat\s+[^|;&]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
+            save_state(state, path)
+            deny(f"[agent_guard] `cat` исходника целиком запрещён: grep -n → sed -n 'A,Bp' (≤ {MAX_READ_LINES} строк).",
+                 data, agent)
+        for a, b in re.findall(r"sed\s+-n\s+['\"]?(\d+),(\d+)p", cmd):
+            if int(b) - int(a) > MAX_READ_LINES:
+                save_state(state, path)
+                deny(f"[agent_guard] sed -n {a},{b}p — {int(b) - int(a)} строк > {MAX_READ_LINES}. Читай уже.", data, agent)
+
     if tool in ("Edit", "Write", "NotebookEdit") and "/.claude/" in (tin.get("file_path") or ""):
         save_state(state, path)
         deny("[agent_guard] Файлы .claude/ (хуки, бриф, контракт) правит только тимлид: 2026-09-24 слияние "
@@ -234,7 +273,7 @@ def main():
             save_state(state, path)
             deny("[agent_guard] Уже запущен редактор/рантайм (другой агент). Одновременно — только ОДИН процесс с GPU: "
                  "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "
-                 "for i in $(seq 27); do pgrep -f 'Bin/(Debug|Release)/(Editor|Runtime)' >/dev/null || break; "
+                 "for i in $(seq 27); do pgrep -x Editor >/dev/null || pgrep -x Runtime >/dev/null || break; "
                  "sleep 10; done; <запуск>", data, agent)
         if EDITOR_BUILD.search(cmd):
             if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
