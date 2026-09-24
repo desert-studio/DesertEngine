@@ -3,6 +3,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/Render/Commands/DrawLandscapeTileCommand.hpp>
@@ -21,27 +22,6 @@ namespace Desert::ECS
     namespace
     {
         namespace Landscape = World::Landscape;
-
-        // The root a tile names, in the frame LandscapeLayout computes with — the same construction the
-        // scene loader validates tiles against (SceneSerializer.cpp, FindLandscapeRoot).
-        std::optional<Landscape::LandscapeRoot> FindRoot( entt::registry& registry, const Common::UUID& id )
-        {
-            if ( id == Common::UUID::Null() )
-                return std::nullopt;
-            for ( const auto entity : registry.view<LandscapeComponent, UUIDComponent>() )
-            {
-                if ( registry.get<UUIDComponent>( entity ).UUID != id )
-                    continue;
-                const auto&              component = registry.get<LandscapeComponent>( entity );
-                Landscape::LandscapeRoot root;
-                root.Origin       = glm::vec3( Entity( entity, registry ).GetWorldTransform()[3] );
-                root.QuadsPerTile = component.QuadsPerTile;
-                root.SpacingCm    = component.SpacingCm;
-                root.ZScale       = component.ZScale;
-                return root;
-            }
-            return std::nullopt;
-        }
 
         std::shared_ptr<Graphic::Image2D> UploadHeightmap( const Landscape::LandscapeTileData&       tile,
                                                            const Landscape::LandscapeTileNeighbours& neighbours,
@@ -98,7 +78,7 @@ namespace Desert::ECS
                 continue; // not loaded, or refused at load (the loader said why); the sweep below frees it
             Landscape::LandscapeTileData& heights = *tileComp.Heights;
 
-            const auto root = FindRoot( registry, tileComp.Landscape );
+            const auto root = FindLandscapeRoot( registry, tileComp.Landscape );
             const auto fits = root ? Landscape::CheckTileMatchesRoot( heights, *root )
                                    : Common::MakeError<bool>( "its root is not loaded or is not a landscape" );
             if ( !fits.IsSuccess() )
@@ -115,7 +95,7 @@ namespace Desert::ECS
             Drawable d;
             d.Entity = entity;
             d.Root   = *root;
-            d.Dirty  = !heights.TakeDirtyRects().empty();
+            d.Dirty  = !heights.TakeDirtyRects( Landscape::LandscapeDirtyConsumer::Gpu ).empty();
             byCoord.emplace( Coord{ static_cast<uint64_t>( Common::UUID( tileComp.Landscape ) ), tileComp.TileX,
                                     tileComp.TileZ },
                              drawables.size() );
@@ -173,7 +153,7 @@ namespace Desert::ECS
                 }
             }
 
-            if ( IsHidden( registry, d.Entity ) )
+            if ( ECS::IsHidden( registry, d.Entity ) )
                 continue;
 
             const Landscape::LandscapeRoot&    root = d.Root;

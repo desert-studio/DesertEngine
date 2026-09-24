@@ -478,11 +478,11 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   an attribute layer of the mesh the operation is building - and EditMeshCommand::m_Alongside
     //   (unique), the selection change undone and redone with a mesh operation as one step. Raw 391+1,
     //   Unique 123+1.
-    EXPECT_EQ( CountOf( Form::Raw ), 397 );
+    EXPECT_EQ( CountOf( Form::Raw ), 401 );
     EXPECT_EQ( CountOf( Form::Shared ), 339 );
-    EXPECT_EQ( CountOf( Form::Unique ), 128 );
+    EXPECT_EQ( CountOf( Form::Unique ), 129 );
     EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 903 )
+    EXPECT_EQ( (int)Members().size(), 908 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

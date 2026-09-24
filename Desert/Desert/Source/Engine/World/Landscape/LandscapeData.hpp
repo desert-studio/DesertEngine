@@ -4,6 +4,7 @@
 
 #include <glm/vec3.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -165,6 +166,20 @@ namespace Desert::World::Landscape
     /// migration. A count above this is refused on read, never ignored.
     inline constexpr uint32_t kLandscapeMaxEditLayers = 0u;
 
+    /**
+     * @brief Who reads a tile's dirty rectangles. Each consumer has its OWN list.
+     *
+     * Taking is destructive ("I now have everything up to here"), so two consumers sharing one list would
+     * each see only the edits the other had not taken yet: the GPU upload and the physics heightfield would
+     * silently diverge after the first stroke that landed between their two frames.
+     */
+    enum class LandscapeDirtyConsumer : uint8_t
+    {
+        Gpu,     ///< LandscapeECSSystem: the R16 heightmap copy.
+        Physics, ///< LandscapeCollision: the Jolt heightfield.
+    };
+    inline constexpr size_t kLandscapeDirtyConsumerCount = 2u;
+
     class LandscapeTileData
     {
     public:
@@ -226,7 +241,8 @@ namespace Desert::World::Landscape
         Common::BoolResultStr WriteRegion( const LandscapeRect& rect, std::span<const uint16_t> values );
 
         /**
-         * @brief Every region changed since the last TakeDirtyRects, as disjoint-or-merged rectangles.
+         * @brief Every region changed since @p consumer last called TakeDirtyRects, as disjoint-or-merged
+         * rectangles. Every consumer is told about every change; see LandscapeDirtyConsumer.
          *
          * A NEW TILE IS WHOLLY DIRTY — from Create, FromSamples and Decode alike. The GPU copy of a tile
          * that has just come into existence holds nothing, so "what the GPU does not have yet" is the whole
@@ -236,13 +252,13 @@ namespace Desert::World::Landscape
          * Overlapping or edge-touching rectangles are merged into their bounding box as they arrive, so a
          * brush stroke of a hundred dabs is one rectangle, not a hundred. Two far-apart edits stay two.
          */
-        const std::vector<LandscapeRect>& DirtyRects() const
+        const std::vector<LandscapeRect>& DirtyRects( LandscapeDirtyConsumer consumer ) const
         {
-            return m_Dirty;
+            return m_Dirty[static_cast<size_t>( consumer )];
         }
 
-        /// Hands the dirty list to the consumer and clears it.
-        std::vector<LandscapeRect> TakeDirtyRects();
+        /// Hands @p consumer its dirty list and clears it; the other consumers' lists are untouched.
+        std::vector<LandscapeRect> TakeDirtyRects( LandscapeDirtyConsumer consumer );
 
     private:
         LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples );
@@ -252,7 +268,7 @@ namespace Desert::World::Landscape
         uint32_t                   m_SamplesX = 0u;
         uint32_t                   m_SamplesZ = 0u;
         std::vector<uint16_t>      m_Samples;
-        std::vector<LandscapeRect> m_Dirty;
+        std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;
     };
 
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────

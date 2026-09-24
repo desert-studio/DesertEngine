@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
+#include <Engine/ECS/System/LandscapeCollision.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -57,6 +58,7 @@ namespace Desert::ECS
                 if ( m_World )
                 {
                     m_Lifetime.reset(); // stop releasing into a world that is about to stop existing
+                    m_Landscape.reset();
                     m_World->Shutdown();
                     m_World.reset();
                 }
@@ -70,7 +72,8 @@ namespace Desert::ECS
                 m_World = std::make_unique<Physics::PhysicsWorld>();
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
                 m_World->Init( m_AppliedGravity );
-                m_Lifetime = std::make_unique<PhysicsBodyLifetime>( *m_World );
+                m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
+                m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
             }
             else if ( m_Scene && m_Scene->GetSettings().Gravity != m_AppliedGravity )
             {
@@ -84,6 +87,8 @@ namespace Desert::ECS
             // Every body created below is given back by the listener when its entity (or its collider) goes —
             // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
             m_Lifetime->Attach( registry );
+            m_Landscape->Attach( registry );
+            m_Landscape->Sync( DrawableLandscapeTiles( registry ) );
 
             // Create a Jolt body for any physics entity that doesn't have one yet (uses its authored pose).
             for ( auto entity : bodies )
@@ -256,6 +261,8 @@ namespace Desert::ECS
         std::unique_ptr<Physics::PhysicsWorld> m_World;
         // Declared AFTER m_World so it is destroyed first: it releases into the world, never the other way.
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
+        // Same rule: the landscape's heightfield bodies live in m_World.
+        std::unique_ptr<LandscapeCollision> m_Landscape;
         // Last value handed to the world, so a change in SceneSettings can be noticed without asking Jolt.
         float m_AppliedGravity = 0.0f;
     };

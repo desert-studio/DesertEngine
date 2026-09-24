@@ -3,8 +3,12 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 
 namespace Desert::Physics
 {
@@ -58,6 +62,41 @@ namespace Desert::Physics
     // Thin engine-side wrapper over a Jolt PhysicsSystem. All Jolt headers stay inside the .cpp (PIMPL),
     // so the rest of the engine never sees Jolt — and Jolt's config defines only need to match within
     // this one translation unit + the Jolt lib.
+    /**
+     * @brief A static heightfield: a square grid of heights, two planar triangles per cell split on the
+     * (x, z)-(x+1, z+1) diagonal — Jolt's split, and not negotiable (HeightFieldShape.cpp,
+     * GetTriangleVertices).
+     *
+     * Sample (x, z) sits at Position + (x·SpacingCm, HeightsCm[z·SampleCount + x], z·SpacingCm).
+     */
+    struct HeightFieldDesc
+    {
+        glm::vec3              Position    = { 0.0f, 0.0f, 0.0f };
+        uint32_t               SampleCount = 0u; ///< Per side; a multiple of kHeightFieldBlockSize, >= 2 blocks.
+        float                  SpacingCm   = 100.0f;
+        std::span<const float> HeightsCm; ///< SampleCount², row-major, X fastest.
+        float                  Friction = 0.5f;
+    };
+
+    /// The heightfield's compression block. Jolt patches heights only in whole blocks, so an update's
+    /// rectangle is widened to this alignment before it is handed over.
+    inline constexpr uint32_t kHeightFieldBlockSize = 4u;
+
+    /// What UpdateHeightField had to do.
+    enum class HeightFieldUpdate
+    {
+        Patched, ///< The rectangle was re-quantised in place; nothing else about the body changed.
+        Rebuilt, ///< A new height left the range the shape can encode: the shape was rebuilt, the body kept.
+    };
+
+    struct RayHit
+    {
+        BodyHandle Body     = kInvalidBody;
+        float      Distance = 0.0f; ///< Along the ray, in units of |direction|.
+        glm::vec3  Point    = { 0.0f, 0.0f, 0.0f };
+        glm::vec3  Normal   = { 0.0f, 1.0f, 0.0f };
+    };
+
     class PhysicsWorld
     {
     public:
@@ -82,6 +121,26 @@ namespace Desert::Physics
 
         BodyHandle CreateBody( const BodyDesc& desc );
         void       RemoveBody( BodyHandle handle );
+
+        /// A static heightfield body (NON_MOVING layer). Refuses a grid Jolt cannot build, naming the numbers.
+        Common::ResultStr<BodyHandle> CreateHeightField( const HeightFieldDesc& desc );
+
+        /**
+         * @brief Brings the heightfield @p handle up to date with @p desc inside the sample rectangle
+         * [x0, x1) × [z0, z1), leaving the body — its handle, its contacts' identity — in place.
+         *
+         * @p desc carries the WHOLE grid, as at creation: the rectangle is widened to block alignment, and
+         * if a new height falls outside what the current shape can encode (Jolt would CLAMP it, a silent
+         * cliff), the shape is rebuilt from the whole grid instead. Sleeping bodies over the rectangle are
+         * woken so they fall onto — or out of — the new surface.
+         */
+        Common::ResultStr<HeightFieldUpdate> UpdateHeightField( BodyHandle handle, const HeightFieldDesc& desc,
+                                                                uint32_t x0, uint32_t z0, uint32_t x1,
+                                                                uint32_t z1 );
+
+        /// The nearest body the ray meets within @p maxDistance, or nullopt. @p direction is normalised here.
+        [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
+                                                     float maxDistance ) const;
 
         // Read simulated transform (body origin, not center-of-mass).
         glm::vec3 GetPosition( BodyHandle handle ) const;

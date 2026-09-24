@@ -193,9 +193,9 @@ namespace Desert::World::Landscape
         return Common::MakeSuccess( true );
     }
 
-    std::vector<LandscapeRect> LandscapeTileData::TakeDirtyRects()
+    std::vector<LandscapeRect> LandscapeTileData::TakeDirtyRects( LandscapeDirtyConsumer consumer )
     {
-        return std::exchange( m_Dirty, {} );
+        return std::exchange( m_Dirty[static_cast<size_t>( consumer )], {} );
     }
 
     void LandscapeTileData::MarkDirty( LandscapeRect rect )
@@ -203,21 +203,25 @@ namespace Desert::World::Landscape
         // Absorbing one rectangle can make the grown one touch another that it did not touch before, so the
         // scan restarts until a pass absorbs nothing. The list stays tiny (disjoint, non-touching boxes on
         // one tile), so the quadratic worst case is a handful of comparisons.
-        bool absorbed = true;
-        while ( absorbed )
+        for ( auto& list : m_Dirty )
         {
-            absorbed = false;
-            for ( size_t i = 0; i < m_Dirty.size(); ++i )
+            LandscapeRect grown    = rect;
+            bool          absorbed = true;
+            while ( absorbed )
             {
-                if ( !Touches( m_Dirty[i], rect ) )
-                    continue;
-                rect = Union( m_Dirty[i], rect );
-                m_Dirty.erase( m_Dirty.begin() + static_cast<ptrdiff_t>( i ) );
-                absorbed = true;
-                break;
+                absorbed = false;
+                for ( size_t i = 0; i < list.size(); ++i )
+                {
+                    if ( !Touches( list[i], grown ) )
+                        continue;
+                    grown = Union( list[i], grown );
+                    list.erase( list.begin() + static_cast<ptrdiff_t>( i ) );
+                    absorbed = true;
+                    break;
+                }
             }
+            list.push_back( grown );
         }
-        m_Dirty.push_back( rect );
     }
 
     // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
