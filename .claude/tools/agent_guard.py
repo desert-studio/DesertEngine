@@ -15,7 +15,7 @@ The owner: «Заставь агентов выполнять это». So the r
   6. one editor/runtime process (GPU) at a time (2026-09-24 concurrent editors hung WindowServer: kernel panic).
 
 The lead's own session (no agent id in the hook input) and Explore agents are never restricted.
-Every decision is appended to /tmp/claude-501/agent-guard/log.jsonl so the effect can be measured.
+Every decision is appended to ~/.claude/agent-guard/log.jsonl so the effect can be measured.
 """
 import json
 import os
@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-STATE_DIR = "/tmp/claude-501/agent-guard"
+STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
 TURN_WARN = 60
 TURN_LIMIT = 80
 MAX_SLEEP = 270
