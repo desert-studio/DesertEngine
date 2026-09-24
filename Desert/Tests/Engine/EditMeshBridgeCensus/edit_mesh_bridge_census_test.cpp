@@ -152,8 +152,12 @@ namespace
          { "Tools/SceneMigrator/Source/SceneMigration.cpp: Engine/Geometry/EditMeshSerialization.hpp",
            "as the row above: the migrator's saved-form writer, removed in P8b" },
          { "Desert/Desert/Source/Engine/Geometry/DynamicMeshSelection.hpp: Engine/Geometry/EditMeshSelection.hpp",
-           "the ported-core selection (P10) shares ElementSelection and the algorithms with the EditMesh path while "
-           "the operations of P11-P19 still run on it; the types move to the ported core in P8b" },
+           "the ported-core selection (P10) shares ElementSelection and the algorithms with the EditMesh path "
+           "while the operations of P11-P19 still run on it; the types move to the ported core in P8b" },
+         { "Desert/Desert/Source/Engine/Geometry/ElementSelectionAlgorithms.inl: "
+           "Engine/Geometry/EditMeshSelection.hpp",
+           "P10b: the selection algorithms written once over a mesh view for both cores define ElementSelection's "
+           "members, so they need its declaration; the file goes with the EditMesh core in P8b" },
     };
 
     bool IsKnown( const std::string& violation )
