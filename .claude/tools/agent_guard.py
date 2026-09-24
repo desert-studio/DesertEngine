@@ -127,6 +127,7 @@ def self_check():
         "find without depth": {"tool_name": "Bash", "tool_input": {"command": "find . -name x"}},
         "long sleep": {"tool_name": "Bash", "tool_input": {"command": "sleep 600"}},
         "make -j8": {"tool_name": "Bash", "tool_input": {"command": "make Editor -j8"}},
+        "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
         "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
     }
     failed = []
@@ -223,6 +224,12 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
+        if EDITOR_RUN.search(cmd) and "run_capped.sh" not in cmd and not re.search(r"\bpkill\b|\bpgrep\b|\bls\b|\bfile\b", cmd):
+            save_state(state, path)
+            deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
+                 "\"$CLAUDE_PROJECT_DIR\"/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... "
+                 "(путь: /Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine/.claude/tools/run_capped.sh). "
+                 "2026-09-24 один редактор съел 13.7 ГБ из 16 и уронил машину.", data, agent)
         if EDITOR_RUN.search(cmd) and not re.search(r"\bpkill\b|\bpgrep\b", cmd) and editor_running():
             save_state(state, path)
             deny("[agent_guard] Уже запущен редактор/рантайм (другой агент). Одновременно — только ОДИН процесс с GPU: "
