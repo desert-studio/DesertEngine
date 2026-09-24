@@ -3,6 +3,8 @@
 #include "../IPanel.hpp"
 
 #include <Common/Core/ResultStr.hpp>
+#include <Editor/Core/Selection/MeshSelectionOperations.hpp>
+#include <Editor/Core/Selection/MeshXformOperations.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <memory>
@@ -47,9 +49,20 @@ namespace Desert::Editor
         void DrawCreateShape();
         void DrawOutputType();
         void DrawElementSelection();
+        // One per rail entry, in UE's palette order (the Palette enum in ModelingPanel.cpp).
+        void DrawSelectionPalette();
+        void DrawShapesPalette();
+        void DrawCreatePalette();
+        void DrawPolyModelPalette();
+        void DrawTriModelPalette();
+        void DrawTransformPalette();
+        void DrawCubeGrid();
+        // A mesh / XForm operation on one click; a refusal is logged with its reason.
+        void Operate( Core::MeshOperation op );
+        void Transform( Core::XformOperation op );
 
         std::shared_ptr<Desert::Core::Scene> m_Scene;
-        int                                  m_Category = 0; // index into the rail: 0 = Create, 1 = Model
+        int                                  m_Category  = 0; // index into the rail (Palette in the .cpp)
         int                                  m_ShownTool = 0; // the ModelingState::Tool the rail last followed
     };
 } // namespace Desert::Editor

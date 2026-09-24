@@ -350,6 +350,12 @@ namespace Desert::Geometry
         return ShrinkSelectionT( FDynamicMeshElements( mesh, &topology ), selection );
     }
 
+    ElementSelection InvertSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+                                      const ElementSelection& selection )
+    {
+        return InvertSelectionT( FDynamicMeshElements( mesh, &topology ), selection );
+    }
+
     Common::BoolResultStr ElementSelection::Add( const FDynamicMesh3& mesh, int id )
     {
         return AddIn( FDynamicMeshElements( mesh ), id );

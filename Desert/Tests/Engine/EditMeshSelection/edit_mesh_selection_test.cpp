@@ -326,6 +326,24 @@ TEST( ElementTopology, GrowAndShrinkByOneRing )
     EXPECT_EQ( ShrinkSelection( cube, all ), all );
 }
 
+TEST( ElementTopology, InvertIsTheRestOfTheSameMode )
+{
+    const EditMesh cube  = MakeCube();
+    const int      front = PickElement( cube, ElementMode::PolyGroup, ViewAt( kFront, { 400, 400 } ) ).Id;
+    const auto     one   = Select( cube, ElementMode::PolyGroup, { front } );
+    const auto     rest  = InvertSelection( cube, one );
+    EXPECT_EQ( rest.Mode(), ElementMode::PolyGroup );
+    EXPECT_EQ( rest.Size(), 5 );
+    EXPECT_FALSE( rest.Contains( front ) );
+    // Twice is the identity; the empty selection inverts to everything, everything to nothing.
+    EXPECT_EQ( InvertSelection( cube, rest ), one );
+    const auto all = InvertSelection( cube, ElementSelection( ElementMode::Edge ) );
+    EXPECT_EQ( all.Size(), cube.EdgeCount() );
+    EXPECT_TRUE( InvertSelection( cube, all ).Empty() );
+    const auto verts = InvertSelection( cube, ElementSelection( ElementMode::Vertex ) );
+    EXPECT_EQ( verts.Size(), cube.VertexCount() );
+}
+
 // Shrink contracts from the SELECTION's border only, never from the open border of the mesh: UE
 // FMeshFaceSelection::ContractBorderByOneRingNeighbours with bContractFromMeshBoundary = false
 // (MeshFaceSelection.cpp:149-190, called so by MeshGroupPaintTool.cpp:1264).

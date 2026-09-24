@@ -49,4 +49,6 @@ namespace Desert::Geometry
                                                   const ElementSelection& selection );
     [[nodiscard]] ElementSelection ShrinkSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
                                                     const ElementSelection& selection );
+    [[nodiscard]] ElementSelection InvertSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+                                                    const ElementSelection& selection );
 } // namespace Desert::Geometry

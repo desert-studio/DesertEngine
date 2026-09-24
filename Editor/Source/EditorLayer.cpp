@@ -4469,7 +4469,7 @@ namespace Desert::Editor
         }
         using SelectionOp = Core::MeshElementSelection::Op;
         for ( const SelectionOp op : { SelectionOp::SelectAll, SelectionOp::SelectConnected, SelectionOp::Grow,
-                                       SelectionOp::Shrink, SelectionOp::Clear } )
+                                       SelectionOp::Shrink, SelectionOp::Invert, SelectionOp::Clear } )
         {
             commands.push_back( { "Modeling",
                                   std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),

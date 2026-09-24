@@ -35,6 +35,7 @@ namespace Desert::Editor::Core
             SelectConnected,
             Grow,
             Shrink,
+            Invert,
             Clear,
         };
         [[nodiscard]] static const char* ToString( Op op );

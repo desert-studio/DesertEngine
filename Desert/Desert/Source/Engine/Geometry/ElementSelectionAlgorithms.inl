@@ -538,6 +538,19 @@ namespace Desert::Geometry
         return Build( mesh, selection.Mode(), SortedUnique( std::move( ids ) ) );
     }
 
+    // Every live element of the selection's mode that is not selected, in the same mode. A vertex with no
+    // triangle is still a vertex, so Vertex mode enumerates vertices, not the elements' corners.
+    template <class Mesh>
+    ElementSelection InvertSelectionT( const Mesh& mesh, const ElementSelection& selection )
+    {
+        const std::vector<char> every( static_cast<size_t>( mesh.MaxVertexId() ), 1 );
+        std::vector<int>        kept;
+        for ( const int id : ElementsTouching( mesh, selection.Mode(), every ) )
+            if ( !selection.Contains( id ) )
+                kept.push_back( id );
+        return Build( mesh, selection.Mode(), kept );
+    }
+
     template <class Mesh>
     ElementSelection ShrinkSelectionT( const Mesh& mesh, const ElementSelection& selection )
     {

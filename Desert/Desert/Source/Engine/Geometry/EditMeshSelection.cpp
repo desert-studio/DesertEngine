@@ -142,4 +142,9 @@ namespace Desert::Geometry
     {
         return ShrinkSelectionT( mesh, selection );
     }
+
+    ElementSelection InvertSelection( const EditMesh& mesh, const ElementSelection& selection )
+    {
+        return InvertSelectionT( mesh, selection );
+    }
 } // namespace Desert::Geometry

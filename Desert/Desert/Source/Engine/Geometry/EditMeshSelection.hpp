@@ -179,4 +179,6 @@ namespace Desert::Geometry
     // element (a vertex: when all its edge neighbours are selected). A selection with no unselected
     // neighbour - the whole of a closed mesh - does not shrink.
     [[nodiscard]] ElementSelection ShrinkSelection( const EditMesh& mesh, const ElementSelection& selection );
+    // Every element of the selection's mode that is not selected (UE's Selection > Invert).
+    [[nodiscard]] ElementSelection InvertSelection( const EditMesh& mesh, const ElementSelection& selection );
 } // namespace Desert::Geometry

@@ -59,6 +59,8 @@ namespace Desert::Editor::Core
                 return "Grow Selection";
             case Op::Shrink:
                 return "Shrink Selection";
+            case Op::Invert:
+                return "Invert Selection";
             case Op::Clear:
                 return "Clear Selection";
         }
@@ -153,6 +155,9 @@ namespace Desert::Editor::Core
                 break;
             case Op::Shrink:
                 next = Geometry::ShrinkSelection( mesh, topology, m_Selection );
+                break;
+            case Op::Invert:
+                next = Geometry::InvertSelection( mesh, topology, m_Selection );
                 break;
             case Op::Clear:
                 break;
