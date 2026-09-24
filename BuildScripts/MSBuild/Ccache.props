@@ -10,10 +10,14 @@
 
   WHY HERE AND NOT IN PREMAKE. premake 5.0-beta8 has no spelling for CLToolExe, CLToolPath,
   UseMultiToolTask or TrackFileAccess, and the switch is a property of the MACHINE doing the build (is
-  a ccache binary installed, and where), not of the project. MSBuild imports this file into every
-  .vcxproj it finds below this directory (all of them, since the workspace writes every project to
-  the repository root) before Microsoft.Cpp.props, the same place CMake's VS generator puts these
-  properties when it is told to use ccache.
+  a ccache binary installed, and where), not of the project.
+
+  WHY IT IS IMPORTED EXPLICITLY AND NOT AS Directory.Build.props. A file of that name in the root is
+  picked up by EVERY MSBuild project below it on every machine, including a developer's Visual Studio
+  build and anything third party nested in the tree, and nothing in the command line says it happened.
+  The Windows job names it instead: msbuild /p:ForceImportBeforeCppTargets=<this file>, which
+  Microsoft.Cpp.targets imports after the project body and before the C++ targets read CLToolExe and
+  the rest, so a build that does not pass the property never sees the file at all.
 
   WHAT EACH PROPERTY IS FOR, because none of them is optional:
 
@@ -37,8 +41,8 @@
     files for incremental builds. A CI build is always clean, and the tracker would be following
     ccache's own cache writes as well.
 
-  The /Zi -> /Z7 half is in Directory.Build.targets: item metadata has to be overridden AFTER the
-  project's own ItemDefinitionGroups, which a .props file is imported before.
+  The /Zi -> /Z7 half is in Ccache.targets (ForceImportAfterCppTargets): item metadata has to be
+  overridden AFTER the project's own ItemDefinitionGroups.
 -->
 <Project>
   <PropertyGroup Condition="'$(DESERT_MSVC_CCACHE)' != ''">

@@ -1,6 +1,6 @@
 <!--
   The second half of the MSVC compiler cache wiring; the first half, and why it lives in MSBuild
-  rather than premake, is in Directory.Build.props. INERT unless DESERT_MSVC_CCACHE is set.
+  rather than premake, is in Ccache.props. INERT unless DESERT_MSVC_CCACHE is set.
 
   /Zi AND /ZI ARE UNCACHEABLE, /Z7 IS NOT. /Zi (Release: premake writes no DebugInformationFormat
   there, so MSBuild's default applies) and /ZI (Debug: premake's `symbols "On"` becomes
@@ -14,8 +14,8 @@
   `None` (Shipping) is left alone: it generates no debug information, and turning it INTO /Z7 would
   change what the Shipping leg proves.
 
-  This is an ItemDefinitionGroup in a .targets file on purpose: MSBuild imports Directory.Build.targets
-  after the project body, so these definitions win over the per-configuration ones premake wrote;
+  This is an ItemDefinitionGroup imported through /p:ForceImportAfterCppTargets on purpose: that
+  import comes after the project body, so these definitions win over the per-configuration ones premake wrote;
   explicit per-file metadata, if a project ever sets any, still wins over both.
 -->
 <Project>
