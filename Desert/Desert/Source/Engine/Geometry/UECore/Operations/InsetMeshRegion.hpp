@@ -1,8 +1,9 @@
-// Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/InsetMeshRegion.h
-// and Private/Operations/InsetMeshRegion.cpp:26-378; PolyEditingEdgeUtil.cpp:11-107 (inset lines and their
-// solve). Adapted: the interior solve (ConstrainedMeshDeformer + AABB reprojection, run when the region has
-// interior vertices or Softness > 0) is not ported - such a region is REFUSED with a named reason before the mesh
-// is touched, and Softness / AreaCorrection / bReproject / bSolveRegionInteriors are therefore absent; bowties are
+// Ported from UE 5.8
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/InsetMeshRegion.h and
+// Private/Operations/InsetMeshRegion.cpp:26-378; PolyEditingEdgeUtil.cpp:11-107 (inset lines and their solve).
+// Adapted: the interior solve (ConstrainedMeshDeformer + AABB reprojection, run when the region has interior
+// vertices or Softness > 0) is not ported - such a region is REFUSED with a named reason before the mesh is
+// touched, and Softness / AreaCorrection / bReproject / bSolveRegionInteriors are therefore absent; bowties are
 // refused by FMeshRegionBoundaryLoops instead of SplitBowtiesAtTriangles; FDistLine3Line3d is the closed-form
 // closest points of two lines; FFrame3d::ConstrainedAlignAxis is written out as its two axes; UE Core via
 // UECore.hpp.
@@ -27,11 +28,11 @@ namespace Desert::Geometry
 
         struct FInsetInfo
         {
-            TArray<int32>         InitialTriangles;
-            TArray<FEdgeLoop>     BaseLoops;
-            TArray<FEdgeLoop>     InsetLoops;
-            TArray<TArray<int>>   StitchTriangles;
-            TArray<TArray<int>>   StitchPolygonIDs;
+            TArray<int32>       InitialTriangles;
+            TArray<FEdgeLoop>   BaseLoops;
+            TArray<FEdgeLoop>   InsetLoops;
+            TArray<TArray<int>> StitchTriangles;
+            TArray<TArray<int>> StitchPolygonIDs;
         };
         TArray<FInsetInfo> InsetRegions;
         TArray<int32>      AllModifiedTriangles;

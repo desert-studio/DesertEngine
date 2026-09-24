@@ -22,14 +22,15 @@ namespace
         const double S = 100;
         for ( int i = 0; i < 8; ++i )
             M.AppendVertex( FVector3d( ( i & 1 ) ? S : 0, ( i & 2 ) ? S : 0, ( i & 4 ) ? S : 0 ) );
-        // Quads a,b,c,d counter-clockwise seen from outside.
+        // Quads a,b,c,d counter-clockwise seen from outside (the render winding); FDynamicMesh3 keeps UE's
+        // clockwise front (see DynamicMeshRenderConversion.hpp), so each triangle takes corners 0, 2, 1.
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
         for ( int f = 0; f < 6; ++f )
         {
             const int g = M.AllocateTriangleGroup();
-            M.AppendTriangle( Quads[f][0], Quads[f][1], Quads[f][2], g );
-            M.AppendTriangle( Quads[f][0], Quads[f][2], Quads[f][3], g );
+            M.AppendTriangle( Quads[f][0], Quads[f][2], Quads[f][1], g );
+            M.AppendTriangle( Quads[f][0], Quads[f][3], Quads[f][2], g );
         }
         return M;
     }
@@ -65,8 +66,9 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     FDynamicMesh3 M = MakeCube();
     ASSERT_EQ( M.GetTriNormal( 2 ).Z, 1.0 );
     FOffsetMeshRegion Op( &M );
-    Op.Triangles             = TopFace();
-    Op.ExtrusionVectorType   = FOffsetMeshRegion::EVertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
+    Op.Triangles = TopFace();
+    Op.ExtrusionVectorType =
+         FOffsetMeshRegion::EVertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
     Op.DefaultOffsetDistance = 50.0;
     ASSERT_TRUE( Op.Apply() ) << Op.FailureReason;
     // UE: +Vb vertices, +2*Eb triangles for a 4-vertex boundary; the face gets one new group, the walls four.
@@ -100,11 +102,12 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
 
 TEST( OffsetMeshRegion, WholeCubeOffsetsIntoASolid )
 {
-    FDynamicMesh3 M = MakeCube();
+    FDynamicMesh3     M = MakeCube();
     FOffsetMeshRegion Op( &M );
     for ( int t = 0; t < 12; ++t )
         Op.Triangles.Add( t );
-    Op.ExtrusionVectorType   = FOffsetMeshRegion::EVertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
+    Op.ExtrusionVectorType =
+         FOffsetMeshRegion::EVertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
     Op.DefaultOffsetDistance = 10.0;
     ASSERT_TRUE( Op.Apply() ) << Op.FailureReason;
     EXPECT_TRUE( Op.OffsetRegions[0].bIsSolid );
@@ -115,8 +118,8 @@ TEST( OffsetMeshRegion, WholeCubeOffsetsIntoASolid )
 
 TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
 {
-    FDynamicMesh3 M = MakeCube();
-    const int     TopGroup = M.GetTriangleGroup( 2 );
+    FDynamicMesh3    M        = MakeCube();
+    const int        TopGroup = M.GetTriangleGroup( 2 );
     FInsetMeshRegion Op( &M );
     Op.Triangles     = TopFace();
     Op.InsetDistance = 10.0;
@@ -143,8 +146,8 @@ TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
 
 TEST( InsetMeshRegion, RegionWithInteriorVertexIsRefused )
 {
-    FDynamicMesh3 M = MakeCube();
-    const int     Before = M.TriangleCount();
+    FDynamicMesh3    M      = MakeCube();
+    const int        Before = M.TriangleCount();
     FInsetMeshRegion Op( &M );
     // The +Z face plus the four side faces around it: vertices 4..7 are interior.
     for ( int t = 2; t < 12; ++t )
@@ -152,4 +155,10 @@ TEST( InsetMeshRegion, RegionWithInteriorVertexIsRefused )
     EXPECT_FALSE( Op.Apply() );
     EXPECT_NE( Op.FailureReason.find( "interior" ), std::string::npos ) << Op.FailureReason;
     EXPECT_EQ( M.TriangleCount(), Before );
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

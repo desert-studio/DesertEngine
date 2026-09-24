@@ -6,7 +6,7 @@
 #include "Engine/Geometry/UECore/DynamicMeshEditor.hpp"
 #include "Engine/Geometry/UECore/Operations/OffsetMeshRegion.hpp"
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 
@@ -36,9 +36,9 @@ namespace Desert::Geometry
                     InsetLinesOut[k] = FLine3d();
                     continue;
                 }
-                const FDynamicMesh3::FEdge EdgeVT = Mesh.GetEdge( EdgeList[k] );
-                FVector3d                  A      = Mesh.GetVertex( EdgeVT.Vert.A );
-                FVector3d                  B      = Mesh.GetVertex( EdgeVT.Vert.B );
+                const FDynamicMesh3::FEdge EdgeVT   = Mesh.GetEdge( EdgeList[k] );
+                FVector3d                  A        = Mesh.GetVertex( EdgeVT.Vert.A );
+                FVector3d                  B        = Mesh.GetVertex( EdgeVT.Vert.B );
                 FVector3d                  EdgeDir  = Normalized( A - B );
                 FVector3d                  Midpoint = ( A + B ) * 0.5;
                 FVector3d                  Normal, Centroid;
@@ -52,7 +52,8 @@ namespace Desert::Geometry
         }
 
         // SolveInsetVertexPositionFromLinePair (PolyEditingEdgeUtil.cpp:51); FDistLine3Line3d's closest points.
-        FVector3d SolveInsetVertexPositionFromLinePair( const FVector3d& Position, const FLine3d& L1, const FLine3d& L2 )
+        FVector3d SolveInsetVertexPositionFromLinePair( const FVector3d& Position, const FLine3d& L1,
+                                                        const FLine3d& L2 )
         {
             const double B = L1.Direction.Dot( L2.Direction );
             if ( std::abs( B ) > 0.999 )
@@ -113,10 +114,11 @@ namespace Desert::Geometry
                 for ( int j = 0; j < 3; ++j )
                     if ( !LoopVertices.Contains( Tri[j] ) )
                     {
-                        FailureReason = fmt::format( "vertex {} is inside the region ({} triangles): an inset of a "
-                                                     "region with interior vertices needs UE's interior solve, "
-                                                     "which is not ported",
-                                                     Tri[j], Region.InitialTriangles.Num() );
+                        FailureReason =
+                             fmt::format( "vertex {} is inside the region ({} triangles): an inset of a "
+                                          "region with interior vertices needs UE's interior solve, "
+                                          "which is not ported",
+                                          Tri[j], Region.InitialTriangles.Num() );
                         return false;
                     }
             }
@@ -146,8 +148,8 @@ namespace Desert::Geometry
             for ( int32 vi = 0; vi < N; ++vi )
             {
                 const FLine3d& PrevLine = ( vi == 0 ) ? InsetLines.Last() : InsetLines[vi - 1];
-                NewPositions[vi] =
-                     SolveInsetVertexPositionFromLinePair( Mesh->GetVertex( LoopVids[vi] ), PrevLine, InsetLines[vi] );
+                NewPositions[vi] = SolveInsetVertexPositionFromLinePair( Mesh->GetVertex( LoopVids[vi] ), PrevLine,
+                                                                         InsetLines[vi] );
             }
             for ( int32 k = 0; k < N; ++k )
                 Mesh->SetVertex( LoopVids[k], NewPositions[k] );
@@ -185,7 +187,8 @@ namespace Desert::Geometry
                 EdgeGroups.Add( NewGroupsMap[GroupPair] );
             }
             FDynamicMeshEditResult StitchResult;
-            if ( !Editor.StitchVertexLoopToTriVidPairSequence( InsetStitchSides[LoopIndex], BaseLoopV, StitchResult ) )
+            if ( !Editor.StitchVertexLoopToTriVidPairSequence( InsetStitchSides[LoopIndex], BaseLoopV,
+                                                               StitchResult ) )
             {
                 FailureReason = fmt::format( "loop {} ({} vertices) could not be stitched", LoopIndex, NumLoopV );
                 return false;
@@ -218,9 +221,9 @@ namespace Desert::Geometry
                         // FFrame3d(0, Normal).ConstrainedAlignAxis(0, FirstEdge, Normal): X is the first edge
                         // in the quad's plane, Y = Z x X.
                         FVector3d FirstEdge = Mesh->GetVertex( BaseLoopV[1] ) - Mesh->GetVertex( BaseLoopV[0] );
-                        AxisX = Normalized( FirstEdge - Normal * FirstEdge.Dot( Normal ) );
-                        AxisY = Normal.Cross( AxisX );
-                        FrameUp = AxisY;
+                        AxisX               = Normalized( FirstEdge - Normal * FirstEdge.Dot( Normal ) );
+                        AxisY               = Normal.Cross( AxisX );
+                        FrameUp             = AxisY;
                     }
                     else
                     {
@@ -230,8 +233,8 @@ namespace Desert::Geometry
                         AxisX       = AxisY.Cross( Z );
                     }
                     if ( k > 0 )
-                        AccumUVTranslation +=
-                             (float)Distance( Mesh->GetVertex( BaseLoopV[k] ), Mesh->GetVertex( BaseLoopV[k - 1] ) );
+                        AccumUVTranslation += (float)Distance( Mesh->GetVertex( BaseLoopV[k] ),
+                                                               Mesh->GetVertex( BaseLoopV[k - 1] ) );
                     Editor.SetQuadUVsFromProjection( QuadStrips[StripIndex][k], AxisX, AxisY, UVScaleFactor,
                                                      FVector2f( UVScaleFactor * AccumUVTranslation, 0.0f ) );
                 }

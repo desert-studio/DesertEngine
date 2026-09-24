@@ -65,12 +65,14 @@ namespace Desert::Geometry
             bool        bOuterIncludesIsolatedVertices = false;
         };
 
-        bool StitchVertexLoopsMinimal( const TArray<int>& Loop1, const TArray<int>& Loop2,
-                                       FDynamicMeshEditResult& ResultOut );
-        bool StitchVertexLoopToTriVidPairSequence( const TArray<FTriVidPair>& TriVidPairs,
-                                                   const TArray<int>& VertexLoop, FDynamicMeshEditResult& ResultOut );
+        bool        StitchVertexLoopsMinimal( const TArray<int>& Loop1, const TArray<int>& Loop2,
+                                              FDynamicMeshEditResult& ResultOut );
+        bool        StitchVertexLoopToTriVidPairSequence( const TArray<FTriVidPair>& TriVidPairs,
+                                                          const TArray<int>&         VertexLoop,
+                                                          FDynamicMeshEditResult&    ResultOut );
         static bool ConvertLoopToTriVidPairSequence( const FDynamicMesh3& Mesh, const TArray<int>& VidLoop,
-                                                     const TArray<int>& EdgeLoop, TArray<FTriVidPair>& TriVertPairsOut );
+                                                     const TArray<int>&   EdgeLoop,
+                                                     TArray<FTriVidPair>& TriVertPairsOut );
 
         bool RemoveTriangles( const TArray<int>& Triangles, bool bRemoveIsolatedVerts );
 
@@ -89,12 +91,13 @@ namespace Desert::Geometry
         FVector3f ComputeAndSetQuadNormal( const FIndex2i& QuadTris, bool bIsPlanar );
         void      SetQuadNormals( const FIndex2i& QuadTris, const FVector3f& Normal );
         void      SetTriangleNormals( const TArray<int>& Triangles );
-        void      SetQuadUVsFromProjection( const FIndex2i& QuadTris, const FVector3d& AxisX, const FVector3d& AxisY,
-                                            float UVScaleFactor, const FVector2f& UVTranslation );
-        void      ReverseTriangleOrientations( const TArray<int>& Triangles, bool bInvertNormals );
-        void      InvertTriangleNormals( const TArray<int>& Triangles );
+        void SetQuadUVsFromProjection( const FIndex2i& QuadTris, const FVector3d& AxisX, const FVector3d& AxisY,
+                                       float UVScaleFactor, const FVector2f& UVTranslation );
+        void ReverseTriangleOrientations( const TArray<int>& Triangles, bool bInvertNormals );
+        void InvertTriangleNormals( const TArray<int>& Triangles );
     };
 
     // Edges[i] joins Vertices[i] and Vertices[(i+1) % N] (UE FEdgeLoop::VertexLoopToEdgeLoop).
-    void VertexLoopToEdgeLoop( const FDynamicMesh3& Mesh, const TArray<int>& VertexLoop, TArray<int>& EdgeLoopOut );
+    void VertexLoopToEdgeLoop( const FDynamicMesh3& Mesh, const TArray<int>& VertexLoop,
+                               TArray<int>& EdgeLoopOut );
 } // namespace Desert::Geometry

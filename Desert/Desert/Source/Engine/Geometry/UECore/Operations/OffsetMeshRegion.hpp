@@ -1,13 +1,14 @@
-// Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/OffsetMeshRegion.h
-// and Private/Operations/OffsetMeshRegion.cpp:28-63 (Apply), 64-342 (EdgesAreParallel, FindLoopShiftFromGroupIDs,
+// Ported from UE 5.8
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/OffsetMeshRegion.h and
+// Private/Operations/OffsetMeshRegion.cpp:28-63 (Apply), 64-342 (EdgesAreParallel, FindLoopShiftFromGroupIDs,
 // LeftShiftArray, StitchRegionBorderLoopPairs_Version1), 455-512 (angle-weighted normals), 527-761
-// (ApplyOffset_Version1), 1082-1108 (EdgesSeparateSameGroupsAndAreColinearAtBorder); PolyEditingEdgeUtil.cpp:108-170
-// (ComputeNewGroupIDsAlongEdgeLoop); QuadGridPatchUtil.cpp:14-110 (normals and UV island of a quad patch).
-// Adapted: Version1 only (Legacy dropped) and NumSubdivisions = 0, so the FQuadGridPatch is one row of quads and
-// is walked directly; CreaseAngleThresholdDeg is not ported (UE's default 180 never splits); bowties are refused by
-// FMeshRegionBoundaryLoops instead of SplitBowtiesAtTriangles; FMeshConnectedComponents -> a flood fill over the
-// region; ComputeMaterialIDsForVertexPath -> the material of the region triangle on each loop edge; UE Core via
-// UECore.hpp; a failure names its reason in FailureReason.
+// (ApplyOffset_Version1), 1082-1108 (EdgesSeparateSameGroupsAndAreColinearAtBorder);
+// PolyEditingEdgeUtil.cpp:108-170 (ComputeNewGroupIDsAlongEdgeLoop); QuadGridPatchUtil.cpp:14-110 (normals and UV
+// island of a quad patch). Adapted: Version1 only (Legacy dropped) and NumSubdivisions = 0, so the FQuadGridPatch
+// is one row of quads and is walked directly; CreaseAngleThresholdDeg is not ported (UE's default 180 never
+// splits); bowties are refused by FMeshRegionBoundaryLoops instead of SplitBowtiesAtTriangles;
+// FMeshConnectedComponents -> a flood fill over the region; ComputeMaterialIDsForVertexPath -> the material of the
+// region triangle on each loop edge; UE Core via UECore.hpp; a failure names its reason in FailureReason.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
@@ -33,21 +34,21 @@ namespace Desert::Geometry
         FDynamicMesh3* Mesh;
         TArray<int32>  Triangles;
 
-        TFunction<FVector3d( const FVector3d& Position, const FVector3d& VertexVector, int Vid )> OffsetPositionFunc =
-             [this]( const FVector3d& Position, const FVector3d& VertexVector, int )
+        TFunction<FVector3d( const FVector3d& Position, const FVector3d& VertexVector, int Vid )>
+             OffsetPositionFunc = [this]( const FVector3d& Position, const FVector3d& VertexVector, int )
         { return Position + VertexVector * this->DefaultOffsetDistance; };
-        double                     DefaultOffsetDistance = 1.0;
-        EVertexExtrusionVectorType ExtrusionVectorType   = EVertexExtrusionVectorType::Zero;
+        double                                    DefaultOffsetDistance        = 1.0;
+        EVertexExtrusionVectorType                ExtrusionVectorType          = EVertexExtrusionVectorType::Zero;
         TFunction<bool( int32 Eid1, int32 Eid2 )> LoopEdgesShouldHaveSameGroup = [this]( int32 Eid1, int32 Eid2 )
         { return EdgesSeparateSameGroupsAndAreColinearAtBorder( Mesh, Eid1, Eid2, true ); };
-        float  UVScaleFactor                          = 1.0f;
-        bool   bOffsetFullComponentsAsSolids          = true;
-        bool   bIsPositiveOffset                      = true;
-        double MaxScaleForAdjustingTriNormalsOffset   = 4.0;
-        bool   bSingleGroupPerArea                    = true;
-        bool   bUVIslandPerGroup                      = true;
-        bool   bInferMaterialID                       = true;
-        int    SetMaterialID                          = 0;
+        float  UVScaleFactor                        = 1.0f;
+        bool   bOffsetFullComponentsAsSolids        = true;
+        bool   bIsPositiveOffset                    = true;
+        double MaxScaleForAdjustingTriNormalsOffset = 4.0;
+        bool   bSingleGroupPerArea                  = true;
+        bool   bUVIslandPerGroup                    = true;
+        bool   bInferMaterialID                     = true;
+        int    SetMaterialID                        = 0;
 
         struct FOffsetInfo
         {

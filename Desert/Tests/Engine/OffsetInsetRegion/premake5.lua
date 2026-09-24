@@ -40,9 +40,6 @@ project(test_name)
         defines { define }
     end
 
-    -- the ported operations name their failures with fmt; header-only here, the engine links the library
-    defines { "FMT_HEADER_ONLY" }
-
     links { "Common", "Optick" }
 
     filter "configurations:Debug"

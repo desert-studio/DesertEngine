@@ -6,7 +6,7 @@
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/UECore/IndexUtil.hpp"
 
-#include <fmt/format.h>
+#include <spdlog/fmt/fmt.h>
 
 namespace Desert::Geometry
 {
@@ -86,7 +86,7 @@ namespace Desert::Geometry
         return StitchLoopsInternal(
              *this, N,
              [this, N, &TriVidPairs, &VertexLoop]( int32 Index, int32& VertA, int32& VertB, int32& VertC,
-                                                    int32& VertD )
+                                                   int32& VertD )
              {
                  FIndex3i TriVids1 = Mesh->GetTriangle( TriVidPairs[Index].first );
                  VertA             = TriVids1[TriVidPairs[Index].second.first];
@@ -97,7 +97,8 @@ namespace Desert::Geometry
              ResultOut );
     }
 
-    bool FDynamicMeshEditor::ConvertLoopToTriVidPairSequence( const FDynamicMesh3& Mesh, const TArray<int>& VidLoop,
+    bool FDynamicMeshEditor::ConvertLoopToTriVidPairSequence( const FDynamicMesh3& Mesh,
+                                                              const TArray<int>&   VidLoop,
                                                               const TArray<int>&   EdgeLoop,
                                                               TArray<FTriVidPair>& TriVertPairsOut )
     {
@@ -135,9 +136,9 @@ namespace Desert::Geometry
                                                  FDynamicMeshEditResult& ResultOut )
     {
         ResultOut.Reset();
-        TMap<int, int>                 GroupMap;
-        FDynamicMeshAttributeSet*      Attr = Mesh->HasAttributes() ? Mesh->Attributes() : nullptr;
-        TArray<TMap<int, int>>         UVMaps, NormalMaps;
+        TMap<int, int>            GroupMap;
+        FDynamicMeshAttributeSet* Attr = Mesh->HasAttributes() ? Mesh->Attributes() : nullptr;
+        TArray<TMap<int, int>>    UVMaps, NormalMaps;
         if ( Attr )
         {
             UVMaps.SetNum( Attr->NumUVLayers() );
@@ -226,10 +227,10 @@ namespace Desert::Geometry
         TMap<int, int> OldVidsToNewVids;
         for ( int li = 0; li < NumLoops; ++li )
         {
-            const FEdgeLoop& Loop        = Loops[li];
-            FLoopPairSet&    LoopPair    = LoopSetOut[li];
-            LoopPair.OuterVertices       = Loop.Vertices;
-            LoopPair.OuterEdges          = Loop.Edges;
+            const FEdgeLoop& Loop          = Loops[li];
+            FLoopPairSet&    LoopPair      = LoopSetOut[li];
+            LoopPair.OuterVertices         = Loop.Vertices;
+            LoopPair.OuterEdges            = Loop.Edges;
             bool        bSawBoundaryInLoop = false;
             int         NumVertices        = Loop.Vertices.Num();
             TArray<int> NewVertexLoop;
@@ -242,10 +243,10 @@ namespace Desert::Geometry
                 {
                     if ( !Mesh->IsReferencedVertex( *ExistingNewVertID ) )
                     {
-                        LoopPair.OuterVertices[vi]                                   = *ExistingNewVertID;
-                        LoopPair.OuterEdges[vi]                                      = FDynamicMesh3::InvalidID;
+                        LoopPair.OuterVertices[vi]                                  = *ExistingNewVertID;
+                        LoopPair.OuterEdges[vi]                                     = FDynamicMesh3::InvalidID;
                         LoopPair.OuterEdges[( vi == 0 ) ? NumVertices - 1 : vi - 1] = FDynamicMesh3::InvalidID;
-                        NewVertexLoop[vi]                                            = VertID;
+                        NewVertexLoop[vi]                                           = VertID;
                     }
                     else
                         NewVertexLoop[vi] = *ExistingNewVertID;
@@ -276,11 +277,11 @@ namespace Desert::Geometry
                     // A mesh-border vertex: the duplicate becomes the "old" one, the original stays inner.
                     int32 NewVertID = Mesh->AppendVertex( *Mesh, VertID );
                     OldVidsToNewVids.Add( VertID, NewVertID );
-                    LoopPair.OuterVertices[vi]                                   = NewVertID;
-                    LoopPair.OuterEdges[vi]                                      = FDynamicMesh3::InvalidID;
+                    LoopPair.OuterVertices[vi]                                  = NewVertID;
+                    LoopPair.OuterEdges[vi]                                     = FDynamicMesh3::InvalidID;
                     LoopPair.OuterEdges[( vi == 0 ) ? NumVertices - 1 : vi - 1] = FDynamicMesh3::InvalidID;
-                    NewVertexLoop[vi]                                            = VertID;
-                    bSawBoundaryInLoop                                           = true;
+                    NewVertexLoop[vi]                                           = VertID;
+                    bSawBoundaryInLoop                                          = true;
                 }
                 else
                 {
@@ -339,7 +340,7 @@ namespace Desert::Geometry
     {
         FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
         TSet<int>                  TriangleSet( Triangles );
-        auto TrianglePredicate = [&]( int32 TriangleID ) { return TriangleSet.Contains( TriangleID ); };
+        auto           TrianglePredicate = [&]( int32 TriangleID ) { return TriangleSet.Contains( TriangleID ); };
         TMap<int, int> Vertices;
         for ( int tid : Triangles )
         {
