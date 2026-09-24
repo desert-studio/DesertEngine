@@ -8,8 +8,10 @@
 //      scene-wide part; and the cooked source hands the streamer, unit by unit, exactly what the in-memory
 //      source does — and that is what the executor activates.
 //   4. THE INDEX IS ENOUGH TO DECIDE WITH. Units, ids, the references that cross a unit, the asset closure.
-//   5. REFUSALS, BY FILE NAME. A damaged cell, a damaged index, a cell from another cook, another container
-//      version, a record without an id, two records with one id.
+//   5. REFUSALS, BY FILE NAME. A damaged cell payload, a damaged index header, a cell from another cook,
+//      another world format version, a record without an id, two records with one id.
+//   7. THE ENVELOPE (AF2). Every cooked file is an AF1 asset envelope whose header, read without the body,
+//      names its kind; reading and planning from the index reads no cell.
 //   6. THE TOOL. Tools/WorldCook's own RunWorldCook writes a directory, verifies it from disk, and removes what
 //      an earlier cook left.
 
@@ -17,9 +19,7 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
-#include <Engine/Assets/ContainerBytes.hpp>
-
-#include <Common/Utilities/Crc32c.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -37,6 +37,7 @@
 #include <future>
 #include <map>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -339,23 +340,45 @@ TEST( WorldCells, AUnitsAssetsAreWhatItsRecordsNameAndWhatThoseDependOn )
 
 // ── 5. Refusals, by file name ─────────────────────────────────────────────────────────────────────
 
+namespace
+{
+    namespace CC = Common::Content;
+
+    constexpr CC::SubsystemVersion kWorldFormat[] = { { Cells::kWorldFormatTag, Cells::kWorldFormatVersion } };
+
+    CC::EnvelopeHeader HeaderOf( const std::vector<unsigned char>& bytes )
+    {
+        auto header = CC::ReadEnvelopeHeader( std::as_bytes( std::span( bytes ) ), { kWorldFormat } );
+        EXPECT_TRUE( header.IsSuccess() ) << ( header.IsSuccess() ? "" : header.GetError() );
+        return header.IsSuccess() ? header.ExtractValue() : CC::EnvelopeHeader{};
+    }
+
+    // The middle byte of the file's Payload section: past the header, so only the section hash can see it.
+    std::size_t PayloadByte( const std::vector<unsigned char>& bytes )
+    {
+        const auto payload = HeaderOf( bytes ).Find( CC::EnvelopeSection::Payload );
+        EXPECT_TRUE( payload.has_value() );
+        return payload ? static_cast<std::size_t>( payload->Offset + payload->Size / 2 ) : 0;
+    }
+} // namespace
+
 TEST( WorldCells, ADamagedCellIsRefusedByName )
 {
     auto              files = FilesOf( Cook( World() ) );
     const std::string cell  = UnitFileOf( IndexOf( files ), kTargetId );
-    files[cell][20] ^= 0x01;
+    files[cell][PayloadByte( files[cell] )] ^= 0x01;
     const std::string error = AssembleError( files );
     EXPECT_NE( error.find( cell ), std::string::npos ) << error;
-    EXPECT_NE( error.find( "damaged" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "hash" ), std::string::npos ) << error;
 }
 
 TEST( WorldCells, ADamagedIndexIsRefusedByName )
 {
     auto files = FilesOf( Cook( World() ) );
-    files[std::string( Cells::kIndexFileName )][30] ^= 0x01;
+    files[std::string( Cells::kIndexFileName )][30] ^= 0x01; // inside the header: the header CRC sees it
     const std::string error = AssembleError( files );
     EXPECT_NE( error.find( Cells::kIndexFileName ), std::string::npos ) << error;
-    EXPECT_NE( error.find( "damaged" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "CRC" ), std::string::npos ) << error;
 }
 
 TEST( WorldCells, ACellFromAnotherCookIsRefusedAsStale )
@@ -371,17 +394,130 @@ TEST( WorldCells, ACellFromAnotherCookIsRefusedAsStale )
     EXPECT_NE( error.find( "stale" ), std::string::npos ) << error;
 }
 
-TEST( WorldCells, AnotherContainerVersionIsRefusedByName )
+TEST( WorldCells, AnotherWorldFormatVersionIsRefusedByName )
 {
-    auto  files = FilesOf( Cook( World() ) );
-    auto& bytes = files[std::string( Cells::kIndexFileName )];
-    // A well-formed file of another version: the number changed and the checksum made true again.
-    bytes[4] = static_cast<unsigned char>( Cells::kContainerVersion + 1 );
-    bytes.resize( bytes.size() - 4 );
-    Desert::Assets::WriteU32( bytes, Common::Utils::Crc32c( bytes.data(), bytes.size() ) );
-    const std::string error = AssembleError( files );
-    EXPECT_NE( error.find( Cells::kIndexFileName ), std::string::npos ) << error;
-    EXPECT_NE( error.find( "version" ), std::string::npos ) << error;
+    // A well-formed envelope of another world format version, newer and older: rewritten through the envelope
+    // writer, so every checksum is true again and only the number differs.
+    for ( const std::uint32_t version : { Cells::kWorldFormatVersion + 1, Cells::kWorldFormatVersion - 1 } )
+    {
+        auto                       files = FilesOf( Cook( World() ) );
+        auto&                      bytes = files[std::string( Cells::kIndexFileName )];
+        const CC::SubsystemVersion any[] = { { Cells::kWorldFormatTag, 1000 } };
+        auto envelope                    = CC::ReadAssetEnvelope( std::as_bytes( std::span( bytes ) ), { any } );
+        ASSERT_TRUE( envelope ) << envelope.GetError();
+        CC::AssetEnvelope edited = envelope.ExtractValue();
+        edited.Asset.Subsystems  = { CC::SubsystemVersion{ Cells::kWorldFormatTag, version } };
+        auto rewritten           = CC::WriteAssetEnvelope( edited );
+        ASSERT_TRUE( rewritten ) << rewritten.GetError();
+        bytes.assign( reinterpret_cast<const unsigned char*>( rewritten.GetValue().data() ),
+                      reinterpret_cast<const unsigned char*>( rewritten.GetValue().data() ) +
+                           rewritten.GetValue().size() );
+        const std::string error = AssembleError( files );
+        EXPECT_NE( error.find( Cells::kIndexFileName ), std::string::npos ) << version << ": " << error;
+        EXPECT_NE( error.find( "version" ), std::string::npos ) << version << ": " << error;
+    }
+}
+
+// ── 7. The envelope ──────────────────────────────────────────────────────────────────────────────────
+
+TEST( WorldCells, ACookedFileNamesItsKindInItsHeader )
+{
+    // The census and the cook name the files alike.
+    EXPECT_EQ( CC::KindSpec( CC::ContentKind::WorldCell ).Extension, Cells::kCellExtension );
+    EXPECT_EQ( CC::KindSpec( CC::ContentKind::WorldIndex ).Extension,
+               std::filesystem::path( Cells::kIndexFileName ).extension().string() );
+
+    const auto              files = FilesOf( Cook( World() ) );
+    std::set<std::uint64_t> guids;
+    for ( const auto& [name, bytes] : files )
+    {
+        const bool isIndex = name == Cells::kIndexFileName;
+        const auto whole   = HeaderOf( bytes );
+        ASSERT_GT( whole.HeaderSize, 0u ) << name;
+        // The header prefix ALONE, the body cut off and then a damaged body: the answer cannot depend on it.
+        std::vector<unsigned char> prefix( bytes.begin(), bytes.begin() + whole.HeaderSize );
+        const auto                 header = HeaderOf( prefix );
+        EXPECT_EQ( header.Asset, whole.Asset ) << name;
+        EXPECT_EQ( header.Asset.Kind, isIndex ? CC::ContentKind::WorldIndex : CC::ContentKind::WorldCell ) << name;
+        EXPECT_EQ( header.Asset.Subsystems, ( std::vector<CC::SubsystemVersion>{
+                                                 { Cells::kWorldFormatTag, Cells::kWorldFormatVersion } } ) )
+             << name;
+        EXPECT_TRUE( header.Asset.Dependencies.empty() ) << name;
+        EXPECT_TRUE( header.Find( CC::EnvelopeSection::Payload ).has_value() ) << name;
+        guids.insert( header.Asset.Guid.Hi );
+    }
+    EXPECT_EQ( guids.size(), files.size() ) << "two cooked files share one GUID";
+
+    // The kind is checked on read, not only written: a cell handed in as the index is refused by its kind.
+    const std::string cell  = UnitFileOf( IndexOf( files ), kTargetId );
+    auto              wrong = Cells::ReadWorldIndex( cell, files.at( cell ) );
+    ASSERT_FALSE( wrong.IsSuccess() );
+    EXPECT_NE( wrong.GetError().find( "WorldCell asset, expected a WorldIndex" ), std::string::npos )
+         << wrong.GetError();
+}
+
+// THE WP8 CONTAINER IS GONE, NOT KEPT BESIDE THE ENVELOPE: no source the engine, the tools or the editor build
+// spells its magic in either form. The needles are assembled here so this file does not match itself.
+TEST( WorldCells, NoSourceSpellsTheRetiredWp8Magic )
+{
+    namespace fs  = std::filesystem;
+    fs::path root = ".";
+    for ( int up = 0; up < 8 && !fs::exists( root / "Editor" / "Desert.deproj" ); ++up )
+        root /= "..";
+    ASSERT_TRUE( fs::exists( root / "Editor" / "Desert.deproj" ) ) << "repository root not found";
+
+    std::vector<std::string> needles;
+    for ( const std::string magic : { std::string( "DW" ) + "CL", std::string( "DW" ) + "IX" } )
+    {
+        needles.push_back( '"' + magic + '"' );
+        needles.push_back( std::string( "'" ) + magic[0] + "', '" + magic[1] + "', '" + magic[2] + "', '" +
+                           magic[3] + "'" );
+    }
+    std::size_t       scanned       = 0;
+    bool              sawWorldCells = false;
+    const char* const trees[]       = { "Desert/Desert/Source", "Desert/Common/Source", "Tools", "Editor/Source",
+                                        "Runtime/Source" };
+    for ( const char* tree : trees )
+    {
+        if ( !fs::exists( root / tree ) )
+            continue;
+        for ( const auto& entry : fs::recursive_directory_iterator( root / tree ) )
+        {
+            const std::string extension = entry.path().extension().string();
+            if ( !entry.is_regular_file() || ( extension != ".cpp" && extension != ".hpp" && extension != ".h" ) )
+                continue;
+            std::ifstream     file( entry.path(), std::ios::binary );
+            std::stringstream text;
+            text << file.rdbuf();
+            ++scanned;
+            sawWorldCells = sawWorldCells || entry.path().filename() == "WorldCells.cpp";
+            for ( const std::string& needle : needles )
+                EXPECT_EQ( text.str().find( needle ), std::string::npos )
+                     << entry.path().string() << " spells the retired WP8 magic " << needle;
+        }
+    }
+    // An instrument that read nothing answers "clean" too: it must have read the file the magic lived in.
+    EXPECT_TRUE( sawWorldCells ) << "the census never read WorldCells.cpp";
+    EXPECT_GT( scanned, 500u );
+}
+
+TEST( WorldCells, TheIndexIsReadAndPlannedWithoutReadingACell )
+{
+    const auto  files = FilesOf( Cook( World() ) );
+    std::size_t reads = 0;
+    const auto  inner = ReaderOf( files );
+    const auto  index = IndexOf( files );
+    ASSERT_TRUE( Cells::PlanFromIndex( index ).IsSuccess() );
+    Cells::CookedCellSource source( index,
+                                    [&]( std::string_view name )
+                                    {
+                                        ++reads;
+                                        return inner( name );
+                                    } );
+    EXPECT_EQ( reads, 0u ) << "the index and its plan were enough, and a cell was read anyway";
+    // The counter is live: asking for a unit's records is what reads its cell.
+    ASSERT_TRUE( source.UnitRecords( 0 ).IsSuccess() );
+    EXPECT_EQ( reads, 1u );
 }
 
 TEST( WorldCells, ARecordWithoutAnIdOrWithAnotherRecordsIdIsRefused )

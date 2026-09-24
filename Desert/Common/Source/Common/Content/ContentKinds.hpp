@@ -67,6 +67,8 @@ namespace Common::Content
         AnimGraph,
         Retarget,
         StringTable,
+        WorldCell,
+        WorldIndex,
         COUNT,
     };
 
@@ -120,6 +122,12 @@ namespace Common::Content
              /* AnimGraph            */ { "AnimGraph", ".danimgraph", &P::ANIM_GRAPH_PATH },
              /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH },
              /* StringTable          */ { "StringTable", ".destrings", &P::LOCALIZATION_PATH },
+             // A partitioned world's cooked cells and its index (WP8, in the AF1 envelope since AF2) sit beside
+             // their scene, in `Worlds/X.dwworld/` (WorldCells::CookedWorldDirectory). Derived by the cook and
+             // never committed; the extensions are WorldCells' kCellExtension and kIndexFileName's, which the
+             // WorldCells suite holds equal to these.
+             /* WorldCell            */ { "WorldCell", ".dwcell", &P::SCENE_PATH },
+             /* WorldIndex           */ { "WorldIndex", ".dwindex", &P::SCENE_PATH },
         } };
     }
 

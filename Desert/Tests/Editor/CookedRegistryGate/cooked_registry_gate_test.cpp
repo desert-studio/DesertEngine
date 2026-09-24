@@ -265,6 +265,12 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
     constexpr CookOnlyKind kCookOnlyKinds[] = {
          { "Texture", "Desert/Tests/Editor/PackagedContent/packaged_content_test.cpp",
            "TheTexturesAPackageCarriesAreCookedInsideIt" },
+         // A partitioned world's cells and index (AF2) exist only as cook output; the WorldCells suite holds
+         // the census's extensions equal to the cook's file names and reads the kind back from a cooked header.
+         { "WorldCell", "Desert/Tests/Engine/WorldCells/world_cells_test.cpp",
+           "ACookedFileNamesItsKindInItsHeader" },
+         { "WorldIndex", "Desert/Tests/Engine/WorldCells/world_cells_test.cpp",
+           "ACookedFileNamesItsKindInItsHeader" },
     };
 
     for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )

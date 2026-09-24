@@ -31,19 +31,21 @@
 // index (which carries the file's checksum) and nothing else — what makes a re-cook of a large world an upload
 // of two files.
 //
-// ── THE ENVELOPE: VERSION, LENGTH AND CRC-32C, CHECKED BEFORE THE CONTENT IS BELIEVED ─────────────
+// ── THE ENVELOPE: THE SHARED ASSET ENVELOPE (AF1), CHECKED BEFORE THE CONTENT IS BELIEVED ──────────
 //
-//   magic (4: "DWIX" index / "DWCL" cell) | u32 container version | u64 payload bytes | payload (JSON) |
-//   u32 Crc32c of everything before it
-//
-// The same layout and the same order of checks as the landscape tile (.dlht). The index also carries every
-// file's size and checksum, so a cell that is intact on its own but belongs to ANOTHER cook of the world (a
-// stale file left in the directory) is refused too. Every refusal names the file.
+// Every file is a Common/Content/AssetEnvelope: kind WorldIndex (the index) or WorldCell (a cell file), a GUID
+// derived from the world's name and the file's name (so a re-cook reproduces it), the world format version under
+// the subsystem tag kWorldFormatTag, and one Payload section holding the JSON below, unchanged. As in UE, where
+// a cooked cell is an ordinary level package, a cooked cell is an ordinary asset file: its header answers what
+// it is without its body being read (ReadEnvelopeHeader). The index also carries every file's size and
+// checksum, so a cell that is intact on its own but belongs to ANOTHER cook of the world (a stale file left in
+// the directory) is refused too. Every refusal names the file.
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCellSource.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
@@ -59,9 +61,11 @@
 
 namespace Desert::Core::WorldCells
 {
-    // Raised with any change to the envelope or to the index/cell payload shapes below. A reader refuses any
-    // other number by name; a cooked world is re-derivable, so the answer to an old one is a re-cook.
-    inline constexpr std::uint32_t kContainerVersion = 1;
+    // The world format's entry in an envelope's subsystem table. The version is raised with any change to the
+    // index/cell payload shapes below. A reader refuses any other number by name, older included; a cooked
+    // world is re-derivable, so the answer to an old one is a re-cook.
+    inline constexpr std::uint32_t kWorldFormatTag     = Common::Content::FourCC( "WPCW" );
+    inline constexpr std::uint32_t kWorldFormatVersion = 1;
 
     inline constexpr std::string_view kIndexFileName        = "World.dwindex";
     inline constexpr std::string_view kCellExtension        = ".dwcell";
@@ -87,7 +91,7 @@ namespace Desert::Core::WorldCells
     {
         std::string   Name;
         std::uint64_t Bytes = 0;
-        std::uint32_t Crc   = 0; // Crc32c of the whole file, trailer included
+        std::uint32_t Crc   = 0; // Crc32c of the whole file, envelope included
     };
 
     // A kEntityReferences reference whose two ends are in different units. Only those: within a unit both ends
