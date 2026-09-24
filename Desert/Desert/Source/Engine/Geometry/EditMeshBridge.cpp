@@ -1,5 +1,7 @@
 #include "EditMeshBridge.hpp"
 
+// The whole file is removed by P8b; the card that removes each function is named in EditMeshBridge.hpp.
+
 #include "Engine/Geometry/DynamicMeshSerialization.hpp"
 #include "Engine/Geometry/EditMeshSerialization.hpp"
 #include "Engine/ECS/EditableMesh.hpp"

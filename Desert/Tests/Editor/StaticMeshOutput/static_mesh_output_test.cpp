@@ -9,7 +9,8 @@
 #include <Common/Core/Constants.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Geometry/EditMeshAsset.hpp>
-#include <Engine/Geometry/EditMeshBridge.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
+#include <Engine/Geometry/EditMeshSerialization.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -25,12 +26,14 @@ using namespace Desert;
 
 namespace
 {
-    // The writer takes the component's core; the fixtures are built on EditMesh and cross the bridge once.
+    // The writer takes the component's core; the fixtures are built on EditMesh and cross through the saved
+    // form (what EditMeshBridge does, without linking the bridge's ECS half into a GPU-free suite).
     std::shared_ptr<const Geometry::FDynamicMesh3> Dyn( Geometry::EditMesh mesh )
     {
-        auto converted = Geometry::Bridge::FromEditMesh( std::move( mesh ) );
+        auto converted = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( mesh ), "StaticMeshOutput" );
         EXPECT_TRUE( converted.IsSuccess() ) << ( converted.IsSuccess() ? "" : converted.GetError() );
-        return converted.IsSuccess() ? converted.ExtractValue() : std::make_shared<const Geometry::FDynamicMesh3>();
+        return std::make_shared<const Geometry::FDynamicMesh3>(
+             converted.IsSuccess() ? converted.ExtractValue() : Geometry::FDynamicMesh3{} );
     }
 
     // A box with one polygroup per face and two materials (odd faces on slot 1), so a round trip that loses

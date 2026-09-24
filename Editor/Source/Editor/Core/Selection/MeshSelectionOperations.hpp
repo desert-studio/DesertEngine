@@ -3,8 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
-#include <Engine/Geometry/EditMeshModelOperations.hpp>
-#include <Engine/Geometry/EditMeshTopologyOperations.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp> // the EditMesh operations cross here until P11-P17
 
 #include <cstdint>
 #include <optional>

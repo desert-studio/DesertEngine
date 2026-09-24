@@ -6,6 +6,11 @@
 // and nothing else: outside Geometry/EditMesh* and this bridge no source includes an EditMesh header
 // (EditMeshBridgeCensus pins it), so the day the last card lands, deleting this pair is the whole cleanup (P8b).
 //
+// Which card removes which crossing: element selection and picking -> P10; Extrude / Offset / Inset -> P11;
+// Edge Loop / Weld / Hole Fill / Clean -> P12; Bevel -> P13a/b; Plane Cut / Mirror -> P14; Subdivide -> P15;
+// Create Shape and the shape generators -> P16; Boolean / Trim -> P17; the CubeGrid bake -> P18; the XForm tab
+// (our own, no UE counterpart) -> P19 or a card of its own. The bridge as a whole -> P8b.
+//
 // The editor sees the EditMesh types (selection, operation arguments, the operations themselves) only through
 // the includes below, which is why they are here and not in the callers.
 
@@ -37,22 +42,24 @@ namespace Desert::Geometry::Bridge
     // vertex and triangle order. Cached per mesh for as long as the mesh lives - the component's mesh is
     // immutable, so a view never goes stale - because a pick runs on every mouse move.
     // Refused, naming the reason, when the saved form does not read back into an EditMesh.
-    // removed by P10 (GroupTopology + selection: picking and selection read the ported core).
+    // removed by P10 (GroupTopology + selection: picking and selection read the ported core); the function
+    // itself by P8b.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const EditMesh>>
     EditMeshView( const std::shared_ptr<const FDynamicMesh3>& mesh );
 
     // An operation's result back onto the ported core. The EditMesh is compacted first and @p selection (the
     // operation's output selection, if the caller keeps one) is renumbered through the same maps, so its IDs
     // name the returned mesh's elements. Refused when the converted mesh is refused by the FDynamicMesh3
-    // reader. removed by the last of P11-P17 (each ports the operations that call it: P11 Extrude / Offset /
-    // Inset, P13a/b Bevel, P14 Plane Cut + Mirror, P15 Subdivide, P17 Trim; the XForm tab and Create Shape
-    // move with their own PORT0 cards).
+    // reader. removed by the last of the cards whose operations call it: P11 Extrude / Offset / Inset, P12 Edge
+    // Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P14 Plane Cut / Mirror, P15 Subdivide, P17 Boolean / Trim,
+    // P19 (or its own card) the XForm tab; the function itself by P8b.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const FDynamicMesh3>>
     FromEditMesh( EditMesh mesh, ElementSelection* selection = nullptr );
 
     // FromEditMesh, then ECS::SetEditableMesh: what a tool that still BUILDS an EditMesh (Create Shape, the
     // CubeGrid blockout, a PolyEdit drag step) puts on the entity. Refused with either step's reason.
-    // removed by P10 (PolyEdit) and by the PORT0 cards that port Create Shape and the CubeGrid bake.
+    // removed by P10 (the PolyEdit drag), P16 (Create Shape and the shape generators) and P18 (the CubeGrid
+    // bake); the function itself by P8b.
     [[nodiscard]] Common::BoolResultStr SetEditableMeshFromEditMesh( ECS::StaticMeshComponent& component,
                                                                      EditMesh                  mesh );
 } // namespace Desert::Geometry::Bridge
