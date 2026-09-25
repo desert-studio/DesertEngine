@@ -186,4 +186,145 @@ namespace Common::Content
                               restored.GetError() );
         return MakeSuccess( true );
     }
+    namespace
+    {
+        bool IsInside( const fs::path& path, const fs::path& root )
+        {
+            const fs::path relative = path.lexically_normal().lexically_relative( root.lexically_normal() );
+            return !relative.empty() && *relative.begin() != "..";
+        }
+
+        // Makes `dir` and every missing parent, recording each one it made (outermost first) so undo can
+        // remove exactly those and no folder that was there before.
+        BoolResultStr MakeDirectories( const fs::path& dir, std::vector<fs::path>& made )
+        {
+            std::vector<fs::path> missing;
+            std::error_code       ec;
+            for ( fs::path at = dir; !at.empty() && !fs::exists( at, ec ); at = at.parent_path() )
+            {
+                missing.push_back( at );
+                if ( at == at.parent_path() )
+                    break;
+            }
+            for ( auto it = missing.rbegin(); it != missing.rend(); ++it )
+            {
+                if ( !fs::create_directory( *it, ec ) && ec )
+                    return MakeError( "move folder: could not create '" + it->string() + "': " + ec.message() );
+                made.push_back( *it );
+            }
+            return MakeSuccess( true );
+        }
+
+        // A plain file's move leaves its folder empty: remove it and each emptied parent below `stop`.
+        void RemoveEmptiedFolders( fs::path dir, const fs::path& stop )
+        {
+            std::error_code ec;
+            while ( IsInside( dir, stop ) && fs::is_empty( dir, ec ) && !ec && fs::remove( dir, ec ) )
+                dir = dir.parent_path();
+        }
+    } // namespace
+
+    BoolResultStr UndoFolderMove( Utils::AssetRegistry& registry, const AssetFolderMoveRecord& record )
+    {
+        std::error_code ec;
+        if ( record.WholeDirectory )
+        {
+            fs::rename( record.To, record.From, ec );
+            if ( ec )
+                return MakeError( "undo move folder: '" + record.To.string() + "' -> '" + record.From.string() +
+                                  "': " + ec.message() );
+        }
+        for ( auto it = record.PlainFiles.rbegin(); it != record.PlainFiles.rend(); ++it )
+        {
+            fs::create_directories( it->first.parent_path(), ec );
+            if ( const auto moved = MoveFileAtomic( it->second, it->first ); !moved )
+                return MakeError( "undo move folder: " + moved.GetError() );
+        }
+        for ( auto it = record.Assets.rbegin(); it != record.Assets.rend(); ++it )
+            if ( const auto undone = UndoAssetMove( registry, *it ); !undone )
+                return MakeError( "undo move folder '" + record.From.string() + "': " + undone.GetError() );
+        // Newest first, so a made folder is removed before the made folder holding it.
+        for ( auto it = record.CreatedDirectories.rbegin(); it != record.CreatedDirectories.rend(); ++it )
+            if ( !fs::remove( *it, ec ) || ec )
+                return MakeError( "undo move folder: the folder the move made, '" + it->string() +
+                                  "', could not be removed (" + ( ec ? ec.message() : "missing" ) + ")" );
+        return MakeSuccess( true );
+    }
+
+    ResultStr<AssetFolderMoveRecord>
+    MoveFolderLeavingRedirectors( Utils::AssetRegistry& registry, const fs::path& from, const fs::path& to,
+                                  const std::map<fs::path, AssetGuid>& redirectorSelves )
+    {
+        std::error_code ec;
+        if ( !fs::is_directory( from, ec ) )
+            return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "': not a folder" );
+        if ( IsInside( to, from ) || to.lexically_normal() == from.lexically_normal() )
+            return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "': the destination '" +
+                                                     to.string() + "' is inside it" );
+
+        AssetFolderMoveRecord record{ from, to, false, {}, {}, {} };
+        std::vector<fs::path> files = Utils::FileSystem::ListFilesRecursive( from );
+        std::sort( files.begin(), files.end() );
+        bool anyRow = false;
+        for ( const fs::path& file : files )
+        {
+            if ( !fs::is_regular_file( file, ec ) )
+                return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "': '" + file.string() +
+                                                         "' exists only in a mounted pak and cannot be moved" );
+            anyRow = anyRow || registry.FindByKey( AssetHandle::StableKeyForPath( file ) ) != nullptr;
+        }
+
+        if ( !anyRow )
+        {
+            if ( const auto made = MakeDirectories( to.parent_path(), record.CreatedDirectories ); !made )
+                return MakeError<AssetFolderMoveRecord>( made.GetError() );
+            fs::rename( from, to, ec );
+            if ( ec )
+            {
+                record.WholeDirectory = false;
+                static_cast<void>( UndoFolderMove( registry, record ) );
+                return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "' -> '" + to.string() +
+                                                         "': " + ec.message() );
+            }
+            record.WholeDirectory = true;
+            return MakeSuccess( std::move( record ) );
+        }
+
+        // Any refusal from here takes back everything moved so far; a take-back that itself fails is named
+        // too, because then the disk is between the two states and the user must know which files moved.
+        const auto refuse = [&]( const std::string& why ) -> ResultStr<AssetFolderMoveRecord>
+        {
+            if ( const auto back = UndoFolderMove( registry, record ); !back )
+                return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "': " + why +
+                                                         "; AND the take-back failed: " + back.GetError() );
+            return MakeError<AssetFolderMoveRecord>( "move folder '" + from.string() + "': " + why +
+                                                     "; nothing was moved" );
+        };
+        for ( const fs::path& file : files )
+        {
+            const fs::path target = to / file.lexically_relative( from );
+            if ( const auto made = MakeDirectories( target.parent_path(), record.CreatedDirectories ); !made )
+                return refuse( made.GetError() );
+            if ( registry.FindByKey( AssetHandle::StableKeyForPath( file ) ) != nullptr )
+            {
+                const auto self = redirectorSelves.find( file );
+                auto       moved =
+                     MoveAssetLeavingRedirector( registry, file, target,
+                                                 self != redirectorSelves.end() ? std::optional<AssetGuid>( self->second )
+                                                                                : std::nullopt );
+                if ( !moved )
+                    return refuse( moved.GetError() );
+                record.Assets.push_back( moved.ExtractValue() );
+                continue;
+            }
+            if ( fs::exists( target, ec ) )
+                return refuse( "'" + target.string() + "' already exists; refusing to overwrite it" );
+            if ( const auto moved = MoveFileAtomic( file, target ); !moved )
+                return refuse( moved.GetError() );
+            record.PlainFiles.emplace_back( file, target );
+        }
+        for ( const auto& [plainFrom, plainTo] : record.PlainFiles )
+            RemoveEmptiedFolders( plainFrom.parent_path(), from );
+        return MakeSuccess( std::move( record ) );
+    }
 } // namespace Common::Content

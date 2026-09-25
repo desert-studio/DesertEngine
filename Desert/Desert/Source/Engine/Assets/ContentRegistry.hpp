@@ -538,6 +538,36 @@ namespace Desert::Assets
             return undone;
         }
 
+        // RENAME / MOVE OF A FOLDER (AF10c): every row under it moves as `MoveAsset` does, one registry lock
+        // over the whole folder, all or nothing (see `Common::Content::MoveFolderLeavingRedirectors`).
+        inline Common::ResultStr<Common::Content::AssetFolderMoveRecord>
+        MoveFolder( const std::filesystem::path& from, const std::filesystem::path& to,
+                    const std::map<std::filesystem::path, Common::Content::AssetGuid>& redirectorSelves = {} )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            auto moved = Common::Content::MoveFolderLeavingRedirectors( state.Registry, from, to, redirectorSelves );
+            if ( !moved )
+                return moved;
+            for ( const Common::Content::AssetMoveRecord& asset : moved.GetValue().Assets )
+                if ( const Common::Utils::AssetRegistryEntry* row =
+                          state.Registry.FindByKey( Common::AssetHandle::StableKeyForPath( asset.To ) ) )
+                    static_cast<void>( Common::AssetPathIndex::Record( row->PathHandle(), row->Key ) );
+            state.Dirty = true;
+            return moved;
+        }
+
+        inline Common::BoolResultStr UndoFolderMove( const Common::Content::AssetFolderMoveRecord& record )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            auto undone = Common::Content::UndoFolderMove( state.Registry, record );
+            state.Dirty = true;
+            return undone;
+        }
+
         // True when `file` is content the registry has a row for - the files a rename must move through
         // `MoveAsset`; anything else (a folder, a source image, a note) is a plain file operation.
         inline bool HasRow( const std::filesystem::path& file )

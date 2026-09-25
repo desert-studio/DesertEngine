@@ -4,8 +4,10 @@
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Common::Content
@@ -48,4 +50,36 @@ namespace Common::Content
     // The inverse: removes the redirector (refused when the file at From is no longer the one the move
     // wrote), moves the asset back, restores the registry's original row.
     [[nodiscard]] BoolResultStr UndoAssetMove( Utils::AssetRegistry& registry, const AssetMoveRecord& record );
+    // RENAME / MOVE OF A FOLDER (AF10c): every file under it the registry has a row for moves through
+    // `MoveAssetLeavingRedirector` - a redirector stays at each old path, so a scene outside the folder that
+    // names one of them keeps loading - and every other file (a source image, a note) moves as a plain file.
+    // ALL OR NOTHING: a refusal on any file (a taken name in a destination that already exists, a GUID-less
+    // asset, a redirector left by an earlier move) takes back every file moved before it, in reverse, and the
+    // disk and the registry are as they were. The files are listed by `FileSystem::ListFilesRecursive`, the
+    // engine's one content walk.
+    //
+    // A folder holding no registry row is renamed whole (its empty subfolders go with it): nothing names its
+    // files through the registry, so there is nothing to leave a redirector for. A folder that does hold rows
+    // keeps existing at its old path (the redirectors live there); subfolders its plain files leave empty are
+    // removed. REFUSED, naming the path: a source that is not a folder, a destination inside the source, and a
+    // file under the source that exists only in a mounted pak (it cannot be moved on disk).
+    struct AssetFolderMoveRecord
+    {
+        std::filesystem::path                                            From;
+        std::filesystem::path                                            To;
+        bool                                                             WholeDirectory = false;
+        std::vector<AssetMoveRecord>                                     Assets;      // in move order
+        std::vector<std::pair<std::filesystem::path, std::filesystem::path>> PlainFiles; // (from, to), in order
+        std::vector<std::filesystem::path> CreatedDirectories; // destination folders the move made, in order
+    };
+
+    // `redirectorSelves` maps an asset's old path to the redirector GUID a previous run of this move wrote
+    // there: a redo passes them back so it writes the very same redirector bytes.
+    [[nodiscard]] ResultStr<AssetFolderMoveRecord>
+    MoveFolderLeavingRedirectors( Utils::AssetRegistry& registry, const std::filesystem::path& from,
+                                  const std::filesystem::path&                          to,
+                                  const std::map<std::filesystem::path, AssetGuid>& redirectorSelves = {} );
+
+    // The inverse, in reverse order: plain files back, every asset move undone, the made folders removed.
+    [[nodiscard]] BoolResultStr UndoFolderMove( Utils::AssetRegistry& registry, const AssetFolderMoveRecord& record );
 } // namespace Common::Content

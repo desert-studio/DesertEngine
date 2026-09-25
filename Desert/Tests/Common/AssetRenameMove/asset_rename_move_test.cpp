@@ -9,6 +9,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -16,7 +17,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iterator>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -249,6 +252,139 @@ TEST( AssetRenameMove, TheEditorRouteMovesThroughTheRegistryAndTheUndoStack )
     EXPECT_FALSE( refused );
     ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Undo() );
     EXPECT_FALSE( fs::exists( c.Renamed ) );
+    Desert::Editor::CommandHistory::Get().Clear();
+    CR::ResetForTest();
+}
+
+namespace
+{
+    // A folder of content - a material, a mesh in a subfolder, a note beside the mesh - and a scene OUTSIDE
+    // the folder naming the material and the mesh: the edges a folder rename must not break.
+    struct FolderCorpus
+    {
+        Project                      Proj{ "AF10c_Folder" };
+        fs::path                     Folder   = Proj.In( ContentKind::Material, "x" ).parent_path() / "Rocks";
+        fs::path                     Renamed  = Folder.parent_path() / "Stones";
+        fs::path                     Material = Folder / "M_Rock.dmat";
+        fs::path                     Mesh     = Folder / "Sub" /
+                                ( "SM_Rock" + std::string( Common::Content::KindSpec( ContentKind::StaticMesh ).Extension ) );
+        fs::path                     Note     = Folder / "Sub" / "readme.txt";
+        fs::path                     Level    = Proj.In( ContentKind::Scene, "Level" );
+        Common::Utils::AssetRegistry Registry;
+
+        FolderCorpus()
+        {
+            fs::create_directories( Mesh.parent_path() );
+            WriteAsset( Material, ContentKind::Material, Guid( 11 ) );
+            WriteAsset( Mesh, ContentKind::StaticMesh, Guid( 12 ) );
+            WriteAsset( Level, ContentKind::Scene, Guid( 13 ) );
+            std::ofstream( Note ) << "not content";
+            Scan( Registry, Material, ContentKind::Material );
+            Scan( Registry, Mesh, ContentKind::StaticMesh );
+            Scan( Registry, Level, ContentKind::Scene );
+            EXPECT_TRUE( Registry.SetDependencies( Key( Level ), { Common::Content::HandleForGuid( Guid( 11 ) ),
+                                                                   Common::Content::HandleForGuid( Guid( 12 ) ) } ) );
+        }
+
+        // Every file of the project by path and content hash: "undo gives back every byte", checked whole.
+        [[nodiscard]] std::map<std::string, std::size_t> Tree() const
+        {
+            std::map<std::string, std::size_t> tree;
+            for ( const fs::path& file : Common::Utils::FileSystem::ListFilesRecursive( Proj.Root ) )
+                tree[file.lexically_relative( Proj.Root ).generic_string()] = std::hash<std::string>{}( Bytes( file ) );
+            return tree;
+        }
+    };
+
+    // The scene outside the folder resolves both of its edges to the moved files.
+    void ExpectLevelResolvesInto( const Common::Utils::AssetRegistry& registry, const FolderCorpus& c )
+    {
+        const auto* material = registry.FindByHandle( Common::Content::HandleForGuid( Guid( 11 ) ) );
+        const auto* mesh     = registry.FindByHandle( Common::Content::HandleForGuid( Guid( 12 ) ) );
+        ASSERT_NE( material, nullptr );
+        ASSERT_NE( mesh, nullptr );
+        EXPECT_EQ( material->Key, Key( c.Renamed / "M_Rock.dmat" ) );
+        EXPECT_EQ( mesh->Key, Key( c.Renamed / "Sub" / c.Mesh.filename() ) );
+        EXPECT_EQ( Common::Content::ReferrersOf( registry, *material ), std::vector<std::string>{ Key( c.Level ) } );
+        EXPECT_EQ( Common::Content::ReferrersOf( registry, *mesh ), std::vector<std::string>{ Key( c.Level ) } );
+        // The old paths still resolve, through the redirectors left in the old folder.
+        const auto* byOldMaterial = registry.FindByReference( 0, c.Material.string() );
+        const auto* byOldMesh     = registry.FindByReference( 0, c.Mesh.string() );
+        ASSERT_NE( byOldMaterial, nullptr );
+        ASSERT_NE( byOldMesh, nullptr );
+        EXPECT_EQ( byOldMaterial->Key, material->Key );
+        EXPECT_EQ( byOldMesh->Key, mesh->Key );
+    }
+} // namespace
+
+TEST( AssetRenameMove, AFolderRenameMovesEveryAssetLeavingRedirectorsAndUndoRestoresEveryByte )
+{
+    FolderCorpus      c;
+    const auto        treeBefore     = c.Tree();
+    const std::string registryBefore = c.Registry.Serialize();
+
+    auto moved = Common::Content::MoveFolderLeavingRedirectors( c.Registry, c.Folder, c.Renamed );
+    ASSERT_TRUE( moved ) << moved.GetError();
+    EXPECT_EQ( moved.GetValue().Assets.size(), 2u );
+    ExpectLevelResolvesInto( c.Registry, c );
+    const auto materialRedirector = Common::Content::ReadRedirectorFile( c.Material );
+    const auto meshRedirector     = Common::Content::ReadRedirectorFile( c.Mesh );
+    ASSERT_TRUE( materialRedirector );
+    ASSERT_TRUE( meshRedirector );
+    EXPECT_EQ( materialRedirector.GetValue().Target, Guid( 11 ) );
+    EXPECT_EQ( meshRedirector.GetValue().Target, Guid( 12 ) );
+    // The note is not content: it moved as a file, and nothing is left behind for it.
+    EXPECT_FALSE( fs::exists( c.Note ) );
+    EXPECT_EQ( Bytes( c.Renamed / "Sub" / "readme.txt" ), "not content" );
+
+    ASSERT_TRUE( Common::Content::UndoFolderMove( c.Registry, moved.GetValue() ) );
+    EXPECT_EQ( c.Tree(), treeBefore );
+    EXPECT_EQ( c.Registry.Serialize(), registryBefore );
+    EXPECT_FALSE( fs::exists( c.Renamed ) );
+}
+
+// A taken name on the LAST file (the material and the mesh have already moved by then) refuses the whole
+// folder: both asset moves are taken back and neither disk nor registry changed.
+TEST( AssetRenameMove, ARefusalMidFolderTakesBackEveryFileAlreadyMoved )
+{
+    FolderCorpus c;
+    fs::create_directories( c.Renamed / "Sub" );
+    std::ofstream( c.Renamed / "Sub" / "readme.txt" ) << "already here";
+    const auto        treeBefore     = c.Tree();
+    const std::string registryBefore = c.Registry.Serialize();
+
+    const auto refused = Common::Content::MoveFolderLeavingRedirectors( c.Registry, c.Folder, c.Renamed );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "readme.txt' already exists" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "nothing was moved" ), std::string::npos ) << refused.GetError();
+    EXPECT_EQ( c.Tree(), treeBefore );
+    EXPECT_EQ( c.Registry.Serialize(), registryBefore );
+    EXPECT_FALSE( fs::exists( c.Renamed / "M_Rock.dmat" ) );
+}
+
+// The editor's route: one undo step takes the whole folder back, redo writes the same redirector bytes.
+TEST( AssetRenameMove, TheEditorFolderRouteIsOneUndoStep )
+{
+    namespace CR = Desert::Assets::ContentRegistry;
+    const FolderCorpus c;
+    CR::ResetForTest();
+    ASSERT_GT( CR::Detail::Publish( c.Registry ), 0u );
+    Desert::Editor::CommandHistory::Get().Clear();
+    const auto treeBefore = c.Tree();
+
+    const auto moved = Desert::Editor::MoveFolderWithUndo( c.Folder, c.Renamed, "Rename" );
+    ASSERT_TRUE( moved ) << moved.GetError();
+    ExpectLevelResolvesInto( CR::Get(), c );
+    EXPECT_EQ( CR::FileToOpen( c.Material ), c.Renamed / "M_Rock.dmat" );
+    const auto treeMoved = c.Tree();
+
+    ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Undo() );
+    EXPECT_EQ( c.Tree(), treeBefore );
+    EXPECT_EQ( CR::Get().Serialize(), c.Registry.Serialize() );
+
+    ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Redo() );
+    EXPECT_EQ( c.Tree(), treeMoved );
+    ExpectLevelResolvesInto( CR::Get(), c );
     Desert::Editor::CommandHistory::Get().Clear();
     CR::ResetForTest();
 }

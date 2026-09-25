@@ -75,15 +75,17 @@ namespace Desert::Editor
     {
         // THE ONE ROUTE FOR A RENAME OR A MOVE (AF10c). Content the registry has a row for moves through it:
         // a redirector stays at the old path, so every scene still naming that path keeps loading, and the
-        // move lands on the undo stack. A folder or a file the registry does not know (a source image, a
-        // note) is a plain file operation - nothing names it by path through the registry.
+        // move lands on the undo stack. A folder moves the same way for every row inside it, all or nothing,
+        // as one undo step. Only a loose file the registry does not know (a source image, a note) is a plain
+        // file operation - nothing names it by path through the registry.
         bool MoveOrRename( const std::string& src, const std::filesystem::path& dst, const char* label,
                            std::string& error )
         {
             std::error_code ec;
-            if ( !std::filesystem::is_directory( src, ec ) && Assets::ContentRegistry::HasRow( src ) )
+            const bool      folder = std::filesystem::is_directory( src, ec );
+            if ( folder || Assets::ContentRegistry::HasRow( src ) )
             {
-                const auto moved = MoveAssetWithUndo( src, dst, label );
+                const auto moved = folder ? MoveFolderWithUndo( src, dst, label ) : MoveAssetWithUndo( src, dst, label );
                 if ( !moved )
                     error = moved.GetError();
                 return static_cast<bool>( moved );
