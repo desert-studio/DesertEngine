@@ -2084,11 +2084,12 @@ namespace Desert::Migration
         {
             const std::string tag = entity.Tag.value_or( "Entity" );
             RaiseMeshGuids( entity.Components, tag, assetsRoot, report );
-            if ( !entity.PrefabOverrides )
+            if ( !entity.PrefabOverrides.has_value() )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseMeshGuids( ( *entity.PrefabOverrides )[i].Components,
-                                tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, report );
+            auto& overrides = entity.PrefabOverrides.value();
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseMeshGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                assetsRoot, report );
         }
         return report;
     }
@@ -2100,7 +2101,7 @@ namespace Desert::Migration
             rfl::Generic::Object ref;
             ref["Guid"] = guid;
             ref["Path"] = key;
-            return rfl::Generic( std::move( ref ) );
+            return { std::move( ref ) };
         }
 
         // The header GUID a `.detex` states, refusing a missing file, another kind, or the null GUID.
@@ -2113,9 +2114,9 @@ namespace Desert::Migration
             std::string   prefix( 4096, '\0' );
             in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
             prefix.resize( static_cast<std::size_t>( in.gcount() ) );
-            const auto header = Common::Content::ReadEnvelopeHeader(
-                 std::span<const std::byte>( reinterpret_cast<const std::byte*>( prefix.data() ), prefix.size() ),
-                 Common::Content::AssetHeaderReadContext{ {}, true } );
+            const auto header =
+                 Common::Content::ReadEnvelopeHeader( std::as_bytes( std::span<const char>( prefix ) ),
+                                                      Common::Content::AssetHeaderReadContext{ {}, true } );
             if ( !header )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
                                                                            "': " + header.GetError() );
@@ -2138,7 +2139,7 @@ namespace Desert::Migration
             std::error_code ec;
             const auto      root = std::filesystem::absolute( assetsRoot, ec ).lexically_normal();
             const auto      rel  = file.lexically_normal().lexically_relative( root ).generic_string();
-            if ( rel.empty() || rel == "." || rel.rfind( "..", 0 ) == 0 )
+            if ( rel.empty() || rel == "." || rel.starts_with( ".." ) )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
                                                                            "' lies outside the assets root '" +
                                                                            root.generic_string() + "'" );
@@ -2153,7 +2154,7 @@ namespace Desert::Migration
                 return Common::MakeSuccess( TextureRef( "", "" ) );
             std::error_code       ec;
             std::filesystem::path file;
-            if ( value.rfind( "assets:", 0 ) == 0 )
+            if ( value.starts_with( "assets:" ) )
                 file = std::filesystem::absolute( assetsRoot, ec ) / value.substr( 7 );
             else if ( std::filesystem::path( value ).is_absolute() )
                 file = value;
@@ -2277,7 +2278,7 @@ namespace Desert::Migration
                     entry["Path"] = hit->second.second;
                     ++report.Rewritten;
                 }
-                raised.push_back( rfl::Generic( std::move( entry ) ) );
+                raised.emplace_back( std::move( entry ) );
                 changed = true;
             }
             if ( !changed )
@@ -2297,10 +2298,11 @@ namespace Desert::Migration
         {
             const std::string tag = entity.Tag.value_or( "Entity" );
             RaiseTextureGuids( entity.Components, tag, assetsRoot, index, report );
-            if ( !entity.PrefabOverrides )
+            if ( !entity.PrefabOverrides.has_value() )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseTextureGuids( ( *entity.PrefabOverrides )[i].Components,
+            auto& overrides = entity.PrefabOverrides.value();
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseTextureGuids( overrides[i].Components,
                                    tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index,
                                    report );
         }

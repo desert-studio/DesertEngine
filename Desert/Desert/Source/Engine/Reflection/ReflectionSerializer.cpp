@@ -147,7 +147,7 @@ namespace Desert::Reflection
                     out[field.Name] = ReadIntBySize( p, field.Size );
                     break;
                 case FieldType::AssetHandle:
-                    if ( resolver && field.Meta.AssetType == "SkyboxAsset" )
+                    if ( resolver != nullptr && field.Meta.AssetType == "SkyboxAsset" )
                     {
                         // SCNE 29: the GUID is the identity, the project key only locates it. ToPath
                         // renders a skybox as a tagged key or not at all, so no absolute path reaches here.
@@ -155,9 +155,9 @@ namespace Desert::Reflection
                         rfl::Generic::Object ref;
                         ref["Guid"]     = resolver->ToGuid( handle, field.Meta.AssetType );
                         ref["Path"]     = resolver->ToPath( handle, field.Meta.AssetType );
-                        out[field.Name] = std::move( ref );
+                        out[field.Name] = rfl::Generic( std::move( ref ) );
                     }
-                    else if ( resolver && resolver->ToPath )
+                    else if ( resolver != nullptr && resolver->ToPath )
                         out[field.Name] =
                              resolver->ToPath( *static_cast<const uint64_t*>( p ), field.Meta.AssetType );
                     else
@@ -275,7 +275,7 @@ namespace Desert::Reflection
                     if ( field.Meta.AssetType == "SkyboxAsset" )
                     {
                         const auto ref = g.to_object();
-                        if ( ref.has_value() && resolver )
+                        if ( ref.has_value() && resolver != nullptr )
                         {
                             const auto text = [&]( const char* key )
                             {
