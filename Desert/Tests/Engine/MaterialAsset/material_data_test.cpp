@@ -20,7 +20,7 @@ TEST( MaterialData, DefaultsAreStandardPBR )
     // The data states no shader; what that resolves to is the asset's answer
     // (SurfaceMaterialAsset::GetShaderName, pinned by the AssetMissingFile suite).
     MaterialData m;
-    EXPECT_FALSE( m.ShaderName.has_value() );
+    EXPECT_FALSE( m.Shader.has_value() );
 }
 
 TEST( MaterialData, ParamAndTextureAccessors )
@@ -51,7 +51,7 @@ TEST( MaterialData, ParamAndTextureAccessors )
 TEST( MaterialData, JsonRoundTrip )
 {
     MaterialData m;
-    m.ShaderName = "Unlit";
+    m.SetShader( Common::Content::AssetGuid{ 0x51ull, 0x52ull }, "engine:Shaders/Programs/Unlit.shader" );
     m.SetParam( "Color", glm::vec4( 0.1f, 0.2f, 0.3f, 1.0f ) );
     const Common::Content::AssetGuid tex{ 0xa1a2a3a4a5a6a7a8ull, 0xb1b2b3b4b5b6b7b8ull };
     m.SetTexture( "u_AlbedoTex", tex, "assets:Textures/T.detex" );
@@ -63,7 +63,8 @@ TEST( MaterialData, JsonRoundTrip )
     ASSERT_TRUE( back ) << "round-trip parse failed";
 
     const MaterialData& r = back.value();
-    EXPECT_EQ( r.ShaderName, std::optional<std::string>( "Unlit" ) );
+    EXPECT_EQ( r.Shader, m.Shader );
+    EXPECT_EQ( r.ShaderGuid(), ( Common::Content::AssetGuid{ 0x51ull, 0x52ull } ) );
     EXPECT_FLOAT_EQ( r.GetParam( "Color" ).y, 0.2f );
     EXPECT_EQ( r.GetTexture( "u_AlbedoTex" ), static_cast<uint64_t>( Common::Content::HandleForGuid( tex ) ) );
     EXPECT_EQ( r.ParentGuid(), parent );
@@ -74,10 +75,10 @@ TEST( MaterialData, PBRJsonRoundTripKeepsShaderAbsent )
     MaterialData m;
     m.SetParam( "AlbedoColor", glm::vec4( 1, 1, 1, 1 ) );
     const std::string json = rfl::json::write( m );
-    ASSERT_EQ( json.find( "ShaderName" ), std::string::npos ); // nullopt omitted -> stays standard PBR
+    ASSERT_EQ( json.find( "\"Shader\"" ), std::string::npos ); // nullopt omitted -> stays standard PBR
     auto back = rfl::json::read<MaterialData>( json );
     ASSERT_TRUE( back );
-    EXPECT_FALSE( back.value().ShaderName.has_value() );
+    EXPECT_FALSE( back.value().Shader.has_value() );
 }
 
 // ─── PBRSurfaceParams: the optimized backend's typed VIEW of the canon ───────────────────
@@ -154,12 +155,14 @@ namespace
 TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuidADependency )
 {
     MaterialData m;
-    m.ShaderName = "CloudRaymarch";
+    const Common::Content::AssetGuid kShaderGuid{ 0xc1c2c3c4ull, 0xd1d2d3d4ull };
+    constexpr const char*            kShaderPath = "engine:Shaders/Programs/Clouds/CloudRaymarch.shader";
+    m.SetShader( kShaderGuid, kShaderPath );
     m.SetTexture( "u_AlbedoTexture", kTexGuid, "assets:Textures/T.detex" );
     m.SetCloudAsset( "CloudType1", kTypeGuid, "assets:Clouds/Types/Cu.decloudtype" );
     m.SetCloudAsset( "LayoutPattern", kLayoutGuid, "assets:Clouds/Layouts/L.dclayout" );
     m.SetCloudAsset( "LayoutMask", kLayoutGuid, "assets:Clouds/Layouts/L.dclayout" );
-    m.SetShaderRef( "Medium", "assets:Shaders/Medium.shader" );
+    m.SetCloudAsset( "Medium", kShaderGuid, kShaderPath );
 
     const auto text = Desert::Assets::WriteMaterialJson( m );
     ASSERT_TRUE( text ) << text.GetError();
@@ -174,12 +177,17 @@ TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuid
     EXPECT_EQ( r.GetTexture( "CloudType1" ), 0ull ) << "cloud slots live in their own list, not in Textures";
     ASSERT_EQ( r.Textures.size(), 1u );
     EXPECT_EQ( r.Textures[0].Path, "assets:Textures/T.detex" );
-    EXPECT_EQ( r.GetShaderRef( "Medium" ),
-               static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( "assets:Shaders/Medium.shader" ) ) );
-    // Three distinct GUIDs, the shared layout stated once.
-    EXPECT_EQ( Desert::Assets::StatedVersion( r.Header, Desert::Assets::kMaterialSchemaTag ), 3 );
+    // The Medium shader BY GUID: the handle a ShaderAsset registers under (HandleForGuid of its header GUID),
+    // not the path-derived number MATL 3 folded its path into, which no loaded shader answers to since T7j.
+    EXPECT_EQ( r.GetCloudAsset( "Medium" ), Fold( kShaderGuid ) );
+    EXPECT_NE( r.GetCloudAsset( "Medium" ), static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( kShaderPath ) ) );
+    EXPECT_EQ( r.ShaderGuid(), kShaderGuid );
+    // Four distinct GUIDs (shader first after no parent), the shared layout and the Medium shader stated once.
+    EXPECT_EQ( Desert::Assets::StatedVersion( r.Header, Desert::Assets::kMaterialSchemaTag ),
+               static_cast<int>( Desert::Assets::kMaterialSchemaVersion ) );
     ASSERT_TRUE( r.Header.has_value() );
-    EXPECT_EQ( r.Header->Dependencies.size(), 3u );
+    ASSERT_EQ( r.Header->Dependencies.size(), 4u );
+    EXPECT_EQ( r.Header->Dependencies.front(), Common::Content::AssetGuidToText( kShaderGuid ) );
 }
 
 TEST( MaterialFormatV3, AVersion2FileIsRefusedByNameAndPointsAtTheMigrator )
@@ -197,15 +205,24 @@ TEST( MaterialFormatV3, AVersion2FileIsRefusedByNameAndPointsAtTheMigrator )
 TEST( MaterialFormatV3, ASlotGuidTheHeaderDoesNotStateOrAPathWithoutAGuidIsRefused )
 {
     const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
-                             R"("Versions":{"MATL":3},"Dependencies":[)";
-    const std::string slot = R"("Params":[],"Textures":[],"ShaderRefs":[],)"
+                             R"("Versions":{"MATL":4},"Dependencies":[)";
+    const std::string slot = R"("Params":[],"Textures":[],)"
                              R"("CloudAssets":[{"Name":"CloudType1","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
                              R"("Path":"assets:Clouds/Types/Cu.decloudtype"}]})";
     EXPECT_TRUE(
          Desert::Assets::ParseMaterialJson( "ok", head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},)" + slot ) );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "undeclared", head + "]}," + slot ) );
+    // The shader by GUID (MATL 4): an empty GUID, and a GUID the header does not state, are refused by name.
+    const std::string shader = R"("Shader":{"Guid":"45d579b03cc0d0a8df2e4cb025d6bea5","Path":"engine:Shaders/S.shader"},)"
+                               R"("Params":[],"Textures":[],"CloudAssets":[]})";
+    EXPECT_TRUE( Desert::Assets::ParseMaterialJson( "shader", head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},)" + shader ) );
+    const auto undeclared = Desert::Assets::ParseMaterialJson( "M_Undeclared.demat", head + "]}," + shader );
+    ASSERT_FALSE( undeclared );
+    EXPECT_NE( undeclared.GetError().find( "M_Undeclared.demat" ), std::string::npos ) << undeclared.GetError();
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
-         "pathonly", head + R"(]},"Params":[],"CloudAssets":[],"ShaderRefs":[],)"
+         "noguid", head + R"(]},"Shader":{"Guid":"","Path":"engine:Shaders/S.shader"},"Params":[],"Textures":[],"CloudAssets":[]})" ) );
+    EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
+         "pathonly", head + R"(]},"Params":[],"CloudAssets":[],)"
                             R"("Textures":[{"Name":"u_AlbedoTexture","Guid":"","Path":"assets:T.detex"}]})" ) );
 }
 

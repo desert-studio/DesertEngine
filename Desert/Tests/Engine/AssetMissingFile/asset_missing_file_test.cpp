@@ -66,7 +66,7 @@ TEST( AssetMissingFile, SurfaceMaterialLoadsCanonicalDefaults )
     EXPECT_TRUE( material.IsReadyForUse() );
     // Canonical defaults: no authored parameters, and the shader falls back to the standard surface.
     EXPECT_TRUE( material.Data().Params.empty() );
-    EXPECT_FALSE( material.Data().ShaderName.has_value() );
+    EXPECT_FALSE( material.Data().Shader.has_value() );
 }
 
 TEST( AssetMissingFile, CloudTypeLoadRefusesWithTheReason )
@@ -119,42 +119,18 @@ TEST( AssetMissingFile, AMaterialWithoutAShaderResolvesToTheStandardSurface )
     Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
     ASSERT_TRUE( material.Load().IsSuccess() );
 
-    EXPECT_FALSE( material.Data().ShaderName.has_value() );
+    EXPECT_FALSE( material.Data().Shader.has_value() );
     EXPECT_EQ( material.GetShaderName(), "StaticMeshPBR" );
     EXPECT_FALSE( material.UsesCustomShader() );
 }
 
-TEST( AssetMissingFile, AMaterialNamingAShaderResolvesToThatName )
-{
-    const auto header = std::string( R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a00)" );
-    const auto body   = std::string( R"(","Versions":{"MATL":3},"Dependencies":[]},"ShaderName":")" );
-    const auto tail   = std::string( R"(","Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
-
-    const fs::path unlitPath = PathWith( "unlit.demat", header + "2" + body + "Unlit" + tail );
-    Desert::Assets::SurfaceMaterialAsset unlit( Desert::Assets::AssetPriority::Medium, unlitPath );
-    ASSERT_TRUE( unlit.Load().IsSuccess() );
-    EXPECT_EQ( unlit.GetShaderName(), "Unlit" );
-    EXPECT_TRUE( unlit.UsesCustomShader() );
-
-    // A working copy draws with its source's shader without being loaded.
-    EXPECT_EQ( Desert::Assets::SurfaceMaterialAsset::CreateWorkingCopy( unlit )->GetShaderName(), "Unlit" );
-
-    const fs::path skinnedPath = PathWith( "skinned.demat", header + "3" + body + "SkinnedMeshPBR" + tail );
-    Desert::Assets::SurfaceMaterialAsset skinned( Desert::Assets::AssetPriority::Medium, skinnedPath );
-    ASSERT_TRUE( skinned.Load().IsSuccess() );
-    EXPECT_EQ( skinned.GetShaderName(), "SkinnedMeshPBR" );
-    EXPECT_FALSE( skinned.UsesCustomShader() );
-
-    fs::remove_all( skinnedPath.parent_path() );
-}
-
-// The control for the test above: a material that parsed saves, or the refusal would be a material
-// asset that can never be written at all.
+// A material naming a shader resolves its name only against a manager that holds the shader, by GUID:
+// AssetHandleStability (ShaderAssetIdentity.AMaterialResolvesItsShaderNameByGuid...) pins that end.
 TEST( AssetMissingFile, AParsedMaterialSavesNormally )
 {
     const fs::path path = PathWith(
          "fine.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a001","Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
     Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
     ASSERT_TRUE( material.Load().IsSuccess() );
@@ -182,7 +158,7 @@ TEST( AssetMissingFile, AMaterialHoldingANonNumberRefusesToSaveAndNamesTheParame
 {
     const fs::path path = PathWith(
          "not_a_number.demat",
-         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
+         R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a002","Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})" );
 
     for ( const float bad : { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
                               -std::numeric_limits<float>::infinity() } )

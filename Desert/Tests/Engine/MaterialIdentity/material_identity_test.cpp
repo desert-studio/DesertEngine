@@ -193,10 +193,10 @@ TEST( MaterialIdentity, EveryShippedMaterialIsMatl3WithOneIdentityAndNoTwoShareI
 TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
 {
     const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
-                             R"("Versions":{"MATL":3},"Dependencies":[)";
+                             R"("Versions":{"MATL":4},"Dependencies":[)";
     const std::string good =
          head +
-         R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[],)"
+         R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],"CloudAssets":[],)"
          R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
     const auto        parsed = Desert::Assets::ParseMaterialJson( "good", good );
     ASSERT_TRUE( parsed ) << parsed.GetError();
@@ -206,16 +206,16 @@ TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "undeclared",
          head +
-              R"(]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
+              R"(]},"Params":[],"Textures":[],"CloudAssets":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
          << "a Parent missing from the header's Dependencies must be refused";
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "number",
          head +
-              R"("6418972230554417713"]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[],"Parent":"6418972230554417713"})" ) )
+              R"("6418972230554417713"]},"Params":[],"Textures":[],"CloudAssets":[],"Parent":"6418972230554417713"})" ) )
          << "a MATL 1 number in Parent is not a GUID";
 
     std::string v1 = good;
-    v1.replace( v1.find( "\"MATL\":3" ), 8, "\"MATL\":1" );
+    v1.replace( v1.find( "\"MATL\":4" ), 8, "\"MATL\":1" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "v1", v1 ) ) << "a MATL 1 file must be refused";
 }
 

@@ -27,6 +27,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 #include <gtest/gtest.h>
@@ -278,6 +279,19 @@ TEST( SceneMigratorWritePath, ACloudMaterialLandsBesideItsSceneAndNotUnderTheWor
     const fs::path foreignCwd = dir / "Elsewhere";              // where the tool is run FROM
     fs::create_directories( scenes );
     fs::create_directories( foreignCwd );
+    {
+        // The shader the cloud material names (MATL 4 states it by the file's header GUID), where the engine
+        // keeps it: beside the assets root.
+        namespace CC            = Common::Content;
+        const fs::path programs = assets.parent_path() / "Shaders" / "Programs" / "Clouds";
+        fs::create_directories( programs );
+        const std::array<CC::SubsystemVersion, 1> versions = {
+             CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+        std::ofstream( programs / "CloudRaymarch.shader", std::ios::binary )
+             << CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, CC::AssetGuid::Generate(),
+                                                               versions ) )
+             << "Shader \"CloudRaymarch\"\n{\n}\n";
+    }
 
     const fs::path scene = scenes / "hero_autosave.desce";
     {
