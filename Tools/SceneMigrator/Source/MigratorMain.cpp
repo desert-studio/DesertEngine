@@ -261,7 +261,7 @@ namespace
                             break;
                         ++end;
                     }
-                    while ( end > colon && std::isspace( static_cast<unsigned char>( object[end - 1] ) ) )
+                    while ( end > colon && std::isspace( static_cast<unsigned char>( object[end - 1] ) ) != 0 )
                         --end;
                     found = std::make_pair( at, end );
                     at    = end - 1;
@@ -274,12 +274,12 @@ namespace
             return std::nullopt;
         const auto [begin, end] = *found;
         std::size_t before      = begin;
-        while ( before > 0 && std::isspace( static_cast<unsigned char>( object[before - 1] ) ) )
+        while ( before > 0 && std::isspace( static_cast<unsigned char>( object[before - 1] ) ) != 0 )
             --before;
         if ( before > 0 && object[before - 1] == ',' )
             return object.substr( 0, before - 1 ) + object.substr( end );
         std::size_t after = end;
-        while ( after < object.size() && std::isspace( static_cast<unsigned char>( object[after] ) ) )
+        while ( after < object.size() && std::isspace( static_cast<unsigned char>( object[after] ) ) != 0 )
             ++after;
         if ( after < object.size() && object[after] == ',' )
             return object.substr( 0, begin ) + object.substr( after + 1 );
