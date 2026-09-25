@@ -343,8 +343,9 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                           VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex );
+            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
+                return;
         }
 
         VkDeviceSize offsets[] = { 0 };
@@ -442,8 +443,9 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                           VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex );
+            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
+                return;
         }
 
         const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
@@ -481,19 +483,14 @@ namespace Desert::Graphic::API::Vulkan
             // declares no descriptor resources at all — legal Vulkan, and what a purely procedural fill
             // driven by push constants looks like (`UIMatError`); there is simply nothing to bind, and
             // dropping the draw made such a program invisible. A shader that publishes layouts and has
-            // no SETS is the real failure — allocation did not happen — and drawing it would sample
-            // whatever the last material left bound, so that one is still refused by name.
-            if ( !vkBackend->HasDescriptorSets() && !vkBackend->GetLayouts().empty() )
-            {
-                LOG_WARN( "VulkanRendererAPI::SubmitIndexed: MaterialExecutor has no valid descriptor sets!" );
-                return;
-            }
-
+            // no SETS is the real failure — the view's allocation did not happen — and drawing it would
+            // sample whatever the last material left bound, so BindDescriptorSets refuses it (named once).
             if ( vkBackend->HasDescriptorSets() )
             {
                 uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-                vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                               VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex );
+                if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+                                                     VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
+                    return;
             }
 
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
@@ -539,8 +536,9 @@ namespace Desert::Graphic::API::Vulkan
                 return;
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                           VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex );
+            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
+                return;
         }
 
         // The graphics pipeline enables VK_DYNAMIC_STATE_LINE_WIDTH, so it must be set before drawing.
@@ -573,8 +571,9 @@ namespace Desert::Graphic::API::Vulkan
                 return;
             }
             uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-            vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
-                                           VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex );
+            if ( !vkBackend->BindDescriptorSets( m_CurrentCommandBuffer, vulkanPipeline->GetVkPipelineLayout(),
+                                                 VK_PIPELINE_BIND_POINT_GRAPHICS, frameIndex ) )
+                return;
 
             const auto&   pcBuffer     = materialExecutor->GetPushConstantBuffer();
             VulkanShader* vulkanShader = (VulkanShader*)pipeline->GetSpecification().Shader.get();

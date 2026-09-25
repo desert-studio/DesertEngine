@@ -30,7 +30,7 @@ namespace Desert::Graphic
      * the environment cubes — reached every static mesh in the engine and no skinned one.
      *
      * Neither slot was garbage, which is why nothing ever crashed or warned:
-     * VulkanMaterialBackend::InitializeWithFallbacks seeds every declared binding before anything real
+     * VulkanMaterialBackend::WriteFallbacks seeds every declared binding before anything real
      * reaches it. `ShadowUB` therefore held the zero-filled dummy buffer — `u_ShadowParams.y == 0`, so
      * ShadowFactor() returned 1.0 and the cascades were silently OFF — and the environment trio held
      * its fallback images, which sample BLACK (the fallback cube is created with white pixels, but
