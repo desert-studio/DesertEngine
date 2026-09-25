@@ -430,10 +430,10 @@ namespace Desert::Assets
                 auto& ranked = SyncLoadDetail::Sums().SlowestInFrame;
                 if ( ranked.size() < SyncLoadDetail::kInFrameRankCap || selfMs > ranked.back().first )
                 {
-                    const auto slot = std::upper_bound(
-                         ranked.begin(), ranked.end(), selfMs,
-                         []( const double ms, const std::pair<double, std::string>& entry )
-                         { return ms > entry.first; } );
+                    const auto slot =
+                         std::upper_bound( ranked.begin(), ranked.end(), selfMs,
+                                           []( const double ms, const std::pair<double, std::string>& entry )
+                                           { return ms > entry.first; } );
                     ranked.insert( slot, { selfMs, path } );
                     if ( ranked.size() > SyncLoadDetail::kInFrameRankCap )
                         ranked.pop_back();
@@ -487,15 +487,15 @@ namespace Desert::Assets
         const auto& ranked = SyncLoadDetail::Sums().SlowestInFrame;
         if ( !ranked.empty() )
         {
-            text += "\n  slowest in-frame load(s) by their OWN time (" + std::to_string( ranked.size() ) +
-                    " of " + std::to_string( inFrame ) + "):";
+            text += "\n  slowest in-frame load(s) by their OWN time (" + std::to_string( ranked.size() ) + " of " +
+                    std::to_string( inFrame ) + "):";
             for ( const auto& [ms, rankedPath] : ranked )
                 text += "\n    " + SyncLoadDetail::Ms( ms ) + " — '" + rankedPath + "'";
             // The unnamed remainder is BOUNDED rather than merely counted: every one of them took no
             // longer than the last named load, which is what decides whether they are worth chasing.
             if ( inFrame > ranked.size() )
-                text += "\n    the other " + std::to_string( inFrame - ranked.size() ) +
-                        " took at most " + SyncLoadDetail::Ms( ranked.back().first ) + " each";
+                text += "\n    the other " + std::to_string( inFrame - ranked.size() ) + " took at most " +
+                        SyncLoadDetail::Ms( ranked.back().first ) + " each";
         }
         // NAMED WHETHER OR NOT IT IS ZERO, for the reason the in-frame line is: "none of this boot's
         // reading was asynchronous" is a fact about the model, and a line that appeared only once the
