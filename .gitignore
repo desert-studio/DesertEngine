@@ -164,7 +164,6 @@ Editor/Cooked/*
 Editor/Cooked/Meshes/*
 !Editor/Cooked/Meshes/SkinProbe.skeleton
 !Editor/Cooked/Meshes/SkinProbe.skmesh
-!Editor/Cooked/Meshes/StaticProbe.stmesh
 !Editor/Cooked/Meshes/SkinProbe_Hover.anim
 !Editor/Cooked/Meshes/SkinProbe_Tilt.anim
 !Editor/Cooked/Meshes/Foreign_Hips.anim

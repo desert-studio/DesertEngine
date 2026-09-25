@@ -49,6 +49,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/cooked_static_mesh.hpp"
+
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -681,7 +683,11 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
     Ser::MeshAssetData source = FullyPopulated();
     source.SkeletonSignature.reset(); // a static mesh has none
 
-    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( path, Ser::EncodeMeshBinary( source ) ) );
+    // A static mesh on disk is its source asset (AF4d); the container is its render form in the DDC, where the
+    // cook leaves it for a game.
+    const std::filesystem::path derived =
+         Desert::TestSupport::WriteCookedStaticMesh( path, Ser::EncodeMeshBinary( source ) );
+    ASSERT_FALSE( derived.empty() );
 
     Desert::Assets::StaticMeshAsset asset( Desert::Assets::AssetPriority::Medium, path );
     const auto                      loaded = asset.LoadFromFile();
@@ -700,14 +706,17 @@ TEST( MeshBinaryFormat, TheAssetLoaderReadsAContainerOffDisk )
     // And a file whose bytes stop early does not become a mesh, on the path a real load takes.
     const std::string           full = Ser::EncodeMeshBinary( source );
     const std::filesystem::path cut  = std::filesystem::temp_directory_path() / "desert_b11_cut.stmesh";
-    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic(
-         cut, std::string( full.substr( 0, full.size() - 16 ) ) ) );
+    const std::filesystem::path cutDerived =
+         Desert::TestSupport::WriteCookedStaticMesh( cut, std::string( full.substr( 0, full.size() - 16 ) ) );
+    ASSERT_FALSE( cutDerived.empty() );
     Desert::Assets::StaticMeshAsset truncated( Desert::Assets::AssetPriority::Medium, cut );
     EXPECT_FALSE( truncated.LoadFromFile().IsSuccess() );
 
     std::error_code ec;
     std::filesystem::remove( path, ec );
     std::filesystem::remove( cut, ec );
+    std::filesystem::remove( derived, ec );
+    std::filesystem::remove( cutDerived, ec );
 }
 
 TEST( MeshBinaryFormat, EveryCommittedCookedMeshIsTheContainer )
