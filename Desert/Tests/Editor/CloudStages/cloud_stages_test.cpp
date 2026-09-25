@@ -539,10 +539,9 @@ TEST( CloudStagesCensus, OnlyTheFormatsOwnReaderLooksUpANoiseVolumeByPath )
         const char* File;
         const char* Why;
     };
+    // CloudTypeAsset left this register in T7h: a type names its volume by GUID (CLTY 5) and resolves it by
+    // handle, so no stored path is joined to a root any more.
     const AllowedSite kAllowed[] = {
-         { "Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
-           "the reader of the format that STORES the path: it is the only code that knows the path is "
-           "relative to the assets root, and it does the one join (ResolveDependencies)" },
          { "Editor/Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp",
            "re-registers a file it has just WRITTEN, by the absolute path it wrote to — not a stored "
            "reference, so no root is being guessed at" },

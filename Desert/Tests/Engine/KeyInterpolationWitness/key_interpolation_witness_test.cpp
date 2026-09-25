@@ -91,8 +91,10 @@ TEST( KeyInterpolationWitness, TheTwoClipsDifferInExactlyOneFieldPerKey )
     const Ser::AnimationAssetData linear = Load( "A6Curve_Linear" );
     const Ser::AnimationAssetData cubic  = Load( "A6Curve_Cubic" );
 
-    EXPECT_EQ( linear.Version, Ser::kAnimationVersion );
-    EXPECT_EQ( cubic.Version, Ser::kAnimationVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( linear.Header, Desert::Assets::kAnimationSchemaTag ),
+               Ser::kAnimationVersion );
+    EXPECT_EQ( Desert::Assets::StatedVersion( cubic.Header, Desert::Assets::kAnimationSchemaTag ),
+               Ser::kAnimationVersion );
     EXPECT_EQ( linear.DurationTicks, cubic.DurationTicks );
     EXPECT_EQ( linear.SkeletonSignature, cubic.SkeletonSignature );
     ASSERT_EQ( linear.Channels.size(), 1u );

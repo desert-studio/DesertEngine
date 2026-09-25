@@ -47,6 +47,23 @@ void FEdgeLoop::Initialize( const TArray<int>& VerticesIn, const TArray<int>& Ed
         BowtieVertices = *BowtieVerticesIn;
 }
 
+void FEdgeLoop::InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int>& EdgesIn )
+{
+    Edges              = EdgesIn;
+    const int NumEdges = Edges.Num();
+    Vertices.SetNum( NumEdges );
+
+    const FIndex2i StartEV = Mesh.GetEdgeV( Edges[0] );
+    FIndex2i       PrevEV  = StartEV;
+    for ( int i = 1; i < NumEdges; ++i )
+    {
+        const FIndex2i NextEV = Mesh.GetEdgeV( Edges[i] );
+        Vertices[i]           = IndexUtil::FindSharedEdgeVertex( PrevEV, NextEV );
+        PrevEV                = NextEV;
+    }
+    Vertices[0] = IndexUtil::FindEdgeOtherVertex( StartEV, Vertices[1] );
+}
+
 bool FEdgeLoop::InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn )
 {
     Vertices              = VerticesIn;

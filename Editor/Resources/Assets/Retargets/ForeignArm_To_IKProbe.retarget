@@ -3,12 +3,15 @@
         "Kind": "Retarget",
         "Guid": "455394d648d9019f7c58ab61c2ed12d3",
         "Versions": {
-            "RTGT": 2
+            "RTGT": 3
         },
-        "Dependencies": []
+        "Dependencies": ["6e7625493009a5445f91e22e58561d44"]
     },
     "Name": "ForeignArm to IKProbe",
-    "SourceSkeleton": "ForeignArm.skeleton",
+    "SourceSkeleton": {
+        "Guid": "6e7625493009a5445f91e22e58561d44",
+        "Path": "ForeignArm.skeleton"
+    },
     "SourcePelvisBone": "IK_Shoulder",
     "TargetPelvisBone": "IK_Shoulder",
     "SourceRetargetPose": {

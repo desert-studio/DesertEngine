@@ -32,6 +32,8 @@
 #include <limits>
 #include <numeric>
 #include <random>
+#include <span>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -208,15 +210,15 @@ TEST( CloudModellingVolume, TheContainerRoundTrips )
 {
     Assets::CloudModellingVolumeData data = Body();
 
-    const std::vector<unsigned char> encoded = Assets::EncodeCloudModellingVolume( data );
+    const std::vector<unsigned char> encoded = Assets::EncodeCloudModellingPayload( data );
 
-    // The file's size is a formula and not an observation: a header that grows without
+    // The payload's size is a formula and not an observation: a header that grows without
     // kCloudModellingHeaderSize moving would pass a test that meant nothing.
     EXPECT_EQ( encoded.size(), Assets::kCloudModellingHeaderSize +
                                     data.Recipe.Blobs.size() * Assets::kCloudModellingBlobBytes +
                                     Assets::kCloudModellingVoxelBytes );
 
-    const auto decoded = Assets::DecodeCloudModellingVolume( encoded );
+    const auto decoded = Assets::DecodeCloudModellingPayload( encoded );
     ASSERT_TRUE( decoded ) << decoded.GetError();
 
     const Assets::CloudModellingVolumeData& read = decoded.GetValue();
@@ -240,16 +242,109 @@ TEST( CloudModellingVolume, TheContainerRoundTrips )
 
 TEST( CloudModellingVolume, ACorruptPayloadIsRefusedRatherThanRead )
 {
-    std::vector<unsigned char> encoded = Assets::EncodeCloudModellingVolume( Body() );
+    std::vector<unsigned char> encoded = Assets::EncodeCloudModellingPayload( Body() );
 
     // One bit, in the middle of the voxels. Length is unchanged, so only the checksum can catch it — and
     // the failure it would otherwise produce is a cloud with a wrong edge, which reads as a tuning
     // problem rather than as a corrupt file.
     encoded[encoded.size() / 2] ^= 0x01u;
 
-    const auto decoded = Assets::DecodeCloudModellingVolume( encoded );
+    const auto decoded = Assets::DecodeCloudModellingPayload( encoded );
     EXPECT_FALSE( decoded );
     EXPECT_NE( decoded.GetError().find( "checksum" ), std::string::npos ) << decoded.GetError();
+}
+
+namespace
+{
+    // An envelope written by hand, so a test can state a kind or a version the encoder never would.
+    std::vector<unsigned char> HandWrittenEnvelope( Common::Content::ContentKind kind, uint32_t version )
+    {
+        namespace CC                             = Common::Content;
+        const std::vector<unsigned char> payload = Assets::EncodeCloudModellingPayload( Body() );
+        CC::AssetEnvelope                envelope;
+        envelope.Asset.Kind                           = kind;
+        envelope.Asset.Guid                           = CC::AssetGuid::Generate();
+        envelope.Asset.Subsystems                     = { { Assets::kCloudModellingSubsystemTag, version } };
+        const std::span<const std::byte> payloadBytes = std::as_bytes( std::span( payload ) );
+        envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                       std::vector<std::byte>( payloadBytes.begin(), payloadBytes.end() ) } );
+        const auto file = CC::WriteAssetEnvelope( envelope );
+        EXPECT_TRUE( file ) << file.GetError();
+        if ( !file )
+            return {};
+        std::vector<unsigned char> out( file.GetValue().size() );
+        std::memcpy( out.data(), file.GetValue().data(), file.GetValue().size() );
+        return out;
+    }
+} // namespace
+
+TEST( CloudModellingVolume, TheEnvelopeStatesKindGuidAndTheContainerVersionUnderDcmv )
+{
+    // A volume never written has a null GUID; the encoder mints one, and a re-encode of what it decoded
+    // keeps it - the property every reference to the volume leans on.
+    const auto first = Assets::EncodeCloudModellingVolume( Body() );
+    ASSERT_TRUE( first ) << first.GetError();
+
+    namespace CC                        = Common::Content;
+    const CC::SubsystemVersion kKnown[] = {
+         { Assets::kCloudModellingSubsystemTag, Assets::kCloudModellingContainerVersion } };
+    const auto header = CC::ReadEnvelopeHeader( std::as_bytes( std::span( first.GetValue() ) ),
+                                                CC::AssetHeaderReadContext{ kKnown } );
+    ASSERT_TRUE( header ) << header.GetError();
+    EXPECT_EQ( header.GetValue().Asset.Kind, CC::ContentKind::CloudModellingVolume );
+    EXPECT_FALSE( header.GetValue().Asset.Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Asset.Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Asset.Subsystems[0].Tag, Assets::kCloudModellingSubsystemTag );
+    EXPECT_EQ( header.GetValue().Asset.Subsystems[0].Version, 3u );
+
+    const auto decoded = Assets::DecodeCloudModellingVolume( first.GetValue() );
+    ASSERT_TRUE( decoded ) << decoded.GetError();
+    EXPECT_EQ( decoded.GetValue().Guid, header.GetValue().Asset.Guid );
+    const auto second = Assets::EncodeCloudModellingVolume( decoded.GetValue() );
+    ASSERT_TRUE( second ) << second.GetError();
+    EXPECT_EQ( second.GetValue(), first.GetValue() ) << "a decode/encode round trip must be byte-identical";
+}
+
+TEST( CloudModellingVolume, ABareContainerIsRefusedByNameAndNamesTheMigrator )
+{
+    // The version-2 shape: magic, container version 2, then the payload. It has no GUID to give the volume.
+    std::vector<unsigned char> bare( Assets::kCloudModellingMagic,
+                                     Assets::kCloudModellingMagic + sizeof( Assets::kCloudModellingMagic ) );
+    bare.insert( bare.end(), { 2u, 0u, 0u, 0u } );
+    const std::vector<unsigned char> payload = Assets::EncodeCloudModellingPayload( Body() );
+    bare.insert( bare.end(), payload.begin(), payload.end() );
+
+    const auto decoded = Assets::DecodeCloudModellingVolume( bare );
+    ASSERT_FALSE( decoded );
+    EXPECT_NE( decoded.GetError().find( "bare 'DCMV' container version 2" ), std::string::npos )
+         << decoded.GetError();
+    EXPECT_NE( decoded.GetError().find( "SceneMigrator" ), std::string::npos ) << decoded.GetError();
+}
+
+TEST( CloudModellingVolume, AFutureContainerVersionIsRefusedByNumberRatherThanMisread )
+{
+    const auto file    = HandWrittenEnvelope( Common::Content::ContentKind::CloudModellingVolume,
+                                              Assets::kCloudModellingContainerVersion + 7u );
+    const auto decoded = Assets::DecodeCloudModellingVolume( file );
+    ASSERT_FALSE( decoded );
+    EXPECT_NE( decoded.GetError().find( std::to_string( Assets::kCloudModellingContainerVersion + 7u ) ),
+               std::string::npos )
+         << decoded.GetError();
+}
+
+TEST( CloudModellingVolume, AnEnvelopeOfAnotherKindIsRefusedByItsKind )
+{
+    // The payload is a perfectly good modelling volume; only the envelope says it is a noise volume.
+    const auto file    = HandWrittenEnvelope( Common::Content::ContentKind::CloudNoiseVolume,
+                                              Assets::kCloudModellingContainerVersion );
+    const auto decoded = Assets::DecodeCloudModellingVolume( file );
+    ASSERT_FALSE( decoded );
+    EXPECT_NE( decoded.GetError().find( "not CloudModellingVolume" ), std::string::npos ) << decoded.GetError();
+
+    std::istringstream in( std::string( file.begin(), file.end() ) );
+    const auto         guid = Assets::ReadCloudModellingVolumeGuid( in );
+    ASSERT_FALSE( guid );
+    EXPECT_NE( guid.GetError().find( "not CloudModellingVolume" ), std::string::npos ) << guid.GetError();
 }
 
 TEST( CloudModellingVolume, TheJoinIsOrderIndependent )

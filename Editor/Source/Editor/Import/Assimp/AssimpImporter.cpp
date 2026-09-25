@@ -794,7 +794,6 @@ namespace Desert::Editor
             const double sourceRateValue          = anim->mTicksPerSecond != 0.0 ? anim->mTicksPerSecond : 25.0;
             const Animation::FrameRate sourceRate = RationalFromRate( sourceRateValue );
 
-            animData.Version  = Assets::Serialization::kAnimationVersion;
             animData.TickRate = { Animation::PROJECT_TICK_RATE.Numerator,
                                   Animation::PROJECT_TICK_RATE.Denominator };
             // The file's own rate becomes the DISPLAY grid: it is the cadence the animation was authored

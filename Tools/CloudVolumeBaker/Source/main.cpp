@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <span>
 #include <string>
@@ -164,7 +165,30 @@ static int RunTool( int argc, char** argv )
         return 1;
     }
 
-    const std::vector<unsigned char> encoded = Desert::Assets::EncodeCloudModellingVolume( data );
+    // A RE-BAKE OVER AN EXISTING VOLUME KEEPS THAT FILE'S GUID, so every reference to it survives; a new
+    // path mints its own. The --in file's GUID is never copied to another path - two files, one identity.
+    // An existing output that is not a readable modelling-volume envelope is refused rather than given a
+    // fresh identity silently: a bare container is migrated first (Tools/SceneMigrator --write).
+    if ( std::filesystem::exists( outPath ) )
+    {
+        std::ifstream existing( outPath, std::ios::binary );
+        const auto    guid = Desert::Assets::ReadCloudModellingVolumeGuid( existing );
+        if ( !guid )
+        {
+            std::fprintf( stderr, "CloudVolumeBaker: refusing to overwrite '%s': %s\n", outPath.c_str(),
+                          guid.GetError().c_str() );
+            return 1;
+        }
+        data.Guid = guid.GetValue();
+    }
+
+    const auto encodedResult = Desert::Assets::EncodeCloudModellingVolume( data );
+    if ( !encodedResult )
+    {
+        std::fprintf( stderr, "CloudVolumeBaker: %s\n", encodedResult.GetError().c_str() );
+        return 1;
+    }
+    const std::vector<unsigned char>& encoded = encodedResult.GetValue();
 
     // Through the write primitive, not a local std::ofstream (Д35). This tool used to exit 0 for a bake
     // whose bytes were still in the filebuf: a build machine with a full disk produced a `.dcmv` that a
