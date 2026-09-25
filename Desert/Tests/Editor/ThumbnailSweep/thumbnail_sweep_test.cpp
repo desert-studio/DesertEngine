@@ -19,6 +19,7 @@
 // nothing that reaches a Vulkan device. That file is the only editor source this suite compiles.
 
 #include <Editor/Widgets/ThumbnailFormats.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailSweep.hpp>
 
@@ -170,16 +171,21 @@ TEST( ThumbnailSweep, AFreshPictureIsLeftAloneAndAStaleOneIsSweptAgain )
 
     const fs::path asset = project.Assets() / "Materials/Fresh.demat";
     WriteFile( asset, "{}" );
-    WriteFile( ThumbnailKey::DiskPath( asset.generic_string() ), "PNG" );
+    const std::string png = ThumbnailKey::DiskPath( asset.generic_string() );
+    WriteFile( png, "PNG" );
+    ASSERT_TRUE( ThumbnailFreshness::Record( png, *ThumbnailFreshness::ContentHash( asset ) ).IsSuccess() );
 
     EXPECT_FALSE( Mentions( ScanForMissingThumbnails( project.Assets(), 64 ), "Fresh.demat" ) )
          << "a material whose picture is already on disk and newer than it was queued anyway. A sweep "
             "that cannot tell 'done' from 'to do' re-renders the entire project every scan.";
 
-    // Past the freshness margin (ThumbnailFreshness::kSourceNewerMargin is 3 s, and coarse filesystems
-    // are why it exists), then touch the source: the picture is now of something else.
-    const auto later = fs::last_write_time( asset ) + std::chrono::seconds( 30 );
-    fs::last_write_time( asset, later );
+    // A modtime move alone is not an edit (TH1): the picture still shows the same bytes.
+    fs::last_write_time( asset, fs::last_write_time( asset ) + std::chrono::seconds( 30 ) );
+    EXPECT_FALSE( Mentions( ScanForMissingThumbnails( project.Assets(), 64 ), "Fresh.demat" ) )
+         << "a touched but unchanged material was queued: every launch after a checkout re-renders it.";
+
+    // Edit the source: the picture is now of something else.
+    WriteFile( asset, "{ \"Roughness\": 0.9 }" );
 
     EXPECT_TRUE( Mentions( ScanForMissingThumbnails( project.Assets(), 64 ), "Fresh.demat" ) )
          << "a material edited after its picture was written was NOT queued. Every reader already refuses "
