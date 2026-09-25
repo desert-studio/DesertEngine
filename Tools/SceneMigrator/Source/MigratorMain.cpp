@@ -557,8 +557,8 @@ namespace
     // leaves the file untouched. A type naming no volume only moves its version.
     //
     // THE VOLUME IS LOOKED UP WHERE THE ENGINE LOOKS: relative to the assets root this type lies under (its
-    // Clouds/Types folder's root). The text written is the engine's own WriteCloudType, and it must pass
-    // the engine's own ParseCloudType before the caller writes a byte.
+    // Clouds/Types folder's root). The text written must pass the engine's own ParseCloudType before the
+    // caller writes a byte.
     Common::ResultStr<std::optional<std::string>> RaiseCloudTypeV4ToV5( const std::filesystem::path& path,
                                                                         const std::string&           text )
     {
@@ -604,17 +604,22 @@ namespace
             dependencies.push_back( Common::Content::AssetGuidToText( guid ) );
         }
 
-        Desert::Assets::CloudTypeData raised;
-        {
-            auto typed = rfl::json::read<Desert::Assets::CloudTypeData>( rfl::json::write( rfl::Generic( doc ) ) );
-            if ( !typed )
-                return Common::MakeError<Result>( std::string( "the CLTY 4 body does not read: " ) +
-                                                  typed.error().what() );
-            raised = typed.value();
-        }
-        raised.Header->Versions     = { { "CLTY", 5 } };
-        raised.Header->Dependencies = dependencies;
-        std::string written         = Desert::Assets::WriteCloudType( raised );
+        // THE DOCUMENT IS EDITED, NOT RE-SERIALISED: only the version, the Dependencies and the volume reference
+        // move, so every authored number keeps its spelling (the typed writer would print 9.4 as the float's
+        // double expansion). The engine's own ParseCloudType is still the gate the result has to pass.
+        const auto headerTree = doc.get( "Header" );
+        if ( !headerTree || !headerTree.value().to_object() )
+            return Common::MakeError<Result>( "its Header is not an object" );
+        rfl::Generic::Object headerDoc = headerTree.value().to_object().value();
+        rfl::Generic::Object versions;
+        versions["CLTY"] = rfl::Generic( static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) );
+        rfl::Generic::Array dependencyTexts;
+        for ( const auto& guid : dependencies )
+            dependencyTexts.push_back( rfl::Generic( guid ) );
+        headerDoc["Versions"]     = rfl::Generic( versions );
+        headerDoc["Dependencies"] = rfl::Generic( dependencyTexts );
+        doc["Header"]             = rfl::Generic( headerDoc );
+        std::string written       = rfl::json::write( rfl::Generic( doc ) );
         if ( auto loadable = Desert::Assets::ParseCloudType( written ); !loadable )
             return Common::MakeError<Result>( "the raised text does not pass the engine's own ParseCloudType: " +
                                               loadable.GetError() );

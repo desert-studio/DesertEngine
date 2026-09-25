@@ -16,7 +16,8 @@ it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings
 .derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone; .danimgraph 0 -> ANGR 1
 (T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
 swaps its top-level `Version` (not FormatVersion) for the header; .retarget RTGT 2 -> 3 (T7f) names its rig by
-{Guid, Path}, normalised back only when the Guid is the one the named cooked rig states. The binary .dcnv
+{Guid, Path}, normalised back only when the Guid is the one the named cooked rig states; .decloudtype CLTY 4 -> 5 (T7h) names
+its noise volume the same way, the Guid the one the named .dcnv envelope states. The binary .dcnv
 bare DCNV 2 -> envelope DCNV 3 and .dcmv bare DCMV 2 -> envelope DCMV 3 (T7g) must carry the old bytes after
 magic and version as their one payload.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
@@ -358,6 +359,45 @@ def strip_retarget_rig_guid(root, old, new, ext):
     return True
 
 
+
+def dcnv_envelope_guid(file):
+    """The GUID a `.dcnv` AF1 envelope states: bytes 16..32, hi u64 then lo u64, each little-endian, printed as
+    AssetGuidToText does (hi then lo, 32 lowercase hex digits). None for a missing or bare file."""
+    try:
+        with open(file, "rb") as f:
+            head = f.read(32)
+    except OSError:
+        return None
+    if len(head) < 32 or head[:4] != b"DAST":
+        return None
+    hi, lo = struct.unpack("<QQ", head[16:32])
+    return f"{hi:016x}{lo:016x}"
+
+
+def strip_cloud_type_noise_guid(root, old, new, ext):
+    """.decloudtype CLTY 4 -> 5 (T7h): the bare NoiseVolume path becomes {Guid, Path}, the Guid the one the
+    named Editor/Resources/Assets `.dcnv` envelope states and the header's one Dependency; a type naming no
+    volume only moves its version. Normalised back to the v4 shape only when all of that holds. True when
+    stripped."""
+    if ext != ".decloudtype" or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_header, header = old.get("Header", {}), new.get("Header", {})
+    if old_header.get("Versions") != {"CLTY": 4} or header.get("Versions") != {"CLTY": 5}:
+        return False
+    if "NoiseVolume" not in old:
+        if "NoiseVolume" in new or header.get("Dependencies") != []:
+            return False
+    else:
+        volume = new.get("NoiseVolume")
+        if not isinstance(old["NoiseVolume"], str) or not isinstance(volume, dict) or \
+                volume.get("Path") != old["NoiseVolume"] or header.get("Dependencies") != [volume.get("Guid")] or \
+                dcnv_envelope_guid(f"{root}/Editor/Resources/Assets/{volume['Path']}") != volume.get("Guid"):
+            return False
+        new["NoiseVolume"] = volume["Path"]
+    header["Versions"] = {"CLTY": 4}
+    header["Dependencies"] = []
+    return True
+
 # The binary containers T7g moved into the AF1 envelope: (extension, bare magic = envelope subsystem tag).
 _BINARY_ENVELOPE_ROWS = ((".dcnv", b"DCNV"), (".dcmv", b"DCMV"))
 
@@ -439,6 +479,7 @@ def main():
             strip_scene_v30(old, new, ext)
             strip_material_v3(old, new, ext)
             strip_retarget_rig_guid(root, old, new, ext)
+            strip_cloud_type_noise_guid(root, old, new, ext)
             if old != new:
                 differ.append(path)
             compared += 1
