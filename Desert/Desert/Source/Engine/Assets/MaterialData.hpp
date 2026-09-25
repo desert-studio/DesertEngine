@@ -152,17 +152,6 @@ namespace Desert::Assets
         }
 
         // ── Queries ────────────────────────────────────────────────────────────────
-        std::string EffectiveShaderName() const
-        {
-            return ( ShaderName && !ShaderName->empty() ) ? *ShaderName : "StaticMeshPBR";
-        }
-
-        bool UsesCustomShader() const
-        {
-            const auto name = EffectiveShaderName();
-            return name != "StaticMeshPBR" && name != "SkinnedMeshPBR";
-        }
-
         const glm::vec4* FindParam( std::string_view name ) const
         {
             for ( const auto& p : Params )

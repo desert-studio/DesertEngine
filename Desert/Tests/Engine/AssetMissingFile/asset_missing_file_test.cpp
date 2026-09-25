@@ -110,6 +110,45 @@ TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsF
     fs::remove_all( path.parent_path() );
 }
 
+// THE SHADER IS THE ASSET'S ANSWER, not the data's. A material that states no shader draws with the
+// standard surface; one that names a shader draws with exactly that one — and the two engine PBR names are
+// the only ones that are not "custom" (the batched backend), which is what hot reload asks.
+TEST( AssetMissingFile, AMaterialWithoutAShaderResolvesToTheStandardSurface )
+{
+    const fs::path path = MissingPath( "no_shader.demat" );
+    Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
+    ASSERT_TRUE( material.Load().IsSuccess() );
+
+    EXPECT_FALSE( material.Data().ShaderName.has_value() );
+    EXPECT_EQ( material.GetShaderName(), "StaticMeshPBR" );
+    EXPECT_FALSE( material.UsesCustomShader() );
+}
+
+TEST( AssetMissingFile, AMaterialNamingAShaderResolvesToThatName )
+{
+    const auto header =
+         std::string( R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a00)" );
+    const auto body = std::string( R"(","Versions":{"MATL":3},"Dependencies":[]},"ShaderName":")" );
+    const auto tail = std::string( R"(","Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
+
+    const fs::path unlitPath = PathWith( "unlit.demat", header + "2" + body + "Unlit" + tail );
+    Desert::Assets::SurfaceMaterialAsset unlit( Desert::Assets::AssetPriority::Medium, unlitPath );
+    ASSERT_TRUE( unlit.Load().IsSuccess() );
+    EXPECT_EQ( unlit.GetShaderName(), "Unlit" );
+    EXPECT_TRUE( unlit.UsesCustomShader() );
+
+    // A working copy draws with its source's shader without being loaded.
+    EXPECT_EQ( Desert::Assets::SurfaceMaterialAsset::CreateWorkingCopy( unlit )->GetShaderName(), "Unlit" );
+
+    const fs::path skinnedPath = PathWith( "skinned.demat", header + "3" + body + "SkinnedMeshPBR" + tail );
+    Desert::Assets::SurfaceMaterialAsset skinned( Desert::Assets::AssetPriority::Medium, skinnedPath );
+    ASSERT_TRUE( skinned.Load().IsSuccess() );
+    EXPECT_EQ( skinned.GetShaderName(), "SkinnedMeshPBR" );
+    EXPECT_FALSE( skinned.UsesCustomShader() );
+
+    fs::remove_all( skinnedPath.parent_path() );
+}
+
 // The control for the test above: a material that parsed saves, or the refusal would be a material
 // asset that can never be written at all.
 TEST( AssetMissingFile, AParsedMaterialSavesNormally )

@@ -438,13 +438,13 @@ namespace Desert::Editor
 
     MaterialComponentWidget::SlotSwatch
     MaterialComponentWidget::BuildSlotSwatch( const Assets::SurfaceMaterialAsset& asset,
-                                              const Assets::MaterialData*         parentData )
+                                              const Assets::SurfaceMaterialAsset* parent )
     {
         SlotSwatch swatch;
 
         auto*             shaderService = Runtime::ResourceRegistry::GetShaderService();
-        const std::string shaderName =
-             parentData ? parentData->EffectiveShaderName() : asset.Data().EffectiveShaderName();
+        const Assets::MaterialData* parentData = parent ? &parent->Data() : nullptr;
+        const std::string           shaderName = parent ? parent->GetShaderName() : asset.GetShaderName();
         auto shader = shaderService ? shaderService->GetByName( shaderName ) : nullptr;
         if ( !shader )
             return swatch;
@@ -777,12 +777,11 @@ namespace Desert::Editor
 
                 SlotSwatch swatch;
                 if ( asset )
-                    swatch = BuildSlotSwatch( *asset, parentAsset ? &parentAsset->Data() : nullptr );
+                    swatch = BuildSlotSwatch( *asset, parentAsset.get() );
 
                 // The shader the slot RENDERS with: an instance's own ShaderName is empty and would read
                 // as the engine default here, so it comes from the parent chain.
-                const std::string shaderName = asset ? ( parentAsset ? parentAsset->Data().EffectiveShaderName()
-                                                                     : asset->Data().EffectiveShaderName() )
+                const std::string shaderName = asset ? ( parentAsset ? parentAsset->GetShaderName() : asset->GetShaderName() )
                                                      : std::string( "Engine default material" );
 
                 SlotRow row;

@@ -116,7 +116,7 @@ namespace Desert::Editor::ThumbnailSubject
      * Unspecified all reach the mesh path today, get refused there, and leave a photograph of an empty
      * sphere on disk that the freshness rule then calls a current picture for ever.
      *
-     * @p asset MUST be loaded. An unparsed shell states no ShaderName, and MaterialData::EffectiveShaderName
+     * @p asset MUST be loaded. An unparsed shell states no ShaderName, and SurfaceMaterialAsset::GetShaderName
      * then answers "StaticMeshPBR" — a real name, a Surface domain and a completely wrong answer. That is
      * exactly how the Volume-domain refusal reached the log: the sweep asked a shell.
      */

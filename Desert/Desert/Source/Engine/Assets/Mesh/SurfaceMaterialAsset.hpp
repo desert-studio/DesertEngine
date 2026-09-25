@@ -72,9 +72,36 @@ namespace Desert::Assets
             return AssetTypeID::Material;
         }
 
+        // THE shader this material draws with, and the one place that question is answered. The data holds
+        // what the FILE says (a name, or nothing); this is what that statement resolves to, set by
+        // ResolveDependencies and by every load. A material that states no shader draws with the standard
+        // surface, kDefaultShaderName. An INSTANCE states none either, and this answers the default for it
+        // too: its shader lives on the parent, which callers resolve through the parent chain.
         virtual std::string GetShaderName() const override
         {
-            return m_Data.EffectiveShaderName();
+            return m_ShaderName;
+        }
+
+        // The two engine PBR shaders take the batched PBR backend; every other name is a DSL shader drawn
+        // through the generic data-driven path. Asked of the RESOLVED name, never of the raw data.
+        [[nodiscard]] bool UsesCustomShader() const
+        {
+            return m_ShaderName != kDefaultShaderName && m_ShaderName != "SkinnedMeshPBR";
+        }
+
+        // Re-derives the shader from Data(). Every load runs it, so a caller only needs it after changing
+        // Data().ShaderName in memory (the Material Editor's shader picker, Apply and Discard) — without it
+        // GetShaderName would keep answering the shader the data no longer names.
+        void ResolveDependencies( AssetManager& manager ) override;
+
+        // What an absent or empty ShaderName resolves to, for a caller comparing two MaterialData values
+        // that belong to no asset (the editor's on-disk snapshot). The asset itself answers GetShaderName.
+        static constexpr std::string_view kDefaultShaderName = "StaticMeshPBR";
+
+        [[nodiscard]] static std::string ShaderNameOf( const MaterialData& data )
+        {
+            return ( data.ShaderName && !data.ShaderName->empty() ) ? *data.ShaderName
+                                                                    : std::string( kDefaultShaderName );
         }
 
         virtual Common::UUID GetMaterialUUID() const override
@@ -87,9 +114,14 @@ namespace Desert::Assets
         // one — asset-database identity that survives renames as well as restarts.
         void AdoptStableHandle();
 
+        // The by-name resolution both ResolveDependencies and every load branch run: a load must leave the
+        // name right on its own, because hot reload re-reads a material with Load() and no resolve pass.
+        void ResolveShader();
+
         bool         m_ReadyForUse  = false;
         Common::UUID m_MaterialUUID = Common::UUID::Null();
         MaterialData m_Data;
+        std::string  m_ShaderName = std::string( kDefaultShaderName );
 
         // TRUE when m_Data is NOT what the file says — the file exists but could not be read, or it
         // read and would not parse. The asset is deliberately still usable in that state (see Load),

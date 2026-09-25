@@ -507,6 +507,7 @@ namespace Desert::Editor
         // ShaderName is the ONLY thing that makes this material the graph's; a material left over from an
         // earlier compile keeps whatever shader it had, so set it every time.
         asset->Data().ShaderName = m_Doc.Name;
+        asset->ResolveDependencies( *m_AssetManager );
         // Stamped in memory, so the GUID a first write mints is the one every later write states.
         asset->Data() = Assets::StampMaterialHeader( std::move( asset->Data() ) );
         // Logged, and then carried on with deliberately: the preview material lives in memory for this

@@ -89,10 +89,10 @@ namespace Desert::Editor
             glm::vec4 Color    = glm::vec4( 1.0f );
         };
 
-        // parentData: material-instance mode — the value falls back to the parent chain, then to the
-        // schema default, exactly like the parameter editor.
+        // parent: material-instance mode — the shader is the parent's, and a value falls back to the parent
+        // chain, then to the schema default, exactly like the parameter editor.
         static SlotSwatch BuildSlotSwatch( const Assets::SurfaceMaterialAsset& asset,
-                                           const Assets::MaterialData*         parentData );
+                                           const Assets::SurfaceMaterialAsset* parent );
 
         // What the user asked for on an element row this frame. The row only REPORTS; the caller owns
         // the component and the asset manager and is the only place allowed to change a slot.

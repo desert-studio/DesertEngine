@@ -305,7 +305,7 @@ namespace Desert::Runtime
             // re-apply their overrides.
             const auto variants = materialService->GetBuiltVariants( handle );
 
-            const bool custom       = asset->Data().UsesCustomShader();
+            const bool custom       = asset->UsesCustomShader();
             bool       classMatches = !variants.empty();
             for ( auto* runtime : variants )
                 classMatches =

@@ -17,19 +17,10 @@ using Desert::Assets::PBRSurfaceParams;
 
 TEST( MaterialData, DefaultsAreStandardPBR )
 {
+    // The data states no shader; what that resolves to is the asset's answer
+    // (SurfaceMaterialAsset::GetShaderName, pinned by the AssetMissingFile suite).
     MaterialData m;
-    EXPECT_EQ( m.EffectiveShaderName(), "StaticMeshPBR" );
-    EXPECT_FALSE( m.UsesCustomShader() );
-
-    m.ShaderName = "";
-    EXPECT_FALSE( m.UsesCustomShader() );
-
-    m.ShaderName = "SkinnedMeshPBR";
-    EXPECT_FALSE( m.UsesCustomShader() );
-
-    m.ShaderName = "Unlit";
-    EXPECT_TRUE( m.UsesCustomShader() );
-    EXPECT_EQ( m.EffectiveShaderName(), "Unlit" );
+    EXPECT_FALSE( m.ShaderName.has_value() );
 }
 
 TEST( MaterialData, ParamAndTextureAccessors )
@@ -72,7 +63,7 @@ TEST( MaterialData, JsonRoundTrip )
     ASSERT_TRUE( back ) << "round-trip parse failed";
 
     const MaterialData& r = back.value();
-    EXPECT_TRUE( r.UsesCustomShader() );
+    EXPECT_EQ( r.ShaderName, std::optional<std::string>( "Unlit" ) );
     EXPECT_FLOAT_EQ( r.GetParam( "Color" ).y, 0.2f );
     EXPECT_EQ( r.GetTexture( "u_AlbedoTex" ), static_cast<uint64_t>( Common::Content::HandleForGuid( tex ) ) );
     EXPECT_EQ( r.ParentGuid(), parent );
@@ -86,7 +77,7 @@ TEST( MaterialData, PBRJsonRoundTripKeepsShaderAbsent )
     ASSERT_EQ( json.find( "ShaderName" ), std::string::npos ); // nullopt omitted -> stays standard PBR
     auto back = rfl::json::read<MaterialData>( json );
     ASSERT_TRUE( back );
-    EXPECT_FALSE( back.value().UsesCustomShader() );
+    EXPECT_FALSE( back.value().ShaderName.has_value() );
 }
 
 // ─── PBRSurfaceParams: the optimized backend's typed VIEW of the canon ───────────────────

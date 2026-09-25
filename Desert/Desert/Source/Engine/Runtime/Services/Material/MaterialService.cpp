@@ -329,11 +329,11 @@ namespace Desert::Runtime
             const auto parentId = surf->Data().InstanceParentId();
             if ( !parentId.has_value() )
             {
-                return surf->Data().EffectiveShaderName();
+                return surf->GetShaderName();
             }
             const auto parent = GetAssetHandleByExternal( *parentId );
             if ( parent.IsNull() || parent == current )
-                return surf->Data().EffectiveShaderName();
+                return surf->GetShaderName();
             current = parent;
         }
         return {};

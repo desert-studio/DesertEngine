@@ -190,7 +190,7 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     MaterialEdit::CopyAuthoredValues( working, applied );
 
     EXPECT_FALSE( MaterialEdit::EvaluateDirty( working, applied, applied ).Unapplied );
-    EXPECT_EQ( working.EffectiveShaderName(), "StaticMeshPBR" );
+    EXPECT_EQ( Desert::Assets::SurfaceMaterialAsset::ShaderNameOf( working ), "StaticMeshPBR" );
     EXPECT_EQ( working.Params.size(), applied.Params.size() ) << "the added row must be gone, not zeroed";
     EXPECT_EQ( working.GetTexture( "u_AlbedoTexture" ),
                static_cast<uint64_t>( MaterialData::HandleOf( Common::Content::AssetGuid{ 0, 1234u } ) ) );
