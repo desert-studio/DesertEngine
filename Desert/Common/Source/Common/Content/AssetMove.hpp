@@ -65,10 +65,10 @@ namespace Common::Content
     // file under the source that exists only in a mounted pak (it cannot be moved on disk).
     struct AssetFolderMoveRecord
     {
-        std::filesystem::path                                            From;
-        std::filesystem::path                                            To;
-        bool                                                             WholeDirectory = false;
-        std::vector<AssetMoveRecord>                                     Assets;      // in move order
+        std::filesystem::path                                                From;
+        std::filesystem::path                                                To;
+        bool                                                                 WholeDirectory = false;
+        std::vector<AssetMoveRecord>                                         Assets;     // in move order
         std::vector<std::pair<std::filesystem::path, std::filesystem::path>> PlainFiles; // (from, to), in order
         std::vector<std::filesystem::path> CreatedDirectories; // destination folders the move made, in order
     };
@@ -77,9 +77,10 @@ namespace Common::Content
     // there: a redo passes them back so it writes the very same redirector bytes.
     [[nodiscard]] ResultStr<AssetFolderMoveRecord>
     MoveFolderLeavingRedirectors( Utils::AssetRegistry& registry, const std::filesystem::path& from,
-                                  const std::filesystem::path&                          to,
+                                  const std::filesystem::path&                      to,
                                   const std::map<std::filesystem::path, AssetGuid>& redirectorSelves = {} );
 
     // The inverse, in reverse order: plain files back, every asset move undone, the made folders removed.
-    [[nodiscard]] BoolResultStr UndoFolderMove( Utils::AssetRegistry& registry, const AssetFolderMoveRecord& record );
+    [[nodiscard]] BoolResultStr UndoFolderMove( Utils::AssetRegistry&        registry,
+                                                const AssetFolderMoveRecord& record );
 } // namespace Common::Content

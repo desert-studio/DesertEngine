@@ -547,7 +547,8 @@ namespace Desert::Assets
             Detail::State&                    state = Detail::Get_();
             const std::lock_guard<std::mutex> lock( state.Mutex );
 
-            auto moved = Common::Content::MoveFolderLeavingRedirectors( state.Registry, from, to, redirectorSelves );
+            auto moved =
+                 Common::Content::MoveFolderLeavingRedirectors( state.Registry, from, to, redirectorSelves );
             if ( !moved )
                 return moved;
             for ( const Common::Content::AssetMoveRecord& asset : moved.GetValue().Assets )

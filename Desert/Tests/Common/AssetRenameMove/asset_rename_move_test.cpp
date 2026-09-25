@@ -127,7 +127,7 @@ namespace
 TEST( AssetRenameMove, TheConfirmListNamesExactlyTheReferrers )
 {
     const Corpus c;
-    const auto* row = c.Registry.FindByKey( Key( c.Material ) );
+    const auto*  row = c.Registry.FindByKey( Key( c.Material ) );
     ASSERT_NE( row, nullptr );
     EXPECT_EQ( Common::Content::ReferrersOf( c.Registry, *row ), std::vector<std::string>{ Key( c.User ) } );
 }
@@ -262,14 +262,16 @@ namespace
     // the folder naming the material and the mesh: the edges a folder rename must not break.
     struct FolderCorpus
     {
-        Project                      Proj{ "AF10c_Folder" };
-        fs::path                     Folder   = Proj.In( ContentKind::Material, "x" ).parent_path() / "Rocks";
-        fs::path                     Renamed  = Folder.parent_path() / "Stones";
-        fs::path                     Material = Folder / ( "M_Rock" + std::string( Common::Content::KindSpec( ContentKind::Material ).Extension ) );
-        fs::path                     Mesh     = Folder / "Sub" /
-                                ( "SM_Rock" + std::string( Common::Content::KindSpec( ContentKind::StaticMesh ).Extension ) );
-        fs::path                     Note     = Folder / "Sub" / "readme.txt";
-        fs::path                     Level    = Proj.In( ContentKind::Scene, "Level" );
+        Project  Proj{ "AF10c_Folder" };
+        fs::path Folder  = Proj.In( ContentKind::Material, "x" ).parent_path() / "Rocks";
+        fs::path Renamed = Folder.parent_path() / "Stones";
+        fs::path Material =
+             Folder / ( "M_Rock" + std::string( Common::Content::KindSpec( ContentKind::Material ).Extension ) );
+        fs::path Mesh =
+             Folder / "Sub" /
+             ( "SM_Rock" + std::string( Common::Content::KindSpec( ContentKind::StaticMesh ).Extension ) );
+        fs::path                     Note  = Folder / "Sub" / "readme.txt";
+        fs::path                     Level = Proj.In( ContentKind::Scene, "Level" );
         Common::Utils::AssetRegistry Registry;
 
         FolderCorpus()
@@ -282,8 +284,9 @@ namespace
             Scan( Registry, Material, ContentKind::Material );
             Scan( Registry, Mesh, ContentKind::StaticMesh );
             Scan( Registry, Level, ContentKind::Scene );
-            EXPECT_TRUE( Registry.SetDependencies( Key( Level ), { Common::Content::HandleForGuid( Guid( 11 ) ),
-                                                                   Common::Content::HandleForGuid( Guid( 12 ) ) } ) );
+            EXPECT_TRUE(
+                 Registry.SetDependencies( Key( Level ), { Common::Content::HandleForGuid( Guid( 11 ) ),
+                                                           Common::Content::HandleForGuid( Guid( 12 ) ) } ) );
         }
 
         // Every file of the project by path and content hash: "undo gives back every byte", checked whole.
@@ -291,7 +294,8 @@ namespace
         {
             std::map<std::string, std::size_t> tree;
             for ( const fs::path& file : Common::Utils::FileSystem::ListFilesRecursive( Proj.Root ) )
-                tree[file.lexically_relative( Proj.Root ).generic_string()] = std::hash<std::string>{}( Bytes( file ) );
+                tree[file.lexically_relative( Proj.Root ).generic_string()] =
+                     std::hash<std::string>{}( Bytes( file ) );
             return tree;
         }
     };
@@ -305,7 +309,8 @@ namespace
         ASSERT_NE( mesh, nullptr );
         EXPECT_EQ( material->Key, Key( c.Renamed / c.Material.filename() ) );
         EXPECT_EQ( mesh->Key, Key( c.Renamed / "Sub" / c.Mesh.filename() ) );
-        EXPECT_EQ( Common::Content::ReferrersOf( registry, *material ), std::vector<std::string>{ Key( c.Level ) } );
+        EXPECT_EQ( Common::Content::ReferrersOf( registry, *material ),
+                   std::vector<std::string>{ Key( c.Level ) } );
         EXPECT_EQ( Common::Content::ReferrersOf( registry, *mesh ), std::vector<std::string>{ Key( c.Level ) } );
         // The old paths still resolve, through the redirectors left in the old folder.
         const auto* byOldMaterial = registry.FindByReference( 0, c.Material.string() );

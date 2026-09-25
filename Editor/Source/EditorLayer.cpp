@@ -3986,13 +3986,16 @@ namespace Desert::Editor
         {
             for ( const std::string& path : m_FileExplorerPanel->ShownEntries( false ) )
                 commands.push_back( { "Assets", "Select asset " + path,
-                                      std::bind_front( &FileExplorerPanel::SelectEntry, std::to_address( m_FileExplorerPanel ), path ) } );
+                                      std::bind_front( &FileExplorerPanel::SelectEntry,
+                                                       std::to_address( m_FileExplorerPanel ), path ) } );
             for ( const std::string& path : m_FileExplorerPanel->ShownEntries( true ) )
             {
                 commands.push_back( { "Assets", "Select asset " + path,
-                                      std::bind_front( &FileExplorerPanel::SelectEntry, std::to_address( m_FileExplorerPanel ), path ) } );
+                                      std::bind_front( &FileExplorerPanel::SelectEntry,
+                                                       std::to_address( m_FileExplorerPanel ), path ) } );
                 commands.push_back( { "Assets", "Open folder " + path,
-                                      std::bind_front( &FileExplorerPanel::OpenFolder, std::to_address( m_FileExplorerPanel ), path ) } );
+                                      std::bind_front( &FileExplorerPanel::OpenFolder,
+                                                       std::to_address( m_FileExplorerPanel ), path ) } );
             }
         }
 

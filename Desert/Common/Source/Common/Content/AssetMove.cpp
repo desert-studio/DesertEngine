@@ -308,11 +308,10 @@ namespace Common::Content
                 return refuse( made.GetError() );
             if ( registry.FindByKey( AssetHandle::StableKeyForPath( file ) ) != nullptr )
             {
-                const auto self = redirectorSelves.find( file );
-                auto       moved =
-                     MoveAssetLeavingRedirector( registry, file, target,
-                                                 self != redirectorSelves.end() ? std::optional<AssetGuid>( self->second )
-                                                                                : std::nullopt );
+                const auto self  = redirectorSelves.find( file );
+                auto       moved = MoveAssetLeavingRedirector(
+                     registry, file, target,
+                     self != redirectorSelves.end() ? std::optional<AssetGuid>( self->second ) : std::nullopt );
                 if ( !moved )
                     return refuse( moved.GetError() );
                 record.Assets.push_back( moved.ExtractValue() );

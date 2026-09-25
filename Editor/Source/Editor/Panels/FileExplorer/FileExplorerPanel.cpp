@@ -85,7 +85,8 @@ namespace Desert::Editor
             const bool      folder = std::filesystem::is_directory( src, ec );
             if ( folder || Assets::ContentRegistry::HasRow( src ) )
             {
-                const auto moved = folder ? MoveFolderWithUndo( src, dst, label ) : MoveAssetWithUndo( src, dst, label );
+                const auto moved =
+                     folder ? MoveFolderWithUndo( src, dst, label ) : MoveAssetWithUndo( src, dst, label );
                 if ( !moved )
                     error = moved.GetError();
                 return static_cast<bool>( moved );
@@ -2172,8 +2173,8 @@ namespace Desert::Editor
             for ( DirectoryInformation* child : m_CurrentDir->Children )
                 if ( child->AssetPath == path )
                 {
-                    m_Selection        = { path };
-                    m_CurrentSelected  = child;
+                    m_Selection            = { path };
+                    m_CurrentSelected      = child;
                     m_SelectionAnchorShown = -1;
                     return Common::MakeSuccess( true );
                 }
