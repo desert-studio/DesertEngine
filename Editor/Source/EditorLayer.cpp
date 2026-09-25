@@ -6,6 +6,8 @@
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
+#include <Editor/Import/MeshDeriver.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Utilities/ContentScanLedger.hpp>
@@ -481,6 +483,7 @@ namespace Desert::Editor
                                          // has no builder.
                                          Assets::SetTexturePlatformDataBuilder(
                                               &TextureImporter::BuildPlatformData );
+                                         Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                                          (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                                      },
                                      kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); } } );

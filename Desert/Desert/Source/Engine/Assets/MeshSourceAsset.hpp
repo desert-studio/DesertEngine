@@ -138,6 +138,11 @@ namespace Desert::Assets
 
     // Refuse anything that is not a well-formed asset: a kind other than the two mesh kinds, a skin that
     // disagrees with the kind, out-of-range indices, a torn overlay, a bad setting, inconsistent provenance.
+    // The identity of the editable source (UE: the MeshDescription's bulk-data id that
+    // BuildStaticMeshDerivedDataKey hashes): PakContentHash of the SRCE section image, so it changes exactly
+    // when the bytes the file stores for the source change - never with the name, the path or the GUID.
+    uint64_t MeshSourceHash( const MeshSourceData& source );
+
     Common::ResultStr<std::vector<std::byte>> EncodeMeshSourceAsset( const MeshSourceAsset& asset );
     Common::ResultStr<MeshSourceAsset>        DecodeMeshSourceAsset( std::span<const std::byte> file );
     Common::ResultStr<MeshSourceAsset>        ReadMeshSourceAssetFile( const std::filesystem::path& file );
