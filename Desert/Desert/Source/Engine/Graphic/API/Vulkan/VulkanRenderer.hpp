@@ -113,6 +113,12 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline );
 
     private:
+        // THE ONE QUESTION EVERY RECORDING ENTRY POINT ASKS. BeginFrame is gated, but a loss can be noted
+        // MID-FRAME (an Image2D upload waiting on its fence, a bake): the buffer stayed armed and the rest of
+        // the frame kept recording, down to a vkCmdBeginRenderPass on the null framebuffer of an image that
+        // failed to create -- a segfault inside MoltenVK after "closing down in order". Disarms on the spot.
+        [[nodiscard]] bool IsRecording();
+
         VkCommandBuffer m_CurrentCommandBuffer = nullptr;
 
         /// Debug names already reported by BindGraphicsPipeline. Written only from the render thread's
