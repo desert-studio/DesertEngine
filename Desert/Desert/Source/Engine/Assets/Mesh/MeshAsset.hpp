@@ -29,9 +29,12 @@ namespace Desert::Assets
         {
             const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
                  m_Metadata.Filepath, Common::Content::kMeshBinaryPrefixV3 );
-            if ( !prefix || !prefix.GetValue().has_value() )
+            if ( !prefix )
                 return;
-            const auto guid = Common::Content::ReadMeshHeaderGuid( *prefix.GetValue() );
+            const auto& bytes = prefix.GetValue();
+            if ( !bytes.has_value() )
+                return;
+            const auto guid = Common::Content::ReadMeshHeaderGuid( *bytes );
             if ( !guid || guid->IsNull() )
                 return;
             m_Guid = *guid;

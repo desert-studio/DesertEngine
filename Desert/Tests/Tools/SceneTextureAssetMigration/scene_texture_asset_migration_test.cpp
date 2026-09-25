@@ -68,15 +68,14 @@ TEST( SceneTextureAssetMigration, TheStepIsFollowedOnlyByTheSiblingOrderStep )
     EXPECT_EQ( Migration::kSceneVersionTextureAssetRefs, Migration::kSceneVersionProceduralTerrain + 1 );
 }
 
+// The step itself, not the chain: since SCNE 30 the chain carries on to MigrateSpriteGuidsV29ToV30, which
+// refuses this fixture (its sprites name no .detex stating a GUID), so the step's rewrite is observed
+// where it happens and the chain's verdict is asserted separately below.
 TEST( SceneTextureAssetMigration, EveryCookedTextureStringNamesItsAssetAndNothingElseMoves )
 {
     const Fixture fixture;
     auto          scene  = Parse( kV23Scene );
-    const auto    report = Migration::MigrateScene( scene, fixture.Root );
-
-    ASSERT_TRUE( report.TextureAssetRefsRaised );
-    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
-               Desert::Core::kSceneVersion );
+    const auto report = Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
 
     EXPECT_EQ( Field( scene, 0, "UICanvas", "Sprite" ), "assets:Textures/T_Checker.detex" );
     EXPECT_EQ( Field( scene, 1, "UIPanel", "Sprite" ), "assets:Textures/Sub/T_Gone.detex" );
@@ -99,21 +98,39 @@ TEST( SceneTextureAssetMigration, EveryCookedTextureStringNamesItsAssetAndNothin
     EXPECT_EQ( Field( scene, 1, "UIPanel", "Sprite" ).find( "cooked:" ), std::string::npos );
 
     // Four rewritten, and the one whose asset is not under the root is NAMED, not silently kept.
-    EXPECT_EQ( report.TextureAssetRefs.Rewritten, 4 );
-    ASSERT_EQ( report.TextureAssetRefs.MissingNames.size(), 1u );
-    EXPECT_NE( report.TextureAssetRefs.MissingNames[0].find( "Panel > UIPanel.Sprite" ), std::string::npos )
-         << report.TextureAssetRefs.MissingNames[0];
+    EXPECT_EQ( report.Rewritten, 4 );
+    ASSERT_EQ( report.MissingNames.size(), 1u );
+    EXPECT_NE( report.MissingNames[0].find( "Panel > UIPanel.Sprite" ), std::string::npos )
+         << report.MissingNames[0];
 }
 
-TEST( SceneTextureAssetMigration, AFileAlreadyAtTheHeadIsNotTouched )
+TEST( SceneTextureAssetMigration, TheStepRunTwiceChangesNothingTheSecondTime )
 {
     const Fixture fixture;
     auto          scene = Parse( kV23Scene );
-    Migration::MigrateScene( scene, fixture.Root );
+    Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
     const std::string once  = rfl::json::write( scene );
-    const auto        again = Migration::MigrateScene( scene, fixture.Root );
-    EXPECT_FALSE( again.TextureAssetRefsRaised );
+    const auto again = Migration::MigrateTextureAssetRefsV23ToV24( scene.Settings, scene.Entities, fixture.Root );
+    EXPECT_EQ( again.Rewritten, 0 );
     EXPECT_EQ( rfl::json::write( scene ), once );
+}
+
+// The relation between the two steps: a sprite the v23 step renamed to a .detex that states no GUID
+// cannot become a {Guid, Path} at SCNE 30, and the chain refuses the file naming the slot rather than
+// writing a scene half-raised.
+TEST( SceneTextureAssetMigration, TheChainRefusesASpriteTheSpriteGuidStepCannotRaise )
+{
+    const Fixture fixture;
+    auto          scene  = Parse( kV23Scene );
+    const auto    report = Migration::MigrateScene( scene, fixture.Root );
+
+    EXPECT_TRUE( report.TextureAssetRefsRaised );
+    EXPECT_TRUE( report.SpriteGuidsRaised );
+    EXPECT_NE( report.Refused.find( "Panel > UIPanel.Sprite" ), std::string::npos ) << report.Refused;
+    EXPECT_NE( report.Refused.find( "Canvas > UICanvas.Sprite" ), std::string::npos ) << report.Refused;
+    EXPECT_LT( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
+               Desert::Core::kSceneVersion )
+         << "a refused file was stamped as current";
 }
 
 // The corpus: no tracked scene still names a cooked texture file once the tool has run over it.

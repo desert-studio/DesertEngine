@@ -72,6 +72,18 @@ namespace Common::Content
         return guid;
     }
 
+    // THE SUBMESH TABLE, AS FAR AS THE HEADER READER NEEDS IT (version 3). A mesh's dependency edges are
+    // the materials its submeshes name, and those GUIDs sit at a fixed place in each 136-byte submesh
+    // record, so the content scan reads the section table and the submesh records and nothing else — no
+    // vertex, index or morph byte (UE lists a package's imports from its summary for the same reason).
+    // The engine's writer (MeshBinary.cpp) pins its own records against these numbers, so the two
+    // descriptions cannot drift.
+    inline constexpr std::size_t kMeshBinarySectionRowSize =
+         24; // {Id u32, ElementSize u32, Offset u64, Count u64}
+    inline constexpr uint32_t    kMeshBinarySubmeshSectionId          = 4;
+    inline constexpr uint32_t    kMeshBinarySubmeshSizeV3             = 136;
+    inline constexpr std::size_t kMeshBinarySubmeshMaterialGuidOffset = 120; // {Hi u64, Lo u64}
+
     // The header format that lets `ReadAssetHeaderIfStated` (and so the registry gather) learn a v3 mesh's
     // kind and GUID from its prefix. Registered in `AssetHeaderFormats()`.
     const IAssetHeaderFormat& MeshBinaryHeaderFormat();
