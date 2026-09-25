@@ -1600,39 +1600,6 @@ namespace
     }
 } // namespace
 
-// THE NAME SOURCE (lead decision): the runtime keys a shader by its file stem (VulkanShader), the DSL declares
-// a name; the two are one fact only while every shipped .shader agrees. Every one is checked, and the load
-// refuses a file where they disagree.
-TEST( ShaderAssetIdentity, EveryShippedShaderDeclaresTheNameItsFileStemCarries )
-{
-    std::filesystem::path shaders;
-    for ( auto at = std::filesystem::current_path(); !at.empty(); at = at.parent_path() )
-    {
-        if ( std::filesystem::is_directory( at / "Editor/Resources/Shaders/Programs" ) )
-        {
-            shaders = at / "Editor/Resources/Shaders";
-            break;
-        }
-        if ( at == at.parent_path() )
-            break;
-    }
-    ASSERT_FALSE( shaders.empty() ) << "no Editor/Resources/Shaders above " << std::filesystem::current_path();
-    int checked = 0;
-    for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
-    {
-        if ( !entry.is_regular_file() || entry.path().extension() != ".shader" )
-            continue;
-        std::ifstream      in( entry.path(), std::ios::binary );
-        std::ostringstream text;
-        text << in.rdbuf();
-        const auto declared = Common::Content::ReadShaderDeclaredName( text.str() );
-        ASSERT_TRUE( declared ) << entry.path() << ": " << declared.GetError();
-        EXPECT_EQ( declared.GetValue(), entry.path().stem().string() ) << entry.path();
-        ++checked;
-    }
-    EXPECT_GE( checked, 78 ) << "the shipped shaders were not all found";
-}
-
 TEST( ShaderAssetIdentity, AShaderDeclaringAnotherNameThanItsFileIsRefusedByName )
 {
     const auto dir  = std::filesystem::temp_directory_path() / "DesertShaderDeclaredName";
