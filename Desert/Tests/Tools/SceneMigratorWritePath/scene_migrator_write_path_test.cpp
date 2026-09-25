@@ -16,6 +16,7 @@
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 
+#include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
@@ -531,6 +532,55 @@ TEST( SceneMigratorWritePath, ACloudNoiseVolumeIsWrappedInTheEnvelopeOnceAndASec
     EXPECT_EQ( ReadRaw( v2File ), raised[0] ) << "a second run changed a v3 volume (a second GUID?)";
     EXPECT_EQ( ReadRaw( v1File ), raised[1] ) << "a second run changed a v3 volume (a second GUID?)";
     EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}
+
+// THE SCULPTED CLOUD VOLUME PASS (T7g, bare DCMV 2 -> DCMV 3). A bare "DCMV" version-2 file is wrapped in the
+// AF1 binary envelope with a fresh GUID; the engine decoder reads the recipe and voxels back unchanged; a
+// second run leaves the file byte-identical. A bare version 1 has no reader anywhere, so it is refused by name.
+TEST( SceneMigratorWritePath, ASculptedCloudVolumeIsWrappedInTheEnvelopeOnceAndASecondRunChangesNothing )
+{
+    Desert::Assets::CloudModellingVolumeData volume; // one default lump: the smallest legal recipe
+    volume.Recipe.Blobs.resize( 1 );
+    volume.Voxels.resize( Desert::Assets::kCloudModellingVoxelBytes );
+    for ( size_t i = 0; i < volume.Voxels.size(); ++i )
+        volume.Voxels[i] = static_cast<unsigned char>( ( i * 37u ) & 0xFFu );
+    const std::vector<unsigned char> payload = Desert::Assets::EncodeCloudModellingPayload( volume );
+
+    const fs::path dir    = MakeTempDir( "T7gCloudModellingMigration" );
+    const fs::path v2File = dir / "BareV2.dcmv";
+    {
+        const std::string v2 =
+             std::string( "DCMV" ) + std::string( "\x02\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
+        std::ofstream out( v2File, std::ios::binary );
+        out.write( v2.data(), static_cast<std::streamsize>( v2.size() ) );
+    }
+
+    std::string report, errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    const std::string raised  = ReadRaw( v2File );
+    const auto        decoded = Desert::Assets::DecodeCloudModellingVolume(
+         std::vector<unsigned char>( raised.begin(), raised.end() ) );
+    ASSERT_TRUE( decoded ) << decoded.GetError() << "\n" << report << errors;
+    EXPECT_FALSE( decoded.GetValue().Guid.IsNull() );
+    EXPECT_EQ( decoded.GetValue().Recipe.Blobs.size(), 1u );
+    EXPECT_EQ( decoded.GetValue().Voxels, volume.Voxels );
+    EXPECT_EQ( Desert::Assets::EncodeCloudModellingPayload( decoded.GetValue() ), payload )
+         << "the raise must carry the version-2 payload through byte for byte";
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( v2File ), raised ) << "a second run changed a v3 volume (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+
+    const fs::path v1File = dir / "BareV1.dcmv";
+    {
+        const std::string v1 =
+             std::string( "DCMV" ) + std::string( "\x01\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
+        std::ofstream out( v1File, std::ios::binary );
+        out.write( v1.data(), static_cast<std::streamsize>( v1.size() ) );
+    }
+    EXPECT_NE( RunTool( { v1File.string() }, report, errors ), 0 ) << report;
+    EXPECT_NE( errors.find( "a bare 'DCMV' container version 1" ), std::string::npos ) << errors;
     fs::remove_all( dir );
 }
 

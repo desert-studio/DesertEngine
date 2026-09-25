@@ -49,6 +49,7 @@
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
+#include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
@@ -147,11 +148,18 @@ namespace
         return path.extension() == Desert::Assets::kCloudNoiseVolumeExtension;
     }
 
+    // SCULPTED CLOUD VOLUMES (.dcmv) LIKEWISE, since T7g: version 2 was a bare "DCMV" container with no
+    // identity; version 3 is the version-2 bytes after magic and version inside the AF1 binary envelope.
+    bool IsCloudModellingVolume( const std::filesystem::path& path )
+    {
+        return path.extension() == Desert::Assets::kCloudModellingVolumeExtension;
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
-                  std::vector<std::filesystem::path>& noises )
+                  std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -178,6 +186,8 @@ namespace
                     layouts.push_back( entry.path() );
                 else if ( IsCloudNoiseVolume( entry.path() ) )
                     noises.push_back( entry.path() );
+                else if ( IsCloudModellingVolume( entry.path() ) )
+                    models.push_back( entry.path() );
             }
             return;
         }
@@ -198,6 +208,8 @@ namespace
             layouts.push_back( root );
         else if ( IsCloudNoiseVolume( root ) )
             noises.push_back( root );
+        else if ( IsCloudModellingVolume( root ) )
+            models.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -1170,15 +1182,16 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> meshes;
         std::vector<std::filesystem::path> layouts;
         std::vector<std::filesystem::path> noises;
+        std::vector<std::filesystem::path> models;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() && models.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume or other text asset files found\n";
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume or other text asset files found\n";
             return 2;
         }
 
@@ -1466,6 +1479,86 @@ namespace Desert::Migration
             }
             out << ( check ? "WOULD  " : "raised " ) << path.string() << " — noise volume v" << version << " -> v"
                 << Desert::Assets::kCloudNoiseContainerVersion << ", GUID "
+                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
+        // THE SCULPTED CLOUD VOLUMES (bare DCMV 2 -> DCMV 3). The version-2 bytes after magic and version ARE
+        // the version-3 payload. There is no version-1 reader anywhere in the tree (version 1 was re-baked by
+        // the change that introduced version 2), so a bare version 1 is refused by name rather than guessed at.
+        // Wrapped with a fresh GUID, read back through the engine's own decoder before anything is written; an
+        // enveloped file is left byte-for-byte.
+        for ( const auto& path : models )
+        {
+            namespace CC                        = Common::Content;
+            const CC::SubsystemVersion kKnown[] = { { Desert::Assets::kCloudModellingSubsystemTag,
+                                                      Desert::Assets::kCloudModellingContainerVersion } };
+            const std::string bytes   = ReadAll( path );
+            const auto*       first   = reinterpret_cast<const std::byte*>( bytes.data() );
+            constexpr size_t  kPrefix = sizeof( Desert::Assets::kCloudModellingMagic ) + 4u;
+            if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudModellingMagic,
+                                                        sizeof( Desert::Assets::kCloudModellingMagic ) ) != 0 )
+            {
+                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
+                                                            CC::AssetHeaderReadContext{ kKnown } );
+                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudModellingVolume )
+                {
+                    err << "FAIL   " << path.string() << " — neither a bare 'DCMV' container nor a sculpted "
+                        << "cloud volume envelope: "
+                        << ( header ? "the envelope's kind is not CloudModellingVolume" : header.GetError() )
+                        << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — already at sculpted cloud volume v"
+                    << Desert::Assets::kCloudModellingContainerVersion << "\n";
+                continue;
+            }
+            uint32_t version = 0;
+            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
+            if ( version != 2u )
+            {
+                err << "FAIL   " << path.string() << " — a bare 'DCMV' container version " << version
+                    << "; this tool raises version 2 only\n";
+                ++failed;
+                continue;
+            }
+
+            CC::AssetEnvelope envelope;
+            envelope.Asset.Kind       = CC::ContentKind::CloudModellingVolume;
+            envelope.Asset.Guid       = CC::AssetGuid::Generate();
+            envelope.Asset.Subsystems = { kKnown[0] };
+            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                           std::vector<std::byte>( first + kPrefix, first + bytes.size() ) } );
+            const auto wrapped = CC::WriteAssetEnvelope( envelope );
+            if ( !wrapped )
+            {
+                err << "FAIL   " << path.string() << " — " << wrapped.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const auto* wrappedFirst = reinterpret_cast<const unsigned char*>( wrapped.GetValue().data() );
+            const auto  reread       = Desert::Assets::DecodeCloudModellingVolume(
+                 std::vector<unsigned char>( wrappedFirst, wrappedFirst + wrapped.GetValue().size() ) );
+            if ( !reread || !( reread.GetValue().Guid == envelope.Asset.Guid ) )
+            {
+                err << "FAIL   " << path.string() << " — the wrapped sculpted cloud volume does not read back: "
+                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — sculpted cloud volume v" << version
+                << " -> v" << Desert::Assets::kCloudModellingContainerVersion << ", GUID "
                 << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
             ++changed;
             if ( check )
