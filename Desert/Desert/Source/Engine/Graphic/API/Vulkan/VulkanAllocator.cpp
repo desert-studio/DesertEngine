@@ -6,7 +6,6 @@
 #include <Engine/Core/FrameManager.hpp>
 
 #include <cstdlib>
-#include <cstring>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -93,13 +92,20 @@ namespace Desert::Graphic::API::Vulkan
             // shader sees it, and poisoning it would need a command buffer this primitive does not own.
             VkMemoryPropertyFlags props = 0;
             vmaGetAllocationMemoryProperties( s_VmaAllocator, allocation, &props );
-            void* mapped = nullptr;
-            if ( ( props & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0 &&
-                 vmaMapMemory( s_VmaAllocator, allocation, &mapped ) == VK_SUCCESS )
+            if ( ( props & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0 )
             {
-                std::memset( mapped, 0xCD, static_cast<std::size_t>( localInfo.size ) );
-                vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
-                vmaUnmapMemory( s_VmaAllocator, allocation );
+                MappedMemory mapped = MapMemory( allocation );
+                if ( auto filled = mapped.Fill( 0xCD, mapped.GetSize() ); !filled.IsSuccess() )
+                {
+                    LOG_WARN( "[VmaAllocator] poisoning '{}' was refused: {}", tag, filled.GetError() );
+                }
+                else if ( const VkResult flushed =
+                               vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
+                          flushed != VK_SUCCESS )
+                {
+                    LOG_WARN( "[VmaAllocator] flushing the poisoned '{}' failed: {}", tag,
+                              VkResultToString( flushed ) );
+                }
             }
         }
 
