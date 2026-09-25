@@ -18,6 +18,7 @@
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <functional>
+#include <set>
 
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Core/Core.hpp>
@@ -5080,9 +5081,10 @@ namespace Desert::Editor
         //
         // See Editor/Core/OpenableAssets.hpp for the labelling rule and the three `model.demat` that
         // motivated it.
-        for ( const OpenableAsset& asset : CollectOpenableAssets(
-                   Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ),
-                   m_SubjectEditors.ClaimedExtensions(), Common::Constants::Path::ASSETS_PATH ) )
+        const std::vector<std::filesystem::path> assetFiles =
+             Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
+        for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
+                                                                  Common::Constants::Path::ASSETS_PATH ) )
         {
             const std::string path = asset.Path;
             commands.push_back( { "Open", asset.Label, [this, path]
@@ -5126,20 +5128,29 @@ namespace Desert::Editor
                                   } } );
         }
 
-        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Walked from disk
-        // because the browser shows loose disk folders; the label is the path under the assets root.
+        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Derived from the
+        // SAME content enumeration as the "Open" entries above (every folder that holds content, each ancestor
+        // up to the assets root included), not from a second walk of the disk: that one call sees a mounted
+        // .dpak as well as loose files, and the ContentScanners gate holds every content walk to it. A folder
+        // with no file anywhere beneath it is therefore not offered, which is the packaged project's truth
+        // too. The label is the path under the assets root.
         {
-            std::error_code ec;
-            for ( auto it =
-                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
-                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            const std::filesystem::path assetsRoot =
+                 std::filesystem::path( Common::Constants::Path::ASSETS_PATH ).lexically_normal();
+            std::set<std::string> folders;
+            for ( const std::filesystem::path& file : assetFiles )
             {
-                if ( !it->is_directory( ec ) )
-                    continue;
-                const std::string folder = it->path().generic_string();
-                const std::string label =
-                     std::filesystem::relative( it->path(), Common::Constants::Path::ASSETS_PATH, ec )
-                          .generic_string();
+                std::error_code             ec;
+                const std::filesystem::path rel =
+                     std::filesystem::relative( file, Common::Constants::Path::ASSETS_PATH, ec );
+                if ( ec || rel.empty() || *rel.begin() == std::filesystem::path( ".." ) )
+                    continue; // not under the assets root (the enumeration's contract, but not trusted blind)
+                for ( std::filesystem::path dir = rel.parent_path(); !dir.empty(); dir = dir.parent_path() )
+                    folders.insert( dir.generic_string() );
+            }
+            for ( const std::string& label : folders )
+            {
+                const std::string folder = ( assetsRoot / label ).generic_string();
                 // clang-tidy 18 reports every palette lambda that captures a std::string by copy (the "Open",
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
