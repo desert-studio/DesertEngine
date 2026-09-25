@@ -8,6 +8,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <array>
+#include <map>
 #include <string>
 
 namespace Desert::Graphic::API::Vulkan
@@ -61,6 +62,17 @@ namespace Desert::Graphic::API::Vulkan
             return key;
         }
 
+        // The budget a freshly created block starts with: EXACTLY the sizes it was created with, so our
+        // accounting and the driver's begin from the same numbers. Anything derived twice from kBlockSizes
+        // would be two sources of truth for one pool's capacity.
+        Graphic::DescriptorBudget FreshBudget()
+        {
+            std::map<uint32_t, uint32_t> descriptors;
+            for ( const auto& size : kBlockSizes )
+                descriptors[static_cast<uint32_t>( size.type )] += size.descriptorCount;
+            return Graphic::DescriptorBudget( kSetsPerBlock, std::move( descriptors ) );
+        }
+
         Common::BoolResultStr CreateBlock( const std::string& viewName, const uint32_t ordinal,
                                            std::shared_ptr<ViewPoolBlock>& out )
         {
@@ -76,7 +88,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( result != VK_SUCCESS )
                 return Common::MakeFormattedError<bool>( "view '{}': descriptor pool #{} could not be created: {}",
                                                          viewName, ordinal, VkResultToString( result ) );
-            out = std::make_shared<ViewPoolBlock>( pool );
+            out = std::make_shared<ViewPoolBlock>( pool, FreshBudget() );
             return Common::MakeSuccess( true );
         }
     } // namespace
@@ -92,23 +104,45 @@ namespace Desert::Graphic::API::Vulkan
             Allocator()->RT_FreeDescriptorSets( m_Pool->Get(), std::move( m_Sets ) );
     }
 
-    Common::BoolResultStr AllocateViewSets( const std::vector<VkDescriptorSetLayout>& layouts,
-                                            const std::string_view                    shaderName,
-                                            std::unique_ptr<IViewDescriptorSetCopy>&  out )
+    Graphic::DescriptorRequest DescriptorCostOf( const std::vector<DescriptorSetLayoutRef>& layouts )
+    {
+        Graphic::DescriptorRequest request;
+        for ( const auto& layout : layouts )
+        {
+            if ( !layout )
+                continue;
+            ++request.Sets;
+            for ( const auto& binding : layout->Bindings() )
+                request.Descriptors[static_cast<uint32_t>( binding.descriptorType )] += binding.descriptorCount;
+        }
+        return request;
+    }
+
+    Common::BoolResultStr AllocateViewSets( const std::vector<DescriptorSetLayoutRef>& layouts,
+                                            const std::string_view                     shaderName,
+                                            std::unique_ptr<IViewDescriptorSetCopy>&   out )
     {
         ViewResources&       view = ViewResourceRegistry::Active();
         ViewPoolChainFactory factory;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): ChainKey names this exact type
         auto& chain = static_cast<ViewPoolChain&>( view.Acquire( ChainKey(), 0, factory ) );
 
-        std::vector<VkDescriptorSet> sets( layouts.size(), VK_NULL_HANDLE );
-        const auto                   tryAllocate = [&layouts, &sets]( ViewPoolBlock& block, std::string& why )
+        const std::vector<VkDescriptorSetLayout> handles = RawHandles( layouts );
+        const Graphic::DescriptorRequest         cost    = DescriptorCostOf( layouts );
+
+        // Asked of the block's own accounting BEFORE the driver, which is the whole point: a block that cannot
+        // hold this material is left untouched, so no vkAllocateDescriptorSets ever fails on the turnover path
+        // and the validation layer has nothing to report.
+        const auto reserve = [&cost]( ViewPoolBlock& block ) { return block.Budget().Reserve( cost ); };
+
+        std::vector<VkDescriptorSet> sets( handles.size(), VK_NULL_HANDLE );
+        const auto                   tryAllocate = [&handles, &sets]( ViewPoolBlock& block, std::string& why )
         {
             VkDescriptorSetAllocateInfo info{};
             info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             info.descriptorPool     = block.Get();
-            info.descriptorSetCount = static_cast<uint32_t>( layouts.size() );
-            info.pSetLayouts        = layouts.data();
+            info.descriptorSetCount = static_cast<uint32_t>( handles.size() );
+            info.pSetLayouts        = handles.data();
             const VkResult result   = vkAllocateDescriptorSets( Device(), &info, sets.data() );
             if ( result == VK_SUCCESS )
                 return PoolAllocation::Allocated;
@@ -122,11 +156,11 @@ namespace Desert::Graphic::API::Vulkan
         { return CreateBlock( viewName, ordinal, block ); };
 
         std::shared_ptr<ViewPoolBlock> from;
-        auto                           allocated = chain.Chain.Allocate( create, tryAllocate, from );
+        auto                           allocated = chain.Chain.Allocate( create, reserve, tryAllocate, from );
         if ( !allocated.IsSuccess() )
             return Common::MakeFormattedError<bool>(
                  "shader '{}', view '{}': {} descriptor set(s) not allocated -- {}", shaderName, viewName,
-                 layouts.size(), allocated.GetError() );
+                 handles.size(), allocated.GetError() );
         out = std::make_unique<VulkanViewSets>( std::move( sets ), std::move( from ) );
         return Common::MakeSuccess( true );
     }

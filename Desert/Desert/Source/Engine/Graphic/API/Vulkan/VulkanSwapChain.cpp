@@ -128,18 +128,28 @@ namespace Desert::Graphic::API::Vulkan
         else
             preTransform = surfCaps.currentTransform;
 
-        VkExtent2D swapchainExtent = {};
-        if ( surfCaps.currentExtent.width == (uint32_t)-1 )
-        {
-            swapchainExtent.width  = *width;
-            swapchainExtent.height = *height;
-        }
-        else
-        {
-            swapchainExtent = surfCaps.currentExtent;
-            *width          = surfCaps.currentExtent.width;
-            *height         = surfCaps.currentExtent.height;
-        }
+        // THE SURFACE DECIDES THE EXTENT, which is why a rebuild at the window's last known size still ends
+        // up 0x0 on a minimised window: whatever the caller asked for is overwritten here. Both halves of that
+        // rule now live in Graphic::ResolveSurfaceExtent, so "minimised" is a case a test can state without a
+        // device.
+        const Graphic::ViewExtent resolved = Graphic::ResolveSurfaceExtent(
+             Graphic::ViewExtent{ surfCaps.currentExtent.width, surfCaps.currentExtent.height },
+             Graphic::ViewExtent{ *width, *height } );
+
+        // REFUSED BEFORE ANYTHING IS CREATED. A 0-pixel extent reached vmaCreateImage in
+        // CreateColorAndDepthImages below, which refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that
+        // refusal goes through VK_CHECK_RESULT, which breaks into the debugger. That was the reported crash on
+        // minimising the editor on Windows. Rebuild() already declines to get this far, so reaching here means
+        // the surface lost its area between that check and this one; the frame loop retries.
+        if ( !Graphic::IsUsableViewExtent( resolved ) )
+            return Common::MakeFormattedError<bool>(
+                 "the surface reports a {}x{} extent, which no swapchain image can be created at (a minimised "
+                 "window reports 0x0); refusing to build a swapchain until it has drawable area again.",
+                 resolved.Width, resolved.Height );
+
+        const VkExtent2D swapchainExtent = { resolved.Width, resolved.Height };
+        *width                           = resolved.Width;
+        *height                          = resolved.Height;
 
         m_Width  = *width;
         m_Height = *height;
@@ -334,9 +344,33 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    bool VulkanSwapChain::HasDrawableSurfaceArea( const Graphic::ViewExtent& requested ) const
+    {
+        const auto vkLogicalDevice = m_LogicalDevice.lock();
+        if ( !vkLogicalDevice )
+            return false;
+
+        VkSurfaceCapabilitiesKHR surfCaps{};
+        // NOT VK_CHECK_RESULT: this is asked on the teardown-and-rebuild path, where a surface that has gone
+        // away is a reason to skip the rebuild rather than to abort the process.
+        const VkResult queried = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+             vkLogicalDevice->GetPhysicalDevice()->GetVulkanPhysicalDevice(), m_Surface, &surfCaps );
+        if ( queried != VK_SUCCESS )
+            return false;
+
+        return Graphic::IsUsableViewExtent( Graphic::ResolveSurfaceExtent(
+             Graphic::ViewExtent{ surfCaps.currentExtent.width, surfCaps.currentExtent.height }, requested ) );
+    }
+
     void VulkanSwapChain::OnResize( uint32_t width, uint32_t height )
     {
         if ( !Graphic::DeviceLost::AllowWork() )
+            return;
+
+        // A MINIMISED WINDOW IS WAITED OUT, AND SILENTLY. Minimising is a normal state, not a failure, so it
+        // must not log once per frame for as long as the window stays in the taskbar; Rebuild() refuses it by
+        // name for every other caller, and this is the one that would turn the refusal into a log flood.
+        if ( !HasDrawableSurfaceArea( Graphic::ViewExtent{ width, height } ) )
             return;
 
         // THE RESULT WAS DISCARDED HERE. A swapchain that failed to rebuild left every handle below stale
@@ -355,6 +389,16 @@ namespace Desert::Graphic::API::Vulkan
         const auto device = m_LogicalDevice.lock();
         if ( !device )
             DESERT_VERIFY( false );
+
+        // ASKED BEFORE Release(), and the ORDER is the fix. Release() destroys every image, view, framebuffer
+        // and the swapchain itself; CreateSwapChain then cannot replace them at a 0x0 extent, so a rebuild
+        // attempted while the window is minimised left the swapchain torn down with nothing to rebuild it
+        // from -- on top of the vmaCreateImage break that got there first. Nothing is released until the
+        // surface is known to have area.
+        if ( !HasDrawableSurfaceArea( Graphic::ViewExtent{ width, height } ) )
+            return Common::MakeFormattedError<bool>(
+                 "the window has no drawable area (the surface reports a zero extent, as a minimised window "
+                 "does); refusing to release and rebuild the swapchain until it does." );
 
         // Release waits for the device to go idle, so nothing still reads the images being destroyed.
         Release();
