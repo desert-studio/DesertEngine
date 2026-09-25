@@ -962,3 +962,121 @@ TEST( MeshBevel, ApplyTerminatorOnATiltedCapStaysOnTheInsetLines )
         }
     }
 }
+
+// Multi-segment flat bevel (UE CreateBevelMeshing_Multi with RoundWeight 0): every strip gains NumSubdivisions
+// evenly spaced rows in the chamfer plane and each corner a tessellation matching them, so the solid is the
+// chamfered one (same volume) with more, still outward and closed, triangles.
+namespace
+{
+    // Every strip column is a straight, evenly spaced run from one side of the bevel to the other.
+    void ExpectEvenStripColumns( const FDynamicMesh3& mesh, const FQuadGridPatch& patch, int subdivisions )
+    {
+        ASSERT_EQ( patch.NumVertexRows(), subdivisions + 2 );
+        for ( int c = 0; c < patch.NumVertexCols(); ++c )
+        {
+            TArray<int32> column;
+            ASSERT_TRUE( patch.GetVertexColumn( c, column ) );
+            const FVector3d a = mesh.GetVertex( column[0] );
+            const FVector3d b = mesh.GetVertex( column.Last() );
+            for ( int j = 0; j < column.Num(); ++j )
+            {
+                const FVector3d expected = Lerp( a, b, static_cast<double>( j ) / ( subdivisions + 1 ) );
+                EXPECT_NEAR( Distance( mesh.GetVertex( column[j] ), expected ), 0.0, 1e-9 ) << "column " << c;
+            }
+        }
+    }
+
+    double ChamferVolume( FDynamicMesh3 mesh, const TArray<int32>& groupEdges )
+    {
+        const FGroupTopology topology( &mesh, true );
+        FMeshBevel           bevel;
+        if ( !bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) || !bevel.Apply( mesh ) )
+        {
+            ADD_FAILURE() << bevel.FailureReason;
+            return 0.0;
+        }
+        return SignedVolume( mesh );
+    }
+} // namespace
+
+TEST( MeshBevel, MultiSegmentAllTwelveEdgesKeepsTheChamferVolume )
+{
+    for ( const int n : { 1, 2 } )
+    {
+        for ( const int N : { 2, 3 } )
+        {
+            SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + ", " + std::to_string( N ) +
+                          " subdivisions" );
+            FDynamicMesh3        mesh = TangentCube( n );
+            const FGroupTopology topology( &mesh, true );
+            FMeshBevelProbe      bevel;
+            bevel.InsetDistance   = 5.0;
+            bevel.NumSubdivisions = N;
+            ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+            ExpectNewTriangleNormals( mesh, bevel );
+
+            EXPECT_EQ( Groups( mesh ).size(), 26u );
+            // faces 12 n^2, strips 12 edges x n x (N + 1) quads, corners (N + 1)^2 each
+            EXPECT_EQ( mesh.TriangleCount(), 12 * n * n + 24 * n * ( N + 1 ) + 8 * ( N + 1 ) * ( N + 1 ) );
+            EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) + 12 * ( n + 1 ) * N + 8 * N * ( N - 1 ) / 2 );
+            ExpectClosedSolid( mesh, 1.0e6 - 8.0 * ( 625.0 + 1125.0 + 125.0 / 3.0 ) );
+            for ( const FMeshBevel::FBevelEdge& edge : bevel.Edges )
+                ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
+            for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+            {
+                ASSERT_EQ( v.NewTriangles.Num(), ( N + 1 ) * ( N + 1 ) ) << "junction " << v.VertexID;
+                for ( const int t : v.NewTriangles )
+                {
+                    const FVector3d corner = mesh.GetTriCentroid( t );
+                    EXPECT_NEAR( mesh.GetTriNormal( t ).Dot( Normalized( corner ) ), 1.0, 1e-3 )
+                         << "junction " << v.VertexID;
+                }
+            }
+        }
+    }
+}
+
+// Terminators (one edge: a fan each; two edges whose terminators pair up: a quad column per pair): the same solid
+// as the one-segment chamfer, closed and outward.
+TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
+{
+    for ( const int n : { 1, 2 } )
+    {
+        const FDynamicMesh3  base = TangentCube( n );
+        const FGroupTopology baseTopology( &base, true );
+        struct FCase
+        {
+            std::string   Name;
+            TArray<int32> GroupEdges;
+            int           TerminatorTrianglesPerSegment;
+        };
+        const std::vector<FCase> cases = {
+            { "one edge", { GroupEdgeBetween( baseTopology, 1, 3 ) }, 2 },
+            { "diagonal pair", { GroupEdgeBetween( baseTopology, 1, 3 ), GroupEdgeBetween( baseTopology, 2, 4 ) }, 4 },
+        };
+        for ( const FCase& c : cases )
+        {
+            for ( const int N : { 2, 3 } )
+            {
+                SCOPED_TRACE( c.Name + ", n " + std::to_string( n ) + ", " + std::to_string( N ) + " subdivisions" );
+                const double         expected = ChamferVolume( base, c.GroupEdges );
+                FDynamicMesh3        mesh     = base;
+                const FGroupTopology topology( &mesh, true );
+                FMeshBevelProbe      bevel;
+                bevel.NumSubdivisions = N;
+                ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, c.GroupEdges ) )
+                     << bevel.FailureReason;
+                ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+                ExpectClosedSolid( mesh, expected );
+                ExpectNewTriangleNormals( mesh, bevel );
+                for ( const FMeshBevel::FBevelEdge& edge : bevel.Edges )
+                    ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
+                int terminatorTriangles = 0;
+                for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+                    terminatorTriangles += v.NewTriangles.Num();
+                EXPECT_EQ( terminatorTriangles, c.TerminatorTrianglesPerSegment * ( N + 1 ) );
+            }
+        }
+    }
+}

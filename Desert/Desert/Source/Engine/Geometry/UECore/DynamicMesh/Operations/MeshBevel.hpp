@@ -1,13 +1,14 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/MeshBevel.h:26-378 and
-// Private/Operations/MeshBevel.cpp:47-131,576-668,669-2082,3740-3774,3814-3969 (setup, topology build, unlink,
-// displacement and meshing of the chamfer bevel, Apply, normals and material IDs),
+// Private/Operations/MeshBevel.cpp:47-131,576-668,669-2082,2084-3240,3740-3774,3814-3969 (setup, topology build,
+// unlink, displacement, meshing of the chamfer and of the multi-segment flat bevel, Apply, normals, material IDs),
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a
 // named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED
 // with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
 // SplitBowties (B:415-574). The fields UE marks deprecated in 5.5 (GroupEdgeID, GroupIDs, CornerID,
-// IncomingBevelTopoEdges) and the multi-segment data (StripQuadPatch, NormalsA/B, InteriorVertices,
-// InteriorBorderLoop) have no reader in the chamfer path and are not ported.
+// IncomingBevelTopoEdges) are not ported, nor is the round profile (RoundWeight, MakeArcSplineCurve,
+// ApplyProfileShape_Round B:3241-3739) with the data only it reads (NormalsA/B, InteriorVertices, InteriorBorderLoop):
+// a multi-segment bevel here has UE's RoundWeight = 0 flat profile.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
@@ -15,6 +16,7 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
 #include "Engine/Geometry/UECore/MeshRegionBoundaryLoops.hpp"
+#include "Engine/Geometry/UECore/Selections/QuadGridPatch.hpp"
 
 #include <string>
 
@@ -34,6 +36,10 @@ namespace Desert::Geometry
 
         /** Distance (cm) each beveled edge is inset into its two adjacent faces. */
         double InsetDistance = 5.0;
+
+        /** Number of subdivisions inserted in each bevel strip; 0 is the one-segment chamfer. The profile across the
+         *  strip is flat (UE RoundWeight = 0), so every subdivision lies in the chamfer plane. */
+        int32 NumSubdivisions = 0;
 
         /** Options for MaterialID assignment on the new triangles generated for the bevel */
         enum class EMaterialIDMode
@@ -60,8 +66,7 @@ namespace Desert::Geometry
          * Bevel the initialized edges in place (UE Apply, B:576): unlink, displace, mesh, then the primary normals
          * normals, primary UVs (one ExpMap island per region, as UE: other UV layers stay unset) and material
          * IDs of NewTriangles. Returns false with FailureReason (the mesh is then partially edited) as soon as a
-         * phase refuses. Only the one-segment chamfer is ported:
-         * UE's NumSubdivisions / round profile (CreateBevelMeshing_Multi) is task P13e.
+         * phase refuses. NumSubdivisions > 0 meshes through CreateBevelMeshing_Multi (flat profile).
          */
         bool Apply( FDynamicMesh3& Mesh );
 
@@ -77,7 +82,8 @@ namespace Desert::Geometry
             TArray<FVector3d> NewPositions0; // new positions for MeshVertices
             TArray<FVector3d> NewPositions1; // new positions for NewMeshVertices
             TArray<int32>     NewGroupIDs;
-            TArray<FIndex2i>  StripQuads; // triangle-ID pairs of each new quad along the edge, 1-1 with MeshEdges
+            TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
+            FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
         };
 
         struct FBevelEdge
@@ -95,7 +101,8 @@ namespace Desert::Geometry
             TArray<FVector3d> NewPositions0; // new positions for MeshVertices
             TArray<FVector3d> NewPositions1; // new positions for NewMeshVertices
             int32             NewGroupID = -1;
-            TArray<FIndex2i>  StripQuads; // triangle-ID pairs of each new quad along the edge, 1-1 with MeshEdges
+            TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
+            FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
         };
 
         struct FOneRingWedge
@@ -169,6 +176,15 @@ namespace Desert::Geometry
         void AppendTerminatorVertexPairQuad( FDynamicMesh3& Mesh, FBevelVertex& Vertex0, FBevelVertex& Vertex1 );
         void AppendEdgeQuads( FDynamicMesh3& Mesh, FBevelEdge& Edge );
         void AppendLoopQuads( FDynamicMesh3& Mesh, FBevelLoop& Loop );
+
+        /** Multi-segment meshing: the edge and loop strips first (NumSubdivisions + 1 quad rows each, kept as a
+         *  StripQuadPatch), then the junction polygons tessellated to match their columns, terminators last. */
+        void CreateBevelMeshing_Multi( FDynamicMesh3& Mesh );
+        void AppendEdgeQuads_Multi( FDynamicMesh3& Mesh, FBevelEdge& Edge );
+        void AppendLoopQuads_Multi( FDynamicMesh3& Mesh, FBevelLoop& Loop );
+        void AppendJunctionVertexPolygon_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
+        void AppendTerminatorVertexTriangles_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
+        void AppendTerminatorVertexPairQuad_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex0, FBevelVertex& Vertex1 );
 
         /** Per-vertex normals within each new vertex polygon and each strip; no-op without attributes. */
         void ComputeNormals( FDynamicMesh3& Mesh );
