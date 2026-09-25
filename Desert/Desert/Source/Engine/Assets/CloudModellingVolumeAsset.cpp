@@ -4,7 +4,9 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>
+#include <optional>
 #include <span>
+#include <sstream>
 
 namespace Desert::Assets
 {
@@ -12,8 +14,35 @@ namespace Desert::Assets
                                                           const Common::Filepath& filepath )
          : AssetBase( priority, filepath, AssetTypeID::CloudModellingVolume )
     {
-        // The path-derived handle this type used to compute for itself now comes from AssetBase, which
-        // derives it the same way for every asset type. See the comment on that constructor.
+        // THE VOLUME'S IDENTITY IS ITS ENVELOPE GUID (container 3), adopted HERE rather than in the load, for
+        // the layout's reason: the asset manager keys its handle lookup at creation. A file with no readable
+        // header (absent: Save is about to create it; or a bare container) keeps the path-derived handle -
+        // the load refuses the latter by name, so no volume is ever READY under that handle.
+        const auto guid = ReadCloudModellingVolumeGuid( m_Metadata.Filepath );
+        if ( guid.IsNull() )
+            return;
+        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+    }
+
+    Common::Content::AssetGuid
+    CloudModellingVolumeAsset::ReadCloudModellingVolumeGuid( const Common::Filepath& filepath )
+    {
+        // Only the envelope header is read, through the VFS first like the load.
+        std::optional<Common::ResultStr<Common::Content::AssetGuid>> guid;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath ) : std::nullopt;
+             packed.has_value() )
+        {
+            std::istringstream in( *packed );
+            guid.emplace( Assets::ReadCloudModellingVolumeGuid( in ) );
+        }
+        else if ( std::ifstream in( filepath, std::ios::binary ); in )
+            guid.emplace( Assets::ReadCloudModellingVolumeGuid( in ) );
+
+        if ( !guid || !*guid )
+            return {};
+        return guid->GetValue();
     }
 
     Common::BoolResultStr CloudModellingVolumeAsset::LoadFromFile()
@@ -104,7 +133,16 @@ namespace Desert::Assets
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
 
-        const std::vector<unsigned char> encoded = EncodeCloudModellingVolume( volume );
+        // A RE-BAKE OVER AN EXISTING VOLUME KEEPS THAT FILE'S GUID, so every reference to it (and the handle
+        // a loaded asset already adopted) survives the regeneration. A new file mints one; the caller's own
+        // GUID is never copied to a different path, which would give two files one identity.
+        CloudModellingVolumeData written = volume;
+        written.Guid                     = ReadCloudModellingVolumeGuid( filepath );
+        const auto encodedResult         = EncodeCloudModellingVolume( written );
+        if ( !encodedResult )
+            return Common::MakeFormattedError<bool>( "refusing to write '{}': {}", filepath.string(),
+                                                     encodedResult.GetError() );
+        const std::vector<unsigned char>& encoded = encodedResult.GetValue();
 
         // Through the write primitive, not a local std::ofstream (Д35): the local stream's flush is its
         // destructor, which runs after this function has already returned BOOLSUCCESS.

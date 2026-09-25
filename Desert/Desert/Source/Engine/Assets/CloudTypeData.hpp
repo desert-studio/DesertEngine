@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
@@ -71,6 +72,10 @@ namespace Desert::Assets
     /// its handle (CloudTypeAsset's constructor), and this number under the tag `CLTY`. The header is the
     /// ONE place the version is stated: the old top-level FormatVersion is gone, so the two cannot
     /// disagree. A version-3 file (no header) is refused by name; Tools/SceneMigrator mints its GUID once.
+    ///
+    /// VERSION 5 SINCE T7h: NoiseVolume names the volume by {Guid, Path} (the GUID its `.dcnv` envelope
+    /// states) and the header's Dependencies state exactly that GUID. A version-4 file names it by a bare
+    /// path and is refused by name; Tools/SceneMigrator reads the GUID out of the named volume once.
     inline constexpr int32_t kCloudTypeFormatVersion = static_cast<int32_t>( kCloudTypeSchemaVersion );
 
     /// The subsystem versions a .decloudtype of this build states: the cloud type schema, and nothing else.
@@ -106,14 +111,15 @@ namespace Desert::Assets
         /// loses it is a row of numbers nobody dares change.
         std::optional<std::string> Notes;
 
-        /// The 3D noise this type's EDGE is cut from, as a path relative to the project's assets root
-        /// (e.g. "Clouds/CloudNoise_FineWisp.dcnv"). Absent or empty means the built-in default volume,
-        /// which is the state every type in the shipped library but one is in.
+        /// The 3D noise this type's EDGE is cut from: the volume's envelope GUID, which resolves it, and its
+        /// path relative to the project's assets root (e.g. "Clouds/CloudNoise_FineWisp.dcnv"), which only
+        /// names it for a reader. Absent means the built-in default volume, which is the state every type in
+        /// the shipped library but one is in.
         ///
-        /// RELATIVE, and that is the difference between a library that ships and one that only works on
-        /// the machine it was authored on: every absolute path in this repository's scenes begins with one
-        /// developer's home directory. The asset joins it to Constants::Path::ASSETS_PATH once, on load.
-        std::optional<std::string> NoiseVolume;
+        /// BY GUID, because a volume renamed or moved on disk is still the volume this type was authored
+        /// against; the path is RELATIVE so that the file names nothing on the machine it was written on.
+        /// The header's Dependencies state the same GUID (ParseCloudType refuses a file where they differ).
+        std::optional<AssetGuidRef> NoiseVolume;
 
         /// The numbers and the curve. Nested rather than flattened so that the file's schema and the
         /// struct the generator consumes cannot drift apart: there is no mapping between them to get wrong.

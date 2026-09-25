@@ -653,7 +653,7 @@ namespace Desert::ECS
                 ReportOnce( fmt::format( "retarget-rig:{}", static_cast<uint64_t>( wanted ) ),
                             fmt::format( "retarget '{}' names source rig '{}' and no loaded skeleton "
                                          "answers it; the entity plays its clip on its own rig",
-                                         asset->GetDisplayName(), asset->GetData().SourceSkeleton ) );
+                                         asset->GetDisplayName(), asset->GetData().SourceSkeleton.Path ) );
                 return;
             }
 

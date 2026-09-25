@@ -5,6 +5,7 @@
 #include "WorldPartitionMap.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -205,6 +206,36 @@ namespace Desert::Editor::WorldPartitionMap
                 return "Failed to load";
         }
         return "Failed to load";
+    }
+
+    std::span<const CellState> LegendStates( bool streaming )
+    {
+        static constexpr std::array kEdit      = { CellState::Unstreamed };
+        static constexpr std::array kStreaming = { CellState::Unloaded, CellState::Loading, CellState::Loaded,
+                                                   CellState::Resident, CellState::Failed };
+        if ( streaming )
+            return kStreaming;
+        return kEdit;
+    }
+
+    std::vector<LegendRow> Legend( const Core::Rules::WorldPartitionPlan& plan,
+                                   const Core::Rules::ResidencyState* residency, int level )
+    {
+        std::vector<LegendRow> rows;
+        for ( const CellState state : LegendStates( residency != nullptr ) )
+            rows.push_back( LegendRow{ state, 0 } );
+        for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
+        {
+            if ( !Shown( plan.Cells[cell].Level, level ) )
+                continue;
+            // A state without a row is left uncounted, and then the rows no longer sum to the cell count:
+            // that sum is what the suite asserts for every residency.
+            const CellState state = StateOf( plan, residency, cell );
+            const auto      row   = std::ranges::find( rows, state, &LegendRow::State );
+            if ( row != rows.end() )
+                ++row->Count;
+        }
+        return rows;
     }
 
     double RadiusPixels( const View& view, double radiusCm )

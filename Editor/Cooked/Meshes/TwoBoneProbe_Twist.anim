@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "14529306c900724094ee47e01924655b",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "TwoBoneProbe_Twist",
     "TickRate": {
         "Numerator": 24000,

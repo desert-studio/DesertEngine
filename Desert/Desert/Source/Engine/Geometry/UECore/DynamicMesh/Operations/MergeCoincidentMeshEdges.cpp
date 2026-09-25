@@ -4,6 +4,8 @@
 // (Initialize, Insert, Dequeue); see the header for the adaptations.
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
 
+#include "Engine/Geometry/UECore/IndexPriorityQueue.hpp"
+
 #include <array>
 #include <cmath>
 #include <map>
@@ -57,78 +59,6 @@ namespace Desert::Geometry
             std::map<Key, TArray<int32>> Hash;
         };
 
-        // FIndexPriorityQueue: a binary min-heap stored 1-based in a flat array, with an ID -> heap index map.
-        class FIndexPriorityQueue
-        {
-        public:
-            void Initialize( int MaxNodeID )
-            {
-                Nodes.Reset();
-                Nodes.Add( {} ); // [0] unused, as UE
-                IdToIndex.Init( 0, MaxNodeID );
-            }
-            int GetCount() const
-            {
-                return Nodes.Num() - 1;
-            }
-            void Insert( int NodeID, float Priority )
-            {
-                const int Index   = Nodes.Add( { NodeID, Priority } );
-                IdToIndex[NodeID] = Index;
-                MoveUp( Index );
-            }
-            int Dequeue()
-            {
-                const int Head = Nodes[1].Id;
-                const int Last = GetCount();
-                Swap( 1, Last );
-                Nodes.RemoveAt( Last );
-                IdToIndex[Head] = 0;
-                if ( GetCount() > 0 )
-                    MoveDown( 1 );
-                return Head;
-            }
-
-        private:
-            struct FNode
-            {
-                int   Id       = -1;
-                float Priority = 0;
-            };
-            void Swap( int A, int B )
-            {
-                std::swap( Nodes[A], Nodes[B] );
-                IdToIndex[Nodes[A].Id] = A;
-                IdToIndex[Nodes[B].Id] = B;
-            }
-            void MoveUp( int Index )
-            {
-                while ( Index > 1 && Nodes[Index / 2].Priority > Nodes[Index].Priority )
-                {
-                    Swap( Index, Index / 2 );
-                    Index /= 2;
-                }
-            }
-            void MoveDown( int Index )
-            {
-                const int Count = GetCount();
-                for ( ;; )
-                {
-                    int       Smallest = Index;
-                    const int Left = 2 * Index, Right = 2 * Index + 1;
-                    if ( Left <= Count && Nodes[Left].Priority < Nodes[Smallest].Priority )
-                        Smallest = Left;
-                    if ( Right <= Count && Nodes[Right].Priority < Nodes[Smallest].Priority )
-                        Smallest = Right;
-                    if ( Smallest == Index )
-                        return;
-                    Swap( Index, Smallest );
-                    Index = Smallest;
-                }
-            }
-            TArray<FNode> Nodes;
-            TArray<int>   IdToIndex;
-        };
     } // namespace
 
     const double FMergeCoincidentMeshEdges::DEFAULT_TOLERANCE = FMathf::ZeroTolerance;

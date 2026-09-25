@@ -137,7 +137,7 @@ TEST( CloudModellingRecipe, EveryAuthoredNumberSurvivesTheContainer )
     ASSERT_TRUE( baked ) << baked.GetError();
     data.Voxels = baked.ExtractValue();
 
-    const std::vector<unsigned char> encoded = Assets::EncodeCloudModellingVolume( data );
+    const std::vector<unsigned char> encoded = Assets::EncodeCloudModellingPayload( data );
 
     // The size is a formula, not an observation: a record that grew without kCloudModellingBlobBytes
     // moving would pass a test that meant nothing.
@@ -145,7 +145,7 @@ TEST( CloudModellingRecipe, EveryAuthoredNumberSurvivesTheContainer )
                                     data.Recipe.Blobs.size() * Assets::kCloudModellingBlobBytes +
                                     Assets::kCloudModellingVoxelBytes );
 
-    const auto decoded = Assets::DecodeCloudModellingVolume( encoded );
+    const auto decoded = Assets::DecodeCloudModellingPayload( encoded );
     ASSERT_TRUE( decoded ) << decoded.GetError();
 
     const Assets::CloudModellingVolumeRecipe& read = decoded.GetValue().Recipe;
@@ -205,9 +205,9 @@ TEST( CloudModellingRecipe, AnUnknownPrimitiveIsRefusedByNumberRatherThanGuessed
     data.Voxels.assign( static_cast<size_t>( Assets::kCloudModellingVoxelBytes ), 0u );
     data.Recipe.Blobs[0].Primitive = static_cast<Assets::CloudModellingPrimitive>( 99u );
 
-    const std::vector<unsigned char> encoded = Assets::EncodeCloudModellingVolume( data );
+    const std::vector<unsigned char> encoded = Assets::EncodeCloudModellingPayload( data );
 
-    const auto decoded = Assets::DecodeCloudModellingVolume( encoded );
+    const auto decoded = Assets::DecodeCloudModellingPayload( encoded );
     ASSERT_FALSE( decoded );
 
     // ASSERTED ON THE DECODER'S OWN MESSAGE, not merely on the word "primitive". `Validate` refuses an
@@ -221,7 +221,7 @@ TEST( CloudModellingRecipe, AnUnknownPrimitiveIsRefusedByNumberRatherThanGuessed
     std::vector<unsigned char> rotted = encoded;
     rotted[Assets::kCloudModellingHeaderSize + 44] ^= 0x01u;
 
-    const auto corrupt = Assets::DecodeCloudModellingVolume( rotted );
+    const auto corrupt = Assets::DecodeCloudModellingPayload( rotted );
     ASSERT_FALSE( corrupt );
     EXPECT_NE( corrupt.GetError().find( "checksum" ), std::string::npos ) << corrupt.GetError();
 }

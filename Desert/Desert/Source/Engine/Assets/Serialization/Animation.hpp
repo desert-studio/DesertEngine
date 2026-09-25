@@ -1,6 +1,18 @@
 #pragma once
 
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
+
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/ResultStr.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
+
+#include <rflcpp/rfl/json.hpp>
+
+#include <array>
 #include <cstdint>
+#include <format>
+#include <optional>
+#include <span>
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
@@ -162,17 +174,12 @@ namespace Desert::Assets::Serialization
      */
     struct AnimationAssetData
     {
-        /**
-         * @brief Schema generation of THIS file. ABSENT MEANS 0, AND 0 MEANS PRE-TICK — never "current".
-         *
-         * A plain `int` defaulting to 0 rather than an optional, because the two spellings differ exactly
-         * where it matters: with `rfl::DefaultIfMissing`, a file written before this field existed reads
-         * back as 0 and is therefore refused by the loader and converted by the migrator. Had the default
-         * been the current generation, every legacy file would have claimed to be current and had its
-         * float seconds read as ticks — an empty successful answer in a migrator, which is a defect class
-         * this project has already paid for.
-         */
-        int Version = 0;
+        /// The text asset header (T7e, ANIM 4), FIRST so the registry reads it without parsing the keys: Kind
+        /// "Animation", the GUID that IS the clip's identity and its handle (AnimationAsset's constructor), and
+        /// the format under `ANIM`. Generations 0-3 stated a top-level `Version` instead (absent meaning 0, never
+        /// "current"); ReadAnimationJson refuses them by name and Tools/SceneMigrator raises them. Absent only on
+        /// data never written - WriteAnimationJson mints it then.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         std::string Name;
 
@@ -244,6 +251,8 @@ namespace Desert::Assets::Serialization
     ///   2 - a key states the SHAPE of the segment it ends and the slopes that shape it (A6)
     ///   3 - a clip states its SECTIONS: a range, the tracks it speaks for, a blend type and a weight
     ///       channel (A28, report 05 §938)
+    ///   4 - the text asset header: the version moves from a top-level `Version` into the header under
+    ///       `ANIM`, beside the GUID that is the clip's identity (T7e)
     ///
     /// A number given by the teamlead, as the contract requires, and given on a condition: the step had
     /// to make the corpus SAY something new, not merely claim a newer number. See KeyShape.
@@ -254,5 +263,43 @@ namespace Desert::Assets::Serialization
     /// worktrees, none touches `Assets/Serialization/Animation.hpp` or `AnimationClip*`, so the number
     /// was free to take. It meets the condition either way — a generation-3 file says something a
     /// generation-2 file could not: what its values MEAN.
-    inline constexpr int kAnimationVersion = 3;
+    inline constexpr int kAnimationVersion = static_cast<int>( kAnimationSchemaVersion );
+
+    /// The last generation that stated its version in a top-level `Version` member, and the one
+    /// MigrateAnimationJson produces: the header raise (Tools/SceneMigrator) takes it the rest of the way.
+    inline constexpr int kAnimationLastVersionMember = 3;
+
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> AnimationTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ kAnimationSchemaTag, kAnimationSchemaVersion } };
+        return versions;
+    }
+
+    /// The .anim text. Stamps the header: the GUID `data` carries is kept, a missing one minted.
+    [[nodiscard]] inline std::string WriteAnimationJson( const AnimationAssetData& data )
+    {
+        AnimationAssetData out = data;
+        out.Header =
+             StampTextHeader( data.Header, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
+        return rfl::json::write( out );
+    }
+
+    /// Refuses a file with no header (generations 0-3, a top-level `Version`) by name, pointing at
+    /// Tools/SceneMigrator, and a header of another kind or version; otherwise an error string on bad JSON.
+    /// DefaultIfMissing: clips cooked before a field existed (e.g. Notifies) still load with it empty.
+    [[nodiscard]] inline Common::ResultStr<AnimationAssetData> ReadAnimationJson( const std::string& text )
+    {
+        // A file that left `Version` out is generation 0 (float seconds), never "current".
+        if ( auto headed = RefuseTextWithoutHeader( text, kAnimationVersion, 0, "Version" ); !headed )
+            return Common::MakeError<AnimationAssetData>( std::format( "clip {}", headed.GetError() ) );
+        auto parsed = rfl::json::read<AnimationAssetData, rfl::DefaultIfMissing>( text );
+        if ( !parsed )
+            return Common::MakeError<AnimationAssetData>( std::format( "bad .anim: {}", parsed.error().what() ) );
+        if ( auto header = CheckStatedHeader( parsed.value().Header, Common::Content::ContentKind::Animation,
+                                              kAnimationSchemaTag, kAnimationVersion, AnimationTextSubsystems() );
+             !header )
+            return Common::MakeError<AnimationAssetData>( std::format( "clip {}", header.GetError() ) );
+        return Common::MakeSuccess( parsed.value() );
+    }
 } // namespace Desert::Assets::Serialization

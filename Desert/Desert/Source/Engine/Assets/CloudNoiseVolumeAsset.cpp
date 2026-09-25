@@ -4,15 +4,47 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <fstream>
+#include <optional>
 #include <span>
+#include <sstream>
 
 namespace Desert::Assets
 {
     CloudNoiseVolumeAsset::CloudNoiseVolumeAsset( AssetPriority priority, const Common::Filepath& filepath )
          : AssetBase( priority, filepath, AssetTypeID::CloudNoiseVolume )
     {
-        // The path-derived handle this type used to compute for itself now comes from AssetBase, which
-        // derives it the same way for every asset type. See the comment on that constructor.
+        // THE VOLUME'S IDENTITY IS ITS ENVELOPE GUID (container 3), adopted HERE rather than in the load, for
+        // the layout's reason: the asset manager keys its handle lookup at creation. A file with no readable
+        // header (absent: Save is about to create it; or a bare container) keeps the path-derived handle -
+        // the load refuses the latter by name, so no volume is ever READY under that handle.
+        const auto guid = ReadCloudNoiseVolumeGuid( m_Metadata.Filepath );
+        if ( guid.IsNull() )
+            return;
+        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+    }
+
+    Common::Content::AssetGuid CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( const Common::Filepath& filepath )
+    {
+        // Only the envelope header is read, through the VFS first like the load.
+        namespace CC                              = Common::Content;
+        const CC::SubsystemVersion       kKnown[] = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion } };
+        const CC::AssetHeaderReadContext context{ kKnown };
+
+        std::optional<Common::ResultStr<CC::EnvelopeHeader>> header;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath ) : std::nullopt;
+             packed.has_value() )
+        {
+            std::istringstream in( *packed );
+            header.emplace( CC::ReadEnvelopeHeader( in, context ) );
+        }
+        else if ( std::ifstream in( filepath, std::ios::binary ); in )
+            header.emplace( CC::ReadEnvelopeHeader( in, context ) );
+
+        if ( !header || !*header || header->GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
+            return {};
+        return header->GetValue().Asset.Guid;
     }
 
     Common::BoolResultStr CloudNoiseVolumeAsset::LoadFromFile()
@@ -135,7 +167,16 @@ namespace Desert::Assets
         if ( filepath.has_parent_path() )
             std::filesystem::create_directories( filepath.parent_path(), ec );
 
-        const std::vector<unsigned char> encoded = EncodeCloudNoiseVolume( volume );
+        // A RE-BAKE OVER AN EXISTING VOLUME KEEPS THAT FILE'S GUID, so every reference to it (and the handle
+        // a loaded asset already adopted) survives the regeneration. A new file mints one; the caller's own
+        // GUID is never copied to a different path, which would give two files one identity.
+        CloudNoiseVolumeData written = volume;
+        written.Guid                 = ReadCloudNoiseVolumeGuid( filepath );
+        const auto encodedResult     = EncodeCloudNoiseVolume( written );
+        if ( !encodedResult )
+            return Common::MakeFormattedError<bool>( "refusing to write '{}': {}", filepath.string(),
+                                                     encodedResult.GetError() );
+        const std::vector<unsigned char>& encoded = encodedResult.GetValue();
 
         // Through the write primitive, not a local std::ofstream (Д35): the local stream's flush is its
         // destructor, which runs after this function has already returned BOOLSUCCESS. A `.dcnv` is tens
