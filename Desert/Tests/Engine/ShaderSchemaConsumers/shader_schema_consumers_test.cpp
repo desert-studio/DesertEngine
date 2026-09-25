@@ -743,8 +743,7 @@ TEST( ShaderSchemaConsumers, TheDeclaredShaderNameIsTheFileStem )
         ASSERT_TRUE( declared ) << file.string() << ": " << declared.GetError();
         EXPECT_EQ( declared.GetValue(), file.stem().string() )
              << file.string() << " declares itself `Shader \"" << declared.GetValue()
-             << "\"` and the engine will call it \""
-             << file.stem().string()
+             << "\"` and the engine will call it \"" << file.stem().string()
              << "\" (VulkanShader takes the file stem). Every material naming the declared spelling "
                 "resolves to nothing.";
     }
