@@ -1,9 +1,10 @@
 // Ported from UE 5.8
-// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:75-131, 669-1788,
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:75-131, 669-2082,
 // adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the progress-cancel checks are gone
 // (UECore has no FProgressCancel), and every UE path that leaves a vertex Unknown records why.
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
 
+#include "Engine/Geometry/UECore/CompGeom/PolygonTriangulation.hpp"
 #include "Engine/Geometry/UECore/Distance/DistLine3Line3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
@@ -957,6 +958,243 @@ namespace Desert::Geometry
             {
                 if ( Wedge.bHaveNewPosition )
                     Mesh.SetVertex( Wedge.WedgeVertex, Wedge.NewPosition );
+            }
+        }
+    }
+
+    int32 FMeshBevel::AppendOrRefuse( FDynamicMesh3& Mesh, int32 A, int32 B, int32 C, int32 GroupID,
+                                      const std::string& Where )
+    {
+        const int32 TriangleID = Mesh.AppendTriangle( A, B, C, GroupID );
+        if ( !Mesh.IsTriangle( TriangleID ) )
+            Refuse( Where + ": triangle (" + std::to_string( A ) + ", " + std::to_string( B ) + ", " +
+                    std::to_string( C ) + ") cannot be appended, AppendTriangle returned " +
+                    std::to_string( TriangleID ) );
+        return TriangleID;
+    }
+
+    void FMeshBevel::AppendJunctionVertexPolygon( FDynamicMesh3& Mesh, FBevelVertex& Vertex )
+    {
+        // UnlinkJunctionVertex() split the junction vertex into one vertex per (now disconnected) wedge. The
+        // wedges are ordered so that their wedge vertices form a polygon with correct winding: mesh it as it
+        // stands.
+        TArray<FVector3d> PolygonPoints;
+        for ( const FOneRingWedge& Wedge : Vertex.Wedges )
+            PolygonPoints.Add( Mesh.GetVertex( Wedge.WedgeVertex ) );
+        TArray<FIndex3i> Triangles;
+        PolygonTriangulation::TriangulateSimplePolygon<double>( PolygonPoints, Triangles );
+        if ( Triangles.Num() != PolygonPoints.Num() - 2 )
+        {
+            Refuse( "junction vertex " + std::to_string( Vertex.VertexID ) + ": its " +
+                    std::to_string( PolygonPoints.Num() ) + "-gon triangulates into " +
+                    std::to_string( Triangles.Num() ) + " triangles" );
+            return;
+        }
+        Vertex.NewGroupID       = Mesh.AllocateTriangleGroup();
+        const std::string Where = "junction vertex " + std::to_string( Vertex.VertexID );
+        for ( const FIndex3i& Tri : Triangles )
+        {
+            const int32 TriangleID =
+                 AppendOrRefuse( Mesh, Vertex.Wedges[Tri.A].WedgeVertex, Vertex.Wedges[Tri.B].WedgeVertex,
+                                 Vertex.Wedges[Tri.C].WedgeVertex, Vertex.NewGroupID, Where );
+            if ( Mesh.IsTriangle( TriangleID ) )
+                Vertex.NewTriangles.Add( TriangleID );
+        }
+    }
+
+    void FMeshBevel::AppendTerminatorVertexTriangle( FDynamicMesh3& Mesh, FBevelVertex& Vertex )
+    {
+        // UnlinkTerminatorVertex() opened a triangle-shaped hole next to the incoming quad strip. The wedges hold
+        // the two vertices of the strip's end edge; the third is the far end of the ring-split edge, looked up
+        // again because unlinking other vertices may have replaced the FarVertexID stored in TerminatorInfo.
+        const std::string Where           = "terminator vertex " + std::to_string( Vertex.VertexID );
+        const int32       RingSplitEdgeID = Vertex.TerminatorInfo.A;
+        if ( !Mesh.IsEdge( RingSplitEdgeID ) )
+        {
+            Refuse( Where + ": ring-split edge " + std::to_string( RingSplitEdgeID ) + " no longer exists" );
+            return;
+        }
+        const int32 FarVertexID = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
+        const int32 QuadEdgeID  = Mesh.FindEdge( Vertex.Wedges[0].WedgeVertex, Vertex.Wedges[1].WedgeVertex );
+        if ( !Mesh.IsEdge( QuadEdgeID ) || !Mesh.IsBoundaryEdge( QuadEdgeID ) )
+        {
+            Refuse( Where + ": wedge vertices " + std::to_string( Vertex.Wedges[0].WedgeVertex ) + " and " +
+                    std::to_string( Vertex.Wedges[1].WedgeVertex ) + " share no open edge (edge " +
+                    std::to_string( QuadEdgeID ) + ")" );
+            return;
+        }
+        const FIndex2i QuadEdgeV = Mesh.GetOrientedBoundaryEdgeV( QuadEdgeID );
+        // BuildTerminatorVertex gives the cap the group of the face it closes (B:1061), or -1 for a new group.
+        const int32 UseGroupID = ( Vertex.NewGroupID >= 0 ) ? Vertex.NewGroupID : Mesh.AllocateTriangleGroup();
+        const int32 TriangleID = AppendOrRefuse( Mesh, QuadEdgeV.B, QuadEdgeV.A, FarVertexID, UseGroupID, Where );
+        if ( Mesh.IsTriangle( TriangleID ) )
+            Vertex.NewTriangles.Add( TriangleID );
+    }
+
+    void FMeshBevel::AppendTerminatorVertexPairQuad( FDynamicMesh3& Mesh, FBevelVertex& Vertex0,
+                                                     FBevelVertex& Vertex1 )
+    {
+        // Two terminators joined directly by the non-beveled ring-split edge both opened their side, so the hole
+        // is a quad with a strip end edge at each end; the wedges alone give its corners.
+        const std::string Where =
+             "terminator pair " + std::to_string( Vertex0.VertexID ) + "/" + std::to_string( Vertex1.VertexID );
+        const int32 QuadEdgeID0 = Mesh.FindEdge( Vertex0.Wedges[0].WedgeVertex, Vertex0.Wedges[1].WedgeVertex );
+        const int32 QuadEdgeID1 = Mesh.FindEdge( Vertex1.Wedges[0].WedgeVertex, Vertex1.Wedges[1].WedgeVertex );
+        if ( !Mesh.IsEdge( QuadEdgeID0 ) || !Mesh.IsEdge( QuadEdgeID1 ) || !Mesh.IsBoundaryEdge( QuadEdgeID0 ) ||
+             !Mesh.IsBoundaryEdge( QuadEdgeID1 ) )
+        {
+            Refuse( Where + ": strip end edges " + std::to_string( QuadEdgeID0 ) + " and " +
+                    std::to_string( QuadEdgeID1 ) + " are not both open" );
+            return;
+        }
+        const FIndex2i QuadEdgeV0 = Mesh.GetOrientedBoundaryEdgeV( QuadEdgeID0 );
+        const FIndex2i QuadEdgeV1 = Mesh.GetOrientedBoundaryEdgeV( QuadEdgeID1 );
+        if ( Mesh.FindEdge( QuadEdgeV0.A, QuadEdgeV1.B ) == IndexConstants::InvalidID ||
+             Mesh.FindEdge( QuadEdgeV0.B, QuadEdgeV1.A ) == IndexConstants::InvalidID )
+        {
+            Refuse( Where + ": the quad hole's connecting edges are missing" );
+            return;
+        }
+        const int32 UseGroupID = ( Vertex0.NewGroupID >= 0 ) ? Vertex0.NewGroupID : Mesh.AllocateTriangleGroup();
+        // quad order is V0.B, V0.A, V1.B, V1.A
+        const int32 TriangleID0 =
+             AppendOrRefuse( Mesh, QuadEdgeV0.B, QuadEdgeV0.A, QuadEdgeV1.B, UseGroupID, Where );
+        if ( Mesh.IsTriangle( TriangleID0 ) )
+            Vertex0.NewTriangles.Add( TriangleID0 );
+        const int32 TriangleID1 =
+             AppendOrRefuse( Mesh, QuadEdgeV0.B, QuadEdgeV1.B, QuadEdgeV1.A, UseGroupID, Where );
+        if ( Mesh.IsTriangle( TriangleID1 ) )
+            Vertex1.NewTriangles.Add( TriangleID1 );
+    }
+
+    void FMeshBevel::AppendEdgeQuads( FDynamicMesh3& Mesh, FBevelEdge& Edge )
+    {
+        const std::string Where    = "bevel edge " + std::to_string( Edge.EdgeIndex );
+        const int32       NumEdges = Edge.MeshEdges.Num();
+        if ( NumEdges != Edge.NewMeshEdges.Num() )
+        {
+            Refuse( Where + ": " + std::to_string( NumEdges ) + " mesh edges but " +
+                    std::to_string( Edge.NewMeshEdges.Num() ) + " unlinked partners" );
+            return;
+        }
+        Edge.NewGroupID = Mesh.AllocateTriangleGroup();
+        // Each span is fully disconnected into edge pairs by now; join each pair with a quad.
+        for ( int32 k = 0; k < NumEdges; ++k )
+        {
+            const int32 EdgeID0 = Edge.MeshEdges[k];
+            int32       EdgeID1 = Edge.NewMeshEdges[k];
+            // A single-edge span only gets its partner when the junction vertex is unlinked; .NewMeshEdges is not
+            // updated then, but MeshEdgePairs is.
+            if ( EdgeID0 == EdgeID1 )
+            {
+                if ( const int32* FoundEdgeID1 = MeshEdgePairs.Find( EdgeID0 ) )
+                    EdgeID1 = *FoundEdgeID1;
+            }
+            FIndex2i QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
+            if ( EdgeID0 == EdgeID1 || !Mesh.IsEdge( EdgeID1 ) )
+            {
+                Refuse( Where + ": mesh edge " + std::to_string( EdgeID0 ) + " has no unlinked partner (" +
+                        std::to_string( EdgeID1 ) + ")" );
+                Edge.StripQuads.Add( QuadTris );
+                continue;
+            }
+            const FIndex2i EdgeV0 = Mesh.GetOrientedBoundaryEdgeV( EdgeID0 );
+            const FIndex2i EdgeV1 = Mesh.GetOrientedBoundaryEdgeV( EdgeID1 );
+            if ( EdgeV0.Contains( EdgeV1.A ) || EdgeV0.Contains( EdgeV1.B ) )
+            {
+                // The pair still shares one end, so only a triangle fits between them (UE-157531 hits this in
+                // complex geometry scripts).
+                const int32 OtherV = EdgeV0.Contains( EdgeV1.A ) ? EdgeV1.B : EdgeV1.A;
+                QuadTris.A         = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, OtherV, Edge.NewGroupID, Where );
+            }
+            else
+            {
+                QuadTris.A = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, EdgeV1.B, Edge.NewGroupID, Where );
+                QuadTris.B = AppendOrRefuse( Mesh, EdgeV1.B, EdgeV1.A, EdgeV0.B, Edge.NewGroupID, Where );
+            }
+            Edge.StripQuads.Add( QuadTris );
+        }
+    }
+
+    void FMeshBevel::AppendLoopQuads( FDynamicMesh3& Mesh, FBevelLoop& Loop )
+    {
+        const int32 NumEdges = Loop.MeshEdges.Num();
+        if ( NumEdges != Loop.NewMeshEdges.Num() )
+        {
+            Refuse( "bevel loop: " + std::to_string( NumEdges ) + " mesh edges but " +
+                    std::to_string( Loop.NewMeshEdges.Num() ) + " unlinked partners" );
+            return;
+        }
+        // One new group per pair of input groups the loop runs between.
+        auto GetGroupKey = [&Mesh, &Loop]( int32 k )
+        {
+            const FIndex2i EdgeTris = Loop.MeshEdgeTris[k];
+            const int32    Group0   = Mesh.GetTriangleGroup( EdgeTris.A );
+            const int32    Group1   = Mesh.IsTriangle( EdgeTris.B ) ? Mesh.GetTriangleGroup( EdgeTris.B ) : -1;
+            return FIndex2i( std::max( Group0, Group1 ), std::min( Group0, Group1 ) );
+        };
+        TMap<FIndex2i, int32> NewGroupIDs;
+        for ( int32 k = 0; k < NumEdges; ++k )
+        {
+            const FIndex2i GroupKey = GetGroupKey( k );
+            if ( !NewGroupIDs.Contains( GroupKey ) )
+                Loop.NewGroupIDs.Add( NewGroupIDs.Add( GroupKey, Mesh.AllocateTriangleGroup() ) );
+        }
+        for ( int32 k = 0; k < NumEdges; ++k )
+        {
+            const std::string Where   = "bevel loop edge " + std::to_string( Loop.MeshEdges[k] );
+            const int32       EdgeID0 = Loop.MeshEdges[k];
+            const int32       EdgeID1 = Loop.NewMeshEdges[k];
+            FIndex2i          QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
+            if ( EdgeID0 == EdgeID1 || !Mesh.IsEdge( EdgeID1 ) )
+            {
+                Refuse( Where + ": no unlinked partner (" + std::to_string( EdgeID1 ) + ")" );
+                Loop.StripQuads.Add( QuadTris );
+                continue;
+            }
+            const int32    NewGroupID = NewGroupIDs[GetGroupKey( k )];
+            const FIndex2i EdgeV0     = Mesh.GetOrientedBoundaryEdgeV( EdgeID0 );
+            const FIndex2i EdgeV1     = Mesh.GetOrientedBoundaryEdgeV( EdgeID1 );
+            QuadTris.A                = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, EdgeV1.B, NewGroupID, Where );
+            if ( EdgeV1.Contains( EdgeV0.B ) )
+                Refuse( Where + ": the pair still shares vertex " + std::to_string( EdgeV0.B ) );
+            else
+                QuadTris.B = AppendOrRefuse( Mesh, EdgeV1.B, EdgeV1.A, EdgeV0.B, NewGroupID, Where );
+            Loop.StripQuads.Add( QuadTris );
+        }
+    }
+
+    void FMeshBevel::CreateBevelMeshing( FDynamicMesh3& Mesh )
+    {
+        for ( FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.VertexType == EBevelVertexType::JunctionVertex && Vertex.Wedges.Num() > 2 )
+                AppendJunctionVertexPolygon( Mesh, Vertex );
+        }
+        for ( FBevelEdge& Edge : Edges )
+            AppendEdgeQuads( Mesh, Edge );
+        for ( FBevelLoop& Loop : Loops )
+            AppendLoopQuads( Mesh, Loop );
+        // Terminators last: the strip's end edge now exists and orients their triangle.
+        TSet<FIndex2i> HandledQuadVtxPairs;
+        for ( FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.VertexType != EBevelVertexType::TerminatorVertex )
+                continue;
+            if ( Vertex.ConnectedBevelVertex >= 0 )
+            {
+                FBevelVertex& OtherVertex = Vertices[Vertex.ConnectedBevelVertex];
+                FIndex2i      VtxPair( Vertex.VertexID, OtherVertex.VertexID );
+                VtxPair.Sort();
+                if ( !HandledQuadVtxPairs.Contains( VtxPair ) )
+                {
+                    AppendTerminatorVertexPairQuad( Mesh, Vertex, OtherVertex );
+                    HandledQuadVtxPairs.Add( VtxPair );
+                }
+            }
+            else
+            {
+                AppendTerminatorVertexTriangle( Mesh, Vertex );
             }
         }
     }

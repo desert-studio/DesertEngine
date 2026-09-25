@@ -1,7 +1,7 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/MeshBevel.h:26-378 and
-// Private/Operations/MeshBevel.cpp:75-131,669-1788 (setup, topology build, unlink and displacement of the chamfer
-// bevel),
+// Private/Operations/MeshBevel.cpp:75-131,669-2082 (setup, topology build, unlink, displacement and meshing of
+// the chamfer bevel),
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a
 // named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED
 // with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
@@ -137,6 +137,15 @@ namespace Desert::Geometry
          *  unused MeanValueCentroid fallback, so it is gone). */
         void DisplaceVertices( FDynamicMesh3& Mesh );
 
+        /** Fill the unlinked holes: junction polygons, edge and loop quad strips, then the terminator triangles
+         *  (last, so the strip's end edge orients them). */
+        void CreateBevelMeshing( FDynamicMesh3& Mesh );
+        void AppendJunctionVertexPolygon( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
+        void AppendTerminatorVertexTriangle( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
+        void AppendTerminatorVertexPairQuad( FDynamicMesh3& Mesh, FBevelVertex& Vertex0, FBevelVertex& Vertex1 );
+        void AppendEdgeQuads( FDynamicMesh3& Mesh, FBevelEdge& Edge );
+        void AppendLoopQuads( FDynamicMesh3& Mesh, FBevelLoop& Loop );
+
     private:
         void InitVertexSet( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         void FinalizeTerminatorVertex( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
@@ -147,5 +156,9 @@ namespace Desert::Geometry
         bool SplitOrKeep( FDynamicMesh3& Mesh, int32 VertexID, const TArray<int32>& Triangles,
                           const std::string& Where, int32& NewVertexOut );
         void PairSplitWedgeBorderEdges( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
+        /** AppendTriangle, refusing (with Where and the result) when it fails; UE drops such a triangle and
+         *  leaves a hole. Returns the new triangle ID or the failed result. */
+        int32 AppendOrRefuse( FDynamicMesh3& Mesh, int32 A, int32 B, int32 C, int32 GroupID,
+                              const std::string& Where );
     };
 } // namespace Desert::Geometry

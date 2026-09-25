@@ -122,6 +122,7 @@ namespace
     class FMeshBevelProbe : public FMeshBevel
     {
     public:
+        using FMeshBevel::CreateBevelMeshing;
         using FMeshBevel::DisplaceVertices;
         using FMeshBevel::Edges;
         using FMeshBevel::FixUpUnlinkedBevelEdges;
@@ -138,6 +139,13 @@ namespace
             UnlinkLoops( mesh );
             UnlinkVertices( mesh );
             FixUpUnlinkedBevelEdges( mesh );
+        }
+        // UE Apply's chamfer phases, in order.
+        void Chamfer( FDynamicMesh3& mesh )
+        {
+            Unlink( mesh );
+            DisplaceVertices( mesh );
+            CreateBevelMeshing( mesh );
         }
     };
 
@@ -534,4 +542,122 @@ TEST( MeshBevel, SubdividedCubeOneEdgeTerminatorsSlideOntoTheirOwnFace )
     const std::map<double, int> onePerHeight{ { -50.0, 1 }, { 0.0, 1 }, { 50.0, 1 } };
     EXPECT_EQ( movedIntoX, onePerHeight );
     EXPECT_EQ( movedIntoY, onePerHeight );
+}
+
+namespace
+{
+    // UE winding: GetTriNormal is (C - A) x (B - A), so an outward-facing closed mesh sums NEGATIVE under the
+    // right-hand rule; negate to read the enclosed volume.
+    double SignedVolume( const FDynamicMesh3& mesh )
+    {
+        double volume = 0.0;
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const FIndex3i  tri = mesh.GetTriangle( t );
+            const FVector3d a   = mesh.GetVertex( tri.A );
+            const FVector3d b   = mesh.GetVertex( tri.B );
+            const FVector3d c   = mesh.GetVertex( tri.C );
+            volume -= a.Dot( b.Cross( c ) ) / 6.0;
+        }
+        return volume;
+    }
+
+    std::set<int> Groups( const FDynamicMesh3& mesh )
+    {
+        std::set<int> groups;
+        for ( const int t : mesh.TriangleIndicesItr() )
+            groups.insert( mesh.GetTriangleGroup( t ) );
+        return groups;
+    }
+
+    // Closed, valid, consistently outward: a chamfer only ever removes material from the cube.
+    void ExpectClosedSolid( const FDynamicMesh3& mesh, double expectedVolume )
+    {
+        EXPECT_EQ( CountBoundaryEdges( mesh ), 0 );
+        EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
+        EXPECT_NEAR( SignedVolume( mesh ), expectedVolume, 1e-6 * expectedVolume );
+    }
+} // namespace
+
+// One edge of the n x n cube: the strip is the edge's new group, each terminator cap joins the face it closes
+// (B:1061), so 6 + 1 groups; the removed prism has legs 5 x 5 over the full 100 length.
+TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
+{
+    for ( const int n : { 1, 2 } )
+    {
+        SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" );
+        FDynamicMesh3  mesh = TangentCube( n );
+        FGroupTopology topology( &mesh, true );
+        const int      edge = GroupEdgeBetween( topology, 1, 3 );
+        ASSERT_GE( edge, 0 );
+        ExpectClosedSolid( mesh, 1.0e6 );
+
+        FMeshBevelProbe bevel;
+        bevel.InsetDistance = 5.0;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
+        bevel.Chamfer( mesh );
+        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+        EXPECT_EQ( Groups( mesh ).size(), 7u );
+        ExpectClosedSolid( mesh, 1.0e6 - 100.0 * 12.5 );
+        ASSERT_EQ( bevel.Edges.Num(), 1 );
+        const FMeshBevel::FBevelEdge& strip = bevel.Edges[0];
+        EXPECT_EQ( strip.StripQuads.Num(), n );
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            if ( mesh.GetTriangleGroup( t ) != strip.NewGroupID )
+                continue;
+            const FIndex3i tri = mesh.GetTriangle( t );
+            for ( int j = 0; j < 3; ++j )
+            {
+                // the original edge is the line x = y = 50
+                const FVector3d p = mesh.GetVertex( tri[j] );
+                EXPECT_NEAR( std::hypot( p.X - 50.0, p.Y - 50.0 ), 5.0, 1e-9 ) << "strip vertex " << tri[j];
+            }
+        }
+        for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+        {
+            ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::TerminatorVertex );
+            EXPECT_EQ( v.NewTriangles.Num(), 1 ) << "terminator " << v.VertexID;
+            ASSERT_EQ( v.NewTriangles.Num(), 1 );
+            // the top cap closes +Z (group 5), the bottom one -Z (group 6)
+            const int group = mesh.GetTriangleGroup( v.NewTriangles[0] );
+            EXPECT_EQ( group, mesh.GetVertex( v.VertexID ).Z > 0.0 ? 5 : 6 ) << "terminator " << v.VertexID;
+        }
+    }
+}
+
+// All twelve edges: 6 faces + 12 strips + 8 corner triangles = 26 groups. Octant by octant the solid is
+// {u, v, w in [0, 50], u + v >= 5 (each pair), u + v + w >= 10} with u = 50 - x: it loses
+// 625 + 2 * 562.5 + 125 / 3 cm^3 per octant.
+TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
+{
+    for ( const auto& [n, bInterleaved] :
+          { std::pair{ 1, false }, std::pair{ 2, false }, std::pair{ 3, false }, std::pair{ 3, true } } )
+    {
+        SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" +
+                      ( bInterleaved ? ", interleaved" : "" ) );
+        FDynamicMesh3  mesh = bInterleaved ? InterleavedTangentCube( n ) : TangentCube( n );
+        FGroupTopology topology( &mesh, true );
+
+        FMeshBevelProbe bevel;
+        bevel.InsetDistance = 5.0;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+        bevel.Chamfer( mesh );
+        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+        EXPECT_EQ( Groups( mesh ).size(), 26u );
+        EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) );
+        EXPECT_EQ( mesh.TriangleCount(), 12 * n * n + 12 * 2 * n + 8 );
+        ExpectClosedSolid( mesh, 1.0e6 - 8.0 * ( 625.0 + 1125.0 + 125.0 / 3.0 ) );
+        for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+        {
+            EXPECT_EQ( v.NewTriangles.Num(), 1 ) << "junction " << v.VertexID;
+            ASSERT_EQ( v.NewTriangles.Num(), 1 );
+            // the corner triangle faces away from the cube centre along (+-1, +-1, +-1)
+            const FVector3d normal = mesh.GetTriNormal( v.NewTriangles[0] );
+            const FVector3d corner = mesh.GetTriCentroid( v.NewTriangles[0] );
+            EXPECT_NEAR( normal.Dot( Normalized( corner ) ), 1.0, 1e-3 ) << "junction " << v.VertexID;
+        }
+    }
 }
