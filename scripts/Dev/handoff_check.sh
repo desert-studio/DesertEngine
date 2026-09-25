@@ -26,6 +26,15 @@ BIN=build/Bin/Tests/Debug
 run_one() { dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"; }
 export -f run_one dev_capped
 dev_regen_makefiles "$LOG" || exit 2
+# (0) Build every suite first, in one make: after a merge 200+ binaries predate libCommon.a and a new suite has no
+# binary at all, and an agent that fixed that by hand spent a whole second pass (~45 min) per branch, five times on
+# 09-25. make rebuilds only what is out of date, so on a fresh tree this is seconds. HANDOFF_NO_BUILD=1 skips it.
+if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
+    suites=$(grep -l "TARGETDIR = build/Bin/Tests/Debug" ./*.make 2>/dev/null | xargs -n1 basename | sed 's/\.make$//')
+    if ! printf '%s\n' $suites | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
+        echo "handoff_check: building the suites FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
+    fi
+fi
 bins=()
 for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
 total=${#bins[@]}
