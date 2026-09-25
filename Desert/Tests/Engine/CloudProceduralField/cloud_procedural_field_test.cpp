@@ -990,7 +990,8 @@ TEST( CloudProceduralCacheKey, TheSameInputsGiveTheSameKeyAndACopyIsTheSameInput
     CloudProceduralFieldParams negativeZero     = params;
     negativeZero.Species[0].Shape.AnvilStrength = -0.0f;
     ASSERT_TRUE( Desert::Assets::CloudProceduralParamsEqual( params, negativeZero ) );
-    EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ), CloudProceduralVolumeCacheKey( negativeZero, origin ) );
+    EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ),
+               CloudProceduralVolumeCacheKey( negativeZero, origin ) );
 }
 
 TEST( CloudProceduralCacheKey, EveryFieldTheComparisonSeesChangesTheKey )
@@ -1083,16 +1084,17 @@ TEST( CloudProceduralCacheKey, ThePlacementIsKeyedOnlyWhenAPaintingIsBound )
     CloudProceduralFieldParams moved     = unpainted;
     moved.LayoutPlacement.RepeatsPerRegion += 3u;
     ASSERT_TRUE( Desert::Assets::CloudProceduralParamsEqual( unpainted, moved ) );
-    EXPECT_EQ( CloudProceduralVolumeCacheKey( unpainted, origin ), CloudProceduralVolumeCacheKey( moved, origin ) );
+    EXPECT_EQ( CloudProceduralVolumeCacheKey( unpainted, origin ),
+               CloudProceduralVolumeCacheKey( moved, origin ) );
 }
 
 TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
 {
-    constexpr auto&                       kCurrent = Desert::Assets::kCloudModellingDeriver;
-    constexpr Common::DDC::Deriver        kNextVersion{ kCurrent.Bucket, kCurrent.Extension,
-                                                         { kCurrent.Version.Hi, kCurrent.Version.Lo + 1u } };
-    const CloudProceduralFieldParams       params = MakeParams();
-    const glm::vec2                        origin( 0.0f, 0.0f );
+    constexpr auto&                kCurrent = Desert::Assets::kCloudModellingDeriver;
+    constexpr Common::DDC::Deriver kNextVersion{
+         kCurrent.Bucket, kCurrent.Extension, { kCurrent.Version.Hi, kCurrent.Version.Lo + 1u } };
+    const CloudProceduralFieldParams params = MakeParams();
+    const glm::vec2                  origin( 0.0f, 0.0f );
     EXPECT_NE( CloudProceduralVolumeCacheKey( params, origin ),
                CloudProceduralVolumeCacheKey( params, origin, kNextVersion ) );
 }

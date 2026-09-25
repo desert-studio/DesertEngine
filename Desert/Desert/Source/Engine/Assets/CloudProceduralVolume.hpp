@@ -754,8 +754,9 @@ namespace Desert::Assets
                                                     const glm::vec2&                  regionOriginKm );
 
     /// The DDC key of one modelling volume; @p deriver is a parameter so a test can prove the version counts.
-    uint64_t CloudProceduralVolumeCacheKey( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
-                                            const Common::DDC::Deriver& deriver = kCloudModellingDeriver );
+    uint64_t CloudProceduralVolumeCacheKey( const CloudProceduralFieldParams& params,
+                                            const glm::vec2&                  regionOriginKm,
+                                            const Common::DDC::Deriver&       deriver = kCloudModellingDeriver );
 
     struct CloudProceduralCachedBake
     {

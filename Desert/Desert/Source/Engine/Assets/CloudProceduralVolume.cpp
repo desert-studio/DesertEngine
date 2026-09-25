@@ -755,8 +755,8 @@ namespace Desert::Assets
         return out;
     }
 
-    uint64_t CloudProceduralVolumeCacheKey( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
-                                            const Common::DDC::Deriver& deriver )
+    uint64_t CloudProceduralVolumeCacheKey( const CloudProceduralFieldParams& params,
+                                            const glm::vec2& regionOriginKm, const Common::DDC::Deriver& deriver )
     {
         const std::string inputs = SerializeCloudProceduralBakeInputs( params, regionOriginKm );
         return Common::DDC::MakeKey( deriver, 0u, inputs.data(), inputs.size() );
@@ -788,7 +788,8 @@ namespace Desert::Assets
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
         result.Voxels = std::move( baked.GetValue() );
 
-        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ), result.Voxels.size() );
+        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ),
+                                      result.Voxels.size() );
         if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
             result.CacheWriteError = put.GetError();
         return Common::MakeSuccess( std::move( result ) );
