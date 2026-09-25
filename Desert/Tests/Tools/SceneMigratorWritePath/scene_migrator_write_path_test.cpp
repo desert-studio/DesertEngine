@@ -16,6 +16,7 @@
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 
+#include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
@@ -476,6 +477,60 @@ TEST( SceneMigratorWritePath, ACloudLayoutIsWrappedInTheEnvelopeOnceAndASecondRu
 
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v2 layout (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}
+
+// THE CLOUD NOISE VOLUME PASS (T7g, bare container 1 / 2 -> DCNV 3). A bare "DCNV" file is wrapped in the
+// AF1 binary envelope with a fresh GUID; the engine decoder reads the voxels and recipe back unchanged; a
+// version-1 file (no origin word) comes back Generated; a second run leaves both files byte-identical.
+TEST( SceneMigratorWritePath, ACloudNoiseVolumeIsWrappedInTheEnvelopeOnceAndASecondRunChangesNothing )
+{
+    Desert::Assets::CloudNoiseVolumeData volume; // the default recipe at its default resolution: a legal volume
+    volume.Voxels.resize( static_cast<size_t>( volume.VoxelCount() ) * 4u );
+    for ( size_t i = 0; i < volume.Voxels.size(); ++i )
+        volume.Voxels[i] = static_cast<unsigned char>( ( i * 31u ) & 0xFFu );
+    const std::vector<unsigned char> payload = Desert::Assets::EncodeCloudNoisePayload( volume );
+
+    const fs::path dir = MakeTempDir( "T7gCloudNoiseMigration" );
+    const fs::path v2File = dir / "BareV2.dcnv";
+    const fs::path v1File = dir / "BareV1.dcnv";
+    std::string    v2     = std::string( "DCNV" ) + std::string( "\x02\0\0\0", 4 ) +
+                     std::string( payload.begin(), payload.end() );
+    // Version 1 is version 2 without the origin word at payload offset 52.
+    std::string v1 = std::string( "DCNV" ) + std::string( "\x01\0\0\0", 4 ) +
+                     std::string( payload.begin(), payload.begin() + 52 ) +
+                     std::string( payload.begin() + 56, payload.end() );
+    for ( const auto& [file, bytes] : { std::pair{ v2File, v2 }, std::pair{ v1File, v1 } } )
+    {
+        std::ofstream out( file, std::ios::binary );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+    }
+
+    std::string report, errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    std::vector<std::string> raised;
+    for ( const auto& file : { v2File, v1File } )
+    {
+        raised.push_back( ReadRaw( file ) );
+        const auto decoded = Desert::Assets::DecodeCloudNoiseVolume(
+             std::vector<unsigned char>( raised.back().begin(), raised.back().end() ) );
+        ASSERT_TRUE( decoded ) << file << ": " << decoded.GetError() << "\n" << report << errors;
+        EXPECT_FALSE( decoded.GetValue().Guid.IsNull() );
+        EXPECT_EQ( decoded.GetValue().Origin, Desert::Assets::CloudNoiseVolumeOrigin::Generated );
+        EXPECT_EQ( decoded.GetValue().Params.Seed, volume.Params.Seed );
+        EXPECT_EQ( decoded.GetValue().Voxels, volume.Voxels );
+    }
+    EXPECT_EQ( Desert::Assets::EncodeCloudNoisePayload( Desert::Assets::DecodeCloudNoiseVolume( std::vector<unsigned char>(
+                                                                                     raised[1].begin(),
+                                                                                     raised[1].end() ) )
+                                                     .GetValue() ),
+               payload )
+         << "the version-1 raise must produce exactly the version-2 payload";
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( v2File ), raised[0] ) << "a second run changed a v3 volume (a second GUID?)";
+    EXPECT_EQ( ReadRaw( v1File ), raised[1] ) << "a second run changed a v3 volume (a second GUID?)";
     EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
     fs::remove_all( dir );
 }

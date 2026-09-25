@@ -49,6 +49,7 @@
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
+#include <Engine/Assets/CloudNoiseVolume.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
@@ -138,10 +139,19 @@ namespace
         return path.extension() == Desert::Assets::kCloudLayoutExtension;
     }
 
+    // CLOUD NOISE VOLUMES ARE COLLECTED TOO, since T7g: versions 1 and 2 were a bare "DCNV" container with no
+    // identity; version 3 is the version-2 bytes after magic and version inside the AF1 binary envelope, with
+    // a GUID minted HERE, once.
+    bool IsCloudNoiseVolume( const std::filesystem::path& path )
+    {
+        return path.extension() == Desert::Assets::kCloudNoiseVolumeExtension;
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
-                  std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts )
+                  std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
+                  std::vector<std::filesystem::path>& noises )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -166,6 +176,8 @@ namespace
                     meshes.push_back( entry.path() );
                 else if ( IsCloudLayout( entry.path() ) )
                     layouts.push_back( entry.path() );
+                else if ( IsCloudNoiseVolume( entry.path() ) )
+                    noises.push_back( entry.path() );
             }
             return;
         }
@@ -184,6 +196,8 @@ namespace
             meshes.push_back( root );
         else if ( IsCloudLayout( root ) )
             layouts.push_back( root );
+        else if ( IsCloudNoiseVolume( root ) )
+            noises.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -1155,15 +1169,16 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> texts;
         std::vector<std::filesystem::path> meshes;
         std::vector<std::filesystem::path> layouts;
+        std::vector<std::filesystem::path> noises;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout or other text asset files found\n";
+                << ", cooked mesh, cloud layout, cloud noise volume or other text asset files found\n";
             return 2;
         }
 
@@ -1360,6 +1375,97 @@ namespace Desert::Migration
             }
             out << ( check ? "WOULD  " : "raised " ) << path.string() << " — layout v1 -> v"
                 << Desert::Assets::kCloudLayoutContainerVersion << ", GUID "
+                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
+        // THE CLOUD NOISE VOLUMES (bare container 1 or 2 -> DCNV 3). The version-2 bytes after magic and
+        // version ARE the version-3 payload; a version-1 file lacks only the origin word the version-2 layout
+        // put after the recipe, and a version-1 file could only have come from the generator, so the word
+        // written for it is Generated (0) with nothing guessed. Wrapped with a fresh GUID, read back through
+        // the engine's own decoder before anything is written; an enveloped file is left byte-for-byte.
+        for ( const auto& path : noises )
+        {
+            namespace CC                        = Common::Content;
+            const CC::SubsystemVersion kKnown[] = {
+                 { Desert::Assets::kCloudNoiseSubsystemTag, Desert::Assets::kCloudNoiseContainerVersion } };
+            const std::string bytes     = ReadAll( path );
+            const auto*       first     = reinterpret_cast<const std::byte*>( bytes.data() );
+            constexpr size_t  kPrefix   = sizeof( Desert::Assets::kCloudNoiseMagic ) + 4u;
+            constexpr size_t  kOriginAt = 52u; // payload offset of the origin word version 2 added
+            if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudNoiseMagic,
+                                                        sizeof( Desert::Assets::kCloudNoiseMagic ) ) != 0 )
+            {
+                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
+                                                            CC::AssetHeaderReadContext{ kKnown } );
+                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
+                {
+                    err << "FAIL   " << path.string() << " — neither a bare 'DCNV' container nor a cloud noise "
+                        << "volume envelope: "
+                        << ( header ? "the envelope's kind is not CloudNoiseVolume" : header.GetError() ) << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — already at noise volume v"
+                    << Desert::Assets::kCloudNoiseContainerVersion << "\n";
+                continue;
+            }
+            uint32_t version = 0;
+            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
+            if ( version != 1u && version != 2u )
+            {
+                err << "FAIL   " << path.string() << " — a bare 'DCNV' container version " << version
+                    << "; this tool raises versions 1 and 2 only\n";
+                ++failed;
+                continue;
+            }
+            std::vector<std::byte> payload( first + kPrefix, first + bytes.size() );
+            if ( version == 1u )
+            {
+                if ( payload.size() < kOriginAt )
+                {
+                    err << "FAIL   " << path.string() << " — " << bytes.size()
+                        << " bytes, too short for a version-1 noise volume header\n";
+                    ++failed;
+                    continue;
+                }
+                payload.insert( payload.begin() + static_cast<std::ptrdiff_t>( kOriginAt ), 4u, std::byte{ 0 } );
+            }
+
+            CC::AssetEnvelope envelope;
+            envelope.Asset.Kind       = CC::ContentKind::CloudNoiseVolume;
+            envelope.Asset.Guid       = CC::AssetGuid::Generate();
+            envelope.Asset.Subsystems = { kKnown[0] };
+            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, payload } );
+            const auto wrapped = CC::WriteAssetEnvelope( envelope );
+            if ( !wrapped )
+            {
+                err << "FAIL   " << path.string() << " — " << wrapped.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const auto* wrappedFirst = reinterpret_cast<const unsigned char*>( wrapped.GetValue().data() );
+            const auto  reread       = Desert::Assets::DecodeCloudNoiseVolume(
+                 std::vector<unsigned char>( wrappedFirst, wrappedFirst + wrapped.GetValue().size() ) );
+            if ( !reread || !( reread.GetValue().Guid == envelope.Asset.Guid ) )
+            {
+                err << "FAIL   " << path.string() << " — the wrapped noise volume does not read back: "
+                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — noise volume v" << version << " -> v"
+                << Desert::Assets::kCloudNoiseContainerVersion << ", GUID "
                 << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
             ++changed;
             if ( check )

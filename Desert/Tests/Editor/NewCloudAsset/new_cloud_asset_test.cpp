@@ -275,6 +275,34 @@ TEST( NewCloudAsset, ACreatedNoiseVolumeReadsBackAsWhatWasWritten )
     EXPECT_EQ( read.GetValue().Voxels, written.Voxels );
 }
 
+TEST( NewCloudAsset, ARebakeOverAnExistingVolumeKeepsItsGuidAndANewPathMintsItsOwn )
+{
+    // The generator's output reaches disk only through Save; a re-bake over the same file must keep the
+    // GUID every reference names, and the same volume saved elsewhere must NOT carry that GUID along.
+    const auto path  = Scratch() / "RebakedCloudNoise.dcnv";
+    const auto other = Scratch() / "CopiedCloudNoise.dcnv";
+    std::filesystem::remove( path );
+    std::filesystem::remove( other );
+
+    auto volume = Editor::NewCloudAsset::DefaultNoiseVolume( nullptr );
+    ASSERT_TRUE( volume ) << volume.GetError();
+
+    ASSERT_TRUE( Assets::CloudNoiseVolumeAsset::Save( path, volume.GetValue() ) );
+    const auto first = Assets::CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( path );
+    ASSERT_FALSE( first.IsNull() );
+
+    Assets::CloudNoiseVolumeData rebaked = volume.GetValue();
+    rebaked.Params.Seed += 1u;
+    ASSERT_TRUE( Assets::CloudNoiseVolumeAsset::Save( path, rebaked ) );
+    EXPECT_EQ( Assets::CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( path ), first );
+
+    rebaked.Guid = first;
+    ASSERT_TRUE( Assets::CloudNoiseVolumeAsset::Save( other, rebaked ) );
+    const auto copied = Assets::CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( other );
+    EXPECT_FALSE( copied.IsNull() );
+    EXPECT_NE( copied, first );
+}
+
 TEST( NewCloudAsset, ACreatedModellingVolumeReadsBackAsWhatWasWritten )
 {
     const auto path = Scratch() / "NewCloudBody.dcmv";

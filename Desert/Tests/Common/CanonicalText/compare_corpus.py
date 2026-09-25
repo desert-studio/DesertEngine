@@ -16,7 +16,8 @@ it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings
 .derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone; .danimgraph 0 -> ANGR 1
 (T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
 swaps its top-level `Version` (not FormatVersion) for the header; .retarget RTGT 2 -> 3 (T7f) names its rig by
-{Guid, Path}, normalised back only when the Guid is the one the named cooked rig states.
+{Guid, Path}, normalised back only when the Guid is the one the named cooked rig states. The binary .dcnv
+bare DCNV 2 -> envelope DCNV 3 (T7g) must carry the old bytes after magic and version as its one payload.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -356,6 +357,32 @@ def strip_retarget_rig_guid(root, old, new, ext):
     return True
 
 
+def compare_noise_volumes(root, base, at_base):
+    """.dcnv bare DCNV 2 -> envelope DCNV 3 (T7g), binary, so outside the JSON walk. Branch on the BASE file:
+    a base that is already enveloped must match byte for byte; a bare base (magic 'DCNV', container 2) must
+    reappear as the one Stored payload of an envelope that states tag 'DCNV' - the old bytes after magic and
+    version, unchanged. Returns (compared, differ)."""
+    compared, differ = 0, []
+    files = [f for f in git("-C", root, "ls-files").decode().splitlines() if f.endswith(".dcnv")]
+    for path in files:
+        if path not in at_base:
+            continue
+        old = git("-C", root, "show", f"{base}:{path}")
+        with open(f"{root}/{path}", "rb") as f:
+            new = f.read()
+        compared += 1
+        if old[:4] != b"DCNV":
+            if old != new:
+                differ.append(path)
+            continue
+        version = struct.unpack("<I", old[4:8])[0]
+        payload = old[8:]
+        if version != 2 or new[:4] == b"DCNV" or new.count(payload) != 1 or \
+                b"DCNV" not in new[:len(new) - len(payload)]:
+            differ.append(f"{path}: bare DCNV {version} is not the one payload of a DCNV 3 envelope")
+    return compared, differ
+
+
 def locator_file(root, locator):
     """The tracked file an `assets:` / `engine:` locator names."""
     scheme, _, rel = locator.partition(":")
@@ -417,6 +444,10 @@ def main():
         if normalise(old, ext, raised) != normalise(new, ext, raised):
             differ.append(path)
         compared += 1
+
+    noise_compared, noise_differ = compare_noise_volumes(root, base, at_base)
+    compared += noise_compared
+    differ += noise_differ
 
     known = material_header_guids(root, files)
     for handle, guids in sorted(_SLOT_PAIRS.items(), key=lambda kv: str(kv[0])):

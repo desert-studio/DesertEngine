@@ -68,6 +68,10 @@ namespace Desert::Assets
          */
         static Common::BoolResultStr Save( const Common::Filepath& filepath, const CloudNoiseVolumeData& volume );
 
+        /// The GUID the `.dcnv` envelope header at @p filepath states (VFS first); null when the file is
+        /// absent, bare or not a noise volume. The constructor adopts it; Save keeps it on a re-bake.
+        static Common::Content::AssetGuid ReadCloudNoiseVolumeGuid( const Common::Filepath& filepath );
+
     private:
         CloudNoiseVolumeData m_Volume;
         bool                 m_Ready    = false;

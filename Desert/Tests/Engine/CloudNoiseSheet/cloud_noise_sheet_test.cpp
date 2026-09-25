@@ -130,8 +130,8 @@ TEST( CloudNoiseSheet, TheFullTripThroughTheContainerPreservesEveryPayloadByte )
     // brought back, and written as an asset again. Everything but the disk is exercised here.
     const CloudNoiseVolumeData original = PatternedVolume( 64u );
 
-    const std::vector<unsigned char> encodedBefore = EncodeCloudNoiseVolume( original );
-    const auto                       decodedBefore = DecodeCloudNoiseVolume( encodedBefore );
+    const std::vector<unsigned char> encodedBefore = EncodeCloudNoisePayload( original );
+    const auto                       decodedBefore = DecodeCloudNoisePayload( encodedBefore );
     ASSERT_TRUE( decodedBefore ) << decodedBefore.GetError();
 
     const auto sheet = EncodeCloudNoiseVolumeToSheet( decodedBefore.GetValue() );
@@ -141,14 +141,14 @@ TEST( CloudNoiseSheet, TheFullTripThroughTheContainerPreservesEveryPayloadByte )
          sheet.GetValue().Pixels, sheet.GetValue().Layout.Width, sheet.GetValue().Layout.Height );
     ASSERT_TRUE( reimported ) << reimported.GetError();
 
-    const std::vector<unsigned char> encodedAfter = EncodeCloudNoiseVolume( reimported.GetValue() );
-    const auto                       decodedAfter = DecodeCloudNoiseVolume( encodedAfter );
+    const std::vector<unsigned char> encodedAfter = EncodeCloudNoisePayload( reimported.GetValue() );
+    const auto                       decodedAfter = DecodeCloudNoisePayload( encodedAfter );
     ASSERT_TRUE( decodedAfter ) << decodedAfter.GetError();
 
     EXPECT_EQ( decodedAfter.GetValue().Voxels, original.Voxels );
 
-    // AND THE WHOLE FILE IS IDENTICAL TOO — but only because the volume that made the trip was ALREADY
-    // imported. That is the honest statement of what round-trips: the payload always, the file only when
+    // AND THE WHOLE PAYLOAD IS IDENTICAL TOO — but only because the volume that made the trip was ALREADY
+    // imported. That is the honest statement of what round-trips: the voxels always, the payload only when
     // there was no recipe to lose. The next test is the other half.
     EXPECT_EQ( encodedAfter, encodedBefore );
 }
@@ -266,49 +266,20 @@ TEST( CloudNoiseContainer, TheOriginSurvivesTheContainer )
              origin == CloudNoiseVolumeOrigin::Generated ? GeneratedRecipe( 64u ) : EmptyImportedRecipe( 64u );
         volume.GeneratorVersion = origin == CloudNoiseVolumeOrigin::Generated ? kCloudNoiseGeneratorVersion : 0u;
 
-        const auto decoded = DecodeCloudNoiseVolume( EncodeCloudNoiseVolume( volume ) );
+        const auto encoded = EncodeCloudNoiseVolume( volume );
+        ASSERT_TRUE( encoded ) << encoded.GetError();
+        const auto decoded = DecodeCloudNoiseVolume( encoded.GetValue() );
         ASSERT_TRUE( decoded ) << decoded.GetError();
         EXPECT_EQ( decoded.GetValue().Origin, origin );
     }
 }
 
-TEST( CloudNoiseContainer, TheHeaderIsTheSizeTheConstantClaims )
+TEST( CloudNoiseContainer, ThePayloadIsTheSizeTheConstantClaims )
 {
     const CloudNoiseVolumeData       volume  = PatternedVolume( 64u );
-    const std::vector<unsigned char> encoded = EncodeCloudNoiseVolume( volume );
+    const std::vector<unsigned char> payload = EncodeCloudNoisePayload( volume );
 
-    EXPECT_EQ( encoded.size(), kCloudNoiseHeaderSize + volume.Voxels.size() );
-    EXPECT_EQ( kCloudNoiseHeaderSize, kCloudNoiseHeaderSizeV1 + 4u ) << "v2 added exactly the origin";
-}
-
-TEST( CloudNoiseContainer, AVersionOneFileMigratesToGenerated )
-{
-    // A v1 file predates importing, so there was exactly one way to make one. The migration has nothing to
-    // guess — and asserting it here is what stops a later reader from "helpfully" defaulting it the other
-    // way and marking every shipped volume as brought in from outside.
-    CloudNoiseVolumeData volume = PatternedVolume( 64u );
-    volume.Params               = GeneratedRecipe( 64u );
-    volume.Origin               = CloudNoiseVolumeOrigin::Generated;
-    volume.GeneratorVersion     = kCloudNoiseGeneratorVersion;
-
-    // Build a v1 container by hand: the v2 bytes with the version set back to 1 and the origin word cut out
-    // of the middle. Every other offset is unchanged, which is the property that made the migration small.
-    std::vector<unsigned char> v2 = EncodeCloudNoiseVolume( volume );
-    ASSERT_EQ( v2[4], 2u );
-
-    std::vector<unsigned char> v1;
-    v1.insert( v1.end(), v2.begin(), v2.begin() + 60 );
-    v1.insert( v1.end(), v2.begin() + 64, v2.end() );
-    v1[4] = 1u;
-
-    ASSERT_EQ( v1.size(), kCloudNoiseHeaderSizeV1 + volume.Voxels.size() );
-
-    const auto decoded = DecodeCloudNoiseVolume( v1 );
-    ASSERT_TRUE( decoded ) << decoded.GetError();
-
-    EXPECT_EQ( decoded.GetValue().Origin, CloudNoiseVolumeOrigin::Generated );
-    EXPECT_EQ( decoded.GetValue().Voxels, volume.Voxels );
-    EXPECT_EQ( decoded.GetValue().Params.Seed, 4242u );
+    EXPECT_EQ( payload.size(), kCloudNoiseHeaderSize + volume.Voxels.size() );
 }
 
 TEST( CloudNoiseContainer, AnImportedFileCarryingARecipeIsRefused )
@@ -319,23 +290,12 @@ TEST( CloudNoiseContainer, AnImportedFileCarryingARecipeIsRefused )
     volume.Params               = GeneratedRecipe( 64u );
     volume.Origin               = CloudNoiseVolumeOrigin::Generated;
 
-    std::vector<unsigned char> bytes = EncodeCloudNoiseVolume( volume );
-    bytes[60]                        = static_cast<unsigned char>( CloudNoiseVolumeOrigin::Imported );
+    std::vector<unsigned char> bytes = EncodeCloudNoisePayload( volume );
+    bytes[52]                        = static_cast<unsigned char>( CloudNoiseVolumeOrigin::Imported );
 
-    const auto refused = DecodeCloudNoiseVolume( bytes );
+    const auto refused = DecodeCloudNoisePayload( bytes );
     EXPECT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "4242" ), std::string::npos ) << refused.GetError();
-}
-
-TEST( CloudNoiseContainer, AnUnknownContainerVersionIsStillRefused )
-{
-    CloudNoiseVolumeData       volume = PatternedVolume( 64u );
-    std::vector<unsigned char> bytes  = EncodeCloudNoiseVolume( volume );
-    bytes[4]                          = 3u;
-
-    const auto refused = DecodeCloudNoiseVolume( bytes );
-    EXPECT_FALSE( refused );
-    EXPECT_NE( refused.GetError().find( "3" ), std::string::npos ) << refused.GetError();
 }
 
 int main( int argc, char** argv )
