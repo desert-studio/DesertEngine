@@ -43,6 +43,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -188,7 +189,8 @@ namespace
         std::memcpy( rowAt + 4, &elementSize, 4 );
         std::memcpy( rowAt + 8, &offset, 8 );
         std::memcpy( rowAt + 16, &count, 8 );
-        std::memcpy( bytes.data(), &header, sizeof( header ) );
+        const auto headerBytes = std::bit_cast<std::array<char, sizeof( header )>>( header );
+        std::copy( headerBytes.begin(), headerBytes.end(), bytes.begin() );
         std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset, &guid.Hi, 8 );
         std::memcpy( bytes.data() + Common::Content::kMeshBinaryGuidOffset + 8, &guid.Lo, 8 );
         return bytes;
