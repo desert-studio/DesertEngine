@@ -12,6 +12,7 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -1605,6 +1606,12 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
 }
 
 // Five sectors meeting on a flat face: the round 5-sided patch across a 180-degree "dihedral" stays in the face.
+// The volume is not the cube's: the sector edge running to the cube corner (50, 50, 50) ends in a terminator, which
+// removes the corner vertex and fans the hole to its far neighbour (50, 50, 0) on the vertical crease (UE
+// UnlinkTerminatorVertex + AppendTerminatorVertexTriangle), cutting off the pyramid over the corner polygon
+// {corner, A, end column, B}. Its end column is rounded IN the top face: the corner and its inset positions A, B
+// span the top plane, so the section plane is the top face, and UE's whole-mesh vertex normals at A and B (they lean
+// into the side faces) project to +X and +Y. Every vertex stays on the cube; only the cut pyramid's base changes.
 TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
 {
     FDynamicMesh3 fan = TangentCube( 2 );
@@ -1637,6 +1644,51 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
     EXPECT_EQ( patches, 1 );
     EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
     EXPECT_TRUE( run.Mesh.CheckValidity() );
+
+    // The cut pyramid: apex (50, 50, 0), base in z = 50 bounded by the corner, A = (50, 50 - 5 sqrt 2), the end
+    // column's Hermite points and B = (50 - 5 sqrt 2, 50). Tangents per MakeArcSplineCurve: A->B with its X part
+    // removed, B->A with its Y part removed, both scaled by RoundWeight sqrt 2 (T1 negated). The flat run keeps the
+    // triangle {corner, A, B} (area 25) for every N.
+    const double s = 5.0 * std::sqrt( 2.0 );
+    for ( const int N : { 1, 2, 3 } )
+    {
+        for ( const double w : { 0.0, 1.0 } )
+        {
+            SCOPED_TRACE( "N " + std::to_string( N ) + " RoundWeight " + std::to_string( w ) );
+            FRoundRun cut{ fan };
+            RunRound( cut, groupEdges, N, w );
+            ASSERT_TRUE( cut.bApplied ) << cut.Bevel.FailureReason;
+            for ( const int vid : cut.Mesh.VertexIndicesItr() )
+            {
+                const FVector3d p = cut.Mesh.GetVertex( vid );
+                EXPECT_NEAR( std::max( { std::abs( p.X ), std::abs( p.Y ), std::abs( p.Z ) } ), 50.0, 1e-9 )
+                     << "vertex " << vid << " left the cube";
+            }
+            const FVector3d A( 50.0, 50.0 - s, 50.0 ), B( 50.0 - s, 50.0, 50.0 );
+            const FVector3d T0 = w * std::sqrt( 2.0 ) * FVector3d( 0.0, s, 0.0 );
+            const FVector3d T1 = -w * std::sqrt( 2.0 ) * FVector3d( s, 0.0, 0.0 );
+            std::vector<FVector3d> base{ FVector3d( 50.0, 50.0, 50.0 ) };
+            for ( int k = 0; k <= N + 1; ++k )
+            {
+                const double t = static_cast<double>( k ) / static_cast<double>( N + 1 );
+                base.push_back( ( 2 * t * t * t - 3 * t * t + 1 ) * A + ( t * t * t - 2 * t * t + t ) * T0 +
+                                ( -2 * t * t * t + 3 * t * t ) * B + ( t * t * t - t * t ) * T1 );
+            }
+            double area2 = 0.0;
+            for ( size_t i = 0; i < base.size(); ++i )
+            {
+                const FVector3d& p = base[i];
+                const FVector3d& q = base[( i + 1 ) % base.size()];
+                area2 += p.X * q.Y - q.X * p.Y;
+            }
+            const double area = std::abs( area2 ) / 2.0;
+            if ( w == 0.0 )
+                EXPECT_NEAR( area, 25.0, 1e-9 );
+            else
+                EXPECT_LT( area, 25.0 );
+            EXPECT_NEAR( SignedVolume( cut.Mesh ), 1.0e6 - 50.0 * area / 3.0, 1e-6 );
+        }
+    }
 }
 
 // RoundWeight 0 (the default) is the flat profile bit for bit: an explicit 0 and a value under the tolerance give
