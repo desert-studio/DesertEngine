@@ -18,6 +18,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshAssetArrays.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
         -- The ported core (P8a): the writer takes an FDynamicMesh3, built from the suite's EditMesh fixtures
         -- through the saved form.
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/SmallListSet.cpp",

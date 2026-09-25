@@ -7,7 +7,9 @@
 #include <Editor/Import/StaticMeshOutput.hpp>
 
 #include <Common/Core/Constants.hpp>
+#include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Geometry/EditMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
@@ -51,7 +53,7 @@ namespace
 
     const std::vector<Common::Content::AssetGuid> kSlots = { { 1111, 1 }, { 2222, 2 } };
 
-    // A throw-away project, so the write lands under a cooked mesh root and the registry can key it.
+    // A throw-away project, so the write lands under a mesh root and the registry can key it.
     class ScratchProject : public ::testing::Test
     {
     protected:
@@ -172,7 +174,23 @@ TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
     const fs::path& path = written.GetValue();
     EXPECT_EQ( path.filename(), "Box.stmesh" );
-    EXPECT_EQ( path.parent_path(), ( Common::Constants::Path::MESH_PATH_COOKED / "Modeling" ).lexically_normal() );
+    EXPECT_EQ( path.parent_path(), ( Common::Constants::Path::MESH_PATH / "Modeling" ).lexically_normal() );
+
+    // The file is the source asset an import writes, with no source file behind it.
+    auto asset = Assets::ReadMeshSourceAssetFile( path );
+    ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
+    const Assets::MeshSourceAsset& read = asset.GetValue();
+    EXPECT_EQ( read.Kind, Common::Content::ContentKind::StaticMesh );
+    EXPECT_EQ( read.Name, "Box" );
+    EXPECT_EQ( read.Import.Provenance, Assets::MeshSourceProvenance::Recovered );
+    EXPECT_TRUE( read.Import.SourceFile.empty() );
+    ASSERT_EQ( read.Source.Models.size(), 1u );
+    EXPECT_EQ( read.Source.Models[0].Mesh, Geometry::ToSerialized( *Dyn( TwoMaterialBox() ) ) );
+    ASSERT_EQ( read.Source.MaterialSlots.size(), kSlots.size() );
+    for ( std::size_t k = 0; k < kSlots.size(); ++k )
+        EXPECT_EQ( read.Source.MaterialSlots[k].Material, kSlots[k] ) << "slot " << k;
+    std::set<int> ids( read.Source.Models[0].Mesh.MaterialIds.begin(), read.Source.Models[0].Mesh.MaterialIds.end() );
+    EXPECT_EQ( ids, ( std::set<int>{ 0, 1 } ) ) << "material ids must stay slot indices";
 
     const auto* row = Assets::ContentRegistry::Get().FindByKey( Common::AssetHandle::StableKeyForPath( path ) );
     ASSERT_NE( row, nullptr ) << "no registry row for " << path;
@@ -209,7 +227,11 @@ TEST_F( ScratchProject, ATakenNameGetsASuffixAndTheFirstFileIsUntouched )
     EXPECT_EQ( second.GetValue().filename(), "Box_1.stmesh" );
     EXPECT_EQ( third.GetValue().filename(), "Box_2.stmesh" );
     EXPECT_EQ( fs::last_write_time( first.GetValue() ), firstTime ) << "the first file was rewritten";
-    EXPECT_NE( fs::file_size( first.GetValue() ), fs::file_size( second.GetValue() ) );
+    auto firstAsset  = Assets::ReadMeshSourceAssetFile( first.GetValue() );
+    auto secondAsset = Assets::ReadMeshSourceAssetFile( second.GetValue() );
+    ASSERT_TRUE( firstAsset.IsSuccess() && secondAsset.IsSuccess() );
+    EXPECT_NE( firstAsset.GetValue().Source, secondAsset.GetValue().Source );
+    EXPECT_NE( firstAsset.GetValue().Guid, secondAsset.GetValue().Guid );
 }
 
 TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )

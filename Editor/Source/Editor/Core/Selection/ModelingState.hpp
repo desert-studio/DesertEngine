@@ -77,7 +77,7 @@ namespace Desert::Editor::Core
         struct OutputSettings
         {
             OutputType  Type   = OutputType::StaticMesh;
-            std::string Folder = "Modeling"; // under the cooked mesh folder (StaticMeshOutput.hpp says why)
+            std::string Folder = "Modeling"; // under the mesh folder, Assets/Meshes (StaticMeshOutput.hpp)
             std::string Name;                // empty: the entity's name
         };
 
