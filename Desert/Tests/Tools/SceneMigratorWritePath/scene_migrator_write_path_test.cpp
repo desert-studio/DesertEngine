@@ -726,8 +726,8 @@ TEST( SceneMigratorWritePath, AMatl2MaterialNamesItsCloudAssetsByHeaderGuidAndAS
     EXPECT_TRUE( empty->Guid.empty() && empty->Path.empty() );
     EXPECT_FLOAT_EQ( m.GetFloat( "Coverage" ), 0.5f );
     ASSERT_TRUE( m.Shader.has_value() ) << raised;
-    EXPECT_EQ( m.Shader->Guid, Common::Content::AssetGuidToText( root.ShaderGuid ) );
-    EXPECT_EQ( m.Shader->Path, kCloudShaderKey );
+    EXPECT_EQ( m.Shader.value().Guid, Common::Content::AssetGuidToText( root.ShaderGuid ) );
+    EXPECT_EQ( m.Shader.value().Path, kCloudShaderKey );
 
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a MATL 4 file";
@@ -796,7 +796,8 @@ TEST( SceneMigratorWritePath, AMatl3MaterialNamesItsShaderByHeaderGuidAndASecond
     const fs::path file = root.Dir / "Materials" / "M_Sky.demat";
     WriteMaterialV3( file, root, "CloudRaymarch" );
 
-    std::string report, errors;
+    std::string report;
+    std::string errors;
     ASSERT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << report << errors;
     EXPECT_NE( report.find( "MATL v3 -> v4" ), std::string::npos ) << report;
     const std::string raised = ReadRaw( file );
@@ -805,17 +806,17 @@ TEST( SceneMigratorWritePath, AMatl3MaterialNamesItsShaderByHeaderGuidAndASecond
     const auto&       m      = parsed.GetValue();
     const std::string shader = Common::Content::AssetGuidToText( root.ShaderGuid );
     ASSERT_TRUE( m.Shader.has_value() ) << raised;
-    EXPECT_EQ( m.Shader->Guid, shader );
-    EXPECT_EQ( m.Shader->Path, kCloudShaderKey );
+    EXPECT_EQ( m.Shader.value().Guid, shader );
+    EXPECT_EQ( m.Shader.value().Path, kCloudShaderKey );
     EXPECT_EQ( raised.find( "ShaderName" ), std::string::npos ) << raised;
     EXPECT_EQ( raised.find( "ShaderRefs" ), std::string::npos ) << raised;
     const auto* medium = CloudSlot( m, "Medium" );
     ASSERT_NE( medium, nullptr ) << raised;
     EXPECT_EQ( medium->Guid, shader );
     EXPECT_EQ( medium->Path, kCloudShaderKey );
-    EXPECT_EQ( m.Header->Dependencies,
+    EXPECT_EQ( m.Header.value().Dependencies,
                ( std::vector<std::string>{ shader, Common::Content::AssetGuidToText( root.TypeGuid ) } ) );
-    EXPECT_EQ( Common::Content::TextHeaderVersion( *m.Header, Desert::Assets::kMaterialSchemaTag ),
+    EXPECT_EQ( Common::Content::TextHeaderVersion( m.Header.value(), Desert::Assets::kMaterialSchemaTag ),
                Desert::Assets::kMaterialSchemaVersion );
 
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
@@ -832,7 +833,8 @@ TEST( SceneMigratorWritePath, AMatl3ShaderNameNoShaderFileCarriesIsRefusedByName
     WriteMaterialV3( file, root, "NoSuchShader" );
     const std::string before = ReadRaw( file );
 
-    std::string report, errors;
+    std::string report;
+    std::string errors;
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 1 ) << report << errors;
     EXPECT_NE( errors.find( "M_Gone.demat" ), std::string::npos ) << errors;
     EXPECT_NE( errors.find( "'NoSuchShader'" ), std::string::npos ) << errors;

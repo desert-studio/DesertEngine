@@ -202,7 +202,7 @@ namespace Desert::Editor
                  !stated )
             {
                 LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
-                return ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                return {};
             }
             // The second step below is checked carefully and the first was not, even though the whole
             // point of this order is that the asset ADOPTS the GUID out of the file: an unwritten file
@@ -694,7 +694,7 @@ namespace Desert::Editor
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );
-                return ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+                return {};
             }
             // Checked for the same reason CreateLandscapeMaterial checks it, one function above. Through the
             // one .demat writer, so the file opens with the header its loader requires.

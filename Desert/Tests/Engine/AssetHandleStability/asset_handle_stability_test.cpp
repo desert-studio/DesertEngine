@@ -1578,7 +1578,6 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
 }
 
 // ─── T7k: the shader a material names, by GUID; the name the renderer binds is the file stem ───────────
-#include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 
 #include <optional>

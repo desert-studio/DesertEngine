@@ -511,7 +511,7 @@ namespace Desert::Editor
              !stated )
         {
             LOG_ERROR( "[NodeGraph] preview material '{}': {}", path.string(), stated.GetError() );
-            return Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+            return {};
         }
         asset->ResolveDependencies( *m_AssetManager );
         // Stamped in memory, so the GUID a first write mints is the one every later write states.

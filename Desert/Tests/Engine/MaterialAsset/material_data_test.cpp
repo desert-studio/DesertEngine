@@ -187,8 +187,8 @@ TEST( MaterialFormatV3, AWrittenMaterialReadsBackWithEverySlotByGuidAndEveryGuid
     EXPECT_EQ( Desert::Assets::StatedVersion( r.Header, Desert::Assets::kMaterialSchemaTag ),
                static_cast<int>( Desert::Assets::kMaterialSchemaVersion ) );
     ASSERT_TRUE( r.Header.has_value() );
-    ASSERT_EQ( r.Header->Dependencies.size(), 4u );
-    EXPECT_EQ( r.Header->Dependencies.front(), Common::Content::AssetGuidToText( kShaderGuid ) );
+    ASSERT_EQ( r.Header.value().Dependencies.size(), 4u );
+    EXPECT_EQ( r.Header.value().Dependencies.front(), Common::Content::AssetGuidToText( kShaderGuid ) );
 }
 
 TEST( MaterialFormatV3, AVersion2FileIsRefusedByNameAndPointsAtTheMigrator )

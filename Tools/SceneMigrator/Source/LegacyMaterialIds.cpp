@@ -634,7 +634,7 @@ namespace Desert::Migration
             auto shader = ShaderRefByName( source, *material.ShaderName, refs );
             if ( !shader )
                 return Common::MakeError<Assets::MaterialData>( shader.GetError() );
-            out.Shader = std::move( shader.GetValue() );
+            out.Shader = shader.GetValue();
         }
         out.Parent = material.Parent;
         out.Params.reserve( material.Params.size() );

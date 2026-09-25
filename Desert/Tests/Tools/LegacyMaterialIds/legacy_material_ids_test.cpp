@@ -203,8 +203,8 @@ TEST( LegacyMaterialIds, RaisingToMatl4RoutesEverySlotByNameAndStatesItsGuid )
     EXPECT_EQ( m.Textures[0].Path, "assets:Textures/T.detex" );
     EXPECT_TRUE( m.Textures[1].Guid.empty() ) << "a 0 is an authored empty slot";
     ASSERT_TRUE( m.Shader.has_value() );
-    EXPECT_EQ( m.Shader->Guid, kShd );
-    EXPECT_EQ( m.Shader->Path, "engine:Shaders/Programs/M.shader" );
+    EXPECT_EQ( m.Shader.value().Guid, kShd );
+    EXPECT_EQ( m.Shader.value().Path, "engine:Shaders/Programs/M.shader" );
     ASSERT_EQ( m.CloudAssets.size(), 4u );
     EXPECT_EQ( m.CloudAssets[0].Guid, kType );
     EXPECT_EQ( m.CloudAssets[1].Guid, kPaint );
@@ -212,7 +212,7 @@ TEST( LegacyMaterialIds, RaisingToMatl4RoutesEverySlotByNameAndStatesItsGuid )
     EXPECT_EQ( m.CloudAssets[3].Name, "Medium" );
     EXPECT_EQ( m.CloudAssets[3].Guid, kShd );
     EXPECT_EQ( m.CloudAssets[3].Path, "engine:Shaders/Programs/M.shader" );
-    EXPECT_EQ( m.Header->Dependencies, ( std::vector<std::string>{ kShd, kTex, kType, kPaint } ) );
+    EXPECT_EQ( m.Header.value().Dependencies, ( std::vector<std::string>{ kShd, kTex, kType, kPaint } ) );
     EXPECT_EQ( text.GetValue().find( "TextureHandle" ), std::string::npos );
 }
 
