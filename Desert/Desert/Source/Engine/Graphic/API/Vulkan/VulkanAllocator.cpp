@@ -147,6 +147,14 @@ namespace Desert::Graphic::API::Vulkan
         m_RenderPassDeletionQueue.push_back( { renderPass, frameIndex } );
     }
 
+    void VulkanAllocator::RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool )
+    {
+        if ( descriptorPool == VK_NULL_HANDLE )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex } );
+    }
+
     MappedMemory VulkanAllocator::MapMemory( VmaAllocation allocation )
     {
         if ( s_VmaAllocator == VK_NULL_HANDLE )
@@ -275,13 +283,25 @@ namespace Desert::Graphic::API::Vulkan
             else ++it;
         }
 
+        for ( auto it = m_DescriptorPoolDeletionQueue.begin(); it != m_DescriptorPoolDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                vkDestroyDescriptorPool( device, it->DescriptorPool, nullptr );
+                it = m_DescriptorPoolDeletionQueue.erase( it );
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
+
         return destroyed;
     }
 
     std::size_t VulkanAllocator::QueuedCount() const
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
-               m_RenderPassDeletionQueue.size();
+               m_RenderPassDeletionQueue.size() + m_DescriptorPoolDeletionQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()

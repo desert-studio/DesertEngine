@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -63,6 +64,11 @@ namespace Desert::Editor::CloudThumbnail
     /// away on every load. One size for every producer, so the grid cannot show two of them at two
     /// sharpnesses.
     inline constexpr uint32_t kSize = 512;
+
+    /// THE PALETTE, once. Every painted producer draws on this backdrop — the four cloud formats, the theme
+    /// strip and the HDR ball (HdrSphereThumbnail.cpp) — because a grid of tiles that do not share one reads
+    /// as several kinds of asset rather than one family.
+    inline constexpr std::array<unsigned char, 3> kBackdrop{ 24, 28, 34 };
 
     /**
      * @brief Paint the thumbnail for one cloud asset file and write it to @p png.

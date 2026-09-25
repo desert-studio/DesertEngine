@@ -106,7 +106,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( "the device is lost; the frame is abandoned rather than closed." );
         }
 
-        if ( m_CurrentCommandBuffer )
+        if ( IsRecording() )
         {
 #if DESERT_DEV_INSTRUMENTS
             m_GpuProfiler.EndFrame( m_CurrentCommandBuffer );
@@ -148,13 +148,27 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    bool VulkanRendererAPI::IsRecording()
+    {
+        if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
+            m_CurrentCommandBuffer = nullptr;
+        return m_CurrentCommandBuffer != nullptr;
+    }
+
     Common::BoolResultStr VulkanRendererAPI::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return Common::MakeError( "No active command buffer" );
 
         const auto framebuffer       = renderPass->GetSpecification().TargetFramebuffer;
         const auto vulkanFramebuffer = sp_cast<VulkanFramebuffer>( framebuffer );
+        // A framebuffer whose attachment failed to create has no VkFramebuffer. Beginning a pass on it is
+        // undefined behaviour (MoltenVK dereferences it), so the pass is refused by name instead.
+        if ( vulkanFramebuffer->GetVKFramebuffer() == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>(
+                 "render pass '{}' has no VkFramebuffer (its attachments failed to create); "
+                 "the pass is not recorded",
+                 renderPass->GetSpecification().DebugName );
 
         VkRenderPassBeginInfo renderPassInfo = {
              .sType       = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -198,7 +212,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::BeginSwapChainRenderPass()
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return Common::MakeError( "No active command buffer" );
 
         auto window            = m_Window.lock();
@@ -232,7 +246,7 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::EndRenderPass()
     {
-        if ( m_CurrentCommandBuffer )
+        if ( IsRecording() )
         {
             vkCmdEndRenderPass( m_CurrentCommandBuffer );
 
@@ -264,13 +278,13 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::BeginDebugLabel( const char* name )
     {
-        if ( m_CurrentCommandBuffer )
+        if ( IsRecording() )
             VKUtils::BeginDebugLabel( m_CurrentCommandBuffer, name );
     }
 
     void VulkanRendererAPI::EndDebugLabel()
     {
-        if ( m_CurrentCommandBuffer )
+        if ( IsRecording() )
             VKUtils::EndDebugLabel( m_CurrentCommandBuffer );
     }
 
@@ -309,7 +323,7 @@ namespace Desert::Graphic::API::Vulkan
         // silhouette). The call-site scopes break it down per-pass; this row is the engine-wide total.
         DESERT_PROFILE_FUNC();
 
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -409,7 +423,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::SubmitFullscreenQuad( const GraphicsPipeline* pipeline,
                                                   const MaterialExecutor* materialExecutor )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -450,7 +464,7 @@ namespace Desert::Graphic::API::Vulkan
                                            IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
                                            const MaterialExecutor* materialExecutor )
     {
-        if ( !m_CurrentCommandBuffer || !vertexBuffer || !indexBuffer || indexCount == 0 )
+        if ( !IsRecording() || vertexBuffer == nullptr || indexBuffer == nullptr || indexCount == 0 )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -509,7 +523,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::SubmitLines( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                          float lineWidth, const MaterialExecutor* materialExecutor )
     {
-        if ( !m_CurrentCommandBuffer || vertexCount == 0 )
+        if ( !IsRecording() || vertexCount == 0 )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -543,7 +557,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::SubmitVertices( const GraphicsPipeline* pipeline, uint32_t vertexCount,
                                             const MaterialExecutor* materialExecutor )
     {
-        if ( !m_CurrentCommandBuffer || vertexCount == 0 )
+        if ( !IsRecording() || vertexCount == 0 )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -589,7 +603,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
                                                  uint32_t groupCountY, uint32_t groupCountZ )
     {
-        if ( !m_CurrentCommandBuffer || !pipeline )
+        if ( !IsRecording() || pipeline == nullptr )
             return;
 
         const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
@@ -609,7 +623,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                                     uint32_t groupCountY, uint32_t groupCountZ )
     {
-        if ( !m_CurrentCommandBuffer || !pipeline )
+        if ( !IsRecording() || pipeline == nullptr )
             return;
 
         // Records bind + a fresh ring descriptor set + dispatch (no layout transitions, no submit).
@@ -629,7 +643,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::ComputeImageBeginWrite( Image* image )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         // IVulkanImage, not VulkanImage2D: 2D targets, cubes and volumes all transition the same way,
         // and each supplies its own aspect mask and layer count.
@@ -654,7 +668,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::ComputeImageEndWrite( Image* image )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         auto* vkImage = dynamic_cast<IVulkanImage*>( image );
         if ( !vkImage )
@@ -668,7 +682,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::ComputeImageBeginRead( Image* image )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         auto* vkImage = dynamic_cast<IVulkanImage*>( image );
         if ( !vkImage )
@@ -687,7 +701,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::ComputeImageEndRead( Image* image )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         auto* vkImage = dynamic_cast<IVulkanImage*>( image );
         if ( !vkImage )
@@ -705,7 +719,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
     {
-        if ( !m_CurrentCommandBuffer || !src || !dst )
+        if ( !IsRecording() || src == nullptr || dst == nullptr )
             return;
         // Same extent required (a multisampled target depth vs the single-sample G-buffer would be an
         // illegal copy — skip rather than fault; the grid just stays non-occluded under MSAA until a proper
@@ -737,7 +751,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         VkRect2D scissor = { .offset = { x, y }, .extent = { width, height } };
         vkCmdSetScissor( m_CurrentCommandBuffer, 0, 1, &scissor );
@@ -769,7 +783,7 @@ namespace Desert::Graphic::API::Vulkan
     }
     void VulkanRendererAPI::SetViewportAndScissor( const uint32_t width, const uint32_t height )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         if ( width == 0 || height == 0 )
             return;
@@ -790,7 +804,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::ClearAttachments( const std::vector<VkClearValue>&    clearValues,
                                               const std::shared_ptr<Framebuffer>& framebuffer )
     {
-        if ( !m_CurrentCommandBuffer )
+        if ( !IsRecording() )
             return;
         uint32_t                       attachmentCount = (uint32_t)clearValues.size();
         std::vector<VkClearAttachment> attachments( attachmentCount );

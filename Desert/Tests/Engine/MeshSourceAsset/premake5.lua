@@ -1,16 +1,3 @@
--- "A material parameter must reach every (view x frame in flight) copy of its uniform buffer, by
--- whichever route the material was submitted, and one view's write must never reach another's copy."
---
--- Same recipe as Tests/Engine/DescriptorFallbacks and Tests/Engine/GpuTimestampLayout: the units under
--- test hold no VkDevice, so they need no GPU. UniformBufferProperty and FieldProperty are header-only,
--- ShaderResources::UniformBuffer is abstract (the test derives a recording buffer from it, on the
--- production ViewCopiedBlock). FrameManager and EngineContext are plain counter
--- singletons the test drives by hand to simulate the (frame x slot) matrix.
---
--- Only ViewResources.cpp is compiled in; every other unit is a header. Writing the descriptors themselves does need a device
--- and is therefore NOT covered here.
-local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
-
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
@@ -21,15 +8,19 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
+    -- The unit under test is the MESH SOURCE ASSET envelope codec (AF4b): META + IMPT + SRCE.
     files {
         test_files,
-        -- The per-view copy register the uniform-buffer copies live in (GPU-free, see its own suite).
-        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/ViewResources.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
+    }
+    externalincludedirs {
+        "%{wks.location}/ThirdParty/entt/include/",
+        "%{wks.location}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -44,15 +35,22 @@ project(test_name)
         defines { define }
     end
 
-    links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
-
-    -- Common/Core/Core.hpp's DESERT_DEBUG_BREAK needs to know the platform.
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
+
+    links { "Common", "Optick" }
+
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
+    filter "system:not windows"
+        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

@@ -12,6 +12,7 @@
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -413,6 +414,11 @@ namespace Desert::Graphic
         // Which view this renderer is; see the constructor. Held as a lease so the slot goes back when
         // this renderer is destroyed, whatever destroys it.
         Engine::RendererSlotLease m_SlotLease;
+
+        // Everything this view keeps per frame in flight, keyed by the shared resource it copies. Declared
+        // after the lease only so its name can carry the slot while slots still exist. Made the target of
+        // per-frame writes by an ActiveViewScope at the top of each frame phase, next to BindRecordingSlot.
+        ViewResources m_ViewResources;
 
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
