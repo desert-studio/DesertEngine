@@ -1,4 +1,5 @@
 #include "HeightFogRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -145,7 +146,7 @@ namespace Desert::Graphic::System
              .Tag        = "HeightFogApply",
              .Width      = width,
              .Height     = height,
-             .Format     = Core::Formats::ImageFormat::RGBA16F,
+             .Format     = ViewTargetFormats::kHeightFog,
              .Mips       = 1u,
              .Usage      = Core::Formats::Image2DUsage::Image2D,
              .Properties = Core::Formats::Storage | Core::Formats::Sample,
@@ -154,11 +155,11 @@ namespace Desert::Graphic::System
         m_FogImage = Image2D::Create( spec );
         if ( !m_FogImage )
         {
-            LOG_ERROR( "[HeightFog] The {}x{} RGBA16F fog target ({:.2f} MiB) could not be created; the "
-                       "height fog will not render for this view.",
-                       width, height,
-                       BytesToMiB( Core::Formats::CalculateImageSize( width, height,
-                                                                      Core::Formats::ImageFormat::RGBA16F ) ) );
+            LOG_ERROR(
+                 "[HeightFog] The {}x{} RGBA16F fog target ({:.2f} MiB) could not be created; the "
+                 "height fog will not render for this view.",
+                 width, height,
+                 BytesToMiB( Core::Formats::CalculateImageSize( width, height, ViewTargetFormats::kHeightFog ) ) );
             m_ResourcesFailed = true;
             return false;
         }
@@ -167,10 +168,9 @@ namespace Desert::Graphic::System
         m_FogHeight = height;
 
         // The cost is announced once, on the allocation, not discovered in a memory graph later.
-        LOG_INFO(
-             "[HeightFog] Fog target {}x{} RGBA16F ({:.2f} MiB) for a {}x{} view.", width, height,
-             BytesToMiB( Core::Formats::CalculateImageSize( width, height, Core::Formats::ImageFormat::RGBA16F ) ),
-             width, height );
+        LOG_INFO( "[HeightFog] Fog target {}x{} RGBA16F ({:.2f} MiB) for a {}x{} view.", width, height,
+                  BytesToMiB( Core::Formats::CalculateImageSize( width, height, ViewTargetFormats::kHeightFog ) ),
+                  width, height );
         return true;
     }
 

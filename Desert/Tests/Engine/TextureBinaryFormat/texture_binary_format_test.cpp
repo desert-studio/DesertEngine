@@ -46,6 +46,7 @@
  */
 
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 // For the compression threshold, which the container shares with the archive rather than restating.
 #include <Common/Utilities/PakFile.hpp>
@@ -323,11 +324,15 @@ TEST( TextureBinaryFormat, EveryLevelMatchesAnIndependentChain )
 
 TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
 {
-    const auto png = RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Textures" / "T_Checker.png";
-    ASSERT_TRUE( std::filesystem::exists( png ) ) << png.string();
+    // The png lives INSIDE T_Checker.detex since AF7 (the loose file left the tree); its Source section is
+    // the untouched image bytes, so they are read from there rather than from a copy kept beside it.
+    const auto detex = RepositoryRoot() / "Editor" / "Resources" / "Assets" / "Textures" / "T_Checker.detex";
+    const auto asset = Desert::Assets::ReadTextureSourceAssetFile( detex );
+    ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
+    const std::string png = detex.string();
 
-    const std::string bytes = ReadFile( png );
-    int               w = 0, h = 0, ch = 0;
+    const std::vector<std::byte>& bytes = asset.GetValue().Source;
+    int                           w = 0, h = 0, ch = 0;
     stbi_uc*          raw = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( bytes.data() ),
                                                    static_cast<int>( bytes.size() ), &w, &h, &ch, 4 );
     ASSERT_NE( raw, nullptr ) << stbi_failure_reason();
@@ -340,7 +345,7 @@ TEST( TextureBinaryFormat, APngSurvivesTheContainerByteForByte )
 
     const auto encoded = EncodeTextureBinary(
          Cook( static_cast<uint32_t>( w ), static_cast<uint32_t>( h ), base, "assets:Textures/T_Checker.png" ) );
-    const auto decoded = DecodeTextureBinary( encoded, png.string() );
+    const auto decoded = DecodeTextureBinary( encoded, png );
     ASSERT_TRUE( decoded.IsSuccess() ) << decoded.GetError();
     const auto& back = decoded.GetValue();
 

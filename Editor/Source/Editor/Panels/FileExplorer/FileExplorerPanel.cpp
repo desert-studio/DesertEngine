@@ -21,6 +21,8 @@
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
+#include <Editor/Panels/FileExplorer/AssetTooltipLayout.hpp>
+#include <cstdio>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
@@ -165,11 +167,7 @@ namespace Desert::Editor
          { "desce", FileType::Scene },
          { "demesh", FileType::Model },
          { "dgraph", FileType::ShaderGraph },
-         // `.ini` WAS TYPED BY NOBODY AND READ BY SOMEBODY. `DrawPreviewPane` has always asked
-         // `entry->Type == FileType::Ini` to decide whether to show a text excerpt, and no key in this
-         // map ever produced that value — a condition that could not be true, guarding a feature that
-         // therefore did not exist. One line makes the reader's intent real: an ini IS text, and the
-         // excerpt is what a person wants from one.
+         // `.ini` is typed so the browser names it (type label, icon) instead of calling it Unknown.
          { "ini", FileType::Ini },
          // The four cloud formats. Typed here for the first time in M11 — they used to fall through to
          // FileType::Unknown, which is why they had one grey glyph between them, no colour, no entry in
@@ -1278,10 +1276,9 @@ namespace Desert::Editor
                 }
 
                 {
-                    // Reserve a bottom strip for the asset preview pane when a file is selected.
-                    const float previewH =
-                         ( m_CurrentSelected && m_CurrentSelected->IsFile ) ? 175.0f : 0.0f;
-                    ImGui::BeginChild( "##assetBodyRegion", ImVec2( 0.0f, -previewH ), false );
+                    // The grid takes the whole body: asset details live in the hover tooltip
+                    // (DrawAssetTooltip), not in a strip that a selection carves out of the panel.
+                    ImGui::BeginChild( "##assetBodyRegion", ImVec2( 0.0f, 0.0f ), false );
 
                     int shownIndex = 0;
 
@@ -1495,9 +1492,6 @@ namespace Desert::Editor
                     }
 
                     ImGui::EndChild();
-
-                    if ( previewH > 0.0f )
-                        DrawPreviewPane();
                 }
             }
             ImGui::EndChild(); // ##cb_right
@@ -2258,7 +2252,9 @@ namespace Desert::Editor
             DrawItemContextMenu( *entry );
 
             if ( ImGui::IsItemHovered() && !ImGui::IsDragDropActive() )
-                ImGui::SetTooltip( "%s", fileName.c_str() );
+                DrawAssetTooltip( &*entry );
+            else if ( m_TooltipEntry == &*entry )
+                m_TooltipEntry = nullptr;
 
             // Type badge — a small coloured pill (the extension) at the tile's bottom-right, files only.
             if ( entry->IsFile )
@@ -2451,21 +2447,61 @@ namespace Desert::Editor
             ChangeDirectory( m_CurrentDir );
     }
 
-    void FileExplorerPanel::DrawPreviewPane()
+    void FileExplorerPanel::DrawAssetTooltip( DirectoryInformation* entry )
     {
-        DirectoryInformation* entry = m_CurrentSelected;
-        if ( !entry || !entry->IsFile )
-            return;
+        namespace Layout = Desert::Editor::AssetTooltipLayout;
 
-        ImGui::Separator();
-        ImGui::BeginChild( "##assetPreview", ImVec2( 0.0f, 0.0f ), false );
+        // The delay is ours because this ImGui (1.89 WIP) predates ImGuiHoveredFlags_DelayNormal.
+        const double now = ImGui::GetTime();
+        if ( m_TooltipEntry != entry )
+        {
+            m_TooltipEntry      = entry;
+            m_TooltipHoverStart = now;
+        }
+        if ( !Layout::ShouldShow( static_cast<float>( now - m_TooltipHoverStart ) ) )
+            return;
 
         const std::filesystem::path path( entry->AssetPath );
         const std::string           name = path.filename().string();
+        const auto                  typeIt   = s_FileTypesToString.find( entry->Type );
+        const char*                 typeName = !entry->IsFile                        ? "Folder"
+                                               : typeIt != s_FileTypesToString.end() ? typeIt->second.c_str()
+                                                                                     : "File";
+        std::string                 sizeText;
+        if ( entry->IsFile )
+        {
+            char buffer[32];
+            if ( entry->FileSize >= std::size_t{ 1024 } * 1024 )
+                std::snprintf( buffer, sizeof( buffer ), "%.1f MB", entry->FileSize / ( 1024.0f * 1024.0f ) );
+            else
+                std::snprintf( buffer, sizeof( buffer ), "%.1f KB", entry->FileSize / 1024.0f );
+            sizeText = buffer;
+        }
+        std::error_code   ec;
+        const std::string shownPath =
+             std::filesystem::relative( path, std::filesystem::current_path(), ec ).generic_string();
+        const std::string& pathText = ec || shownPath.empty() ? entry->AssetPath : shownPath;
 
-        // Left: visual — a rendered thumbnail when one exists for the type, else the big type icon.
-        const ImVec2 thumbSize( 140.0f, 140.0f );
-        ImGui::BeginGroup();
+        // Natural size of the content: a 96 px picture beside name / type+size / path, the text wrapped
+        // to what is left of the width cap. Layout::Compute then caps and places it on screen.
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const ImVec2      thumbSize( 96.0f, 96.0f );
+        const float       wrapWidth =
+             Layout::kMaxWidth - thumbSize.x - style.ItemSpacing.x - 2.0f * style.WindowPadding.x;
+        const float textH = ImGui::CalcTextSize( name.c_str(), nullptr, false, wrapWidth ).y +
+                            ImGui::GetTextLineHeightWithSpacing() +
+                            ImGui::CalcTextSize( pathText.c_str(), nullptr, false, wrapWidth ).y +
+                            2.0f * style.ItemSpacing.y;
+        const float wantedH = std::max( thumbSize.y, textH ) + 2.0f * style.WindowPadding.y;
+
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const Layout::Rect   placed   = Layout::Compute(
+             ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, Layout::kMaxWidth, wantedH,
+             Layout::Rect{ viewport->Pos.x, viewport->Pos.y, viewport->Size.x, viewport->Size.y } );
+        ImGui::SetNextWindowPos( ImVec2( placed.X, placed.Y ) );
+        ImGui::SetNextWindowSize( ImVec2( placed.Width, placed.Height ) );
+        ImGui::BeginTooltip();
+
         bool drewThumb = false;
         if ( entry->Type == FileType::Texture || entry->Type == FileType::Cubemap )
             drewThumb = DrawTextureThumbnail( entry, thumbSize );
@@ -2477,78 +2513,31 @@ namespace Desert::Editor
             drewThumb = DrawPaintedThumbnail( entry, thumbSize );
         if ( !drewThumb )
         {
-            ImGui::PushStyleColor( ImGuiCol_ChildBg, ImVec4( 0.12f, 0.12f, 0.14f, 1.0f ) );
-            ImGui::BeginChild( "##previewIcon", thumbSize, true,
-                               ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse );
-            const char*  icon = IconForType( entry->Type );
-            const ImVec2 sz   = ImGui::CalcTextSize( icon );
-            ImGui::SetCursorPos(
-                 ImVec2( ( thumbSize.x - sz.x ) * 0.5f, ( thumbSize.y - sz.y ) * 0.5f ) );
-            ImGui::PushStyleColor( ImGuiCol_Text, entry->FileTypeColour );
-            ImGui::TextUnformatted( icon );
-            ImGui::PopStyleColor();
-            ImGui::EndChild();
-            ImGui::PopStyleColor();
+            const char*  icon   = IconForType( entry->Type );
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            const ImVec2 sz     = ImGui::CalcTextSize( icon );
+            ImGui::GetWindowDrawList()->AddRectFilled( origin,
+                                                       ImVec2( origin.x + thumbSize.x, origin.y + thumbSize.y ),
+                                                       IM_COL32( 31, 31, 36, 255 ), 4.0f );
+            ImGui::GetWindowDrawList()->AddText(
+                 ImVec2( origin.x + ( thumbSize.x - sz.x ) * 0.5f, origin.y + ( thumbSize.y - sz.y ) * 0.5f ),
+                 ImGui::GetColorU32( entry->FileTypeColour ), icon );
+            ImGui::Dummy( thumbSize );
         }
-        ImGui::EndGroup();
 
         ImGui::SameLine();
-
-        // Right: name + type/size line + a text excerpt for text-like assets.
         ImGui::BeginGroup();
+        ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + wrapWidth );
         ImGui::TextUnformatted( name.c_str() );
-        {
-            const auto  typeIt   = s_FileTypesToString.find( entry->Type );
-            const char* typeName = typeIt != s_FileTypesToString.end() ? typeIt->second.c_str() : "File";
-            if ( entry->FileSize >= std::size_t{ 1024 } * 1024 )
-            {
-                ImGui::TextDisabled( "%s  |  %.1f MB", typeName, entry->FileSize / ( 1024.0f * 1024.0f ) );
-            }
-            else
-                ImGui::TextDisabled( "%s  |  %.1f KB", typeName, entry->FileSize / 1024.0f );
-        }
-
-        const bool textual = entry->Type == FileType::Script || entry->Type == FileType::Material ||
-                             entry->Type == FileType::Prefab || entry->Type == FileType::Scene ||
-                             entry->Type == FileType::Shader || entry->Type == FileType::Ini;
-        if ( textual )
-        {
-            if ( m_PreviewTextPath != entry->AssetPath )
-            {
-                // Loaded once per selection change; excerpt only (previewing must never hitch the UI).
-                m_PreviewTextPath = entry->AssetPath;
-                // An unreadable file previews as its error line rather than as silent emptiness.
-                auto preview                 = Common::Utils::FileSystem::ReadFileContent( entry->AssetPath );
-                m_PreviewText                = preview ? preview.ExtractValue() : preview.GetError();
-                constexpr size_t kMaxPreview = 2048;
-                if ( m_PreviewText.size() > kMaxPreview )
-                {
-                    m_PreviewText.resize( kMaxPreview );
-                    m_PreviewText += "\n...";
-                }
-            }
-
-            if ( entry->Type == FileType::Prefab )
-            {
-                // Cheap structural hint: every serialized entity carries one "Tag" key.
-                size_t entities = 0;
-                for ( size_t pos = 0; ( pos = m_PreviewText.find( "\"Tag\"", pos ) ) != std::string::npos;
-                      ++entities, ++pos )
-                    ;
-                if ( entities > 0 )
-                    ImGui::TextDisabled( "~%zu entities", entities );
-            }
-
-            ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.65f, 0.65f, 0.65f, 1.0f ) );
-            ImGui::BeginChild( "##previewText", ImVec2( 0.0f, 0.0f ), false,
-                               ImGuiWindowFlags_HorizontalScrollbar );
-            ImGui::TextUnformatted( m_PreviewText.c_str() );
-            ImGui::EndChild();
-            ImGui::PopStyleColor();
-        }
+        if ( sizeText.empty() )
+            ImGui::TextDisabled( "%s", typeName );
+        else
+            ImGui::TextDisabled( "%s  |  %s", typeName, sizeText.c_str() );
+        ImGui::TextDisabled( "%s", pathText.c_str() );
+        ImGui::PopTextWrapPos();
         ImGui::EndGroup();
 
-        ImGui::EndChild();
+        ImGui::EndTooltip();
     }
 
 } // namespace Desert::Editor

@@ -13,6 +13,8 @@
 
 namespace Desert::Geometry
 {
+    class FDynamicMesh3;
+
     // MESH ELEMENT SELECTION - UE's Modeling Mode selection (UPolygonSelectionMechanic over a
     // FGroupTopologySelection / FDynamicMeshSelection): which vertices, edges, triangles or polygroups of ONE
     // EditMesh the next operation works on. Plain CPU data - no ECS, no ImGui, no camera: a pick is given its
@@ -119,6 +121,14 @@ namespace Desert::Geometry
         bool Remove( int id );
         // Removes a selected ID, adds an unselected one (refused like Add).
         [[nodiscard]] Common::BoolResultStr Toggle( const EditMesh& mesh, int id );
+        // The same three on the ported core (DynamicMeshSelection.cpp): what the editor's selection runs on since
+        // P10. The EditMesh overloads serve the operations still on the bridge and go with it in P8b.
+        [[nodiscard]] Common::BoolResultStr Add( const FDynamicMesh3& mesh, int id );
+        [[nodiscard]] Common::BoolResultStr Toggle( const FDynamicMesh3& mesh, int id );
+        PruneReport                         Prune( const FDynamicMesh3& mesh );
+        // Add over any mesh view of ElementSelectionAlgorithms.inl (the algorithms build their results with it).
+        template <class Mesh>
+        [[nodiscard]] Common::BoolResultStr AddIn( const Mesh& mesh, int id );
         void                                Clear();
 
         // Drops every ID the (edited) mesh no longer has, or has as a different element, and says how many.
@@ -136,8 +146,15 @@ namespace Desert::Geometry
         // The corners an ID named when it was selected (edge: 2, triangle: 3, others unused) - what lets Prune
         // tell a reused ID from the element that was picked.
         using Key = std::array<int, 3>;
-        [[nodiscard]] static Key  KeyOf( const EditMesh& mesh, ElementMode mode, int id );
-        [[nodiscard]] static bool Exists( const EditMesh& mesh, ElementMode mode, int id );
+        // Written once over a mesh view for both cores (ElementSelectionAlgorithms.inl).
+        template <class Mesh>
+        [[nodiscard]] static Key KeyOf( const Mesh& mesh, ElementMode mode, int id );
+        template <class Mesh>
+        [[nodiscard]] static bool Exists( const Mesh& mesh, ElementMode mode, int id );
+        template <class Mesh>
+        [[nodiscard]] Common::BoolResultStr ToggleIn( const Mesh& mesh, int id );
+        template <class Mesh>
+        PruneReport PruneIn( const Mesh& mesh );
 
         ElementMode      m_Mode;
         std::vector<int> m_Ids;  // ascending
@@ -162,4 +179,6 @@ namespace Desert::Geometry
     // element (a vertex: when all its edge neighbours are selected). A selection with no unselected
     // neighbour - the whole of a closed mesh - does not shrink.
     [[nodiscard]] ElementSelection ShrinkSelection( const EditMesh& mesh, const ElementSelection& selection );
+    // Every element of the selection's mode that is not selected (UE's Selection > Invert).
+    [[nodiscard]] ElementSelection InvertSelection( const EditMesh& mesh, const ElementSelection& selection );
 } // namespace Desert::Geometry

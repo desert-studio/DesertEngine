@@ -3,15 +3,15 @@
         "Kind": "Material",
         "Guid": "c2407e5571ff7898af741eafd1abdfeb",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["3facba2f99300a42b32d1af712ab96e9"]
     },
     "ShaderName": "Terrain",
     "Params": [
         {
             "Name": "Tint",
-            "Value": [1.0, 0.55, 0.45, 1.0]
+            "Value": [1.0, 0.550000011920929, 0.44999998807907104, 1.0]
         },
         {
             "Name": "DetailTiling",
@@ -21,7 +21,10 @@
     "Textures": [
         {
             "Name": "u_RockTex",
-            "TextureHandle": 4588246833979984450
+            "Guid": "3facba2f99300a42b32d1af712ab96e9",
+            "Path": "assets:Textures/T_Checker.detex"
         }
-    ]
+    ],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

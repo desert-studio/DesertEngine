@@ -102,7 +102,8 @@ namespace Desert::Geometry::VoxelBlockout
 
     glm::vec3 CornerPos( const glm::ivec3& c, const Cell& cell, int i, float unit, const glm::vec3& origin )
     {
-        glm::vec3 p( c.x + ( i & 1 ? 1 : 0 ), c.y + ( i & 2 ? 1 : 0 ), c.z + ( i & 4 ? 1 : 0 ) );
+        glm::vec3 p( c.x + ( ( ( i & 1 ) != 0 ) ? 1 : 0 ), c.y + ( ( ( i & 2 ) != 0 ) ? 1 : 0 ),
+                     c.z + ( ( ( i & 4 ) != 0 ) ? 1 : 0 ) );
         p *= unit;
         p.y += static_cast<float>( cell.V[i] ) / static_cast<float>( CornerDen ) * unit;
         return p + origin;
@@ -142,7 +143,7 @@ namespace Desert::Geometry::VoxelBlockout
             const int R = static_cast<int>( std::lround( lu / unit ) );
             if ( R < 1 || std::abs( lu - static_cast<float>( R ) * unit ) > 0.001f * unit )
                 return false;
-            return cells.count( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ), FloorDiv( c.z, R ) } ) ) > 0;
+            return cells.contains( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ), FloorDiv( c.z, R ) } ) );
         };
         if ( inLayer( Cells, Unit, Origin ) )
             return true;
@@ -252,8 +253,8 @@ namespace Desert::Geometry::VoxelBlockout
         const int va      = ( plane.Na + 2 ) % 3;
         const int topCell = plane.Cell - 1; // the cell whose top face is the work-plane
 
-        const float spanU = static_cast<float>( sel.UMax + 1 - sel.UMin );
-        const float spanV = static_cast<float>( sel.VMax + 1 - sel.VMin );
+        const auto spanU = static_cast<float>( sel.UMax + 1 - sel.UMin );
+        const auto spanV = static_cast<float>( sel.VMax + 1 - sel.VMin );
         if ( spanU <= 0.0f || spanV <= 0.0f )
             return false;
 
@@ -278,9 +279,10 @@ namespace Desert::Geometry::VoxelBlockout
                     continue; // nothing pushed out under this column yet
                 for ( int i = 0; i < 8; ++i )
                 {
-                    if ( !( i & 2 ) ) // bottom corners stay on the lattice so the cell below still meets it
+                    if ( ( i & 2 ) == 0 ) // bottom corners stay on the lattice so the cell below still meets it
                         continue;
-                    it->second.V[i] = heightAt( uu + ( ( i & 4 ) ? 1 : 0 ), vv + ( ( i & 1 ) ? 1 : 0 ) );
+                    it->second.V[i] =
+                         heightAt( uu + ( ( ( i & 4 ) != 0 ) ? 1 : 0 ), vv + ( ( ( i & 1 ) != 0 ) ? 1 : 0 ) );
                 }
             }
         return true;
@@ -315,10 +317,10 @@ namespace Desert::Geometry::VoxelBlockout
         // (so a normal map on a merged quad lines up with the texture it is paired with).
         auto emitQuad = [&]( const glm::vec3 p[4], const glm::vec3& nrm, const FaceUvFrame& uv )
         {
-            const uint32_t base = static_cast<uint32_t>( verts.size() );
+            const auto base = static_cast<uint32_t>( verts.size() );
             for ( int k = 0; k < 4; ++k )
             {
-                Vertex v;
+                Vertex v{};
                 v.Position  = p[k];
                 v.Normal    = nrm;
                 v.Tangent   = uv.T;

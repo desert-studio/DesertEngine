@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 1,
+    "Header": {
+        "Kind": "UITheme",
+        "Guid": "257318dcaa1cff2f324f80faacec0fe4",
+        "Versions": {
+            "UITH": 2
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Desert Light",
     "Notes": "The second look, and the reason the first one exists: the two declare the SAME token names and the SAME style names, so a canvas swaps between them by changing one asset handle and nothing in the scene moves. Radii and spacings are deliberately different from Desert Dark's as well as the colours, so a theme A/B measures the metric path and not only the colour path.",
     "Colors": [

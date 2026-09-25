@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "e41a616c94aeb7649f941eed2ea52b71",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -19,7 +19,7 @@
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -31,7 +31,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -82,7 +85,7 @@
             "Scale": [6.0, 6.0, 6.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -95,7 +98,7 @@
             "Scale": [15.0, 15.0, 15.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -108,7 +111,7 @@
             "Scale": [27.0, 27.0, 27.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -121,7 +124,7 @@
             "Scale": [42.0, 42.0, 42.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         },
@@ -134,7 +137,7 @@
             "Scale": [57.0, 57.0, 57.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": [2985334364344323355],
+                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
                 "Primitive": "Cube"
             }
         }
@@ -180,7 +183,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

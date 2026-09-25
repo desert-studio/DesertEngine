@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "dc4f94975c5e46ef484d4ff5ba3137cc",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -31,7 +31,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -148,7 +151,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

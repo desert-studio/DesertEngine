@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b0bebbde89250a77ffa1825ef8e56946",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -222,7 +222,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

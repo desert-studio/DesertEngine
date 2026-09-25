@@ -8,6 +8,11 @@ local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 project "Runtime"
     kind "ConsoleApp"
 
+    -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
+    -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
+    debugdir "%{wks.location}/Editor"
+    debugargs { "--project Desert.deproj" } -- what scripts/Windows/Run*.bat pass with no arguments
+
     files {
         "Source/**.cpp",
         "Source/**.hpp",

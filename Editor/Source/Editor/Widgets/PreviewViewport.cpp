@@ -187,7 +187,7 @@ namespace Desert::Editor
         m_Renderer.reset();
     }
 
-    void PreviewViewport::EnsureInit()
+    void PreviewViewport::EnsureInit( const Graphic::ViewExtent& extent )
     {
         if ( m_Inited )
             return;
@@ -196,7 +196,7 @@ namespace Desert::Editor
         // framebuffers are allocated inside Scene::Init() below. Shadows were switched off in this scene
         // outright, and the reason was memory rather than taste: four 2048 cascades are 335 MB of
         // attachments per renderer and this editor allows six live ones. See Graphic::ShadowQuality.
-        m_Renderer        = std::make_unique<Graphic::SceneRenderer>( Graphic::kPreviewShadowQuality );
+        m_Renderer        = std::make_unique<Graphic::SceneRenderer>( extent, Graphic::kPreviewViewProfile );
         m_Scene    = std::make_shared<::Desert::Core::Scene>( "DetailsPreview", m_Renderer.get() );
         const auto inited = m_Scene->Init();
         if ( !inited.IsSuccess() )
@@ -901,7 +901,7 @@ namespace Desert::Editor
         if ( !m_HasContent || width == 0 || height == 0 )
             return;
 
-        EnsureInit();
+        EnsureInit( Graphic::ViewExtent{ width, height } );
 
         // A mesh requested before the MeshService had it: keep trying so it gets framed the frame it lands.
         if ( !m_Framed && static_cast<uint64_t>( m_MeshHandle ) != 0 )

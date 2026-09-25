@@ -326,7 +326,9 @@ namespace Desert::Editor
         void InvalidatePipelines( const void* shader );
 
     private:
-        void EnsureInit();
+        // @p extent is the widget's size when the caller knows it (Render); the setters that build the preview
+        // before its first frame do not, and the first Render resizes it.
+        void EnsureInit( const Graphic::ViewExtent& extent = Graphic::kUnsizedViewExtent );
         void ApplyCamera( uint32_t width, uint32_t height );
         // Write m_Setup onto the scene's entities. Called from Update(), every frame: the writes are a
         // handful of component fields, and doing them unconditionally is what removes the "the panel

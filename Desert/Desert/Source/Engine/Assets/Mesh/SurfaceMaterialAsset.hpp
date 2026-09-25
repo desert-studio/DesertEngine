@@ -67,12 +67,6 @@ namespace Desert::Assets
         MaterialData&       Data()       { return m_Data; }
         const MaterialData& Data() const { return m_Data; }
 
-        // Texture-slot convenience for the importer/editor (maps the slot enum to the shader's
-        // sampler name in the canon).
-        std::optional<Assets::AssetHandle> GetTextureHandle( TextureAsset::Type type ) const;
-        bool AddTexture( const Assets::AssetHandle& handle, TextureAsset::Type type,
-                         const glm::vec4& defaultColor = glm::vec4( 1.0f ) );
-
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::Material;
@@ -89,9 +83,6 @@ namespace Desert::Assets
         }
 
     private:
-        // Maps a texture-slot enum to the shader schema's sampler name.
-        static const char* SamplerNameForType( TextureAsset::Type type );
-
         // Upgrades the path-derived handle AssetBase installed to the in-file MaterialId when the file has
         // one — asset-database identity that survives renames as well as restarts.
         void AdoptStableHandle();

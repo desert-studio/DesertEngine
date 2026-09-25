@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Geometry/EditMesh.hpp>
@@ -29,7 +30,7 @@ namespace Desert::Geometry
     // ToRenderMesh refuses (an unset normal / tangent / UV element). An empty mesh is refused: an asset with
     // no submesh draws nothing and has no bounds for the registry.
     [[nodiscard]] Common::ResultStr<Assets::Serialization::MeshAssetData>
-    ToMeshAssetData( const EditMesh& mesh, std::span<const Common::UUID> slotMaterials );
+    ToMeshAssetData( const EditMesh& mesh, std::span<const Common::Content::AssetGuid> slotMaterials );
 
     // The asset's triangles welded back into one EditMesh with the file's polygroups (all 0 for a file with
     // none), normals, tangents and UV as overlays, and MaterialID = submesh index. Refused on a skinned asset,

@@ -35,10 +35,12 @@
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
@@ -229,7 +231,8 @@ namespace
 
     // A STATIC mesh whose one submesh names `material`. The static half of the pair above, and it
     // exists because the mesh -> material edge had no test at all — see the block of tests below.
-    std::string WriteProbeStaticMesh( const std::filesystem::path& path, const Common::UUID& material )
+    std::string WriteProbeStaticMesh( const std::filesystem::path&      path,
+                                      const Common::Content::AssetGuid& material )
     {
         Desert::Assets::Serialization::MeshAssetData data;
         data.IsSkinned = false;
@@ -255,7 +258,7 @@ namespace
         submesh.Transform       = glm::mat4( 1.0f );
         submesh.BoundingBox.Min = glm::vec3( 0.0f );
         submesh.BoundingBox.Max = glm::vec3( 2.0f, 0.0f, 0.0f );
-        submesh.MaterialHandle  = material;
+        submesh.MaterialGuid    = material;
         data.Submeshes.push_back( submesh );
 
         // Same reason as the skinned fixture above.
@@ -508,21 +511,30 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
     const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction";
     std::filesystem::create_directories( dir );
 
-    const std::filesystem::path texturePath  = dir / "probe_texture.tex";
+    const std::filesystem::path texturePath  = dir / "probe_texture.detex";
     const std::filesystem::path materialPath = dir / "probe_material.demat";
+
+    // A `.detex` with its GUID in the header: a `.demat` names a texture by that GUID (MATL 3), so the
+    // texture's handle has to be the one the GUID derives, which a headerless file cannot state.
+    const auto source = std::vector<std::byte>( 4, std::byte{ 0x7F } );
+    const auto textureSource =
+         MakeTextureSourceAsset( Common::Content::ContentKind::Texture, "assets:Textures/EvictionProbe.png",
+                                 source, TextureImportSettings{} );
+    ASSERT_TRUE( WriteTextureSourceAssetFile( texturePath, textureSource ).IsSuccess() );
 
     AssetManager manager;
 
     auto texture =
          manager.CreateAsset<TextureAsset>( AssetPriority::Medium, Common::Filepath( texturePath ), false );
     ASSERT_TRUE( texture );
-    const uint64_t textureHandle = static_cast<uint64_t>( texture->GetMetadata().Handle );
 
     {
-        std::ofstream out( materialPath, std::ios::binary | std::ios::trunc );
-        ASSERT_TRUE( out.is_open() );
-        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","TextureHandle":)" << textureHandle
-            << R"(}]})";
+        // Through the one .demat writer, so the probe states the header and schema generation the loader
+        // requires; a hand-typed body without them loads as substituted defaults and names no texture.
+        MaterialData probe;
+        probe.SetTexture( "u_AlbedoTexture", textureSource.Guid, "assets:Textures/EvictionProbe.detex" );
+        const auto written = WriteMaterialFile( materialPath, probe );
+        ASSERT_TRUE( written ) << written.GetError();
     }
 
     auto material = manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium,
@@ -543,6 +555,40 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
          << "the ROOT set was mutated; the closure must be a copy so the caller's roots stay its own";
 
     std::filesystem::remove( materialPath );
+    std::filesystem::remove( texturePath );
+}
+
+TEST( AssetEviction, ATextureCreatedWithoutLoadIsKeyedByItsHeaderGuid )
+{
+    // loadAfterCreate=false keys the manager's handle lookup BEFORE any Load. When the texture adopted its
+    // identity in Load, that lookup held the PATH-derived number and Load then changed the asset's handle
+    // under it: FindByHandle(real) missed and the evicted/reloaded asset answered to the wrong number.
+    // The identity is now adopted in the constructor, so the lookup and the asset agree from creation.
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "desert_asset_eviction";
+    std::filesystem::create_directories( dir );
+    const std::filesystem::path texturePath = dir / "probe_guid_texture.detex";
+    const auto                  source      = std::vector<std::byte>( 4, std::byte{ 0x7F } );
+    const auto asset = MakeTextureSourceAsset( Common::Content::ContentKind::Texture, "assets:Textures/Probe.png",
+                                               source, TextureImportSettings{} );
+    ASSERT_TRUE( WriteTextureSourceAssetFile( texturePath, asset ).IsSuccess() );
+    const auto byGuid = Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( asset.Guid ) ) );
+    const auto byPath = Common::AssetHandle::FromCookedPath( texturePath );
+
+    AssetManager manager;
+    auto         texture =
+         manager.CreateAsset<TextureAsset>( AssetPriority::Medium, Common::Filepath( texturePath ), false );
+    ASSERT_TRUE( texture );
+    EXPECT_FALSE( texture->IsReadyForUse() );
+    EXPECT_EQ( static_cast<uint64_t>( texture->GetMetadata().Handle ), static_cast<uint64_t>( byGuid ) );
+    EXPECT_EQ( manager.FindByHandle<TextureAsset>( byGuid ), texture )
+         << "a texture created without Load is not findable by its header GUID's handle";
+    EXPECT_FALSE( manager.FindByHandle<TextureAsset>( byPath ) )
+         << "the lookup still answers to the path-derived number";
+
+    ASSERT_TRUE( texture->Load().IsSuccess() );
+    EXPECT_EQ( static_cast<uint64_t>( texture->GetMetadata().Handle ), static_cast<uint64_t>( byGuid ) )
+         << "Load changed the identity the lookup was keyed on";
+    std::filesystem::remove( texturePath );
 }
 
 // THE SWEEP MUST BE SURVIVABLE, NOT MERELY CORRECT — the half this suite did not state.
@@ -754,15 +800,15 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
     AssetManager manager;
 
     {
-        std::ofstream out( materialPath, std::ios::binary | std::ios::trunc );
-        ASSERT_TRUE( out.is_open() );
-        out << R"({"Params":[],"Textures":[]})";
+        const auto written = WriteMaterialFile( materialPath, MaterialData{} );
+        ASSERT_TRUE( written ) << written.GetError();
     }
     auto material =
          manager.CreateAsset<SurfaceMaterialAsset>( AssetPriority::Medium, Common::Filepath( materialPath ) );
     ASSERT_TRUE( material );
 
-    WriteProbeStaticMesh( meshPath, material->GetMetadata().Handle );
+    ASSERT_FALSE( material->Data().Guid().IsNull() ) << "the probe material states no GUID for the mesh to name";
+    WriteProbeStaticMesh( meshPath, material->Data().Guid() );
     auto mesh = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Medium, Common::Filepath( meshPath ) );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->IsReadyForUse() ) << "the probe mesh did not load; the edge cannot be tested";

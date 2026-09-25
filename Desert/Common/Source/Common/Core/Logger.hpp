@@ -7,11 +7,23 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <filesystem>
 #include <memory>
 #include <utility>
 
 namespace Common::Logger
 {
+    // Defined in Logger.cpp so that <Windows.h> (spdlog's msvc_sink) stays out of every includer.
+    // Windows: the debugger's Output pane gets every line (the editor is a windowed application, so
+    // without `--console` stdout goes nowhere and "logs are not written" is what a developer sees).
+    void AddPlatformDebuggerSink();
+
+    // THE LOG FILE FOLLOWS THE WORKING DIRECTORY. It is opened here, before the startup has decided where
+    // to work from; a binary started where it was built (Visual Studio's F5) then moves into the checkout's
+    // Editor/, and the file stayed behind in the solution root where nobody looks. The startup calls this
+    // after the move: the lines written so far are carried over and the file is reopened in `directory`.
+    void RelocateLogFile( const std::filesystem::path& directory );
+
     inline void LogInit()
     {
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -23,6 +35,7 @@ namespace Common::Logger
         spdlog::set_pattern( "%^[%T.%e][%l][Desert]: %v%$" );
         spdlog::set_level( spdlog::level::trace );
         spdlog::flush_on( spdlog::level::trace );
+        AddPlatformDebuggerSink();
 
         // THE RESULT TYPE LIVES IN A REPOSITORY WITH NO LOGGER, ON PURPOSE — the shared-format library
         // must build without the engine, so it reports a failed unwrap through a function the HOST

@@ -159,7 +159,7 @@ namespace Desert::Geometry
         inline uint32_t PushVertex( ShapeMesh& m, const glm::vec3& p, const glm::vec3& n, const glm::vec3& t,
                                     const glm::vec2& uv )
         {
-            Vertex v;
+            Vertex v{};
             v.Position  = p;
             v.Normal    = n;
             v.Tangent   = t;
@@ -175,7 +175,7 @@ namespace Desert::Geometry
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[3] - p[0] ) );
             const glm::vec3 t    = glm::normalize( p[1] - p[0] );
-            const uint32_t  base = static_cast<uint32_t>( m.Vertices.size() );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 4; ++i )
                 PushVertex( m, p[i], n, t, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
@@ -190,7 +190,7 @@ namespace Desert::Geometry
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[2] - p[0] ) );
             const glm::vec3 t    = glm::normalize( p[1] - p[0] );
-            const uint32_t  base = static_cast<uint32_t>( m.Vertices.size() );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 3; ++i )
                 PushVertex( m, p[i], n, t, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
@@ -198,27 +198,37 @@ namespace Desert::Geometry
         }
 
         // A flat rectangular face split into nu x nv quads: corner `origin`, full edges `u` and `v`, facing
-        // cross(u, v). UV is 0..1 over the whole face, U along `u`.
+        // cross(u, v). UV is 0..1 over the whole face, U along `u`. The (nu+1) x (nv+1) grid points are
+        // emitted once and shared by the quads around them, as UE's FGridBoxMeshGenerator does: a flat face
+        // has one normal, one tangent and a continuous UV, so a private copy per quad carried nothing but four
+        // times the vertices for the weld to fold back together.
         inline void AddFaceGrid( ShapeMesh& m, GroupAssigner& groups, int face, const glm::vec3& origin,
                                  const glm::vec3& u, const glm::vec3& v, int nu, int nv )
         {
+            const glm::vec3 n    = glm::normalize( glm::cross( u, v ) );
+            const glm::vec3 t    = glm::normalize( u );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
+            const auto      at   = [&]( int i, int j ) {
+                return base + static_cast<uint32_t>( i ) * static_cast<uint32_t>( nv + 1 ) +
+                       static_cast<uint32_t>( j );
+            };
+            for ( int i = 0; i <= nu; ++i )
+                for ( int j = 0; j <= nv; ++j )
+                {
+                    const float s0 = static_cast<float>( i ) / static_cast<float>( nu );
+                    const float t0 = static_cast<float>( j ) / static_cast<float>( nv );
+                    PushVertex( m, origin + u * s0 + v * t0, n, t, glm::vec2( s0, t0 ) );
+                }
             for ( int i = 0; i < nu; ++i )
-            {
                 for ( int j = 0; j < nv; ++j )
                 {
-                    const float     u0 = static_cast<float>( i ) / static_cast<float>( nu );
-                    const float     u1 = static_cast<float>( i + 1 ) / static_cast<float>( nu );
-                    const float     v0 = static_cast<float>( j ) / static_cast<float>( nv );
-                    const float     v1 = static_cast<float>( j + 1 ) / static_cast<float>( nv );
-                    const glm::vec3 p0 = origin + u * u0 + v * v0;
-                    const glm::vec3 p1 = origin + u * u1 + v * v0;
-                    const glm::vec3 p2 = origin + u * u1 + v * v1;
-                    const glm::vec3 p3 = origin + u * u0 + v * v1;
-                    AddQuad(
-                         m, groups.Next( face ), { p0, p1, p2, p3 },
-                         { glm::vec2( u0, v0 ), glm::vec2( u1, v0 ), glm::vec2( u1, v1 ), glm::vec2( u0, v1 ) } );
+                    // p0..p3 counter-clockwise from outside: (i, j), (i+1, j), (i+1, j+1), (i, j+1).
+                    const int group = groups.Next( face );
+                    m.Indices.push_back( { at( i, j ), at( i + 1, j ), at( i + 1, j + 1 ) } );
+                    m.Indices.push_back( { at( i + 1, j + 1 ), at( i, j + 1 ), at( i, j ) } );
+                    m.Groups.push_back( group );
+                    m.Groups.push_back( group );
                 }
-            }
         }
 
         // ── LATHE: every round shape is a profile revolved about +Y ──────────────────────────────────
@@ -235,8 +245,8 @@ namespace Desert::Geometry
 
         struct LatheSegment
         {
-            glm::vec2 P0, P1; // (radius, height)
-            glm::vec2 N0, N1; // outward normal in (radial, up) at each end
+            glm::vec2 P0{}, P1{}; // (radius, height)
+            glm::vec2 N0{}, N1{}; // outward normal in (radial, up) at each end
             float     V0   = 0.0f;
             float     V1   = 0.0f;
             LatheUV   UV   = LatheUV::Wrap;
@@ -477,7 +487,7 @@ namespace Desert::Geometry
         slices                                   = std::max( slices, 3 );
         rings                                    = std::max( rings, 1 );
         const float                       total  = d + body;
-        const float                       halfPi = glm::half_pi<float>();
+        const auto                        halfPi = glm::half_pi<float>();
         std::vector<Detail::LatheSegment> profile;
         Detail::AddArc( profile, r, r, 0.0f, halfPi, rings, 1.0f, 1.0f - r / total, 0 );
         profile.push_back( { { r, r },
@@ -530,7 +540,7 @@ namespace Desert::Geometry
         const float           sd = Detail::Extent( stepDepth );
         const float           sh = Detail::Extent( stepHeight );
         steps                    = std::max( steps, 1 );
-        const float n            = static_cast<float>( steps );
+        const auto  n            = static_cast<float>( steps );
         const float z0           = -0.5f * n * sd;
         const float hx           = 0.5f * w;
         int         face         = 0;

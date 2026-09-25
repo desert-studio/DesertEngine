@@ -7,6 +7,7 @@
 #include "TextureImporter.hpp"
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ItemProgress.hpp>
 
 namespace Desert::Editor
 {
@@ -22,7 +23,8 @@ namespace Desert::Editor
 
         /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
-        size_t ImportLooseTextures();
+        /// @p progress names each source as it is reached (the splash's item line).
+        size_t ImportLooseTextures( const Assets::ItemProgress& progress = {} );
 
         // Import a source texture into its `.detex` asset, create+register a TextureAsset, and return its
         // handle (the same handle TextureService keys by). Returns a zero handle on failure. Drives the

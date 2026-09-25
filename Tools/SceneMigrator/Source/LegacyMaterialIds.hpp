@@ -13,15 +13,24 @@
 // material step (RaiseMaterialTextToV2) reads it for `ParentMaterialId`; the scene step that rewrites
 // `MaterialGuids` (SCNE 27) reads the same register after the materials are already v2.
 
+#include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
+
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <glm/glm.hpp>
+
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Migration
 {
@@ -75,4 +84,93 @@ namespace Desert::Migration
     Common::ResultStr<std::string> RaiseMaterialTextToV2( std::string_view source, const std::string& text,
                                                           const LegacyMaterialIdMap& map,
                                                           MaterialV2Report&          report );
+
+    // MESH v1/v2 -> v3 (AF7q), here because the one thing the raise cannot do by layout alone is translate a
+    // submesh's old material NUMBER, and that translation is this register. Byte-level on purpose: the engine's
+    // decoder refuses a non-zero number by design, so decode + encode cannot carry one across.
+    //
+    // `meshGuid` becomes the v3 prefix GUID; every 128-byte submesh row gains the material's 16-byte GUID in
+    // place of its 8-byte number (0 -> the null GUID, "no material"); a v1 table gains the empty PolyGroups
+    // row; the sections are laid out again as the encoder lays them out. Refuses a foreign or truncated file,
+    // a version other than 1 or 2 (a v3 file has nothing to raise - the pass skips it before calling), a
+    // null `meshGuid`, and a non-zero number `map` does not know - by name, with no fallback.
+    Common::ResultStr<std::string> UpgradeMeshBytesToV3( std::string_view source, std::string_view bytes,
+                                                         const Common::Content::AssetGuid& meshGuid,
+                                                         const LegacyMaterialIdMap&        map );
+
+    // The cooked-mesh version `bytes` states, 1..kMeshBinaryVersion - the mesh pass's first question, asked
+    // BEFORE it decides between "ok" and "raise". The signature is checked before the version is read: a
+    // JSON-era mesh read as a header states "version" 1818322490 and was once reported "ok - already at v3".
+    // Refuses by name: a file opening with `{` (a pre-binary JSON mesh, re-imported from source), any other
+    // foreign or truncated file ("unknown mesh format"), the other byte order, and a version outside 1..current.
+    Common::ResultStr<uint32_t> CookedMeshVersion( std::string_view source, std::string_view bytes );
+    // ---- MATL 2 -> 3 (T6c3): a material's asset slots named by the referenced asset's header GUID ----------
+    //
+    // MATL 2 named every texture, cloud type, cloud layout and shader slot by a u64 derived from the asset's
+    // PATH (AssetHandle::FromCookedPath: FNV over "<root tag>:<relative path>"). Those assets now register
+    // under HandleForGuid of their header GUID, so the number reaches nothing; MATL 3 states the GUID itself
+    // plus the path as a locator (Assets::MaterialAssetRef). Unlike the old MaterialId, the path-derived number
+    // CAN be recomputed from the files that are still on disk, so no register is kept: the table is rebuilt
+    // from the content root on every run.
+
+    // THE MATL 2 SHAPE, FROZEN HERE and nowhere else: the engine's MaterialData is MATL 3 only, and every
+    // pre-3 step (the v11 scene -> cloud material extraction, the O-4 layout split, the albedo broadcast)
+    // reads and writes this. Members in the order the v2 writer stated them.
+    struct MaterialParamV2
+    {
+        std::string Name;
+        glm::vec4   Value = glm::vec4( 0.0f );
+    };
+    struct MaterialTextureV2
+    {
+        std::string Name;
+        uint64_t    TextureHandle = 0;
+    };
+    struct MaterialDataV2
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::optional<std::string>                                ShaderName;
+        std::vector<MaterialParamV2>                              Params;
+        std::vector<MaterialTextureV2>                            Textures;
+        std::optional<std::string>                                Parent;
+    };
+    inline constexpr uint32_t kMaterialSchemaVersionV2 = 2;
+    // The header versions a MATL 2 file states (the extraction step stamps them; the raise below replaces them).
+    // Inline: every suite that compiles SceneMigration.cpp reaches it, most without this header's .cpp.
+    inline std::span<const Common::Content::SubsystemVersion> MaterialTextSubsystemsV2()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Assets::kMaterialSchemaTag, kMaterialSchemaVersionV2 } };
+        return versions;
+    }
+
+    // What an old number named: the asset's kind (which slot list may name it), its header GUID (empty for a
+    // shader, which has none - Assets::MaterialShaderRef) and its locator (StableKeyForPath's spelling).
+    enum class LegacyAssetKind
+    {
+        Texture,     // .detex (Texture and Skybox kinds)
+        CloudType,   // .decloudtype
+        CloudLayout, // .dclayout
+        Shader,      // .shader under <assetsRoot>/../Shaders ("engine:" root)
+    };
+    struct LegacyAssetRef
+    {
+        LegacyAssetKind Kind = LegacyAssetKind::Texture;
+        std::string     Guid;
+        std::string     Path;
+    };
+    using LegacyAssetRefMap = std::map<uint64_t, LegacyAssetRef>;
+
+    // Every `.detex`, `.decloudtype` and `.dclayout` under `assetsRoot` (key "assets:<relative>") and every
+    // `.shader` under `<assetsRoot>/../Shaders` (key "engine:Shaders/<relative>"): FromKey(key) -> the file's
+    // header GUID + key. Refuses an unreadable header and two files reaching one number, by name.
+    Common::ResultStr<LegacyAssetRefMap> LoadLegacyAssetRefs( const std::filesystem::path& assetsRoot );
+
+    // One MATL 2 material raised to MATL 3: CloudType1..4 / LayoutPattern / LayoutMask -> CloudAssets,
+    // Medium -> ShaderRefs, every other slot -> Textures; a number becomes {GUID, locator} through `refs`, a 0
+    // an authored empty slot. The header is left for StampMaterialHeader (WriteMaterialJson) to raise and fill
+    // with Dependencies. Refuses, naming `source`, the slot and the number: a number `refs` does not know, a
+    // number naming an asset of another kind than the slot takes, and a material with no header.
+    Common::ResultStr<Assets::MaterialData>
+    RaiseMaterialToV3( std::string_view source, const MaterialDataV2& material, const LegacyAssetRefMap& refs );
 } // namespace Desert::Migration

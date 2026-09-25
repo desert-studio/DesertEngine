@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Math/AABB.hpp>
 
 #include <cstdint>
@@ -42,7 +43,50 @@ namespace Common::Content
     /// Version 2 (M4) appends the PolyGroups section; see MeshBinary.hpp for the history. The bounds flag
     /// is NOT a version: an older reader ignores an unknown flag bit and a newer one reads an older file
     /// as "states no box", so both directions keep loading.
-    inline constexpr uint32_t kMeshBinaryVersion = 2;
+    inline constexpr uint32_t kMeshBinaryVersion = 3;
+
+    // THE MESH'S IDENTITY (version 3, AF7). The 64-byte header above was full, so the asset GUID follows it
+    // as {Hi u64, Lo u64} at byte 64 and the section table starts at byte 80. Versions 1 and 2 state no
+    // GUID and their table starts at 64. The GUID sits in the prefix, not in a section, so the content scan
+    // reads it from the first 80 bytes without the body — as it reads the box.
+    inline constexpr std::size_t kMeshBinaryGuidOffset = sizeof( MeshBinaryFileHeader );
+    inline constexpr std::size_t kMeshBinaryPrefixV3   = kMeshBinaryGuidOffset + 16;
+
+    [[nodiscard]] constexpr std::size_t MeshHeaderSize( const uint32_t version )
+    {
+        return version >= 3 ? kMeshBinaryPrefixV3 : sizeof( MeshBinaryFileHeader );
+    }
+
+    // The GUID a v3 prefix states; nullopt for a shorter buffer, a foreign file or a version before 3.
+    [[nodiscard]] inline std::optional<AssetGuid> ReadMeshHeaderGuid( const std::string_view bytes )
+    {
+        if ( bytes.size() < kMeshBinaryPrefixV3 )
+            return std::nullopt;
+        MeshBinaryFileHeader header{};
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || header.Version < 3 )
+            return std::nullopt;
+        AssetGuid guid;
+        std::memcpy( &guid.Hi, bytes.data() + kMeshBinaryGuidOffset, 8 );
+        std::memcpy( &guid.Lo, bytes.data() + kMeshBinaryGuidOffset + 8, 8 );
+        return guid;
+    }
+
+    // THE SUBMESH TABLE, AS FAR AS THE HEADER READER NEEDS IT (version 3). A mesh's dependency edges are
+    // the materials its submeshes name, and those GUIDs sit at a fixed place in each 136-byte submesh
+    // record, so the content scan reads the section table and the submesh records and nothing else — no
+    // vertex, index or morph byte (UE lists a package's imports from its summary for the same reason).
+    // The engine's writer (MeshBinary.cpp) pins its own records against these numbers, so the two
+    // descriptions cannot drift.
+    inline constexpr std::size_t kMeshBinarySectionRowSize =
+         24; // {Id u32, ElementSize u32, Offset u64, Count u64}
+    inline constexpr uint32_t    kMeshBinarySubmeshSectionId          = 4;
+    inline constexpr uint32_t    kMeshBinarySubmeshSizeV3             = 136;
+    inline constexpr std::size_t kMeshBinarySubmeshMaterialGuidOffset = 120; // {Hi u64, Lo u64}
+
+    // The header format that lets `ReadAssetHeaderIfStated` (and so the registry gather) learn a v3 mesh's
+    // kind and GUID from its prefix. Registered in `AssetHeaderFormats()`.
+    const IAssetHeaderFormat& MeshBinaryHeaderFormat();
 
     /// "DESTMESH". Eight ASCII bytes, so the sequence on disk is the same whatever the host's word
     /// order — a magic written as an integer would itself need a byte-order rule to be read.

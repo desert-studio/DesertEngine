@@ -1,15 +1,14 @@
 #include "EditMeshAsset.hpp"
 
 #include <Engine/Geometry/EditMeshConversion.hpp>
-
-#include <string>
+#include <Engine/Geometry/MeshAssetArrays.hpp>
 
 namespace Desert::Geometry
 {
     namespace Ser = Assets::Serialization;
 
-    Common::ResultStr<Ser::MeshAssetData> ToMeshAssetData( const EditMesh&               mesh,
-                                                           std::span<const Common::UUID> slotMaterials )
+    Common::ResultStr<Ser::MeshAssetData>
+    ToMeshAssetData( const EditMesh& mesh, std::span<const Common::Content::AssetGuid> slotMaterials )
     {
         if ( mesh.TriangleCount() == 0 )
             return Common::MakeFormattedError<Ser::MeshAssetData>(
@@ -31,63 +30,21 @@ namespace Desert::Geometry
             return Common::MakeError<Ser::MeshAssetData>( converted.GetError() );
         const RenderMeshData render = converted.ExtractValue();
 
-        Ser::MeshAssetData data;
-        data.IsSkinned = false;
-
-        data.StaticVertices.reserve( render.Vertices.size() );
-        for ( const Vertex& v : render.Vertices )
-            data.StaticVertices.push_back( { v.Position, v.Normal, v.Tangent, v.Bitangent, v.TexCoord } );
-
-        data.Indices.reserve( render.Indices.size() );
-        for ( const Index& i : render.Indices )
-            data.Indices.push_back( { i.V1, i.V2, i.V3 } );
-
-        data.Submeshes.reserve( render.Submeshes.size() );
-        for ( size_t k = 0; k < render.Submeshes.size(); ++k )
-        {
-            const Submesh&   from = render.Submeshes[k];
-            Ser::SubmeshData to;
-            to.Name           = from.Name.empty() ? "Section" + std::to_string( k ) : from.Name;
-            to.VertexOffset   = from.VertexOffset;
-            to.VertexCount    = from.VertexCount;
-            to.IndexOffset    = from.IndexOffset;
-            to.IndexCount     = from.IndexCount;
-            to.Transform      = from.Transform;
-            to.BoundingBox    = from.BoundingBox;
-            to.MaterialHandle = k < slotMaterials.size() ? slotMaterials[k] : Common::UUID::Null();
-            data.Submeshes.push_back( std::move( to ) );
-        }
-
-        // One group per face of Indices, in Indices' order: render triangle i came from EditMesh triangle
+        // One group per render triangle, in Indices' order: render triangle i came from EditMesh triangle
         // SourceTriangles[i], which is the only thing that knows the group.
-        data.PolyGroups.reserve( render.SourceTriangles.size() );
+        std::vector<int32_t> groups;
+        groups.reserve( render.SourceTriangles.size() );
         for ( const int t : render.SourceTriangles )
-            data.PolyGroups.push_back( attributes.GetPolyGroup( t ) );
-
-        return Common::MakeSuccess( std::move( data ) );
+            groups.push_back( attributes.GetPolyGroup( t ) );
+        return Common::MakeSuccess( MeshAssetDataFromRender( render, slotMaterials, std::move( groups ) ) );
     }
 
     Common::ResultStr<EditMesh> FromMeshAssetData( const Ser::MeshAssetData& data )
     {
-        if ( data.IsSkinned )
-            return Common::MakeFormattedError<EditMesh>(
-                 "the asset is skinned ({} skinned vertices); an EditMesh has no bone weights to carry them",
-                 data.SkinnedVertices.size() );
-        if ( !data.PolyGroups.empty() && data.PolyGroups.size() != data.Indices.size() )
-            return Common::MakeFormattedError<EditMesh>( "the asset has {} faces and {} polygroup entries",
-                                                         data.Indices.size(), data.PolyGroups.size() );
-
-        RenderMeshData render;
-        render.Vertices.reserve( data.StaticVertices.size() );
-        for ( const Ser::StaticVertexData& v : data.StaticVertices )
-            render.Vertices.push_back( { v.Position, v.Normal, v.Tangent, v.Bitangent, v.TexCoord } );
-        render.Indices.reserve( data.Indices.size() );
-        for ( const Ser::IndexData& i : data.Indices )
-            render.Indices.push_back( { i.V1, i.V2, i.V3 } );
-        render.Submeshes.reserve( data.Submeshes.size() );
-        for ( const Ser::SubmeshData& s : data.Submeshes )
-            render.Submeshes.push_back( { s.Name, s.VertexOffset, s.VertexCount, s.IndexOffset, s.IndexCount,
-                                          s.Transform, s.BoundingBox } );
+        auto arrays = RenderFromMeshAssetData( data );
+        if ( !arrays.IsSuccess() )
+            return Common::MakeError<EditMesh>( arrays.GetError() );
+        const RenderMeshData render = arrays.ExtractValue();
 
         auto imported = FromRenderMesh( render );
         if ( !imported.IsSuccess() )

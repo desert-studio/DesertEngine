@@ -1,20 +1,23 @@
 // LS-8 and LS-7: the landscape as a surface, from two sides.
 //
-//   1. The ray (LandscapeRaycast) against the BILINEAR surface — the one SampleLandscapeHeight answers and
-//      the shader draws. Its hit must lie on that surface to 1e-3 cm, and it must be the FIRST crossing:
-//      every ray is checked against an independent march along it, so a skipped cell cannot pass.
-//   2. Jolt (LandscapeCollision -> PhysicsWorld heightfield) against the same samples. Jolt's surface is
-//      two planar triangles per cell; it must equal the ray's on every sample and along every grid line,
-//      and differ inside a cell by no more than a quarter of that cell's twist.
+//   1. The ray (LandscapeRaycast) against the landscape's one surface — two triangles per cell on Jolt's
+//      diagonal, the one SampleLandscapeHeight answers and the shader draws. Its hit must lie on that
+//      surface to 1e-3 cm, and it must be the FIRST crossing: every ray is checked against an independent
+//      march along it, so a skipped cell cannot pass.
+//   2. Jolt (LandscapeCollision -> PhysicsWorld heightfield) against the same samples: on the samples, the
+//      grid lines and (5) everywhere inside the cells of a steep hill, it is the ray's surface.
 //   3. A ball rolled across the tile seams neither sinks through nor hops.
 //   4. Edits reach the body in place; the body goes with its tile.
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
+
+#include <Common/Core/GlslAsCpp.hpp>
 
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>
@@ -34,6 +37,24 @@ using namespace Desert::World::Landscape;
 
 namespace
 {
+    // The shader's surface and grid functions, compiled here as LandscapeData.cpp compiles the first, so the
+    // drawn-grid checks below evaluate the vertex stage's own arithmetic.
+    using glm::clamp;
+    using glm::floor;
+    using glm::max;
+    using glm::min;
+    using glm::vec4;
+    using std::abs;
+    using std::ceil;
+    using std::exp2;
+    DESERT_GLSL_AS_CPP_BEGIN
+#include <Common/LandscapeHeight.glslh>
+#include <Common/LandscapeLod.glslh>
+    DESERT_GLSL_AS_CPP_END
+} // namespace
+
+namespace
+{
     constexpr uint32_t kQuads   = 31u; // 32 samples per side: a multiple of Jolt's block
     constexpr uint32_t kSamples = kQuads + 1u;
     constexpr float    kSpacing = 100.0f;
@@ -41,14 +62,14 @@ namespace
     using HeightFn = std::function<float( float gx, float gz )>; // global sample coords -> cm
 
     // Rolling hills with a short-wavelength ripple on top, so cells carry real twist (h00 - h10 - h01 + h11),
-    // the quantity that separates the bilinear surface from Jolt's triangles.
+    // the quantity that separates a bilinear reading of the samples from the triangles.
     float Hills( float gx, float gz )
     {
         return 800.0f * std::sin( gx * 0.21f ) * std::cos( gz * 0.17f ) +
                300.0f * std::sin( gx * 0.9f + gz * 0.7f );
     }
 
-    // A tilted plane: bilinear and triangles coincide exactly, so a ball's contact distance is exact too.
+    // A tilted plane: both triangles of every cell are one plane, so a ball's contact distance is exact too.
     // Both slopes are whole multiples of the encoding step (100 / 128 = 0.78125 cm): any other slope is
     // rounded per sample and the stored surface is a plane plus up to ±0.39 cm of stair noise.
     float Tilted( float gx, float gz )
@@ -123,7 +144,7 @@ namespace
             return kQuads * kSpacing;
         }
 
-        // Largest quarter-twist over every cell: the bound on |bilinear - triangles|.
+        // Largest quarter-twist over every cell: how far a bilinear reading would part from the triangles.
         float MaxQuarterTwist() const
         {
             float worst = 0.0f;
@@ -182,7 +203,7 @@ namespace
     }
 } // namespace
 
-// ── 1. The ray against the bilinear surface ───────────────────────────────────────────────────────────
+// ── 1. The ray against the triangulated surface ──────────────────────────────────────────────────────
 
 TEST( LandscapeRaycast, RandomRaysHitTheFirstCrossingOnTheSurface )
 {
@@ -279,9 +300,9 @@ TEST( LandscapeRaycast, SeamCornerAndEdgeRaysLandOnTheSurface )
 }
 
 // A ray that enters and leaves the surface inside ONE cell: the random rays almost never do (a mutation
-// returning the far root of the cell's quadratic passed them all). The cell under sample (4, 4) = +400 cm
-// is h = 400·fx·fz, a hump along its anti-diagonal: 400·s·(1 - s). At y = 50 cm the ray meets it at
-// s = (1 - sqrt(0.5)) / 2 and leaves at s = (1 + sqrt(0.5)) / 2; the hit is the first.
+// returning the far root of the cell passed them all). The cell under sample (4, 4) = +400 cm is, along
+// its anti-diagonal, a tent over the cell's diagonal: 400·s on the upper triangle (s < 1/2), 400·(1 - s)
+// on the lower. At y = 50 cm the ray meets it at s = 1/8 and leaves at s = 7/8; the hit is the first.
 TEST( LandscapeRaycast, TheNearerOfTwoCrossingsInOneCellIsTheHit )
 {
     auto made = LandscapeTileData::Create( 8u, 8u );
@@ -299,7 +320,7 @@ TEST( LandscapeRaycast, TheNearerOfTwoCrossingsInOneCellIsTheHit )
     const auto      hit = RaycastLandscape( tiles, origin, dir, 1e4f );
     ASSERT_TRUE( hit.has_value() );
 
-    const float s = 0.5f * ( 1.0f - std::sqrt( 0.5f ) );
+    const float s = 0.125f;
     EXPECT_NEAR( hit->Point.x, ( 3.0f + s ) * kSpacing, 1e-3f );
     EXPECT_NEAR( hit->Point.z, ( 4.0f - s ) * kSpacing, 1e-3f );
     EXPECT_NEAR( hit->Point.y, 50.0f, 1e-3f );
@@ -331,7 +352,7 @@ TEST( LandscapeRaycast, OutsideTheTilesIsAMiss )
                                     glm::vec3( 1.0f, 0.0f, 0.0f ), 1e5f ) );
 }
 
-// ── 2. The ray and Jolt: one surface on the grid, a bounded difference inside a cell ───────────────────
+// ── 2. The ray and Jolt: one surface on the samples and the grid lines ──────────────────────────────
 
 namespace
 {
@@ -410,7 +431,7 @@ TEST( LandscapeCollision, JoltEqualsTheRayOnSamplesAndGridLines )
         }
     EXPECT_LE( worst, kJoltQuantisationCm ) << "on the samples";
 
-    // Along the grid lines bilinear is linear, and so is each triangle's edge: the same surface.
+    // Along the grid lines each triangle's edge is linear between its two samples, in Jolt as here.
     std::mt19937                          rng( 99u );
     std::uniform_real_distribution<float> along( 0.0f, land.Extent() );
     std::uniform_int_distribution<int>    line( 0, 2 * kQuads );
@@ -424,44 +445,6 @@ TEST( LandscapeCollision, JoltEqualsTheRayOnSamplesAndGridLines )
         worst               = std::max( { worst, std::abs( r1 - j1 ), std::abs( r2 - j2 ) } );
     }
     EXPECT_LE( worst, kJoltQuantisationCm ) << "on the grid lines";
-}
-
-TEST( LandscapeCollision, InsideACellJoltStaysWithinAQuarterOfItsTwist )
-{
-    const Landscape2x2 land( Hills );
-    JoltLandscape      jolt( land );
-    const auto         tiles = land.RayTiles();
-
-    std::mt19937                          rng( 7u );
-    std::uniform_real_distribution<float> across( 0.0f, land.Extent() );
-    float                                 worstExcess = -1e9f;
-    float                                 worstGap    = 0.0f;
-    for ( int i = 0; i < 3000; ++i )
-    {
-        const float x = land.MinX() + across( rng );
-        const float z = land.MinZ() + across( rng );
-        const auto  ray =
-             RaycastLandscape( tiles, glm::vec3( x, 5000.0f, z ), glm::vec3( 0.0f, -1.0f, 0.0f ), 1e4f );
-        const auto j = jolt.JoltHeight( x, z );
-        ASSERT_TRUE( ray && j );
-        // This cell's own twist, from the tile that holds the point.
-        const auto&    tile = land.Tiles[ray->Tile];
-        const float    gx   = ( x - land.Frames[ray->Tile].OriginX ) / kSpacing;
-        const float    gz   = ( z - land.Frames[ray->Tile].OriginZ ) / kSpacing;
-        const uint32_t cx   = std::min( static_cast<uint32_t>( gx ), kQuads - 1u );
-        const uint32_t cz   = std::min( static_cast<uint32_t>( gz ), kQuads - 1u );
-        const auto  h = [&]( uint32_t a, uint32_t b ) { return LandscapeHeightCm( tile.Sample( a, b ), 100.0f ); };
-        const float quarterTwist =
-             0.25f * std::abs( h( cx, cz ) - h( cx + 1, cz ) - h( cx, cz + 1 ) + h( cx + 1, cz + 1 ) );
-        const float gap = std::abs( ray->Point.y - *j );
-        worstGap        = std::max( worstGap, gap );
-        worstExcess     = std::max( worstExcess, gap - quarterTwist );
-    }
-    EXPECT_LE( worstExcess, kJoltQuantisationCm )
-         << "a gap beyond the cell's quarter twist means Jolt's surface is "
-            "not the two triangles of the same samples";
-    std::printf( "[ LS7 ] hills fixture: worst |bilinear - Jolt| %.3f cm, max quarter-twist %.3f cm\n", worstGap,
-                 land.MaxQuarterTwist() );
 }
 
 // ── 3. A ball across the seams ────────────────────────────────────────────────────────────────────────
@@ -527,7 +510,10 @@ TEST( LandscapeCollision, ABallOverTheFourTileCornerOfHillsStaysAbove )
 {
     const Landscape2x2 land( Hills );
     JoltLandscape      jolt( land );
-    const float        slack = land.MaxQuarterTwist() + 1.0f;
+    // One surface (section 5 measures it to 0.006 cm), so what is left is Jolt's contact resolution: the
+    // ball lands from 200 cm and rolls at ~5 m/s over creases, and sinks 2.5 cm at worst while it does.
+    // The bound was the quarter-twist + 1 cm (53 cm) while the query was bilinear, and hid this entirely.
+    const float slack = 3.0f;
 
     constexpr float   kRadius = 30.0f;
     const float       seamX   = land.MinX() + land.Seam();
@@ -551,8 +537,7 @@ TEST( LandscapeCollision, ABallOverTheFourTileCornerOfHillsStaysAbove )
             break; // rolled off the landscape
         worstSink = std::max( worstSink, *h - ( p.y - kRadius ) );
     }
-    EXPECT_LE( worstSink, slack )
-         << "the ball's bottom went below the surface by more than the triangle/bilinear bound";
+    EXPECT_LE( worstSink, slack ) << "the ball's bottom went below the surface by more than contact slop";
 }
 
 // ── 4. Edits and lifetime ─────────────────────────────────────────────────────────────────────────────
@@ -609,4 +594,250 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── 5. LS-7b: one surface — the ray, the height query and Jolt answer the same triangles ─────────────
+
+namespace
+{
+    // A steep procedural hill: a 15 m Gaussian mound with a ripple across it, so its flanks run at up to
+    // ~60 degrees and its cells carry real twist — where a bilinear and a triangulated reading of the
+    // same samples part by centimetres.
+    float SteepHill( float gx, float gz )
+    {
+        const float dx = gx - 31.0f;
+        const float dz = gz - 31.0f;
+        return 1500.0f * std::exp( -( dx * dx + dz * dz ) / 72.0f ) +
+               250.0f * std::sin( gx * 0.8f ) * std::sin( gz * 0.7f );
+    }
+
+    // What Jolt's 16-bit quantisation alone may move a height by: half of one global step over the
+    // encodable range (the tile's range plus PhysicsWorld's 1000 cm headroom each side), worst tile.
+    float JoltHalfStepCm( const Landscape2x2& land )
+    {
+        float worst = 0.0f;
+        for ( const auto& tile : land.Tiles )
+        {
+            const auto [lo, hi] = std::minmax_element( tile.Samples().begin(), tile.Samples().end() );
+            const float range   = LandscapeHeightCm( *hi, land.Root.ZScale ) -
+                                LandscapeHeightCm( *lo, land.Root.ZScale ) + 2.0f * 1000.0f;
+            worst = std::max( worst, 0.5f * range / 65534.0f );
+        }
+        return worst;
+    }
+} // namespace
+
+// The relation, not the parts: at the same (x, z) on the steep hill, the ray (LS-8, what a click picks),
+// SampleLandscapeHeight (what placement asks, and LandscapeHeight.glslh — the function the terrain shader
+// displaces every vertex with) and Jolt's CastRay (what bodies rest on) must name one height. Before LS-7b
+// the first two were bilinear and Jolt triangulated; this test measured the gap at the numbers it prints.
+TEST( LandscapeOneSurface, RayHeightQueryAndJoltAreOneSurfaceOnASteepHill )
+{
+    const Landscape2x2 land( SteepHill );
+    JoltLandscape      jolt( land );
+    const auto         tiles = land.RayTiles();
+
+    std::mt19937                          rng( 2026u );
+    std::uniform_real_distribution<float> across( 0.0f, land.Extent() );
+    float                                 rayVsJolt   = 0.0f;
+    float                                 queryVsJolt = 0.0f;
+    float                                 rayVsQuery  = 0.0f;
+    for ( int i = 0; i < 4000; ++i )
+    {
+        const float x = land.MinX() + across( rng );
+        const float z = land.MinZ() + across( rng );
+        const auto  ray =
+             RaycastLandscape( tiles, glm::vec3( x, 5000.0f, z ), glm::vec3( 0.0f, -1.0f, 0.0f ), 1e4f );
+        const auto j = jolt.JoltHeight( x, z );
+        const auto q = land.Height( x, z );
+        ASSERT_TRUE( ray && j && q ) << "(" << x << ", " << z << ")";
+        rayVsJolt   = std::max( rayVsJolt, std::abs( ray->Point.y - *j ) );
+        queryVsJolt = std::max( queryVsJolt, std::abs( *q - *j ) );
+        // The ray is solved in double at the exact (x, z); the query is float — 0.01 cm covers the float.
+        rayVsQuery = std::max( rayVsQuery, std::abs( ray->Point.y - *q ) );
+    }
+    const float quant = JoltHalfStepCm( land );
+    std::printf( "[ LS7b ] steep hill: worst |ray - Jolt| %.4f cm, |query - Jolt| %.4f cm, |ray - query| %.4f cm "
+                 "(Jolt quantisation half-step %.4f cm, max quarter-twist %.3f cm)\n",
+                 rayVsJolt, queryVsJolt, rayVsQuery, quant, land.MaxQuarterTwist() );
+    EXPECT_LE( rayVsQuery, 0.01f ) << "the ray and the height query are two surfaces";
+    EXPECT_LE( rayVsJolt, quant + 0.01f ) << "the ray is not the surface Jolt collides with";
+    EXPECT_LE( queryVsJolt, quant + 0.01f ) << "the height query (and the shader) is not Jolt's surface";
+}
+
+namespace
+{
+    using Graphic::System::LandscapeTileLod;
+
+    // One drawn vertex: global sample coordinates and height above the root's base.
+    struct DrawnVertex
+    {
+        float Gx = 0.0f;
+        float Gz = 0.0f;
+        float H  = 0.0f;
+        // The vertex's grid sample before the morph: which vertex of the tile's mesh it is.
+        float GridGx = 0.0f;
+        float GridGz = 0.0f;
+    };
+
+    // TerrainVertex.glslh's main(), statement for statement, on the CPU copy of tile i's samples.
+    DrawnVertex DrawVertex( const Landscape2x2& land, size_t i, const LandscapeTileLod& lod, uint32_t vertex )
+    {
+        const int   q       = static_cast<int>( kQuads );
+        const int   gridLod = static_cast<int>( std::floor( lod.Center ) );
+        const int   x       = LandscapeLodGridCoord( static_cast<int>( vertex ), q, gridLod, 0 );
+        const int   z       = LandscapeLodGridCoord( static_cast<int>( vertex ), q, gridLod, 1 );
+        const float l       = LandscapeCalcLod( static_cast<float>( x ), static_cast<float>( z ),
+                                                static_cast<float>( q ), lod.Center, lod.Edges, lod.Corners,
+                                                1.0f / Graphic::System::kLandscapeLodBlendRange );
+        const int   lo      = static_cast<int>( std::floor( l ) );
+        const float morph   = l - static_cast<float>( lo );
+        const int   stride  = LandscapeLodStride( lo );
+        const auto  f       = []( int c ) { return static_cast<float>( c ); };
+        const float x0      = f( LandscapeLodSnap( x, stride, q ) );
+        const float z0      = f( LandscapeLodSnap( z, stride, q ) );
+        const float x1      = f( LandscapeLodSnap( x, stride * 2, q ) );
+        const float z1      = f( LandscapeLodSnap( z, stride * 2, q ) );
+        const auto  h       = [&]( float sx, float sz )
+        {
+            return LandscapeHeightCm(
+                 land.Tiles[i].Sample( static_cast<uint32_t>( sx ), static_cast<uint32_t>( sz ) ),
+                 land.Root.ZScale );
+        };
+        return { static_cast<float>( land.Coords[i].x * static_cast<int>( kQuads ) ) +
+                      LandscapeLodMorph( x0, x1, morph ),
+                 static_cast<float>( land.Coords[i].y * static_cast<int>( kQuads ) ) +
+                      LandscapeLodMorph( z0, z1, morph ),
+                 LandscapeLodMorph( h( x0, z0 ), h( x1, z1 ), morph ),
+                 static_cast<float>( land.Coords[i].x * q + x ), static_cast<float>( land.Coords[i].y * q + z ) };
+    }
+
+    // The LODs of the 2x2's tiles as the TerrainRenderer derives them from their centres.
+    LandscapeTileLod TileLodOf( const Landscape2x2& land, size_t i, const std::array<float, 4>& centers )
+    {
+        return Graphic::System::LandscapeTileLods( centers[i],
+                                                   [&]( int dx, int dz ) -> std::optional<float>
+                                                   {
+                                                       for ( size_t j = 0; j < 4; ++j )
+                                                           if ( land.Coords[j] ==
+                                                                land.Coords[i] + glm::ivec2( dx, dz ) )
+                                                               return centers[j];
+                                                       return std::nullopt;
+                                                   } );
+    }
+
+    // The tile's boundary on the global line `X == line` (vertical seam) or `Z == line`: every non-degenerate
+    // triangle edge between two of its grid vertices ON that line, drawn where the morph puts them, as (start,
+    // end, hStart, hEnd) sorted along the line. Inside a tile the mesh is closed by construction (a grid
+    // vertex is one function of its sample), so two tiles leave no crack iff these lists are equal: the same
+    // segments at the same heights, bit for bit. Interior vertices a morph folds ONTO the line are not the
+    // boundary — they are the tile's surface meeting it, which UE's geomorph does the same way.
+    std::vector<std::array<float, 4>> SeamSegments( const Landscape2x2& land, size_t i,
+                                                    const LandscapeTileLod& lod, bool vertical, float line )
+    {
+        std::vector<std::array<float, 4>> out;
+        const uint32_t                    count =
+             Graphic::System::LandscapeLodVertexCount( kQuads, static_cast<uint32_t>( std::floor( lod.Center ) ) );
+        for ( uint32_t t = 0; t < count; t += 3u )
+            for ( uint32_t e = 0; e < 3u; ++e )
+            {
+                const DrawnVertex a  = DrawVertex( land, i, lod, t + e );
+                const DrawnVertex b  = DrawVertex( land, i, lod, t + ( e + 1u ) % 3u );
+                const float       ca = vertical ? a.GridGx : a.GridGz, cb = vertical ? b.GridGx : b.GridGz;
+                const float       pa = vertical ? a.Gz : a.Gx, pb = vertical ? b.Gz : b.Gx;
+                if ( ca != line || cb != line || pa == pb )
+                    continue;
+                out.push_back( pa < pb ? std::array<float, 4>{ pa, pb, a.H, b.H }
+                                       : std::array<float, 4>{ pb, pa, b.H, a.H } );
+            }
+        std::sort( out.begin(), out.end() );
+        out.erase( std::unique( out.begin(), out.end() ), out.end() );
+        return out;
+    }
+} // namespace
+
+// LOD 0 is the collision surface: every drawn vertex is a sample at Jolt's height, and every drawn triangle
+// is one of the cell's two on Jolt's diagonal — checked at each triangle's centroid, where the other split
+// would part from the surface by the cell's twist.
+TEST( LandscapeGridLod, AtLodZeroTheDrawnTrianglesAreTheSurfaceJoltCollidesWith )
+{
+    const Landscape2x2 land( SteepHill );
+    JoltLandscape      jolt( land );
+    const float        quant       = JoltHalfStepCm( land );
+    float              worstVsJolt = 0.0f, worstCentroid = 0.0f;
+    size_t             vertices = 0;
+    for ( size_t i = 0; i < 4; ++i )
+    {
+        const LandscapeTileLod lod   = TileLodOf( land, i, { 0.0f, 0.0f, 0.0f, 0.0f } );
+        const uint32_t         count = Graphic::System::LandscapeLodVertexCount( kQuads, 0u );
+        ASSERT_EQ( count, kQuads * kQuads * 6u );
+        for ( uint32_t t = 0; t < count; t += 3u )
+        {
+            float cx = 0.0f, cz = 0.0f, ch = 0.0f;
+            for ( uint32_t k = 0; k < 3u; ++k )
+            {
+                const DrawnVertex v  = DrawVertex( land, i, lod, t + k );
+                const float       wx = land.Root.Origin.x + v.Gx * kSpacing;
+                const float       wz = land.Root.Origin.z + v.Gz * kSpacing;
+                const auto        j  = jolt.JoltHeight( wx, wz );
+                ASSERT_TRUE( j.has_value() ) << wx << "," << wz;
+                worstVsJolt = std::max( worstVsJolt, std::abs( land.Root.Origin.y + v.H - *j ) );
+                cx += v.Gx / 3.0f;
+                cz += v.Gz / 3.0f;
+                ch += v.H / 3.0f;
+                ++vertices;
+            }
+            const auto truth =
+                 land.Height( land.Root.Origin.x + cx * kSpacing, land.Root.Origin.z + cz * kSpacing );
+            ASSERT_TRUE( truth.has_value() );
+            worstCentroid = std::max( worstCentroid, std::abs( land.Root.Origin.y + ch - *truth ) );
+        }
+    }
+    std::printf(
+         "[ LS7c ] LOD 0, %zu drawn vertices: worst |vertex - Jolt| %.4f cm (quantisation half-step %.4f cm), "
+         "worst |triangle centroid - surface| %.4f cm\n",
+         vertices, worstVsJolt, quant, worstCentroid );
+    EXPECT_LE( worstVsJolt, quant + 0.01f ) << "a drawn vertex is not on the surface Jolt collides with";
+    EXPECT_LE( worstCentroid, 0.05f ) << "a drawn triangle is not the cell's triangle on Jolt's diagonal";
+}
+
+// No crack between two tiles at ANY pair of LODs, fractions included (the morph), on all four seams of the
+// 2x2 and through its centre corner: the segments both tiles draw on a shared edge are the same segments.
+TEST( LandscapeGridLod, TheSeamBetweenAnyTwoLodsIsDrawnTheSameByBothTiles )
+{
+    const Landscape2x2 land( SteepHill );
+    const float        q      = static_cast<float>( kQuads );
+    const float        lods[] = { 0.0f, 0.3f, 1.0f, 1.5f, 2.0f, 2.7f, 3.9f, 4.0f };
+    std::mt19937       rng( 7u );
+    size_t             seams = 0;
+    for ( int round = 0; round < 120; ++round )
+    {
+        std::array<float, 4> centers{};
+        for ( float& c : centers )
+            c = lods[rng() % std::size( lods )];
+        std::array<LandscapeTileLod, 4> lod{};
+        for ( size_t i = 0; i < 4; ++i )
+            lod[i] = TileLodOf( land, i, centers );
+        // Tiles: 0 = (0,0), 1 = (1,0), 2 = (0,1), 3 = (1,1). Vertical seam X = q, horizontal Z = q.
+        const struct
+        {
+            size_t A, B;
+            bool   Vertical;
+        } pairs[] = { { 0, 1, true }, { 2, 3, true }, { 0, 2, false }, { 1, 3, false } };
+        for ( const auto& p : pairs )
+        {
+            const auto a = SeamSegments( land, p.A, lod[p.A], p.Vertical, q );
+            const auto b = SeamSegments( land, p.B, lod[p.B], p.Vertical, q );
+            ASSERT_FALSE( a.empty() );
+            ASSERT_EQ( a, b ) << "crack between tiles " << p.A << " (LOD " << centers[p.A] << ") and " << p.B
+                              << " (LOD " << centers[p.B] << ")";
+            // ...and the segments cover the whole edge: a gap in both lists would be a hole both agree on.
+            float covered = 0.0f;
+            for ( const auto& s : a )
+                covered += s[1] - s[0];
+            ASSERT_NEAR( covered, q, 1e-3f ) << "the seam has a hole";
+            ++seams;
+        }
+    }
+    std::printf( "[ LS7c ] %zu seams between random LOD pairs drawn identically by both tiles\n", seams );
 }

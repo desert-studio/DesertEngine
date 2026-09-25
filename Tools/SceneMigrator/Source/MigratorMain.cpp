@@ -44,13 +44,18 @@
 //                                    only, the other text assets), or directories searched recursively
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/CloudLayout.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -67,6 +72,9 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <cstring>
+#include <optional>
+#include <span>
 #include <vector>
 
 namespace
@@ -99,9 +107,10 @@ namespace
     // THE OTHER TEXT ASSETS ARE COLLECTED FOR THEIR LAYOUT ONLY (AF6e). Their content has no step in this
     // tool - each is versioned by its own loader - but their text is written by the canonical writer, so a
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
-    // diffs only in what the save changed. `.dclayout` is not here: it is binary (a "DCLY" header).
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",  ".decloudtype",
-                                                ".destrings",  ".detheme", ".skeleton" };
+    // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
+    // (container 1 -> 2, IsCloudLayout).
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
+                                                ".detheme",    ".derig",  ".retarget",    ".skeleton" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -110,9 +119,27 @@ namespace
                kLayoutOnlyExtensions.end();
     }
 
+    // COOKED MESHES ARE COLLECTED TOO, since AF7q: MeshBinary v3 states the mesh's GUID and names each
+    // submesh's material by GUID, and SCNE 28 reads that GUID from the mesh file - so the mesh pass runs
+    // BEFORE the scenes, whatever order the paths were given in.
+    bool IsCookedMesh( const std::filesystem::path& path )
+    {
+        const std::string ext = path.extension().string();
+        return ext == Common::Constants::Extensions::STATIC_MESH ||
+               ext == Common::Constants::Extensions::SKINNED_MESH;
+    }
+
+    // CLOUD LAYOUTS ARE COLLECTED TOO, since AF7y (T6b2): version 1 was a bare "DCLY" container with no
+    // identity; version 2 is the same bytes inside the AF1 binary envelope, with a GUID minted HERE, once.
+    bool IsCloudLayout( const std::filesystem::path& path )
+    {
+        return path.extension() == Desert::Assets::kCloudLayoutExtension;
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
-                  std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts )
+                  std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
+                  std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -133,6 +160,10 @@ namespace
                 }
                 else if ( IsLayoutOnly( entry.path() ) )
                     texts.push_back( entry.path() );
+                else if ( IsCookedMesh( entry.path() ) )
+                    meshes.push_back( entry.path() );
+                else if ( IsCloudLayout( entry.path() ) )
+                    layouts.push_back( entry.path() );
             }
             return;
         }
@@ -147,6 +178,10 @@ namespace
         }
         else if ( IsLayoutOnly( root ) )
             texts.push_back( root );
+        else if ( IsCookedMesh( root ) )
+            meshes.push_back( root );
+        else if ( IsCloudLayout( root ) )
+            layouts.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -198,6 +233,100 @@ namespace
         Failed,
     };
 
+    // ONE STEP, MANY TEXT KINDS: "the file gains the text asset header". An old-generation text asset states
+    // a top-level version member and no identity; the raised one opens with the text asset header (its Kind, a
+    // GUID minted HERE, once, and the format under the kind's tag) and states its version nowhere else. Every
+    // other member keeps its order and bytes. Each kind is a row, not a copy of the step: T6b1 wrote it for
+    // the cloud type, T7b made it the table the next text kinds join.
+    struct TextHeaderRaise
+    {
+        const char*                  Extension;
+        Common::Content::ContentKind Kind;
+        uint32_t                     Tag;
+        int                          FromVersion;
+        uint32_t                     ToVersion;
+        // The member the old generation stated its version in; dropped by the raise. nullptr when the old
+        // generation stated no version at all (the anim graph): every headerless file of it IS FromVersion.
+        const char* VersionMember;
+        // Whether a file that left the member out IS FromVersion (the string table and the theme said
+        // "absent means 1"), or states nothing the step may assume (the cloud type).
+        bool AbsentIsFrom;
+    };
+
+    constexpr std::array kTextHeaderRaises{
+         // .decloudtype 3 -> 4 (AF7v, T6b1).
+         TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
+                          Desert::Assets::kCloudTypeSchemaTag, 3, Desert::Assets::kCloudTypeSchemaVersion,
+                          "FormatVersion", false },
+         // .destrings 1 -> 2 (T7b).
+         TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
+                          Desert::Assets::kStringTableSchemaTag, 1, Desert::Assets::kStringTableSchemaVersion,
+                          "FormatVersion", true },
+         // .detheme 1 -> 2 (T7b).
+         TextHeaderRaise{ ".detheme", Common::Content::ContentKind::UITheme, Desert::Assets::kUIThemeSchemaTag, 1,
+                          Desert::Assets::kUIThemeSchemaVersion, "FormatVersion", true },
+         // .derig 1 -> 2 (T7c).
+         TextHeaderRaise{ ".derig", Common::Content::ContentKind::ControlRig, Desert::Assets::kControlRigSchemaTag,
+                          1, Desert::Assets::kControlRigSchemaVersion, "FormatVersion", true },
+         // .retarget 1 -> 2 (T7c).
+         TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
+                          1, Desert::Assets::kRetargetSchemaVersion, "FormatVersion", true },
+         // .danimgraph 0 -> 1 (T7d): generation 0 stated no version member at all.
+         TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph,
+                          Desert::Assets::kAnimGraphSchemaTag, 0, Desert::Assets::kAnimGraphSchemaVersion, nullptr,
+                          true },
+    };
+
+    const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
+    {
+        const std::string ext = path.extension().string();
+        for ( const TextHeaderRaise& row : kTextHeaderRaises )
+            if ( ext == row.Extension )
+                return &row;
+        return nullptr;
+    }
+
+    // A file that already has a header returns nullopt (nothing to raise); any version but the row's
+    // FromVersion is refused, the file untouched.
+    Common::ResultStr<std::optional<std::string>> RaiseTextToHeader( const TextHeaderRaise&            row,
+                                                                     const std::string&                source,
+                                                                     const Common::Content::AssetGuid& guid )
+    {
+        const auto tree = rfl::json::read<rfl::Generic>( source );
+        if ( !tree || !tree.value().to_object() )
+            return Common::MakeError<std::optional<std::string>>( "not a JSON object" );
+        const rfl::Generic::Object fields = tree.value().to_object().value();
+        if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
+            return Common::MakeSuccess( std::optional<std::string>{} );
+        const std::string member  = row.VersionMember != nullptr ? row.VersionMember : "";
+        const auto        stated  = row.VersionMember != nullptr ? fields.get( member )
+                                                                 : rfl::Result<rfl::Generic>( rfl::Error( "unstated" ) );
+        const auto version = [&]() -> rfl::Result<int>
+        {
+            if ( stated.has_value() )
+                return stated.value().to_int();
+            if ( row.AbsentIsFrom )
+                return row.FromVersion;
+            return { rfl::Error( "absent" ) };
+        }();
+        if ( !version || version.value() != row.FromVersion )
+            return Common::MakeError<std::optional<std::string>>(
+                 std::string( Common::Content::KindName( row.Kind ) ) + " format version " +
+                 ( version ? std::to_string( version.value() ) : "(unstated)" ) + " has no step to v" +
+                 std::to_string( row.ToVersion ) + "; only a version-" + std::to_string( row.FromVersion ) +
+                 " file is raised" );
+        const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ row.Tag, row.ToVersion } };
+        const auto header = rfl::json::read<rfl::Generic>(
+             rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) ) );
+        rfl::Generic::Object raised;
+        raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
+        for ( const auto& [key, value] : fields )
+            if ( row.VersionMember == nullptr || key != member )
+                raised[key] = value;
+        return Common::MakeSuccess( std::optional<std::string>( rfl::json::write( rfl::Generic( raised ) ) ) );
+    }
+
     Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
                              std::ostream& out, std::ostream& err )
     {
@@ -226,9 +355,27 @@ namespace
     // Shared by scenes and prefabs since И11 — a prefab can carry a VolumetricCloud entity like any other,
     // and the collision guard below has to see BOTH file classes through ONE `claimed` map, or two files
     // of different classes minting the same material name would overwrite each other unseen.
+    // MATL 2 text -> the MATL 3 canonical text: the frozen v2 shape read, its numbers translated through
+    // `refs` (RaiseMaterialToV3), the header raised and its Dependencies stated by the one .demat writer.
+    Common::ResultStr<std::string> RaiseMaterialV2TextToV3( const std::filesystem::path&                path,
+                                                            const std::string&                          text,
+                                                            const Desert::Migration::LegacyAssetRefMap& refs )
+    {
+        const auto parsed = rfl::json::read<Desert::Migration::MaterialDataV2>( text );
+        if ( !parsed )
+            return Common::MakeError<std::string>( "not a readable MATL 2 material: " +
+                                                   std::string( parsed.error().what() ) );
+        const auto raised = Desert::Migration::RaiseMaterialToV3( path.generic_string(), parsed.value(), refs );
+        if ( !raised )
+            return Common::MakeError<std::string>( raised.GetError() );
+        return Desert::Assets::WriteMaterialJson( raised.GetValue() );
+    }
+
     bool WriteCloudMaterials( const std::vector<Desert::Migration::CloudMaterialFile>& produced,
-                              const std::filesystem::path& assetsRoot, const std::filesystem::path& source,
-                              std::map<std::string, std::string>& claimed, std::ostream& out, std::ostream& err )
+                              const std::filesystem::path&                             assetsRoot,
+                              const Desert::Migration::LegacyAssetRefMap&              refs,
+                              const std::filesystem::path& source, std::map<std::string, std::string>& claimed,
+                              std::ostream& out, std::ostream& err )
     {
         for ( const auto& mat : produced )
         {
@@ -257,9 +404,19 @@ namespace
                 return false;
             }
 
+            // Born MATL 2 by the pure scene step, raised here where the content root is known, so ONE run
+            // leaves a file this build reads.
+            const auto raised = RaiseMaterialV2TextToV3( matPath, mat.Json, refs );
+            if ( !raised )
+            {
+                err << "FAIL   " << source.string() << " — its cloud material " << matPath.string()
+                    << " cannot be raised to MATL 3: " << raised.GetError() << "; neither file is modified\n";
+                return false;
+            }
+
             std::error_code ec;
             std::filesystem::create_directories( matPath.parent_path(), ec );
-            if ( !WriteText( matPath, mat.Json, err ) )
+            if ( !WriteText( matPath, raised.GetValue(), err ) )
             {
                 err << "FAIL   " << matPath.string() << " — the cloud material could not be written; "
                     << source.string() << " is left at its old version\n";
@@ -316,9 +473,21 @@ namespace
                 return false;
             }
 
+            // THE STEP WROTE GENERATION 0 (no header, as a v21 scene's graphs were); the file gains its header
+            // here, ONCE PER PATH, so graphs shared by bytes above still share one GUID (T7d, ANGR 0 -> 1).
+            const auto raised = RaiseTextToHeader( *TextHeaderRaiseFor( graphPath ), graph.Json,
+                                                   Common::Content::AssetGuid::Generate() );
+            if ( !raised || !raised.GetValue().has_value() )
+            {
+                err << "FAIL   " << graphPath.string() << " — the anim graph could not be given its header"
+                    << ( raised ? std::string() : ": " + raised.GetError() ) << "; " << source.string()
+                    << " is left at its old version\n";
+                return false;
+            }
             std::error_code ec;
             std::filesystem::create_directories( graphPath.parent_path(), ec );
-            if ( !WriteText( graphPath, graph.Json, err ) )
+            // value_or, not *: the has_value() above sits behind the Result, where clang-tidy cannot see it.
+            if ( !WriteText( graphPath, raised.GetValue().value_or( std::string() ), err ) )
             {
                 err << "FAIL   " << graphPath.string() << " — the anim graph could not be written; "
                     << source.string() << " is left at its old version\n";
@@ -602,6 +771,14 @@ namespace
                 out << "; NO ASSET under the assets root: " << name;
             out << ")";
         }
+        if ( report.TextureGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionMeshGuids << "->v"
+                << Desert::Migration::kSceneVersionTextureGuids << " (" << report.TextureGuids.Rewritten
+                << " texture/skybox reference(s) now state the .detex header GUID)";
+        if ( report.SpriteGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionTextureGuids << "->v"
+                << Desert::Migration::kSceneVersionSpriteGuids << " (" << report.SpriteGuids.Rewritten
+                << " UI sprite / splash reference(s) now state the .detex header GUID)";
         if ( report.TextHeaderRaised )
             out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
                 << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";
@@ -790,7 +967,7 @@ namespace Desert::Migration
         if ( roots.empty() )
         {
             err << "usage: SceneMigrator [--check] <scene.desce | material.demat | prefab.deprefab | "
-                   "clip.anim | directory>...\n";
+                   "clip.anim | mesh.stmesh | mesh.skmesh | directory>...\n";
             return 2;
         }
 
@@ -799,13 +976,17 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> prefabs;
         std::vector<std::filesystem::path> clips;
         std::vector<std::filesystem::path> texts;
+        std::vector<std::filesystem::path> meshes;
+        std::vector<std::filesystem::path> layouts;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts );
 
-        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() )
+        if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
+             meshes.empty() && layouts.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
-                << kPrefabExtension << ", " << kClipExtension << " or other text asset files found\n";
+                << kPrefabExtension << ", " << kClipExtension
+                << ", cooked mesh, cloud layout or other text asset files found\n";
             return 2;
         }
 
@@ -825,6 +1006,196 @@ namespace Desert::Migration
         // Shared by the scene pass and the prefab pass, for the reason `writtenMaterials` is: two files of
         // different classes minting one graph name have to be seen through ONE map.
         std::map<std::string, std::string> writtenGraphs;
+
+        // THE OLD MATERIAL NUMBERS, per assets root, loaded once (LegacyMaterialIds.hpp) and - outside
+        // --check - written to the register BEFORE any material is rewritten: once a file is v2 its old
+        // number is stated nowhere else. Loaded ABOVE the scene pass, because the scene step SCNE 27
+        // translates `MaterialGuids` through the same map (and so does the prefab pass).
+        std::map<std::filesystem::path, Desert::Migration::LegacyMaterialIdMap> legacyIds;
+        const auto                                                              LegacyIdsFor =
+             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyMaterialIdMap*
+        {
+            if ( const auto at = legacyIds.find( root ); at != legacyIds.end() )
+                return &at->second;
+            auto loaded = Desert::Migration::LoadLegacyMaterialIds( root );
+            if ( !loaded )
+            {
+                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
+                return nullptr;
+            }
+            if ( !check )
+                if ( const auto saved = Desert::Migration::SaveLegacyMaterialIds( root, loaded.GetValue() );
+                     !saved )
+                {
+                    err << "FAIL   " << Desert::Migration::LegacyMaterialIdRegisterPath( root ).string() << " — "
+                        << saved.GetError() << "\n";
+                    return nullptr;
+                }
+            return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
+        };
+        // THE PATH-DERIVED ASSET NUMBERS MATL 2 named slots by, per assets root, rebuilt from the files on disk
+        // (LoadLegacyAssetRefs) once per run: the material pass and the cloud materials the scene and prefab
+        // passes write both translate through it.
+        std::map<std::filesystem::path, Desert::Migration::LegacyAssetRefMap> legacyAssetRefs;
+        const auto                                                            LegacyAssetRefsFor =
+             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyAssetRefMap*
+        {
+            if ( const auto at = legacyAssetRefs.find( root ); at != legacyAssetRefs.end() )
+                return &at->second;
+            auto loaded = Desert::Migration::LoadLegacyAssetRefs( root );
+            if ( !loaded )
+            {
+                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
+                return nullptr;
+            }
+            return &legacyAssetRefs.emplace( root, std::move( loaded.GetValue() ) ).first->second;
+        };
+        // THE MESHES, BEFORE the scenes (see IsCookedMesh). A v3 file is left byte-for-byte as it is, so a
+        // second run changes nothing. A mesh under <project>/Cooked/Meshes translates its material numbers
+        // through the register of <project>/Resources/Assets; one under an assets root's Meshes/ through
+        // that root's. A file that is not a cooked mesh this build reads (a JSON-era mesh, a foreign file, a
+        // later version) FAILS by name and is left untouched - never "ok".
+        for ( const auto& path : meshes )
+        {
+            const std::string bytes   = ReadAll( path );
+            const auto        version = Desert::Migration::CookedMeshVersion( path.string(), bytes );
+            if ( !version )
+            {
+                err << "FAIL   " << version.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( version.GetValue() == Common::Content::kMeshBinaryVersion )
+            {
+                out << "ok     " << path.string() << " — already at mesh v" << version.GetValue() << "\n";
+                continue;
+            }
+            std::optional<std::filesystem::path> assetsRoot;
+            namespace Paths = Common::Constants::Path;
+            if ( auto cooked = Paths::RootForContentPath( Paths::ContentDir::MeshCooked, path ) )
+            {
+                if ( cooked->filename().empty() )
+                    cooked = cooked->parent_path();
+                assetsRoot = ( cooked->parent_path() / Paths::SANDBOX_ASSETS_ROOT ).lexically_normal();
+            }
+            else if ( const auto assets = Paths::RootForContentPath( Paths::ContentDir::Mesh, path ) )
+                assetsRoot = *assets;
+            if ( !assetsRoot )
+            {
+                err << "FAIL   " << path.string() << " — lies under neither a Cooked/Meshes nor an assets Meshes "
+                    << "folder, so no legacy material register applies to it\n";
+                ++failed;
+                continue;
+            }
+            const auto* meshIds = LegacyIdsFor( *assetsRoot );
+            if ( meshIds == nullptr )
+            {
+                ++failed;
+                continue;
+            }
+            const Common::Content::AssetGuid guid = Common::Content::AssetGuid::Generate();
+            const auto raised = Desert::Migration::UpgradeMeshBytesToV3( path.string(), bytes, guid, *meshIds );
+            if ( !raised )
+            {
+                err << "FAIL   " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — mesh v" << version.GetValue()
+                << " -> v" << Common::Content::kMeshBinaryVersion << ", GUID "
+                << Common::Content::AssetGuidToText( guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
+        // THE CLOUD LAYOUTS (container 1 -> 2). The version-1 bytes after magic and version ARE the
+        // version-2 payload, so the pass only wraps them: kind CloudLayout, a fresh GUID, the layout version
+        // under its own tag. The wrapped file is read back and its payload compared before anything is
+        // written. A version-2 file is left byte-for-byte as it is, so a second run changes nothing.
+        for ( const auto& path : layouts )
+        {
+            namespace CC                        = Common::Content;
+            const CC::SubsystemVersion kKnown[] = {
+                 { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion } };
+            const std::string bytes     = ReadAll( path );
+            const auto*       first     = reinterpret_cast<const std::byte*>( bytes.data() );
+            constexpr size_t  kV1Prefix = sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) + 4u;
+            if ( bytes.size() >= kV1Prefix &&
+                 std::memcmp( bytes.data(), Desert::Assets::kCloudLayoutVersion1Magic,
+                              sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) ) != 0 )
+            {
+                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
+                                                            CC::AssetHeaderReadContext{ kKnown } );
+                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
+                {
+                    err << "FAIL   " << path.string() << " — neither a version-1 'DCLY' layout nor a cloud layout "
+                        << "envelope: "
+                        << ( header ? "the envelope's kind is not CloudLayout" : header.GetError() ) << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — already at layout v"
+                    << Desert::Assets::kCloudLayoutContainerVersion << "\n";
+                continue;
+            }
+            if ( bytes.size() < kV1Prefix )
+            {
+                err << "FAIL   " << path.string() << " — " << bytes.size() << " bytes, too short for any layout\n";
+                ++failed;
+                continue;
+            }
+            uint32_t version = 0;
+            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
+            if ( version != 1u )
+            {
+                err << "FAIL   " << path.string() << " — a bare 'DCLY' container version " << version
+                    << "; this tool raises version 1 only\n";
+                ++failed;
+                continue;
+            }
+
+            CC::AssetEnvelope envelope;
+            envelope.Asset.Kind       = CC::ContentKind::CloudLayout;
+            envelope.Asset.Guid       = CC::AssetGuid::Generate();
+            envelope.Asset.Subsystems = { kKnown[0] };
+            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                           std::vector<std::byte>( first + kV1Prefix, first + bytes.size() ) } );
+            const auto wrapped = CC::WriteAssetEnvelope( envelope );
+            const auto reread =
+                 wrapped ? CC::ReadAssetEnvelope( wrapped.GetValue(), CC::AssetHeaderReadContext{ kKnown } )
+                         : Common::MakeFormattedError<CC::AssetEnvelope>( "{}", wrapped.GetError() );
+            if ( !reread || !( reread.GetValue().Asset == envelope.Asset ) ||
+                 reread.GetValue().Sections != envelope.Sections )
+            {
+                err << "FAIL   " << path.string() << " — the wrapped layout does not read back: "
+                    << ( reread ? std::string( "its header or payload differs" ) : reread.GetError() ) << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — layout v1 -> v"
+                << Desert::Assets::kCloudLayoutContainerVersion << ", GUID "
+                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
 
         for ( const auto& path : scenes )
         {
@@ -850,9 +1221,15 @@ namespace Desert::Migration
             // root by construction — the two used to be one global read twice, which is how a path
             // written into the scene could name a place the file was not.
             const std::filesystem::path assetsRoot = SceneOutputRoot( path );
+            const auto*                 sceneIds   = LegacyIdsFor( assetsRoot );
+            if ( sceneIds == nullptr )
+            {
+                ++failed; // LegacyIdsFor named the register it could not read
+                continue;
+            }
 
             const Desert::Migration::FileMigrationReport report =
-                 Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
+                 Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path, *sceneIds );
 
             // A scene from a LATER build: nothing ran and nothing was stamped, so this is a FAILED file
             // and not an "ok". It used to be neither — the tree fell through every gate and was stamped
@@ -898,8 +1275,14 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !WriteCloudMaterials( report.CloudMaterial.Materials, assetsRoot, path, writtenMaterials, out,
-                                       err ) )
+            const auto* assetRefs = LegacyAssetRefsFor( assetsRoot );
+            if ( assetRefs == nullptr )
+            {
+                ++failed; // LegacyAssetRefsFor named the file it could not read
+                continue;
+            }
+            if ( !WriteCloudMaterials( report.CloudMaterial.Materials, assetsRoot, *assetRefs, path,
+                                       writtenMaterials, out, err ) )
             {
                 ++failed;
                 continue;
@@ -939,31 +1322,6 @@ namespace Desert::Migration
         // are already produced with the current slot names (MigrateCloudMaterialV11ToV12 calls the same
         // step), so this pass finds nothing to do in them and says so. Running it first would depend on
         // whether the file existed yet, which is an ordering nobody should have to know about.
-        // THE OLD MATERIAL NUMBERS, per assets root, loaded once (LegacyMaterialIds.hpp) and - outside
-        // --check - written to the register BEFORE any material is rewritten: once a file is v2 its old
-        // number is stated nowhere else, and the scene step (SCNE 27) still has to translate it.
-        std::map<std::filesystem::path, Desert::Migration::LegacyMaterialIdMap> legacyIds;
-        const auto                                                              LegacyIdsFor =
-             [&]( const std::filesystem::path& root ) -> const Desert::Migration::LegacyMaterialIdMap*
-        {
-            if ( const auto at = legacyIds.find( root ); at != legacyIds.end() )
-                return &at->second;
-            auto loaded = Desert::Migration::LoadLegacyMaterialIds( root );
-            if ( !loaded )
-            {
-                err << "FAIL   " << root.string() << " — " << loaded.GetError() << "\n";
-                return nullptr;
-            }
-            if ( !check )
-                if ( const auto saved = Desert::Migration::SaveLegacyMaterialIds( root, loaded.GetValue() );
-                     !saved )
-                {
-                    err << "FAIL   " << Desert::Migration::LegacyMaterialIdRegisterPath( root ).string() << " — "
-                        << saved.GetError() << "\n";
-                    return nullptr;
-                }
-            return &legacyIds.emplace( root, std::move( loaded.GetValue() ) ).first->second;
-        };
         int materialsChanged = 0;
         int clipsChanged     = 0;
         for ( const auto& path : materials )
@@ -986,6 +1344,27 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
+            // A MATL 3 file has nothing left to raise: every step below is for an older shape. Only its layout
+            // is checked, so a second run changes nothing.
+            if ( stated.GetValue().Version >= Desert::Assets::kMaterialSchemaVersion )
+            {
+                if ( stated.GetValue().Version > Desert::Assets::kMaterialSchemaVersion )
+                {
+                    err << "FAIL   " << path.string() << " — states MATL v" << stated.GetValue().Version
+                        << ", newer than this tool's v" << Desert::Assets::kMaterialSchemaVersion << "\n";
+                    ++failed;
+                    continue;
+                }
+                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                     layout != Layout::Canonical )
+                {
+                    ++( layout == Layout::Failed ? failed : relaid );
+                    continue;
+                }
+                out << "ok     " << path.string() << " — MATL v" << Desert::Assets::kMaterialSchemaVersion << "\n";
+                continue;
+            }
+
             std::string text         = source;
             const bool  headerRaised = stated.GetValue().Version == 0;
             if ( headerRaised )
@@ -1022,7 +1401,8 @@ namespace Desert::Migration
                 text = raised.GetValue();
             }
 
-            auto parsed = rfl::json::read<Desert::Assets::MaterialData>( text );
+            // MATL 2 -> 3 (T6c3) is the LAST material step and every step before it reads the frozen v2 shape.
+            auto parsed = rfl::json::read<Desert::Migration::MaterialDataV2>( text );
             if ( !parsed )
             {
                 err << "FAIL   " << path.string() << " — " << parsed.error().what() << "\n";
@@ -1039,16 +1419,25 @@ namespace Desert::Migration
             const Desert::Migration::CloudMaterialAlbedoReport albedo =
                  Desert::Migration::MigrateCloudMaterialAlbedoToColour( parsed.value() );
 
-            if ( !report.Changed() && !albedo.Changed() && !identityRaised )
+            const auto* assetRefs = LegacyAssetRefsFor( root );
+            if ( assetRefs == nullptr )
             {
-                if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
-                     layout != Layout::Canonical )
-                {
-                    ++( layout == Layout::Failed ? failed : relaid );
-                    continue;
-                }
-                out << "ok     " << path.string() << " — no pre-O-4 layout slot, no scalar albedo, MATL v"
-                    << Desert::Assets::kMaterialSchemaVersion << "\n";
+                ++failed; // LegacyAssetRefsFor named the file it could not read
+                continue;
+            }
+            const auto raised =
+                 Desert::Migration::RaiseMaterialToV3( path.generic_string(), parsed.value(), *assetRefs );
+            if ( !raised )
+            {
+                err << "FAIL   " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            const auto v3 = Desert::Assets::WriteMaterialJson( raised.GetValue() );
+            if ( !v3 )
+            {
+                err << "FAIL   " << path.string() << " — " << v3.GetError() << "\n";
+                ++failed;
                 continue;
             }
 
@@ -1065,7 +1454,7 @@ namespace Desert::Migration
                 what << " text header stated;";
             if ( identityRaised )
             {
-                what << " MATL v" << Desert::Assets::kMaterialSchemaVersion;
+                what << " MATL v2";
                 if ( identity.DroppedId )
                     what << ", MaterialId dropped (the header GUID is the identity)";
                 if ( identity.Parented )
@@ -1075,6 +1464,8 @@ namespace Desert::Migration
             if ( albedo.Changed() )
                 what << " " << albedo.Broadcast
                      << " scalar ScatteringAlbedo value(s) broadcast to a neutral colour;";
+            what << " MATL v" << Desert::Assets::kMaterialSchemaVersion << ", " << parsed.value().Textures.size()
+                 << " slot(s) named by header GUID;";
 
             if ( check )
             {
@@ -1083,11 +1474,7 @@ namespace Desert::Migration
                 continue;
             }
 
-            // A raise that only touches identity keeps the file's own text. Round-tripping through
-            // MaterialData would respell every number through float (0.97 -> 0.9700000286102295): the same
-            // value to the engine, but a content change to every reader of the text, for no step.
-            const bool textOnly = !report.Changed() && !albedo.Changed();
-            if ( !WriteText( path, textOnly ? text : rfl::json::write( parsed.value() ), err ) )
+            if ( !WriteText( path, v3.GetValue(), err ) )
             {
                 err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
                     << "is untouched. It would have been:" << what.str() << "\n";
@@ -1217,8 +1604,15 @@ namespace Desert::Migration
 
             const std::filesystem::path assetsRoot = PrefabOutputRoot( path );
 
+            const auto* prefabIds = LegacyIdsFor( assetsRoot );
+            if ( prefabIds == nullptr )
+            {
+                ++failed; // LegacyIdsFor named the register it could not read
+                continue;
+            }
+
             const Desert::Migration::PrefabMigrationOutcome outcome =
-                 Desert::Migration::MigratePrefab( parsed.value(), assetsRoot, path );
+                 Desert::Migration::MigratePrefab( parsed.value(), assetsRoot, path, *prefabIds );
 
             if ( !outcome.Refused.empty() )
             {
@@ -1264,8 +1658,14 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !WriteCloudMaterials( outcome.Steps.CloudMaterial.Materials, assetsRoot, path, writtenMaterials,
-                                       out, err ) )
+            const auto* assetRefs = LegacyAssetRefsFor( assetsRoot );
+            if ( assetRefs == nullptr )
+            {
+                ++failed; // LegacyAssetRefsFor named the file it could not read
+                continue;
+            }
+            if ( !WriteCloudMaterials( outcome.Steps.CloudMaterial.Materials, assetsRoot, *assetRefs, path,
+                                       writtenMaterials, out, err ) )
             {
                 ++failed;
                 continue;
@@ -1317,6 +1717,28 @@ namespace Desert::Migration
 
         for ( const auto& path : texts )
         {
+            if ( const TextHeaderRaise* row = TextHeaderRaiseFor( path ) )
+            {
+                const std::string                source = ReadAll( path );
+                const Common::Content::AssetGuid guid   = Common::Content::AssetGuid::Generate();
+                const auto                       raised = RaiseTextToHeader( *row, source, guid );
+                if ( !raised )
+                {
+                    err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                if ( raised.GetValue().has_value() )
+                {
+                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — "
+                        << Common::Content::KindName( row->Kind ) << " v" << row->FromVersion << " -> v"
+                        << row->ToVersion << ", GUID " << Common::Content::AssetGuidToText( guid ) << "\n";
+                    ++changed;
+                    if ( !check && !WriteText( path, *raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
+            }
             if ( const Layout layout = RelayOutIfNeeded( path, ReadAll( path ), check, out, err );
                  layout != Layout::Canonical )
                 ++( layout == Layout::Failed ? failed : relaid );

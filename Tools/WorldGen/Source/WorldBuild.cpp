@@ -132,7 +132,10 @@ namespace Desert::WorldGen
             auto sky =
                  MakeEntity( nextId++, "Sky", { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } );
             rfl::Generic::Object skybox;
-            skybox["SkyboxHandle"]   = rfl::Generic( std::string{} );
+            rfl::Generic::Object noSkybox; // SCNE 29 empty reference: {Guid, Path}
+            noSkybox["Guid"]         = rfl::Generic( std::string{} );
+            noSkybox["Path"]         = rfl::Generic( std::string{} );
+            skybox["SkyboxHandle"]   = rfl::Generic( std::move( noSkybox ) );
             skybox["Intensity"]      = Num( 1.0 );
             sky.Components["Skybox"] = rfl::Generic( std::move( skybox ) );
             rfl::Generic::Object atmosphere;
@@ -203,7 +206,7 @@ namespace Desert::WorldGen
 
                     Assets::StaticMeshComponentSer mesh;
                     mesh.MaterialPaths              = std::vector<std::string>{ groundMaterial.Path };
-                    mesh.MaterialGuids              = std::vector<uint64_t>{ groundMaterial.Guid };
+                    mesh.MaterialGuids              = std::vector<std::string>{ groundMaterial.Guid };
                     mesh.Primitive                  = Geometry::PrimitiveType::Cube;
                     ground.Components["StaticMesh"] = AsBlock( mesh );
                     scene.Entities.push_back( std::move( ground ) );
@@ -261,7 +264,7 @@ namespace Desert::WorldGen
                     const auto&                    material = buildingMaterials[static_cast<size_t>(
                          Range( Mix( d5 ), 0, static_cast<int>( buildingMaterials.size() ) - 1 ) )];
                     mesh.MaterialPaths                      = std::vector<std::string>{ material.Path };
-                    mesh.MaterialGuids                      = std::vector<uint64_t>{ material.Guid };
+                    mesh.MaterialGuids                      = std::vector<std::string>{ material.Guid };
                     mesh.Primitive                          = Geometry::PrimitiveType::Cube;
                     building.Components["StaticMesh"]       = AsBlock( mesh );
                     scene.Entities.push_back( std::move( building ) );

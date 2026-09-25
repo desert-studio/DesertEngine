@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "003085b663f8dac28c0a750a38cf6db8",
+        "Versions": {
+            "ANGR": 1
+        },
+        "Dependencies": []
+    },
     "Name": "ScriptDriven",
     "Entry": "Wave",
     "Parameters": [

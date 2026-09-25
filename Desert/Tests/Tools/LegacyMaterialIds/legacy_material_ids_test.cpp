@@ -14,6 +14,8 @@
 
 #include <Common/Content/TextAssetHeader.hpp>
 
+#include <rflcpp/rfl/json.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -131,7 +133,7 @@ TEST( LegacyMaterialIds, OneNumberNamingTwoGuidsIsRefused )
     EXPECT_EQ( map.at( 7 ), G( kParent ) ) << "a refused row must not replace the first";
 }
 
-TEST( LegacyMaterialIds, RaisingAnInstanceToMatl2GivesTheFormTheEngineReads )
+TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To3GivesTheFormTheEngineReads )
 {
     LegacyMaterialIdMap map{ { kParentId, G( kParent ) } };
     MaterialV2Report    report;
@@ -142,17 +144,90 @@ TEST( LegacyMaterialIds, RaisingAnInstanceToMatl2GivesTheFormTheEngineReads )
 
     const std::string& v2 = raised.GetValue();
     EXPECT_EQ( v2.find( "MaterialId" ), std::string::npos ) << v2;
-    const auto parsed = Desert::Assets::ParseMaterialJson( "inst.demat", v2 );
-    ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << v2;
+    const auto frozen = rfl::json::read<MaterialDataV2>( v2 );
+    ASSERT_TRUE( frozen ) << v2;
+    ASSERT_TRUE( frozen.value().Header.has_value() );
+    EXPECT_EQ( Content::TextHeaderVersion( *frozen.value().Header, Desert::Assets::kMaterialSchemaTag ), 2u );
+    ASSERT_EQ( frozen.value().Header->Dependencies.size(), 1u );
+    EXPECT_EQ( frozen.value().Header->Dependencies.front(), kParent );
+
+    // The rest of the chain: MATL 2 -> 3 (no slots here) and the engine's own reader.
+    const auto v3 = RaiseMaterialToV3( "inst.demat", frozen.value(), LegacyAssetRefMap{} );
+    ASSERT_TRUE( v3 ) << v3.GetError();
+    const auto text = Desert::Assets::WriteMaterialJson( v3.GetValue() );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto parsed = Desert::Assets::ParseMaterialJson( "inst.demat", text.GetValue() );
+    ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << text.GetValue();
     const auto& m = parsed.GetValue();
     EXPECT_EQ( Content::AssetGuidToText( m.Guid() ), "3cac456286293463b516718906b23e28" );
     ASSERT_TRUE( m.IsInstance() );
     EXPECT_EQ( *m.Parent, kParent );
     ASSERT_EQ( m.Header->Dependencies.size(), 1u );
     EXPECT_EQ( m.Header->Dependencies.front(), kParent );
-    EXPECT_EQ( Content::TextHeaderVersion( *m.Header, Desert::Assets::kMaterialSchemaTag ), 2u );
+    EXPECT_EQ( Content::TextHeaderVersion( *m.Header, Desert::Assets::kMaterialSchemaTag ),
+               Desert::Assets::kMaterialSchemaVersion );
     EXPECT_EQ( static_cast<uint64_t>( *m.InstanceParentId() ),
                static_cast<uint64_t>( Content::HandleForGuid( G( kParent ) ) ) );
+}
+
+// MATL 2 -> 3, the pure half: every slot lands in the list its name says, by the GUID the table gives for
+// its number, with the locator beside it; the header then states every GUID as a Dependency.
+TEST( LegacyMaterialIds, RaisingToMatl3RoutesEverySlotByNameAndStatesItsGuid )
+{
+    constexpr const char*   kTex   = "11111111111111111111111111111111";
+    constexpr const char*   kType  = "22222222222222222222222222222222";
+    constexpr const char*   kPaint = "33333333333333333333333333333333";
+    const LegacyAssetRefMap refs{ { 101, { LegacyAssetKind::Texture, kTex, "assets:Textures/T.detex" } },
+                                  { 202, { LegacyAssetKind::CloudType, kType, "assets:Clouds/C.decloudtype" } },
+                                  { 303, { LegacyAssetKind::CloudLayout, kPaint, "assets:Clouds/L.dclayout" } },
+                                  { 404, { LegacyAssetKind::Shader, "", "engine:Shaders/M.shader" } } };
+    MaterialDataV2          v2;
+    v2.Header =
+         Content::MakeTextHeader( Content::ContentKind::Material, G( kParent ), MaterialTextSubsystemsV2() );
+    v2.Textures = { { "u_AlbedoTexture", 101 }, { "u_NormalTexture", 0 }, { "CloudType1", 202 },
+                    { "LayoutPattern", 303 },   { "LayoutMask", 303 },    { "Medium", 404 } };
+
+    const auto raised = RaiseMaterialToV3( "m.demat", v2, refs );
+    ASSERT_TRUE( raised ) << raised.GetError();
+    const auto text = Desert::Assets::WriteMaterialJson( raised.GetValue() );
+    ASSERT_TRUE( text ) << text.GetError();
+    const auto parsed = Desert::Assets::ParseMaterialJson( "m.demat", text.GetValue() );
+    ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << text.GetValue();
+    const auto& m = parsed.GetValue();
+
+    ASSERT_EQ( m.Textures.size(), 2u );
+    EXPECT_EQ( m.Textures[0].Guid, kTex );
+    EXPECT_EQ( m.Textures[0].Path, "assets:Textures/T.detex" );
+    EXPECT_TRUE( m.Textures[1].Guid.empty() ) << "a 0 is an authored empty slot";
+    ASSERT_EQ( m.CloudAssets.size(), 3u );
+    EXPECT_EQ( m.CloudAssets[0].Guid, kType );
+    EXPECT_EQ( m.CloudAssets[1].Guid, kPaint );
+    EXPECT_EQ( m.CloudAssets[2].Guid, kPaint );
+    ASSERT_EQ( m.ShaderRefs.size(), 1u );
+    EXPECT_EQ( m.ShaderRefs[0].Path, "engine:Shaders/M.shader" );
+    EXPECT_EQ( m.Header->Dependencies, ( std::vector<std::string>{ kTex, kType, kPaint } ) );
+    EXPECT_EQ( text.GetValue().find( "TextureHandle" ), std::string::npos );
+}
+
+TEST( LegacyMaterialIds, RaisingToMatl3RefusesAnUnknownNumberAndAWrongKindByName )
+{
+    const LegacyAssetRefMap refs{
+         { 303,
+           { LegacyAssetKind::CloudLayout, "33333333333333333333333333333333", "assets:Clouds/L.dclayout" } } };
+    MaterialDataV2 v2;
+    v2.Header =
+         Content::MakeTextHeader( Content::ContentKind::Material, G( kParent ), MaterialTextSubsystemsV2() );
+    v2.Textures        = { { "u_AlbedoTexture", 999 } };
+    const auto unknown = RaiseMaterialToV3( "lost.demat", v2, refs );
+    ASSERT_FALSE( unknown );
+    EXPECT_NE( unknown.GetError().find( "lost.demat" ), std::string::npos ) << unknown.GetError();
+    EXPECT_NE( unknown.GetError().find( "u_AlbedoTexture" ), std::string::npos ) << unknown.GetError();
+    EXPECT_NE( unknown.GetError().find( "999" ), std::string::npos ) << unknown.GetError();
+
+    v2.Textures          = { { "CloudType1", 303 } };
+    const auto wrongKind = RaiseMaterialToV3( "swapped.demat", v2, refs );
+    ASSERT_FALSE( wrongKind );
+    EXPECT_NE( wrongKind.GetError().find( "cloud layout" ), std::string::npos ) << wrongKind.GetError();
 }
 
 TEST( LegacyMaterialIds, RaisingRefusesAnUnknownParentAndAFileAlreadyRaised )

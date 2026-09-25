@@ -6,7 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
-#include <Engine/Geometry/EditMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <cctype>
 #include <filesystem>
@@ -54,29 +54,33 @@ namespace Desert::Editor
     }
 
     // The folder a tool's "Asset Folder" setting names: relative to the cooked mesh root, and refused when it
-    // would climb out of it (an absolute path or a `..` component) - a file outside the root is not content.
+    // would climb out of it (a rooted path or a `..` component) - a file outside the root is not content. Rooted,
+    // not absolute: on Windows "/abs" and "C:abs" are not is_absolute() yet still leave the root when appended.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
     StaticMeshOutputFolder( std::string_view relative )
     {
         const std::filesystem::path rel = std::filesystem::path( relative ).lexically_normal();
-        if ( rel.is_absolute() || ( !rel.empty() && *rel.begin() == ".." ) )
+        if ( rel.is_absolute() || rel.has_root_directory() || rel.has_root_name() ||
+             ( !rel.empty() && *rel.begin() == ".." ) )
             return Common::MakeFormattedError<std::filesystem::path>(
                  "the asset folder '{}' is outside the cooked mesh folder; name a folder inside it", relative );
         return Common::MakeSuccess( ( Common::Constants::Path::MESH_PATH_COOKED / rel ).lexically_normal() );
     }
 
-    // Encodes @p mesh (Geometry::ToMeshAssetData - polygroups included) and writes it as a NEW file in
+    // Encodes @p mesh (Geometry::DynamicMeshToMeshAssetData - polygroups included) and writes it as a NEW file in
     // @p folder, registered in the content registry with its bounds, exactly as the importer's cook does.
     // Returns the path written. Nothing is written when the mesh is refused.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
-    WriteStaticMeshAsset( const Geometry::EditMesh& mesh, std::span<const Common::UUID> slotMaterials,
+    WriteStaticMeshAsset( const Geometry::FDynamicMesh3&              mesh,
+                          std::span<const Common::Content::AssetGuid> slotMaterials,
                           const std::filesystem::path& folder, std::string_view baseName )
     {
-        auto data = Geometry::ToMeshAssetData( mesh, slotMaterials );
+        auto data = Geometry::DynamicMeshToMeshAssetData( mesh, slotMaterials );
         if ( !data.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was not written as a static mesh: {}",
                                                                       baseName, data.GetError() );
-        const Assets::Serialization::MeshAssetData asset = data.ExtractValue();
+        Assets::Serialization::MeshAssetData asset = data.ExtractValue();
+        asset.Guid = Common::Content::AssetGuid::Generate(); // a new file: a new identity
 
         const std::filesystem::path path = UniqueStaticMeshPath( folder, baseName );
         if ( auto written = WriteCookedBytes( Assets::Serialization::EncodeMeshBinary( asset ), path,

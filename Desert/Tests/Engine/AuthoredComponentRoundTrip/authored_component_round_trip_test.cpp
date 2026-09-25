@@ -493,6 +493,86 @@ TEST( AuthoredComponentRoundTrip, EveryLandscapeFieldComesBack )
     EXPECT_FLOAT_EQ( read.ZScale, written.ZScale );
 }
 
+namespace
+{
+    ECS::LandscapeComponent TwoLayerLandscape()
+    {
+        ECS::LandscapeComponent c;
+        c.Layers.push_back( { "Grass", 0.25f, false, glm::vec3( 0.1f, 0.8f, 0.2f ) } );
+        c.Layers.push_back( { "Puddles", 1.0f, true, glm::vec3( 0.0f, 0.3f, 0.9f ) } );
+        return c;
+    }
+} // namespace
+
+// Every field of every layer, off its default, in order: the order is the panel's and the paint rules'.
+TEST( AuthoredComponentRoundTrip, EveryLandscapeLayerFieldComesBackInOrder )
+{
+    const ECS::LandscapeComponent written = TwoLayerLandscape();
+    const ECS::LandscapeComponent read    = RoundTrip( written );
+    ASSERT_EQ( read.Layers.size(), 2u );
+    for ( size_t i = 0; i < 2; ++i )
+    {
+        EXPECT_EQ( read.Layers[i].Name, written.Layers[i].Name );
+        EXPECT_FLOAT_EQ( read.Layers[i].Hardness, written.Layers[i].Hardness );
+        EXPECT_EQ( read.Layers[i].NoWeightBlend, written.Layers[i].NoWeightBlend );
+        EXPECT_EQ( read.Layers[i].Color, written.Layers[i].Color );
+    }
+}
+
+// A scene written before layers existed has no "Layers" key and loads with none.
+TEST( AuthoredComponentRoundTrip, AnOldLandscapeBlockReadsNoLayers )
+{
+    rfl::Generic::Object block;
+    block["QuadsPerTile"] = rfl::Generic( static_cast<int64_t>( 63 ) );
+    ECS::LandscapeComponent read;
+    ReadComponent( ThroughJsonText( block ), read );
+    EXPECT_EQ( read.QuadsPerTile, 63u );
+    EXPECT_TRUE( read.Layers.empty() );
+}
+
+// Undo restores the block written BEFORE a layer was added: that block must empty the list, so the empty
+// list is written, not omitted (an absent key keeps the current value).
+TEST( AuthoredComponentRoundTrip, AnEmptyLayerListReplacesTheCurrentOne )
+{
+    ECS::LandscapeComponent current = TwoLayerLandscape();
+    ReadComponent( ThroughJsonText( WriteComponent( ECS::LandscapeComponent{} ) ), current );
+    EXPECT_TRUE( current.Layers.empty() );
+}
+
+// A name is the key a tile's weight plane is found by: an empty, over-long or repeated one, or a Hardness
+// outside 0..1, refuses the WHOLE list, and the component keeps the layers it had.
+TEST( AuthoredComponentRoundTrip, ABadLayerListIsRefusedWhole )
+{
+    const auto withLayers = []( std::vector<ECS::LandscapeLayerInfo> layers )
+    {
+        ECS::LandscapeComponent c;
+        c.Layers = std::move( layers );
+        return WriteComponent( c );
+    };
+    const std::string longName( Desert::World::Landscape::kLandscapeMaxWeightLayerName + 1, 'x' );
+    const std::vector<rfl::Generic::Object> bad = {
+         withLayers( { { "Rock", 0.5f, false, glm::vec3( 1.0f ) }, { "Rock", 0.5f, false, glm::vec3( 1.0f ) } } ),
+         withLayers( { { "", 0.5f, false, glm::vec3( 1.0f ) } } ),
+         withLayers( { { longName, 0.5f, false, glm::vec3( 1.0f ) } } ),
+         withLayers( { { "Rock", 1.5f, false, glm::vec3( 1.0f ) } } ),
+    };
+    for ( const auto& block : bad )
+    {
+        ECS::LandscapeComponent current = TwoLayerLandscape();
+        ReadComponent( ThroughJsonText( block ), current );
+        ASSERT_EQ( current.Layers.size(), 2u );
+        EXPECT_EQ( current.Layers[0].Name, "Grass" );
+        EXPECT_EQ( current.Layers[1].Name, "Puddles" );
+    }
+    // The longest legal name is accepted: the limit is inclusive, as the tile blob's is.
+    ECS::LandscapeComponent current;
+    ReadComponent( ThroughJsonText(
+                        withLayers( { { std::string( Desert::World::Landscape::kLandscapeMaxWeightLayerName, 'x' ),
+                                        0.5f, false, glm::vec3( 1.0f ) } } ) ),
+                   current );
+    EXPECT_EQ( current.Layers.size(), 1u );
+}
+
 TEST( AuthoredComponentRoundTrip, TheLandscapeBlockNamesEveryLandscapeField )
 {
     ExpectEveryFieldIsWritten( "LandscapeComponent", WriteComponent( ECS::LandscapeComponent{} ) );

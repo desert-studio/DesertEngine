@@ -4,6 +4,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <exception>
 #include <memory>
@@ -12,6 +13,16 @@
 // `execinfo.h` is POSIX and does not exist under MSVC. `_WIN32` rather than the project's own
 // DESERT_PLATFORM_WINDOWS: this is a question about the toolchain's headers, and the compiler is the
 // authority on that whether or not the build system remembered to say so.
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #ifndef _WIN32
 #include <execinfo.h>
 #include <pthread.h>
@@ -82,8 +93,38 @@ inline void DesertTerminateBacktrace()
     std::_Exit( 134 );
 }
 
+#ifdef _WIN32
+// THE EDITOR IS A WINDOWS-SUBSYSTEM PROGRAM, SO NO CONSOLE WINDOW OPENS WITH IT (owner, 2026-09-24). A
+// console is asked for with `--console`. Output that is redirected (a pipe, a file, CI) needs no console:
+// the CRT picks the inherited handles up at start either way.
+static void OpenConsoleIfAsked( const int argc, char** argv )
+{
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( std::strcmp( argv[i], "--console" ) != 0 )
+            continue;
+        if ( AllocConsole() == 0 )
+            return;
+        FILE* ignored = nullptr;
+        (void)freopen_s( &ignored, "CONOUT$", "w", stdout );
+        (void)freopen_s( &ignored, "CONOUT$", "w", stderr );
+        (void)freopen_s( &ignored, "CONIN$", "r", stdin );
+        return;
+    }
+}
+#endif
+
 int main( int argc, char** argv )
 {
+#ifdef _WIN32
+    // PER-MONITOR DPI AWARENESS, FIRST THING. It can only be declared before the process creates its first
+    // window, and the native splash now does that before GLFW starts -- GLFW's own attempt then failed
+    // silently, and Windows bitmap-stretched the whole editor to the display scale (owner, 2026-09-24:
+    // "everything is too big"). UE declares the same, per monitor v2, in its application manifest.
+    if ( SetProcessDpiAwarenessContext( DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ) == 0 )
+        (void)SetProcessDPIAware();
+    OpenConsoleIfAsked( argc, argv );
+#endif
     // Before anything can throw, and before the logger exists: the handler writes to stderr directly so
     // that it still works when the failure is the logger's own.
     std::set_terminate( &DesertTerminateBacktrace );

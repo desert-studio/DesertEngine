@@ -346,7 +346,12 @@ TEST_F( ShaderRootFixture, EditingAnIncludedHeaderMovesTheKey )
 
     const uint64_t before = ComputeShaderCacheKey( ShaderStage::Compute, source, path );
 
+    // The edit keeps the size and, as on a filesystem whose clock ticks coarser than the edit (NTFS
+    // ~15.6 ms - Windows CI rewrote this header within 1 ms), the write time too. Pinning the stamp back
+    // makes every platform meet that case instead of only the one with the coarse clock.
+    const auto stamp = std::filesystem::last_write_time( header.Path );
     header.Write( "// v2\nconst float kScratch = 2.0f;\n" );
+    std::filesystem::last_write_time( header.Path, stamp );
     const uint64_t after = ComputeShaderCacheKey( ShaderStage::Compute, source, path );
 
     EXPECT_NE( before, after );
@@ -1427,7 +1432,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
     // was live: on a two-terrain scene both drew with one Model/size/seed. The fix is the same
     // transport the parameters already use (MaterialParamRow.hpp): per-draw data is a row of
     // `TerrainInstances[]`, named by the push-constant index. This test pins the SPLIT — the relation
-    // between what stays shared and what rides per draw — in the compiled SPIR-V of all four stages,
+    // between what stays shared and what rides per draw — in the compiled SPIR-V of both stages,
     // exactly as VulkanShader merges them into one descriptor set layout.
     const auto path = ShaderPath( "Terrain/Terrain.shader" );
 
@@ -1438,19 +1443,17 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
     };
     const StageToCompile stages[] = {
          { ShaderStage::Vertex, shaderc_vertex_shader },
-         { ShaderStage::TessControl, shaderc_tess_control_shader },
-         { ShaderStage::TessEvaluation, shaderc_tess_evaluation_shader },
          { ShaderStage::Fragment, shaderc_fragment_shader },
     };
 
     ShaderResource::ReflectionData data;
-    std::vector<uint32_t>          tessEvalSpirv; // kept for the stride check below
+    std::vector<uint32_t>          vertexSpirv; // kept for the stride check below
     for ( const auto& [stage, kind] : stages )
     {
         const auto spirv = CompileStage( StageSource( path, stage ), path, kind );
         ASSERT_FALSE( spirv.empty() ) << "stage " << static_cast<int>( stage ) << " did not compile";
-        if ( stage == ShaderStage::TessEvaluation )
-            tessEvalSpirv = spirv;
+        if ( stage == ShaderStage::Vertex )
+            vertexSpirv = spirv;
         const auto diagnostics = ShaderReflection::ReflectStage( spirv, stage, data );
         EXPECT_TRUE( diagnostics.empty() ) << ( diagnostics.empty() ? "" : diagnostics.front() );
     }
@@ -1477,7 +1480,7 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
     // by definition, so the stride is read straight from the SPIR-V type — the same number
     // TerrainBatch.hpp static_asserts as sizeof(TerrainInstance).
     {
-        spirv_cross::Compiler compiler( tessEvalSpirv );
+        spirv_cross::Compiler compiler( vertexSpirv );
         const auto            resources = compiler.get_shader_resources();
         bool                  found     = false;
         for ( const auto& resource : resources.storage_buffers )
@@ -1487,15 +1490,15 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
             const auto& block = compiler.get_type( resource.base_type_id );
             ASSERT_FALSE( block.member_types.empty() );
             const uint32_t stride = compiler.type_struct_member_array_stride( block, 0 );
-            EXPECT_EQ( stride, 144u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
+            EXPECT_EQ( stride, 192u ) << "the GLSL TerrainInstance and the C++ TerrainInstance disagree";
             found = true;
         }
-        EXPECT_TRUE( found ) << "the tess-eval stage no longer reads TerrainInstances";
+        EXPECT_TRUE( found ) << "the vertex stage no longer reads TerrainInstances";
     }
 
-    // The census, so a binding added or lost anywhere in the four stages is named here first.
+    // The census, so a binding added or lost anywhere in the two stages is named here first.
     const auto bindings = ShaderReflection::BuildLayoutBindings( set );
-    EXPECT_EQ( bindings.size(), 9u ) << DescribeBindings( bindings );
+    EXPECT_EQ( bindings.size(), 10u ) << DescribeBindings( bindings );
     EXPECT_TRUE( HasBinding( bindings, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB (shared)
     EXPECT_TRUE( HasBinding( bindings, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // Materials[] rows
     EXPECT_TRUE( HasBinding( bindings, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_GrassTex
@@ -1505,18 +1508,19 @@ TEST_F( ShaderRootFixture, TheTerrainKeepsPerDrawDataOutOfItsSharedUniformBlock 
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
     EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap (R16)
+    EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (RGBA8)
 }
 
 // ---- The terrain's three programs (LS-5): one patch, three things written ---------------------------------
 //
 // Terrain.shader (forward), TerrainGBuffer.shader (deferred) and TerrainShadow.shader (cascade depth) share
-// their patch stages through Programs/Terrain/*.glslh. What must hold between them, and would not be seen on
-// screen until it had already been wrong for a while:
+// their vertex stage through Programs/Terrain/TerrainVertex.glslh. What must hold between them, and would not be
+// seen on screen until it had already been wrong for a while:
 //   - the G-buffer program's Properties are the forward program's, param for param: a terrain's .demat names
 //     `Terrain`, and the renderer writes the SAME param row into whichever program the render path uses —
 //     a block that drifted would read Tint where DetailTiling was written, in Deferred only;
-//   - the shadow program binds only what a caster reads — TerrainUB (the main camera's View: the LOD it
-//     tessellates with), TerrainInstances[] and the heightmap — and no Materials[] row it is never given.
+//   - the shadow program binds only what a caster reads — TerrainInstances[] (whose row carries the main
+//     camera's LOD) and the heightmap — and no Materials[] row or TerrainUB it is never given.
 TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOnlyThePatch )
 {
     const auto parse = [&]( const char* file )
@@ -1551,8 +1555,6 @@ TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOn
     };
     const StageToCompileTerrain stages[] = {
          { ShaderStage::Vertex, shaderc_vertex_shader },
-         { ShaderStage::TessControl, shaderc_tess_control_shader },
-         { ShaderStage::TessEvaluation, shaderc_tess_evaluation_shader },
          { ShaderStage::Fragment, shaderc_fragment_shader },
     };
     const auto reflect = [&]( const char* file )
@@ -1575,10 +1577,11 @@ TEST_F( ShaderRootFixture, TheTerrainProgramsShareOneMaterialAndTheCasterReadsOn
     EXPECT_TRUE( HasBinding( g, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << DescribeBindings( g ); // Materials[]
     EXPECT_TRUE( HasBinding( g, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << DescribeBindings( g );
     EXPECT_TRUE( HasBinding( g, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << DescribeBindings( g );
+    EXPECT_TRUE( HasBinding( g, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
+         << DescribeBindings( g ); // u_Weightmap
 
     const auto c = reflect( "Terrain/TerrainShadow.shader" );
-    EXPECT_EQ( c.size(), 3u ) << DescribeBindings( c );
-    EXPECT_TRUE( HasBinding( c, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // TerrainUB: the camera's View
+    EXPECT_EQ( c.size(), 2u ) << DescribeBindings( c );
     EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
     EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap
 }

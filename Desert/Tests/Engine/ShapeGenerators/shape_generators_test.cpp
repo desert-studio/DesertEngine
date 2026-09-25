@@ -43,7 +43,7 @@ namespace
 
     std::vector<ShapeCase> Cases()
     {
-        const float pi = glm::pi<float>();
+        const auto pi = glm::pi<float>();
         return {
              { "Box", []( const ShapeOptions& o ) { return MakeBox( { 200.0f, 100.0f, 50.0f }, { 2, 3, 1 }, o ); },
                6, 2 * ( 2 * 3 + 3 * 1 + 1 * 2 ), true, 200.0f * 100.0f * 50.0f, 1e-4f },
@@ -215,6 +215,28 @@ TEST( ShapeGenerators, TheEditMeshRendersTheSameShell )
 }
 
 // Base puts the bottom on Y = 0, Centre the middle, Top the top; X and Z stay centred.
+// UE clamps Box Subdivisions at 500 (AddPrimitiveTool.h), and the panel lets a typed value reach it: the
+// generator and the EditMesh the Create tool builds from it must both carry a box that dense, whole.
+TEST( ShapeGenerators, ABoxAtUEsSubdivisionCeilingIsWhole )
+{
+    constexpr int   n     = 500;
+    const ShapeMesh m     = MakeBox( { 100.0f, 100.0f, 100.0f }, glm::ivec3( n ) );
+    const size_t    quads = 6u * static_cast<size_t>( n ) * static_cast<size_t>( n );
+    ASSERT_EQ( m.Indices.size(), 2u * quads );
+    ASSERT_EQ( m.Groups.size(), m.Indices.size() );
+    for ( const Index& t : m.Indices )
+        ASSERT_TRUE( t.V1 < m.Vertices.size() && t.V2 < m.Vertices.size() && t.V3 < m.Vertices.size() );
+    EXPECT_NEAR( SignedVolume( m ), 100.0 * 100.0 * 100.0, 1.0 );
+    auto converted = ShapeToEditMesh( m );
+    ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
+    auto render = ToRenderMesh( converted.GetValue() );
+    ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
+    size_t drawn = 0;
+    for ( const Submesh& sub : render.GetValue().Submeshes )
+        drawn += sub.IndexCount / 3;
+    EXPECT_EQ( drawn, m.Indices.size() );
+}
+
 TEST( ShapeGenerators, PivotIsWhereItWasAsked )
 {
     for ( const ShapeCase& c : Cases() )
@@ -296,8 +318,12 @@ TEST( ShapeGenerators, PrimitiveBoundsIsTheBoxOfTheGeneratedVertices )
         const auto drawn = shape->Bounds();
         for ( int axis = 0; axis < 3; ++axis )
         {
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             EXPECT_NEAR( drawn.Min[axis], box->Min[axis], 1e-3f ) << "axis " << axis;
+            // NOLINTEND(bugprone-unchecked-optional-access)
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             EXPECT_NEAR( drawn.Max[axis], box->Max[axis], 1e-3f ) << "axis " << axis;
+            // NOLINTEND(bugprone-unchecked-optional-access)
         }
     }
 }
@@ -310,7 +336,7 @@ TEST( ShapeGenerators, EveryAuthorablePrimitiveIsDrawn )
         SCOPED_TRACE( PrimitiveTypeName( type ) );
         const auto shape = MakePrimitive( type );
         ASSERT_TRUE( shape.has_value() );
-        auto converted = ShapeToEditMesh( *shape );
+        auto converted = ShapeToEditMesh( *shape ); // NOLINT(bugprone-unchecked-optional-access)
         ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
         if ( type != PrimitiveType::Plane )
             EXPECT_GT( SignedVolume( *shape ), 0.0 );

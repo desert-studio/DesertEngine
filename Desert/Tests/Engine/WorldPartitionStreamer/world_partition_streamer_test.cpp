@@ -114,7 +114,9 @@ namespace
     std::size_t IndexOf( const std::vector<EntityData>& records, std::uint64_t id )
     {
         for ( std::size_t record = 0; record < records.size(); ++record )
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             if ( records[record].id.has_value() && *records[record].id == Common::UUID( id ) )
+                // NOLINTEND(bugprone-unchecked-optional-access)
                 return record;
         ADD_FAILURE() << "no record " << id;
         return 0;
@@ -248,7 +250,9 @@ TEST( WorldPartitionStreamer, AFlyThroughKeepsOnlyTheNeighbourhoodAlive )
             if ( record == camera || record == child ) // the child is where its parent is: asserted above
                 continue;
             // The distance from the source to the record's level-0 cell square, which is what the band keeps.
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             const float cellMin = std::floor( records[record].Translation->x / kCell ) * kCell;
+            // NOLINTEND(bugprone-unchecked-optional-access)
             const float dx      = std::max( { cellMin - x, 0.0f, x - ( cellMin + kCell ) } );
             ASSERT_LE( dx, band ) << "record " << record << " alive " << dx << " cm away at frame " << frame;
         }

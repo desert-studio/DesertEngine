@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "b966c401a84137d2e2e40fd8c38b9f57",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -19,7 +19,7 @@
             "Scale": [0.10000000149011612, 5.0, 30.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Green.demat"],
-                "MaterialGuids": [308002897746384934],
+                "MaterialGuids": ["91bde2ac45c15dd230d961a447b6fba7"],
                 "Primitive": "Cube"
             }
         },
@@ -20549,7 +20549,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -20636,7 +20639,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

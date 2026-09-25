@@ -101,6 +101,11 @@ namespace Desert::Project
         // A directory to change to before anything reads content, or "" to leave the working
         // directory exactly as it is.
         std::string WorkingDirectory;
+        // True when WorkingDirectory is the Editor/ of the checkout this binary was BUILT in
+        // (`<checkout>/build/Bin/<config>/`) - an IDE that starts the binary where it lies, which
+        // Visual Studio does whenever its per-user debugger settings are not the generated ones.
+        // Its project then sits in that directory too.
+        bool FromCheckout = false;
         // Non-empty when NEITHER candidate holds the engine resources: names the tree and both
         // places that were looked at. The caller stops on this.
         std::string Explanation;

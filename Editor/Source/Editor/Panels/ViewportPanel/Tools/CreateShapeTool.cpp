@@ -7,7 +7,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/EditMesh.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -95,11 +95,10 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<Common::UUID>( "the {} was not placed: {}",
                                                              MS::ShapeName( settings.Kind ), mesh.GetError() );
 
-        ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
+        const ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
         entity.GetComponent<ECS::TransformComponent>().Translation = position;
         auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
-        if ( auto set =
-                  ECS::SetEditableMesh( smc, std::make_shared<const Geometry::EditMesh>( mesh.ExtractValue() ) );
+        if ( auto set = Geometry::Bridge::SetEditableMeshFromEditMesh( smc, mesh.ExtractValue() );
              !set.IsSuccess() )
         {
             scene.DestroyEntity( entity );

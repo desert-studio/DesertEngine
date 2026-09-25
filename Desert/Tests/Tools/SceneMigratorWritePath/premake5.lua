@@ -15,6 +15,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/MigratorMain.cpp",
+        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp", -- RunSceneMigrator reads and saves the legacy material-id register through it (AF7)
         -- A5 gave the tool a fourth file class (`.anim`), so the suite that compiles its main must link
         -- the conversion it now calls, and the tick model that conversion targets. Both are pure.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
@@ -32,6 +33,8 @@ project(test_name)
         -- suite that compiles MigratorMain.cpp has to bring the table with it. It is deliberately not in
         -- SceneMigration.cpp: the fifteen suites that test one schema step each must stay free of it.
         "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
+        -- The loop's material step (MATL 2) and scene step (SCNE 27) read the legacy-id register.
+        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",

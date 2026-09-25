@@ -3,7 +3,7 @@
 //
 //   1. Does the tessellation-evaluation stage compute the height the CPU reports? The GPU starts from an
 //      R16_UNORM texel (s / 65535 as a float), not from the uint16 the CPU holds, so the integer has to
-//      come back exactly — and then the decode and the bilinear must be the CPU's own.
+//      come back exactly — and then the decode and the cell's triangle must be the CPU's own.
 //   2. Do two tiles agree bit for bit on their shared edge? The shader places an edge vertex from GLOBAL
 //      sample indices and evaluates the far column of one tile at fraction 1 and the near column of the
 //      next at fraction 0; these tests run that evaluation from both sides of every seam of a 2x2 layout
@@ -143,7 +143,7 @@ namespace
         const float cellZ   = LandscapeCellOf( lz, samples );
         const int   cx      = static_cast<int>( cellX );
         const int   cz      = static_cast<int>( cellZ );
-        return LandscapeBilinear( TileHeightCm( t, cx, cz ), TileHeightCm( t, cx + 1, cz ),
+        return LandscapeTriangle( TileHeightCm( t, cx, cz ), TileHeightCm( t, cx + 1, cz ),
                                   TileHeightCm( t, cx, cz + 1 ), TileHeightCm( t, cx + 1, cz + 1 ), lx - cellX,
                                   lz - cellZ );
     }

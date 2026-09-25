@@ -31,6 +31,10 @@ namespace Desert::Core::Serialize
         // material branch was fixed for and it is still live for these two — named here rather than
         // changed, because changing it rewrites every scene that holds a mesh or a skybox.
         MachinePath,
+        // `assets:Textures/HDR/Sky.detex` — the tagged key and NOTHING ELSE: a file outside every content
+        // root renders as "" (the resolver names it), so this form can never carry a machine path. Skyboxes
+        // (SCNE 29), whose path is only the locator beside the header GUID.
+        ProjectKey,
     };
 
     // Which form `type`'s references are stored in, or std::nullopt for a type this engine cannot

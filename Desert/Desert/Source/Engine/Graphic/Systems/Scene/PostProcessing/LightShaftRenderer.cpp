@@ -1,4 +1,5 @@
 #include "LightShaftRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -8,7 +9,7 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr Core::Formats::ImageFormat kShaftFormat = Core::Formats::ImageFormat::RGBA16F;
+        constexpr Core::Formats::ImageFormat kShaftFormat = ViewTargetFormats::kLightShaft;
         constexpr uint32_t                   kGroupSize   = 16; // must match LocalSize in the shaders
 
         // Push-constant blocks — must match LightShaftMask/LightShaftBlur exactly.

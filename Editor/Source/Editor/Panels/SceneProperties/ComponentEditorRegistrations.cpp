@@ -284,7 +284,7 @@ namespace Desert::Editor
         namespace ImGui = ::ImGui;
 
         const ::Desert::Assets::SurfaceMaterialAsset* asset = nullptr;
-        if ( assetMgr && static_cast<uint64_t>( landscape.Material ) != 0 )
+        if ( ( assetMgr != nullptr ) && static_cast<uint64_t>( landscape.Material ) != 0 )
         {
             asset = assetMgr
                          ->FindByHandle<::Desert::Assets::SurfaceMaterialAsset>(
@@ -568,7 +568,7 @@ namespace Desert::Editor
             // PILOT, AS IN UE: the viewport locks to this camera and shows exactly what it sees — and keeps
             // showing it, so the FOV above moves the view the moment it is dragged. It replaced a one-off
             // jump of the editor camera that carried neither roll nor lens (CameraPilot.hpp).
-            if ( scene && en.HasComponent<::Desert::ECS::TransformComponent>() &&
+            if ( ( scene != nullptr ) && en.HasComponent<::Desert::ECS::TransformComponent>() &&
                  en.HasComponent<::Desert::ECS::UUIDComponent>() )
             {
                 const auto uuid = en.GetComponent<::Desert::ECS::UUIDComponent>().UUID;

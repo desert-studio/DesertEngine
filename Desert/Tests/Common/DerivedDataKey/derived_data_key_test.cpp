@@ -262,6 +262,10 @@ TEST( DerivedDataKey, GitIgnoresTheCacheAndNeverReIncludesIt )
     bool               savedIgnored = false;
     while ( std::getline( lines, line ) )
     {
+        // Git for Windows checks .gitignore out with CRLF (core.autocrlf, see .gitattributes), and git
+        // itself drops the trailing CR when it reads the patterns; compare the line as git sees it.
+        if ( !line.empty() && line.back() == '\r' )
+            line.pop_back();
         if ( line == "DerivedDataCache/" )
             ignored = true;
         if ( line == "Saved/" )

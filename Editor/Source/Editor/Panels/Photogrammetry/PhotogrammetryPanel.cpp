@@ -607,7 +607,9 @@ namespace Desert::Editor
         // shadow. Said at CONSTRUCTION because that is when the cascade framebuffers are budgeted — the
         // `EnableShadows = false` that used to stand below ran after Scene::Init() had already allocated
         // them, so the flag read as the saving and 320 MiB was spent anyway. See Graphic::ShadowQuality.
-        m_PreviewRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kNoShadowQuality );
+        // Built before the panel knows its preview rect; RenderPreview's first resize brings it to size.
+        m_PreviewRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent,
+                                                                      Graphic::kThumbnailViewProfile );
         m_PreviewScene    = std::make_shared<::Desert::Core::Scene>( "ReconPreview", m_PreviewRenderer.get() );
         // `m_PreviewInit` stays false so the next call retries; with the result dropped the flag was set
         // regardless and every frame afterwards recorded into a scene that had never initialised.

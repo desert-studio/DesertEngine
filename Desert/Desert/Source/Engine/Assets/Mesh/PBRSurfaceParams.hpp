@@ -80,13 +80,9 @@ namespace Desert::Assets
             m.SetParam( "GlassTint", GlassTint );
             m.SetParam( "UVTiling", glm::vec4( UVTiling.value_or( glm::vec2( 1.0f ) ), 0, 0 ) );
 
-            m.SetTexture( "u_AlbedoTexture", static_cast<uint64_t>( AlbedoTexture ) );
-            m.SetTexture( "u_NormalTexture", static_cast<uint64_t>( NormalTexture ) );
-            m.SetTexture( "u_OpacityTexture", static_cast<uint64_t>( OpacityTexture ) );
-            m.SetTexture( "u_MetallicTexture", static_cast<uint64_t>( MetallicTexture ) );
-            m.SetTexture( "u_RoughnessTexture", static_cast<uint64_t>( RoughnessTexture ) );
-            m.SetTexture( "u_AOTexture", static_cast<uint64_t>( AOTexture ) );
-            m.SetTexture( "u_EmissiveTexture", static_cast<uint64_t>( EmissiveTexture ) );
+            // NO TEXTURES: the typed view holds runtime handles, and a handle is a fold of a GUID, not a way
+            // back to one (MATL 3 names a texture by GUID). A writer states its texture slots itself, by the
+            // texture asset's GUID (MaterialData::SetTexture) - see ImportedMaterial::Textures.
 
             return m;
         }

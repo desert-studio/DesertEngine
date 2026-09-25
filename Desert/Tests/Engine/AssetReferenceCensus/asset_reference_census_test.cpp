@@ -1,19 +1,21 @@
 // EVERY ASSET REFERENCE A SHIPPED `.demat` MAKES MUST NAME A FILE THIS REPOSITORY CONTAINS.
 //
-// A material names its assets by NUMBER and by nothing else: `{"Name":"u_AlbedoTexture",
-// "TextureHandle":4588246833979984450}`. There is no path field to fall back on and no filename anywhere
-// in the record, so a reference that stops resolving produces a surface that is merely untextured. Nobody
-// gets an error naming a file, because no file is named.
+// A material names its assets by header GUID (MATL 3: `{"Name":"u_AlbedoTexture","Guid":"...","Path":
+// "assets:Textures/T_Checker.detex"}`), and the runtime reaches the asset by HandleForGuid of that GUID. The
+// path is a locator only, so a reference whose GUID stops resolving produces a surface that is merely
+// untextured - nobody gets an error naming a file unless this census names it.
 //
-// WHAT THE NUMBER IS. For most kinds, `Common::AssetHandle::FromCookedPath( <the asset's file> )` — FNV-1a
-// over the file's place inside the project behind its root's tag (`assets:CloudTypes/X.decloudtype`). A
-// texture is the exception since AF3: a `.detex` carries its handle in its header (Guid.Hi), frozen at
-// import to the number its SOURCE image's path derived (`assets:Textures/T_Checker.png`), and the engine
-// reads it through ReadTextureAssetKey — the same function TextureAsset::Load uses. So a `.detex` is known
-// by its header, never by its own path. Either way one owner states the number, so a material's reference
-// and the file it means are two statements of one quantity, and this suite asserts the agreement rather
-// than either side. It is the shape the taxonomy in the `desert-engine-verify` skill keeps naming: both
-// sides individually plausible, the defect living only in the disagreement.
+// WHAT THE NUMBER IS. Since AF7 (SCNE 28), for a mesh, a material, a texture, a cloud type and a cloud
+// layout: `Common::Content::HandleForGuid( <the GUID the file's header states> )` — the identity is minted
+// once and survives a rename. For every other kind, still `Common::AssetHandle::FromCookedPath( <the
+// asset's file> )` — FNV-1a over the file's place inside the project behind its root's tag. A texture's
+// header is read by the engine's own ReadTextureAssetKey, the function TextureAsset::Load uses; the other
+// GUID-keyed kinds through Common::Content::ReadAssetHeader. Either way one owner states the number, so a
+// material's reference and the file it means are two statements of one quantity, and this suite asserts
+// the agreement rather than either side. It is the shape the taxonomy in the `desert-engine-verify` skill
+// keeps naming: both sides individually plausible, the defect living only in the disagreement. (Until T6c
+// this suite derived cloud types and layouts by PATH — the same stale rule the material slots still held —
+// so it agreed with them while the engine, keyed by GUID, drew the default type.)
 //
 // WHY A CENSUS AND NOT A LIST. Four references in this repository were stale — written before the
 // derivation became project-relative — and the way that was found was somebody counting by hand. They
@@ -43,8 +45,13 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 
+#include <Engine/Assets/CloudLayout.hpp>
+#include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/MaterialData.hpp>
+#include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+
+#include <Common/Content/AssetEnvelope.hpp>
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: the glm/UUID adapters plus the json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
@@ -126,8 +133,8 @@ namespace
         uint64_t    Handle = 0;
     };
 
-    // Every non-zero reference every `.demat` under `materialsRoot` makes. A zero handle is an authored
-    // "no asset" and is not a reference.
+    // Every reference every `.demat` under `materialsRoot` makes, as the handle its GUID folds to. An empty
+    // GUID is an authored "no asset" and is not a reference.
     std::vector<AssetReference> ReferencesUnder( const fs::path& materialsRoot, std::string* parseError )
     {
         std::vector<AssetReference> out;
@@ -144,32 +151,84 @@ namespace
                 continue;
             }
 
+            // Both GUID lists (samplers and cloud assets). ShaderRefs name shaders by path, which live outside
+            // the content root this census derives, so they are not its question.
             const std::string name = fs::relative( entry.path(), materialsRoot ).generic_string();
-            for ( const auto& texture : parsed.value().Textures )
-            {
-                if ( texture.TextureHandle == 0 )
-                    continue;
-                out.push_back( { name, texture.Name, texture.TextureHandle } );
-            }
+            for ( const auto* list : { &parsed.value().Textures, &parsed.value().CloudAssets } )
+                for ( const auto& ref : *list )
+                {
+                    if ( ref.Guid.empty() )
+                        continue;
+                    out.push_back( { name, ref.Name,
+                                     static_cast<uint64_t>(
+                                          MaterialData::HandleOf( MaterialData::GuidFromText( ref.Guid ) ) ) } );
+                }
         }
         return out;
     }
 
-    // The handle a content file is found by: a texture asset's is the one frozen into its header (read by
-    // the engine's own ReadTextureAssetKey, as TextureAsset::Load reads it), every other file's is its path
-    // through AssetHandle::FromCookedPath. Not a re-spelling of either rule here: a test that hashes its own
-    // idea of `assets:<rel>` or parses its own idea of the header would agree with itself forever while the
-    // engine moved.
+    // The subsystem versions this census reads a header under: the formats of the kinds whose handle is
+    // their header GUID (below), each one the constant its own reader uses. A kind that states a header but
+    // whose subsystem is missing here is refused by name ("subsystem 'X' is unknown to this build") rather
+    // than read with a layout nobody here was written for. (A mesh binary header states no subsystem.)
+    std::span<const Common::Content::SubsystemVersion> KnownSubsystems()
+    {
+        static const std::vector<Common::Content::SubsystemVersion> known = []
+        {
+            std::vector<Common::Content::SubsystemVersion> out = {
+                 { Desert::Assets::kTextureAssetSubsystemTag, Desert::Assets::kTextureAssetSubsystemVersion },
+                 { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion },
+            };
+            for ( const auto& v : Desert::Assets::CloudTypeTextSubsystems() )
+                out.push_back( v );
+            for ( const auto& v : Desert::Assets::MaterialTextSubsystems() )
+                out.push_back( v );
+            return out;
+        }();
+        return known;
+    }
+
+    // The kinds whose handle IS HandleForGuid of their header GUID, each adopted by its asset's constructor
+    // (StaticMeshAsset/SkinnedMeshAsset, MaterialData::Handle, TextureAsset, CloudTypeAsset,
+    // CloudLayoutAsset). Every other kind is still found by its path.
+    bool IsGuidKeyed( const Common::Content::ContentKind kind )
+    {
+        using K = Common::Content::ContentKind;
+        return kind == K::StaticMesh || kind == K::SkinnedMesh || kind == K::Material || kind == K::Texture ||
+               kind == K::Skybox || kind == K::CloudType || kind == K::CloudLayout;
+    }
+
+    // The handle a content file is found by: for a GUID-keyed kind, HandleForGuid of the GUID its header
+    // states (a texture's read by the engine's own ReadTextureAssetKey, as TextureAsset::Load reads it;
+    // every other kind through Common::Content::ReadAssetHeader, the one "what is this file" entry point);
+    // for every other kind, its path through AssetHandle::FromCookedPath. Not a re-spelling of either rule
+    // here: a test that hashes its own idea of `assets:<rel>` or parses its own idea of the header would
+    // agree with itself forever while the engine moved. A GUID-keyed file is NEVER given its path handle as
+    // a fallback: that fallback is how this census once agreed with materials whose cloud slots named the
+    // path-derived number while the engine, keyed by GUID, drew the default type instead.
     uint64_t HandleOfContentFile( const fs::path& file )
     {
-        if ( Desert::Assets::IsTextureSourceAssetFile( file ) )
+        namespace CC = Common::Content;
+        // First the kind, recorded without judging versions; the kind decides which rule owns the number.
+        const auto stated = CC::ReadAssetHeaderIfStated( file, CC::AssetHeaderReadContext{ {}, true } );
+        EXPECT_TRUE( stated.IsSuccess() ) << stated.GetError();
+        if ( !stated.IsSuccess() || !stated.GetValue() || !IsGuidKeyed( stated.GetValue()->Kind ) )
+            return static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( file ) );
+
+        const CC::ContentKind kind = stated.GetValue()->Kind;
+        if ( kind == CC::ContentKind::Texture || kind == CC::ContentKind::Skybox )
         {
             const auto key = Desert::Assets::ReadTextureAssetKey( file );
             EXPECT_TRUE( key.IsSuccess() ) << key.GetError();
-            if ( key.IsSuccess() )
-                return static_cast<uint64_t>( key.GetValue().Handle );
+            return key.IsSuccess() ? static_cast<uint64_t>( CC::HandleForGuid( key.GetValue().Guid ) ) : 0u;
         }
-        return static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( file ) );
+
+        const auto header = CC::ReadAssetHeader( file, CC::AssetHeaderReadContext{ KnownSubsystems() } );
+        EXPECT_TRUE( header.IsSuccess() ) << header.GetError();
+        if ( !header.IsSuccess() )
+            return 0u;
+        EXPECT_FALSE( header.GetValue().Guid.IsNull() ) << file.string() << " states a null header GUID";
+        return static_cast<uint64_t>( CC::HandleForGuid( header.GetValue().Guid ) );
     }
 
     // handle -> the file that states it, for every file under `contentRoot`.
@@ -246,10 +305,12 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
          << " asset references in the shipped materials name no file in the project:" << report
          << "\n\nA material names its assets by number alone — there is no path in the record — so each of "
             "these draws as an unassigned slot with no filename anywhere in the log. The number is "
-            "the handle in a `.detex` header for a texture and AssetHandle::FromCookedPath of the file "
-            "for every other kind, so a reference stops resolving when a path-keyed asset is renamed, "
-            "moved, or deleted, or when a texture is re-imported under a new handle. Fix the material to "
-            "name the file's number; do not add the missing file's old id back.";
+            "HandleForGuid of the header GUID for a mesh, material, texture, cloud type or cloud layout, and "
+            "AssetHandle::FromCookedPath of the file for every other kind, so a reference stops resolving "
+            "when a GUID-keyed asset is re-minted, when a path-keyed asset is renamed, moved, or deleted, "
+            "or when a slot still names the path-derived number of a kind that is now GUID-keyed. Fix the "
+            "material to name the file's number (Tools/SceneMigrator re-points by GUID); do not add the "
+            "missing file's old id back.";
 }
 
 // ── The census must be able to fail ────────────────────────────────────────────────────────────────
@@ -279,18 +340,22 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     const auto good = HandleOfContentFile( content / "Textures" / "T_Checker.detex" );
     ASSERT_NE( derived.find( good ), derived.end() ) << "T_Checker.detex is missing from the checkout";
 
-    uint64_t bad = good ^ 0x5555555555555555ull;
-    while ( derived.find( bad ) != derived.end() )
-        ++bad; // vanishingly unlikely, but a collision would make this test lie
+    const auto goodKey = Desert::Assets::ReadTextureAssetKey( content / "Textures" / "T_Checker.detex" );
+    ASSERT_TRUE( goodKey.IsSuccess() ) << goodKey.GetError();
+    Common::Content::AssetGuid badGuid = goodKey.GetValue().Guid;
+    badGuid.Lo ^= 0x5555555555555555ull; // a GUID no file states
+    const uint64_t bad = static_cast<uint64_t>( Common::Content::HandleForGuid( badGuid ) );
+    ASSERT_EQ( derived.find( bad ), derived.end() ) << "the flipped GUID names a shipped file";
 
     {
         std::ofstream out( scratch / "M_Dangling.demat" );
         ASSERT_TRUE( out.is_open() );
         // No `Header`, on purpose: `ReferencesUnder` reads through `rfl::json::read<MaterialData>` and
-        // `Header` is optional, so this fixture stays the minimal shape the census actually needs — a
-        // `Textures` array — rather than a fabricated MATL 2 document nothing here reads.
-        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","TextureHandle":)" << good
-            << R"(},{"Name":"u_NormalTexture","TextureHandle":)" << bad << R"(}]})";
+        // `Header` is optional, so this fixture stays the minimal shape the census actually needs.
+        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
+            << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
+            << R"(","Path":""},{"Name":"u_NormalTexture","Guid":")" << Common::Content::AssetGuidToText( badGuid )
+            << R"(","Path":""}],"CloudAssets":[],"ShaderRefs":[]})";
     }
 
     std::string parseError;

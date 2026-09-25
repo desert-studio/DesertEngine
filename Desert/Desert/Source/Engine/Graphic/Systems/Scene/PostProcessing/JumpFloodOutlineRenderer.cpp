@@ -1,4 +1,5 @@
 #include "JumpFloodOutlineRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -9,7 +10,7 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr Core::Formats::ImageFormat kSeedFormat = Core::Formats::ImageFormat::RGBA32F;
+        constexpr Core::Formats::ImageFormat kSeedFormat = ViewTargetFormats::kJFASeed;
     }
 
     uint32_t JumpFloodOutlineRenderer::ComputeStepCount( uint32_t width, uint32_t height )

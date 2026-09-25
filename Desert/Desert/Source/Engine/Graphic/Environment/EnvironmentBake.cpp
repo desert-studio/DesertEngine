@@ -124,11 +124,12 @@ namespace Desert::Graphic
         const auto raw = Common::Utils::FileSystem::ReadFileContentIfExists( path );
         if ( !raw.IsSuccess() )
             return Common::MakeError<std::shared_ptr<ImageCube>>( raw.GetError() );
-        if ( !raw.GetValue().has_value() )
+        const auto& bytes = raw.GetValue();
+        if ( !bytes.has_value() )
             return Common::MakeFormattedError<std::shared_ptr<ImageCube>>( "not in the cache yet: {}",
                                                                            path.string() );
 
-        auto decoded = Ser::DecodeTextureBinary( raw.GetValue().value(), path.string() );
+        auto decoded = Ser::DecodeTextureBinary( *bytes, path.string() );
         if ( !decoded.IsSuccess() )
             return Common::MakeError<std::shared_ptr<ImageCube>>( decoded.GetError() );
 

@@ -130,7 +130,10 @@ namespace Desert::Player
         // bind pose, and no editor session could reproduce it.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
-        m_SceneRenderer    = std::make_unique<Graphic::SceneRenderer>();
+        // The game's view IS the window, so here — and only here — the window's size is the view's.
+        const auto window = EngineContext::GetInstance().GetWindow();
+        m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
+             Graphic::ViewExtent{ window->GetWidth(), window->GetHeight() } );
         m_Scene            = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
     }
 

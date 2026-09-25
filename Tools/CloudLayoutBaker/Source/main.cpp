@@ -39,6 +39,7 @@
 
 #include <ToolMain.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Assets/CloudLayout.hpp>
@@ -48,6 +49,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <span>
 #include <string>
 #include <vector>
@@ -524,7 +527,30 @@ static int RunTool( int argc, char** argv )
         return 1;
     }
 
-    const Desert::Assets::CloudLayoutData& layout = made.GetValue();
+    Desert::Assets::CloudLayoutData layout = made.ExtractValue();
+
+    // RE-BAKING KEEPS THE LAYOUT'S IDENTITY. An existing --out already has a GUID that scenes and materials
+    // reference by handle, and the re-bake must stay byte-comparable with the committed file (CALIBRATION
+    // §PTP); a fresh GUID would change both. The header alone is read. An existing file that is not a
+    // readable layout envelope is refused by name rather than overwritten under a new identity.
+    if ( std::filesystem::exists( out ) )
+    {
+        namespace CC                        = Common::Content;
+        const CC::SubsystemVersion kKnown[] = {
+             { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion } };
+        std::ifstream in( out, std::ios::binary );
+        const auto    header = CC::ReadEnvelopeHeader( in, CC::AssetHeaderReadContext{ kKnown } );
+        if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
+        {
+            std::fprintf( stderr,
+                          "'%s' exists but is not a version-%u cloud layout envelope (%s); refusing to overwrite "
+                          "it under a new GUID - migrate it with Tools/SceneMigrator or delete it first\n",
+                          out.c_str(), Desert::Assets::kCloudLayoutContainerVersion,
+                          header ? "wrong kind" : header.GetError().c_str() );
+            return 1;
+        }
+        layout.Guid = header.GetValue().Asset.Guid;
+    }
 
     auto encoded = Desert::Assets::EncodeCloudLayout( layout );
     if ( !encoded )

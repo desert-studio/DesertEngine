@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "bbd16673bbb521c4f7828ae86e5b9ba1",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -19,7 +19,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_GraphMatch.demat"],
-                "MaterialGuids": [7777777777777777771],
+                "MaterialGuids": ["f4263dfdcb77af201c6050be35f5394f"],
                 "Primitive": "Sphere"
             }
         },
@@ -32,7 +32,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/MP_LitConst.demat"],
-                "MaterialGuids": [6666666666666666666],
+                "MaterialGuids": ["5fd4737b3cc218b5bc0ecceccd3664ca"],
                 "Primitive": "Sphere"
             }
         },
@@ -98,7 +98,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -150,7 +153,7 @@
             "Scale": [400.0, 0.20000000298023224, 400.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
-                "MaterialGuids": [6418972230554417713],
+                "MaterialGuids": ["45d579b03cc0d0a8df2e4cb025d6bea5"],
                 "Primitive": "Cube"
             }
         }
@@ -196,7 +199,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

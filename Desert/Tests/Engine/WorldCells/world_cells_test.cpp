@@ -20,6 +20,7 @@
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/VFS.hpp>
@@ -80,7 +81,7 @@ namespace
     constexpr std::uint64_t kShooterId  = 4;
     constexpr std::uint64_t kTargetId   = 5;
     constexpr std::uint64_t kBystander  = 6;
-    constexpr std::uint64_t kMaterialId = 0x4D41;
+    constexpr const char*   kMaterialGuid = "00000000000000000000000000004d41"; // header GUID text (SCNE 27)
     constexpr std::uint64_t kTextureId  = 0x5445;
 
     EntityData Record( std::uint64_t id, const char* tag, glm::vec3 translation )
@@ -130,7 +131,7 @@ namespace
         records.push_back( Record( kTargetId, "Target", CellCentre( 3, 1 ) ) );
         EntityData bystander = Record( kBystander, "Bystander", CellCentre( 1, 1 ) + glm::vec3( 10.0f, 0, 0 ) );
         With( bystander, "StaticMesh",
-              R"({"Primitive": "Cube", "MaterialGuids": [)" + std::to_string( kMaterialId ) + "]}" );
+              R"({"Primitive": "Cube", "MaterialGuids": [")" + std::string( kMaterialGuid ) + "\"]}" );
         records.push_back( bystander );
         for ( int column = 0; column < 8; ++column )
             records.push_back(
@@ -272,11 +273,13 @@ TEST( WorldCells, TheCookedSourceHandsTheStreamerWhatTheMemorySourceDoes )
     const SceneSerialized source = World();
     const auto            files  = FilesOf( Cook( source ) );
     const auto            index  = IndexOf( files );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto            plan   = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     ASSERT_EQ( index.Units.size(), Rules::ResidencyUnitCount( plan ) );
 
-    Rules::MemoryCellSource memory( plan, source.Entities );
-    Cells::CookedCellSource cooked( index, ReaderOf( files ) );
+    const Rules::MemoryCellSource memory( plan, source.Entities );
+    const Cells::CookedCellSource cooked( index, ReaderOf( files ) );
     for ( std::size_t unit = 0; unit < index.Units.size(); ++unit )
     {
         auto fromMemory = memory.UnitRecords( unit );
@@ -287,14 +290,18 @@ TEST( WorldCells, TheCookedSourceHandsTheStreamerWhatTheMemorySourceDoes )
              << index.Units[unit].Name;
         std::vector<std::uint64_t> ids;
         for ( const auto& record : fromFiles.GetValue() )
+            // NOLINTBEGIN(bugprone-unchecked-optional-access)
             ids.push_back( static_cast<std::uint64_t>( *record.id ) );
+        // NOLINTEND(bugprone-unchecked-optional-access)
         EXPECT_EQ( ids, index.Units[unit].Ids ) << index.Units[unit].Name;
     }
 
     // The executor's activation of every unit, from nowhere near the world to its middle.
     RecordingWorld               world;
     const Rules::StreamingSource far_away{ glm::vec3( -1.0e6f, 0.0f, -1.0e6f ) };
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     auto begun = Rules::ResidencyExecutor::Begin( plan, *source.WorldPartition, source.Entities,
+                                                  // NOLINTEND(bugprone-unchecked-optional-access)
                                                   Rules::ResidencySettings{}, std::span( &far_away, 1 ), world );
     ASSERT_TRUE( begun.IsSuccess() ) << begun.GetError();
     auto executor = begun.ExtractValue();
@@ -338,7 +345,11 @@ TEST( WorldCells, AUnitsAssetsAreWhatItsRecordsNameAndWhatThoseDependOn )
     Common::Utils::AssetRegistryEntry material;
     material.Key          = "assets:Materials/M_Brick.demat";
     material.Kind         = "Material";
-    material.Identity     = kMaterialId;
+    const auto materialGuid = Common::Content::AssetGuidFromText( kMaterialGuid );
+    ASSERT_TRUE( materialGuid ) << materialGuid.GetError();
+    // Gathered, not parsed: the row carries the header GUID and no Identity, exactly what a registry read by
+    // AssetRegistry::LoadFrom holds for a material the cook never opened.
+    material.Guid         = materialGuid.GetValue();
     material.Dependencies = { kTextureId };
     Common::Utils::AssetRegistryEntry texture;
     texture.Key      = "assets:Textures/T_Brick.tex";
@@ -616,7 +627,7 @@ namespace
 {
     std::uint64_t IdOf( const EntityData& record )
     {
-        return static_cast<std::uint64_t>( *record.id );
+        return static_cast<std::uint64_t>( *record.id ); // NOLINT(bugprone-unchecked-optional-access)
     }
 
     // The ids a residency executor holds live, by the record list it was begun with.
@@ -638,7 +649,9 @@ TEST( WorldCells, ThePlanFromTheIndexIsThePlannersPlan )
     const SceneSerialized source = World();
     const auto            files  = FilesOf( Cook( source ) );
     const auto            index  = IndexOf( files );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto            plan   = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     auto                  from   = Cells::PlanFromIndex( index );
     ASSERT_TRUE( from.IsSuccess() ) << from.GetError();
     const Cells::IndexedWorld& indexed = from.GetValue();
@@ -667,7 +680,9 @@ TEST( WorldCells, ThePlanFromTheIndexIsThePlannersPlan )
           { CellCentre( 0, 0 ), CellCentre( 3, 1 ), CellCentre( 7, 2 ), glm::vec3( -5.0e4f ) } )
     {
         const Rules::StreamingSource where{ at };
+        // NOLINTBEGIN(bugprone-unchecked-optional-access)
         auto planned = Rules::QueryStreamingCells( plan, *source.WorldPartition, std::span( &where, 1 ) );
+        // NOLINTEND(bugprone-unchecked-optional-access)
         auto indexedWish =
              Rules::QueryStreamingCells( indexed.Plan, index.WorldPartition, std::span( &where, 1 ) );
         ASSERT_TRUE( planned.IsSuccess() && indexedWish.IsSuccess() );
@@ -710,19 +725,24 @@ TEST( WorldCells, ACookedBeginningStreamsWhatTheWholeBeginningStreams )
     const SceneSerialized source = World();
     const auto            files  = FilesOf( Cook( source ) );
     const auto            index  = IndexOf( files );
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto            plan   = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     auto                  from   = Cells::PlanFromIndex( index );
     ASSERT_TRUE( from.IsSuccess() ) << from.GetError();
     Cells::IndexedWorld indexed = from.ExtractValue();
 
     std::vector<std::uint64_t> sourceIds;
+    sourceIds.reserve( source.Entities.size() );
     for ( const auto& record : source.Entities )
         sourceIds.push_back( IdOf( record ) );
 
     RecordingWorld               whole;
     RecordingWorld               cooked;
     const Rules::StreamingSource start{ CellCentre( 0, 0 ) };
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     auto wholeBegun  = Rules::ResidencyExecutor::Begin( plan, *source.WorldPartition, source.Entities,
+                                                        // NOLINTEND(bugprone-unchecked-optional-access)
                                                         Rules::ResidencySettings{}, std::span( &start, 1 ), whole );
     auto cookedBegun = Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
          indexed.Plan, index.WorldPartition, Rules::ResidencySettings{}, indexed.RecordIds.size(),
@@ -759,7 +779,7 @@ namespace
         std::shared_future<void> Gate;
         bool                     Fail = false;
 
-        Common::ResultStr<std::vector<EntityData>> UnitRecords( std::size_t unit ) const override
+        [[nodiscard]] Common::ResultStr<std::vector<EntityData>> UnitRecords( std::size_t unit ) const override
         {
             Gate.wait_for(
                  std::chrono::seconds( 3 ) ); // bounded, so a loader that blocked reads as slow, not as a hang
@@ -885,8 +905,10 @@ TEST( WorldCells, ACookedWorldIsReadThroughAMountedPak )
     auto index = Cells::ReadWorldIndex( Cells::kIndexFileName, indexBytes.GetValue() );
     ASSERT_TRUE( index.IsSuccess() ) << index.GetError();
 
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto                    plan = Rules::PlanWorldPartition( source.Entities, *source.WorldPartition );
-    Rules::MemoryCellSource       memory( plan, source.Entities );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    const Rules::MemoryCellSource memory( plan, source.Entities );
     Desert::Core::WorldCellLoader loader( std::make_shared<Cells::CookedCellSource>( index.GetValue(), reader ) );
     const std::size_t             units = index.GetValue().Units.size();
     for ( std::size_t unit = 0; unit < units; ++unit )

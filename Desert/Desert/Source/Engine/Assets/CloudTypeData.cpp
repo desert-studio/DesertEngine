@@ -1,4 +1,5 @@
 #include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -69,7 +70,6 @@ namespace Desert::Assets
     CloudTypeData CloudTypeDefault()
     {
         CloudTypeData data;
-        data.FormatVersion = kCloudTypeFormatVersion;
         data.DisplayName   = "Cumulus congestus (built-in)";
         data.Notes         = "The type an empty slot resolves to. It is not a file: a scene that names no "
                              "type still has to have a sky.";
@@ -181,33 +181,9 @@ namespace Desert::Assets
         if ( text.empty() )
             return Common::MakeFormattedError<CloudTypeData>( "the file is empty" );
 
-        // THE VERSION IS READ FIRST, ON ITS OWN, and that ordering is the whole difference between a
-        // diagnosable refusal and a puzzling one. A version-1 file is missing the two placement numbers
-        // T3 added, so a full parse fails with "field PlacementScale not found" — true, and useless: the
-        // reader is looking at a file that was correct when it was written, and what they need to be told
-        // is that the FORMAT moved, not that a field is absent. Reading the header alone lets the version
-        // check answer first.
-        //
-        // AN UNKNOWN FORMAT IS REFUSED, NOT READ ANYWAY, in either direction. A file claiming a version
-        // this build does not know was written by a build this one is not, and reading its numbers as if
-        // they meant what they mean here is how a field that moved becomes a sky nobody can explain.
-        // Read as an untyped tree rather than into a header struct: a struct would impose the rest of the
-        // schema on a document whose whole problem may be that it does not match the schema, which is the
-        // circularity this read exists to break.
-        if ( const auto tree = rfl::json::read<rfl::Generic>( text ); tree )
-        {
-            if ( const auto fields = tree.value().to_object(); fields )
-            {
-                if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
-                {
-                    const auto number = stated.value().to_int();
-                    if ( number.has_value() && number.value() != kCloudTypeFormatVersion )
-                        return Common::MakeFormattedError<CloudTypeData>(
-                             "format version {} was written by a different build; this one reads version {}",
-                             number.value(), kCloudTypeFormatVersion );
-                }
-            }
-        }
+        // A version-3 file (no header) is refused by name: see RefuseTextWithoutHeader.
+        if ( auto headed = RefuseTextWithoutHeader( text, kCloudTypeFormatVersion, std::nullopt ); !headed )
+            return Common::MakeFormattedError<CloudTypeData>( "{}", headed.GetError() );
 
         const auto parsed = rfl::json::read<CloudTypeData>( text );
         if ( !parsed )
@@ -215,21 +191,23 @@ namespace Desert::Assets
 
         CloudTypeData data = parsed.value();
 
-        const int32_t version = data.FormatVersion.value_or( kCloudTypeFormatVersion );
-        if ( version != kCloudTypeFormatVersion )
-            return Common::MakeFormattedError<CloudTypeData>(
-                 "format version {} was written by a different build; this one reads version {}", version,
-                 kCloudTypeFormatVersion );
+        if ( auto header =
+                  CheckStatedHeader( data.Header, Common::Content::ContentKind::CloudType, kCloudTypeSchemaTag,
+                                     kCloudTypeFormatVersion, CloudTypeTextSubsystems() );
+             !header )
+            return Common::MakeFormattedError<CloudTypeData>( "{}", header.GetError() );
 
         if ( auto valid = ValidateCloudTypeShape( data.Shape ); !valid )
             return Common::MakeFormattedError<CloudTypeData>( "{}", valid.GetError() );
 
-        data.FormatVersion = kCloudTypeFormatVersion;
         return Common::MakeSuccess( std::move( data ) );
     }
 
     std::string WriteCloudType( const CloudTypeData& data )
     {
-        return rfl::json::write( data, YYJSON_WRITE_PRETTY );
+        CloudTypeData stamped = data;
+        stamped.Header =
+             StampTextHeader( data.Header, Common::Content::ContentKind::CloudType, CloudTypeTextSubsystems() );
+        return rfl::json::write( stamped, YYJSON_WRITE_PRETTY );
     }
 } // namespace Desert::Assets

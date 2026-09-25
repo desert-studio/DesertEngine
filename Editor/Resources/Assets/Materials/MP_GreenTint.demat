@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "9c738945524d749f06c5277c4a444df2",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
@@ -11,12 +11,14 @@
     "Params": [
         {
             "Name": "TintA",
-            "Value": [0.1, 0.85, 0.15, 1.0]
+            "Value": [0.10000000149011612, 0.8500000238418579, 0.15000000596046448, 1.0]
         },
         {
             "Name": "Blend",
             "Value": [0.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": []
+    "Textures": [],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

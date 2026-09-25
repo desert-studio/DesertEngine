@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "53e7930a82e65578715e5c2659a4ae9f",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
         "Dependencies": []
     },
@@ -11,20 +11,22 @@
     "Params": [
         {
             "Name": "Tint",
-            "Value": [1.0, 0.45, 0.1, 1.0]
+            "Value": [1.0, 0.44999998807907104, 0.10000000149011612, 1.0]
         },
         {
             "Name": "Progress",
-            "Value": [0.65, 0.0, 0.0, 0.0]
+            "Value": [0.6499999761581421, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Feather",
-            "Value": [0.02, 0.0, 0.0, 0.0]
+            "Value": [0.019999999552965164, 0.0, 0.0, 0.0]
         },
         {
             "Name": "StartAngle",
             "Value": [0.0, 0.0, 0.0, 0.0]
         }
     ],
-    "Textures": []
+    "Textures": [],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

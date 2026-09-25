@@ -7,6 +7,8 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 namespace Desert::Assets
 {
     class TextureAsset : public AssetBase
@@ -54,6 +56,12 @@ namespace Desert::Assets
             return m_Metadata.Handle;
         }
 
+        // The header GUID this texture was created from; null when the file stated none at creation.
+        [[nodiscard]] const Common::Content::AssetGuid& Guid() const
+        {
+            return m_Guid;
+        }
+
         static AssetTypeID GetTypeID()
         {
             return AssetTypeID::Texture2D;
@@ -65,6 +73,8 @@ namespace Desert::Assets
         // assigned, so every one of them was uninitialized memory wearing a member's name.
         bool        m_IsReadyForUse = false;
         std::string m_SourcePath;
+        // The header GUID adopted at creation; null when the file was absent or unreadable then.
+        Common::Content::AssetGuid m_Guid;
     };
 
 } // namespace Desert::Assets

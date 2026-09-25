@@ -494,13 +494,72 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   the cell source by WorldCellLoader::m_Source - each co-held by the JobSystem workers reading a cell, which
     //   may outlive the frame that started them. WorldStreamer::m_Source (unique) became ::m_Loader (unique).
     //   Shared 339+4.
-    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared):
-    //   400 / 343 / 131 / 39 = 913.
-    EXPECT_EQ( CountOf( Form::Raw ), 400 );
-    EXPECT_EQ( CountOf( Form::Shared ), 343 );
-    EXPECT_EQ( CountOf( Form::Unique ), 131 );
-    EXPECT_EQ( CountOf( Form::Weak ), 39 );
-    EXPECT_EQ( (int)Members().size(), 913 )
+    //   M17 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason: SceneCommands'
+    //   XformEntityState::Mesh (the state an XForm operation puts an entity in, held by the undo step) and
+    //   XformCommand::Gone::Mesh (a merged-away entity's mesh, put back by reference on undo, as
+    //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
+    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2
+    //   Shared): 400 / 345 / 131 / 39 = 915.
+    //   P8a (2026-09-24) brought the ported UE GeometryCore in: Raw +12, the register's UECore rows (back-
+    //   references to the parent mesh, iterators and enumerables over their container, views over a mesh the
+    //   caller holds); Unique +7, FDynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
+    //   material / polygroup layers and TDynamicVector::Blocks (UE's TArray<TBlock*> + delete, owned by type
+    //   here); Shared +3 and Weak +1, EditMeshBridge's view cache (weak key, shared EditMesh view) and the
+    //   EditMesh views the selection tools hold. Members retyped from EditMesh to FDynamicMesh3 do not move.
+    //   From the merge-base: 412 / 348 / 138 / 40 = 938.
+    //   L8 (2026-09-24) +6 Raw: LandscapeTileSlot::Data (the edit cache) and five Landscape-mode editor members
+    //   the scan had not been given rows for (four string literals, the stroke command's scene): 406 / 919.
+    //   L8d +1 Raw (LandscapePaintCommand::m_Scene) +2 Weak (LandscapeLayersCommand and LandscapePanel hold the
+    //   scene weakly: a closed scene refuses the edit instead of dangling): 407 / 343 / 131 / 41 = 922.
+    //   Merged with P8a (L8 +7 Raw +2 Weak on top of 412 / 348 / 138 / 40): 419 / 348 / 138 / 42 = 947.
+    //   The 0924 batch merge (AF7-refs-by-guid, P12-weld-holefill-edges, L8-weight-layers,
+    //   SPL2-splash-progress, UI1-asset-info-popup) landed on top of the 419/348/138/42 baseline above and
+    //   moved the count without anyone updating this file, because the pointer_ownership_test.cpp conflict
+    //   in that merge was resolved by keeping ONE side's numbers. AF7 and L8 add nothing to this census.
+    //   P12 (porting UE's mesh-operation classes for Weld Edges / Fill Hole) is the bulk of it:
+    //     +14 Raw, each with a register row -- FGroupTopology::Mesh, TMeshTangents::Mesh,
+    //     FInsetMeshRegion::Mesh, FMergeCoincidentMeshEdges::Mesh and ::EdgesToMerge, FOffsetMeshRegion::Mesh,
+    //     FSimpleHoleFiller::Mesh, FDynamicMeshEditor::Mesh, FMeshBoundaryLoops::Mesh,
+    //     FMeshRegionBoundaryLoops::Mesh, FMeshConnectedComponents::Mesh (all UECore/DynamicMesh operation
+    //     classes, non-owning Mesh built at the call site over the caller's FDynamicMesh3 -- same HostOutlivesUs
+    //     shape as P8a's FMeshNormals::Mesh), plus DynamicMeshSelection.cpp's FDynamicMeshElements::m_Topology
+    //     (CallScoped, an argument pack) and the new ActiveToolBar.hpp's ActiveToolLabel::Icon/::Name (two
+    //     string literals per active tool, StaticStorage).
+    //     -1 Raw: EditMeshOperations.cpp's LayerRecord struct was deleted whole when the CutAndStitch path
+    //     moved into DynamicMeshSelection.cpp; its register row is removed rather than left stale.
+    //     +0 net Raw from a rename: ModelingPanel.cpp's palette rail entry struct went from Cat to
+    //     PaletteEntry (same two string-literal fields, same StaticStorage guard) -- the register rows are
+    //     renamed in place, not added and removed, so TheRegisterDescribesMembersThatStillExist stays honest
+    //     about what actually happened.
+    //     +2 Shared: the new ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, which replaced a
+    //     single ad-hoc Target::Mesh (the Select Elements tool's ElementSelectTool.cpp now calls it
+    //     Target::Source, the same pre-existing M13 member relocated behind the new abstraction -- that
+    //     rename moves no count, same rule as a retype).
+    //     +1 Unique: MeshElementSelection::m_Topology (unique_ptr<const FGroupTopology>), the polygroup
+    //     topology the element selection now builds and owns for itself, read via m_Topology.get(). Shared
+    //     and Unique need no register row (only a raw pointer answers neither ownership question).
+    //   SPL2 (splash progress) adds +1 Raw: AssetPreloader.cpp's RowProgress::Report, a CallScoped argument
+    //   pack -- `rows{ &progress, ... }` on the stack in PreloadCookedAssetsAndMaterials, passed by pointer to
+    //   each synchronous ProcessAssetKind call and dead when that function returns.
+    //   UI1 (asset info popup) adds +1 Raw: FileExplorerPanel::m_TooltipEntry, OwnedByThisObject like the
+    //   panel's other DirectoryInformation views -- it names a node in m_Directories and is cleared to
+    //   nullptr the same frame its tile stops being hovered.
+    //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's FMeshSurfacePath::Mesh, HostOutlivesUs
+    //   like the other P12 operation objects -- the path is built over the caller's mesh and embedded in-place.
+    //   P12h (FGroupEdgeInserter port) adds +8 Raw, all CallScoped argument packs in GroupEdgeInserter.hpp:
+    //   FEdgeLoopInsertionParams::Mesh/Topology/SortedInputLengths, FGroupEdgeInsertionParams::Mesh/Topology,
+    //   FGroupEdgeInserterOptionalOutputParams::NewEidsOut/ChangedTidsOut/ProblemGroupEdgeIDsOut (UE's parameter
+    //   structs).
+    //   L8g (landscape weights on the GPU) adds +1 Raw and +1 Shared, the heightmap's pair again:
+    //   TerrainBatch.hpp's LandscapeWeightDraw::Weightmap (raw, frame-scoped, with a row) and its owner,
+    //   LandscapeECSSystem::TileGpu::Weightmap (shared).
+    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
+    //   P12g +1 Raw, P12h +8 Raw, L8g +1 Raw +1 Shared): 444 / 351 / 139 / 42 = 976.
+    EXPECT_EQ( CountOf( Form::Raw ), 444 );
+    EXPECT_EQ( CountOf( Form::Shared ), 351 );
+    EXPECT_EQ( CountOf( Form::Unique ), 139 );
+    EXPECT_EQ( CountOf( Form::Weak ), 42 );
+    EXPECT_EQ( (int)Members().size(), 976 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -754,7 +813,12 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // 339 -> 338 with LS-6 (the procedural terrain's SplatMap), -> 339 with M16b (SplitCopyCommand::m_Mesh),
     // -> 343 with WP9: a cooked world's index, the Play snapshot and the cell source, co-held by the JobSystem
     // workers reading cells - see TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 343 );
+    // -> 345 with M17: XformEntityState::Mesh and XformCommand::Gone::Mesh.
+    // -> 348 with P8a: EditMeshBridge's cached EditMesh view and the selection tools' EditMesh views.
+    // -> 350 with P12: ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, the same immutable
+    // EditMesh held by the tool and by its committed snapshot - see TheScanFindsTheCensusedPopulation.
+    // -> 351 with L8g: LandscapeECSSystem::TileGpu::Weightmap, the tile's weight image beside its heightmap.
+    EXPECT_EQ( CountOf( Form::Shared ), 351 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 
@@ -990,4 +1054,56 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+TEST( PointerOwnership, EditorLayerSeedsEveryScenePanelAtRegistration )
+{
+    // A PANEL THAT FOLLOWS THE ACTIVE SCENE MUST BE BORN WITH ONE (L8e). IPanel::SetScene is called only
+    // by EditorLayer::SetActiveScene, which returns early when the scene asked for is already active -- and
+    // the primary scene IS active when the panels are registered. So a panel that overrides SetScene but is
+    // constructed without m_MainScene holds no scene until the user focuses a second view and comes back.
+    // LandscapePanel was registered that way and drew "no scene" in every normal session, while every
+    // palette command (which reads the scene directly) answered ok. The fact is a relation between two
+    // files, so it is asserted over both rather than trusted.
+    namespace fs           = std::filesystem;
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const std::string layer = ReadRepoFile( "Editor/Source/EditorLayer.cpp" );
+    ASSERT_FALSE( layer.empty() );
+
+    std::map<std::string, std::string> headers; // panel class -> header text
+    for ( const auto& entry :
+          fs::recursive_directory_iterator( fs::path( root ) / "Editor/Source/Editor/Panels" ) )
+    {
+        if ( entry.path().extension() != ".hpp" )
+            continue;
+        std::ifstream      in( entry.path() );
+        std::ostringstream text;
+        text << in.rdbuf();
+        headers[entry.path().stem().string()] = text.str();
+    }
+
+    const std::string marker       = "m_Panels.Add<Editor::";
+    int               checked      = 0;
+    bool              sawLandscape = false;
+    for ( std::size_t at = layer.find( marker ); at != std::string::npos; at = layer.find( marker, at + 1 ) )
+    {
+        const std::size_t nameBegin = at + marker.size();
+        const std::size_t nameEnd   = layer.find( '>', nameBegin );
+        const std::size_t callEnd   = layer.find( ';', nameEnd );
+        ASSERT_NE( callEnd, std::string::npos );
+        const std::string panel = layer.substr( nameBegin, nameEnd - nameBegin );
+        const auto        it    = headers.find( panel );
+        if ( it == headers.end() || it->second.find( "void SetScene(" ) == std::string::npos )
+            continue;
+        ++checked;
+        sawLandscape = sawLandscape || panel == "LandscapePanel";
+        EXPECT_NE( layer.substr( nameEnd, callEnd - nameEnd ).find( "m_MainScene" ), std::string::npos )
+             << panel << " overrides SetScene but EditorLayer registers it without m_MainScene; SetActiveScene "
+             << "skips the already-active primary scene, so the panel has NO scene until the user switches "
+             << "views. Pass m_MainScene to its constructor.";
+    }
+    // Negative control: the census must actually see the panel whose defect it was written for.
+    EXPECT_TRUE( sawLandscape ) << "the census no longer finds LandscapePanel's registration";
+    EXPECT_GE( checked, 3 ) << "fewer scene-following panels found than exist today; the search is broken";
 }

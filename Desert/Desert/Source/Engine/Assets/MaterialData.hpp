@@ -9,6 +9,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 
 namespace Desert::Assets
@@ -21,11 +22,32 @@ namespace Desert::Assets
         glm::vec4   Value = glm::vec4( 0.0f );
     };
 
-    // One texture binding of a material (sampler name -> TextureAsset handle).
-    struct MaterialShaderTexture
+    // ONE REFERENCE FROM A MATERIAL TO ANOTHER ASSET (MATL 3), named by that asset's header GUID. The slot
+    // `Name` is the shader schema's; `Guid` (32 hex digits, AssetGuidToText) IS the reference - its runtime
+    // handle is Common::Content::HandleForGuid of it, the one fold every asset kind with a header shares;
+    // `Path` only says where the file was when the reference was written (a locator for tools and people,
+    // never an identity: a rename keeps the GUID and makes the path stale, not the reference).
+    //
+    // An EMPTY `Guid` is an authored empty slot ("bind the schema's default"), not an absent one: an
+    // instance that clears a slot its parent fills says so with this entry. A path with no GUID is refused
+    // by ParseMaterialJson, because a path is not an identity.
+    //
+    // MATL 2 stored a bare u64 here, a path-derived number the asset itself no longer registers under since
+    // its header GUID became its handle (T6a/T6b); Tools/SceneMigrator raises MATL 2 -> 3.
+    struct MaterialAssetRef
     {
         std::string Name;
-        uint64_t    TextureHandle = 0;
+        std::string Guid;
+        std::string Path;
+    };
+
+    // A reference to a SHADER asset (the cloud material's authored `Medium`). Shaders carry no header GUID -
+    // their handle is AssetHandle::FromCookedPath of their file (AssetBase) - so for them the path IS the
+    // identity, and the reference is stated as exactly that rather than as a number derived from it.
+    struct MaterialShaderRef
+    {
+        std::string Name;
+        std::string Path;
     };
 
     // THE material asset payload (.demat) — the single protocol for every material.
@@ -44,8 +66,15 @@ namespace Desert::Assets
         // shader with the batched backend).
         std::optional<std::string> ShaderName;
 
-        std::vector<MaterialShaderParam>   Params;
-        std::vector<MaterialShaderTexture> Textures;
+        std::vector<MaterialShaderParam> Params;
+        // Texture2D / TextureCube samplers: TextureAsset (.detex) and SkyboxAsset references, by GUID.
+        std::vector<MaterialAssetRef> Textures;
+        // The cloud material's non-texture asset slots (CloudType1..4 -> .decloudtype, LayoutPattern and
+        // LayoutMask -> .dclayout), by GUID. A list of their own since MATL 3: they are not samplers, and
+        // sharing Textures made every texture reader skip them by asking the shader schema what a name meant.
+        std::vector<MaterialAssetRef> CloudAssets;
+        // Shader-asset slots (the authored cloud Medium), by path: see MaterialShaderRef.
+        std::vector<MaterialShaderRef> ShaderRefs;
 
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
@@ -59,7 +88,7 @@ namespace Desert::Assets
 
         bool IsInstance() const
         {
-            return Parent.has_value() && !Parent->empty();
+            return ParentText() != nullptr;
         }
 
         /// This material's GUID, from its header; null when there is no header or its GUID is malformed.
@@ -76,10 +105,20 @@ namespace Desert::Assets
             return HandleOf( Guid() );
         }
 
+        /// `Parent`'s text when this is an instance, null otherwise. ONE call answers both halves, so a caller
+        /// never dereferences `Parent` on the word of a separate IsInstance().
+        [[nodiscard]] const std::string* ParentText() const
+        {
+            if ( !Parent.has_value() || Parent->empty() )
+                return nullptr;
+            return &*Parent;
+        }
+
         /// The GUID `Parent` names; null when this is not an instance or `Parent` is malformed.
         [[nodiscard]] Common::Content::AssetGuid ParentGuid() const
         {
-            return IsInstance() ? GuidFromText( *Parent ) : Common::Content::AssetGuid{};
+            const std::string* parent = ParentText();
+            return parent != nullptr ? GuidFromText( *parent ) : Common::Content::AssetGuid{};
         }
 
         /// Makes this an instance of `parent`, or a base material when `parent` is null.
@@ -178,23 +217,121 @@ namespace Desert::Assets
             return false;
         }
 
+        // ── Asset references ───────────────────────────────────────────────────────────
+        // Every getter answers the runtime HANDLE (HandleForGuid of the stated GUID; 0 for an absent slot,
+        // an empty one or a malformed GUID, which ParseMaterialJson has already refused for a file). Every
+        // setter takes the referenced asset's GUID and its current path; a null GUID authors an empty slot.
+
         uint64_t GetTexture( std::string_view name ) const
         {
-            for ( const auto& t : Textures )
-                if ( t.Name == name )
-                    return t.TextureHandle;
+            return HandleOfRef( FindRef( Textures, name ) );
+        }
+
+        void SetTexture( std::string_view name, const Common::Content::AssetGuid& guid, std::string_view path )
+        {
+            SetRef( Textures, name, guid, path );
+        }
+
+        uint64_t GetCloudAsset( std::string_view name ) const
+        {
+            return HandleOfRef( FindRef( CloudAssets, name ) );
+        }
+
+        void SetCloudAsset( std::string_view name, const Common::Content::AssetGuid& guid, std::string_view path )
+        {
+            SetRef( CloudAssets, name, guid, path );
+        }
+
+        /// The shader a ShaderRefs slot names, as the handle that shader asset is registered under; 0 when
+        /// the slot is absent or empty.
+        uint64_t GetShaderRef( std::string_view name ) const
+        {
+            for ( const auto& r : ShaderRefs )
+                if ( r.Name == name )
+                    return r.Path.empty() ? 0
+                                          : static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( r.Path ) );
             return 0;
         }
 
-        void SetTexture( std::string_view name, uint64_t handle )
+        /// Names the shader at `path` (the path its asset was loaded from); an empty path authors an empty slot.
+        void SetShaderRef( std::string_view name, std::string_view path )
         {
-            for ( auto& t : Textures )
-                if ( t.Name == name )
+            for ( auto& r : ShaderRefs )
+                if ( r.Name == name )
                 {
-                    t.TextureHandle = handle;
+                    r.Path = std::string( path );
                     return;
                 }
-            Textures.push_back( { std::string( name ), handle } );
+            ShaderRefs.push_back( { std::string( name ), std::string( path ) } );
+        }
+
+        /// Every slot of all three lists as (name, runtime handle), in list order - the in-memory view a
+        /// consumer that binds by slot name reads (MaterialService::ResolveOverrides). It never carries a
+        /// GUID or a path, and it never carries a number the file stated: every handle is folded here.
+        template <typename TSink>
+        void ForEachSlotHandle( TSink&& sink ) const
+        {
+            for ( const auto& r : Textures )
+                sink( r.Name, HandleOfRef( &r ) );
+            for ( const auto& r : CloudAssets )
+                sink( r.Name, HandleOfRef( &r ) );
+            for ( const auto& r : ShaderRefs )
+                sink( r.Name, GetShaderRef( r.Name ) );
+        }
+
+        /// The GUIDs this material references (parent, textures, cloud assets), each once, in that order -
+        /// what the header's Dependencies state (StampMaterialHeader). Malformed and empty ones are skipped.
+        [[nodiscard]] std::vector<std::string> ReferencedGuidTexts() const
+        {
+            std::vector<std::string> out;
+            const auto               add = [&out]( const std::string& text )
+            {
+                if ( text.empty() || GuidFromText( text ).IsNull() )
+                    return;
+                for ( const auto& seen : out )
+                    if ( seen == text )
+                        return;
+                out.push_back( text );
+            };
+            if ( const std::string* parent = ParentText() )
+                add( *parent );
+            for ( const auto& r : Textures )
+                add( r.Guid );
+            for ( const auto& r : CloudAssets )
+                add( r.Guid );
+            return out;
+        }
+
+    private:
+        static const MaterialAssetRef* FindRef( const std::vector<MaterialAssetRef>& refs, std::string_view name )
+        {
+            for ( const auto& r : refs )
+                if ( r.Name == name )
+                    return &r;
+            return nullptr;
+        }
+
+        static uint64_t HandleOfRef( const MaterialAssetRef* ref )
+        {
+            if ( ref == nullptr || ref->Guid.empty() )
+                return 0;
+            const auto guid = GuidFromText( ref->Guid );
+            return guid.IsNull() ? 0 : static_cast<uint64_t>( HandleOf( guid ) );
+        }
+
+        static void SetRef( std::vector<MaterialAssetRef>& refs, std::string_view name,
+                            const Common::Content::AssetGuid& guid, std::string_view path )
+        {
+            std::string text  = guid.IsNull() ? std::string() : Common::Content::AssetGuidToText( guid );
+            std::string where = guid.IsNull() ? std::string() : std::string( path );
+            for ( auto& r : refs )
+                if ( r.Name == name )
+                {
+                    r.Guid = std::move( text );
+                    r.Path = std::move( where );
+                    return;
+                }
+            refs.push_back( { std::string( name ), std::move( text ), std::move( where ) } );
         }
     };
 } // namespace Desert::Assets

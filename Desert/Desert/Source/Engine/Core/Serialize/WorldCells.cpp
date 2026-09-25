@@ -3,6 +3,7 @@
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -183,6 +184,22 @@ namespace Desert::Core::WorldCells
                 return m_ByHandle.emplace( handle, std::move( key ) ).first->second;
             }
 
+            // Built once on the first GUID asked for: the rows are indexed by handle and key only.
+            const std::string& KeyOfGuid( const CC::AssetGuid& guid )
+            {
+                if ( !m_ByGuidBuilt )
+                {
+                    m_ByGuidBuilt = true;
+                    for ( const auto& registry : m_Registries )
+                        for ( const auto& row : registry.Entries() )
+                            if ( row.Guid.has_value() && !row.Guid->IsNull() )
+                                m_ByGuid.emplace( std::pair{ row.Guid->Hi, row.Guid->Lo }, row.Key );
+                }
+                static const std::string none;
+                const auto               known = m_ByGuid.find( std::pair{ guid.Hi, guid.Lo } );
+                return known != m_ByGuid.end() ? known->second : none;
+            }
+
             const std::string& KeyOfPath( const std::string& text )
             {
                 const auto known = m_ByPath.find( text );
@@ -213,6 +230,15 @@ namespace Desert::Core::WorldCells
                 }
                 if ( const auto text = value.to_string(); text )
                 {
+                    // A material slot names its material by header GUID text (SCNE 27). The row is found by its
+                    // own Guid: a registry read by LoadFrom has Identity only for assets that were parsed, so the
+                    // handle the GUID folds to finds nothing for a material the cook never opened.
+                    if ( const auto guid = CC::AssetGuidFromText( text.value() );
+                         guid && !guid.GetValue().IsNull() )
+                    {
+                        Add( KeyOfGuid( guid.GetValue() ), keys );
+                        return;
+                    }
                     Common::UUID asHandle;
                     if ( Rules::Detail::ParseIdString( text.value(), asHandle ) )
                     {
@@ -254,6 +280,9 @@ namespace Desert::Core::WorldCells
             std::unordered_map<std::string, std::vector<std::string>> m_Dependencies;
             std::unordered_map<std::uint64_t, std::string>            m_ByHandle;
             std::unordered_map<std::string, std::string>              m_ByPath;
+            // First registry wins, as in KeyOfHandle and KeyOfPath (emplace keeps the first row seen).
+            std::map<std::pair<std::uint64_t, std::uint64_t>, std::string> m_ByGuid;
+            bool                                                           m_ByGuidBuilt = false;
         };
     } // namespace
 
@@ -261,10 +290,12 @@ namespace Desert::Core::WorldCells
     {
         if ( registries.empty() )
             return {};
-        return [registries]( std::uint64_t handle, std::string_view path ) -> std::optional<Common::Math::AABB>
+        // First registry that answers wins, as KeyOfGuid does.
+        return
+             [registries]( const CC::AssetGuid& guid, std::string_view path ) -> std::optional<Common::Math::AABB>
         {
             for ( const auto& registry : registries )
-                if ( const auto* row = registry.FindByReference( handle, path ) )
+                if ( const auto* row = registry.FindByGuidReference( guid, path ) )
                     return row->Bounds;
             return std::nullopt;
         };
@@ -515,9 +546,8 @@ namespace Desert::Core::WorldCells
             for ( std::size_t other = 0; other < unit; ++other )
                 if ( index.Units[other].File == wanted.File )
                     offset += index.Units[other].Ids.size();
-            return std::vector<Assets::EntityData>(
-                 cell.Records.begin() + static_cast<std::ptrdiff_t>( offset ),
-                 cell.Records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) );
+            return { cell.Records.begin() + static_cast<std::ptrdiff_t>( offset ),
+                     cell.Records.begin() + static_cast<std::ptrdiff_t>( offset + wanted.Ids.size() ) };
         }
 
         Common::ResultStr<CellPayload> ReadUnitFile( const WorldIndex& index, const FileReader& reader,

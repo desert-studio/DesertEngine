@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a7c2547b4cea429affe84d5207d3e193",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -42,7 +42,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -144,7 +147,7 @@
             "Scale": [4000.0, 20.0, 4000.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/M_CheckerFloor.demat"],
-                "MaterialGuids": [6418972230554417713],
+                "MaterialGuids": ["45d579b03cc0d0a8df2e4cb025d6bea5"],
                 "Primitive": "Cube"
             }
         }
@@ -190,7 +193,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

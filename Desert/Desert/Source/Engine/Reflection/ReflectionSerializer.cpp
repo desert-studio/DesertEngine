@@ -1,5 +1,7 @@
 #include "ReflectionSerializer.hpp"
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <cstddef>
@@ -11,6 +13,13 @@ namespace Desert::Reflection
 {
     namespace
     {
+        // The asset types a reflected field stores as {"Guid", "Path"}: skyboxes since SCNE 29, textures
+        // (the UI sprites and the splash) since SCNE 30. Every other type still stores its key alone.
+        bool IsStoredByGuid( const std::string& assetType )
+        {
+            return assetType == "SkyboxAsset" || assetType == "TextureAsset";
+        }
+
         // Accepts a JSON number stored either as integer or floating point.
         //
         // FOR FLOATING-POINT FIELDS ONLY. It used to serve the integral cases as well, and a 64-bit
@@ -145,7 +154,16 @@ namespace Desert::Reflection
                     out[field.Name] = ReadIntBySize( p, field.Size );
                     break;
                 case FieldType::AssetHandle:
-                    if ( resolver && resolver->ToPath )
+                    if ( resolver != nullptr && IsStoredByGuid( field.Meta.AssetType ) )
+                    {
+                        // SCNE 29 (skybox) / 30 (texture): the GUID is the identity, the key only locates it.
+                        const uint64_t       handle = *static_cast<const uint64_t*>( p );
+                        rfl::Generic::Object ref;
+                        ref["Guid"]     = resolver->ToGuid( handle, field.Meta.AssetType );
+                        ref["Path"]     = resolver->ToPath( handle, field.Meta.AssetType );
+                        out[field.Name] = rfl::Generic( std::move( ref ) );
+                    }
+                    else if ( resolver != nullptr && resolver->ToPath )
                         out[field.Name] =
                              resolver->ToPath( *static_cast<const uint64_t*>( p ), field.Meta.AssetType );
                     else
@@ -161,6 +179,44 @@ namespace Desert::Reflection
         }
 
         return out;
+    }
+
+    uint64_t ResolveGuidRef( const AssetResolver& resolver, const std::string& text, const std::string& path,
+                             const char* type, const std::string& what )
+    {
+        if ( text.empty() )
+        {
+            if ( !path.empty() )
+                LOG_ERROR( "[ComponentRegistry] {0} states no GUID but a path '{1}' - the path is a locator, "
+                           "not an identity, so the reference stays empty",
+                           what, path );
+            return 0;
+        }
+        const auto guid = Common::Content::AssetGuidFromText( text );
+        if ( !guid )
+        {
+            LOG_ERROR( "[ComponentRegistry] {0} states '{1}', which is not a GUID ({2}) - the reference stays "
+                       "empty",
+                       what, text, guid.GetError() );
+            return 0;
+        }
+        if ( guid.GetValue().IsNull() )
+        {
+            LOG_ERROR( "[ComponentRegistry] {0} states the null GUID - the reference stays empty", what );
+            return 0;
+        }
+        const uint64_t expected = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
+        if ( const uint64_t known = resolver.FromGuid( expected, type ); known != 0 )
+            return known;
+        const uint64_t located = path.empty() ? 0 : resolver.FromPath( path, type );
+        if ( located == expected )
+            return located;
+        LOG_ERROR( "[ComponentRegistry] {0} names GUID {1}, but its locator '{2}' {3} - the reference stays "
+                   "empty",
+                   what, text, path,
+                   located == 0 ? std::string( "loads no " ) + type
+                                : "holds a different asset (handle " + std::to_string( located ) + ")" );
+        return 0;
     }
 
     void DeserializeReflected( const TypeInfo& type, void* obj, const rfl::Generic::Object& src,
@@ -222,6 +278,31 @@ namespace Desert::Reflection
                     break;
                 case FieldType::AssetHandle:
                 {
+                    // A raw integer is what the writer emits with no resolver, for every type alike, so
+                    // it takes the raw-handle route below; only a reference form reaches the GUID branch.
+                    if ( IsStoredByGuid( field.Meta.AssetType ) && !AsInteger( g ) )
+                    {
+                        const auto ref = g.to_object();
+                        if ( ref.has_value() && resolver != nullptr )
+                        {
+                            const auto text = [&]( const char* key )
+                            {
+                                const auto v = ref.value().get( key );
+                                return v.has_value() ? v.value().to_string().value_or( std::string() )
+                                                     : std::string();
+                            };
+                            *static_cast<uint64_t*>( p ) =
+                                 ResolveGuidRef( *resolver, text( "Guid" ), text( "Path" ),
+                                                 field.Meta.AssetType.c_str(), "field '" + field.Name + "'" );
+                        }
+                        else if ( ref.has_value() ||
+                                  ( g.to_string().has_value() && !g.to_string().value().empty() ) )
+                            LOG_ERROR( "[Reflection] Field '{0}' is a {1} reference in a form this build does not "
+                                       "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-30 bare "
+                                       "string - run the SceneMigrator); the field keeps its default.",
+                                       field.Name, field.Meta.AssetType );
+                        break;
+                    }
                     if ( auto s = g.to_string(); s.has_value() )
                     {
                         // A path/key. Without a resolver there is nothing that can turn it into a handle,

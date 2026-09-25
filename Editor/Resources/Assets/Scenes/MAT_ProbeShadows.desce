@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "4338afd53eedf5cbc3b609890beffedc",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -30,7 +30,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -49,7 +52,7 @@
             "Scale": [40.0, 0.20000000298023224, 40.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -62,7 +65,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/MP_Const.demat"],
-                "MaterialGuids": [5555555555555555555],
+                "MaterialGuids": ["6969dc1f8d457806e5cf208867250443"],
                 "Primitive": "Cube"
             }
         },
@@ -75,7 +78,7 @@
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595],
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
         },
@@ -135,7 +138,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

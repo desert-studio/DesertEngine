@@ -13,7 +13,7 @@
 //
 // Three things are asserted here:
 //
-//   1. Every shipped `.demat` is MATL 2: one identity (the header GUID), no second number beside it, an
+//   1. Every shipped `.demat` is MATL 3: one identity (the header GUID), no second number beside it, an
 //      instance's Parent is a shipped material's GUID stated again as the header's one Dependency, and no
 //      two files share a GUID or a handle.
 //   2. Every MaterialGuid a shipped scene names (still the MATL 1 number until SCNE 27) is translated by the
@@ -97,7 +97,7 @@ namespace
         MaterialData Data;
     };
 
-    // Every shipped `.demat`, read through the engine's own parser (which refuses anything but MATL 2, a
+    // Every shipped `.demat`, read through the engine's own parser (which refuses anything but MATL 3, a
     // malformed Parent and a Parent missing from the header's Dependencies).
     std::vector<ShippedMaterial> ReadShippedMaterials( std::vector<std::string>& refusals )
     {
@@ -133,7 +133,7 @@ namespace
     };
 } // namespace
 
-TEST( MaterialIdentity, EveryShippedMaterialIsMatl2WithOneIdentityAndNoTwoShareIt )
+TEST( MaterialIdentity, EveryShippedMaterialIsMatl3WithOneIdentityAndNoTwoShareIt )
 {
     ASSERT_FALSE( RepoRoot().empty() ) << "repository root not found from the test's working directory";
     std::vector<std::string> refusals;
@@ -171,8 +171,9 @@ TEST( MaterialIdentity, EveryShippedMaterialIsMatl2WithOneIdentityAndNoTwoShareI
     {
         if ( !m.Data.IsInstance() )
         {
-            EXPECT_TRUE( m.Data.Header->Dependencies.empty() )
-                 << m.Name << " is a base material with dependencies";
+            // MATL 3: a base material's header states exactly its slot GUIDs (StampMaterialHeader).
+            EXPECT_EQ( m.Data.Header->Dependencies, m.Data.ReferencedGuidTexts() )
+                 << m.Name << " is a base material whose dependencies are not its slot GUIDs";
             continue;
         }
         ++instances;
@@ -191,25 +192,30 @@ TEST( MaterialIdentity, EveryShippedMaterialIsMatl2WithOneIdentityAndNoTwoShareI
 
 TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
 {
-    const std::string head   = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
-                               R"("Versions":{"MATL":2},"Dependencies":[)";
-    const std::string good   = head + R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],)"
-                                      R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
+    const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
+                             R"("Versions":{"MATL":3},"Dependencies":[)";
+    const std::string good =
+         head +
+         R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[],)"
+         R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
     const auto        parsed = Desert::Assets::ParseMaterialJson( "good", good );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     EXPECT_EQ( Common::Content::AssetGuidToText( parsed.GetValue().ParentGuid() ),
                "45d579b03cc0d0a8df2e4cb025d6bea5" );
 
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
-         "undeclared", head + R"(]},"Params":[],"Textures":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
+         "undeclared",
+         head +
+              R"(]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
          << "a Parent missing from the header's Dependencies must be refused";
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "number",
-         head + R"("6418972230554417713"]},"Params":[],"Textures":[],"Parent":"6418972230554417713"})" ) )
+         head +
+              R"("6418972230554417713"]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[],"Parent":"6418972230554417713"})" ) )
          << "a MATL 1 number in Parent is not a GUID";
 
     std::string v1 = good;
-    v1.replace( v1.find( "\"MATL\":2" ), 8, "\"MATL\":1" );
+    v1.replace( v1.find( "\"MATL\":3" ), 8, "\"MATL\":1" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "v1", v1 ) ) << "a MATL 1 file must be refused";
 }
 
@@ -235,8 +241,8 @@ TEST( MaterialIdentity, StampingAnInstanceStatesItsParentAsTheOneDependency )
 
 // Neither side is wrong on its own — a scene's MaterialGuid is a plausible number and each `.demat`'s
 // GUID is a plausible GUID. The defect only exists in the DISAGREEMENT, which is why it is the agreement
-// that is asserted (see the taxonomy in the desert-engine-verify skill). Scenes still name the MATL 1
-// numbers until SCNE 27 rewrites them, so the number is translated through the register first.
+// that is asserted (see the taxonomy in the desert-engine-verify skill). Since SCNE 27 a scene
+// names the header GUID's text itself.
 TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOneMaterialFile )
 {
     const std::string root = RepoRoot();
@@ -249,13 +255,6 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
     std::map<std::string, std::vector<std::string>> carriers; // GUID text -> files
     for ( const auto& m : ReadShippedMaterials( refusals ) )
         carriers[Common::Content::AssetGuidToText( m.Data.Guid() )].push_back( m.Name );
-
-    const auto reg =
-         rfl::json::read<LegacyRegister>( ReadAll( root + "Editor/Resources/LegacyMaterialIds.json" ) );
-    ASSERT_TRUE( reg ) << "Editor/Resources/LegacyMaterialIds.json does not parse";
-    std::map<uint64_t, std::string> legacy;
-    for ( const auto& row : reg.value().Ids )
-        legacy.emplace( row.MaterialId, row.Guid );
 
     int checked = 0;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( scenes ) )
@@ -274,34 +273,26 @@ TEST( MaterialIdentity, EveryMaterialGuidAShippedSceneNamesIsCarriedByExactlyOne
             size_t cursor = static_cast<size_t>( match->position() + match->length() );
             while ( cursor < text.size() && text[cursor] != ']' )
             {
-                if ( !std::isdigit( static_cast<unsigned char>( text[cursor] ) ) )
+                if ( text[cursor] != '"' )
                 {
                     ++cursor;
                     continue;
                 }
-                size_t end = cursor;
-                while ( end < text.size() && std::isdigit( static_cast<unsigned char>( text[end] ) ) )
-                    ++end;
-
-                const uint64_t id = std::stoull( text.substr( cursor, end - cursor ) );
-                cursor            = end;
-
-                if ( id == 0 )
+                const size_t      end  = text.find( '"', cursor + 1 );
+                const std::string guid = text.substr( cursor + 1, end - cursor - 1 );
+                cursor                 = end == std::string::npos ? text.size() : end + 1;
+                if ( guid.empty() )
                     continue; // an empty slot; the mesh falls back to its default material
 
-                // NOT an ASSERT that it is registered: a scene may legitimately name a material that lives
-                // beside an imported mesh rather than in Materials/. What must never be true is that the
-                // number names a GUID carried by no file or by TWO files.
-                const auto row = legacy.find( id );
-                if ( row == legacy.end() )
+                // A scene may legitimately name a material that lives beside an imported mesh rather than in
+                // Materials/. What must never be true is that the GUID is carried by TWO files.
+                const auto it = carriers.find( guid );
+                if ( it == carriers.end() )
                     continue;
                 ++checked;
-
-                const auto   it    = carriers.find( row->second );
-                const size_t count = it == carriers.end() ? 0u : it->second.size();
-                EXPECT_EQ( count, 1u ) << entry.path().filename().string() << " names MaterialId " << id
-                                       << " (GUID " << row->second << "), which is carried by " << count
-                                       << " material files";
+                EXPECT_EQ( it->second.size(), 1u )
+                     << entry.path().filename().string() << " names material GUID " << guid
+                     << ", which is carried by " << it->second.size() << " material files";
             }
         }
     }

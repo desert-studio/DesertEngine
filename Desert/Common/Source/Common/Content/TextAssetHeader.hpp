@@ -34,6 +34,9 @@ namespace Common::Content
         std::string                     Guid;
         std::map<std::string, uint32_t> Versions;
         std::vector<std::string>        Dependencies;
+
+        // A document holding a header (CloudTypeData) compares its edit against its on-disk copy member-wise.
+        [[nodiscard]] bool operator==( const TextAssetHeaderSerialized& ) const = default;
     };
 
     // 32 lower-case hex digits, Hi then Lo. The inverse refuses anything else, naming what it got.

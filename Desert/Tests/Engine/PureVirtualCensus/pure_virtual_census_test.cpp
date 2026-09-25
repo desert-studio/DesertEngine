@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -307,6 +308,59 @@ namespace
                 cleaned.push_back( ident );
         }
         return cleaned;
+    }
+
+    // A base clause may name an ALIAS of the abstract base, not the base itself: the UE geometry port
+    // derives from `FDynamicMeshAttributeBase`, which is `typedef TDynamicAttributeBase<FDynamicMesh3>`.
+    // Without resolving the alias the census reads that base as having no derived class at all. Returns
+    // alias -> aliased class (last `::` component, template arguments dropped) for both spellings.
+    std::map<std::string, std::string> TypeAliases( const std::string& code )
+    {
+        static const std::regex typedefForm(
+             R"(^typedef\s+(?:typename\s+)?([A-Za-z_][\w:]*)\s*(?:<[^;]*>)?\s*([A-Za-z_]\w*)\s*;)" );
+        static const std::regex usingForm( R"(^using\s+([A-Za-z_]\w*)\s*=\s*(?:typename\s+)?([A-Za-z_][\w:]*))" );
+        const auto              lastComponent = []( std::string name )
+        {
+            const std::size_t qualifier = name.rfind( "::" );
+            if ( qualifier != std::string::npos )
+                name.erase( 0, qualifier + 2 );
+            return name;
+        };
+        // std::regex over whole files costs the census ~40 s; run it only on the statement after a keyword.
+        std::map<std::string, std::string> aliases;
+        for ( const char* keyword : { "typedef", "using" } )
+        {
+            for ( std::size_t at = code.find( keyword ); at != std::string::npos;
+                  at             = code.find( keyword, at + 1 ) )
+            {
+                if ( at > 0 && IsIdentChar( code[at - 1] ) )
+                    continue; // `causing`, `m_using`: not the keyword
+                const std::size_t end = code.find( ';', at );
+                if ( end == std::string::npos )
+                    break;
+                const std::string statement = code.substr( at, end - at + 1 );
+                std::smatch       match;
+                if ( std::regex_search( statement, match, typedefForm ) )
+                    aliases.emplace( match[2].str(), lastComponent( match[1].str() ) );
+                else if ( std::regex_search( statement, match, usingForm ) )
+                    aliases.emplace( match[1].str(), lastComponent( match[2].str() ) );
+            }
+        }
+        return aliases;
+    }
+
+    // Every name in `derivedFrom` that is an alias also counts as its target, through chains of aliases.
+    void ResolveAliases( std::set<std::string>& derivedFrom, const std::map<std::string, std::string>& aliases )
+    {
+        std::vector<std::string> pending( derivedFrom.begin(), derivedFrom.end() );
+        while ( !pending.empty() )
+        {
+            const std::string name = pending.back();
+            pending.pop_back();
+            const auto alias = aliases.find( name );
+            if ( alias != aliases.end() && derivedFrom.insert( alias->second ).second )
+                pending.push_back( alias->second );
+        }
     }
 
     // `class X {`, `class X final {`, `struct X : public Y {` — the name and the extent of its body.
@@ -744,6 +798,7 @@ TEST( PureVirtualCensus, NoAbstractBaseIsLeftWithoutASingleImplementation )
 
     std::map<std::string, std::string> abstractBases; // class -> where it is declared
     std::set<std::string>              hasDerived;
+    std::map<std::string, std::string> aliases; // alias -> aliased class, from every file
     for ( const auto& file : tree.Files )
     {
         const std::string&           code  = tree.Code.at( file.string() );
@@ -753,7 +808,9 @@ TEST( PureVirtualCensus, NoAbstractBaseIsLeftWithoutASingleImplementation )
             for ( const std::string& base : BaseNames( span.BaseClause ) )
                 hasDerived.insert( base );
         }
+        aliases.merge( TypeAliases( code ) );
     }
+    ResolveAliases( hasDerived, aliases );
 
     const std::vector<PureVirtual> pure = PureVirtuals( root, tree );
     for ( const auto& entry : pure )
@@ -773,6 +830,24 @@ TEST( PureVirtualCensus, NoAbstractBaseIsLeftWithoutASingleImplementation )
                 "instantiated, so nothing it declares can ever run. Delete the interface, or give it the "
                 "implementation it was written for.";
     }
+}
+
+TEST( PureVirtualCensus, ABaseNamedThroughAnAliasCountsAsDerived )
+{
+    // The shape that made TDynamicAttributeBase look orphaned: the derived class names a typedef of the
+    // template, never the template itself. Both alias spellings, and a chain of two, must reach the base.
+    const std::string     code        = "template <typename P> class TBase { virtual void F() = 0; };\n"
+                                        "typedef TBase<Mesh> FMeshBase;\n"
+                                        "using FOther = Ns::TOtherBase<int, 2>;\n"
+                                        "using FChained = FMeshBase;\n"
+                                        "class A : public FChained {};\n"
+                                        "class B : public FOther {};\n";
+    std::set<std::string> derivedFrom = { "FChained", "FOther" };
+    ResolveAliases( derivedFrom, TypeAliases( code ) );
+    EXPECT_EQ( derivedFrom.count( "TBase" ), 1u );
+    EXPECT_EQ( derivedFrom.count( "TOtherBase" ), 1u );
+    EXPECT_EQ( derivedFrom.count( "FMeshBase" ), 1u );
+    EXPECT_EQ( derivedFrom.count( "Mesh" ), 0u ) << "a template argument is not a base";
 }
 
 TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )

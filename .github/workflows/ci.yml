@@ -680,7 +680,10 @@ jobs:
       #      of compile CPU, measured on macOS by B2 over the same premake scripts;
       #   2. no parallelism INSIDE a project (no /MP, see BuildScripts/Workspace.lua).
       # The MultiToolTask that ccache needs anyway (one source per cl.exe) is also the answer to 2 --
-      # see Directory.Build.props for each property and Directory.Build.targets for /Zi -> /Z7.
+      # see BuildScripts/MSBuild/Ccache.props for each property and Ccache.targets for /Zi -> /Z7.
+      # Both are imported by NAME on the msbuild line below, never as Directory.Build.* from the root,
+      # but at the SAME two points Directory.Build.* would be (CustomBeforeMicrosoftCommonProps /
+      # CustomAfterMicrosoftCommonTargets) -- see the gate after the build step for why that matters.
       #
       # MEASURED, first green run 35863890019 (9feaa1ee) against the eleven complete Release builds
       # before it (111.5-119.9 min, median 115.8): Build Release 74.7, Debug 36.0 (was 67.6-75.1),
@@ -734,7 +737,25 @@ jobs:
         shell: cmd
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
-          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal
+          msbuild Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
+            "-p:CustomBeforeMicrosoftCommonProps=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.props" ^
+            "-p:CustomAfterMicrosoftCommonTargets=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.targets"
+
+      # THE CACHE MUST SEE ONE SOURCE PER COMPILE, OR THE WIRING IS NOT IN EFFECT. When the imports
+      # moved to /p:ForceImportBeforeCppTargets (6e1a17b1, d7ab8fa8) CLToolPath still applied but
+      # UseMultiToolTask did not: ccache saw 359 calls instead of 2270, 211 of them "multiple source
+      # files", hit once, and Windows Release grew from 78 to 104..146 minutes, a leg slowly
+      # crossing its 150-minute ceiling. Nothing failed by name; it read as a hung runner. A
+      # multi-source call means UseMultiToolTask is off, so it fails the job by name.
+      - name: ccache saw one source per compile
+        shell: pwsh
+        run: |
+          $stats = & $env:CCACHE_EXE --print-stats
+          $row = $stats | Select-String '^multiple_source_files\s+(\d+)$'
+          if (-not $row) { $stats; throw "ccache --print-stats has no multiple_source_files row; the gate cannot read it" }
+          $n = [int]$row.Matches[0].Groups[1].Value
+          if ($n -ne 0) { throw "ccache saw $n compiles with more than one source: UseMultiToolTask is not in effect, see BuildScripts/MSBuild/Ccache.props" }
+          "multiple_source_files = 0"
 
       # Every outcome prints: a cache that saw nothing must not look like a build that needed nothing.
       # The disk and the largest archives are here because /Z7 moves debug information INTO the objects

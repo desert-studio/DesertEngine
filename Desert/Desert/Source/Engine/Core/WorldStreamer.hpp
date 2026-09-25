@@ -125,6 +125,12 @@ namespace Desert::Core
         // Per record index (the executor's): the id its entity carries, which is how Destroy finds it.
         std::vector<Common::UUID>               m_RecordIds;
         std::optional<Rules::ResidencyExecutor> m_Executor;
+        // Every streamer Begin/BeginCooked hand out holds an executor; only one abandoned half-built reaches
+        // the destructor without it, and the destructor checks for itself. The one unchecked access is here.
+        Rules::ResidencyExecutor& Executor()
+        {
+            return *m_Executor; // NOLINT(bugprone-unchecked-optional-access)
+        }
         // What the cell source reads: the Play snapshot's records (Begin) or the cooked world's index
         // (BeginCooked). Shared with the source, which the loader shares with its workers.
         std::shared_ptr<const SceneSerialized>        m_Snapshot;

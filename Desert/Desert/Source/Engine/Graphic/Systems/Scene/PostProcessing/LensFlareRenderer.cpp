@@ -1,4 +1,5 @@
 #include "LensFlareRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -11,7 +12,7 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr Core::Formats::ImageFormat kFlareFormat = Core::Formats::ImageFormat::RGBA16F;
+        constexpr Core::Formats::ImageFormat kFlareFormat = ViewTargetFormats::kLensFlare;
         constexpr uint32_t                   kGroupSize   = 16; // must match LocalSize in both shaders
 
         // Push-constant blocks — must match LensFlareBrightPass / LensFlareFeatures exactly.

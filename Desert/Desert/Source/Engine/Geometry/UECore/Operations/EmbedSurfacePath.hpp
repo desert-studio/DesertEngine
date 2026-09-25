@@ -1,0 +1,110 @@
+// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Operations/EmbedSurfacePath.h:22-83,89-104,113-121,
+// 160-196, adapted: UE Core via UECore.hpp, namespace Desert::Geometry. Only what FGroupEdgeInserter's plane-cut
+// embedding (GroupEdgeInserter.cpp:1025-1028) uses is ported: FMeshSurfacePoint and
+// FMeshSurfacePath::EmbedSimplePath, plus IsConnected to check a path before embedding it. Left out, with reasons:
+// - AddViaPlanarWalk / ClosePath and the closed-path flag they set (WalkMeshPlanar, ~360 lines): no caller yet;
+//   FGroupEdgeInserter builds its path itself (GetPlaneCutPath).
+// - EmbedProjectedPath(s) and FFrame3d: outside this port.
+// - FEmbedSimplePathSettings (snap-to-vertex, loop removal, tiny-edge flips): every caller here takes the default
+//   (all off), so the options would be settings nothing sets.
+// - bUpdatePath: UE never implemented it (its branch is `ensure(false)`), so the path is always consumed.
+// - The deprecated (EdgeID, FirstCoordWt) constructor: MakeEdgePoint replaces it in UE 5.8.
+// - Validate(): an IsConnected wrapper for the tool framework; callers here call IsConnected.
+#pragma once
+
+#include "Engine/Geometry/UECore/UECore.hpp"
+
+#include "Engine/Geometry/UECore/MathUtil.hpp"
+#include "Engine/Geometry/UECore/VectorTypes.hpp"
+
+namespace Desert::Geometry
+{
+    class FDynamicMesh3;
+
+    enum class ESurfacePointType
+    {
+        Vertex   = 0,
+        Edge     = 1,
+        Triangle = 2
+    };
+
+    /**
+     * Basic struct to represent a point on a mesh surface, as a vertex, a point on an edge, or a point inside a
+     * triangle.
+     */
+    struct FMeshSurfacePoint
+    {
+        int               ElementID = -1;
+        FVector3d         BaryCoord = FVector3d::Zero();
+        ESurfacePointType PointType = ESurfacePointType::Vertex;
+
+        FMeshSurfacePoint() = default;
+
+        FMeshSurfacePoint( int TriangleID, const FVector3d& InBaryCoord )
+             : ElementID( TriangleID ), BaryCoord( InBaryCoord ), PointType( ESurfacePointType::Triangle )
+        {
+        }
+
+        explicit FMeshSurfacePoint( int VertexID ) : ElementID( VertexID ), BaryCoord( 1, 0, 0 )
+        {
+        }
+
+        FMeshSurfacePoint( int InElementID, const FVector3d& InBaryCoord, ESurfacePointType InPointType )
+             : ElementID( InElementID ), BaryCoord( InBaryCoord ), PointType( InPointType )
+        {
+        }
+
+        /** A point on edge EdgeID at LerpParam from the edge's first vertex (GetEdgeV order) to its second. */
+        static FMeshSurfacePoint MakeEdgePoint( int32 EdgeID, double LerpParam )
+        {
+            return { EdgeID, FVector3d( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge };
+        }
+
+        /** @return the parameter to pass to FDynamicMesh3::SplitEdge to split the edge at this point */
+        [[nodiscard]] double GetEdgeSplitParam() const
+        {
+            UE_CHECK_SLOW( PointType == ESurfacePointType::Edge );
+            return BaryCoord[1];
+        }
+
+        FVector3d Pos( const FDynamicMesh3* Mesh ) const;
+    };
+
+    /**
+     * Represent a path on the surface of a mesh via barycentric coordinates and triangle references
+     */
+    class FMeshSurfacePath
+    {
+    public:
+        FDynamicMesh3* Mesh;
+        // Surface points paired with triangle to walk to get to next surface point
+        TArray<TPair<FMeshSurfacePoint, int>> Path;
+
+        explicit FMeshSurfacePath( FDynamicMesh3* InMesh ) : Mesh( InMesh )
+        {
+        }
+
+        /**
+         * @return True if the Path exactly sticks to the mesh surface, and never jumps to disconnected elements
+         */
+        [[nodiscard]] bool IsConnected() const;
+
+        /**
+         * Embed a surface path in mesh provided that the path only crosses vertices and edges except at the start
+         * and end, so we can add the path easily with local edge splits and possibly two triangle pokes (rather
+         * than needing general remeshing machinery). The Path is no longer valid afterwards: the elements it names
+         * have been split.
+         *
+         * @param PathVertices Indices of the vertices on the path are appended here; NOTE these will not be 1:1
+         *        with the input Path
+         * @param bDoNotDuplicateFirstVertexID Useful if repeatedly calling EmbedSimplePath to extend a path. If
+         *        true, will not add the first path vertex if it matches the last vertex of the initial, passed-in
+         *        PathVertices.
+         * @param SnapElementThresholdSq Squared distance threshold below which a relocated end point snaps to an
+         *        existing vertex or edge
+         * @return true if embedding succeeded.
+         */
+        bool EmbedSimplePath( TArray<int>& PathVertices, bool bDoNotDuplicateFirstVertexID = true,
+                              double SnapElementThresholdSq = FMathf::ZeroTolerance * 100 );
+    };
+} // namespace Desert::Geometry

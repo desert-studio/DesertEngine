@@ -176,14 +176,14 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     // are all things this window can change, and a Discard that restored two of the three would be the
     // "middle link drops a property" shape -- both ends looking right with one field silently lost.
     MaterialData applied = Authored( "StaticMeshPBR", { { "RoughnessFactor", 0.9f } } );
-    applied.SetTexture( "u_AlbedoTexture", 1234u );
+    applied.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 1234u }, "" );
 
     MaterialData working = applied;
     working.ShaderName   = "SomeGraphShader";
     working.SetParam( "RoughnessFactor", glm::vec4( 0.0f ) );
     working.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ); // a NEW row
-    working.SetTexture( "u_AlbedoTexture", 5678u );
-    working.SetTexture( "u_NormalTexture", 9999u ); // a NEW binding
+    working.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 5678u }, "" );
+    working.SetTexture( "u_NormalTexture", Common::Content::AssetGuid{ 0, 9999u }, "" ); // a NEW binding
 
     EXPECT_TRUE( MaterialEdit::EvaluateDirty( working, applied, applied ).Unapplied );
 
@@ -192,8 +192,11 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     EXPECT_FALSE( MaterialEdit::EvaluateDirty( working, applied, applied ).Unapplied );
     EXPECT_EQ( working.EffectiveShaderName(), "StaticMeshPBR" );
     EXPECT_EQ( working.Params.size(), applied.Params.size() ) << "the added row must be gone, not zeroed";
-    EXPECT_EQ( working.GetTexture( "u_AlbedoTexture" ), 1234u );
-    EXPECT_EQ( working.GetTexture( "u_NormalTexture" ), 0u ) << "the added binding must be gone";
+    EXPECT_EQ( working.GetTexture( "u_AlbedoTexture" ),
+               static_cast<uint64_t>( MaterialData::HandleOf( Common::Content::AssetGuid{ 0, 1234u } ) ) );
+    EXPECT_EQ( working.GetTexture( "u_NormalTexture" ),
+               static_cast<uint64_t>( MaterialData::HandleOf( Common::Content::AssetGuid{ 0, 0u } ) ) )
+         << "the added binding must be gone";
 }
 
 // ── 2. The identity half, which the transfer must never move ────────────────────────────────────────────
@@ -714,8 +717,8 @@ TEST( MaterialEditStates, RowsThatCannotBeResetAreRefusedByKindAndNotByValue )
     const auto schema = SchemaOf( { Texture( "AlbedoMap" ), AssetRef( "CloudType1", "CloudTypeAsset" ) } );
 
     MaterialData bound;
-    bound.SetTexture( "AlbedoMap", 1234u );
-    bound.SetTexture( "CloudType1", 5678u );
+    bound.SetTexture( "AlbedoMap", Common::Content::AssetGuid{ 0, 1234u }, "" );
+    bound.SetCloudAsset( "CloudType1", Common::Content::AssetGuid{ 0, 5678u }, "" );
 
     for ( const auto& p : schema.Params )
     {

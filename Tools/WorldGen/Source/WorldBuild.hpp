@@ -31,13 +31,13 @@
 namespace Desert::WorldGen
 {
     // One material the generated world may name. Both spellings, because that is what the engine's saver
-    // writes and what MaterialIdentity's corpus rules check: the GUID is the stable handle and the path is
+    // writes and what MaterialIdentity's corpus rules check: the header GUID is the identity and the path is
     // the rename-visible fallback. Writing only the path would produce a file that GAINS a key the first
     // time the editor saves it, which breaks the round-trip identity above.
     struct MaterialRef
     {
         std::string Path; // e.g. "Materials/CB_White.demat", relative to the assets root
-        uint64_t    Guid = 0;
+        std::string Guid; // the material's header GUID as text - what a scene's MaterialGuids states (SCNE 27)
     };
 
     // WHAT A WORLD IS, IN NUMBERS. Every length is an integer number of CENTIMETRES (1 world unit = 1 cm,

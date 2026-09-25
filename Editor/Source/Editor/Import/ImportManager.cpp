@@ -8,6 +8,8 @@
 #include "CookedJsonWrite.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include "LODFold.hpp"
 
 #include <Common/Core/Constants.hpp>
@@ -254,6 +256,14 @@ namespace Desert::Editor
         // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
         // are unchanged: they are kilobytes of structure, not megabytes of floats, and the argument
         // that moved this one does not reach them.
+        // A RE-IMPORT KEEPS THE MESH'S IDENTITY (UE keeps a package's GUID on reimport): scenes name the
+        // mesh by this GUID, so minting a new one would orphan every reference to the file being replaced.
+        data.Guid = Common::Content::AssetGuid::Generate();
+        if ( const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefix(
+                  cookedPath, Common::Content::kMeshBinaryPrefixV3 ) )
+            if ( const auto kept = Common::Content::ReadMeshHeaderGuid( prefix.GetValue() );
+                 kept && !kept->IsNull() )
+                data.Guid = *kept;
         return WriteCookedBytes( Desert::Assets::Serialization::EncodeMeshBinary( data ), cookedPath,
                                  Desert::Assets::Serialization::MeshDataBounds( data ) );
     }
@@ -301,6 +311,7 @@ namespace Desert::Editor
         // Typed extraction -> unified canon (the only on-disk material format), under the GUID the importer
         // derived, so the file states the identity the mesh's submeshes already reference.
         auto data       = material.Data.ToMaterialData();
+        data.Textures   = material.Textures;
         data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                            Assets::MaterialTextSubsystems() );
         const auto text = Assets::WriteMaterialJson( data );
@@ -314,14 +325,17 @@ namespace Desert::Editor
         return m_TextureImporter->Import( path );
     }
 
-    size_t ImportManager::ImportLooseTextures()
+    size_t ImportManager::ImportLooseTextures( const Assets::ItemProgress& progress )
     {
         // IMPORT, NOT COOK (AF3c). A loose image dropped under `LooseTextureRoots()` becomes its `.detex`
         // asset here; its platform data is derived on first use (Assets::LoadTexturePlatformData -> the
         // builder this editor registers) or by the packager, and lives in the DDC, never beside the asset.
-        size_t imported = 0;
-        for ( const std::filesystem::path& source : LooseTextureSources() )
+        size_t                                   imported = 0;
+        const std::vector<std::filesystem::path> sources  = LooseTextureSources();
+        for ( std::size_t i = 0; i < sources.size(); ++i )
         {
+            const std::filesystem::path& source = sources[i];
+            Assets::ReportItem( progress, source.filename().string(), i, sources.size() );
             if ( source.extension() == Assets::kTextureAssetExtension )
                 continue;
             if ( const auto asset = TextureImporter::ImportSourceAsset( source ); asset.IsSuccess() )

@@ -604,11 +604,11 @@ namespace Desert::Editor
     Common::BoolResultStr ViewportPanel::RequestPilot( const Common::UUID& entity )
     {
         ViewportPanel* target = ActiveViewport();
-        if ( !target )
+        if ( target == nullptr )
             return Common::MakeError<bool>( "there is no viewport to pilot with." );
         const auto camera    = target->ViewCamera();
         auto*      editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
-        if ( !editorCam || !target->m_Scene )
+        if ( ( editorCam == nullptr ) || !target->m_Scene )
         {
             return Common::MakeFormattedError<bool>(
                  "'{}' has no editor camera to pilot with (the view was closed, or the scene is playing).",
@@ -1458,7 +1458,7 @@ namespace Desert::Editor
                     {
                         LOG_ERROR( "{}", placed.GetError() );
                     }
-                    else if ( ECS::Entity root = placed.GetValue() )
+                    else if ( const ECS::Entity root = placed.GetValue() )
                     {
                         // A world prefab lands on the surface under the cursor; a UI prefab keeps the layout
                         // its canvas gives it.
@@ -1517,6 +1517,7 @@ namespace Desert::Editor
 
         const bool foliageMode  = Core::ViewportMode::Get() == Core::EditorMode::Foliage;
         const bool modelingMode = Core::ViewportMode::Get() == Core::EditorMode::Modeling;
+        const bool landscapeMode = Core::ViewportMode::Get() == Core::EditorMode::Landscape;
 
         // UI elements are edited with the in-scene UILayout handles (DrawUIInScene), not the 3D transform
         // gizmo — suppress the object gizmo for them so the two don't overlap and fight for the mouse.
@@ -1527,7 +1528,7 @@ namespace Desert::Editor
 
         // Handle gizmos (Select mode only — Foliage/Modeling use LMB for their own tools, not gizmo/pick).
         m_Gizmo.ResetHovered();
-        if ( !foliageMode && !modelingMode )
+        if ( !foliageMode && !modelingMode && !landscapeMode )
         {
             if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
@@ -1559,6 +1560,29 @@ namespace Desert::Editor
             }
         }
 
+        // --- Landscape mode: LMB strokes, Shift lowers (LandscapeSculptTool); its settings are the Landscape
+        // panel ---
+        if ( landscapeMode )
+        {
+            if ( const auto camera = ViewCamera() )
+            {
+                auto [mx, my]       = GetMouseViewportSpace();
+                const auto width    = static_cast<uint32_t>( m_ViewportData.Size.x );
+                const auto height   = static_cast<uint32_t>( m_ViewportData.Size.y );
+                const auto mouseRay = Common::Math::Ray::FromScreenPosition(
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     width, height );
+                const auto centreRay = Common::Math::Ray::FromScreenPosition(
+                     { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+                     camera->GetViewMatrix(), camera->GetPosition(), width, height );
+                if ( Core::LandscapeSculptState::Get().Mode == Core::LandscapeEdMode::Paint )
+                    m_LandscapePaintTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered );
+                else
+                    m_LandscapeTool.Update( *m_Scene, mouseRay, centreRay, m_ViewportData.IsHovered,
+                                            ImGui::GetIO().DeltaTime );
+            }
+        }
+
         // --- Modeling mode: UE5-style CubeGrid blockout (add/remove grid cubes -> live DynamicMesh). ---
         if ( modelingMode )
         {
@@ -1569,8 +1593,16 @@ namespace Desert::Editor
                      { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
+                // CubeGrid aimed from the viewport centre (the palette's stand-in for a cursor): the same
+                // targeting, fed the ray a cursor at the centre would give.
+                const auto centreRay = Common::Math::Ray::FromScreenPosition(
+                     { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
+                     camera->GetViewMatrix(), camera->GetPosition(),
+                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-                m_CubeGridTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
+                                       viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
                 m_PolyEditTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -1578,6 +1610,7 @@ namespace Desert::Editor
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
                 m_CreateShapeTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                           m_ViewportData.IsHovered );
+                Tools::DrawActiveToolBar( m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }
 
@@ -1602,7 +1635,7 @@ namespace Desert::Editor
             if ( const auto camera = ViewCamera() )
             {
                 auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
-                if ( editorCam && !m_Pilot.IsActive() )
+                if ( ( editorCam != nullptr ) && !m_Pilot.IsActive() )
                 {
                     const char* label = ViewportCameraPresetLabel( *editorCam );
                     const ImVec2 at( m_ViewportData.ViewportPos.x + 10.0f,
@@ -2362,7 +2395,7 @@ namespace Desert::Editor
 
     void ViewportPanel::AssignMaterialAtCursor( const std::string& materialPath )
     {
-        if ( !m_AssetManager )
+        if ( m_AssetManager == nullptr )
             return;
         const auto found = SurfaceAtCursor();
         if ( !found )

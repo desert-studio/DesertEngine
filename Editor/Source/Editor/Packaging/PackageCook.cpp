@@ -22,7 +22,6 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <fstream>
 #include <span>
 #include <string>
 #include <vector>
@@ -368,12 +367,12 @@ namespace Desert::Editor
         const fs::path  target = CookedTextureAssetStage() / relative;
         std::error_code ec;
         fs::create_directories( target.parent_path(), ec );
-        std::ofstream out( target, std::ios::binary | std::ios::trunc );
-        out.write( reinterpret_cast<const char*>( cooked.GetValue().data() ),
-                   static_cast<std::streamsize>( cooked.GetValue().size() ) );
-        if ( !out )
-            return Common::MakeFormattedError<fs::path>( "the cooked texture asset '{}' was not written",
-                                                         target.string() );
+        const auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+             target, std::span<const std::byte>( reinterpret_cast<const std::byte*>( cooked.GetValue().data() ),
+                                                 cooked.GetValue().size() ) );
+        if ( !written.IsSuccess() )
+            return Common::MakeFormattedError<fs::path>( "the cooked texture asset '{}' was not written: {}",
+                                                         target.string(), written.GetError() );
         return Common::MakeSuccess( target );
     }
 } // namespace Desert::Editor

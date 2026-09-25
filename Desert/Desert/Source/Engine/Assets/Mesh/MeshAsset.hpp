@@ -5,6 +5,9 @@
 #include <Engine/Assets/AssetEvents.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+
 #include <vector>
 
 namespace Desert::Assets
@@ -12,8 +15,39 @@ namespace Desert::Assets
     class MeshAsset : public AssetBase, public AssetsEventSystem
     {
     public:
-        using AssetBase::AssetBase;
+        // THE MESH'S IDENTITY IS ITS HEADER GUID (MeshBinary v3), adopted HERE rather than in the load:
+        // the asset manager keys its handle lookup at creation, and a scene's mesh reference is resolved and
+        // registered with the MeshService before anything parses the file — so a handle adopted at load
+        // (as the material does) would arrive after the path-derived one had already been handed out.
+        // A file without a GUID (absent, or a pre-v3 cook) keeps the path-derived handle and a null Guid().
+        //
+        // Inline because every suite that compiles a mesh type compiles this header but not a MeshAsset.cpp.
+        // Only the fixed-size prefix is read; absence is an answer (a cook-create names a file about to be
+        // written), so the IfExists form keeps it out of the error log.
+        MeshAsset( const AssetPriority priority, const Common::Filepath& filepath, const AssetTypeID type )
+             : AssetBase( priority, filepath, type )
+        {
+            const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
+                 m_Metadata.Filepath, Common::Content::kMeshBinaryPrefixV3 );
+            if ( !prefix )
+                return;
+            const auto& bytes = prefix.GetValue();
+            if ( !bytes.has_value() )
+                return;
+            const auto guid = Common::Content::ReadMeshHeaderGuid( *bytes );
+            if ( !guid || guid->IsNull() )
+                return;
+            m_Guid = *guid;
+            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
+                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+        }
         virtual ~MeshAsset() = default;
+
+        // The header GUID this mesh was created from; null when the file states none.
+        [[nodiscard]] const Common::Content::AssetGuid& Guid() const
+        {
+            return m_Guid;
+        }
 
         static AssetTypeID GetTypeID()
         {
@@ -54,6 +88,9 @@ namespace Desert::Assets
             static const std::vector<MorphTarget> kEmpty;
             return kEmpty;
         }
+
+    private:
+        Common::Content::AssetGuid m_Guid;
     };
 
 } // namespace Desert::Assets

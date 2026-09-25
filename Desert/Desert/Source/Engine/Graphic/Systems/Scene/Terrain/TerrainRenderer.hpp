@@ -28,14 +28,18 @@ namespace Desert::Graphic::System
         // Per-layer mode (grass, rock, snow) from the root's LandscapeMaterial: 0 = Auto (rules), 1 = Off.
         glm::vec3 LayerModes = glm::vec3( 0.0f );
 
+        // The tile's painted weight layers (LayerCount 0 = none).
+        LandscapeWeightDraw Weights;
+
         // The root's material, as param + texture overrides applied generically to the DataDrivenMaterial by
         // name (params e.g. "Tint"/"DetailTiling"; textures = the layers u_GrassTex/u_RockTex/...). Unset
         // samplers keep the backend white fallback.
         Graphic::MaterialOverrides Overrides;
     };
 
-    // GPU landscape renderer. Draws each tile as a tessellated patch grid into the scene framebuffer's
-    // Geometry phase (vertexless patch-list draw -> TCS LOD -> TES displacement from the tile's heightmap).
+    // GPU landscape renderer. Draws each tile as a triangle grid over its samples into the scene framebuffer's
+    // Geometry phase (vertexless draw at the tile's LOD grid; the vertex stage morphs and displaces each vertex
+    // from the tile's heightmap — UE's landscape vertex factory, ported, see LandscapeLod.glslh).
     // Driven by the ECS: every drawn LandscapeTileComponent is submitted as a TerrainDrawData each frame.
     // Draws every terrain of the frame, in whichever pass the render path shades opaque geometry with, and
     // into the sun's cascades. One frame's data — materials, param rows, TerrainInstances — is resolved ONCE
@@ -44,7 +48,7 @@ namespace Desert::Graphic::System
     //   - Deferred: RenderGBufferManual, after the meshes' G-buffer fill (TerrainGBuffer.shader, lit by the
     //     deferred composite like every other opaque surface — so it receives the cascaded shadows);
     //   - both:     RecordShadowCascade, from inside the mesh renderer's cascade passes (TerrainShadow.shader).
-    // The three programs share their patch stages (Programs/Terrain/*.glslh) and differ in what the
+    // The three programs share their vertex stage (Programs/Terrain/*.glslh) and differ in what the
     // fragment writes and in the matrix pushed per draw (camera or cascade).
     class TerrainRenderer final : public RenderSystem, public IShadowCaster
     {

@@ -1,5 +1,12 @@
 {
-    "FormatVersion": 3,
+    "Header": {
+        "Kind": "CloudType",
+        "Guid": "37ccfc9c6d6f4026333b84b1ae1b358f",
+        "Versions": {
+            "CLTY": 4
+        },
+        "Dependencies": []
+    },
     "DisplayName": "Cumulus humilis",
     "Notes": "Fair-weather cumulus in its flattest form: wider than it is tall, the top barely 400 m above a base on the condensation level. It differs from mediocris in the one number that matters - it stops growing. Placement scale 0.50: fair-weather puffs are half the size of a congestus' patch and there are more of them, which is what 'humilis' describes and what no profile can say.",
     "Shape": {

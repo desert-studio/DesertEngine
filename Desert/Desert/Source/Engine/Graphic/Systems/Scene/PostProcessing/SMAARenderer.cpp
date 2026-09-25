@@ -1,4 +1,5 @@
 #include "SMAARenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include "SMAAAreaTexData.h"   // exact SMAA AreaTex bytes (RG8)   — engine-owned copy (official iryoku/smaa)
 #include "SMAASearchTexData.h" // exact SMAA SearchTex bytes (R8)  — engine-owned copy
 
@@ -45,9 +46,9 @@ namespace Desert::Graphic::System
         const uint32_t h = targetFramebuffer->GetFramebufferHeight();
 
         // Intermediate targets: edges + weights are LDR (RGBA8); final matches the FXAA output (RGBA32F).
-        m_EdgesFB    = MakeColorFB( "SMAAEdges", Core::Formats::ImageFormat::RGBA8F, w, h );
-        m_WeightsFB  = MakeColorFB( "SMAAWeights", Core::Formats::ImageFormat::RGBA8F, w, h );
-        m_Framebuffer = MakeColorFB( "SMAABlend", Core::Formats::ImageFormat::RGBA32F, w, h );
+        m_EdgesFB     = MakeColorFB( "SMAAEdges", ViewTargetFormats::kSMAAEdges, w, h );
+        m_WeightsFB   = MakeColorFB( "SMAAWeights", ViewTargetFormats::kSMAAEdges, w, h );
+        m_Framebuffer = MakeColorFB( "SMAABlend", ViewTargetFormats::kSMAABlend, w, h );
 
         auto& shaders   = *Runtime::ResourceRegistry::GetShaderService();
         m_EdgesShader   = shaders.GetByName( "SMAAEdges" );

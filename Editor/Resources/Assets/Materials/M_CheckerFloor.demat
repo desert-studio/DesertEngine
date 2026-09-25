@@ -3,9 +3,9 @@
         "Kind": "Material",
         "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5",
         "Versions": {
-            "MATL": 2
+            "MATL": 3
         },
-        "Dependencies": []
+        "Dependencies": ["3facba2f99300a42b32d1af712ab96e9"]
     },
     "Params": [
         {
@@ -18,7 +18,7 @@
         },
         {
             "Name": "RoughnessFactor",
-            "Value": [0.85, 0.0, 0.0, 0.0]
+            "Value": [0.8500000238418579, 0.0, 0.0, 0.0]
         },
         {
             "Name": "UVTiling",
@@ -28,7 +28,10 @@
     "Textures": [
         {
             "Name": "u_AlbedoTexture",
-            "TextureHandle": 4588246833979984450
+            "Guid": "3facba2f99300a42b32d1af712ab96e9",
+            "Path": "assets:Textures/T_Checker.detex"
         }
-    ]
+    ],
+    "CloudAssets": [],
+    "ShaderRefs": []
 }

@@ -1,5 +1,9 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 namespace Desert::Assets
@@ -7,6 +11,24 @@ namespace Desert::Assets
     SkyboxAsset::SkyboxAsset( AssetPriority priority, const Common::Filepath& filepath )
          : AssetBase( priority, filepath, AssetTypeID::Skybox )
     {
+        // THE SKYBOX'S IDENTITY IS ITS PANORAMA ASSET'S HEADER GUID, adopted here for TextureAsset's reason
+        // (TextureAsset.cpp): the manager keys its lookup at creation. A material's cube slot names the
+        // skybox by that GUID (MATL 3), so a path-derived handle would be a number no slot can reach. An
+        // absent file keeps the path-derived handle and Load refuses it by name.
+        if ( !Common::Utils::FileSystem::Exists( m_Metadata.Filepath ) )
+            return;
+        const auto key = ReadTextureAssetKey( m_Metadata.Filepath );
+        if ( !key.IsSuccess() )
+        {
+            LOG_ERROR( "[SkyboxAsset] '{}' states no readable identity: {}", m_Metadata.Filepath.string(),
+                       key.GetError() );
+            return;
+        }
+        if ( key.GetValue().Guid.IsNull() )
+            return;
+        m_Guid = key.GetValue().Guid;
+        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr SkyboxAsset::LoadFromFile()

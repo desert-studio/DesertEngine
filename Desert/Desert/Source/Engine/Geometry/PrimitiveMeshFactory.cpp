@@ -16,7 +16,7 @@ namespace Desert::Geometry
 
         // The submesh box is PrimitiveBounds, the statement the world partitioner reads as well; the
         // ShapeGenerators suite holds it to these vertices.
-        std::vector<Submesh> submeshes = {
+        const std::vector<Submesh> submeshes = {
              { PrimitiveTypeName( type ), 0, static_cast<uint32_t>( shape->Vertices.size() ), 0,
                static_cast<uint32_t>( shape->Indices.size() * 3 ), glm::mat4( 1.0f ), box.value() } };
         return std::make_shared<DynamicMesh>( shape->Vertices, shape->Indices, submeshes );

@@ -1,0 +1,89 @@
+// Ported from UE 5.8 Engine/Shaders/Private/LandscapeVertexFactory.ush:120-148 (CalcLOD) and :650-680
+// (GetVertexFactoryIntermediates: floor/frac of the LOD, snap to the LOD grid, morph to the next one), and
+// Engine/Source/Runtime/Landscape/Private/LandscapeRender.cpp:3342-3357 (the cell's two triangles and their
+// order), adapted: UE keeps one index buffer per LOD and reads vertices from a per-size vertex buffer; here the
+// SAME triangle list is decoded from gl_VertexIndex (no vertex or index buffer exists at all), the LOD-L grid
+// is a stride-2^L subset of the LOD-0 samples (UE instead samples a mip chain of the heightmap), so LOD 0
+// is exactly the samples Jolt collides with; the tile's last row and column are pinned (UE sections are
+// 2^n - 1 quads and snap by mip, ours keep the section sizes but snap by stride, which would otherwise drop
+// the shared edge); and a vertex on two borders takes the corner LOD, the max of the four tiles that share
+// it (UE picks one neighbour there), so the corner vertex is one point for all four tiles.
+//
+// Compiled twice from this text, like LandscapeHeight.glslh: as GLSL by Programs/Terrain/TerrainVertex.glslh,
+// and as C++ by the LandscapeRaycast suite, which checks the grid against Jolt and the seams against each
+// other. Same dialect: `f` literals, no swizzles, no `out`, no arrays, functions before use.
+
+#ifndef LANDSCAPE_LOD_GLSLH
+#define LANDSCAPE_LOD_GLSLH
+
+// Six vertices per cell: two triangles, (00, 11, 10) and (00, 01, 11) — the diagonal (x, z)-(x+1, z+1), Jolt's.
+
+// INTEGER arithmetic wherever a result is an index: MoltenVK compiles with fast math, where x / y is not
+// correctly rounded, so floor(6k / 6.0) can be k - 1 and a vertex lands a whole tile row away (LS-7c's first
+// frame was a field of needles). Integer division is exact on both sides.
+
+// Samples between two neighbouring vertices of the LOD-`lod` grid.
+int LandscapeLodStride( int lod )
+{
+    return 1 << lod;
+}
+
+// A tile-local sample coordinate on the grid of the given stride. The last sample stays where it is: it
+// is the shared edge, and rounding down would move it one cell into the tile and open the seam.
+int LandscapeLodSnap( int c, int stride, int last )
+{
+    return c >= last ? last : c / stride * stride;
+}
+
+// The corner (0..5) of a cell's two triangles, as a 0/1 step along X and along Z.
+int LandscapeLodCornerX( int corner )
+{
+    return ( corner == 1 || corner == 2 || corner == 5 ) ? 1 : 0;
+}
+
+int LandscapeLodCornerZ( int corner )
+{
+    return ( corner == 1 || corner == 4 || corner == 5 ) ? 1 : 0;
+}
+
+// The tile-local sample coordinate (along X when `alongZ` is 0, along Z when 1) of draw vertex `vertex` of a
+// tile drawn at grid LOD `lod`. The last cell is narrower when the stride does not divide the quads.
+int LandscapeLodGridCoord( int vertex, int quads, int lod, int alongZ )
+{
+    int stride = LandscapeLodStride( lod );
+    int cells  = ( quads + stride - 1 ) / stride;
+    int cell   = vertex / 6;
+    int corner = vertex - cell * 6;
+    int cz     = cell / cells;
+    int cx     = cell - cz * cells;
+    int c      = alongZ == 1 ? cz + LandscapeLodCornerZ( corner ) : cx + LandscapeLodCornerX( corner );
+    return c * stride < quads ? c * stride : quads;
+}
+
+// A vertex's morph from its LOD grid (a) to the next one (b). NOT mix(): a*(1-t) + b*t is not `a` when a == b
+// for every t, and a coordinate pinned to the tile's last sample must stay that sample on both sides of it.
+float LandscapeLodMorph( float a, float b, float t )
+{
+    return a + ( b - a ) * t;
+}
+
+// The continuous LOD of a vertex at tile-local (x, z): the tile's own LOD in the middle, blended towards the
+// LOD of the nearest border, which IS that border's value on the border. `edges` = max(tile, neighbour) for
+// West, East, South, North; `corners` = max of the four tiles at (-x,-z), (+x,-z), (-x,+z), (+x,+z). Both are
+// symmetric, so the two tiles of a border compute one value for every vertex on it.
+float LandscapeCalcLod( float x, float z, float quads, float center, vec4 edges, vec4 corners, float invBlendRange )
+{
+    float dx = x / quads * 2.0f - 1.0f;
+    float dz = z / quads * 2.0f - 1.0f;
+    // On a border the distance is 1 by test, not by division (fast math again).
+    float ax = ( x <= 0.0f || x >= quads ) ? 1.0f : abs( dx );
+    float az = ( z <= 0.0f || z >= quads ) ? 1.0f : abs( dz );
+    if ( ax >= 1.0f && az >= 1.0f )
+        return dx < 0.0f ? ( dz < 0.0f ? corners.x : corners.z ) : ( dz < 0.0f ? corners.y : corners.w );
+
+    float lb        = clamp( 1.0f - ( 1.0f - max( ax, az ) ) * invBlendRange, 0.0f, 1.0f );
+    float neighbour = ax > az ? ( dx < 0.0f ? edges.x : edges.y ) : ( dz < 0.0f ? edges.z : edges.w );
+    return ( 1.0f - lb ) * center + lb * neighbour;
+}
+
+#endif // LANDSCAPE_LOD_GLSLH

@@ -140,7 +140,7 @@ REM unfiltered copy carried them. A FRESH CHECKOUT holds zero — Finder is what
 REM never saw one, and looking there says the hazard does not exist. Windows contributes Thumbs.db and
 REM desktop.ini the same way.
 REM ---------------------------------------------------------------------------
-for %%T in (Shaders Fonts Icons Splash) do (
+for %%T in (Branding Shaders Fonts Icons Splash) do (
     if not exist "%ROOT%\Editor\Resources\%%T" (
         echo Package.bat: engine resource tree Editor\Resources\%%T is missing 1>&2
         exit /b 1
@@ -214,7 +214,7 @@ if not exist "%OUT%\Resources\Splash\Splash.tex" (
 )
 
 echo Package.bat: packaged -^> %OUT%
-echo   engine resources: Shaders + Fonts + Icons + Splash ^(its picture is committed there^)
+echo   engine resources: Branding + Shaders + Fonts + Icons + Splash ^(its picture is committed there^)
 echo   project assets:   !COPIED! files, the closure of Desert.deproj's DefaultScene
 endlocal
 exit /b 0

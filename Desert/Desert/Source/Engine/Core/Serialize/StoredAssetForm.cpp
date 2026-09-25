@@ -25,9 +25,12 @@ namespace Desert::Core::Serialize
         // asset type with no branch was looked up as a MESH, found nothing, and returned an empty
         // string — a dead setting delivered by a silent fallback, in the one place that decides whether
         // a scene reference survives a save.
-        if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" ||
-             type == "SkyboxAsset" )
+        if ( type == "StaticMeshAsset" || type == "SkinnedMeshAsset" || type == "MeshAsset" )
             return StoredAssetForm::MachinePath;
+
+        // Skyboxes store {GUID, project key} since SCNE 29; the absolute path is unreachable by construction.
+        if ( type == "SkyboxAsset" )
+            return StoredAssetForm::ProjectKey;
 
         return std::nullopt;
     }
@@ -53,6 +56,9 @@ namespace Desert::Core::Serialize
 
             case StoredAssetForm::MachinePath:
                 return Common::AssetHandle::PathForStableKey( key ).string();
+
+            case StoredAssetForm::ProjectKey:
+                return Common::AssetHandle::IsProjectRelativeKey( key ) ? key : std::string();
         }
 
         // Unreachable: the switch has no `default:` precisely so that a new enumerator stops

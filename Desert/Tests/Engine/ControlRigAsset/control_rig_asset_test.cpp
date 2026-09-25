@@ -340,8 +340,10 @@ TEST( ControlRigAssetTest, ARigWrittenAndReadBackIsTheSameRigByValue )
     // THE COMPARISON IS `operator==` OVER THE WHOLE DOCUMENT. "the file parsed" would pass over a control
     // whose second parent slot was dropped, and the symptom of that is a control that follows one space
     // when it should blend two — which looks like a rigging mistake, not a serializer one.
+    // The writer stamped a header (a GUID minted for a rig that had none); everything else is the original.
+    ASSERT_TRUE( reread.GetValue().Header.has_value() );
     RigFile::ControlRigData expected = original;
-    expected.FormatVersion           = RigFile::kControlRigVersion;
+    expected.Header                  = reread.GetValue().Header;
     EXPECT_EQ( reread.GetValue(), expected );
 
     // AND THE NAMES SURVIVED AS NAMES. Spelled out rather than left to operator== because this is the
@@ -405,8 +407,9 @@ TEST( ControlRigAssetTest, TheFileSurvivesTheDiskAndTheRefusalsNameTheFile )
     auto loaded = RigFile::LoadControlRigFile( path );
     ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
 
+    ASSERT_TRUE( loaded.GetValue().Header.has_value() );
     RigFile::ControlRigData expected = original;
-    expected.FormatVersion           = RigFile::kControlRigVersion;
+    expected.Header                  = loaded.GetValue().Header;
     EXPECT_EQ( loaded.GetValue(), expected );
 
     // A RIG THE FORMAT REFUSES IS NEVER WRITTEN. The alternative is a `.derig` on disk that no build can
@@ -422,15 +425,22 @@ TEST( ControlRigAssetTest, TheFileSurvivesTheDiskAndTheRefusalsNameTheFile )
 
 TEST( ControlRigAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirections )
 {
-    RigFile::ControlRigData future = ArmRigFile();
-    future.FormatVersion           = RigFile::kControlRigVersion + 1;
+    // WriteControlRig stamps the CURRENT version, so a future one is provoked through the text.
+    std::string       text   = RigFile::WriteControlRig( ArmRigFile() );
+    const std::string stated = "\"CRIG\": " + std::to_string( RigFile::kControlRigVersion );
+    const auto        at     = text.find( stated );
+    ASSERT_NE( at, std::string::npos ) << text;
+    ASSERT_TRUE( RigFile::ParseControlRig( text ).IsSuccess() );
+    text.replace( at, stated.size(), "\"CRIG\": 42" );
+    const auto future = RigFile::ParseControlRig( text );
+    ASSERT_FALSE( future.IsSuccess() );
+    EXPECT_NE( future.GetError().find( "42" ), std::string::npos ) << future.GetError();
 
-    // Written through reflect-cpp directly, because WriteControlRig deliberately stamps the CURRENT
-    // version — a writer that could emit another generation would be a second way for the number to be
-    // wrong.
-    const std::string text = RigFile::WriteControlRig( future );
-    auto              ok   = RigFile::ParseControlRig( text );
-    ASSERT_TRUE( ok.IsSuccess() ) << "WriteControlRig must stamp the current generation, not carry one in";
+    // A VERSION-1 FILE (top-level FormatVersion, no header, T7c) is refused by name, pointing at the migrator.
+    const auto v1 = RigFile::ParseControlRig( R"({"FormatVersion":1,"Name":"X","Controls":[],"Drives":[]})" );
+    ASSERT_FALSE( v1.IsSuccess() );
+    EXPECT_NE( v1.GetError().find( "format version 1" ), std::string::npos ) << v1.GetError();
+    EXPECT_NE( v1.GetError().find( "SceneMigrator" ), std::string::npos ) << v1.GetError();
 
     const std::string tampered = R"({"FormatVersion":99,"Name":"X","Controls":[],"Drives":[]})";
     auto              refused  = RigFile::ParseControlRig( tampered );
@@ -448,7 +458,7 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
     // must load, and its controls must draw exactly as they always did. That equivalence is the whole
     // argument for leaving kControlRigVersion where it is, so it is asserted rather than reasoned about.
     const std::string legacy = R"({
-      "FormatVersion": 1,
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
       "Name": "Legacy",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",
@@ -473,7 +483,7 @@ TEST( ControlRigAssetTest, TheShapeTransformSurvivesTheFileAndAnAbsentOneMeansId
 
     // A FILE THAT NAMES A SIZE gets that size, to the float, on the control it names and on no other.
     const std::string sizedText = R"({
-      "FormatVersion": 1,
+      "Header": { "Kind": "ControlRig", "Guid": "0123456789abcdef0123456789abcdef", "Versions": { "CRIG": 2 }, "Dependencies": [] },
       "Name": "Sized",
       "Controls": [
         { "Name": "Hand_CTRL", "ShapeName": "CircleXY",

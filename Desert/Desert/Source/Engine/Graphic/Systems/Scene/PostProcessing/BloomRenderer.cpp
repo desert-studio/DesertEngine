@@ -1,4 +1,5 @@
 #include "BloomRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -9,7 +10,7 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr Core::Formats::ImageFormat kBloomFormat = Core::Formats::ImageFormat::RGBA32F;
+        constexpr Core::Formats::ImageFormat kBloomFormat = ViewTargetFormats::kBloom;
         constexpr uint32_t                   kGroupSize   = 16; // must match local_size_* in the shaders
 
         // Push-constant blocks — must match BloomDownsample/BloomUpsample.glsl.comp exactly.

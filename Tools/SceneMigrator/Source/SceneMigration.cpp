@@ -1,4 +1,8 @@
 #include "SceneMigration.hpp"
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <fstream>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -24,7 +28,10 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -34,12 +41,14 @@
 // property tree it was handed, so it is the only one that needs the serializer here. It still writes
 // nothing itself: it returns the JSON text in the report and MigratorMain owns the atomic write, which
 // is what keeps this function pure and testable (contract Section 4.4).
+#include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <fstream>
 #include <optional>
 #include <string>
 
@@ -1886,6 +1895,510 @@ namespace Desert::Migration
         }
     } // namespace
 
+    MaterialGuidsMigrationReport MigrateMaterialGuidsV26ToV27( std::vector<Assets::EntityData>& entities,
+                                                               const LegacyMaterialIdMap&       legacyIds )
+    {
+        // The three components whose payload states material slots by `MaterialGuids` (PrefabData.hpp).
+        static constexpr auto kSlotComponents =
+             std::to_array<const char*>( { "StaticMesh", "SkinnedMesh", "InstancedStaticMesh" } );
+
+        MaterialGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            for ( const char* component : kSlotComponents )
+            {
+                const auto payload = entity.Components.get( component );
+                if ( !payload.has_value() )
+                    continue;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                const auto slots = fields.value().get( "MaterialGuids" );
+                if ( !slots.has_value() )
+                    continue;
+                const auto rows = slots.value().to_array();
+                if ( !rows.has_value() )
+                {
+                    report.UnknownNames.push_back( tag + " > " + component + ".MaterialGuids is " +
+                                                   Describe( slots.value() ) + ", not an array" );
+                    continue;
+                }
+
+                rfl::Generic::Array rewritten;
+                bool                changed = false;
+                for ( size_t i = 0; i < rows.value().size(); ++i )
+                {
+                    const rfl::Generic& row = rows.value()[i];
+                    const std::string   site =
+                         tag + " > " + component + ".MaterialGuids[" + std::to_string( i ) + "]";
+                    const auto id = row.to_int64();
+                    if ( !id.has_value() )
+                    {
+                        report.UnknownNames.push_back( site + " is " + Describe( row ) +
+                                                       ", not an old material id" );
+                        rewritten.push_back( row );
+                        continue;
+                    }
+                    changed = true;
+                    // The writer stored the u64 through a signed JSON integer; the register keys the u64.
+                    const auto oldId = static_cast<uint64_t>( id.value() );
+                    if ( oldId == 0 )
+                    {
+                        ++report.Emptied;
+                        rewritten.push_back( rfl::Generic( std::string() ) );
+                        continue;
+                    }
+                    const auto at = legacyIds.find( oldId );
+                    if ( at == legacyIds.end() )
+                    {
+                        report.UnknownNames.push_back( site + " = " + std::to_string( oldId ) );
+                        rewritten.push_back( row );
+                        continue;
+                    }
+                    ++report.Rewritten;
+                    rewritten.push_back( rfl::Generic( Common::Content::AssetGuidToText( at->second ) ) );
+                }
+                if ( !changed )
+                    continue;
+
+                rfl::Generic::Object kept;
+                for ( const auto& [key, value] : fields.value() )
+                    kept[key] = key == "MaterialGuids" ? rfl::Generic( std::move( rewritten ) ) : value;
+                entity.Components[component] = rfl::Generic( std::move( kept ) );
+            }
+        }
+        return report;
+    }
+
+    namespace
+    {
+        // The header GUID of the mesh `meshPath` names, after checking that `oldHandle` is that file's
+        // path-derived handle. An error string names why not.
+        Common::ResultStr<Common::Content::AssetGuid> MeshGuidForBlock( uint64_t                     oldHandle,
+                                                                        const std::string&           meshPath,
+                                                                        const std::filesystem::path& assetsRoot )
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            const fs::path  start = fs::absolute( assetsRoot, ec ).lexically_normal();
+            fs::path        project;
+            for ( fs::path at = start; !at.empty(); at = at.parent_path() )
+            {
+                if ( fs::is_regular_file( at / meshPath, ec ) )
+                {
+                    project = at;
+                    break;
+                }
+                if ( at == at.parent_path() )
+                    break;
+            }
+            if ( project.empty() )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "no file '" + meshPath + "' under any ancestor of " + start.generic_string() );
+
+            const fs::path file = ( project / meshPath ).lexically_normal();
+            // The key the writer hashed: the file's place under the Cooked tree or the assets root.
+            std::string       key;
+            const std::string underCooked =
+                 file.lexically_relative( project / Common::Constants::Path::COOKED_DIR_NAME ).generic_string();
+            const std::string underAssets = file.lexically_relative( start ).generic_string();
+            if ( !underCooked.empty() && underCooked.rfind( "..", 0 ) != 0 )
+                key = "cooked:" + underCooked;
+            else if ( !underAssets.empty() && underAssets.rfind( "..", 0 ) != 0 )
+                key = "assets:" + underAssets;
+            else
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + meshPath + "' lies under neither the Cooked tree nor the assets root" );
+            const uint64_t pathHandle = static_cast<uint64_t>( Common::AssetHandle::FromKey( key ) );
+            if ( pathHandle != oldHandle )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "is not the handle of '" + key + "' (" + std::to_string( pathHandle ) + ")" );
+
+            std::ifstream in( file, std::ios::binary );
+            std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+            in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+            const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
+            if ( !guid || guid->IsNull() )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() + "' states no mesh GUID (not a v3 mesh)" );
+            return Common::MakeSuccess( Common::Content::AssetGuid( *guid ) );
+        }
+
+        void RaiseMeshGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                             const std::filesystem::path& assetsRoot, MeshGuidsMigrationReport& report )
+        {
+            static constexpr auto kMeshComponents =
+                 std::to_array<const char*>( { "StaticMesh", "SkinnedMesh", "InstancedStaticMesh" } );
+            for ( const char* component : kMeshComponents )
+            {
+                const auto payload = components.get( component );
+                if ( !payload.has_value() )
+                    continue;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                const auto value = fields.value().get( "MeshGuid" );
+                if ( !value.has_value() )
+                    continue;
+                const std::string site = tag + " > " + component + ".MeshGuid";
+                const auto        id   = value.value().to_int64();
+                if ( !id.has_value() )
+                {
+                    report.UnknownNames.push_back( site + " is " + Describe( value.value() ) +
+                                                   ", not a mesh handle" );
+                    continue;
+                }
+                const auto        path = fields.value().get( "MeshPath" );
+                const std::string text = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                if ( text.empty() )
+                {
+                    report.UnknownNames.push_back( site + " = " + std::to_string( id.value() ) +
+                                                   " has no MeshPath to find its file by" );
+                    continue;
+                }
+                // The writer stored the u64 through a signed JSON integer.
+                const auto guid = MeshGuidForBlock( static_cast<uint64_t>( id.value() ), text, assetsRoot );
+                if ( !guid )
+                {
+                    report.UnknownNames.push_back( site + " = " + std::to_string( id.value() ) + " " +
+                                                   guid.GetError() );
+                    continue;
+                }
+                ++report.Rewritten;
+                rfl::Generic::Object kept;
+                for ( const auto& [key, field] : fields.value() )
+                    kept[key] = key == "MeshGuid"
+                                     ? rfl::Generic( Common::Content::AssetGuidToText( guid.GetValue() ) )
+                                     : field;
+                components[component] = rfl::Generic( std::move( kept ) );
+            }
+        }
+    } // namespace
+
+    MeshGuidsMigrationReport MigrateMeshGuidsV27ToV28( std::vector<Assets::EntityData>& entities,
+                                                       const std::filesystem::path&     assetsRoot )
+    {
+        MeshGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseMeshGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseMeshGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                assetsRoot, report );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        rfl::Generic TextureRef( const std::string& guid, const std::string& key )
+        {
+            rfl::Generic::Object ref;
+            ref["Guid"] = guid;
+            ref["Path"] = key;
+            return { std::move( ref ) };
+        }
+
+        // The header GUID a `.detex` states, refusing a missing file, another kind, or the null GUID.
+        Common::ResultStr<std::string> TextureGuidOfFile( const std::filesystem::path& file )
+        {
+            std::error_code ec;
+            if ( !std::filesystem::is_regular_file( file, ec ) )
+                return Common::MakeFormattedError<std::string>( "{}", "no file '" + file.generic_string() + "'" );
+            std::ifstream in( file, std::ios::binary );
+            std::string   prefix( 4096, '\0' );
+            in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+            const auto header =
+                 Common::Content::ReadEnvelopeHeader( std::as_bytes( std::span<const char>( prefix ) ),
+                                                      Common::Content::AssetHeaderReadContext{ {}, true } );
+            if ( !header )
+                return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
+                                                                           "': " + header.GetError() );
+            const auto& asset = header.GetValue().Asset;
+            if ( asset.Kind != Common::Content::ContentKind::Texture &&
+                 asset.Kind != Common::Content::ContentKind::Skybox )
+                return Common::MakeFormattedError<std::string>(
+                     "{}", "'" + file.generic_string() + "' is not a texture (kind " +
+                                std::string( Common::Content::KindName( asset.Kind ) ) + ")" );
+            if ( asset.Guid.IsNull() )
+                return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
+                                                                           "' states the null GUID" );
+            return Common::MakeSuccess( Common::Content::AssetGuidToText( asset.Guid ) );
+        }
+
+        // `assets:<rel>` for a file under the assets root; an error naming it otherwise.
+        Common::ResultStr<std::string> AssetsKeyOf( const std::filesystem::path& file,
+                                                    const std::filesystem::path& assetsRoot )
+        {
+            std::error_code ec;
+            const auto      root = std::filesystem::absolute( assetsRoot, ec ).lexically_normal();
+            const auto      rel  = file.lexically_normal().lexically_relative( root ).generic_string();
+            if ( rel.empty() || rel == "." || rel.starts_with( ".." ) )
+                return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
+                                                                           "' lies outside the assets root '" +
+                                                                           root.generic_string() + "'" );
+            return Common::MakeSuccess( "assets:" + rel );
+        }
+
+        // A stable key or path (a v28 skybox, a v29 sprite) -> the {Guid, Path} reference object.
+        Common::ResultStr<rfl::Generic> KeyToTextureRef( const std::string&           value,
+                                                         const std::filesystem::path& assetsRoot )
+        {
+            if ( value.empty() )
+                return Common::MakeSuccess( TextureRef( "", "" ) );
+            std::error_code       ec;
+            std::filesystem::path file;
+            if ( value.starts_with( "assets:" ) )
+                file = std::filesystem::absolute( assetsRoot, ec ) / value.substr( 7 );
+            else if ( std::filesystem::path( value ).is_absolute() )
+                file = value;
+            else
+                return Common::MakeFormattedError<rfl::Generic>(
+                     "{}", "is neither an assets: key nor an absolute path" );
+            const auto key = AssetsKeyOf( file, assetsRoot );
+            if ( !key )
+                return Common::MakeFormattedError<rfl::Generic>( "{}", key.GetError() );
+            const auto guid = TextureGuidOfFile( file );
+            if ( !guid )
+                return Common::MakeFormattedError<rfl::Generic>( "{}", guid.GetError() );
+            return Common::MakeSuccess( TextureRef( guid.GetValue(), key.GetValue() ) );
+        }
+
+        // handle -> {GUID text, assets: key} of every texture under the assets root, read once per file.
+        using TextureIndex = std::map<uint64_t, std::pair<std::string, std::string>>;
+
+        const TextureIndex& TexturesUnder( const std::filesystem::path& assetsRoot,
+                                           std::optional<TextureIndex>& cache )
+        {
+            if ( cache )
+                return *cache;
+            cache.emplace();
+            std::error_code ec;
+            for ( auto it = std::filesystem::recursive_directory_iterator( assetsRoot, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( it->path().extension() != ".detex" )
+                    continue;
+                const auto guid = TextureGuidOfFile( it->path() );
+                const auto key  = AssetsKeyOf( std::filesystem::absolute( it->path() ), assetsRoot );
+                if ( !guid || !key )
+                    continue;
+                const auto parsed = Common::Content::AssetGuidFromText( guid.GetValue() );
+                ( *cache )[static_cast<uint64_t>( Common::Content::HandleForGuid( parsed.GetValue() ) )] = {
+                     guid.GetValue(), key.GetValue() };
+            }
+            return *cache;
+        }
+
+        void RaiseTextureGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                                const std::filesystem::path& assetsRoot, std::optional<TextureIndex>& index,
+                                TextureGuidsMigrationReport& report )
+        {
+            if ( const auto payload = components.get( "Skybox" ); payload.has_value() )
+                if ( const auto fields = payload.value().to_object(); fields.has_value() )
+                    if ( const auto value = fields.value().get( "SkyboxHandle" ); value.has_value() )
+                    {
+                        const std::string site = tag + " > Skybox.SkyboxHandle";
+                        if ( value.value().to_object().has_value() )
+                        {
+                            // Already a reference object: raised by an earlier run.
+                        }
+                        else if ( const auto text = value.value().to_string(); !text.has_value() )
+                            report.UnknownNames.push_back( site + " is " + Describe( value.value() ) +
+                                                           ", not a skybox reference" );
+                        else if ( const auto ref = KeyToTextureRef( text.value(), assetsRoot ); !ref )
+                            report.UnknownNames.push_back( site + " = '" + text.value() + "' " + ref.GetError() );
+                        else
+                        {
+                            if ( !text.value().empty() )
+                                ++report.Rewritten;
+                            rfl::Generic::Object kept = fields.value();
+                            kept["SkyboxHandle"]      = ref.GetValue();
+                            components["Skybox"]      = rfl::Generic( std::move( kept ) );
+                        }
+                    }
+
+            const auto payload = components.get( "Material" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return;
+            const auto list = fields.value().get( "Textures" );
+            if ( !list.has_value() )
+                return;
+            const auto slots = list.value().to_array();
+            if ( !slots.has_value() )
+                return;
+            rfl::Generic::Array raised;
+            bool                changed = false;
+            for ( std::size_t i = 0; i < slots.value().size(); ++i )
+            {
+                const auto slot = slots.value()[i].to_object();
+                if ( !slot.has_value() || !slot.value().get( "TextureHandle" ).has_value() )
+                {
+                    raised.push_back( slots.value()[i] ); // already {Name, Guid, Path}
+                    continue;
+                }
+                const auto        name = slot.value().get( "Name" );
+                const std::string slotName =
+                     name.has_value() ? name.value().to_string().value_or( std::string() ) : std::string();
+                const std::string site =
+                     tag + " > Material.Textures[" + std::to_string( i ) + "] (" + slotName + ")";
+                const auto id = slot.value().get( "TextureHandle" ).value().to_int64();
+                if ( !id.has_value() )
+                {
+                    report.UnknownNames.push_back( site + " is not a texture handle" );
+                    continue;
+                }
+                rfl::Generic::Object entry;
+                entry["Name"] = slotName;
+                if ( id.value() == 0 )
+                {
+                    entry["Guid"] = std::string();
+                    entry["Path"] = std::string();
+                }
+                else
+                {
+                    const auto& known = TexturesUnder( assetsRoot, index );
+                    const auto  hit   = known.find( static_cast<uint64_t>( id.value() ) );
+                    if ( hit == known.end() )
+                    {
+                        report.UnknownNames.push_back( site + " = " + std::to_string( id.value() ) +
+                                                       " is the handle of no .detex under the assets root" );
+                        continue;
+                    }
+                    entry["Guid"] = hit->second.first;
+                    entry["Path"] = hit->second.second;
+                    ++report.Rewritten;
+                }
+                raised.emplace_back( std::move( entry ) );
+                changed = true;
+            }
+            if ( !changed )
+                return;
+            rfl::Generic::Object kept = fields.value();
+            kept["Textures"]          = rfl::Generic( std::move( raised ) );
+            components["Material"]    = rfl::Generic( std::move( kept ) );
+        }
+    } // namespace
+
+    TextureGuidsMigrationReport MigrateTextureGuidsV28ToV29( std::vector<Assets::EntityData>& entities,
+                                                             const std::filesystem::path&     assetsRoot )
+    {
+        TextureGuidsMigrationReport report;
+        std::optional<TextureIndex> index;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseTextureGuids( entity.Components, tag, assetsRoot, index, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseTextureGuids( overrides[i].Components,
+                                   tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index,
+                                   report );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        // The v30 sprite slots, component by component; `Settings.SplashSprite` is raised beside them.
+        struct SpriteSlots
+        {
+            const char*                        Component;
+            std::initializer_list<const char*> Fields;
+        };
+        const SpriteSlots kSpriteSlots[] = {
+             { "UICanvas", { "Sprite" } },
+             { "UIPanel", { "Sprite" } },
+             { "UIImage", { "Sprite" } },
+             { "UIButton", { "Sprite", "HoverSprite", "PressedSprite" } },
+        };
+
+        // Raises the named string fields of one object to {Guid, Path}; true when any was rewritten.
+        bool RaiseSpriteFields( rfl::Generic::Object& fields, std::initializer_list<const char*> names,
+                                const std::string& site, const std::filesystem::path& assetsRoot,
+                                TextureGuidsMigrationReport& report )
+        {
+            bool changed = false;
+            for ( const char* name : names )
+            {
+                const auto value = fields.get( name );
+                if ( !value.has_value() || value.value().to_object().has_value() )
+                    continue; // absent, or already a reference object: raised by an earlier run
+                const std::string where = site + name;
+                const auto        text  = value.value().to_string();
+                if ( !text.has_value() )
+                {
+                    report.UnknownNames.push_back( where + " is " + Describe( value.value() ) +
+                                                   ", not a texture reference" );
+                    continue;
+                }
+                const auto ref = KeyToTextureRef( text.value(), assetsRoot );
+                if ( !ref )
+                {
+                    report.UnknownNames.push_back( where + " = '" + text.value() + "' " + ref.GetError() );
+                    continue;
+                }
+                if ( !text.value().empty() )
+                    ++report.Rewritten;
+                fields[name] = ref.GetValue();
+                changed      = true;
+            }
+            return changed;
+        }
+
+        void RaiseSpriteGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                               const std::filesystem::path& assetsRoot, TextureGuidsMigrationReport& report )
+        {
+            for ( const auto& slots : kSpriteSlots )
+            {
+                const auto payload = components.get( slots.Component );
+                if ( !payload.has_value() )
+                    continue;
+                auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                if ( RaiseSpriteFields( fields.value(), slots.Fields, tag + " > " + slots.Component + ".",
+                                        assetsRoot, report ) )
+                    components[slots.Component] = rfl::Generic( std::move( fields.value() ) );
+            }
+        }
+    } // namespace
+
+    TextureGuidsMigrationReport MigrateSpriteGuidsV29ToV30( std::optional<rfl::Generic>&     settings,
+                                                            std::vector<Assets::EntityData>& entities,
+                                                            const std::filesystem::path&     assetsRoot )
+    {
+        TextureGuidsMigrationReport report;
+        if ( settings.has_value() )
+            if ( auto fields = settings->to_object(); fields.has_value() )
+                if ( RaiseSpriteFields( fields.value(), { "SplashSprite" }, "Settings > ", assetsRoot, report ) )
+                    settings = rfl::Generic( std::move( fields.value() ) );
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseSpriteGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseSpriteGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                  assetsRoot, report );
+        }
+        return report;
+    }
+
     TextureAssetRefsMigrationReport MigrateTextureAssetRefsV23ToV24( std::optional<rfl::Generic>&     settings,
                                                                      std::vector<Assets::EntityData>& entities,
                                                                      const std::filesystem::path&     assetsRoot )
@@ -2106,7 +2619,17 @@ namespace Desert::Migration
                 continue;
             }
 
-            auto parsed = Animation::Graph::Deserialize( *json );
+            // GENERATION 0, READ AS IT WAS: a scene blob never carried the header (ANGR 1, T7d), so the engine's
+            // Deserialize - which refuses a headerless graph - is not this step's reader. The struct is.
+            auto parsed = [&]() -> Common::ResultStr<Animation::Graph::AnimGraph>
+            {
+                auto read = rfl::json::read<Animation::Graph::AnimGraph, rfl::DefaultIfMissing>( *json );
+                if ( !read )
+                    return Common::MakeError<Animation::Graph::AnimGraph>( read.error().what() );
+                Animation::Graph::AnimGraph body = read.value();
+                body.Header.reset();
+                return Common::MakeSuccess( std::move( body ) );
+            }();
             if ( !parsed )
             {
                 // LEFT IN PLACE. A blob that will not parse is a state machine somebody authored and this
@@ -2143,7 +2666,8 @@ namespace Desert::Migration
             // writing the canonical form means two entities whose graphs differ only in key order or in a
             // field one build omitted produce the SAME bytes, which is what lets the caller collapse them
             // onto one file instead of discovering a spurious conflict.
-            report.Graphs.push_back( AnimGraphFile{ relative, Animation::Graph::Serialize( graph ) } );
+            // Written as generation 0 (no header); MigratorMain mints the header once per written path.
+            report.Graphs.push_back( AnimGraphFile{ relative, rfl::json::write( graph ) } );
             entity.Components["Animation"] = rfl::Generic( withoutBlob( relative ) );
             report.Entities += 1;
         }
@@ -2564,7 +3088,9 @@ namespace Desert::Migration
 
             ++cloudEntityIndex;
 
-            Assets::MaterialData material;
+            // MATL 2, the shape this step was written against: the material pass raises it to 3 when the file
+            // is written (WriteCloudMaterials), where the content root that translates its numbers is known.
+            MaterialDataV2 material;
             material.ShaderName = "CloudRaymarch"; // = Graphic::kCloudMaterialShaderName; the migration
                                                    // suite pins the two spellings together
 
@@ -2702,7 +3228,7 @@ namespace Desert::Migration
             // suite pin the output and the repository diff show only real change.
             material.Header = ::Common::Content::MakeTextHeader( ::Common::Content::ContentKind::Material,
                                                                  MigrationGuidForPath( "cloudmat:" + relPath ),
-                                                                 ::Desert::Assets::MaterialTextSubsystems() );
+                                                                 MaterialTextSubsystemsV2() );
 
             kept["Material"] = rfl::Generic( relPath );
 
@@ -2719,14 +3245,14 @@ namespace Desert::Migration
             // tool twice.
             MigrateCloudMaterialAlbedoToColour( material );
 
-            // The one .demat writer (MaterialFormat.hpp), so the file opens with its text header like every
-            // other material. Its GUID is the migration's, keyed on the path under the assets root - the same
-            // derivation step 26 gives a headerless file - so re-running the tool writes the same bytes.
+            // Canonical MATL 2 text, header first like every other material. Its GUID is the migration's, keyed on
+            // the path under the assets root - the same derivation step 26 gives a headerless file - so re-running
+            // the tool writes the same bytes.
             material.Header = Assets::StampTextHeader(
                  Common::Content::TextAssetHeaderSerialized{
                       .Guid = Common::Content::AssetGuidToText( MigrationGuidForPath( relPath ) ) },
-                 Common::Content::ContentKind::Material, Assets::MaterialTextSubsystems() );
-            auto text = Assets::WriteMaterialJson( material );
+                 Common::Content::ContentKind::Material, MaterialTextSubsystemsV2() );
+            auto text = Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( material ) );
             if ( !text )
             {
                 report.Rejected += 1;
@@ -2744,7 +3270,7 @@ namespace Desert::Migration
         return report;
     }
 
-    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( Assets::MaterialData& material )
+    CloudMaterialLayoutReport MigrateCloudMaterialLayoutInputs( MaterialDataV2& material )
     {
         CloudMaterialLayoutReport report;
 
@@ -2788,7 +3314,7 @@ namespace Desert::Migration
         return report;
     }
 
-    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( Assets::MaterialData& material )
+    CloudMaterialAlbedoReport MigrateCloudMaterialAlbedoToColour( MaterialDataV2& material )
     {
         CloudMaterialAlbedoReport report;
 
@@ -2935,7 +3461,7 @@ namespace Desert::Migration
     float ProceduralTerrainHeightV22( float x, float z, float noiseFrequency, int seed, float heightScale )
     {
         const float freq  = std::max( noiseFrequency, 0.0001f );
-        const float seedF = static_cast<float>( seed );
+        const auto  seedF = static_cast<float>( seed );
         const float sx    = seedF * 0.137f;
         const float sz    = seedF * 0.911f;
         const float px    = x * freq;
@@ -3083,7 +3609,7 @@ namespace Desert::Migration
                          World::Landscape::LandscapeSampleFromLocal( h / zScale );
                 }
 
-            const uint64_t                  rootId = static_cast<uint64_t>( entity.id.value() );
+            const auto                      rootId = static_cast<uint64_t>( entity.id.value() );
             bool                            failed = false;
             std::vector<Assets::EntityData> tiles;
             std::vector<LandscapeTileFile>  files;
@@ -3219,7 +3745,7 @@ namespace Desert::Migration
         void RunSteps( std::vector<Assets::EntityData>& entities, std::optional<rfl::Generic>* settings,
                        const std::string& name, int statedSceneVersion, int statedUnitVersion,
                        const std::filesystem::path& assetsRoot, const std::filesystem::path& sourceFile,
-                       FileMigrationReport& report )
+                       const LegacyMaterialIdMap& legacyIds, FileMigrationReport& report )
         {
             // Stands in for the block a prefab does not have. Never read back by the caller: the two
             // steps below that take it are both guarded on has_value(), so an absent block is a no-op
@@ -3426,6 +3952,78 @@ namespace Desert::Migration
                 report.TextureAssetRefs = MigrateTextureAssetRefsV23ToV24( settingsRef, entities, assetsRoot );
             }
 
+            // Rewrites array VALUES under three component keys; no step above writes MaterialGuids.
+            if ( statedSceneVersion < kSceneVersionMaterialGuids )
+            {
+                report.MaterialGuidsRaised = true;
+                report.MaterialGuids       = MigrateMaterialGuidsV26ToV27( entities, legacyIds );
+                if ( !report.MaterialGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.MaterialGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.MaterialGuids.UnknownNames.size() ) +
+                         " material slot(s) state an old material id the register " +
+                         kLegacyMaterialIdRegisterName + " does not know: " + names + ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Rewrites the MeshGuid VALUE under three component keys, in records and override records; no
+            // step above writes MeshGuid.
+            if ( statedSceneVersion < kSceneVersionMeshGuids )
+            {
+                report.MeshGuidsRaised = true;
+                report.MeshGuids       = MigrateMeshGuidsV27ToV28( entities, assetsRoot );
+                if ( !report.MeshGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.MeshGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name + "': " + std::to_string( report.MeshGuids.UnknownNames.size() ) +
+                                     " mesh reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Rewrites the SkyboxHandle value and Material Textures entries; no step above writes either.
+            if ( statedSceneVersion < kSceneVersionTextureGuids )
+            {
+                report.TextureGuidsRaised = true;
+                report.TextureGuids       = MigrateTextureGuidsV28ToV29( entities, assetsRoot );
+                if ( !report.TextureGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.TextureGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.TextureGuids.UnknownNames.size() ) +
+                                     " texture reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Rewrites the UI sprite slots and SplashSprite; no step above writes them after SCNE 24.
+            if ( statedSceneVersion < kSceneVersionSpriteGuids )
+            {
+                report.SpriteGuidsRaised = true;
+                report.SpriteGuids       = MigrateSpriteGuidsV29ToV30( settingsRef, entities, assetsRoot );
+                if ( !report.SpriteGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.SpriteGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.SpriteGuids.UnknownNames.size() ) +
+                                     " sprite reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;
@@ -3546,7 +4144,8 @@ namespace Desert::Migration
     } // namespace
 
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
-                                      const std::filesystem::path& sourceFile )
+                                      const std::filesystem::path& sourceFile,
+                                      const LegacyMaterialIdMap&   legacyIds )
     {
         FileMigrationReport report;
 
@@ -3572,7 +4171,9 @@ namespace Desert::Migration
         }
 
         RunSteps( scene.Entities, &scene.Settings, scene.SceneName, statedSceneVersion, statedUnitVersion,
-                  assetsRoot, sourceFile, report );
+                  assetsRoot, sourceFile, legacyIds, report );
+        if ( !report.Refused.empty() )
+            return report; // unstamped: the file is FAILED by every caller and written by none
 
         // Scene-only, so outside RunSteps (which prefabs share): a prefab keeps its records in hierarchy
         // order. After every entity-level step, because it reorders the records those steps walk.
@@ -3595,7 +4196,8 @@ namespace Desert::Migration
     }
 
     PrefabMigrationOutcome MigratePrefab( PrefabData& prefab, const std::filesystem::path& assetsRoot,
-                                          const std::filesystem::path& sourceFile )
+                                          const std::filesystem::path& sourceFile,
+                                          const LegacyMaterialIdMap&   legacyIds )
     {
         PrefabMigrationOutcome outcome;
         outcome.FoundSceneVersion = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kSceneSchemaTag )
@@ -3648,7 +4250,12 @@ namespace Desert::Migration
         }
 
         RunSteps( prefab.Entities, nullptr, prefab.Name, outcome.FoundSceneVersion, outcome.FoundUnitVersion,
-                  assetsRoot, sourceFile, outcome.Steps );
+                  assetsRoot, sourceFile, legacyIds, outcome.Steps );
+        if ( !outcome.Steps.Refused.empty() )
+        {
+            outcome.Refused = outcome.Steps.Refused;
+            return outcome;
+        }
 
         stamp();
 

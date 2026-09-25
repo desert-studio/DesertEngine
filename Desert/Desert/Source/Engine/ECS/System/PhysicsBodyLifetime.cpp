@@ -23,7 +23,7 @@ namespace Desert::ECS
 
     void PhysicsBodyLifetime::Detach()
     {
-        if ( !m_Registry )
+        if ( m_Registry == nullptr )
             return;
         m_Registry->on_destroy<RigidBodyComponent>().disconnect( this );
         m_Registry->on_destroy<ColliderComponent>().disconnect( this );

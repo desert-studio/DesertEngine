@@ -10,35 +10,11 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
 namespace Splash = Desert::Editor::Splash;
-
-// --- The counter ------------------------------------------------------------------------------------
-
-TEST( SplashLayout, TheCounterNamesTheStepBeingRunAndTheShareAlreadyDone )
-{
-    EXPECT_EQ( Splash::FormatProgress( 0, 17 ), "1 / 17   0%" );
-    EXPECT_EQ( Splash::FormatProgress( 8, 17 ), "9 / 17   47%" );
-    // The last step reads M / M, and the bar does not yet claim it is finished.
-    EXPECT_EQ( Splash::FormatProgress( 16, 17 ), "17 / 17   94%" );
-}
-
-TEST( SplashLayout, APlanNotKnownYetDrawsNoCounterAndAnEmptyBar )
-{
-    // Before the editor has built its stage list (the renderer is still coming up) there is nothing
-    // honest to count; "1 / 0" or "0 / 0   0%" would be a number that says nothing.
-    EXPECT_EQ( Splash::FormatProgress( 0, 0 ), "" );
-    EXPECT_EQ( Splash::ProgressFraction( 0, 0 ), 0.0 );
-    EXPECT_EQ( Splash::ComputeLayout( Splash::ProgressFraction( 0, 0 ) ).BarFill.W, 0.0f );
-}
-
-TEST( SplashLayout, AnIndexPastTheEndIsClampedRatherThanOverdrawn )
-{
-    EXPECT_EQ( Splash::FormatProgress( 40, 17 ), "17 / 17   100%" );
-    EXPECT_EQ( Splash::ProgressFraction( 40, 17 ), 1.0 );
-}
 
 // --- The layout -------------------------------------------------------------------------------------
 
@@ -46,16 +22,20 @@ TEST( SplashLayout, TheElementsSitWhereTheDesignPutsThem )
 {
     const Splash::Layout layout = Splash::ComputeLayout( 0.0 );
     EXPECT_EQ( layout.Project.X, 48.0f );
-    EXPECT_EQ( layout.Project.Y, 58.0f );
+    EXPECT_EQ( layout.Project.Y, 70.0f );
     EXPECT_EQ( layout.Stage.X, 48.0f );
-    EXPECT_EQ( layout.Stage.Y, 36.0f );
+    EXPECT_EQ( layout.Stage.Y, 52.0f );
+    EXPECT_EQ( layout.Item.X, 48.0f );
+    EXPECT_EQ( layout.Item.Y, 36.0f );
+    // The item line has no right-hand neighbour and runs margin to margin.
+    EXPECT_EQ( layout.Item.X + layout.Item.W, Splash::kWidth - 48.0f );
     EXPECT_EQ( layout.BarTrack.Y, 22.0f );
     EXPECT_EQ( layout.BarTrack.H, 2.0f );
     // The bar has the same 48-point margin on both sides.
     EXPECT_EQ( layout.BarTrack.X, 48.0f );
     EXPECT_EQ( layout.BarTrack.X + layout.BarTrack.W, Splash::kWidth - 48.0f );
     // The right-aligned column ends on the same margin.
-    EXPECT_EQ( layout.Counter.X + layout.Counter.W, Splash::kWidth - 48.0f );
+    EXPECT_EQ( layout.Percent.X + layout.Percent.W, Splash::kWidth - 48.0f );
     EXPECT_EQ( layout.Version.X + layout.Version.W, Splash::kWidth - 48.0f );
 }
 
@@ -76,14 +56,67 @@ TEST( SplashLayout, TheFillIsTheTrackTimesTheFractionFromTheSameOrigin )
 
 TEST( SplashLayout, NoTwoTextBoxesOverlap )
 {
-    // The stage label and the counter share a line and each owns a half of it; the project and the
-    // version likewise. A label that grew under the counter would be unreadable on both.
+    // The stage label and the percentage share a line and each owns a half of it; the project and the
+    // version likewise. A label that grew under the percentage would be unreadable on both.
     const Splash::Layout layout = Splash::ComputeLayout( 0.5 );
-    EXPECT_LE( layout.Stage.X + layout.Stage.W, layout.Counter.X );
+    EXPECT_LE( layout.Stage.X + layout.Stage.W, layout.Percent.X );
     EXPECT_LE( layout.Project.X + layout.Project.W, layout.Version.X );
-    // And the text sits above the bar, not on it.
-    EXPECT_GE( layout.Stage.Y, layout.BarTrack.Y + layout.BarTrack.H );
+    EXPECT_EQ( layout.Percent.Y, layout.Stage.Y );
+    // The lines stack without touching: bar, item, stage, project — each box above the one below.
+    EXPECT_GE( layout.Item.Y, layout.BarTrack.Y + layout.BarTrack.H );
+    EXPECT_GE( layout.Stage.Y, layout.Item.Y + layout.Item.H );
     EXPECT_GE( layout.Project.Y, layout.Stage.Y + layout.Stage.H );
+}
+
+TEST( SplashLayout, NoLiveLineReachesThePicturesEngineWordmark )
+{
+    // The live lines are drawn over a picture that already has text in it. The project line used to sit
+    // at y 80 with its box ending 1.3 points under ENGINE's glyphs, and on screen the two read as one line.
+    const Splash::Layout layout = Splash::ComputeLayout( 0.5 );
+    const float          floor  = Splash::kWordmarkEngine.Y - Splash::kWordmarkClearance;
+    for ( const Splash::Rect& box : { layout.Project, layout.Version, layout.Stage, layout.Percent, layout.Item } )
+        EXPECT_LE( box.Y + box.H, floor ) << "a text box at y " << box.Y << " reaches the wordmark";
+}
+
+TEST( SplashLayout, TheWordmarkBoxIsWhereThePictureDrawsEngine )
+{
+    // THE CONSTANT AGAINST THE PIXELS: every sand-coloured pixel in the lower-left of the committed
+    // picture (ENGINE's glyphs; DESERT is white) lies inside kWordmarkEngine, and the box is not empty.
+    // A re-baked picture that moved the wordmark fails here instead of under the project line.
+    const std::filesystem::path repo =
+         std::filesystem::path( __FILE__ ).parent_path().parent_path().parent_path().parent_path().parent_path();
+    const auto loaded = Splash::LoadSplashPixels( repo / "Editor" / Splash::kSplashTexture );
+    ASSERT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    const Splash::SplashPixels& picture = loaded.GetValue();
+    const float                 scale   = static_cast<float>( picture.Width ) / Splash::kWidth;
+
+    float left = Splash::kWidth, right = 0.0f, bottom = Splash::kHeight, top = 0.0f;
+    // Rows and columns in design points: x 40..420, y 30..140 from the bottom — the whole column the live
+    // lines use, so a wordmark that moved down into it is seen.
+    for ( uint32_t row = static_cast<uint32_t>( ( Splash::kHeight - 140.0f ) * scale );
+          row < static_cast<uint32_t>( ( Splash::kHeight - 30.0f ) * scale ); ++row )
+        for ( uint32_t col = static_cast<uint32_t>( 40.0f * scale ); col < static_cast<uint32_t>( 420.0f * scale );
+              ++col )
+        {
+            const unsigned char* p = &picture.Rgba[( static_cast<std::size_t>( row ) * picture.Width + col ) * 4];
+            const bool           sand = p[0] > 215 && p[1] > 150 && p[1] < 215 && p[2] < 170 && p[0] - p[2] > 70;
+            if ( !sand )
+                continue;
+            const float x = static_cast<float>( col ) / scale;
+            const float y = Splash::kHeight - static_cast<float>( row ) / scale;
+            left          = std::min( left, x );
+            right         = std::max( right, x );
+            bottom        = std::min( bottom, y );
+            top           = std::max( top, y );
+        }
+    ASSERT_LT( left, right ) << "no ENGINE glyph found in the picture";
+    const Splash::Rect& box = Splash::kWordmarkEngine;
+    EXPECT_GE( left, box.X - 1.0f );
+    EXPECT_LE( right, box.X + box.W + 1.0f );
+    EXPECT_GE( bottom, box.Y - 1.0f );
+    EXPECT_LE( top, box.Y + box.H + 1.0f );
+    // And the box is tight, so the clearance above is a clearance from the glyphs, not from slack.
+    EXPECT_LE( bottom, box.Y + 2.0f );
 }
 
 TEST( SplashLayout, FlippingToATopOriginKeepsTheBoxAndMovesItsReferenceEdge )
@@ -111,29 +144,6 @@ TEST( SplashLayout, TheDesignShrinksToFitASmallScreenAndNeverGrows )
 }
 
 // --- The motion -------------------------------------------------------------------------------------
-
-TEST( SplashLayout, ThePushInGoesFromOneToTwoPercentAndHolds )
-{
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( 0.0f ), 1.0f );
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( Splash::kKenBurnsSeconds ), 1.02f );
-    // A start longer than the push-in holds the last frame; it does not keep zooming or spring back.
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( Splash::kKenBurnsSeconds * 3.0f ), 1.02f );
-    EXPECT_FLOAT_EQ( Splash::KenBurnsScale( -1.0f ), 1.0f );
-}
-
-TEST( SplashLayout, ThePushInIsEasedOutAndNeverGoesBackwards )
-{
-    // Ease-out: more than half the travel is done by half the time.
-    const float half = Splash::KenBurnsScale( Splash::kKenBurnsSeconds * 0.5f );
-    EXPECT_GT( half - 1.0f, 0.5f * ( Splash::kKenBurnsZoom - 1.0f ) );
-    float previous = 1.0f;
-    for ( int i = 1; i <= 100; ++i )
-    {
-        const float scale = Splash::KenBurnsScale( Splash::kKenBurnsSeconds * static_cast<float>( i ) / 100.0f );
-        EXPECT_GE( scale, previous );
-        previous = scale;
-    }
-}
 
 TEST( SplashLayout, TheFadesTakeAtMostTwoHundredMilliseconds )
 {

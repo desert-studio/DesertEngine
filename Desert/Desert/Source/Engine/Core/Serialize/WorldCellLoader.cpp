@@ -14,7 +14,7 @@ namespace Desert::Core
 
     WorldCellLoader::~WorldCellLoader()
     {
-        for ( Flight& flight : m_Flights )
+        for ( Flight const& flight : m_Flights )
             flight.Result.wait();
     }
 

@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -85,6 +86,13 @@ namespace Desert::Graphic
         // shipping build drops is the reporting — four multi-line strings built and formatted at every
         // scene load for a reader who is not there.
 #if DESERT_DEV_INSTRUMENTS
+        if ( built && m_TargetFramebuffer )
+        {
+            const uint32_t viewW = m_TargetFramebuffer->GetFramebufferWidth();
+            const uint32_t viewH = m_TargetFramebuffer->GetFramebufferHeight();
+            LOG_INFO( "[ViewMemory] slot {} {}", m_SlotLease.RecordingSlot(),
+                      FormatViewTargetCensus( ViewTargetCensus( m_ViewProfile, viewW, viewH ), viewW, viewH ) );
+        }
         LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
 
         // THE OTHER TWO NUMBERS, BESIDE IT, AT THE SAME MOMENT — because the line above was measured
@@ -123,9 +131,9 @@ namespace Desert::Graphic
         // Ensure the phase registry exists before any system registers custom phases or passes.
         RenderPhaseRegistry::CreateInstance();
 
-        const auto window = EngineContext::GetInstance().GetWindow();
-        const auto width  = window ? window->GetWidth() : 1280;
-        const auto height = window ? window->GetHeight() : 720;
+        // The surface's size, never the window's: see ViewExtent.
+        const uint32_t width  = m_ViewExtent.Width;
+        const uint32_t height = m_ViewExtent.Height;
 
         // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N
         // samples and the render pass resolves to single-sample for the post stack. Read once —
@@ -151,13 +159,13 @@ namespace Desert::Graphic
                 fbSpec.Samples = 1;
         }
         RenderConfig::MSAASamplesActive = static_cast<int>( fbSpec.Samples );
-        fbSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColor );
         // DEPTH32F, AND THE FLOAT IS THE POINT. Reversed-Z (Core/Projection.hpp) works by lining the
         // 1/z curve up against the float exponent so the two cancel; on a UNORM24 attachment, which
         // quantizes uniformly in NDC, reversing the range just relabels the same 2^24 levels and buys
         // literally nothing. This was DEPTH24STENCIL8, and no pass in the engine enables a stencil test,
         // so the packed stencil byte was paying for nothing either.
-        fbSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::DEPTH32F );
+        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneDepth );
 
         m_TargetFramebuffer = Graphic::Framebuffer::Create( fbSpec );
         m_TargetFramebuffer->Resize( width, height );
@@ -169,32 +177,32 @@ namespace Desert::Graphic
         // reconstruction, which is error-prone under the GL-on-Vulkan depth conventions); shared depth.
         FramebufferSpecification gbufferSpec;
         gbufferSpec.DebugName = "GBuffer";
-        gbufferSpec.Attachments.Attachments.push_back(
-             Core::Formats::ImageFormat::RGBA8F ); // GBufferA Albedo+Metallic
-        gbufferSpec.Attachments.Attachments.push_back(
-             Core::Formats::ImageFormat::RGBA32F ); // GBufferB Normal+Roughness
-        gbufferSpec.Attachments.Attachments.push_back(
-             Core::Formats::ImageFormat::RGBA32F ); // GBufferC WorldPosition.xyz
-        gbufferSpec.Attachments.Attachments.push_back(
-             Core::Formats::ImageFormat::RGBA32F ); // GBufferEmissive (HDR self-illum)
+        gbufferSpec.Attachments.Attachments.emplace_back(
+             ViewTargetFormats::kGBufferA ); // GBufferA Albedo+Metallic
+        gbufferSpec.Attachments.Attachments.emplace_back(
+             ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
+        gbufferSpec.Attachments.Attachments.emplace_back(
+             ViewTargetFormats::kGBufferC ); // GBufferC WorldPosition.xyz
+        gbufferSpec.Attachments.Attachments.emplace_back(
+             ViewTargetFormats::kGBufferEmissive ); // GBufferEmissive (HDR self-illum)
         // DEPTH32F for the same reason as the forward target above — and it is this attachment the
         // height fog reads back as a texture, so its precision is the precision of every distance it
         // reconstructs.
-        gbufferSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::DEPTH32F );
+        gbufferSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGBufferDepth );
         m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
         m_GBuffer->Resize( width, height );
 
         // SSAO target: a single-channel-ish AO factor (RGBA8F, AO in .r) the deferred lighting reads.
         FramebufferSpecification ssaoSpec;
         ssaoSpec.DebugName = "SSAO";
-        ssaoSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA8F );
+        ssaoSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSAO );
         m_SSAOBuffer = Graphic::Framebuffer::Create( ssaoSpec );
         m_SSAOBuffer->Resize( width, height );
 
         // Scene-colour snapshot (same format as the target) the glass pass samples for refraction.
         FramebufferSpecification copySpec;
         copySpec.DebugName = "SceneColorCopy";
-        copySpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        copySpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColorCopy );
         m_SceneColorCopy = Graphic::Framebuffer::Create( copySpec );
         m_SceneColorCopy->Resize( width, height );
 
@@ -438,8 +446,8 @@ namespace Desert::Graphic
         return SlotPool().InUseCount();
     }
 
-    SceneRenderer::SceneRenderer( const ShadowQuality& shadowQuality )
-         : m_SlotLease( SlotPool() ), m_ShadowQuality( shadowQuality )
+    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
+         : m_SlotLease( SlotPool() ), m_ViewProfile( profile ), m_ViewExtent( extent )
     {
         if ( !m_SlotLease.IsValid() )
         {
@@ -1150,7 +1158,7 @@ namespace Desert::Graphic
         const auto device = EngineContext::GetInstance().GetDevice();
         if ( !device )
             return false;
-        return device->IsFormatSupported( Core::Formats::ImageFormat::RGBA32F,
+        return device->IsFormatSupported( ViewTargetFormats::kSceneColor,
                                           static_cast<Engine::FormatUsage>( Engine::FormatUsage_Sampled |
                                                                             Engine::FormatUsage_ColorAttachment |
                                                                             Engine::FormatUsage_Blendable ) );
@@ -1167,7 +1175,8 @@ namespace Desert::Graphic
     {
         if ( m_GIResourcesReady )
             return true;
-        if ( m_GIResourcesFailed )
+        // A preview profile never builds GI targets; the scene's GI mode stays on the screen-space path.
+        if ( m_GIResourcesFailed || !m_ViewProfile.GlobalIllumination )
             return false;
 
         // ASK before allocating. The GI resolve and its temporal history are RGBA32F targets that get
@@ -1185,7 +1194,7 @@ namespace Desert::Graphic
 
         FramebufferSpecification giSpec;
         giSpec.DebugName = "GIResolve";
-        giSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        giSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIResolve );
         m_GIBuffer = Graphic::Framebuffer::Create( giSpec );
         m_GIBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
                             m_TargetFramebuffer->GetFramebufferHeight() );
@@ -1196,14 +1205,14 @@ namespace Desert::Graphic
         // NOT resize with the viewport.
         FramebufferSpecification rsmSpec;
         rsmSpec.DebugName = "RSM";
-        rsmSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA8F );  // Albedo (flux colour)
-        rsmSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F ); // Normal
-        rsmSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F ); // WorldPos
-        rsmSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F ); // Emissive (unused)
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMAlbedo );   // Albedo (flux colour)
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMNormal );   // Normal
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMPosition ); // WorldPos
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMEmissive ); // Emissive (unused)
         // Matches the G-buffer's depth format because "mirror m_GBuffer" includes the depth attachment:
         // the RSM pipeline is created from the G-buffer's spec, and a differing depth format makes the
         // two render passes incompatible.
-        rsmSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::DEPTH32F );
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMDepth );
         m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
 
@@ -1225,7 +1234,7 @@ namespace Desert::Graphic
     {
         if ( m_SSRResourcesReady )
             return true;
-        if ( m_SSRResourcesFailed )
+        if ( m_SSRResourcesFailed || !m_ViewProfile.ScreenSpaceReflections )
             return false;
 
         // Same gate as GI: the trace target and its ping-pong history are sampled/blended RGBA32F.
@@ -1243,7 +1252,7 @@ namespace Desert::Graphic
         // composited — blending the raw single-sample trace straight onto the scene looks stippled.
         FramebufferSpecification ssrSpec;
         ssrSpec.DebugName = "SSRTrace";
-        ssrSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        ssrSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSRTrace );
         m_SSRBuffer = Graphic::Framebuffer::Create( ssrSpec );
         m_SSRBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
                              m_TargetFramebuffer->GetFramebufferHeight() );
@@ -1266,6 +1275,15 @@ namespace Desert::Graphic
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
         if ( width == 0 && height == 0 )
+            return;
+        // Same size: nothing to rebuild. The thumbnail renderer resizes to the extent it was built at so
+        // that its camera turns square, and a rebuild would idle the device for identical targets.
+        if ( m_ViewExtent == ViewExtent{ width, height } )
+            return;
+        m_ViewExtent = ViewExtent{ width, height };
+        // Before the first build there is no target yet and the extent is all there is to update: the
+        // build reads it.
+        if ( !m_TargetFramebuffer )
             return;
         auto& renderer = Renderer::GetInstance();
         // Ensure all in-flight GPU work is done before destroying/recreating Vulkan resources
@@ -1350,13 +1368,15 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
-                                             const glm::vec3& layerModes, const MaterialOverrides& overrides )
+                                             const glm::vec3& layerModes, const MaterialOverrides& overrides,
+                                             const System::LandscapeWeightDraw& weights )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap  = heightmap,
                          .Landscape  = tile,
                          .LayerModes = layerModes,
+                         .Weights    = weights,
                          .Overrides  = overrides } );
     }
 
@@ -1749,7 +1769,8 @@ namespace Desert::Graphic
                                              const std::vector<HeroCloudInstance>& heroClouds )
     {
         UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
-             ->SetCloudSettings( present, data, windOffset, m_CloudQuality, heroClouds );
+             ->SetCloudSettings( present && m_ViewProfile.VolumetricClouds, data, windOffset, m_CloudQuality,
+                                 heroClouds ); // a profile without clouds never allocates their targets
     }
 
     void SceneRenderer::ExecuteVolumetricClouds()

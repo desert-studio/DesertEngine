@@ -125,19 +125,6 @@ namespace
         return parsed.value().to_object().value_or( rfl::Generic::Object{} );
     }
 
-    // The handle a scene names this material by, derived from its header GUID. NOT the legacy register:
-    // that bridges OLD, already-committed scenes to the new identity, but `WorldSceneGenerator` writes
-    // FRESH scenes, and `Tools/WorldGen/Source/WorldGenMain.cpp`'s own `LoadMaterial` already assigns
-    // `MaterialRef::Guid` as `HandleForGuid` of the header GUID (not an adopted id) — this mirrors that
-    // exact fold so the test asserts the relation the tool actually holds.
-    uint64_t AdoptedIdForGuid( const std::string& guid )
-    {
-        const auto parsedGuid = Common::Content::AssetGuidFromText( guid );
-        if ( !parsedGuid || parsedGuid.GetValue().IsNull() )
-            return 0;
-        return static_cast<uint64_t>( Common::Content::HandleForGuid( parsedGuid.GetValue() ) );
-    }
-
     // A counting mint, like the corpus suites use: a scene whose records all carry ids must never call it.
     auto CountingMint( size_t& minted )
     {
@@ -201,17 +188,50 @@ TEST( WorldSceneGenerator, TheToolsOwnVerifyFlagPassesAndStillWritesTheFile )
 // 1c. THE NEGATIVE CONTROL. A determinism test that passes because the generator ignores its inputs proves
 // nothing at all, and that is a real shape - a seed threaded to nowhere looks exactly like a seed that
 // works. A different seed must produce a different world.
+//
+// The seed decides the WORLD, not its identity: seed1 and seed1b are two never-before-written files, so
+// (1b) each mints its own header GUID. The comparison is therefore of the documents with that one field
+// blanked, and the two GUIDs are asserted to differ. The files are removed first because a scratch file
+// left by an earlier run keeps its GUID (1a) - a machine that still held files from the name-derived-GUID
+// era passed this test with both GUIDs equal, while a clean CI runner failed it.
 TEST( WorldSceneGenerator, ADifferentSeedIsADifferentWorldAndTheSameSeedIsNot )
 {
+    const auto pathOne      = Scratch() / "seed1.desce";
+    const auto pathTwo      = Scratch() / "seed2.desce";
+    const auto pathOneAgain = Scratch() / "seed1b.desce";
+    for ( const auto& path : { pathOne, pathTwo, pathOneAgain } )
+        std::filesystem::remove( path );
+
     std::string one;
     std::string two;
     std::string oneAgain;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "seed1.desce", one, { "--seed", "1" } ), 0 ) << one;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "seed2.desce", two, { "--seed", "2" } ), 0 ) << two;
-    ASSERT_EQ( GenerateSmoke( Scratch() / "seed1b.desce", oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
+    ASSERT_EQ( GenerateSmoke( pathOne, one, { "--seed", "1" } ), 0 ) << one;
+    ASSERT_EQ( GenerateSmoke( pathTwo, two, { "--seed", "2" } ), 0 ) << two;
+    ASSERT_EQ( GenerateSmoke( pathOneAgain, oneAgain, { "--seed", "1" } ), 0 ) << oneAgain;
 
-    EXPECT_NE( one, two );
-    EXPECT_EQ( one, oneAgain );
+    // The header is the document's first member, so the first "Guid" is the header's own.
+    const std::string guidKey = R"("Header":{"Kind":"Scene","Guid":")";
+    const auto        guidOf  = [&guidKey]( const std::string& json ) -> std::string
+    {
+        const auto at = json.find( guidKey );
+        if ( at == std::string::npos )
+            return {};
+        const auto begin = at + guidKey.size();
+        return json.substr( begin, json.find( '"', begin ) - begin );
+    };
+    const auto withoutGuid = [&guidKey]( std::string json )
+    {
+        const auto begin = json.find( guidKey ) + guidKey.size();
+        json.erase( begin, json.find( '"', begin ) - begin );
+        return json;
+    };
+    ASSERT_FALSE( guidOf( one ).empty() ) << one;
+    ASSERT_FALSE( guidOf( two ).empty() ) << two;
+    ASSERT_FALSE( guidOf( oneAgain ).empty() ) << oneAgain;
+    EXPECT_NE( guidOf( one ), guidOf( oneAgain ) ) << "two new files must not share a GUID (1b)";
+
+    EXPECT_NE( withoutGuid( one ), withoutGuid( two ) );
+    EXPECT_EQ( withoutGuid( one ), withoutGuid( oneAgain ) );
 }
 
 // 1d. A PLACE IN THE WORLD HOLDS THE SAME BUILDINGS WHATEVER SIZE THE WORLD IS. The generator seeds each
@@ -559,18 +579,12 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
             const auto guidText = guid->to_string();
             ASSERT_TRUE( guidText.has_value() ) << *relative << " Header.Guid is not a string";
 
-            const uint64_t adopted = AdoptedIdForGuid( *guidText );
-
-            // Compared as TEXT, because a handle above 2^53 does not survive rfl::Generic's numeric
-            // accessors - which is the defect this suite's own generator hit on its first run, when
-            // to_int() turned 6418972230554417713 into 155908657. `adopted` is read from the legacy
-            // register's own raw text, so it never goes through that lossy accessor either. rfl::Generic
-            // holds an integer as int64, so a handle at or above 2^63 comes back written as its two's-
-            // complement negative; reading that text back as int64 and reinterpreting it as uint64 is exact.
-            const std::string entryText = rfl::json::write( ( *guidList )[i] );
-            EXPECT_EQ( static_cast<uint64_t>( std::stoll( entryText ) ), adopted )
-                 << *relative << ": the scene's MaterialGuids entry does not match the legacy register's "
-                 << "adopted id for this file's header GUID (" << *guidText << ")";
+            // SCNE 27: a slot names the material by its header GUID's TEXT, so the relation is string
+            // equality with the file's own Header.Guid - no number, no register, no lossy accessor.
+            const auto entry = ( *guidList )[i].to_string();
+            ASSERT_TRUE( entry.has_value() ) << *relative << ": the scene's MaterialGuids entry is not a string";
+            EXPECT_EQ( *entry, *guidText )
+                 << *relative << ": the scene's MaterialGuids entry is not this file's header GUID";
             ++checked;
         }
     }
@@ -621,8 +635,8 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     EXPECT_FALSE( rfl::json::read<SceneSerialized>( plain )->WorldPartition.has_value() );
 
     const auto               out = Scratch() / "partitioned.desce";
-    std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
-                                   "--preset", "smoke",      "--partition" };
+    const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
+                                         "--preset", "smoke",      "--partition" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -630,11 +644,15 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
-    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
+    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 25600.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     namespace Rules          = Desert::Core::Rules;
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto  plan         = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     const auto  per          = Rules::CellsPerLevel( plan );
     const auto  why          = Rules::AlwaysLoadedByReason( plan );
     std::size_t sunSkyCamera = 0;
@@ -670,7 +688,9 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 
     // And the tool printed the same plan, in the same words the loader logs.
     EXPECT_NE(
+         // NOLINTBEGIN(bugprone-unchecked-optional-access)
          reported.str().find( "partition    : " + Rules::SummarisePartition( plan, *scene->WorldPartition ) ),
+         // NOLINTEND(bugprone-unchecked-optional-access)
          std::string::npos )
          << reported.str();
 }
@@ -683,8 +703,8 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
 {
     const auto               out = Scratch() / "fits.desce";
-    std::vector<std::string> args{ "--out",   out.string(), "--assets",   AssetsRoot(),
-                                   "--cells", "8",          "--partition" };
+    const std::vector<std::string> args{ "--out",   out.string(), "--assets",   AssetsRoot(),
+                                         "--cells", "8",          "--partition" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -698,7 +718,9 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
     }
 
     namespace Rules = Desert::Core::Rules;
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     EXPECT_EQ( plan.MaxLevel, 0 ) << reported.str();
     EXPECT_EQ( plan.AlwaysLoaded.size(), 3u ) << reported.str();
     EXPECT_EQ( plan.Cells.size(), 64u );
@@ -711,9 +733,9 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
 TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartition )
 {
     const auto               out = Scratch() / "partitioned_fine.desce";
-    std::vector<std::string> args{ "--out",    out.string(),      "--assets",    AssetsRoot(),
-                                   "--preset", "smoke",           "--partition", "--partition-cell",
-                                   "12800",    "--loading-range", "51200" };
+    const std::vector<std::string> args{ "--out",    out.string(),      "--assets",    AssetsRoot(),
+                                         "--preset", "smoke",           "--partition", "--partition-cell",
+                                         "12800",    "--loading-range", "51200" };
     std::ostringstream       reported;
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
@@ -721,12 +743,18 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
     const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
-    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u );
+    ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].CellSize, 12800.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( scene->WorldPartition->Grids[0].LoadingRange, 51200.0f );
+    // NOLINTEND(bugprone-unchecked-optional-access)
 
     namespace Rules = Desert::Core::Rules;
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     const auto plan = Rules::PlanWorldPartition( scene->Entities, *scene->WorldPartition );
+    // NOLINTEND(bugprone-unchecked-optional-access)
     for ( std::size_t record = 0; record < scene->Entities.size(); ++record )
     {
         const auto& tag = scene->Entities[record].Tag.value_or( "" );
@@ -739,10 +767,10 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
 
     for ( const char* flag : { "--partition-cell", "--loading-range" } )
     {
-        std::vector<std::string> alone{ "--out",    ( Scratch() / "refused.desce" ).string(),
-                                        "--assets", AssetsRoot(),
-                                        "--preset", "smoke",
-                                        flag,       "12800" };
+        const std::vector<std::string> alone{ "--out",    ( Scratch() / "refused.desce" ).string(),
+                                              "--assets", AssetsRoot(),
+                                              "--preset", "smoke",
+                                              flag,       "12800" };
         std::ostringstream       quiet;
         std::ostringstream       why;
         EXPECT_EQ( Desert::WorldGen::RunWorldGen( alone, quiet, why ), 2 ) << flag;

@@ -33,7 +33,7 @@ namespace Desert::Platform::MacOS
         virtual void Maximize() override;
         virtual void Restore() override;
         virtual void Minimize() override;
-        virtual void Show() override;
+        void         Show() override;
 
         [[nodiscard]] virtual bool IsWindowMaximized() const override;
         [[nodiscard]] virtual bool IsDecorated() const override
@@ -88,6 +88,8 @@ namespace Desert::Platform::MacOS
         } m_Data;
 
         GLFWwindow*                         m_GLFWWindow;
+        // A window created hidden is maximized when it is SHOWN, never before: see Show().
+        bool                                m_MaximizeOnShow = false;
         std::shared_ptr<Graphic::SwapChain> m_SwapChain;
     };
 } // namespace Desert::Platform::MacOS

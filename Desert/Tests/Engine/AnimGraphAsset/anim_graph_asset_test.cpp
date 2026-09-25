@@ -10,6 +10,8 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include "../SettingConsumers/setting_consumers_reader.hpp"
@@ -305,6 +307,46 @@ TEST( AnimGraphAsset, TheEcsHandsOverTheAssetsObjectRatherThanACopyOfIt )
          << "a component-side GraphRevision is back — one counter, on the thing that CHANGES, is what "
             "makes a shared graph re-sync every entity that names it; a counter on the component can "
             "only ever re-sync the one in front of the editor";
+}
+
+// THE TEXT ASSET HEADER (T7d, ANGR 1): a save states it, a resave keeps its GUID, the handle IS that GUID's,
+// and a generation-0 file (no header) is refused by name, pointing at the migrator.
+TEST( AnimGraphAsset, ASaveStatesTheHeaderAndAResaveKeepsItsGuid )
+{
+    const ScratchFile file( "desert_animgraph_header.danimgraph" );
+    ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), Locomotion() ).IsSuccess() );
+
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto first = Common::Content::ReadAssetHeader( file.Path(), recordOnly );
+    ASSERT_TRUE( first ) << first.GetError();
+    EXPECT_EQ( first.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
+    ASSERT_FALSE( first.GetValue().Guid.IsNull() );
+    ASSERT_EQ( first.GetValue().Subsystems.size(), 1u );
+    EXPECT_EQ( first.GetValue().Subsystems[0].Version, 1u );
+
+    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+               static_cast<uint64_t>( Common::Content::HandleForGuid( first.GetValue().Guid ) ) )
+         << "the constructor did not adopt the header GUID";
+    ASSERT_TRUE( asset.Load().IsSuccess() );
+    ASSERT_TRUE( AnimGraphAsset::Save( file.Path(), *asset.GetGraph() ).IsSuccess() );
+
+    const auto second = Common::Content::ReadAssetHeader( file.Path(), recordOnly );
+    ASSERT_TRUE( second ) << second.GetError();
+    EXPECT_EQ( second.GetValue().Guid, first.GetValue().Guid ) << "a resave minted a second identity";
+}
+
+TEST( AnimGraphAsset, AGraphWithNoHeaderIsRefusedByNameAndPointsAtTheMigrator )
+{
+    const ScratchFile file( "desert_animgraph_gen0.danimgraph" );
+    file.Write( R"({"Name":"Old","Entry":"Idle","Parameters":[],"States":[{"Name":"Idle","Clip":"A"}]})" );
+
+    AnimGraphAsset asset( AssetPriority::Medium, file.Path() );
+    const auto     loaded = asset.Load();
+    ASSERT_FALSE( loaded.IsSuccess() );
+    EXPECT_EQ( asset.GetGraph(), nullptr );
+    EXPECT_NE( loaded.GetError().find( "format version 0" ), std::string::npos ) << loaded.GetError();
+    EXPECT_NE( loaded.GetError().find( "SceneMigrator" ), std::string::npos ) << loaded.GetError();
 }
 
 int main( int argc, char** argv )

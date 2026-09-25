@@ -163,6 +163,23 @@ namespace Desert::Project
             return lookup;
         }
 
+        // THE CHECKOUT THIS BINARY WAS BUILT IN, by the same shape DeriveEngineRoot demands - `Bin/<config>`
+        // directly under `build/` - and nothing looser: a binary merely three directories under some
+        // Editor/ is not that editor's build.
+        if ( !executableDirectory.empty() )
+        {
+            const fs::path binDirectory   = executableDirectory.parent_path();
+            const fs::path buildDirectory = binDirectory.parent_path();
+            const fs::path checkoutEditor = buildDirectory.parent_path() / "Editor";
+            if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" &&
+                 fs::is_directory( checkoutEditor / marker, ec ) )
+            {
+                lookup.WorkingDirectory = checkoutEditor.string();
+                lookup.FromCheckout     = true;
+                return lookup;
+            }
+        }
+
         lookup.Explanation =
              fmt::format( "the engine resources are missing: no 'Resources/Shaders' under the working "
                           "directory '{}', and none beside the executable ('{}'). A packaged build keeps "

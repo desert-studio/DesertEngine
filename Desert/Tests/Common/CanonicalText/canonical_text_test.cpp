@@ -248,11 +248,13 @@ namespace
         const char* File;
         const char* Source; // the file whose serializer produces the canonical text this file writes
     };
+    // The two material writers: since AF7 SurfaceMaterialAsset serializes through MaterialFormat's
+    // WriteMaterialJson (header-stamped, one writer for the editor and the tools), which holds the call.
     constexpr std::array kCanonicalAtSource{
          CanonicalAtSource{ "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
-                            "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp" },
+                            "Desert/Desert/Source/Engine/Assets/MaterialFormat.hpp" },
          CanonicalAtSource{ "Editor/Source/Editor/Panels/NodeGraph/NodeGraphPanel.cpp",
-                            "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp" },
+                            "Desert/Desert/Source/Engine/Assets/MaterialFormat.hpp" },
          CanonicalAtSource{ "Desert/Desert/Source/Engine/Assets/Prefab/PrefabAsset.cpp",
                             "Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp" },
          CanonicalAtSource{ "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
@@ -390,18 +392,27 @@ TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
     ASSERT_FALSE( saved );
     EXPECT_NE( saved.GetError().find( "Asset.demat" ), std::string::npos ) << saved.GetError();
 
-    std::ifstream      in( file, std::ios::binary );
+    // The reader is scoped: on Windows an open stream (no FILE_SHARE_DELETE) makes ANY replace of the
+    // file refuse with "Access is denied" - MoveFileExW and ReplaceFileW alike - so a reader left open
+    // here refused the good save below for a reason that is this test's, not the writer's.
     std::ostringstream now;
-    now << in.rdbuf();
+    {
+        const std::ifstream in( file, std::ios::binary );
+        now << in.rdbuf();
+    }
     EXPECT_EQ( now.str(), before );
     EXPECT_EQ( std::distance( fs::directory_iterator( dir ), fs::directory_iterator() ), 1 )
          << "a refused save left a file behind";
 
     // The same call with good text replaces the file, laid out canonically.
     ASSERT_TRUE( Common::Content::WriteCanonicalJsonFileAtomic( file, R"({"kept":false})" ) );
-    std::ifstream      again( file, std::ios::binary );
+    // Scoped for the same reason as the reader above: an open stream makes remove_all below refuse on
+    // Windows ("being used by another process").
     std::ostringstream after;
-    after << again.rdbuf();
+    {
+        const std::ifstream again( file, std::ios::binary );
+        after << again.rdbuf();
+    }
     EXPECT_TRUE( IsCanonicalJsonText( after.str() ) );
     EXPECT_NE( after.str().find( "false" ), std::string::npos );
     fs::remove_all( dir );

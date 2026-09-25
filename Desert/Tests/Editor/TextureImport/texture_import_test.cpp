@@ -304,7 +304,7 @@ namespace
     }
 } // namespace
 
-TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCookedFile )
+TEST_F( TextureImport, HandleIsTheFoldOfTheMintedGuidAndNotOfTheSourcePath )
 {
     const fs::path source = TexturesDir() / "T_Test.bmp";
     WriteBmp( source, 4, 3, 0xF0 );
@@ -317,7 +317,9 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     // is the one that reached the repository: T_Checker.tex carried FNV-1a of a path beginning
     // /Users/<a developer>/. Asserted against the shared derivation, so an importer that grew its own
     // copy would not agree.
-    EXPECT_EQ( (uint64_t)handle, (uint64_t)Common::AssetHandle::FromCookedPath( source ) );
+    // SCNE 28 step 6: a new import mints a GUID and the handle is its fold; the source's place is
+    // provenance only (the equality with the header GUID's fold is asserted below).
+    EXPECT_NE( (uint64_t)handle, (uint64_t)Common::AssetHandle::FromCookedPath( source ) );
     EXPECT_NE( (uint64_t)handle, 0u );
 
     // And the key really is the source's place inside the project, with no part of the project root in
@@ -334,7 +336,7 @@ TEST_F( TextureImport, HandleIsDerivedFromTheSourcePathAndIsWrittenIntoTheCooked
     // whichever asset happened to derive it first.
     const auto assetKey = Desert::Assets::ReadTextureAssetKey( TextureImporter::AssetPathFor( source ) );
     ASSERT_TRUE( assetKey.IsSuccess() ) << assetKey.GetError();
-    EXPECT_EQ( (uint64_t)assetKey.GetValue().Handle, (uint64_t)handle );
+    EXPECT_EQ( (uint64_t)Common::Content::HandleForGuid( assetKey.GetValue().Guid ), (uint64_t)handle );
     EXPECT_EQ( assetKey.GetValue().SourceFile, "assets:Textures/T_Test.bmp" );
     EXPECT_EQ( (uint64_t)stored.Handle, 0u ) << "the DDC entry carries an asset's handle";
     EXPECT_TRUE( stored.SourcePath.empty() ) << "the DDC entry carries an asset's path: " << stored.SourcePath;
@@ -374,36 +376,53 @@ TEST_F( TextureImport, HandleSurvivesWipingTheDerivedDataCache )
     EXPECT_EQ( (uint64_t)before, (uint64_t)after );
 }
 
-// 2b. THE CROSS-MACHINE PROPERTY, which is what the derivation change bought and what nothing here
-// asserted before. Two developers with the same project at unrelated paths cook the same texture and get
-// the same id -- so the .tex one of them commits, and every .demat that names the texture by that number,
-// still resolve after the other re-cooks. Under the old rule these two differed, which is why the id in
-// this repository had a home directory hashed into it.
-TEST_F( TextureImport, TheHandleIsTheSameForTheSameProjectInTwoDifferentPlaces )
+// 2b. THE CROSS-MACHINE PROPERTY. A texture's id is the fold of the GUID its asset file states
+// (HandleForGuid), not a hash of where the file sits: the .detex one developer commits carries the same id
+// into any other checkout, so every reference to it still resolves there. The converse is the other half
+// of an identity that lives in the file: importing the same picture afresh, with no asset to inherit
+// from, is a NEW asset and must not collide with the committed one.
+TEST_F( TextureImport, TheCommittedAssetCarriesItsIdToAnotherCheckoutAndAFreshImportMintsANewOne )
 {
     const fs::path firstSource = TexturesDir() / "T_Test.bmp";
     WriteBmp( firstSource, 2, 2, 0x55 );
 
     TextureImporter    firstImporter;
     const Common::UUID onOneMachine = firstImporter.Import( firstSource );
+    ASSERT_NE( (uint64_t)onOneMachine, 0u );
+    const std::string committed = ReadAll( TextureImporter::AssetPathFor( firstSource ) );
 
     // The same project, checked out somewhere with nothing in common above it.
     const fs::path elsewhere = fs::temp_directory_path() / "desert_texture_import_other_checkout";
     fs::remove_all( elsewhere );
     const fs::path elsewhereTextures = elsewhere / "Resources" / "Assets" / "Textures";
-    WriteBmp( elsewhereTextures / "T_Test.bmp", 2, 2, 0x55 );
     Common::Constants::Path::SetProjectRoot( elsewhere, "Resources/Assets" );
 
+    // A fresh import of the same picture there: no committed asset, so a new GUID.
+    WriteBmp( elsewhereTextures / "T_Fresh.bmp", 2, 2, 0x55 );
     TextureImporter    secondImporter;
-    const Common::UUID onAnother = secondImporter.Import( elsewhereTextures / "T_Test.bmp" );
+    const Common::UUID freshImport = secondImporter.Import( elsewhereTextures / "T_Fresh.bmp" );
+
+    // The committed asset, checked out byte for byte.
+    const fs::path checkedOut = TextureImporter::AssetPathFor( elsewhereTextures / "T_Test.bmp" );
+    fs::create_directories( checkedOut.parent_path() );
+    {
+        std::ofstream out( checkedOut, std::ios::binary );
+        out << committed;
+    }
+    const Desert::Assets::TextureAsset asset( Desert::Assets::AssetPriority::Medium,
+                                              Common::Filepath( checkedOut ) );
+    const uint64_t                     onAnother = (uint64_t)asset.GetHandle();
 
     fs::remove_all( elsewhere );
     Common::Constants::Path::SetProjectRoot( m_Root, "Resources/Assets" ); // TearDown removes m_Root
 
-    EXPECT_EQ( (uint64_t)onOneMachine, (uint64_t)onAnother )
-         << "one texture, one project, two checkout locations, two ids. A .tex committed by one developer "
-            "then names a different texture than the one the other cooks, and every material slot keyed "
-            "on it empties on the first re-cook.";
+    EXPECT_EQ( (uint64_t)onOneMachine, onAnother )
+         << "one committed .detex, two checkout locations, two ids: every material slot keyed on the id "
+            "the committing developer saw empties in the other checkout.";
+    EXPECT_NE( (uint64_t)freshImport, 0u );
+    EXPECT_NE( (uint64_t)freshImport, (uint64_t)onOneMachine )
+         << "a fresh import of the same picture took the committed asset's id, so two assets answer to one "
+            "number and a reference to either resolves to whichever registered last.";
 }
 
 // 4a. An unchanged source is Fresh: the DDC already holds its key, and the entry is left byte for byte
@@ -662,7 +681,10 @@ TEST_F( TextureImport, AFileThatDoesNotDecodeCooksNothingAndSaysWhy )
     // The failure is not cached: fix the image, import again in the same session, and it cooks.
     WriteBmp( source, 2, 2, 0x77 );
     const Common::UUID fixed = importer.Import( source );
-    EXPECT_EQ( (uint64_t)fixed, (uint64_t)Common::AssetHandle::FromCookedPath( source ) );
+    const auto         key   = Desert::Assets::ReadTextureAssetKey( TextureImporter::AssetPathFor( source ) );
+    ASSERT_TRUE( key.IsSuccess() ) << key.GetError();
+    EXPECT_EQ( (uint64_t)fixed, (uint64_t)Common::Content::HandleForGuid( key.GetValue().Guid ) )
+         << "the fixed re-import's id is not the fold of the GUID its asset states";
     EXPECT_TRUE( fs::exists( PlatformData( source ) ) );
 }
 

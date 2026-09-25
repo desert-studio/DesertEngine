@@ -2,9 +2,12 @@
 
 #include <Engine/Assets/ContainerBytes.hpp>
 
+#include <Common/Content/ContentKinds.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <span>
 
 namespace Desert::Assets
 {
@@ -287,8 +290,6 @@ namespace Desert::Assets
         std::vector<unsigned char> out;
         out.reserve( kCloudLayoutHeaderSize + payload.size() );
 
-        out.insert( out.end(), kCloudLayoutMagic, kCloudLayoutMagic + sizeof( kCloudLayoutMagic ) );
-        WriteU32( out, kCloudLayoutContainerVersion );
         WriteU32( out, written.Resolution );
         WriteU32( out, flags );
 
@@ -298,33 +299,76 @@ namespace Desert::Assets
         WriteU64( out, static_cast<uint64_t>( payload.size() ) );
         WriteU32( out, Crc32( payload.data(), payload.size() ) );
 
-        // Four bytes of nothing so the header is a round 48 and the payload starts on an eight-byte
+        // Four bytes of nothing so the header is a round 40 and the pixels start on an eight-byte
         // boundary. Named rather than left implicit, because a reader that computed the offset from the
         // fields above would drift the moment one of them moved.
         WriteU32( out, 0u );
 
         out.insert( out.end(), payload.begin(), payload.end() );
-        return Common::MakeSuccess( std::move( out ) );
+
+        namespace CC = Common::Content;
+        CC::AssetEnvelope envelope;
+        envelope.Asset.Kind       = CC::ContentKind::CloudLayout;
+        envelope.Asset.Guid       = written.Guid.IsNull() ? CC::AssetGuid::Generate() : written.Guid;
+        envelope.Asset.Subsystems = { { kCloudLayoutSubsystemTag, kCloudLayoutContainerVersion } };
+        const auto* first         = reinterpret_cast<const std::byte*>( out.data() );
+        envelope.Sections.push_back(
+             { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, { first, first + out.size() } } );
+
+        auto file = CC::WriteAssetEnvelope( envelope );
+        if ( !file )
+            return Common::MakeFormattedError<std::vector<unsigned char>>( "cannot wrap layout: {}",
+                                                                           file.GetError() );
+        const auto* begin = reinterpret_cast<const unsigned char*>( file.GetValue().data() );
+        return Common::MakeSuccess( std::vector<unsigned char>( begin, begin + file.GetValue().size() ) );
     }
 
-    Common::ResultStr<CloudLayoutData> DecodeCloudLayout( const std::vector<unsigned char>& bytes )
+    Common::ResultStr<CloudLayoutData> DecodeCloudLayout( const std::vector<unsigned char>& file )
     {
+        namespace CC = Common::Content;
+
+        // A VERSION-1 FILE IS REFUSED BY NAME, never read: it has no GUID, so reading it would hand the
+        // layout a path-derived handle nothing else agrees with. The migrator wraps it once, in the file.
+        if ( file.size() >= sizeof( kCloudLayoutVersion1Magic ) &&
+             std::memcmp( file.data(), kCloudLayoutVersion1Magic, sizeof( kCloudLayoutVersion1Magic ) ) == 0 )
+        {
+            const uint32_t oldVersion = file.size() >= 8u ? ReadU32( file.data() + 4 ) : 0u;
+            return Common::MakeFormattedError<CloudLayoutData>(
+                 "a bare 'DCLY' container version {} (no asset envelope, no GUID); this build reads version {} "
+                 "inside the envelope - run Tools/SceneMigrator --write over the file",
+                 oldVersion, kCloudLayoutContainerVersion );
+        }
+
+        const CC::SubsystemVersion kKnown[] = { { kCloudLayoutSubsystemTag, kCloudLayoutContainerVersion } };
+        auto                       envelope = CC::ReadAssetEnvelope(
+             std::span<const std::byte>( reinterpret_cast<const std::byte*>( file.data() ), file.size() ),
+             CC::AssetHeaderReadContext{ kKnown } );
+        if ( !envelope )
+            return Common::MakeFormattedError<CloudLayoutData>( "not a cloud layout envelope: {}",
+                                                                envelope.GetError() );
+        const CC::AssetEnvelope& e = envelope.GetValue();
+        if ( e.Asset.Kind != CC::ContentKind::CloudLayout )
+            return Common::MakeFormattedError<CloudLayoutData>( "the envelope's kind is {}, not CloudLayout",
+                                                                CC::KindName( e.Asset.Kind ) );
+        if ( e.Asset.Subsystems.size() != 1u || e.Asset.Subsystems[0].Tag != kCloudLayoutSubsystemTag )
+            return Common::MakeFormattedError<CloudLayoutData>(
+                 "the envelope states {} subsystem versions; a layout states exactly one, under 'DCLY'",
+                 e.Asset.Subsystems.size() );
+        const auto section = std::find_if( e.Sections.begin(), e.Sections.end(),
+                                           []( const auto& s ) { return s.Tag == CC::EnvelopeSection::Payload; } );
+        if ( section == e.Sections.end() )
+            return Common::MakeFormattedError<CloudLayoutData>(
+                 "the envelope has no {} section",
+                 CC::FourCCToString( static_cast<uint32_t>( CC::EnvelopeSection::Payload ) ) );
+
+        const std::vector<unsigned char> bytes( reinterpret_cast<const unsigned char*>( section->Bytes.data() ),
+                                                reinterpret_cast<const unsigned char*>( section->Bytes.data() ) +
+                                                     section->Bytes.size() );
         if ( bytes.size() < kCloudLayoutHeaderSize )
             return Common::MakeFormattedError<CloudLayoutData>(
-                 "file is {} bytes, shorter than the {}-byte header", bytes.size(), kCloudLayoutHeaderSize );
+                 "payload is {} bytes, shorter than the {}-byte header", bytes.size(), kCloudLayoutHeaderSize );
 
-        if ( std::memcmp( bytes.data(), kCloudLayoutMagic, sizeof( kCloudLayoutMagic ) ) != 0 )
-            return Common::MakeFormattedError<CloudLayoutData>(
-                 "not a cloud layout: the first four bytes are {:02x} {:02x} {:02x} {:02x}, expected 'DCLY'",
-                 bytes[0], bytes[1], bytes[2], bytes[3] );
-
-        const unsigned char* at = bytes.data() + sizeof( kCloudLayoutMagic );
-
-        const uint32_t version = ReadU32( at );
-        at += 4;
-        if ( version != kCloudLayoutContainerVersion )
-            return Common::MakeFormattedError<CloudLayoutData>(
-                 "container version {} is not the {} this build reads", version, kCloudLayoutContainerVersion );
+        const unsigned char* at = bytes.data();
 
         CloudLayoutData data;
         data.Resolution = ReadU32( at );
@@ -363,7 +407,7 @@ namespace Desert::Assets
                  data.Resolution, data.Resolution, hasPattern, hasMask, expected );
 
         if ( bytes.size() != kCloudLayoutHeaderSize + payloadBytes )
-            return Common::MakeFormattedError<CloudLayoutData>( "file is {} bytes, expected {} for its header",
+            return Common::MakeFormattedError<CloudLayoutData>( "payload is {} bytes, expected {} for its header",
                                                                 bytes.size(),
                                                                 kCloudLayoutHeaderSize + payloadBytes );
 
@@ -387,6 +431,7 @@ namespace Desert::Assets
             data.Mask.assign( payload, payload + static_cast<size_t>( texels ) );
 
         data.ContentHash = storedCrc;
+        data.Guid        = e.Asset.Guid;
 
         if ( auto valid = ValidateCloudLayoutData( data ); !valid )
             return Common::MakeFormattedError<CloudLayoutData>( "layout decoded but is unusable: {}",

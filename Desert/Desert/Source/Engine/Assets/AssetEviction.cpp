@@ -72,15 +72,15 @@ namespace Desert::Assets
         {
             if ( material->IsReadyForUse() )
             {
-                // EVERY entry of the map, not the three PBR slots. `MaterialData::Textures` is the
-                // material's generic name -> handle table and the shader schema is what says which
-                // KIND of asset each name stands for: seventeen of the twenty-two distinct
-                // references in this repository's materials are cloud types and layouts reached
-                // through `CloudType1..4` and `CloudLayout`, not textures at all. Marking them all
-                // is correct precisely because this loop does not need to know what they are.
-                for ( const auto& texture : material->Data().Textures )
-                    visit( Common::AssetHandle( texture.TextureHandle ),
-                           "a reachable material names it in its '" + texture.Name + "' slot" );
+                // EVERY slot of all three lists (textures, cloud types and layouts, the Medium shader), not
+                // the three PBR slots: most references in this repository's materials are cloud assets, and
+                // marking them all is correct precisely because this loop does not need to know what they are.
+                material->Data().ForEachSlotHandle(
+                     [&]( const std::string& name, const auto slot )
+                     {
+                         visit( Common::AssetHandle( static_cast<uint64_t>( slot ) ),
+                                "a reachable material names it in its '" + name + "' slot" );
+                     } );
             }
         }
 

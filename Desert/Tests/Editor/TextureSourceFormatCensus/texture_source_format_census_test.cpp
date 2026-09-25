@@ -72,6 +72,9 @@ namespace
            "the open-file dialog's display filter for a noise SLICE SHEET, and the save dialog's. The "
            "sheet is read whole by stbi and its pixels ARE the voxels, so no format outranks another "
            "here — the same membership-only case as CloudLayoutPanel one row up" },
+         { "Editor/Source/Editor/Splash/SplashImage.hpp",
+           "fixed paths of three committed files (the splash's source JPEG, its cooked .tex and the "
+           "application icon PNG). Each is named whole; nothing chooses between two formats of one stem" },
          { "Editor/Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp",
            "the extension -> FileType icon map and the import dialog's display filter. Membership and "
            "presentation; two same-stem files both simply appear in the tree" },

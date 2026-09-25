@@ -80,11 +80,11 @@ namespace Desert::Geometry
         }
         [[nodiscard]] Iterator begin() const
         {
-            return Iterator( m_Alive, 0 );
+            return { m_Alive, 0 };
         }
         [[nodiscard]] Iterator end() const
         {
-            return Iterator( m_Alive, static_cast<int>( m_Alive.size() ) );
+            return { m_Alive, static_cast<int>( m_Alive.size() ) };
         }
 
     private:

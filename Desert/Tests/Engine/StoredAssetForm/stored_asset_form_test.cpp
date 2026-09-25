@@ -76,7 +76,16 @@ TEST( StoredAssetForm, EveryAssetTypeTheEngineSerializesHasAForm )
     EXPECT_EQ( StoredFormFor( "StaticMeshAsset" ), StoredAssetForm::MachinePath );
     EXPECT_EQ( StoredFormFor( "SkinnedMeshAsset" ), StoredAssetForm::MachinePath );
     EXPECT_EQ( StoredFormFor( "MeshAsset" ), StoredAssetForm::MachinePath );
-    EXPECT_EQ( StoredFormFor( "SkyboxAsset" ), StoredAssetForm::MachinePath );
+    EXPECT_EQ( StoredFormFor( "SkyboxAsset" ), StoredAssetForm::ProjectKey );
+}
+
+// SCNE 29: a skybox is stored as a project key or not at all - the absolute path cannot be produced.
+TEST( StoredAssetForm, AProjectKeyIsTheTaggedKeyAndAnythingElseRendersEmpty )
+{
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::ProjectKey, "assets:Textures/HDR/Sky.detex" ),
+               "assets:Textures/HDR/Sky.detex" );
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::ProjectKey, "/Users/somebody/Sky.detex" ), "" );
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::ProjectKey, "Textures/HDR/Sky.detex" ), "" );
 }
 
 TEST( StoredAssetForm, AnUnknownTypeHasNoFormRatherThanFallingThroughToOne )

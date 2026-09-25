@@ -1,5 +1,6 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -13,6 +14,14 @@ namespace Desert::Assets
          : AssetBase( priority, filepath, AssetTypeID::UITheme )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
+
+        // THE THEME'S IDENTITY IS ITS HEADER GUID (format 2), adopted HERE rather than in the load because the
+        // asset manager keys its handle lookup at creation. A file with no readable header keeps the
+        // path-derived handle - the load refuses a version-1 file by name, so none is ever READY under it.
+        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( m_Metadata.Filepath );
+        if ( !guid.IsNull() )
+            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
+                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr UIThemeAsset::LoadFromFile()

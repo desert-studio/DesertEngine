@@ -21,7 +21,8 @@
 
 #include <gtest/gtest.h>
 
-#include <Common/Core/AssetHandle.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Core/Timestep.hpp>
 
@@ -57,11 +58,6 @@ namespace
     constexpr const char* kHand     = "IK_Hand";
     constexpr const char* kPost     = "IK_Post";
     constexpr const char* kKerb     = "IK_Kerb";
-
-    // The handle the two shipped scenes store for the shipped mesh, derived from the project-relative
-    // cooked path exactly as AssetHandle does. Pinned because it is a number in a file no compiler reads.
-    constexpr const char*   kMeshPath   = "Cooked/Meshes/IKProbe.skmesh";
-    constexpr std::uint64_t kMeshHandle = 556331627295699705ull;
 
     // 1 world unit = 1 cm, and these are the numbers the whole protocol turns on.
     constexpr float kUpperLimbCm = 80.0F;
@@ -255,15 +251,19 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
          << "IKProbe_Swing claims a different rig from IKProbe.skeleton. Every frame taken against it would "
             "show a bind pose and still render, which is broken evidence rather than no evidence.";
 
-    EXPECT_EQ( static_cast<std::uint64_t>( Common::AssetHandle::FromCookedPath( kMeshPath ) ), kMeshHandle );
+    // SCNE 28: the two shipped scenes name the mesh by the GUID its own header states -- read from the
+    // file, not pinned, so re-cooking the mesh with a new GUID fails here until the scenes follow.
+    const auto meshGuid =
+         Common::Content::ReadMeshHeaderGuid( ReadFile( RepoRoot() + kCookedDir + "IKProbe.skmesh" ) );
+    ASSERT_TRUE( meshGuid.has_value() ) << "IKProbe.skmesh states no header GUID (not a v3 mesh)";
+    const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
     for ( const char* scene : { kWitness, kNoControl } )
     {
         const std::string text = ReadFile( RepoRoot() + scene );
         ASSERT_FALSE( text.empty() ) << "could not read " << scene;
-        EXPECT_NE( text.find( "\"MeshGuid\":" + std::to_string( kMeshHandle ) ), std::string::npos )
-             << scene
-             << " no longer stores the probe mesh's path-derived handle, so the scene that places "
-                "the rig would resolve to no mesh at all.";
+        EXPECT_NE( text.find( "\"MeshGuid\": \"" + meshGuidText + "\"" ), std::string::npos )
+             << scene << " does not name the probe mesh by its header GUID " << meshGuidText
+             << ", so the scene that places the rig would resolve to no mesh at all.";
     }
 }
 
@@ -356,9 +356,9 @@ TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
     // the two agree, and a frame showing the hand beside the post would look like a solver bug either way.
     const std::string scene = ReadFile( RepoRoot() + kWitness );
     ASSERT_FALSE( scene.empty() );
-    EXPECT_NE( scene.find( "\"Goal\":[90.0,150.0,0.0]" ), std::string::npos )
+    EXPECT_NE( scene.find( "\"Goal\": [90.0, 150.0, 0.0]" ), std::string::npos )
          << "the witness scene's authored goal is not the post bone's position any more.";
-    EXPECT_NE( scene.find( std::string( "\"EndBone\":\"" ) + kHand + "\"" ), std::string::npos );
+    EXPECT_NE( scene.find( std::string( "\"EndBone\": \"" ) + kHand + "\"" ), std::string::npos );
     EXPECT_NEAR( glm::length( post - glm::vec3( 90.0F, 150.0F, 0.0F ) ), 0.0F, 1e-3F );
 
     // "REACHED, NOT CLAMPED": strictly inside the shell, with room either side, so the shots show the

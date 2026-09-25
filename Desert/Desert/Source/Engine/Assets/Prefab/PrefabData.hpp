@@ -4,7 +4,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/SavedMeshForm.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -21,17 +21,17 @@ namespace Desert::Assets
 {
     // Mesh component serialization mirrors. Meshes keep a custom (non-reflected) serializer because they
     // carry data reflection can't express: a mesh built in the editor (the component's EditMesh, stored as
-    // its own saved form - Engine/Geometry/EditMeshSerialization.hpp) and a std::optional primitive type. Asset
-    // references (MeshPath / MaterialPaths) round-trip as paths through the shared AssetResolver — same code path
-    // the reflected components use. Asset references persist BOTH ways (asset-database):
-    //   *Guid  — the stable asset handle (survives file renames/moves; preferred on load)
-    //   *Path  — human-readable fallback + back-compat with pre-GUID scenes
+    // its own saved form - Engine/Geometry/SavedMeshForm.hpp) and a std::optional primitive type. Asset
+    // references resolve through the shared AssetResolver — same code path the reflected components use. An
+    // asset reference persists BOTH ways:
+    //   *Guid  — the asset's header GUID as text (meshes SCNE 28, materials SCNE 27): the identity
+    //   *Path  — a locator only: loads the asset when it is not resident, and must hold that GUID's asset
     struct StaticMeshComponentSer
     {
         std::optional<std::string>                  MeshPath;
-        std::optional<uint64_t>                     MeshGuid;
+        std::optional<std::string>                  MeshGuid; // mesh header GUID text (SCNE 28)
         std::optional<std::vector<std::string>>     MaterialPaths;
-        std::optional<std::vector<uint64_t>>        MaterialGuids;
+        std::optional<std::vector<std::string>>     MaterialGuids; // material header GUID text (SCNE 27)
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
@@ -48,9 +48,9 @@ namespace Desert::Assets
     struct SkinnedMeshComponentSer
     {
         std::optional<std::string>              MeshPath;
-        std::optional<uint64_t>                 MeshGuid;
+        std::optional<std::string>              MeshGuid; // mesh header GUID text (SCNE 28)
         std::optional<std::vector<std::string>> MaterialPaths;
-        std::optional<std::vector<uint64_t>>    MaterialGuids;
+        std::optional<std::vector<std::string>> MaterialGuids; // material header GUID text (SCNE 27)
         // Rendering controls (absent = component default, so pre-existing scenes stay loadable).
         // Written only when false, like the static twin's flag above.
         std::optional<bool> CastShadows;
@@ -61,17 +61,14 @@ namespace Desert::Assets
     // needed in this translation unit).
     struct InstancedStaticMeshComponentSer
     {
-        // GUID AND PATH, LIKE THE STATIC AND SKINNED TWINS ABOVE, AND UNTIL Г26 ONLY THE PATH.
-        // The static mesh mirror has carried `MeshGuid`/`MaterialGuids` ("the stable handle itself;
-        // rename-safe") since the asset database existed, and the instanced mirror -- the one the owner
-        // is about to scatter grass assets through -- carried the path alone. So renaming or moving an
-        // instanced mesh or its material silently unresolved every instance of it, while the identical
-        // reference on a plain StaticMesh survived. Both ends of that chain looked right; the middle one
-        // dropped a property. GUID first, path as the fallback, exactly as StaticMesh does it.
+        // GUID AND PATH, LIKE THE STATIC AND SKINNED TWINS ABOVE, AND UNTIL Г26 ONLY THE PATH: the instanced
+        // mirror carried the path alone, so renaming an instanced mesh or its material silently unresolved
+        // every instance while the same reference on a plain StaticMesh survived. It names its assets
+        // exactly as StaticMesh does.
         std::optional<std::string>                       MeshPath;
-        std::optional<uint64_t>                           MeshGuid;
+        std::optional<std::string>                        MeshGuid; // mesh header GUID text (SCNE 28)
         std::optional<std::vector<std::string>>          MaterialPaths;
-        std::optional<std::vector<uint64_t>>              MaterialGuids;
+        std::optional<std::vector<std::string>>           MaterialGuids; // material header GUID text (SCNE 27)
         std::optional<Geometry::PrimitiveType>           Primitive;
         std::optional<std::vector<std::array<float, 16>>> InstanceTransforms;
         // Absent = component default (true), and written only when false — the same shape the static
@@ -98,10 +95,14 @@ namespace Desert::Assets
     //
     // The FIELD NAME matches MaterialData's `.demat` form on purpose. The same reference written two ways
     // by two serializers is the same defect one indirection further out.
+    //
+    // SCNE 29 (T6d): the handle became `{Guid, Path}` - the .detex header GUID is the identity and the
+    // project key only locates it, read through Reflection::ResolveGuidRef like every other GUID reference.
     struct MaterialTextureSer
     {
         std::string Name;
-        uint64_t    TextureHandle = 0;
+        std::string Guid;
+        std::string Path;
     };
 
     struct MaterialComponentSer

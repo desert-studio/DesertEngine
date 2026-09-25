@@ -34,6 +34,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -546,9 +547,9 @@ TEST( SceneStitchCorpus, EverySceneStitchesWithNothingShadowedMintedOrUnresolved
 }
 
 // 9c. And the plan is the IDENTITY stitch on every one of them: the records that ARE created become
-// entities in file order and each payload lands on itself. This is the round trip the change had to leave
-// untouched, stated over the real files - if any decision taken in SceneStitchRules.hpp moved a scene, it
-// would move it here.
+// entities in sibling order (file order before scene v25) and each payload lands on itself. This is the round trip
+// the change had to leave untouched, stated over the real files - if any decision taken in SceneStitchRules.hpp
+// moved a scene, it would move it here.
 //
 // "RECORD i BECOMES ENTITY i" WAS THE OLD WORDING AND IT ONLY HELD WHILE NO SCENE NAMED A PREFAB. A
 // prefab record is LISTED, not created, so it takes no slot and everything after it shifts by one. Until
@@ -556,7 +557,7 @@ TEST( SceneStitchCorpus, EverySceneStitchesWithNothingShadowedMintedOrUnresolved
 // carry one would have broken this by luck of ordering alone (the witness scene passed it, because its
 // canvas happens to be the first record). The relation that is actually true is stated instead: the
 // created entities are the NON-prefab records, in file order.
-TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInFileOrder )
+TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInSiblingOrder )
 {
     for ( const auto& path : RepositoryScenes() )
     {
@@ -574,6 +575,15 @@ TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInFileOrder )
                 nonPrefab.push_back( record );
             }
         }
+        // Since scene v25 the file is sorted by id and the sibling order is STATED (siblingIndex), so the plan
+        // creates in that order, file order breaking ties and records without an index going last
+        // (SceneStitchRules.hpp PlanSceneStitch). Same rule, spelled here from the records themselves.
+        std::stable_sort( nonPrefab.begin(), nonPrefab.end(),
+                          [&]( size_t a, size_t b )
+                          {
+                              return Desert::Core::Rules::SiblingIndexOf( parsed->Entities[a] ) <
+                                     Desert::Core::Rules::SiblingIndexOf( parsed->Entities[b] );
+                          } );
         ASSERT_EQ( plan.Created.size(), nonPrefab.size() ) << path.string();
 
         for ( size_t slot = 0; slot < plan.Created.size(); ++slot )

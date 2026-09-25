@@ -466,6 +466,14 @@ namespace
           "FILE's, not a constant, because that is the whole point: the same cube is 128 MiB as "
           "RGBA32F and 8 MiB as BC6H, and a figure quoted from a constant would have gone on saying "
           "128" },
+        { "Desert/Desert/Source/Engine/Graphic/ShadowCascades.hpp",
+          "CalculateImageSize( side, side, ViewTargetFormats::kShadowColor )", Sizes::OneImage, Blocks::Correct,
+          "one cascade's COLOUR attachment in the shadow budget; the cascade count multiplies around it "
+          "because each cascade is its own framebuffer, not a layer of one image" },
+        { "Desert/Desert/Source/Engine/Graphic/ShadowCascades.hpp",
+          "CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth )", Sizes::OneImage, Blocks::Correct,
+          "one cascade's DEPTH attachment in the shadow budget; same shape as the colour row, and the "
+          "two together are what ViewMemory's two shadow rows must add up to" },
         { "Desert/Desert/Source/Engine/Graphic/SkyRules.hpp",
           "CalculateCubeImageSize( faceSize, mips, kSkyEnvCubeFormat )", Sizes::EveryLayer, Blocks::Correct,
           "what one IBL cube costs to COMPUTE, for the bake's cost report. THIS is the line that used "
@@ -481,13 +489,13 @@ namespace
           "a cloud noise target's cost line; one 2D image, and a render target can never be a block "
           "format" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-          "CalculateImageSize( traceWidth, traceHeight, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
+          "CalculateImageSize( traceWidth, traceHeight, ViewTargetFormats::kCloudTrace )", Sizes::OneImage, Blocks::Correct,
           "the full-resolution cloud trace target's cost line; one 2D image" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-          "CalculateImageSize( halfWidth, halfHeight, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
+          "CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace )", Sizes::OneImage, Blocks::Correct,
           "the half-resolution cloud trace target's cost line; one 2D image" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp",
-          "CalculateImageSize( width, height, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
+          "CalculateImageSize( width, height, ViewTargetFormats::kHeightFog )", Sizes::OneImage, Blocks::Correct,
           "the height fog targets' cost lines; 2D images" },
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
           "CalculateImageSize( kTransmittanceLutWidth, kTransmittanceLutHeight, " "Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
@@ -501,6 +509,11 @@ namespace
         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
           "CalculateImageSize( kAerialPerspectiveWidth, kAerialPerspectiveHeight, " "kAerialPerspectiveDepth, Core::Formats::ImageFormat::RGBA16F )", Sizes::OneImage, Blocks::Correct,
           "the aerial perspective VOLUME's cost line -- three extents, not three layers" },
+        { "Desert/Desert/Source/Engine/Graphic/ViewMemory.hpp",
+          "CalculateImageSize( w, h, Format )", Sizes::OneImage, Blocks::Correct,
+          "one level of one row of the view's render-target census (ViewTarget::Bytes); the level loop "
+          "and the identical-image Count multiply around it. A render target is one 2D image with no "
+          "layers, and never a block format -- but the size would be right if one were" },
         { "Editor/Source/Editor/Import/TextureImporter.cpp",
           "GetTexelBlock( source.Format )", Sizes::TheBlockTable, Blocks::Correct,
           "how many bytes ONE TEXEL of the uncompressed source occupies, which the cook's fidelity "

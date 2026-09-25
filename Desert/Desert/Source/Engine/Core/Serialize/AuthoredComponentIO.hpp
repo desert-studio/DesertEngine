@@ -39,6 +39,7 @@
 //      has a decimal-string spelling (its `std::string` constructor), so that is the form we store.
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/ECS/Components.hpp>
@@ -435,7 +436,58 @@ namespace Desert::Core::Serialize
         o["QuadsPerTile"] = rfl::Generic( static_cast<int64_t>( c.QuadsPerTile ) );
         o["SpacingCm"]    = rfl::Generic( static_cast<double>( c.SpacingCm ) );
         o["ZScale"]       = rfl::Generic( static_cast<double>( c.ZScale ) );
+        // Written even when empty: an undo restores the whole block, and an absent key keeps the current
+        // value (rule 1), so an omitted empty list would leave a just-added layer in place after its undo.
+        rfl::Generic::Array layers;
+        layers.reserve( c.Layers.size() );
+        for ( const auto& layer : c.Layers )
+        {
+            rfl::Generic::Object l;
+            l["Name"]          = rfl::Generic( layer.Name );
+            l["Hardness"]      = rfl::Generic( static_cast<double>( layer.Hardness ) );
+            l["NoWeightBlend"] = rfl::Generic( layer.NoWeightBlend );
+            l["Color"]         = AuthoredIO::WriteVec3( layer.Color );
+            layers.push_back( rfl::Generic( l ) );
+        }
+        o["Layers"] = rfl::Generic( layers );
         return o;
+    }
+
+    /// The layer list of one Landscape block, or the reason it cannot be one. A name is the key every tile's
+    /// weight plane is looked up by, so an empty, over-long or repeated name would make a plane unreachable
+    /// or ambiguous; Hardness is a 0..1 share (LandscapeLayerRule).
+    inline Common::ResultStr<std::vector<ECS::LandscapeLayerInfo>> ReadLandscapeLayers( const rfl::Generic& value )
+    {
+        using Layers     = std::vector<ECS::LandscapeLayerInfo>;
+        const auto array = value.to_array();
+        if ( !array.has_value() )
+            return Common::MakeError<Layers>( "'Layers' is not an array" );
+        Layers read;
+        for ( const auto& element : array.value() )
+        {
+            const auto object = element.to_object();
+            if ( !object.has_value() )
+                return Common::MakeFormattedError<Layers>( "layer {} is not an object", read.size() );
+            ECS::LandscapeLayerInfo layer;
+            AuthoredIO::ReadString( object.value(), "Name", layer.Name );
+            AuthoredIO::ReadFloat( object.value(), "Hardness", layer.Hardness );
+            AuthoredIO::ReadBool( object.value(), "NoWeightBlend", layer.NoWeightBlend );
+            AuthoredIO::ReadVec3( object.value(), "Color", layer.Color );
+            if ( layer.Name.empty() )
+                return Common::MakeFormattedError<Layers>( "layer {} has no name", read.size() );
+            if ( layer.Name.size() > World::Landscape::kLandscapeMaxWeightLayerName )
+                return Common::MakeFormattedError<Layers>( "layer '{}' is {} bytes long, the limit is {}",
+                                                           layer.Name, layer.Name.size(),
+                                                           World::Landscape::kLandscapeMaxWeightLayerName );
+            if ( !( layer.Hardness >= 0.0f && layer.Hardness <= 1.0f ) )
+                return Common::MakeFormattedError<Layers>( "layer '{}' has Hardness {}, outside 0..1", layer.Name,
+                                                           layer.Hardness );
+            for ( const auto& earlier : read )
+                if ( earlier.Name == layer.Name )
+                    return Common::MakeFormattedError<Layers>( "layer '{}' is named twice", layer.Name );
+            read.push_back( std::move( layer ) );
+        }
+        return Common::MakeSuccess( std::move( read ) );
     }
 
     inline void ReadComponent( const rfl::Generic::Object& from, ECS::LandscapeComponent& c )
@@ -443,6 +495,16 @@ namespace Desert::Core::Serialize
         AuthoredIO::ReadInteger( from, "QuadsPerTile", c.QuadsPerTile );
         AuthoredIO::ReadFloat( from, "SpacingCm", c.SpacingCm );
         AuthoredIO::ReadFloat( from, "ZScale", c.ZScale );
+        // Absent in every scene written before layers existed: the list stays as it is (empty on load).
+        if ( const auto value = from.get( "Layers" ); value.has_value() )
+        {
+            auto layers = ReadLandscapeLayers( value.value() );
+            if ( layers )
+                c.Layers = layers.GetValue();
+            else
+                LOG_ERROR( "[Scene] Landscape layers refused, the list kept its current contents: {0}",
+                           layers.GetError() );
+        }
     }
 
     // `Heights` is not written: it is what `HeightFile` decodes to, and the registry's LandscapeTile

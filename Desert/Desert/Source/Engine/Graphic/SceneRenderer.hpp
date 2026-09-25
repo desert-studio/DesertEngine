@@ -11,6 +11,7 @@
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -88,14 +89,21 @@ namespace Desert::Graphic
         // Init(), so a value arriving afterwards would be read by nothing and look like a knob. A viewport
         // of a level takes the default; an asset preview passes Graphic::kPreviewShadowQuality, which is
         // the difference between 335 MB of shadow attachments per open window and 21 MB.
-        explicit SceneRenderer( const ShadowQuality& shadowQuality = kSceneShadowQuality );
+        //
+        // @p profile widens that budget to the whole view (Graphic/ViewMemory.hpp): a preview also never
+        // builds the volumetric-cloud, SSR or RSM-GI targets, whatever its scene asks for.
+        //
+        // @p extent is the size of the surface this view renders into — the viewport panel, the preview
+        // widget, the thumbnail, the runtime window — and the build allocates at exactly that; Resize()
+        // follows the surface from then on. A surface that has no size yet passes kUnsizedViewExtent.
+        SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile );
         // Returns the leased slot, so closing a view hands it back instead of using it up.
         ~SceneRenderer();
 
         // This renderer's shadow budget. Read by its own MeshRenderer in Initialize and fixed thereafter.
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
         {
-            return m_ShadowQuality;
+            return m_ViewProfile.Shadows;
         }
 
         // A SCENE HAS JUST BEEN (RE)INITIALISED ON THIS RENDERER. Called from Scene::Init(), which runs on
@@ -154,6 +162,10 @@ namespace Desert::Graphic
         [[nodiscard]] Common::BoolResultStr EndScene();
 
         void Resize( const uint32_t width, const uint32_t height );
+        [[nodiscard]] const ViewExtent& GetViewExtent() const
+        {
+            return m_ViewExtent;
+        }
 
         // The slot binding is taken BY SHARED HANDLE, not by reference to the caller's storage: the
         // caller is a draw command whose recorder (an ECS component) may already be gone. See
@@ -164,7 +176,8 @@ namespace Desert::Graphic
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layer modes.
         void SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
-                                  const glm::vec3& layerModes, const MaterialOverrides& overrides );
+                                  const glm::vec3& layerModes, const MaterialOverrides& overrides,
+                                  const System::LandscapeWeightDraw& weights );
 
         // Submit a mesh drawn with a generic data-driven material (MaterialComponent with a non-PBR shader).
         // directTexture (optional): a runtime-owned Image2D bound to `directTextureSampler`, for
@@ -403,7 +416,11 @@ namespace Desert::Graphic
 
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
-        ShadowQuality m_ShadowQuality;
+        ViewProfile m_ViewProfile;
+
+        // The surface's size: the constructor's until the first Resize(), then the last one's. The build
+        // reads it and nothing reads the window, so a view never holds targets larger than its surface.
+        ViewExtent m_ViewExtent;
 
         // Has EnsureRendererResources() run? Set once, never cleared — see its comment for why there is no
         // path that invalidates it.
@@ -484,7 +501,7 @@ namespace Desert::Graphic
 
         struct
         {
-            Core::Camera* ActiveCamera;
+            Core::Camera* ActiveCamera = nullptr;
         } m_SceneInfo;
 
         // The atmosphere sun light's render-effect slice, refreshed by SetProceduralSky each frame; the

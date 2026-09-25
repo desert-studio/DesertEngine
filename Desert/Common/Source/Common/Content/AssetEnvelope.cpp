@@ -1,5 +1,6 @@
 #include "AssetEnvelope.hpp"
 #include "TextAssetHeader.hpp"
+#include "MeshBinaryHeader.hpp"
 
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/PakFile.hpp>
@@ -572,6 +573,119 @@ namespace Common::Content
         };
     } // namespace
 
+    namespace
+    {
+        // A v3 mesh's dependency edges: the distinct non-null material GUIDs of its submeshes, in submesh
+        // order, read from the section table and the submesh records only. @p in stands just past the
+        // 80-byte prefix. Every number the file states is checked against the bytes it declares, because
+        // a table read wrongly here would state edges to materials the mesh never named.
+        ResultStr<std::vector<AssetGuid>> ReadSubmeshMaterialGuids( std::istream&               in,
+                                                                    const MeshBinaryFileHeader& header )
+        {
+            using Out = std::vector<AssetGuid>;
+            std::string table( std::size_t( header.SectionCount ) * kMeshBinarySectionRowSize, '\0' );
+            in.read( table.data(), static_cast<std::streamsize>( table.size() ) );
+            if ( static_cast<std::size_t>( in.gcount() ) != table.size() )
+                return MakeFormattedError<Out>( "mesh header: {} bytes where the {}-row section table is {}",
+                                                in.gcount(), header.SectionCount, table.size() );
+
+            for ( uint32_t row = 0; row < header.SectionCount; ++row )
+            {
+                const char* at = table.data() + std::size_t( row ) * kMeshBinarySectionRowSize;
+                uint32_t    id = 0, elementSize = 0;
+                uint64_t    offset = 0, count = 0;
+                std::memcpy( &id, at, 4 );
+                std::memcpy( &elementSize, at + 4, 4 );
+                std::memcpy( &offset, at + 8, 8 );
+                std::memcpy( &count, at + 16, 8 );
+                if ( id != kMeshBinarySubmeshSectionId )
+                    continue;
+                if ( elementSize != kMeshBinarySubmeshSizeV3 )
+                    return MakeFormattedError<Out>( "mesh header: the submesh section states {}-byte records, a "
+                                                    "version {} mesh writes {}",
+                                                    elementSize, header.Version, kMeshBinarySubmeshSizeV3 );
+                if ( offset > header.FileSize || count > ( header.FileSize - offset ) / elementSize )
+                    return MakeFormattedError<Out>( "mesh header: {} submesh records at byte {} do not fit the "
+                                                    "declared {} bytes",
+                                                    count, offset, header.FileSize );
+
+                std::string records( static_cast<std::size_t>( count ) * elementSize, '\0' );
+                in.seekg( static_cast<std::streamoff>( offset ), std::ios::beg );
+                in.read( records.data(), static_cast<std::streamsize>( records.size() ) );
+                if ( static_cast<std::size_t>( in.gcount() ) != records.size() )
+                    return MakeFormattedError<Out>( "mesh header: {} bytes where {} submesh records are {}",
+                                                    in.gcount(), count, records.size() );
+
+                Out guids;
+                for ( uint64_t submesh = 0; submesh < count; ++submesh )
+                {
+                    const char* guidAt =
+                         records.data() + submesh * elementSize + kMeshBinarySubmeshMaterialGuidOffset;
+                    AssetGuid material;
+                    std::memcpy( &material.Hi, guidAt, 8 );
+                    std::memcpy( &material.Lo, guidAt + 8, 8 );
+                    // A null GUID is a submesh with no material assigned — a slot that names nothing, not an edge.
+                    if ( !material.IsNull() && std::find( guids.begin(), guids.end(), material ) == guids.end() )
+                        guids.push_back( material );
+                }
+                return MakeSuccess( std::move( guids ) );
+            }
+            return MakeFormattedError<Out>( "mesh header: none of the {} section rows is the submesh table",
+                                            header.SectionCount );
+        }
+
+        class MeshBinaryFormat final : public IAssetHeaderFormat
+        {
+        public:
+            std::string_view Name() const override
+            {
+                return "mesh binary";
+            }
+
+            // Only a version that states a GUID is claimed: a v1/v2 mesh states no header, as before.
+            bool Recognises( std::span<const std::byte> leading ) const override
+            {
+                return leading.size() >= 16 && std::memcmp( leading.data(), kMeshBinaryMagic, 8 ) == 0 &&
+                       LoadU32( leading, 8 ) == kMeshBinaryByteOrderTag && LoadU32( leading, 12 ) >= 3;
+            }
+
+            ResultStr<AssetHeader> ReadHeader( std::istream& in, const AssetHeaderReadContext& ) const override
+            {
+                std::string prefix( kMeshBinaryPrefixV3, '\0' );
+                in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+                if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
+                    return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
+                                                            in.gcount(), kMeshBinaryPrefixV3 );
+                MeshBinaryFileHeader header{};
+                std::memcpy( &header, prefix.data(), sizeof( header ) );
+                // Recognises() claims every version from 3 up, so that a later mesh is REFUSED here by name
+                // rather than passed over as "states no header": nothing says a later layout keeps the GUID
+                // at byte 64, and reading it from there would state an identity the file never wrote.
+                if ( header.Version > kMeshBinaryVersion )
+                    return MakeFormattedError<AssetHeader>( "mesh header: mesh version {}, this build reads 1..{}",
+                                                            header.Version, kMeshBinaryVersion );
+                const std::optional<AssetGuid> guid = ReadMeshHeaderGuid( prefix );
+                if ( !guid || guid->IsNull() )
+                    return MakeError<AssetHeader>( "mesh header: a version 3 mesh states a null GUID" );
+                AssetHeader stated;
+                stated.Kind = ( header.Flags & kMeshFlagIsSkinned ) != 0 ? ContentKind::SkinnedMesh
+                                                                         : ContentKind::StaticMesh;
+                stated.Guid = *guid;
+                auto materials = ReadSubmeshMaterialGuids( in, header );
+                if ( !materials )
+                    return MakeError<AssetHeader>( materials.GetError() );
+                stated.Dependencies = std::move( materials.GetValue() );
+                return MakeSuccess( std::move( stated ) );
+            }
+        };
+    } // namespace
+
+    const IAssetHeaderFormat& MeshBinaryHeaderFormat()
+    {
+        static const MeshBinaryFormat format;
+        return format;
+    }
+
     const IAssetHeaderFormat& BinaryEnvelopeHeaderFormat()
     {
         static const BinaryEnvelopeFormat format;
@@ -580,8 +694,8 @@ namespace Common::Content
 
     std::span<const IAssetHeaderFormat* const> AssetHeaderFormats()
     {
-        static const std::array<const IAssetHeaderFormat*, 2> formats = { &BinaryEnvelopeHeaderFormat(),
-                                                                          &TextHeaderFormat() };
+        static const std::array<const IAssetHeaderFormat*, 3> formats = {
+             &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(), &MeshBinaryHeaderFormat() };
         return formats;
     }
 

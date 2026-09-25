@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "7cf0e6352ff3d5b8bf91911274151889",
         "Versions": {
-            "SCNE": 26,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -30,7 +30,10 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Skybox": {
-                "SkyboxHandle": "",
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Intensity": 1.0
             },
             "SkyAtmosphere": {
@@ -49,9 +52,9 @@
             "Scale": [1.0, 1.0, 1.0],
             "SkinnedMesh": {
                 "MeshPath": "Cooked/Meshes/IKProbe.skmesh",
-                "MeshGuid": 556331627295699705,
+                "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
                 "MaterialPaths": ["Materials/CB_Orange.demat"],
-                "MaterialGuids": [9017610081296696595]
+                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"]
             },
             "Animation": {
                 "CurrentClip": "A6Curve_Linear",
@@ -69,7 +72,7 @@
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": [7519796792557509740],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },
@@ -129,7 +132,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

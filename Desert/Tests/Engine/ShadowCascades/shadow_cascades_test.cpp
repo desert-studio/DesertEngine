@@ -211,7 +211,7 @@ TEST( ShadowQualityBudget, ThePresetsDifferInAllThreeNumbers )
     EXPECT_LT( kPreviewShadowQuality.MaxDistance, kSceneShadowQuality.MaxDistance );
 }
 
-// WHY THE BUDGET EXISTS, as a number. Attachment bytes are cascades x size^2 x (RGBA32F + D24S8); the
+// WHY THE BUDGET EXISTS, as a number. Attachment bytes are cascades x size^2 x (R32F + D24S8); the
 // preview must be at least an order cheaper or it is not worth having a second budget at all.
 //
 // Through Graphic::ShadowAttachmentBytes, not a lambda. This test used to carry its own copy of the
@@ -223,8 +223,8 @@ TEST( ShadowQualityBudget, ThePreviewCostsAnOrderOfMagnitudeLess )
     using Desert::Graphic::kSceneShadowQuality;
     using Desert::Graphic::ShadowAttachmentBytes;
 
-    EXPECT_EQ( ShadowAttachmentBytes( kSceneShadowQuality ), 335544320ull );  // 320 MiB
-    EXPECT_EQ( ShadowAttachmentBytes( kPreviewShadowQuality ), 20971520ull ); // 20 MiB
+    EXPECT_EQ( ShadowAttachmentBytes( kSceneShadowQuality ), 134217728ull ); // 128 MiB
+    EXPECT_EQ( ShadowAttachmentBytes( kPreviewShadowQuality ), 8388608ull ); // 8 MiB
     EXPECT_LE( ShadowAttachmentBytes( kPreviewShadowQuality ) * 10ull,
                ShadowAttachmentBytes( kSceneShadowQuality ) );
 }
