@@ -28,7 +28,7 @@ namespace Desert::Editor
 
         std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
         {
-            if ( assets )
+            if ( assets != nullptr )
             {
                 if ( const auto* meta = assets->FindMetadataByHandle( subject ) )
                     return meta->Filepath.filename().string();
@@ -86,7 +86,8 @@ namespace Desert::Editor
 
     bool TextureViewerDocument::IsSubjectAlive() const
     {
-        return m_Assets && m_Assets->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
+        return m_Assets != nullptr &&
+               m_Assets->FindMetadataByHandle( Assets::AssetHandle( Subject().Owner ) ) != nullptr;
     }
 
     void TextureViewerDocument::ZoomAbout( float newZoom, const ImVec2& pivot, const ImVec2& canvasCentre )
@@ -181,7 +182,7 @@ namespace Desert::Editor
     {
         using Outcome = SubjectEditorRegistry::PathOpenOutcome;
         std::error_code ec;
-        if ( !assets || std::filesystem::path( path ).extension() != Assets::kTextureAssetExtension ||
+        if ( assets == nullptr || std::filesystem::path( path ).extension() != Assets::kTextureAssetExtension ||
              !std::filesystem::exists( path, ec ) )
             return Outcome::NotMine;
 

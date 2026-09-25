@@ -5140,9 +5140,13 @@ namespace Desert::Editor
                 const std::string label =
                      std::filesystem::relative( it->path(), Common::Constants::Path::ASSETS_PATH, ec )
                           .generic_string();
+                // clang-tidy 18 reports every palette lambda that captures a std::string by copy (the "Open",
+                // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
+                // closure's implicit copy, which std::function needs; nothing in the body throws.
+                // NOLINTNEXTLINE(bugprone-exception-escape)
                 commands.push_back( { "Browse", label, [this, folder]
                                       {
-                                          if ( !m_FileExplorerPanel )
+                                          if ( m_FileExplorerPanel == nullptr )
                                               return Common::MakeFormattedError<bool>(
                                                    "the Assets browser does not exist in this session; '{}' "
                                                    "cannot be shown",

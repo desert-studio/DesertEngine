@@ -18,9 +18,9 @@ namespace
     {
         SubjectEditorRegistry registry;
         registry.Register( AssetSubjectType( kTexture ),
-                           SubjectEditorRegistry::Registration{
-                                "Texture2D", "T", []( const SubjectId& ) { return nullptr; },
-                                []( const SubjectId& ) { return true; } } );
+                           SubjectEditorRegistry::Registration{ "Texture2D", "T",
+                                                                []( const SubjectId& ) { return nullptr; },
+                                                                []( const SubjectId& ) { return true; } } );
         return registry;
     }
 
