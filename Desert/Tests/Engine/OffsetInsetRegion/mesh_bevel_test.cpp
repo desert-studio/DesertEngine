@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <set>
 #include <string>
@@ -1368,12 +1369,23 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
             ++patches;
             ASSERT_EQ( v.Wedges.Num(), 4 );
             ASSERT_EQ( v.InteriorVertices.Num(), N * N );
+            // the X curves run along the cylinder axis (the flat strips): a patch vertex stays strictly between
+            // the corners' x, or an end tangent of the blended X curve points the wrong way
+            double cornerMinX = std::numeric_limits<double>::max(), cornerMaxX = -cornerMinX;
+            for ( const int corner : v.InteriorBorderLoop )
+            {
+                cornerMinX = std::min( cornerMinX, run.Mesh.GetVertex( corner ).X );
+                cornerMaxX = std::max( cornerMaxX, run.Mesh.GetVertex( corner ).X );
+            }
+            ASSERT_LT( cornerMinX, cornerMaxX );
             for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : v.InteriorVertices )
             {
-                const double r = DistanceToLine( run.Mesh.GetVertex( iv.VertexID ), FVector3d( 0, 45, 45 ),
-                                                 FVector3d( 1, 0, 0 ) );
+                const FVector3d p = run.Mesh.GetVertex( iv.VertexID );
+                const double    r = DistanceToLine( p, FVector3d( 0, 45, 45 ), FVector3d( 1, 0, 0 ) );
                 EXPECT_LE( r, 5.0 + 1e-9 ) << "vertex " << iv.VertexID;
                 EXPECT_GE( r, 5.0 * kArcInnerRatio - 1e-9 ) << "vertex " << iv.VertexID;
+                EXPECT_GT( p.X, cornerMinX ) << "vertex " << iv.VertexID;
+                EXPECT_LT( p.X, cornerMaxX ) << "vertex " << iv.VertexID;
             }
         }
         EXPECT_EQ( patches, 1 );
@@ -1384,20 +1396,77 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
     }
 }
 
-// Valence 3 (a cube corner) and 5 (five sectors meeting on a flat face) have no ported round patch: refused by
-// name before the mesh is touched. The same inputs with RoundWeight 0 still bevel.
-TEST( MeshBevel, RoundRefusesValenceThreeAndFiveJunctionsByName )
+// All 12 cube edges, round: each corner is a valence-3 junction filled with UE's PN triangle. Its interior
+// vertices stay in the corner's octant around the inset corner, at a distance from it between the PN centre's
+// (UE's b111 is "too flat": 0.849 r, the patch's closest point, pinned exactly where the centre is a lattice
+// point) and r; the solid is closed, lies strictly between the chamfer and the cube, and grows with N.
+TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
 {
+    const FDynamicMesh3  base = TangentCube( 1 );
+    const FGroupTopology baseTopology( &base, true );
+    TArray<int32>        allEdges;
+    for ( int e = 0; e < baseTopology.Edges.Num(); ++e )
+        allEdges.Add( e );
+    ASSERT_EQ( allEdges.Num(), 12 );
+    const double chamfer = ChamferVolume( base, allEdges );
+    // PN centre (w = u = v = 1/3) for three unit corners and sqrt(2)-scaled right-angle border tangents:
+    // b300/27 + 3 (sum of edge points)/27 + 6 b111/27 per axis, times sqrt(3)
+    const double edgeSum     = 2.0 + 2.0 * std::sqrt( 2.0 ) / 3.0;
+    const double b111        = 1.0 / 3.0 + 1.5 * std::sqrt( 2.0 ) / 9.0;
+    const double centreRatio = std::sqrt( 3.0 ) * ( 1.0 / 27.0 + 3.0 * edgeSum / 27.0 + 6.0 * b111 / 27.0 );
+    double       previous    = chamfer;
+    for ( const int N : { 1, 2, 3, 5, 8 } )
     {
-        FRoundRun run{ TangentCube( 1 ) };
-        const int vertices = run.Mesh.VertexCount();
-        RunRound( run, {}, 2, 1.0 );
-        EXPECT_FALSE( run.bApplied );
-        EXPECT_NE( run.Bevel.FailureReason.find( "joins 3 bevelled edges" ), std::string::npos )
-             << run.Bevel.FailureReason;
-        EXPECT_NE( run.Bevel.FailureReason.find( "PN-triangle" ), std::string::npos ) << run.Bevel.FailureReason;
-        EXPECT_EQ( run.Mesh.VertexCount(), vertices );
+        SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+        FRoundRun run{ base };
+        RunRound( run, allEdges, N, 1.0 );
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
+        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        int patches = 0;
+        for ( const FMeshBevel::FBevelVertex& v : run.Bevel.Vertices )
+        {
+            if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex )
+                continue;
+            ++patches;
+            ASSERT_EQ( v.Wedges.Num(), 3 );
+            ASSERT_EQ( v.InteriorBorderLoop.Num(), 3 );
+            ASSERT_EQ( v.InteriorVertices.Num(), N * ( N - 1 ) / 2 );
+            const FVector3d corner = base.GetVertex( v.VertexID );
+            const FVector3d sign( corner.X > 0 ? 1.0 : -1.0, corner.Y > 0 ? 1.0 : -1.0,
+                                  corner.Z > 0 ? 1.0 : -1.0 );
+            const FVector3d inset = corner - 5.0 * sign;
+            for ( const int c : v.InteriorBorderLoop )
+                EXPECT_NEAR( Distance( run.Mesh.GetVertex( c ), inset ), 5.0, 1e-9 );
+            double closest = std::numeric_limits<double>::max();
+            for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : v.InteriorVertices )
+            {
+                const FVector3d q = run.Mesh.GetVertex( iv.VertexID ) - inset;
+                EXPECT_GT( q.X * sign.X, 0.0 ) << "vertex " << iv.VertexID;
+                EXPECT_GT( q.Y * sign.Y, 0.0 ) << "vertex " << iv.VertexID;
+                EXPECT_GT( q.Z * sign.Z, 0.0 ) << "vertex " << iv.VertexID;
+                const double r = Distance( run.Mesh.GetVertex( iv.VertexID ), inset );
+                EXPECT_LE( r, 5.0 + 1e-9 ) << "vertex " << iv.VertexID;
+                EXPECT_GE( r, 5.0 * centreRatio - 1e-9 ) << "vertex " << iv.VertexID;
+                closest = std::min( closest, r );
+            }
+            if ( N % 3 == 2 )
+                EXPECT_NEAR( closest, 5.0 * centreRatio, 1e-9 );
+        }
+        EXPECT_EQ( patches, 8 );
+        const double volume = SignedVolume( run.Mesh );
+        EXPECT_GT( volume, chamfer );
+        EXPECT_LT( volume, 1.0e6 );
+        EXPECT_GT( volume, previous );
+        previous = volume;
+        ExpectAllTrianglesOutward( run.Mesh );
     }
+}
+
+// Valence 5 (five sectors meeting on a flat face) has no ported round patch: refused by name before the mesh is
+// touched. The same input with RoundWeight 0 still bevels.
+TEST( MeshBevel, RoundRefusesValenceFiveJunctionByName )
+{
     FDynamicMesh3 fan = TangentCube( 2 );
     for ( const int t : fan.TriangleIndicesItr() )
     {
@@ -1422,6 +1491,7 @@ TEST( MeshBevel, RoundRefusesValenceThreeAndFiveJunctionsByName )
     EXPECT_FALSE( run.bApplied );
     EXPECT_NE( run.Bevel.FailureReason.find( "joins 5 bevelled edges" ), std::string::npos )
          << run.Bevel.FailureReason;
+    EXPECT_EQ( run.Mesh.VertexCount(), fan.VertexCount() );
     FRoundRun flat{ fan };
     RunRound( flat, groupEdges, 2, 0.0 );
     EXPECT_TRUE( flat.bApplied ) << flat.Bevel.FailureReason;
