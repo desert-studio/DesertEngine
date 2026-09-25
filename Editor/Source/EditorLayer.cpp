@@ -4310,7 +4310,8 @@ namespace Desert::Editor
                                           auto ref = m_MainScene ? m_MainScene->FindEntityByID( owner ) : std::nullopt;
                                           if ( !ref )
                                               return Common::MakeFormattedError<bool>( "the selection is gone" );
-                                          const auto host = MaterialComponentWidget::HostOf( ref->get() );
+                                          ECS::Entity entity = ref->get(); // HostOf takes a mutable entity; the handle copy is cheap
+                                          const auto  host = MaterialComponentWidget::HostOf( entity );
                                           if ( host.Slots == nullptr || host.Slots->empty() )
                                               return Common::MakeFormattedError<bool>(
                                                    "the selected entity has no material slot" );
