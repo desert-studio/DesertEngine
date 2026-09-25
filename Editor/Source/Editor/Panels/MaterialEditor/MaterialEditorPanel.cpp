@@ -953,11 +953,15 @@ namespace Desert::Editor
                     // By GUID (MATL 4): the picked shader's header GUID and stable path, resolved back to the
                     // name GetShaderName answers.
                     if ( m_AssetManager == nullptr )
+                    {
                         LOG_ERROR( "[MaterialEditor] cannot state shader '{}': no asset manager", name );
+                    }
                     else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShaderByName(
                                    asset.Data(), *m_AssetManager, name );
                               !stated )
+                    {
                         LOG_ERROR( "[MaterialEditor] cannot state shader: {}", stated.GetError() );
+                    }
                     else
                     {
                         asset.Data().Params.clear();
