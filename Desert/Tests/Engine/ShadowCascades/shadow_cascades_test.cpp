@@ -224,7 +224,7 @@ TEST( ShadowQualityBudget, ThePreviewCostsAnOrderOfMagnitudeLess )
     using Desert::Graphic::ShadowAttachmentBytes;
 
     EXPECT_EQ( ShadowAttachmentBytes( kSceneShadowQuality ), 134217728ull ); // 128 MiB
-    EXPECT_EQ( ShadowAttachmentBytes( kPreviewShadowQuality ), 8388608ull );   // 8 MiB
+    EXPECT_EQ( ShadowAttachmentBytes( kPreviewShadowQuality ), 8388608ull ); // 8 MiB
     EXPECT_LE( ShadowAttachmentBytes( kPreviewShadowQuality ) * 10ull,
                ShadowAttachmentBytes( kSceneShadowQuality ) );
 }
