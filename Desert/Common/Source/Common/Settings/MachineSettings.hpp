@@ -4,10 +4,8 @@
 #include <string>
 #include <vector>
 
-// The unknown-key carrier below is a FIELD of the struct, so rfl has to be visible here — the same
-// reason Editor::EditorPreferences and Assets::EntityData declare theirs inline.
-#include <rflcpp/rfl/ExtraFields.hpp>
-#include <rflcpp/rfl/Generic.hpp>
+// The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
+#include <Common/Json/Json.hpp>
 
 namespace Common::Settings
 {
@@ -126,12 +124,12 @@ namespace Common::Settings
         std::string DerivedDataCachePath;
 
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN -------------------------------------------
-        // NOT A SETTING AND NOT A KEY OF ITS OWN. rfl::ExtraFields is spread flat at this struct's own
+        // NOT A SETTING AND NOT A KEY OF ITS OWN. Json::CarriedKeys is spread flat at this struct's own
         // level on write and captures every top-level key the fields above did not claim on read, so the
         // file gains nothing called "UnknownKeys".
         //
         // WHY IT IS HERE FROM THE FIRST LINE OF THIS FILE'S LIFE. Every save is
-        // `rfl::json::write( Get() )`, which rewrites the whole file from the struct THIS binary was
+        // `Json::WriteFileAtomic( file, Get() )`, which rewrites the whole file from the struct THIS binary was
         // compiled with — so a key the binary has never heard of would be deleted by the act of saving
         // anything at all. К9 paid for that lesson in `editor.json` (two agents' builds erased the
         // owner's packaging fields within an hour), and this file has strictly MORE writers than that
@@ -141,7 +139,7 @@ namespace Common::Settings
         // It is not a compatibility shim and it does not keep legacy alive (contract §4). A key this
         // project DELETES on purpose is retired by name, not left unknown — nothing has been retired
         // from this file yet, because it is new.
-        rfl::ExtraFields<rfl::Generic> UnknownKeys;
+        Json::CarriedKeys UnknownKeys;
 
         // THE LIVE STATE. Everything that consumes one of these reads it from here; nothing keeps a copy
         // except the two derived pushes the Vulkan backend needs to read atomically
@@ -169,6 +167,7 @@ namespace Common::Settings
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
     };
+    DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
 
     // Where a PACKAGED GAME keeps what belongs to this player on this machine — its save games, and this
     // file beside them. Created on demand.

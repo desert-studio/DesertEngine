@@ -4,8 +4,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -54,15 +53,14 @@ namespace Common::Content
         if ( text.find_first_not_of( " \t\r\n" ) == std::string::npos )
             return MakeSuccess( ChunkScheme{} );
 
-        auto parsed = rfl::json::read<ChunkSchemeJson, rfl::DefaultIfMissing>( text );
+        const auto parsed = Json::Read<ChunkSchemeJson>( text );
         if ( !parsed )
-            return MakeFormattedError<ChunkScheme>( "the chunk scheme could not be read: {}",
-                                                    parsed.error().what() );
+            return MakeFormattedError<ChunkScheme>( "the chunk scheme could not be read: {}", parsed.GetError() );
 
         ChunkScheme scheme;
-        scheme.AlwaysBase = parsed.value().AlwaysBase;
-        scheme.Chunks.reserve( parsed.value().Chunks.size() );
-        for ( const auto& rule : parsed.value().Chunks )
+        scheme.AlwaysBase = parsed.GetValue().AlwaysBase;
+        scheme.Chunks.reserve( parsed.GetValue().Chunks.size() );
+        for ( const auto& rule : parsed.GetValue().Chunks )
             scheme.Chunks.push_back( ChunkRule{ rule.Name, rule.Roots } );
         return MakeSuccess( std::move( scheme ) );
     }
@@ -74,7 +72,7 @@ namespace Common::Content
         out.Chunks.reserve( scheme.Chunks.size() );
         for ( const auto& rule : scheme.Chunks )
             out.Chunks.push_back( ChunkRuleJson{ rule.Name, rule.Roots } );
-        return rfl::json::write( out );
+        return Json::Write( out );
     }
 
     fs::path ChunkSchemePath()
