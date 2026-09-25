@@ -18,6 +18,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <memory>
+#include <functional>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -957,4 +959,140 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// -------------------------------------------------------------------------------------------------------
+// THE DDC KEY OF THE MODELLING VOLUME — every input the bake reads, and nothing it does not
+// -------------------------------------------------------------------------------------------------------
+namespace
+{
+    using Desert::Assets::CloudProceduralVolumeCacheKey;
+
+    CloudProceduralFieldParams MakePaintedParams()
+    {
+        CloudProceduralFieldParams params = MakeParams();
+        auto                       layout = std::make_shared<Desert::Assets::CloudLayoutData>();
+        layout->ContentHash               = 0x1234abcdu;
+        params.PatternSource              = layout;
+        return params;
+    }
+} // namespace
+
+TEST( CloudProceduralCacheKey, TheSameInputsGiveTheSameKeyAndACopyIsTheSameInputs )
+{
+    const glm::vec2                  origin( -24.0f, -24.0f );
+    const CloudProceduralFieldParams params = MakePaintedParams();
+    const CloudProceduralFieldParams copy   = params;
+    EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ), CloudProceduralVolumeCacheKey( params, origin ) );
+    EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ), CloudProceduralVolumeCacheKey( copy, origin ) );
+
+    // By value, as CloudProceduralParamsEqual compares: -0 and +0 are one authored number.
+    CloudProceduralFieldParams negativeZero     = params;
+    negativeZero.Species[0].Shape.AnvilStrength = -0.0f;
+    ASSERT_TRUE( Desert::Assets::CloudProceduralParamsEqual( params, negativeZero ) );
+    EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ), CloudProceduralVolumeCacheKey( negativeZero, origin ) );
+}
+
+TEST( CloudProceduralCacheKey, EveryFieldTheComparisonSeesChangesTheKey )
+{
+    using Params = CloudProceduralFieldParams;
+    const glm::vec2 origin( -24.0f, -24.0f );
+    const Params    base = MakePaintedParams();
+
+    // One row per field CloudProceduralParamsEqual compares, on a base WITH a painting (the only state in
+    // which the placement is read). Each row must also be a change the comparison sees, or the row proves
+    // nothing about the two agreeing.
+    const std::vector<std::pair<const char*, std::function<void( Params& )>>> rows = {
+         { "VolumeSideVoxels", []( Params& p ) { p.VolumeSideVoxels /= 2u; } },
+         { "RegionSizeKm", []( Params& p ) { p.RegionSizeKm += 1.0f; } },
+         { "LayerBottomKm", []( Params& p ) { p.LayerBottomKm += 0.1f; } },
+         { "LayerThicknessKm", []( Params& p ) { p.LayerThicknessKm += 0.1f; } },
+         { "BlendRadiusKm", []( Params& p ) { p.BlendRadiusKm += 0.01f; } },
+         { "ProfileDepthKm", []( Params& p ) { p.ProfileDepthKm += 0.01f; } },
+         { "Coverage", []( Params& p ) { p.Coverage += 0.01f; } },
+         { "CoverageContrast", []( Params& p ) { p.CoverageContrast += 0.1f; } },
+         { "Seed", []( Params& p ) { p.Seed += 1u; } },
+         { "WindAxis.x", []( Params& p ) { p.WindAxis.x += 0.1f; } },
+         { "WindAxis.y", []( Params& p ) { p.WindAxis.y += 0.1f; } },
+         { "ResolvableChordKm", []( Params& p ) { p.ResolvableChordKm += 0.01f; } },
+         { "PlacementDensity", []( Params& p ) { p.PlacementDensity += 0.1f; } },
+         { "PlacementScatter", []( Params& p ) { p.PlacementScatter -= 0.1f; } },
+         { "PlacementSizeVariety", []( Params& p ) { p.PlacementSizeVariety += 0.1f; } },
+         { "PatchStrength", []( Params& p ) { p.PatchStrength += 0.1f; } },
+         { "PatchTileKm", []( Params& p ) { p.PatchTileKm += 1.0f; } },
+         { "PatternSource hash",
+           []( Params& p )
+           {
+               auto other         = std::make_shared<Desert::Assets::CloudLayoutData>( *p.PatternSource );
+               other->ContentHash = 0x9999u;
+               p.PatternSource    = other;
+           } },
+         { "MaskSource hash",
+           []( Params& p )
+           {
+               auto mask         = std::make_shared<Desert::Assets::CloudLayoutData>();
+               mask->ContentHash = 0x5555u;
+               p.MaskSource      = mask;
+           } },
+         { "LayoutPlacement.RepeatsPerRegion", []( Params& p ) { p.LayoutPlacement.RepeatsPerRegion += 1u; } },
+         { "LayoutPlacement.QuarterTurns", []( Params& p ) { p.LayoutPlacement.QuarterTurns += 1u; } },
+         { "LayoutPlacement.OffsetKm.x", []( Params& p ) { p.LayoutPlacement.OffsetKm.x += 1.0f; } },
+         { "LayoutPlacement.OffsetKm.y", []( Params& p ) { p.LayoutPlacement.OffsetKm.y += 1.0f; } },
+         { "LayoutPlacement.PatternStrength", []( Params& p ) { p.LayoutPlacement.PatternStrength -= 0.1f; } },
+         { "LayoutPlacement.MaskStrength", []( Params& p ) { p.LayoutPlacement.MaskStrength -= 0.1f; } },
+         { "Species count", []( Params& p ) { p.Species.push_back( p.Species[0] ); } },
+         { "Species.CellKm", []( Params& p ) { p.Species[0].CellKm += 0.5f; } },
+         { "Species.Anisotropy", []( Params& p ) { p.Species[0].Anisotropy += 0.1f; } },
+         { "Shape.BaseAltitudeKm", []( Params& p ) { p.Species[0].Shape.BaseAltitudeKm += 0.1f; } },
+         { "Shape.TopAltitudeKm", []( Params& p ) { p.Species[0].Shape.TopAltitudeKm += 0.1f; } },
+         { "Shape.EdgeTopFraction", []( Params& p ) { p.Species[0].Shape.EdgeTopFraction += 0.1f; } },
+         { "Shape.BaseRampFraction", []( Params& p ) { p.Species[0].Shape.BaseRampFraction += 0.1f; } },
+         { "Shape.Profile first", []( Params& p ) { p.Species[0].Shape.Profile.HalfWidth.front() += 0.01f; } },
+         { "Shape.Profile last", []( Params& p ) { p.Species[0].Shape.Profile.HalfWidth.back() += 0.01f; } },
+         { "Shape.AnvilAltitudeKm", []( Params& p ) { p.Species[0].Shape.AnvilAltitudeKm += 0.1f; } },
+         { "Shape.AnvilThicknessKm", []( Params& p ) { p.Species[0].Shape.AnvilThicknessKm += 0.1f; } },
+         { "Shape.AnvilStrength", []( Params& p ) { p.Species[0].Shape.AnvilStrength += 0.1f; } },
+         { "Shape.DetailCharacter", []( Params& p ) { p.Species[0].Shape.DetailCharacter -= 0.1f; } },
+         { "Shape.DetailFactor", []( Params& p ) { p.Species[0].Shape.DetailFactor += 0.1f; } },
+         { "Shape.DensityFactor", []( Params& p ) { p.Species[0].Shape.DensityFactor += 0.1f; } },
+         { "Shape.ExtinctionFactor", []( Params& p ) { p.Species[0].Shape.ExtinctionFactor += 0.1f; } },
+         { "Shape.PlacementScale", []( Params& p ) { p.Species[0].Shape.PlacementScale += 0.1f; } },
+         { "Shape.PlacementAnisotropy", []( Params& p ) { p.Species[0].Shape.PlacementAnisotropy += 0.1f; } },
+    };
+
+    const uint64_t baseKey = CloudProceduralVolumeCacheKey( base, origin );
+    for ( const auto& [name, edit] : rows )
+    {
+        Params changed = base;
+        edit( changed );
+        ASSERT_FALSE( Desert::Assets::CloudProceduralParamsEqual( base, changed ) ) << name;
+        EXPECT_NE( CloudProceduralVolumeCacheKey( changed, origin ), baseKey ) << name << " is not in the key";
+    }
+
+    // The region origin is not a parameter but is an input: the same sky over the next region is other bytes.
+    EXPECT_NE( CloudProceduralVolumeCacheKey( base, origin + glm::vec2( 3.0f, 0.0f ) ), baseKey );
+    EXPECT_NE( CloudProceduralVolumeCacheKey( base, origin + glm::vec2( 0.0f, 3.0f ) ), baseKey );
+}
+
+TEST( CloudProceduralCacheKey, ThePlacementIsKeyedOnlyWhenAPaintingIsBound )
+{
+    // Unpainted, the bake never reads the placement, and CloudProceduralParamsEqual says "same" — so a key
+    // that differed would miss on a sky whose bytes are identical.
+    const glm::vec2            origin( 0.0f, 0.0f );
+    CloudProceduralFieldParams unpainted = MakeParams();
+    CloudProceduralFieldParams moved     = unpainted;
+    moved.LayoutPlacement.RepeatsPerRegion += 3u;
+    ASSERT_TRUE( Desert::Assets::CloudProceduralParamsEqual( unpainted, moved ) );
+    EXPECT_EQ( CloudProceduralVolumeCacheKey( unpainted, origin ), CloudProceduralVolumeCacheKey( moved, origin ) );
+}
+
+TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
+{
+    constexpr auto&                       kCurrent = Desert::Assets::kCloudModellingDeriver;
+    constexpr Common::DDC::Deriver        kNextVersion{ kCurrent.Bucket, kCurrent.Extension,
+                                                         { kCurrent.Version.Hi, kCurrent.Version.Lo + 1u } };
+    const CloudProceduralFieldParams       params = MakeParams();
+    const glm::vec2                        origin( 0.0f, 0.0f );
+    EXPECT_NE( CloudProceduralVolumeCacheKey( params, origin ),
+               CloudProceduralVolumeCacheKey( params, origin, kNextVersion ) );
 }

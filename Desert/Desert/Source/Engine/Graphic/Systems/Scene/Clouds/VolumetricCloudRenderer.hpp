@@ -593,7 +593,7 @@ namespace Desert::Graphic::System
         // std::async BLOCKS until the task finishes, so simply dropping a stale bake was not available —
         // which is why the old code could only ever have one in flight. A JobSystem future wraps a
         // packaged_task and its destructor waits for nothing, so abandoning one is a move-assignment.
-        std::future<Common::ResultStr<std::vector<unsigned char>>> m_ModellingBake;
+        std::future<Common::ResultStr<Assets::CloudProceduralCachedBake>> m_ModellingBake;
 
         /// THE WHOLE CHANNEL BETWEEN A BAKE AND THE VIEW THAT WANTED IT: one flag in, one number out. Both
         /// are read by the worker at the same instant — between XZ slices, through the one progress hook —

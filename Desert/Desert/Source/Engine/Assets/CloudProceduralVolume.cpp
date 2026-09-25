@@ -6,6 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -659,6 +660,138 @@ namespace Desert::Assets
         }
 
         return true;
+    }
+
+    namespace
+    {
+        // A NEW FIELD HAS TO BE CONSIDERED HERE, not silently left out of the key: these sizes are the field
+        // lists SerializeCloudProceduralBakeInputs writes. Growing either struct fails the build right here.
+        static_assert( sizeof( Graphic::CloudTypeShape ) ==
+                            ( 13u + Graphic::kCloudProfileSamples ) * sizeof( float ),
+                       "CloudTypeShape gained a field: add it to SerializeCloudProceduralBakeInputs" );
+        static_assert( sizeof( CloudLayoutPlacement ) == 2u * sizeof( uint32_t ) + 4u * sizeof( float ),
+                       "CloudLayoutPlacement gained a field: add it to SerializeCloudProceduralBakeInputs" );
+
+        void KeyU32( std::string& out, const uint32_t value )
+        {
+            for ( uint32_t shift = 0; shift < 32; shift += 8 )
+                out.push_back( static_cast<char>( ( value >> shift ) & 0xffu ) );
+        }
+
+        // By VALUE, like CloudProceduralParamsEqual: -0 and +0 are one authored number and one key.
+        void KeyF32( std::string& out, const float value )
+        {
+            KeyU32( out, std::bit_cast<uint32_t>( value == 0.0f ? 0.0f : value ) );
+        }
+    } // namespace
+
+    std::string SerializeCloudProceduralBakeInputs( const CloudProceduralFieldParams& params,
+                                                    const glm::vec2&                  regionOriginKm )
+    {
+        std::string out;
+        KeyF32( out, regionOriginKm.x );
+        KeyF32( out, regionOriginKm.y );
+
+        KeyU32( out, params.VolumeSideVoxels );
+        KeyF32( out, params.RegionSizeKm );
+        KeyF32( out, params.LayerBottomKm );
+        KeyF32( out, params.LayerThicknessKm );
+        KeyF32( out, params.BlendRadiusKm );
+        KeyF32( out, params.ProfileDepthKm );
+        KeyF32( out, params.Coverage );
+        KeyF32( out, params.CoverageContrast );
+        KeyU32( out, params.Seed );
+        KeyF32( out, params.WindAxis.x );
+        KeyF32( out, params.WindAxis.y );
+        KeyF32( out, params.ResolvableChordKm );
+
+        KeyF32( out, params.PlacementDensity );
+        KeyF32( out, params.PlacementScatter );
+        KeyF32( out, params.PlacementSizeVariety );
+        KeyF32( out, params.PatchStrength );
+        KeyF32( out, params.PatchTileKm );
+
+        const uint32_t patternHash = params.PatternSource ? params.PatternSource->ContentHash : 0u;
+        const uint32_t maskHash    = params.MaskSource ? params.MaskSource->ContentHash : 0u;
+        KeyU32( out, patternHash );
+        KeyU32( out, maskHash );
+
+        // Only with a painting bound, exactly as CloudProceduralParamsEqual: unpainted, the bake never reads
+        // these five, and keying them would make an unchanged sky miss.
+        if ( patternHash != 0u || maskHash != 0u )
+        {
+            const CloudLayoutPlacement& placement = params.LayoutPlacement;
+            KeyU32( out, placement.RepeatsPerRegion );
+            KeyU32( out, placement.QuarterTurns );
+            KeyF32( out, placement.OffsetKm.x );
+            KeyF32( out, placement.OffsetKm.y );
+            KeyF32( out, placement.PatternStrength );
+            KeyF32( out, placement.MaskStrength );
+        }
+
+        KeyU32( out, static_cast<uint32_t>( params.Species.size() ) );
+        for ( const CloudProceduralSpecies& species : params.Species )
+        {
+            KeyF32( out, species.CellKm );
+            KeyF32( out, species.Anisotropy );
+
+            const Graphic::CloudTypeShape& shape = species.Shape;
+            KeyF32( out, shape.BaseAltitudeKm );
+            KeyF32( out, shape.TopAltitudeKm );
+            KeyF32( out, shape.EdgeTopFraction );
+            KeyF32( out, shape.BaseRampFraction );
+            for ( const float halfWidth : shape.Profile.HalfWidth )
+                KeyF32( out, halfWidth );
+            KeyF32( out, shape.AnvilAltitudeKm );
+            KeyF32( out, shape.AnvilThicknessKm );
+            KeyF32( out, shape.AnvilStrength );
+            KeyF32( out, shape.DetailCharacter );
+            KeyF32( out, shape.DetailFactor );
+            KeyF32( out, shape.DensityFactor );
+            KeyF32( out, shape.ExtinctionFactor );
+            KeyF32( out, shape.PlacementScale );
+            KeyF32( out, shape.PlacementAnisotropy );
+        }
+        return out;
+    }
+
+    uint64_t CloudProceduralVolumeCacheKey( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
+                                            const Common::DDC::Deriver& deriver )
+    {
+        const std::string inputs = SerializeCloudProceduralBakeInputs( params, regionOriginKm );
+        return Common::DDC::MakeKey( deriver, 0u, inputs.data(), inputs.size() );
+    }
+
+    Common::ResultStr<CloudProceduralCachedBake>
+    BakeCloudProceduralVolumeCached( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
+                                     const CloudProceduralBakeProgressFn& onProgress )
+    {
+        CloudProceduralCachedBake result;
+        result.Key = CloudProceduralVolumeCacheKey( params, regionOriginKm );
+
+        if ( auto hit = Common::DDC::Get( kCloudModellingDeriver, result.Key ); hit.has_value() )
+        {
+            const uint64_t expected = CloudProceduralVoxelBytes( params.VolumeSideVoxels );
+            if ( hit->size() != expected )
+                return Common::MakeFormattedError<CloudProceduralCachedBake>(
+                     "the cached modelling volume '{}' holds {} bytes where a {}-voxel grid is {} — the entry is "
+                     "damaged; delete it to re-bake",
+                     Common::DDC::PathFor( kCloudModellingDeriver, result.Key ).string(), hit->size(),
+                     params.VolumeSideVoxels, expected );
+            result.Voxels.assign( hit->begin(), hit->end() );
+            result.FromCache = true;
+            return Common::MakeSuccess( std::move( result ) );
+        }
+
+        auto baked = BakeCloudProceduralVolume( params, regionOriginKm, onProgress );
+        if ( !baked.IsSuccess() )
+            return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
+        result.Voxels = std::move( baked.GetValue() );
+
+        const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ), result.Voxels.size() );
+        if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
+            result.CacheWriteError = put.GetError();
+        return Common::MakeSuccess( std::move( result ) );
     }
 
     Common::BoolResultStr ValidateCloudProceduralParams( const CloudProceduralFieldParams& params )
