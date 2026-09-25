@@ -64,6 +64,10 @@ project "SceneMigrator"
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        -- THE CLOUD NOISE VOLUME DECODER, since T7g: the DCNV 1/2 -> 3 step wraps the payload in the AF1
+        -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure
+        -- bytes in, bytes out; no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
 

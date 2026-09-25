@@ -521,11 +521,10 @@ TEST( SceneMigratorWritePath, ACloudNoiseVolumeIsWrappedInTheEnvelopeOnceAndASec
         EXPECT_EQ( decoded.GetValue().Params.Seed, volume.Params.Seed );
         EXPECT_EQ( decoded.GetValue().Voxels, volume.Voxels );
     }
-    EXPECT_EQ( Desert::Assets::EncodeCloudNoisePayload( Desert::Assets::DecodeCloudNoiseVolume( std::vector<unsigned char>(
-                                                                                     raised[1].begin(),
-                                                                                     raised[1].end() ) )
-                                                     .GetValue() ),
-               payload )
+    const auto raisedV1 = Desert::Assets::DecodeCloudNoiseVolume(
+         std::vector<unsigned char>( raised[1].begin(), raised[1].end() ) );
+    ASSERT_TRUE( raisedV1 ) << raisedV1.GetError();
+    EXPECT_EQ( Desert::Assets::EncodeCloudNoisePayload( raisedV1.GetValue() ), payload )
          << "the version-1 raise must produce exactly the version-2 payload";
 
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
