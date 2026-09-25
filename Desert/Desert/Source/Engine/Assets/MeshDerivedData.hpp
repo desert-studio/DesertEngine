@@ -31,8 +31,9 @@ namespace Desert::Assets
 
     // The builder's own version - an input of every mesh key, so it lives beside the deriver and not in the
     // editor that runs the builder: the runtime computes the same key to find the entry. Bump it whenever the
-    // build steps (tangents, transform, LOD simplification) produce different bytes for the same source.
-    inline constexpr uint32_t kMeshBuilderVersion = 1;
+    // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
+    // source.
+    inline constexpr uint32_t kMeshBuilderVersion = 2; // 2: sections are named by their material slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings

@@ -835,13 +835,26 @@ TEST( MeshBinaryFormat, EveryGatheredMeshRowStatesTheBoundsOfItsFile )
             continue;
         }
         ++meshes;
-        const std::filesystem::path file  = Common::AssetHandle::PathForStableKey( row.Key );
-        const std::string           bytes = ReadFile( file );
-        ASSERT_FALSE( bytes.empty() ) << row.Key << " -> " << file.string();
-        const auto read = Ser::ReadMeshAssetData( bytes, file.string() );
-        ASSERT_TRUE( read.IsSuccess() ) << row.Key << ": " << read.GetError();
-
-        const std::optional<Common::Math::AABB> box = Ser::MeshDataBounds( read.GetValue() );
+        const std::filesystem::path       file = Common::AssetHandle::PathForStableKey( row.Key );
+        std::optional<Common::Math::AABB> box;
+        if ( row.Kind == "StaticMesh" )
+        {
+            // A static mesh file is the source asset: its header states LOD0's source box.
+            const auto source = Desert::Assets::ReadMeshSourceAssetFile( file );
+            ASSERT_TRUE( source.IsSuccess() ) << row.Key << ": " << source.GetError();
+            ASSERT_FALSE( source.GetValue().Source.Models.empty() ) << row.Key << " has no source model";
+            const auto b = Desert::Assets::MeshSourceBounds( source.GetValue().Source.Models[0].Mesh );
+            if ( b.has_value() )
+                box = Common::Math::AABB{ { b->Lo[0], b->Lo[1], b->Lo[2] }, { b->Hi[0], b->Hi[1], b->Hi[2] } };
+        }
+        else
+        {
+            const std::string bytes = ReadFile( file );
+            ASSERT_FALSE( bytes.empty() ) << row.Key << " -> " << file.string();
+            const auto read = Ser::ReadMeshAssetData( bytes, file.string() );
+            ASSERT_TRUE( read.IsSuccess() ) << row.Key << ": " << read.GetError();
+            box = Ser::MeshDataBounds( read.GetValue() );
+        }
         ASSERT_TRUE( box.has_value() ) << row.Key << " has no submesh";
         EXPECT_TRUE( Common::Utils::SameBounds( row.Bounds, box ) )
              << row.Key << " states " << ( row.Bounds.has_value() ? "a different box" : "no box" )
