@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -139,7 +140,10 @@ namespace Desert::Graphic
         bool m_Registered = true;
 
         std::string          m_Name;
-        std::vector<CopyMap> m_Frames; // index = frame in flight; grown on first use of a slot
+        // A deque, not a vector: growing it never relocates the maps. MSVC's unordered_map move constructor
+        // is not noexcept, so vector::resize copies instead of moving -- and a map of unique_ptr cannot be
+        // copied (C2672 on Windows only; clang moves and compiled it).
+        std::deque<CopyMap> m_Frames; // index = frame in flight; grown on first use of a slot
     };
 
     /**
