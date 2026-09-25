@@ -1256,7 +1256,8 @@ namespace Desert::Geometry
             return;
         FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
 
-        auto SetNormalsOnTriRegion = [NormalOverlay]( const TArray<int32>& Triangles ) {
+        auto SetNormalsOnTriRegion = [NormalOverlay]( const TArray<int32>& Triangles )
+        {
             if ( Triangles.Num() > 0 )
                 FMeshNormals::InitializeOverlayRegionToPerVertexNormals( NormalOverlay, Triangles );
         };
@@ -1292,7 +1293,8 @@ namespace Desert::Geometry
             return;
         }
 
-        auto SetQuadMaterial = [MaterialIDs]( const FIndex2i& Quad, int32 MaterialID ) {
+        auto SetQuadMaterial = [MaterialIDs]( const FIndex2i& Quad, int32 MaterialID )
+        {
             if ( Quad.A >= 0 )
                 MaterialIDs->SetValue( Quad.A, MaterialID );
             if ( Quad.B >= 0 )
@@ -1301,7 +1303,8 @@ namespace Desert::Geometry
 
         // Materials of the new triangles along a beveled edge follow the adjacent pre-bevel triangles; an edge
         // between two materials takes the lowest material seen along the strip (InferMaterialID) or the constant.
-        auto SetEdgeMaterials = [&]( const TArray<FIndex2i>& StripQuads, const TArray<FIndex2i>& EdgeTris ) {
+        auto SetEdgeMaterials = [&]( const TArray<FIndex2i>& StripQuads, const TArray<FIndex2i>& EdgeTris )
+        {
             const int32 NumEdges = EdgeTris.Num();
             if ( StripQuads.Num() != NumEdges )
             {

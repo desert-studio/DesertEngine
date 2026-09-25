@@ -587,8 +587,8 @@ namespace
             const FVector3d faceN    = mesh.GetTriNormal( t );
             for ( int j = 0; j < 3; ++j )
             {
-                const FVector3f n = normals.GetElement( elements[j] );
-                const double cosine = faceN.X * n.X + faceN.Y * n.Y + faceN.Z * n.Z;
+                const FVector3f n      = normals.GetElement( elements[j] );
+                const double    cosine = faceN.X * n.X + faceN.Y * n.Y + faceN.Z * n.Z;
                 EXPECT_NEAR( n.X * n.X + n.Y * n.Y + n.Z * n.Z, 1.0, 1e-5 ) << "new triangle " << t;
                 if ( bFlatRegions )
                     EXPECT_NEAR( cosine, 1.0, 1e-5 ) << "new triangle " << t;
