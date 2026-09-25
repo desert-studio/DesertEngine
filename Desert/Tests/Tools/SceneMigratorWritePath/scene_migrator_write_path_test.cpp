@@ -690,3 +690,34 @@ TEST( SceneMigratorWritePath, ASkeletonGainsAHeaderGuidOnceAndASecondRunChangesN
     EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
     fs::remove_all( dir );
 }
+
+// A ROW WITH A VERSION MEMBER KEEPS A uint64 ABOVE INT64_MAX (T7e2): the member is cut out of the source text
+// and the header spliced in, never a round trip through rfl::Generic, which reads every integer as int64 and
+// wrote a clip's SkeletonSignature back negative. The theme stands in for any row that states its version; the
+// nested member of the same name proves only the TOP-LEVEL one is cut.
+TEST( SceneMigratorWritePath, ARowWithAVersionMemberKeepsAUint64AboveInt64Max )
+{
+    const fs::path dir  = MakeTempDir( "T7e2RaiseUint64" );
+    const fs::path file = dir / "Big.detheme";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Nested":{"FormatVersion":5},"FormatVersion":1,"Signature":9748021389765177955})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "\"Signature\": 9748021389765177955" ), std::string::npos )
+         << "the payload was lost (a uint64 above INT64_MAX): " << raised;
+    EXPECT_NE( raised.find( "\"FormatVersion\": 5" ), std::string::npos ) << "a nested member was cut: " << raised;
+    EXPECT_EQ( raised.find( "\"FormatVersion\": 1" ), std::string::npos ) << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::UITheme );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised file";
+    fs::remove_all( dir );
+}

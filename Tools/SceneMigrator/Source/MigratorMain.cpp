@@ -210,6 +210,82 @@ namespace
                object.substr( open + 1 );
     }
 
+    // `object` without its TOP-LEVEL member `key` and the one comma that separated it from a neighbour, every
+    // other byte kept; nullopt when the top level does not state `key` exactly once. Text, not rfl::Generic:
+    // the generic tree reads every integer as int64, and a uint64 above INT64_MAX came back negative (T7e2).
+    std::optional<std::string> EraseTopLevelMember( const std::string& object, std::string_view key )
+    {
+        // The end of the string literal opening at `quote`, one past its closing quote.
+        const auto stringEnd = [&]( std::size_t quote )
+        {
+            std::size_t at = quote + 1;
+            while ( at < object.size() && object[at] != '"' )
+                at += object[at] == '\\' ? 2 : 1;
+            return at + 1;
+        };
+        int                                                depth = 0;
+        std::optional<std::pair<std::size_t, std::size_t>> found;
+        for ( std::size_t at = 0; at < object.size(); ++at )
+        {
+            const char c = object[at];
+            if ( c == '{' || c == '[' )
+                ++depth;
+            else if ( c == '}' || c == ']' )
+                --depth;
+            else if ( c == '"' )
+            {
+                const std::size_t close = stringEnd( at );
+                const std::size_t colon = object.find_first_not_of( " \t\r\n", close );
+                const bool        isKey = depth == 1 && colon != std::string::npos && object[colon] == ':' &&
+                                   std::string_view( object ).substr( at + 1, close - at - 2 ) == key;
+                if ( isKey )
+                {
+                    if ( found )
+                        return std::nullopt;
+                    // The value ends at the first ',' or '}' back at the member's own depth.
+                    int         inner = 0;
+                    std::size_t end   = colon + 1;
+                    while ( end < object.size() )
+                    {
+                        const char v = object[end];
+                        if ( v == '"' )
+                        {
+                            end = stringEnd( end );
+                            continue;
+                        }
+                        if ( v == '{' || v == '[' )
+                            ++inner;
+                        else if ( inner > 0 && ( v == '}' || v == ']' ) )
+                            --inner;
+                        else if ( inner == 0 && ( v == ',' || v == '}' ) )
+                            break;
+                        ++end;
+                    }
+                    while ( end > colon && std::isspace( static_cast<unsigned char>( object[end - 1] ) ) )
+                        --end;
+                    found = std::make_pair( at, end );
+                    at    = end - 1;
+                    continue;
+                }
+                at = close - 1;
+            }
+        }
+        if ( !found )
+            return std::nullopt;
+        const auto [begin, end] = *found;
+        std::size_t before      = begin;
+        while ( before > 0 && std::isspace( static_cast<unsigned char>( object[before - 1] ) ) )
+            --before;
+        if ( before > 0 && object[before - 1] == ',' )
+            return object.substr( 0, before - 1 ) + object.substr( end );
+        std::size_t after = end;
+        while ( after < object.size() && std::isspace( static_cast<unsigned char>( object[after] ) ) )
+            ++after;
+        if ( after < object.size() && object[after] == ',' )
+            return object.substr( 0, begin ) + object.substr( after + 1 );
+        return object.substr( 0, begin ) + object.substr( end );
+    }
+
     bool WriteText( const std::filesystem::path& path, const std::string& json, std::ostream& err )
     {
         const auto text = Common::Content::CanonicalJsonText( json );
@@ -322,24 +398,19 @@ namespace
              Common::Content::SubsystemVersion{ row.Tag, row.ToVersion } };
         const std::string headerText =
              rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) );
-        // NO MEMBER TO DROP: THE HEADER IS SPLICED INTO THE SOURCE TEXT, every other byte kept. A round trip
-        // through rfl::Generic reads an integer as int64, so a skeleton's uint64 Signature above INT64_MAX
-        // came back negative (T7e) - a rig no mesh would match again.
-        if ( row.VersionMember == nullptr )
+        // THE HEADER IS SPLICED INTO THE SOURCE TEXT and the version member cut out of it, every other byte
+        // kept. A round trip through rfl::Generic reads an integer as int64, so a skeleton's Signature and a
+        // clip's SkeletonSignature above INT64_MAX came back negative (T7e, T7e2) - a rig no mesh would match.
+        std::string body = source;
+        if ( stated.has_value() )
         {
-            const std::size_t open  = source.find( '{' );
-            const bool        empty = fields.size() == 0;
-            return Common::MakeSuccess( std::optional<std::string>(
-                 source.substr( 0, open + 1 ) + "\"" + std::string( Common::Content::kTextHeaderMember ) +
-                 "\":" + headerText + ( empty ? "" : "," ) + source.substr( open + 1 ) ) );
+            auto cut = EraseTopLevelMember( source, member );
+            if ( !cut )
+                return Common::MakeError<std::optional<std::string>>( "the top level states '" + member +
+                                                                      "' more than once" );
+            body = std::move( *cut );
         }
-        const auto           header = rfl::json::read<rfl::Generic>( headerText );
-        rfl::Generic::Object raised;
-        raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
-        for ( const auto& [key, value] : fields )
-            if ( row.VersionMember == nullptr || key != member )
-                raised[key] = value;
-        return Common::MakeSuccess( std::optional<std::string>( rfl::json::write( rfl::Generic( raised ) ) ) );
+        return Common::MakeSuccess( std::optional<std::string>( PrependHeaderMember( body, headerText ) ) );
     }
 
     Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
