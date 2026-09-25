@@ -183,6 +183,16 @@ namespace Common::Utils
         [[nodiscard]] const AssetRegistryEntry* FindByGuidReference( const Content::AssetGuid& guid,
                                                                      std::string_view          path ) const;
 
+        // THE ROW A REDIRECTOR ROW LEADS TO (AF10b; UE's IAssetRegistry::GetRedirectedObjectPath). A row that is
+        // not a redirector is its own answer. A redirector names its target by the target's GUID, folded into
+        // its one dependency edge, so the next link is FindByHandle of that edge; the walk stops at the first
+        // row that is not a redirector. REFUSED, naming every key on the way: a chain that returns to a key
+        // it passed (a cycle), one longer than kMaxRedirectorChain, and a link that names no row. Both Find*
+        // lookups above answer through this, and log the refusal rather than hand back the redirector.
+        static constexpr std::size_t kMaxRedirectorChain = 16;
+        [[nodiscard]] ResultStr<const AssetRegistryEntry*>
+        FollowRedirectors( const AssetRegistryEntry& row ) const;
+
         // Every row of one kind, in key order. This is what replaces a directory walk at the call
         // site: `ListFilesRecursive(root)` filtered by extension becomes `OfKind("Texture")`.
         [[nodiscard]] std::vector<const AssetRegistryEntry*> OfKind( std::string_view kind ) const;

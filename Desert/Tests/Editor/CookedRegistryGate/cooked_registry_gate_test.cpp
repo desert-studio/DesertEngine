@@ -227,6 +227,9 @@ TEST( CookedRegistryGate, EveryContentKindIsRepresentedByTheShippedCorpus )
            "ACookedFileNamesItsKindInItsHeader" },
          { "WorldIndex", "Desert/Tests/Engine/WorldCells/world_cells_test.cpp",
            "ACookedFileNamesItsKindInItsHeader" },
+         // Left at an old path by a move (AF10c), deleted by fix-up (AF10d): never committed.
+         { "Redirector", "Desert/Tests/Common/AssetRedirector/asset_redirector_test.cpp",
+           "AMovedSceneIsFoundThroughTheRedirectorAtItsOldPath" },
     };
 
     for ( std::size_t i = 0; i < Common::Content::CONTENT_KIND_COUNT; ++i )
