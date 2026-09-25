@@ -47,6 +47,12 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t     FrameIndex;
     };
 
+    struct DescriptorPoolDeletionEntry
+    {
+        VkDescriptorPool DescriptorPool;
+        uint32_t         FrameIndex;
+    };
+
     class VulkanAllocator
     {
     public:
@@ -75,6 +81,10 @@ namespace Desert::Graphic::API::Vulkan
                               const std::vector<VkImageView>& mipImageViews = {} );
         void RT_DestroyFramebuffer( VkFramebuffer framebuffer );
         void RT_DestroyRenderPass( VkRenderPass renderPass );
+        // Takes every set allocated from the pool with it, so it waits for the frame that last bound one of
+        // them exactly as a buffer does: a material or a view destroyed mid-session may still have its sets
+        // in a command buffer the GPU has not finished.
+        void RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool );
 
         /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();
@@ -125,5 +135,6 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
+        std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
     };
 } // namespace Desert::Graphic::API::Vulkan

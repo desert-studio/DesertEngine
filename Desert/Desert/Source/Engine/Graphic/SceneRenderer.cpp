@@ -447,7 +447,9 @@ namespace Desert::Graphic
     }
 
     SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
-         : m_SlotLease( SlotPool() ), m_ViewProfile( profile ), m_ViewExtent( extent )
+         : m_SlotLease( SlotPool() ),
+           m_ViewResources( "renderer slot " + std::to_string( m_SlotLease.RecordingSlot() ) ),
+           m_ViewProfile( profile ), m_ViewExtent( extent )
     {
         if ( !m_SlotLease.IsValid() )
         {
@@ -491,6 +493,9 @@ namespace Desert::Graphic
         // Which renderer is recording, alongside which frame is in flight — see
         // EngineContext::GetActiveRendererSlot. Set FIRST, before anything writes a per-frame resource.
         BindRecordingSlot();
+        // This view is where per-frame writes go until the phase returns; the frame context gets them back
+        // on every exit, so nothing written after the last view of a frame lands in this view's copies.
+        const ActiveViewScope viewScope( m_ViewResources );
 
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
         // answer for every renderer of that scene — so a second view of one world rendered from the
@@ -652,6 +657,7 @@ namespace Desert::Graphic
         // per-frame GPU state into the first view's slot, which is the exact failure the slot exists to
         // prevent and produces a torn picture with nothing in the log (Docs/RENDERER_FRAME_STATE.md).
         BindRecordingSlot();
+        const ActiveViewScope viewScope( m_ViewResources ); // re-opened for the same reason, see BeginScene
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
@@ -1125,6 +1131,7 @@ namespace Desert::Graphic
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
         BindRecordingSlot(); // same reason as OnUpdate: the phases interleave across views
+        const ActiveViewScope viewScope( m_ViewResources );
 
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type

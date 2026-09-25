@@ -91,21 +91,13 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanMaterialBackend::~VulkanMaterialBackend()
     {
-        VkDevice device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                               ->GetVulkanLogicalDevice();
-
-        if ( m_DescriptorPool != VK_NULL_HANDLE )
-        {
-            vkDestroyDescriptorPool( device, m_DescriptorPool, nullptr );
-        }
-
-        if ( m_DummyBuffer != VK_NULL_HANDLE )
-        {
-            VmaAllocator allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-                                          ->GetVulkanAllocator()
-                                          ->GetVMAAllocator();
-            vmaDestroyBuffer( allocator, m_DummyBuffer, m_DummyAllocation );
-        }
+        // DEFERRED, like every other GPU object a mid-session destruction releases: a material dropped
+        // while its sets are still in a command buffer in flight would otherwise free them under the GPU.
+        // The dummy buffer goes the same way: the sets being released still point at it.
+        const auto& allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        allocator->RT_DestroyDescriptorPool( m_DescriptorPool );
+        allocator->RT_DestroyBuffer( m_DummyBuffer, m_DummyAllocation );
     }
 
     void VulkanMaterialBackend::CreateDescriptorPool()
