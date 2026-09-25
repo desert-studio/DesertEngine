@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "9ee812752c01afe3a39a4fc73ef98a21",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "IKProbe_Swing",
     "TickRate": {
         "Numerator": 24000,

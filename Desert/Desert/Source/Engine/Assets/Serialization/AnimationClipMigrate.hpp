@@ -36,7 +36,8 @@ namespace Desert::Assets::Serialization
     };
 
     /**
-     * @brief `.anim` generation 0 or 1 -> the current generation.
+     * @brief `.anim` generation 0, 1 or 2 -> generation 3 (kAnimationLastVersionMember), the last with a
+     *        top-level `Version`. Tools/SceneMigrator's header raise takes it on to the current generation.
      *
      * PURE: a string in, a string out, no filesystem and no asset system, so the rules below are testable
      * without a file — which is the contract's requirement for a migration step and the reason this is not

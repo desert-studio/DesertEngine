@@ -7,27 +7,9 @@ namespace Desert::Assets::Serialization
 {
     Common::ResultStr<Animation::AnimationClip> BuildClipFromAssetData( const AnimationAssetData& data )
     {
-        // THE GENERATION IS CHECKED FIRST, AND A MISSING ONE IS 0 RATHER THAN "CURRENT". A `.anim` written
-        // before this field existed reads back as 0 through DefaultIfMissing, and its keys carry `Time` in
-        // float seconds under a `TicksPerSecond` of 1 — which, read as ticks, would be key 0 for every key
-        // and a clip that animates nothing while loading cleanly. Refusing names the tool that converts it.
-        if ( data.Version < kAnimationVersion )
-        {
-            return Common::MakeFormattedError<Animation::AnimationClip>(
-                 "clip '{}' is at `.anim` generation {} and this build reads generation {}. Its key times "
-                 "are float seconds, not ticks, so reading them here would put every key on tick 0 and "
-                 "produce a clip that loads without a word and animates nothing. Convert it with "
-                 "Tools/SceneMigrator, which collects `.anim` alongside the scene formats.",
-                 data.Name, data.Version, kAnimationVersion );
-        }
-        if ( data.Version > kAnimationVersion )
-        {
-            return Common::MakeFormattedError<Animation::AnimationClip>(
-                 "clip '{}' is at `.anim` generation {} and this build reads generation {}. A file from a "
-                 "newer build may hold fields this one would drop on the next save.",
-                 data.Name, data.Version, kAnimationVersion );
-        }
-
+        // The generation is not checked here: it lives in the file's header, and ReadAnimationJson refuses
+        // any file that does not state this build's (a v0 file's float seconds read as ticks would put every
+        // key on tick 0). Every caller of this function holds data that came through it or was built here.
         const Animation::FrameRate tickRate{ data.TickRate.Numerator, data.TickRate.Denominator };
         if ( !tickRate.IsValid() )
         {

@@ -2,6 +2,7 @@
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <algorithm>
+#include <vector>
 #include <cmath>
 
 #include <rflcpp/rfl/json.hpp>
@@ -185,17 +186,51 @@ namespace Desert::Assets
         if ( auto headed = RefuseTextWithoutHeader( text, kCloudTypeFormatVersion, std::nullopt ); !headed )
             return Common::MakeFormattedError<CloudTypeData>( "{}", headed.GetError() );
 
+        // THE HEADER ALONE FIRST: a version-4 file names its volume by a bare path, a shape the typed read
+        // below cannot take, so its refusal would be a JSON type error that names no version.
+        {
+            struct HeaderOnly
+            {
+                std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            };
+            const auto headerOnly = rfl::json::read<HeaderOnly>( text );
+            if ( !headerOnly )
+                return Common::MakeFormattedError<CloudTypeData>( "{}", headerOnly.error().what() );
+            if ( auto header =
+                      CheckStatedHeader( headerOnly.value().Header, Common::Content::ContentKind::CloudType,
+                                         kCloudTypeSchemaTag, kCloudTypeFormatVersion, CloudTypeTextSubsystems() );
+                 !header )
+                return Common::MakeFormattedError<CloudTypeData>( "{}; run Tools/SceneMigrator",
+                                                                  header.GetError() );
+        }
+
         const auto parsed = rfl::json::read<CloudTypeData>( text );
         if ( !parsed )
             return Common::MakeFormattedError<CloudTypeData>( "{}", parsed.error().what() );
 
         CloudTypeData data = parsed.value();
+        // CheckStatedHeader above refused an absent header; the typed read is a second read of the text,
+        // so its Header is checked again rather than assumed.
+        if ( !data.Header )
+            return Common::MakeFormattedError<CloudTypeData>( "the typed read states no Header" );
 
-        if ( auto header =
-                  CheckStatedHeader( data.Header, Common::Content::ContentKind::CloudType, kCloudTypeSchemaTag,
-                                     kCloudTypeFormatVersion, CloudTypeTextSubsystems() );
-             !header )
-            return Common::MakeFormattedError<CloudTypeData>( "{}", header.GetError() );
+        // THE GUID RESOLVES, the path only names: a volume reference without one is a bare path again (v4).
+        std::vector<std::string> dependencies;
+        if ( data.NoiseVolume )
+        {
+            if ( const auto guid = Common::Content::AssetGuidFromText( data.NoiseVolume->Guid );
+                 !guid || guid.GetValue().IsNull() )
+                return Common::MakeFormattedError<CloudTypeData>(
+                     "noise volume '{}' states no well-formed GUID ('{}'); run Tools/SceneMigrator",
+                     data.NoiseVolume->Path, data.NoiseVolume->Guid );
+            dependencies.push_back( data.NoiseVolume->Guid );
+        }
+        // ONE REFERENCE, TWO STATEMENTS OF IT: the header's Dependencies must be exactly the volume's GUID
+        // (none for the built-in default), or the registry's edge and the resolver's volume disagree.
+        if ( data.Header->Dependencies != dependencies )
+            return Common::MakeFormattedError<CloudTypeData>(
+                 "the header's Dependencies ({} entries) do not state exactly the noise volume's GUID ({})",
+                 data.Header->Dependencies.size(), data.NoiseVolume ? data.NoiseVolume->Guid : "none" );
 
         if ( auto valid = ValidateCloudTypeShape( data.Shape ); !valid )
             return Common::MakeFormattedError<CloudTypeData>( "{}", valid.GetError() );
@@ -208,6 +243,8 @@ namespace Desert::Assets
         CloudTypeData stamped = data;
         stamped.Header =
              StampTextHeader( data.Header, Common::Content::ContentKind::CloudType, CloudTypeTextSubsystems() );
+        if ( data.NoiseVolume )
+            stamped.Header->Dependencies = { data.NoiseVolume->Guid };
         return rfl::json::write( stamped, YYJSON_WRITE_PRETTY );
     }
 } // namespace Desert::Assets

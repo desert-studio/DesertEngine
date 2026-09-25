@@ -88,7 +88,9 @@ namespace Desert::Assets::Serialization
         };
         struct LegacyAnimation
         {
-            std::optional<int> Version;
+            // Generation 4 onwards (the text asset header): a file that states one is past every step here.
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::optional<int>                                        Version;
 
             std::string Name;
 
@@ -104,6 +106,16 @@ namespace Desert::Assets::Serialization
             uint64_t                   SkeletonSignature = 0;
             std::vector<LegacyChannel> Channels;
             std::vector<LegacyNotify>  Notifies;
+        };
+
+        // THE OUTPUT IS FROZEN AT GENERATION 3, the last that stated a top-level `Version`: the header raise
+        // (Tools/SceneMigrator, the `.anim` row) reads that member and takes the file to the current
+        // generation, and a v3 text is what it expects. The live struct has no `Version` any more; its
+        // `Header` stays empty here, so the writer leaves it out and `Version` is the first member.
+        struct GenerationThreeAnimation
+        {
+            int                              Version = kAnimationLastVersionMember;
+            rfl::Flatten<AnimationAssetData> Rest;
         };
     } // namespace Legacy
 
@@ -145,8 +157,16 @@ namespace Desert::Assets::Serialization
         // ABSENT MEANS 0 MEANS PRE-TICK. Never "already current": a file whose version field is missing is
         // exactly the file this function exists for, and treating it as converted would read its float
         // seconds as integer ticks and put every key on tick 0.
+        if ( legacy.Header.has_value() )
+        {
+            report.FromVersion = StatedVersion( legacy.Header, kAnimationSchemaTag );
+            return Common::MakeFormattedError<std::string>(
+                 "clip '{}' already states a text asset header (`.anim` generation {}); this step ends at "
+                 "generation {}.",
+                 legacy.Name, report.FromVersion, kAnimationLastVersionMember );
+        }
         report.FromVersion = legacy.Version.value_or( 0 );
-        if ( report.FromVersion >= kAnimationVersion )
+        if ( report.FromVersion >= kAnimationLastVersionMember )
         {
             return Common::MakeFormattedError<std::string>(
                  "clip '{}' is already at `.anim` generation {}. A migration step is not idempotent and "
@@ -270,7 +290,6 @@ namespace Desert::Assets::Serialization
         constexpr Animation::FrameRate TICKS = Animation::PROJECT_TICK_RATE;
 
         AnimationAssetData out;
-        out.Version           = kAnimationVersion;
         out.Name              = legacy.Name;
         out.TickRate          = { TICKS.Numerator, TICKS.Denominator };
         out.DisplayRate       = { displayRate, 1 };
@@ -320,6 +339,8 @@ namespace Desert::Assets::Serialization
         EnsureStatedSections( out );
         report.SectionsWritten = static_cast<int>( out.Sections.size() );
 
-        return Common::MakeSuccess( rfl::json::write( out ) );
+        Legacy::GenerationThreeAnimation frozen;
+        frozen.Rest = std::move( out );
+        return Common::MakeSuccess( rfl::json::write( frozen ) );
     }
 } // namespace Desert::Assets::Serialization

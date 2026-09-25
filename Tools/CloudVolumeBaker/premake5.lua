@@ -36,7 +36,9 @@ project "CloudVolumeBaker"
 
     -- Common: the Result type the container's refusals are carried in.
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
-    links { "Common", "Optick" }
+    -- ReflectCpp: the `.dcmv` is written inside the AF1 envelope, whose JSON header Common's
+    -- TextAssetHeader reads and writes through rfl::json (reflect-cpp + its bundled yyjson).
+    links { "Common", "Optick", "ReflectCpp" }
 
     filter "configurations:Debug"
         symbols "On"

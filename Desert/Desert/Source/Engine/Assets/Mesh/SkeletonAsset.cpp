@@ -1,32 +1,47 @@
 #include "SkeletonAsset.hpp"
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
-#include <Common/Core/Serialization/GlmReflection.hpp>
-
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Utilities/VFS.hpp>
 
 namespace Desert::Assets
 {
     SkeletonAsset::SkeletonAsset( const AssetPriority priority, const Common::Filepath& filepath )
          : AssetBase( priority, filepath, GetTypeID() )
     {
+        // THE RIG'S IDENTITY IS ITS HEADER GUID (SKEL 1, T7e), adopted HERE for ControlRigAsset's reason: the
+        // asset manager keys its handle lookup at creation. A file with no readable header keeps the
+        // path-derived handle - the load refuses it by name, so none is ever READY under it.
+        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( m_Metadata.Filepath );
+        if ( !guid.IsNull() )
+            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
+                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr SkeletonAsset::LoadFromFile()
     {
-        const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
-        if ( !raw )
-            return Common::MakeError( raw.GetError() );
-
-        const auto dataReflected = rfl::json::read<Serialization::SkeletonAssetData>( raw.GetValue() );
-        if ( !dataReflected.has_value() )
+        // Through the VFS first, so a packaged build reads the rig out of its .dpak like every other asset,
+        // then off the disk for a loose file the pak does not carry (T7e: it read only the disk).
+        std::string text;
+        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
+                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
+                                      : std::nullopt;
+             packed.has_value() )
+            text = packed.value();
+        else
         {
-            return Common::MakeError( dataReflected.error().what() );
+            auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
+            if ( !raw )
+                return Common::MakeError( raw.GetError() );
+            text = raw.ExtractValue();
         }
 
-        auto data = dataReflected.value();
+        auto read = Serialization::ReadSkeletonJson( text );
+        if ( !read )
+            return Common::MakeFormattedError<bool>( "'{}': {}", m_Metadata.Filepath.string(), read.GetError() );
+
+        auto data = read.ExtractValue();
 
         m_Skeleton = std::make_unique<Animation::Skeleton>( std::move( data.Bones ) );
         // Taken from the bones that were just read, never from `data.Signature`: the file's own field is
