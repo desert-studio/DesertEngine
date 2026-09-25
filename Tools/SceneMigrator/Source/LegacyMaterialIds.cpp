@@ -7,6 +7,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -516,7 +517,15 @@ namespace Desert::Migration
                 const std::string key = std::string( tag ) + ':' + std::string( prefix ) +
                                         it->path().lexically_relative( root ).generic_string();
                 LegacyAssetRef ref{ *kind, {}, key };
-                if ( *kind != LegacyAssetKind::Shader )
+                if ( *kind == LegacyAssetKind::Shader )
+                {
+                    // A shader without a header keeps an empty GUID: legal until a material names it, which
+                    // ShaderRefByName then refuses by name ("raise the shader first").
+                    const Common::Content::AssetGuid guid = Assets::ReadShaderHeaderGuid( it->path() );
+                    if ( !guid.IsNull() )
+                        ref.Guid = Common::Content::AssetGuidToText( guid );
+                }
+                else
                 {
                     auto guid = *kind == LegacyAssetKind::CloudType ? TextHeaderGuidText( it->path() )
                                                                     : EnvelopeGuidText( it->path() );
@@ -581,8 +590,37 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( map ) );
     }
 
+    Common::ResultStr<Assets::AssetGuidRef> ShaderRefByName( std::string_view source, std::string_view shaderName,
+                                                             const LegacyAssetRefMap& refs )
+    {
+        const auto fail = [&]( const std::string& why )
+        {
+            return Common::MakeError<Assets::AssetGuidRef>( "'" + std::string( source ) + "' names shader '" +
+                                                            std::string( shaderName ) + "', " + why );
+        };
+        // The by-name rule MATL 3 stated: the engine keyed a shader by its file stem (VulkanShader), which the
+        // ShaderAsset load now pins to the DSL-declared name. One file per key, however many numbers reach it.
+        const LegacyAssetRef* found = nullptr;
+        for ( const auto& [number, ref] : refs )
+        {
+            if ( ref.Kind != LegacyAssetKind::Shader ||
+                 std::filesystem::path( ref.Path ).stem().string() != shaderName )
+                continue;
+            if ( found != nullptr && found->Path != ref.Path )
+                return fail( "which both '" + found->Path + "' and '" + ref.Path +
+                             "' declare, so the material cannot be pointed at one of them" );
+            found = &ref;
+        }
+        if ( found == nullptr )
+            return fail( "which no .shader under the content root's Shaders/ folder is named; the material is "
+                         "left untouched" );
+        if ( found->Guid.empty() )
+            return fail( "whose file '" + found->Path + "' states no header GUID; raise the shader first" );
+        return Common::MakeSuccess( Assets::AssetGuidRef{ found->Guid, found->Path } );
+    }
+
     Common::ResultStr<Assets::MaterialData>
-    RaiseMaterialToV3( std::string_view source, const MaterialDataV2& material, const LegacyAssetRefMap& refs )
+    RaiseMaterialV2ToV4( std::string_view source, const MaterialDataV2& material, const LegacyAssetRefMap& refs )
     {
         const auto fail = [&source]( const std::string& why )
         { return Common::MakeError<Assets::MaterialData>( "'" + std::string( source ) + "': " + why ); };
@@ -590,29 +628,33 @@ namespace Desert::Migration
             return fail( "states no header, so it is not a MATL 2 file" );
 
         Assets::MaterialData out;
-        out.Header     = material.Header;
-        out.ShaderName = material.ShaderName;
-        out.Parent     = material.Parent;
+        out.Header = material.Header;
+        if ( material.ShaderName.has_value() && !material.ShaderName->empty() )
+        {
+            auto shader = ShaderRefByName( source, *material.ShaderName, refs );
+            if ( !shader )
+                return Common::MakeError<Assets::MaterialData>( shader.GetError() );
+            out.Shader = std::move( shader.GetValue() );
+        }
+        out.Parent = material.Parent;
         out.Params.reserve( material.Params.size() );
         for ( const auto& param : material.Params )
             out.Params.push_back( { param.Name, param.Value } );
 
-        // THE SLOT NAMES THAT ARE NOT SAMPLERS, stated once: CloudRaymarch.shader's asset inputs.
+        // THE SLOT NAMES THAT ARE NOT SAMPLERS, stated once: CloudRaymarch.shader's asset inputs, the Medium
+        // shader among them since MATL 4.
         constexpr std::array<std::string_view, 6> kCloudSlots = { "CloudType1", "CloudType2",    "CloudType3",
                                                                   "CloudType4", "LayoutPattern", "LayoutMask" };
         constexpr std::string_view                kShaderSlot = "Medium";
 
         for ( const auto& slot : material.Textures )
         {
-            const bool cloud  = std::find( kCloudSlots.begin(), kCloudSlots.end(),
-                                           std::string_view( slot.Name ) ) != kCloudSlots.end();
             const bool shader = slot.Name == kShaderSlot;
+            const bool cloud  = shader || std::find( kCloudSlots.begin(), kCloudSlots.end(),
+                                                     std::string_view( slot.Name ) ) != kCloudSlots.end();
             if ( slot.TextureHandle == 0 )
             {
-                if ( shader )
-                    out.ShaderRefs.push_back( { slot.Name, {} } );
-                else
-                    ( cloud ? out.CloudAssets : out.Textures ).push_back( { slot.Name, {}, {} } );
+                ( cloud ? out.CloudAssets : out.Textures ).push_back( { slot.Name, {}, {} } );
                 continue;
             }
             const auto found = refs.find( slot.TextureHandle );
@@ -631,10 +673,10 @@ namespace Desert::Migration
                 return fail( "slot '" + slot.Name + "' names asset number " +
                              std::to_string( slot.TextureHandle ) + ", which is the " + KindWord( ref.Kind ) +
                              " '" + ref.Path + "' - not an asset this slot takes" );
-            if ( shader )
-                out.ShaderRefs.push_back( { slot.Name, ref.Path } );
-            else
-                ( cloud ? out.CloudAssets : out.Textures ).push_back( { slot.Name, ref.Guid, ref.Path } );
+            if ( ref.Guid.empty() )
+                return fail( "slot '" + slot.Name + "' names the " + KindWord( ref.Kind ) + " '" + ref.Path +
+                             "', which states no header GUID; raise it first" );
+            ( cloud ? out.CloudAssets : out.Textures ).push_back( { slot.Name, ref.Guid, ref.Path } );
         }
         return Common::MakeSuccess( std::move( out ) );
     }
