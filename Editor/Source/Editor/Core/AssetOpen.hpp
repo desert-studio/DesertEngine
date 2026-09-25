@@ -28,6 +28,44 @@ namespace Desert::Editor::Core
     // WHY THE REGISTRY IS ASKED BEFORE QUEUEING. EditorLayer's drain would refuse a type with no editor as
     // well, but a frame later and to the log only; a caller that asked through this route (a script over
     // the control channel, a Details button) gets the refusal as its own answer, on the same call.
+    // THE OPEN REGISTER: for EVERY Assets::AssetTypeID, whether "Open" has an editor window to go to, or the
+    // refusal it answers with. `nullptr` means "opens" — EditorLayer registers a document editor for it, and
+    // AssetOpenRoute's census reads EditorLayer.cpp to hold the two lists equal. The switch has no default,
+    // so a new enumerator is a -Wswitch diagnostic here instead of an Open that quietly answers with the
+    // generic "nothing registered"; the trailing return is reached only by a number no enumerator names.
+    [[nodiscard]] constexpr const char* AssetOpenRefusal( const Assets::AssetTypeID type ) noexcept
+    {
+        constexpr const char* kNoEditor = "no document editor exists for this type";
+        switch ( type )
+        {
+            case Assets::AssetTypeID::Material:
+            case Assets::AssetTypeID::Texture2D:
+            case Assets::AssetTypeID::CloudNoiseVolume:
+            case Assets::AssetTypeID::CloudType:
+            case Assets::AssetTypeID::CloudModellingVolume:
+            case Assets::AssetTypeID::CloudLayout:
+                return nullptr;
+            case Assets::AssetTypeID::Unknown:
+                return "the asset has no type — nothing can say which editor opens it";
+            case Assets::AssetTypeID::Mesh:
+            case Assets::AssetTypeID::Skybox:
+            case Assets::AssetTypeID::Shader:
+            case Assets::AssetTypeID::Skeleton:
+            case Assets::AssetTypeID::Animation:
+            case Assets::AssetTypeID::Prefab:
+            case Assets::AssetTypeID::UITheme:
+            case Assets::AssetTypeID::StringTable:
+            case Assets::AssetTypeID::ControlRig:
+            case Assets::AssetTypeID::ShaderGraph:
+            case Assets::AssetTypeID::AnimGraph:
+            case Assets::AssetTypeID::Retarget:
+                return kNoEditor;
+            case Assets::AssetTypeID::Count:
+                return "AssetTypeID::Count is the number of types, not a type";
+        }
+        return "the number is outside AssetTypeID";
+    }
+
     [[nodiscard]] inline Common::ResultStr<SubjectId> AssetSubjectFor( const Assets::AssetMetadata* found,
                                                                        const Assets::AssetHandle&   requested,
                                                                        const SubjectEditorRegistry& editors )
@@ -38,15 +76,19 @@ namespace Desert::Editor::Core
                  static_cast<uint64_t>( requested ) );
 
         const auto type = static_cast<uint32_t>( found->AssetType );
-        if ( found->AssetType == Assets::AssetTypeID::Unknown )
-            return Common::MakeFormattedError<SubjectId>(
-                 "asset {:016x} ('{}') has no type (AssetTypeID {}) — nothing can say which editor opens it",
-                 static_cast<uint64_t>( requested ), found->Filepath.generic_string(), type );
+        if ( const char* refusal = AssetOpenRefusal( found->AssetType ); refusal != nullptr )
+            return Common::MakeFormattedError<SubjectId>( "asset {:016x} ('{}') is a {} (AssetTypeID {}): {}",
+                                                          static_cast<uint64_t>( requested ),
+                                                          found->Filepath.generic_string(),
+                                                          Assets::AssetTypeName( found->AssetType ), type, refusal );
 
+        // The register says it opens; an editor missing here is a wiring defect, not a property of the type.
         if ( !editors.HasEditorFor( AssetSubjectType( type ) ) )
             return Common::MakeFormattedError<SubjectId>(
-                 "asset {:016x} ('{}') is of AssetTypeID {}, and no editor is registered for that type",
-                 static_cast<uint64_t>( requested ), found->Filepath.generic_string(), type );
+                 "asset {:016x} ('{}') is a {} (AssetTypeID {}), which the open register says has an editor, "
+                 "and none is registered",
+                 static_cast<uint64_t>( requested ), found->Filepath.generic_string(),
+                 Assets::AssetTypeName( found->AssetType ), type );
 
         return Common::MakeSuccess( AssetSubject( found->Handle, type ) );
     }

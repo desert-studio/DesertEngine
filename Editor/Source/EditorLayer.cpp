@@ -4293,11 +4293,6 @@ namespace Desert::Editor
             }
         }
 
-        // SELECT EVERY PROP THAT MATCHES THIS ONE — UE's "Select > Matching", and the step without which
-        // the collapse below has no input. A five-hundred-entity selection is five hundred ctrl-clicks,
-        // which is also a gesture no unattended run can make; this turns "pick one crate" into "pick every
-        // crate like it". The match is the FOLD'S OWN identity rule, so a selection this builds is never a
-        // selection the fold then refuses for a reason nobody can see.
         if ( m_MainScene )
         {
             // The material pencil's request, made from the palette: macOS gives the control channel no
@@ -4321,6 +4316,11 @@ namespace Desert::Editor
                                       } } );
             }
         }
+        // SELECT EVERY PROP THAT MATCHES THIS ONE — UE's "Select > Matching", and the step without which
+        // the collapse below has no input. A five-hundred-entity selection is five hundred ctrl-clicks,
+        // which is also a gesture no unattended run can make; this turns "pick one crate" into "pick every
+        // crate like it". The match is the FOLD'S OWN identity rule, so a selection this builds is never a
+        // selection the fold then refuses for a reason nobody can see.
         if ( m_MainScene )
         {
             if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
