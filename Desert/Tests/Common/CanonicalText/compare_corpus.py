@@ -14,7 +14,8 @@ re-spells Params through MaterialData's float storage; that is normalised away o
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
 it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b),
 .derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone; .danimgraph 0 -> ANGR 1
-(T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop.
+(T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
+swaps its top-level `Version` (not FormatVersion) for the header.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -303,33 +304,35 @@ def strip_material_v3(old, new, ext):
 _TEXT_HEADER_GUIDS = {}  # text header GUID -> paths, gathered over every "the file gains a header" raise
 
 # The text kinds whose old top-level FormatVersion became the header (SceneMigrator's kTextHeaderRaises):
-# extension -> (Kind, tag, old version, new version, whether an absent FormatVersion meant the old version).
+# extension -> (Kind, tag, old version, new version, whether an absent member meant the old version, the old
+# top-level version member's name).
 TEXT_HEADER_RAISES = {
-    ".decloudtype": ("CloudType", "CLTY", 3, 4, False),  # AF7v
-    ".destrings": ("StringTable", "STRT", 1, 2, True),  # T7b
-    ".detheme": ("UITheme", "UITH", 1, 2, True),  # T7b
-    ".derig": ("ControlRig", "CRIG", 1, 2, True),  # T7c
-    ".retarget": ("Retarget", "RTGT", 1, 2, True),  # T7c
-    ".danimgraph": ("AnimGraph", "ANGR", 0, 1, True),  # T7d: generation 0 stated no version at all
-    ".skeleton": ("Skeleton", "SKEL", 0, 1, True),  # T7e: generation 0 stated no version at all
+    ".decloudtype": ("CloudType", "CLTY", 3, 4, False, "FormatVersion"),  # AF7v
+    ".destrings": ("StringTable", "STRT", 1, 2, True, "FormatVersion"),  # T7b
+    ".detheme": ("UITheme", "UITH", 1, 2, True, "FormatVersion"),  # T7b
+    ".derig": ("ControlRig", "CRIG", 1, 2, True, "FormatVersion"),  # T7c
+    ".retarget": ("Retarget", "RTGT", 1, 2, True, "FormatVersion"),  # T7c
+    ".danimgraph": ("AnimGraph", "ANGR", 0, 1, True, "FormatVersion"),  # T7d: generation 0 stated no version
+    ".skeleton": ("Skeleton", "SKEL", 0, 1, True, "FormatVersion"),  # T7e: generation 0 stated no version
+    ".anim": ("Animation", "ANIM", 3, 4, False, "Version"),  # T7e: the old member was `Version`
 }
 
 
 def strip_text_kind_header(old, new, ext, path):
-    """A text kind's FormatVersion N -> header (tag N+1): the old FormatVersion is gone and the header states
+    """A text kind's version member N -> header (tag N+1): the old member is gone and the header states
     the kind, the tag at the new version and no Dependencies - nothing else. True when stripped; GUID
     uniqueness is judged over the corpus."""
     row = TEXT_HEADER_RAISES.get(ext)
     if row is None or not isinstance(old, dict) or not isinstance(new, dict) or "Header" in old:
         return False
-    kind, tag, before, after, absent_is_before = row
+    kind, tag, before, after, absent_is_before, member = row
     header = new.get("Header", {})
-    stated = old.get("FormatVersion", before if absent_is_before else None)
-    if stated != before or "FormatVersion" in new or header.get("Kind") != kind or \
+    stated = old.get(member, before if absent_is_before else None)
+    if stated != before or member in new or header.get("Kind") != kind or \
             header.get("Versions") != {tag: after} or header.get("Dependencies") != [] or not header.get("Guid"):
         return False
     _TEXT_HEADER_GUIDS.setdefault(header["Guid"], []).append(path)
-    old.pop("FormatVersion", None)
+    old.pop(member, None)
     new.pop("Header")
     return True
 
