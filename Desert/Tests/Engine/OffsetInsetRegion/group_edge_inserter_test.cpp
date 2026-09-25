@@ -33,7 +33,9 @@ namespace
     FDynamicMesh3 TangentCube()
     {
         const float     half = 50.0f;
-        const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
+        const glm::vec3 X( 1, 0, 0 );
+        const glm::vec3 Y( 0, 1, 0 );
+        const glm::vec3 Z( 0, 0, 1 );
         struct Face
         {
             glm::vec3 N, U, V;
@@ -44,7 +46,7 @@ namespace
         for ( const Face& face : faces )
         {
             const glm::vec3 c    = face.N * half;
-            const uint32_t  base = static_cast<uint32_t>( vertices.size() );
+            const auto      base = static_cast<uint32_t>( vertices.size() );
             vertices.push_back( MakeVertex( c - face.U * half - face.V * half, face.N, face.U, { 0, 0 } ) );
             vertices.push_back( MakeVertex( c + face.U * half - face.V * half, face.N, face.U, { 1, 0 } ) );
             vertices.push_back( MakeVertex( c + face.U * half + face.V * half, face.N, face.U, { 1, 1 } ) );
@@ -66,7 +68,7 @@ namespace
         EXPECT_TRUE( imported.IsSuccess() ) << ( imported.IsSuccess() ? "" : imported.GetError() );
         FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
         mesh.EnableTriangleGroups();
-        for ( int t : mesh.TriangleIndicesItr() )
+        for ( const int t : mesh.TriangleIndicesItr() )
             mesh.SetTriangleGroup( t, 1 + t / 2 );
         return mesh;
     }
@@ -74,7 +76,7 @@ namespace
     std::set<int> GroupIDs( const FDynamicMesh3& mesh )
     {
         std::set<int> groups;
-        for ( int t : mesh.TriangleIndicesItr() )
+        for ( const int t : mesh.TriangleIndicesItr() )
             groups.insert( mesh.GetTriangleGroup( t ) );
         return groups;
     }
@@ -146,7 +148,7 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     for ( const int group : { 3, 4 } )
     {
         int count = 0;
-        for ( int t : mesh.TriangleIndicesItr() )
+        for ( const int t : mesh.TriangleIndicesItr() )
             count += mesh.GetTriangleGroup( t ) == group ? 1 : 0;
         EXPECT_EQ( count, 2 ) << "group " << group;
     }
@@ -170,7 +172,7 @@ TEST( GroupEdgeInserter, GroupEdgeAcrossOneFaceSplitsOnlyThatFace )
     const FGroupTopology::FGroup* group = topology.FindGroupByID( kPlusZGroup );
     ASSERT_NE( group, nullptr );
     std::vector<int> alongX;
-    for ( int ge : group->Boundaries[0].GroupEdges )
+    for ( const int ge : group->Boundaries[0].GroupEdges )
     {
         const FIndex2i v = mesh.GetEdgeV( topology.Edges[ge].Span.Edges[0] );
         if ( std::abs( mesh.GetVertex( v.A ).Y - mesh.GetVertex( v.B ).Y ) < 1e-6 )
@@ -205,7 +207,7 @@ TEST( GroupEdgeInserter, EdgeLoopOnAnOpenStripWalksBothWays )
 {
     FDynamicMesh3    mesh = TangentCube();
     std::vector<int> minusX;
-    for ( int t : mesh.TriangleIndicesItr() )
+    for ( const int t : mesh.TriangleIndicesItr() )
         if ( mesh.GetTriangleGroup( t ) == kMinusXGroup )
             minusX.push_back( t );
     ASSERT_EQ( minusX.size(), 2u );
