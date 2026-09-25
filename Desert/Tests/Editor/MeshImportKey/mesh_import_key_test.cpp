@@ -74,7 +74,7 @@ namespace
 
 TEST( MeshImportKey, TwoSameNamedMeshesInDifferentFoldersDoNotShareAMaterialKey )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // The sabotage, written as the scenario rather than as a mutation of the code: two source files whose
@@ -104,7 +104,7 @@ TEST( MeshImportKey, TwoSameNamedMeshesInDifferentFoldersDoNotShareAMaterialKey 
 
 TEST( MeshImportKey, MaterialsWithinOneMeshStaySeparate )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // The companion: a key that answered "different" to everything above could be a counter, and a key
@@ -122,7 +122,7 @@ TEST( MeshImportKey, MaterialsWithinOneMeshStaySeparate )
 
 TEST( MeshImportKey, AMeshThatHasNotMovedKeepsItsKey )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // The other direction of the relation, and the reason no content in this repository had to be
@@ -165,7 +165,7 @@ TEST( MeshImportKey, AMeshThatHasNotMovedKeepsItsKey )
 
 TEST( MeshImportKey, ASourceOutsideTheMeshFolderKeepsItsPlaceInTheKey )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // Mesh sources are not only found in Assets/Meshes — a character pack lands in
@@ -254,7 +254,11 @@ TEST( MeshImportKey, AnExistingMaterialFileGivesTheSubmeshItsGuid )
     ASSERT_TRUE( adopted ) << adopted.GetError();
 
     EXPECT_EQ( result.Materials[0].Guid, onDisk ) << "the material that exists keeps the GUID its file states";
-    ASSERT_TRUE( result.Mesh.has_value() );
+    if ( !result.Mesh.has_value() )
+    {
+        ADD_FAILURE() << "the import result lost its mesh";
+        return;
+    }
     const auto& submeshes = result.Mesh.value().Submeshes;
     EXPECT_EQ( submeshes[0].MaterialGuid, onDisk )
          << "the submesh still names the derived GUID, which no .demat states: its dependency dangles";
@@ -266,8 +270,8 @@ TEST( MeshImportKey, AnExistingMaterialFileGivesTheSubmeshItsGuid )
 
 TEST( MeshImportKey, AMaterialFileWithNoReadableGuidRefusesTheImportByName )
 {
-    ProjectRootGuard guard;
-    TempProject      project;
+    const ProjectRootGuard guard;
+    const TempProject      project;
 
     const auto source = MeshSource( "Props/crate.fbx" );
     const auto path   = Adoption::MaterialAssetPath( source, "model" );
@@ -281,7 +285,7 @@ TEST( MeshImportKey, AMaterialFileWithNoReadableGuidRefusesTheImportByName )
 
 TEST( MeshImportKey, TheWriterAndTheAdoptionNameOneFile )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
     const auto source = MeshSource( "Props/crate.fbx" );
     EXPECT_EQ( Adoption::MaterialAssetPath( source, "wood panel" ),
