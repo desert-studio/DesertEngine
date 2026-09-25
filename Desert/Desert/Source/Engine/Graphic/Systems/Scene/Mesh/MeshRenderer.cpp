@@ -1798,7 +1798,7 @@ namespace Desert::Graphic::System
         // at the framebuffer clear color (~0.1), which JFA_Init separates with a 0.5 threshold.
         FramebufferSpecification maskSpec;
         maskSpec.DebugName = "SilhouetteMask";
-        maskSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSilhouetteMask );
+        maskSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSilhouetteMask );
 
         m_SilhouetteMaskFramebuffer = Graphic::Framebuffer::Create( maskSpec );
         m_SilhouetteMaskFramebuffer->Resize( targetFb->GetFramebufferWidth(), targetFb->GetFramebufferHeight() );
@@ -1917,8 +1917,8 @@ namespace Desert::Graphic::System
         {
             FramebufferSpecification shadowSpec;
             shadowSpec.DebugName = "ShadowCascade" + std::to_string( i );
-            shadowSpec.Attachments.Attachments.push_back( ViewTargetFormats::kShadowColor );
-            shadowSpec.Attachments.Attachments.push_back( ViewTargetFormats::kShadowDepth );
+            shadowSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowColor );
+            shadowSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
             m_CascadeFB[i] = Graphic::Framebuffer::Create( shadowSpec );
             m_CascadeFB[i]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
             m_ShadowMaterial[i] = std::make_unique<MaterialShadow>();

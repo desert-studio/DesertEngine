@@ -17,7 +17,7 @@ namespace Desert::Graphic::System
 
         FramebufferSpecification fbSpec;
         fbSpec.DebugName = debugName;
-        fbSpec.Attachments.Attachments.push_back( ViewTargetFormats::kFXAA );
+        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kFXAA );
 
         m_Framebuffer = Graphic::Framebuffer::Create( fbSpec );
         m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),

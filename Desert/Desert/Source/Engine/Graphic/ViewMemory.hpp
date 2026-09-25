@@ -200,7 +200,7 @@ namespace Desert::Graphic
         }
         if ( profile.Shadows.CascadeCount != 0 )
         {
-            // MeshRenderer::SetupShadowPass — see kShadowBytesPerTexel.
+            // MeshRenderer::SetupShadowPass — see ShadowAttachmentBytes.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
             ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", F::kShadowColor, s, s, 1, n };

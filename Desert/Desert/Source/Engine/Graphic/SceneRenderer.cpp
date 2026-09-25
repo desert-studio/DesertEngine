@@ -159,13 +159,13 @@ namespace Desert::Graphic
                 fbSpec.Samples = 1;
         }
         RenderConfig::MSAASamplesActive = static_cast<int>( fbSpec.Samples );
-        fbSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSceneColor );
+        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColor );
         // DEPTH32F, AND THE FLOAT IS THE POINT. Reversed-Z (Core/Projection.hpp) works by lining the
         // 1/z curve up against the float exponent so the two cancel; on a UNORM24 attachment, which
         // quantizes uniformly in NDC, reversing the range just relabels the same 2^24 levels and buys
         // literally nothing. This was DEPTH24STENCIL8, and no pass in the engine enables a stencil test,
         // so the packed stencil byte was paying for nothing either.
-        fbSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSceneDepth );
+        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneDepth );
 
         m_TargetFramebuffer = Graphic::Framebuffer::Create( fbSpec );
         m_TargetFramebuffer->Resize( width, height );
@@ -177,30 +177,32 @@ namespace Desert::Graphic
         // reconstruction, which is error-prone under the GL-on-Vulkan depth conventions); shared depth.
         FramebufferSpecification gbufferSpec;
         gbufferSpec.DebugName = "GBuffer";
-        gbufferSpec.Attachments.Attachments.push_back( ViewTargetFormats::kGBufferA ); // GBufferA Albedo+Metallic
-        gbufferSpec.Attachments.Attachments.push_back( ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
-        gbufferSpec.Attachments.Attachments.push_back(
+        gbufferSpec.Attachments.Attachments.emplace_back(
+             ViewTargetFormats::kGBufferA ); // GBufferA Albedo+Metallic
+        gbufferSpec.Attachments.Attachments.emplace_back(
+             ViewTargetFormats::kGBufferB ); // GBufferB Normal+Roughness
+        gbufferSpec.Attachments.Attachments.emplace_back(
              ViewTargetFormats::kGBufferC ); // GBufferC WorldPosition.xyz
-        gbufferSpec.Attachments.Attachments.push_back(
+        gbufferSpec.Attachments.Attachments.emplace_back(
              ViewTargetFormats::kGBufferEmissive ); // GBufferEmissive (HDR self-illum)
         // DEPTH32F for the same reason as the forward target above — and it is this attachment the
         // height fog reads back as a texture, so its precision is the precision of every distance it
         // reconstructs.
-        gbufferSpec.Attachments.Attachments.push_back( ViewTargetFormats::kGBufferDepth );
+        gbufferSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGBufferDepth );
         m_GBuffer = Graphic::Framebuffer::Create( gbufferSpec );
         m_GBuffer->Resize( width, height );
 
         // SSAO target: a single-channel-ish AO factor (RGBA8F, AO in .r) the deferred lighting reads.
         FramebufferSpecification ssaoSpec;
         ssaoSpec.DebugName = "SSAO";
-        ssaoSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSSAO );
+        ssaoSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSAO );
         m_SSAOBuffer = Graphic::Framebuffer::Create( ssaoSpec );
         m_SSAOBuffer->Resize( width, height );
 
         // Scene-colour snapshot (same format as the target) the glass pass samples for refraction.
         FramebufferSpecification copySpec;
         copySpec.DebugName = "SceneColorCopy";
-        copySpec.Attachments.Attachments.push_back( ViewTargetFormats::kSceneColorCopy );
+        copySpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColorCopy );
         m_SceneColorCopy = Graphic::Framebuffer::Create( copySpec );
         m_SceneColorCopy->Resize( width, height );
 
@@ -1192,7 +1194,7 @@ namespace Desert::Graphic
 
         FramebufferSpecification giSpec;
         giSpec.DebugName = "GIResolve";
-        giSpec.Attachments.Attachments.push_back( ViewTargetFormats::kGIResolve );
+        giSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIResolve );
         m_GIBuffer = Graphic::Framebuffer::Create( giSpec );
         m_GIBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
                             m_TargetFramebuffer->GetFramebufferHeight() );
@@ -1203,14 +1205,14 @@ namespace Desert::Graphic
         // NOT resize with the viewport.
         FramebufferSpecification rsmSpec;
         rsmSpec.DebugName = "RSM";
-        rsmSpec.Attachments.Attachments.push_back( ViewTargetFormats::kRSMAlbedo );   // Albedo (flux colour)
-        rsmSpec.Attachments.Attachments.push_back( ViewTargetFormats::kRSMNormal );   // Normal
-        rsmSpec.Attachments.Attachments.push_back( ViewTargetFormats::kRSMPosition ); // WorldPos
-        rsmSpec.Attachments.Attachments.push_back( ViewTargetFormats::kRSMEmissive ); // Emissive (unused)
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMAlbedo );   // Albedo (flux colour)
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMNormal );   // Normal
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMPosition ); // WorldPos
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMEmissive ); // Emissive (unused)
         // Matches the G-buffer's depth format because "mirror m_GBuffer" includes the depth attachment:
         // the RSM pipeline is created from the G-buffer's spec, and a differing depth format makes the
         // two render passes incompatible.
-        rsmSpec.Attachments.Attachments.push_back( ViewTargetFormats::kRSMDepth );
+        rsmSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kRSMDepth );
         m_RSMBuffer = Graphic::Framebuffer::Create( rsmSpec );
         m_RSMBuffer->Resize( kRSMResolution, kRSMResolution );
 
@@ -1250,7 +1252,7 @@ namespace Desert::Graphic
         // composited — blending the raw single-sample trace straight onto the scene looks stippled.
         FramebufferSpecification ssrSpec;
         ssrSpec.DebugName = "SSRTrace";
-        ssrSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSSRTrace );
+        ssrSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSRTrace );
         m_SSRBuffer = Graphic::Framebuffer::Create( ssrSpec );
         m_SSRBuffer->Resize( m_TargetFramebuffer->GetFramebufferWidth(),
                              m_TargetFramebuffer->GetFramebufferHeight() );

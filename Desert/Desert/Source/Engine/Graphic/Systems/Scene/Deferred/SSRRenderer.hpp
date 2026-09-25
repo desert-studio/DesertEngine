@@ -50,7 +50,7 @@ namespace Desert::Graphic::System
             {
                 FramebufferSpecification accumSpec;
                 accumSpec.DebugName = "SSRAccum" + std::to_string( i );
-                accumSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSSRAccum );
+                accumSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSRAccum );
                 m_AccumFB[i] = Framebuffer::Create( accumSpec );
                 m_AccumFB[i]->Resize( m_TraceBuffer->GetFramebufferWidth(),
                                       m_TraceBuffer->GetFramebufferHeight() );

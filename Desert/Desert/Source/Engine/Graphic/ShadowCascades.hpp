@@ -79,18 +79,16 @@ namespace Desert::Graphic
     inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f };
 
     // WHAT A BUDGET COSTS IN ATTACHMENT MEMORY. Derived from the two formats MeshRenderer::SetupShadowPass
-    // actually pushes — one RGBA32F colour map plus one DEPTH24STENCIL8 per cascade — because this figure
-    // had two independent spellings (the renderer's log line and the test's own lambda) and a third would
-    // have been written the next time somebody wanted it. 20 bytes a texel: an estimate of "about a byte
-    // a texel" is wrong by a factor of four, which is the difference between 80 MB and 320 MB.
-    inline constexpr uint64_t kShadowBytesPerTexel =
-         Core::Formats::GetBytesPerPixel( ViewTargetFormats::kShadowColor ) +
-         Core::Formats::GetBytesPerPixel( ViewTargetFormats::kShadowDepth );
-
+    // actually pushes (ViewTargetFormats::kShadowColor + kShadowDepth, one of each per cascade) because
+    // this figure had two independent spellings (the renderer's log line and the test's own lambda) and a
+    // third would have been written the next time somebody wanted it. Asked of CalculateImageSize, not
+    // of a bytes-per-texel product, so the figure stays right whatever format either constant names.
     [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality )
     {
-        return static_cast<uint64_t>( quality.CascadeCount ) * quality.ShadowMapSize * quality.ShadowMapSize *
-               kShadowBytesPerTexel;
+        const uint32_t side = quality.ShadowMapSize;
+        return static_cast<uint64_t>( quality.CascadeCount ) *
+               ( Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowColor ) +
+                 Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth ) );
     }
 
     // THE LIVE TOTAL ACROSS EVERY RENDERER, because the per-renderer figure alone does not say how many

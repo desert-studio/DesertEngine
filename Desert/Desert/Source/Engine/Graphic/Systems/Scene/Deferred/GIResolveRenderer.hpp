@@ -39,7 +39,7 @@ namespace Desert::Graphic::System
             {
                 FramebufferSpecification accumSpec;
                 accumSpec.DebugName = "GIAccum" + std::to_string( i );
-                accumSpec.Attachments.Attachments.push_back( ViewTargetFormats::kGIAccum );
+                accumSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIAccum );
                 m_AccumFB[i] = Framebuffer::Create( accumSpec );
                 m_AccumFB[i]->Resize( target->GetFramebufferWidth(), target->GetFramebufferHeight() );
             }
