@@ -210,6 +210,13 @@ namespace Desert::Editor
         // asset"); refused, by name, when nothing is selected.
         Common::BoolResultStr RenameSelected();
 
+        // The entries the window shows in its current folder, and the two clicks on one: select it (what F2
+        // then renames) and, for a folder, open it. The palette offers these per shown entry, so a client on
+        // the control channel reaches an asset the way a click does.
+        std::vector<std::string> ShownEntries( bool folders ) const;
+        Common::BoolResultStr    SelectEntry( const std::string& path );
+        Common::BoolResultStr    OpenFolder( const std::string& path );
+
     private:
         // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than
         // from the render so that a collapsed or hidden Assets window still finishes what it started.

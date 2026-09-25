@@ -265,7 +265,7 @@ namespace
         Project                      Proj{ "AF10c_Folder" };
         fs::path                     Folder   = Proj.In( ContentKind::Material, "x" ).parent_path() / "Rocks";
         fs::path                     Renamed  = Folder.parent_path() / "Stones";
-        fs::path                     Material = Folder / "M_Rock.dmat";
+        fs::path                     Material = Folder / ( "M_Rock" + std::string( Common::Content::KindSpec( ContentKind::Material ).Extension ) );
         fs::path                     Mesh     = Folder / "Sub" /
                                 ( "SM_Rock" + std::string( Common::Content::KindSpec( ContentKind::StaticMesh ).Extension ) );
         fs::path                     Note     = Folder / "Sub" / "readme.txt";
@@ -303,7 +303,7 @@ namespace
         const auto* mesh     = registry.FindByHandle( Common::Content::HandleForGuid( Guid( 12 ) ) );
         ASSERT_NE( material, nullptr );
         ASSERT_NE( mesh, nullptr );
-        EXPECT_EQ( material->Key, Key( c.Renamed / "M_Rock.dmat" ) );
+        EXPECT_EQ( material->Key, Key( c.Renamed / c.Material.filename() ) );
         EXPECT_EQ( mesh->Key, Key( c.Renamed / "Sub" / c.Mesh.filename() ) );
         EXPECT_EQ( Common::Content::ReferrersOf( registry, *material ), std::vector<std::string>{ Key( c.Level ) } );
         EXPECT_EQ( Common::Content::ReferrersOf( registry, *mesh ), std::vector<std::string>{ Key( c.Level ) } );
@@ -359,7 +359,7 @@ TEST( AssetRenameMove, ARefusalMidFolderTakesBackEveryFileAlreadyMoved )
     EXPECT_NE( refused.GetError().find( "nothing was moved" ), std::string::npos ) << refused.GetError();
     EXPECT_EQ( c.Tree(), treeBefore );
     EXPECT_EQ( c.Registry.Serialize(), registryBefore );
-    EXPECT_FALSE( fs::exists( c.Renamed / "M_Rock.dmat" ) );
+    EXPECT_FALSE( fs::exists( c.Renamed / c.Material.filename() ) );
 }
 
 // The editor's route: one undo step takes the whole folder back, redo writes the same redirector bytes.
@@ -375,7 +375,7 @@ TEST( AssetRenameMove, TheEditorFolderRouteIsOneUndoStep )
     const auto moved = Desert::Editor::MoveFolderWithUndo( c.Folder, c.Renamed, "Rename" );
     ASSERT_TRUE( moved ) << moved.GetError();
     ExpectLevelResolvesInto( CR::Get(), c );
-    EXPECT_EQ( CR::FileToOpen( c.Material ), c.Renamed / "M_Rock.dmat" );
+    EXPECT_EQ( CR::FileToOpen( c.Material ), c.Renamed / c.Material.filename() );
     const auto treeMoved = c.Tree();
 
     ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Undo() );

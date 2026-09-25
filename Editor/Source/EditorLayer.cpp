@@ -3980,6 +3980,20 @@ namespace Desert::Editor
                                       return Common::MakeError( "rename: the Assets window does not exist" );
                                   return m_FileExplorerPanel->RenameSelected();
                               } } );
+        // One command per entry the Assets window shows, as a click would reach it (AF10c).
+        if ( m_FileExplorerPanel != nullptr )
+        {
+            for ( const std::string& path : m_FileExplorerPanel->ShownEntries( false ) )
+                commands.push_back( { "Assets", "Select asset " + path,
+                                      [this, path] { return m_FileExplorerPanel->SelectEntry( path ); } } );
+            for ( const std::string& path : m_FileExplorerPanel->ShownEntries( true ) )
+            {
+                commands.push_back( { "Assets", "Select asset " + path,
+                                      [this, path] { return m_FileExplorerPanel->SelectEntry( path ); } } );
+                commands.push_back( { "Assets", "Open folder " + path,
+                                      [this, path] { return m_FileExplorerPanel->OpenFolder( path ); } } );
+            }
+        }
 
         // THE SIX STAGES OF THE SKY, each as a command that opens the Clouds window ON that stage.
         //

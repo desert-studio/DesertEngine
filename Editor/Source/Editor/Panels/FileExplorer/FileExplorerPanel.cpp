@@ -2156,6 +2156,38 @@ namespace Desert::Editor
         m_CurrentSelected = entry;
     }
 
+    std::vector<std::string> FileExplorerPanel::ShownEntries( bool folders ) const
+    {
+        std::vector<std::string> shown;
+        if ( m_CurrentDir != nullptr )
+            for ( const DirectoryInformation* child : m_CurrentDir->Children )
+                if ( !child->Hidden && child->IsFile != folders )
+                    shown.push_back( child->AssetPath );
+        return shown;
+    }
+
+    Common::BoolResultStr FileExplorerPanel::SelectEntry( const std::string& path )
+    {
+        if ( m_CurrentDir != nullptr )
+            for ( DirectoryInformation* child : m_CurrentDir->Children )
+                if ( child->AssetPath == path )
+                {
+                    m_Selection        = { path };
+                    m_CurrentSelected  = child;
+                    m_SelectionAnchorShown = -1;
+                    return Common::MakeSuccess( true );
+                }
+        return Common::MakeError( "select: '" + path + "' is not shown in the Assets window's current folder" );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::OpenFolder( const std::string& path )
+    {
+        NavigateToPath( path );
+        if ( m_CurrentDir == nullptr || m_CurrentDir->AssetPath != path )
+            return Common::MakeError( "open folder: the Assets window could not open '" + path + "'" );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr FileExplorerPanel::RenameSelected()
     {
         if ( m_CurrentSelected == nullptr )
