@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Units.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -82,7 +83,9 @@ namespace Desert::Graphic
     // had two independent spellings (the renderer's log line and the test's own lambda) and a third would
     // have been written the next time somebody wanted it. 20 bytes a texel: an estimate of "about a byte
     // a texel" is wrong by a factor of four, which is the difference between 80 MB and 320 MB.
-    inline constexpr uint64_t kShadowBytesPerTexel = 16u /* RGBA32F */ + 4u /* DEPTH24STENCIL8 */;
+    inline constexpr uint64_t kShadowBytesPerTexel =
+         Core::Formats::GetBytesPerPixel( ViewTargetFormats::kShadowColor ) +
+         Core::Formats::GetBytesPerPixel( ViewTargetFormats::kShadowDepth );
 
     [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality )
     {

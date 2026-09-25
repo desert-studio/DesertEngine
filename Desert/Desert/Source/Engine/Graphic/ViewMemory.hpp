@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -125,7 +126,7 @@ namespace Desert::Graphic
     [[nodiscard]] inline std::vector<ViewTarget> ViewTargetCensus( const ViewProfile& profile,
                                                                    const uint32_t width, const uint32_t height )
     {
-        using Core::Formats::ImageFormat;
+        namespace F = ViewTargetFormats;
         using ViewMemoryDetail::Div;
         using ViewMemoryDetail::MipCount;
 
@@ -133,76 +134,77 @@ namespace Desert::Graphic
         const auto              add = [&]( const ViewTarget& row ) { rows.push_back( row ); };
 
         // SceneRenderer::EnsureRendererResources.
-        add( { "SceneTarget.Color", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "SceneTarget.Depth", "SceneRenderer.cpp", ImageFormat::DEPTH32F, width, height } );
-        add( { "GBufferA.AlbedoMetallic", "SceneRenderer.cpp", ImageFormat::RGBA8F, width, height } );
-        add( { "GBufferB.NormalRoughness", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "GBufferC.WorldPosition", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "GBuffer.Emissive", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "GBuffer.Depth", "SceneRenderer.cpp", ImageFormat::DEPTH32F, width, height } );
-        add( { "SSAO", "SceneRenderer.cpp", ImageFormat::RGBA8F, width, height } );
-        add( { "SceneColorCopy", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
+        add( { "SceneTarget.Color", "SceneRenderer.cpp", F::kSceneColor, width, height } );
+        add( { "SceneTarget.Depth", "SceneRenderer.cpp", F::kSceneDepth, width, height } );
+        add( { "GBufferA.AlbedoMetallic", "SceneRenderer.cpp", F::kGBufferA, width, height } );
+        add( { "GBufferB.NormalRoughness", "SceneRenderer.cpp", F::kGBufferB, width, height } );
+        add( { "GBufferC.WorldPosition", "SceneRenderer.cpp", F::kGBufferC, width, height } );
+        add( { "GBuffer.Emissive", "SceneRenderer.cpp", F::kGBufferEmissive, width, height } );
+        add( { "GBuffer.Depth", "SceneRenderer.cpp", F::kGBufferDepth, width, height } );
+        add( { "SSAO", "SceneRenderer.cpp", F::kSSAO, width, height } );
+        add( { "SceneColorCopy", "SceneRenderer.cpp", F::kSceneColorCopy, width, height } );
 
         // Post stack, all built in Init.
-        add( { "SilhouetteMask", "MeshRenderer.cpp", ImageFormat::RGBA8F, width, height } );
-        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", ImageFormat::RGBA32F, width, height, 1, 3 } );
-        add( { "Tonemap", "TonemapRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "FXAA", "FXAARenderer.cpp", ImageFormat::RGBA32F, width, height } );
-        add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", ImageFormat::RGBA8F, width, height, 1, 2 } );
-        add( { "SMAA.Blend", "SMAARenderer.cpp", ImageFormat::RGBA32F, width, height } );
+        add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
+        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", F::kJFASeed, width, height, 1, 3 } );
+        add( { "Tonemap", "TonemapRenderer.cpp", F::kTonemap, width, height } );
+        add( { "FXAA", "FXAARenderer.cpp", F::kFXAA, width, height } );
+        add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", F::kSMAAEdges, width, height, 1, 2 } );
+        add( { "SMAA.Blend", "SMAARenderer.cpp", F::kSMAABlend, width, height } );
         {
             const uint32_t bw = Div( width, 2 );
             const uint32_t bh = Div( height, 2 );
-            add( { "Bloom.Chain", "BloomRenderer.cpp", ImageFormat::RGBA32F, bw, bh,
+            add( { "Bloom.Chain", "BloomRenderer.cpp", F::kBloom, bw, bh,
                    std::min( 6u /* BloomRenderer::kMaxBloomMips */, MipCount( bw, bh ) ) } );
         }
-        add( { "LightShaft.PingPong", "LightShaftRenderer.cpp", ImageFormat::RGBA16F, Div( width, 2 ),
-               Div( height, 2 ), 1, 2 } );
+        add( { "LightShaft.PingPong", "LightShaftRenderer.cpp", F::kLightShaft, Div( width, 2 ), Div( height, 2 ),
+               1, 2 } );
         {
             const uint32_t sw = Div( width, 2 );
             const uint32_t sh = Div( height, 2 );
-            add( { "LensFlare.Source", "LensFlareRenderer.cpp", ImageFormat::RGBA16F, sw, sh,
+            add( { "LensFlare.Source", "LensFlareRenderer.cpp", F::kLensFlare, sw, sh,
                    std::min( 5u /* LensFlareRenderer::kMaxSourceMips */, MipCount( sw, sh ) ) } );
-            add( { "LensFlare.Feature", "LensFlareRenderer.cpp", ImageFormat::RGBA16F, Div( width, 4 ),
+            add( { "LensFlare.Feature", "LensFlareRenderer.cpp", F::kLensFlare, Div( width, 4 ),
                    Div( height, 4 ) } );
         }
-        add( { "HeightFog", "HeightFogRenderer.cpp", ImageFormat::RGBA16F, width, height } );
+        add( { "HeightFog", "HeightFogRenderer.cpp", F::kHeightFog, width, height } );
 
         if ( profile.VolumetricClouds )
         {
             // VolumetricCloudRenderer::EnsureTraceTargets: trace pair at a quarter, history pairs at half.
-            add( { "Clouds.Trace+Guide", "VolumetricCloudRenderer.cpp", ImageFormat::RGBA16F, Div( width, 4 ),
+            add( { "Clouds.Trace+Guide", "VolumetricCloudRenderer.cpp", F::kCloudTrace, Div( width, 4 ),
                    Div( height, 4 ), 1, 2 } );
-            add( { "Clouds.History+Guide x2", "VolumetricCloudRenderer.cpp", ImageFormat::RGBA16F, Div( width, 2 ),
+            add( { "Clouds.History+Guide x2", "VolumetricCloudRenderer.cpp", F::kCloudTrace, Div( width, 2 ),
                    Div( height, 2 ), 1, 4 } );
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-            add( { "SSR.Accum x2", "SSRRenderer.hpp", ImageFormat::RGBA32F, width, height, 1, 2 } );
+            add( { "SSR.Trace", "SceneRenderer.cpp", F::kSSRTrace, width, height } );
+            add( { "SSR.Accum x2", "SSRRenderer.hpp", F::kSSRAccum, width, height, 1, 2 } );
         }
         if ( profile.GlobalIllumination )
         {
-            add( { "GI.Resolve", "SceneRenderer.cpp", ImageFormat::RGBA32F, width, height } );
-            add( { "GI.Accum x2", "GIResolveRenderer.hpp", ImageFormat::RGBA32F, width, height, 1, 2 } );
-            // SceneRenderer::kRSMResolution = 512: albedo RGBA8, three RGBA32F, DEPTH32F.
-            ViewTarget rsm8{ "RSM.Albedo", "SceneRenderer.cpp", ImageFormat::RGBA8F, 512, 512 };
-            ViewTarget rsm32{
-                 "RSM.Normal+Pos+Emissive", "SceneRenderer.cpp", ImageFormat::RGBA32F, 512, 512, 1, 3 };
-            ViewTarget rsmD{ "RSM.Depth", "SceneRenderer.cpp", ImageFormat::DEPTH32F, 512, 512 };
-            rsm8.ScalesWithView = rsm32.ScalesWithView = rsmD.ScalesWithView = false;
-            add( rsm8 );
-            add( rsm32 );
-            add( rsmD );
+            add( { "GI.Resolve", "SceneRenderer.cpp", F::kGIResolve, width, height } );
+            add( { "GI.Accum x2", "GIResolveRenderer.hpp", F::kGIAccum, width, height, 1, 2 } );
+            // SceneRenderer::kRSMResolution = 512, one row per attachment: they mirror the G-buffer's formats,
+            // which need not all be the same.
+            for ( ViewTarget rsm : { ViewTarget{ "RSM.Albedo", "SceneRenderer.cpp", F::kRSMAlbedo, 512, 512 },
+                                     ViewTarget{ "RSM.Normal", "SceneRenderer.cpp", F::kRSMNormal, 512, 512 },
+                                     ViewTarget{ "RSM.Position", "SceneRenderer.cpp", F::kRSMPosition, 512, 512 },
+                                     ViewTarget{ "RSM.Emissive", "SceneRenderer.cpp", F::kRSMEmissive, 512, 512 },
+                                     ViewTarget{ "RSM.Depth", "SceneRenderer.cpp", F::kRSMDepth, 512, 512 } } )
+            {
+                rsm.ScalesWithView = false;
+                add( rsm );
+            }
         }
         if ( profile.Shadows.CascadeCount != 0 )
         {
             // MeshRenderer::SetupShadowPass — see kShadowBytesPerTexel.
             const uint32_t s = profile.Shadows.ShadowMapSize;
             const uint32_t n = profile.Shadows.CascadeCount;
-            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", ImageFormat::RGBA32F, s, s, 1, n };
-            ViewTarget     depth{
-                 "ShadowCascades.Depth", "MeshRenderer.cpp", ImageFormat::DEPTH24STENCIL8, s, s, 1, n };
+            ViewTarget     color{ "ShadowCascades.Color", "MeshRenderer.cpp", F::kShadowColor, s, s, 1, n };
+            ViewTarget     depth{ "ShadowCascades.Depth", "MeshRenderer.cpp", F::kShadowDepth, s, s, 1, n };
             color.ScalesWithView = depth.ScalesWithView = false;
             add( color );
             add( depth );

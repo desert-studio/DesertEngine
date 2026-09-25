@@ -1,4 +1,5 @@
 #include "MeshRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
@@ -1797,7 +1798,7 @@ namespace Desert::Graphic::System
         // at the framebuffer clear color (~0.1), which JFA_Init separates with a 0.5 threshold.
         FramebufferSpecification maskSpec;
         maskSpec.DebugName = "SilhouetteMask";
-        maskSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA8F );
+        maskSpec.Attachments.Attachments.push_back( ViewTargetFormats::kSilhouetteMask );
 
         m_SilhouetteMaskFramebuffer = Graphic::Framebuffer::Create( maskSpec );
         m_SilhouetteMaskFramebuffer->Resize( targetFb->GetFramebufferWidth(), targetFb->GetFramebufferHeight() );
@@ -1916,8 +1917,8 @@ namespace Desert::Graphic::System
         {
             FramebufferSpecification shadowSpec;
             shadowSpec.DebugName = "ShadowCascade" + std::to_string( i );
-            shadowSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
-            shadowSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::DEPTH24STENCIL8 );
+            shadowSpec.Attachments.Attachments.push_back( ViewTargetFormats::kShadowColor );
+            shadowSpec.Attachments.Attachments.push_back( ViewTargetFormats::kShadowDepth );
             m_CascadeFB[i] = Graphic::Framebuffer::Create( shadowSpec );
             m_CascadeFB[i]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
             m_ShadowMaterial[i] = std::make_unique<MaterialShadow>();
