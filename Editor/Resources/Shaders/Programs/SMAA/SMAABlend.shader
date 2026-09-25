@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"c9cec12e730bf5c878453552ce30f594","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SMAABlend"
 {
     Fragment

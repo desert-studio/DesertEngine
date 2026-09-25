@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"e4bc1a170b797815ae610f1f1557163e","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "DiffuseIrradiance"
 {
     Compute

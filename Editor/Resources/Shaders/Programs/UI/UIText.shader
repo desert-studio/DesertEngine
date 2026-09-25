@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"d92bf93f92b232211b4976212b867170","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "UIText"
 {
     // Screen-space distance-field text for the 2D batcher. Same vertex layout as UI2D (pos/uv/colour,

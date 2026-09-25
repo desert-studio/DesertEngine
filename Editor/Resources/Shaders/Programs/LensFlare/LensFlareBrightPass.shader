@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"df8242509db04fb5d5fcd44575359985","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "LensFlareBrightPass"
 {
     Compute

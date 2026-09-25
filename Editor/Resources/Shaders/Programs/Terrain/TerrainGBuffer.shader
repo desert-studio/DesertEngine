@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"f5f5ad4fa89273327efd0e6c4b0ba655","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "TerrainGBuffer"
 {
     // The terrain in the DEFERRED render path: it writes the G-buffer like every other opaque surface and

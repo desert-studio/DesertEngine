@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a6ca9bef934226c62c1daadf465602cf","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Shadow_Skinned"
 {
     // The (Skinned x ShadowDepth) cell of Graphic::MeshShaderFor's table, and the cell that did not

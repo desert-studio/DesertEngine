@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"0f46529c8bcc0c931957ba9c7f44cc66","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Copy"
 {
     // Full-screen image copy (scene colour snapshot for glass refraction).

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"757b690db46cc53baf280bebdb8d637c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "LensFlareFeatures"
 {
     Compute

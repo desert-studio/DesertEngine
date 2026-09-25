@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"de9400f971c5e2ac21c65411080b933c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Shadow_Instanced"
 {
     // Instanced variant of the depth-only shadow caster: identical fragment, but the vertex reads each caster's

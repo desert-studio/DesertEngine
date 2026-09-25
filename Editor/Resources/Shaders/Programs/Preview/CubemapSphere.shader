@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"593d0a4c3edd7589472b5de9d7712641","Versions":{"SHDR":1},"Dependencies":[]}
 // The Material Editor's cubemap-on-a-sphere: the pane's answer for a Skybox-domain material.
 //
 // A cubemap has no surface of its own — the engine's Skybox program shows it BY DIRECTION on the far
