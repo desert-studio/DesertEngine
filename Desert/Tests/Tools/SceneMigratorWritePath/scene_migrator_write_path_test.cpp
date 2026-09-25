@@ -90,6 +90,15 @@ namespace
     {
         return "scene v" + std::to_string( from ) + "->v" + std::to_string( to );
     }
+
+    // A full, valid cloud-type shape (CLTY 3, 4 and 5 share it): the migrator reads the body through the
+    // engine's typed CloudTypeData, so a fixture with a partial Shape would be refused as unreadable.
+    constexpr const char* kCloudTypeShapeV4 =
+         R"("Shape":{"BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,)"
+         R"("Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,)"
+         R"(0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,)"
+         R"("AnvilThicknessKm":0.0,"AnvilStrength":0.0,"DetailCharacter":0.6,"DetailFactor":1.0,)"
+         R"("DensityFactor":1.0,"ExtinctionFactor":1.0,"PlacementScale":1.0,"PlacementAnisotropy":1.0})";
 } // namespace
 
 // THE ERROR PATH. The temp path is blocked, so the atomic write must refuse; the run exits non-zero,
@@ -347,7 +356,7 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
     const fs::path file = dir / "Stratus.decloudtype";
     {
         std::ofstream out( file, std::ios::binary );
-        out << R"({"FormatVersion":3,"DisplayName":"Stratus","Shape":{"BaseAltitudeKm":0.3}})";
+        out << R"({"FormatVersion":3,"DisplayName":"Stratus",)" << kCloudTypeShapeV4 << "}";
     }
     const fs::path stale = dir / "Old.decloudtype";
     {
@@ -370,7 +379,8 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
     EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::CloudType );
     EXPECT_FALSE( header.GetValue().Guid.IsNull() );
     ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
-    EXPECT_EQ( header.GetValue().Subsystems[0].Version, 4u );
+    // Chained in one run: CLTY 3 -> 4 (the header) and 4 -> 5 (a type naming no volume only moves its version).
+    EXPECT_EQ( header.GetValue().Subsystems[0].Version, Desert::Assets::kCloudTypeSchemaVersion );
     EXPECT_NE( raised.find( "Stratus" ), std::string::npos ) << raised;
 
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
@@ -605,7 +615,7 @@ namespace
         fs::create_directories( root.Dir / "Materials" );
         {
             std::ofstream out( root.Dir / "Clouds" / "Stratus.decloudtype", std::ios::binary );
-            out << R"({"FormatVersion":3,"DisplayName":"Stratus","Shape":{"BaseAltitudeKm":0.3}})";
+            out << R"({"FormatVersion":3,"DisplayName":"Stratus",)" << kCloudTypeShapeV4 << "}";
         }
         {
             std::string v1 = std::string( "DCLY" ) + std::string( "\x01\0\0\0", 4 );
@@ -984,12 +994,6 @@ TEST( SceneMigratorWritePath, AGenerationThreeClipIsRaisedToAHeaderKeepingItsSke
 // the header's one Dependency. A type that names none only moves its version.
 namespace
 {
-    constexpr const char* kCloudTypeShapeV4 =
-         R"("Shape":{"BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,)"
-         R"("Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,)"
-         R"(0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,)"
-         R"("AnvilThicknessKm":0.0,"AnvilStrength":0.0,"DetailCharacter":0.6,"DetailFactor":1.0,)"
-         R"("DensityFactor":1.0,"ExtinctionFactor":1.0,"PlacementScale":1.0,"PlacementAnisotropy":1.0})";
 
     void WriteCloudTypeV4( const fs::path& file, const Common::Content::AssetGuid& guid, const char* noise )
     {
