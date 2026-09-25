@@ -68,7 +68,8 @@ namespace Desert::Editor::MaterialAdoption
 
     // Rewrites `result` so every material whose .demat already exists carries that file's GUID, and every
     // submesh that referenced the derived GUID references the adopted one. Runs before anything is written.
-    inline Common::BoolResultStr AdoptExistingMaterials( ImportResult& result, const std::filesystem::path& sourcePath )
+    inline Common::BoolResultStr AdoptExistingMaterials( ImportResult&                result,
+                                                         const std::filesystem::path& sourcePath )
     {
         for ( auto& material : result.Materials )
         {

@@ -206,9 +206,9 @@ namespace
     {
     public:
         TempProject()
-            : m_Root( std::filesystem::temp_directory_path() /
-                      ( "MeshImportKey_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) +
-                        "_" + ::testing::UnitTest::GetInstance()->current_test_info()->name() ) )
+             : m_Root( std::filesystem::temp_directory_path() /
+                       ( "MeshImportKey_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) +
+                         "_" + ::testing::UnitTest::GetInstance()->current_test_info()->name() ) )
         {
             std::filesystem::remove_all( m_Root );
             Common::Constants::Path::SetProjectRoot( m_Root, "Content" );
@@ -223,7 +223,8 @@ namespace
         std::filesystem::path m_Root;
     };
 
-    Desert::Editor::ImportResult ImportedTwoMaterials( const AssetGuid& modelDerived, const AssetGuid& trimDerived )
+    Desert::Editor::ImportResult ImportedTwoMaterials( const AssetGuid& modelDerived,
+                                                       const AssetGuid& trimDerived )
     {
         Desert::Editor::ImportResult result;
         result.Materials.push_back( { .Name = "model", .Data = {}, .Guid = modelDerived, .Textures = {} } );
