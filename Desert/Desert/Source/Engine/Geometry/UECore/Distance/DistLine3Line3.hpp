@@ -69,8 +69,8 @@ namespace Desert::Geometry
                 Real invDet = static_cast<Real>( 1 ) / det;
                 s0          = ( a01 * b1 - b0 ) * invDet;
                 s1 *= invDet;
-                sqrDist =
-                     s0 * ( s0 + a01 * s1 + static_cast<Real>( 2 ) * b0 ) + s1 * ( a01 * s0 + s1 + static_cast<Real>( 2 ) * b1 ) + c;
+                sqrDist = s0 * ( s0 + a01 * s1 + static_cast<Real>( 2 ) * b0 ) +
+                          s1 * ( a01 * s0 + s1 + static_cast<Real>( 2 ) * b1 ) + c;
                 Line1ClosestPoint = Line1.Origin + s0 * Line1.Direction;
                 Line2ClosestPoint = Line2.Origin + s1 * Line2.Direction;
                 Line1Parameter    = s0;

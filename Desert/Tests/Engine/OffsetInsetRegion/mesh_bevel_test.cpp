@@ -836,9 +836,9 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
 // A refusal at initialization makes Apply refuse with the same reason and leave the mesh alone.
 TEST( MeshBevel, ApplyAfterRefusedInitializationReturnsFalse )
 {
-    FDynamicMesh3  mesh = TangentCube();
+    FDynamicMesh3        mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
-    FMeshBevel     bevel;
+    FMeshBevel           bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 999 } ) );
     const std::string reason = bevel.FailureReason;
     ASSERT_FALSE( reason.empty() );
@@ -860,7 +860,7 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
         FDynamicMesh3 mesh = TangentCube( n );
         for ( const int t : mesh.TriangleIndicesItr() )
         {
-            const int face = t / ( 2 * n * n );
+            const int face  = t / ( 2 * n * n );
             int       group = 2;
             if ( face == 4 )
                 group = 1;
@@ -869,8 +869,8 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
             mesh.SetTriangleGroup( t, group );
         }
         SetFaceMaterials( mesh );
-        const FGroupTopology  topology( &mesh, true );
-        FMeshBevelProbe bevel;
+        const FGroupTopology topology( &mesh, true );
+        FMeshBevelProbe      bevel;
         bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
         ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
         ASSERT_EQ( bevel.Loops.Num(), 2 );
@@ -899,9 +899,9 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
 // joins the two terminators, so each cap is one quad in the cap face's group (AppendTerminatorVertexPairQuad).
 TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
 {
-    FDynamicMesh3   mesh = TangentCube();
-    const FGroupTopology  topology( &mesh, true );
-    FMeshBevelProbe bevel;
+    FDynamicMesh3        mesh = TangentCube();
+    const FGroupTopology topology( &mesh, true );
+    FMeshBevelProbe      bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges(
          mesh, topology, { GroupEdgeBetween( topology, 1, 3 ), GroupEdgeBetween( topology, 2, 4 ) } ) )
          << bevel.FailureReason;
@@ -937,8 +937,8 @@ TEST( MeshBevel, ApplyTerminatorOnATiltedCapStaysOnTheInsetLines )
             mesh.SetVertex( v, FVector3d( p.X, p.Y, 50.0 + 0.5 * p.X ) );
     }
     ExpectClosedSolid( mesh, 1.0e6 );
-    const FGroupTopology  topology( &mesh, true );
-    FMeshBevelProbe bevel;
+    const FGroupTopology topology( &mesh, true );
+    FMeshBevelProbe      bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
          << bevel.FailureReason;
     ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;

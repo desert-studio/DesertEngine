@@ -136,8 +136,8 @@ namespace Desert::Geometry::PolygonTriangulation
             {
                 {
                     const int32 A = PrevVertexNumbers[EarVertexNumber];
-                                const int32 B = EarVertexNumber;
-                                const int32 C = NextVertexNumbers[EarVertexNumber];
+                    const int32 B = EarVertexNumber;
+                    const int32 C = NextVertexNumbers[EarVertexNumber];
                     OutTriangles.Add( bOrientAsHoleFill ? FIndex3i( A, C, B ) : FIndex3i( A, B, C ) );
                 }
                 NextVertexNumbers[PrevVertexNumbers[EarVertexNumber]] = NextVertexNumbers[EarVertexNumber];

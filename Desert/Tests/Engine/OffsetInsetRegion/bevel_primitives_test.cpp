@@ -134,7 +134,7 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
     // An open span 0-1-2 over edges 0 and 1: the ends are projected onto their one line.
     const TArray<int32>   SpanVertices = { Corners[0], Corners[1], Corners[2] };
     const TArray<FLine3d> SpanLines    = { Lines[0], Lines[1] };
-    TArray<FVector3d> Span;
+    TArray<FVector3d>     Span;
     SolveInsetVertexPositionsFromInsetLines( Mesh, SpanLines, SpanVertices, Span, false );
     ASSERT_EQ( Span.Num(), 3 );
     ExpectNear( Span[0], FVector3d( 0, 10, 0 ), "span start" );
