@@ -1588,9 +1588,9 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
                 low    = std::min( low, r );
                 high   = std::max( high, r );
             }
-            std::cout << std::setprecision( 9 ) << "n " << n << " N " << N << " rho " << rho << " border [" << borderLow / rho << ", "
-                      << borderHigh / rho << "] patch [" << low / rho << ", " << high / rho << "] axis " << onAxis
-                      << "\n";
+            std::cout << std::setprecision( 9 ) << "n " << n << " N " << N << " rho " << rho << " border ["
+                      << borderLow / rho << ", " << borderHigh / rho << "] patch [" << low / rho << ", "
+                      << high / rho << "] axis " << onAxis << "\n";
             // float UVs from an iterative spectral solve: symmetric to ~1e-2 cm
             EXPECT_LT( onAxis, 2e-2 );
             // The patch radii are PINNED, not bounded: no closed form exists (the blend runs on spectral-conformal
@@ -1619,12 +1619,13 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
 }
 
 // Five sectors meeting on a flat face: the round 5-sided patch across a 180-degree "dihedral" stays in the face.
-// The volume is not the cube's: the sector edge running to the cube corner (50, 50, 50) ends in a terminator, which
-// removes the corner vertex and fans the hole to its far neighbour (50, 50, 0) on the vertical crease (UE
+// The volume is not the cube's: the sector edge running to the cube corner (50, 50, 50) ends in a terminator,
+// which removes the corner vertex and fans the hole to its far neighbour (50, 50, 0) on the vertical crease (UE
 // UnlinkTerminatorVertex + AppendTerminatorVertexTriangle), cutting off the pyramid over the corner polygon
 // {corner, A, end column, B}. Its end column is rounded IN the top face: the corner and its inset positions A, B
-// span the top plane, so the section plane is the top face, and UE's whole-mesh vertex normals at A and B (they lean
-// into the side faces) project to +X and +Y. Every vertex stays on the cube; only the cut pyramid's base changes.
+// span the top plane, so the section plane is the top face, and UE's whole-mesh vertex normals at A and B (they
+// lean into the side faces) project to +X and +Y. Every vertex stays on the cube; only the cut pyramid's base
+// changes.
 TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
 {
     FDynamicMesh3 fan = TangentCube( 2 );
@@ -1660,8 +1661,8 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
 
     // The cut pyramid: apex (50, 50, 0), base in z = 50 bounded by the corner, A = (50, 50 - 5 sqrt 2), the end
     // column's Hermite points and B = (50 - 5 sqrt 2, 50). Tangents per MakeArcSplineCurve: A->B with its X part
-    // removed, B->A with its Y part removed, both scaled by RoundWeight sqrt 2 (T1 negated). The flat run keeps the
-    // triangle {corner, A, B} (area 25) for every N.
+    // removed, B->A with its Y part removed, both scaled by RoundWeight sqrt 2 (T1 negated). The flat run keeps
+    // the triangle {corner, A, B} (area 25) for every N.
     const double s = 5.0 * std::sqrt( 2.0 );
     for ( const int N : { 1, 2, 3 } )
     {
@@ -1677,9 +1678,9 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
                 EXPECT_NEAR( std::max( { std::abs( p.X ), std::abs( p.Y ), std::abs( p.Z ) } ), 50.0, 1e-9 )
                      << "vertex " << vid << " left the cube";
             }
-            const FVector3d A( 50.0, 50.0 - s, 50.0 ), B( 50.0 - s, 50.0, 50.0 );
-            const FVector3d T0 = w * std::sqrt( 2.0 ) * FVector3d( 0.0, s, 0.0 );
-            const FVector3d T1 = -w * std::sqrt( 2.0 ) * FVector3d( s, 0.0, 0.0 );
+            const FVector3d        A( 50.0, 50.0 - s, 50.0 ), B( 50.0 - s, 50.0, 50.0 );
+            const FVector3d        T0 = w * std::sqrt( 2.0 ) * FVector3d( 0.0, s, 0.0 );
+            const FVector3d        T1 = -w * std::sqrt( 2.0 ) * FVector3d( s, 0.0, 0.0 );
             std::vector<FVector3d> base{ FVector3d( 50.0, 50.0, 50.0 ) };
             for ( int k = 0; k <= N + 1; ++k )
             {
