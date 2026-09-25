@@ -364,8 +364,7 @@ namespace
          // .decloudtype 3 -> 4 (AF7v, T6b1). The literal 4 and not kCloudTypeSchemaVersion: CLTY 5 (T7h) names
          // the noise volume by GUID, which this splice cannot state, so RaiseCloudTypeV4ToV5 takes it on.
          TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
-                          Desert::Assets::kCloudTypeSchemaTag, 3, 4,
-                          "FormatVersion", false },
+                          Desert::Assets::kCloudTypeSchemaTag, 3, 4, "FormatVersion", false },
          // .destrings 1 -> 2 (T7b).
          TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
                           Desert::Assets::kStringTableSchemaTag, 1, Desert::Assets::kStringTableSchemaVersion,
@@ -538,9 +537,9 @@ namespace
     // The engine's CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid, minus the VFS the migrator has no use for.
     Common::Content::AssetGuid ReadNoiseVolumeGuid( const std::filesystem::path& file )
     {
-        namespace CC                              = Common::Content;
-        const CC::SubsystemVersion       kKnown[] = { { Desert::Assets::kCloudNoiseSubsystemTag,
-                                                        Desert::Assets::kCloudNoiseContainerVersion } };
+        namespace CC                        = Common::Content;
+        const CC::SubsystemVersion kKnown[] = {
+             { Desert::Assets::kCloudNoiseSubsystemTag, Desert::Assets::kCloudNoiseContainerVersion } };
         const CC::AssetHeaderReadContext context{ kKnown };
         std::ifstream                    in( file, std::ios::binary );
         if ( !in )
@@ -570,7 +569,8 @@ namespace
         };
         const auto header = rfl::json::read<HeaderOnly>( text );
         const int  stated =
-             header ? Desert::Assets::StatedVersion( header.value().Header, Desert::Assets::kCloudTypeSchemaTag ) : 0;
+             header ? Desert::Assets::StatedVersion( header.value().Header, Desert::Assets::kCloudTypeSchemaTag )
+                     : 0;
         if ( stated == static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) )
             return Common::MakeSuccess( Result{} );
         const auto tree = rfl::json::read<rfl::Generic>( text );
@@ -592,11 +592,12 @@ namespace
                 return Common::MakeError<Result>( "lies under no <assets>/Clouds/Types folder, so there is no "
                                                   "assets root holding its noise volume '" +
                                                   relative.value() + "'" );
-            const std::filesystem::path volume = ( *assetsRoot / relative.value() ).lexically_normal();
-            const Common::Content::AssetGuid guid = ReadNoiseVolumeGuid( volume );
+            const std::filesystem::path      volume = ( *assetsRoot / relative.value() ).lexically_normal();
+            const Common::Content::AssetGuid guid   = ReadNoiseVolumeGuid( volume );
             if ( guid.IsNull() )
-                return Common::MakeError<Result>( "its noise volume " + volume.generic_string() +
-                                                  " is missing or states no envelope GUID; raise the volume first" );
+                return Common::MakeError<Result>(
+                     "its noise volume " + volume.generic_string() +
+                     " is missing or states no envelope GUID; raise the volume first" );
             rfl::Generic::Object ref;
             ref["Guid"]        = rfl::Generic( Common::Content::AssetGuidToText( guid ) );
             ref["Path"]        = rfl::Generic( relative.value() );

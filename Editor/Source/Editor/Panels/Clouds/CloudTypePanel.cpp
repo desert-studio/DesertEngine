@@ -464,7 +464,8 @@ namespace Desert::Editor
                         continue;
                     const std::string relative = RelativeToAssets( volume->GetMetadata().Filepath );
                     if ( ImGui::Selectable( relative.c_str(), relative == current ) )
-                        m_Data.NoiseVolume = Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid ), relative };
+                        m_Data.NoiseVolume =
+                             Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid ), relative };
                 }
             }
             ImGui::EndCombo();

@@ -1669,7 +1669,7 @@ TEST( CloudTypeFormat, ANoiseVolumeIsNamedByGuidAndStatedAsTheOneDependency )
     // The dependency dropped from the header: one reference stated once is refused, by name.
     CloudTypeData unstated = parsed.GetValue();
     unstated.Header->Dependencies.clear();
-    std::string text = rfl::json::write( unstated );
+    std::string text    = rfl::json::write( unstated );
     auto        refused = ParseCloudType( text );
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "Dependencies" ), std::string::npos ) << refused.GetError();
@@ -1678,7 +1678,7 @@ TEST( CloudTypeFormat, ANoiseVolumeIsNamedByGuidAndStatedAsTheOneDependency )
     CloudTypeData bare = parsed.GetValue();
     bare.NoiseVolume->Guid.clear();
     bare.Header->Dependencies = { "" };
-    auto noGuid = ParseCloudType( rfl::json::write( bare ) );
+    auto noGuid               = ParseCloudType( rfl::json::write( bare ) );
     ASSERT_FALSE( noGuid );
     EXPECT_NE( noGuid.GetError().find( "GUID" ), std::string::npos ) << noGuid.GetError();
 }

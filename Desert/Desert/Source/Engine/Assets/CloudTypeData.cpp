@@ -196,11 +196,12 @@ namespace Desert::Assets
             const auto headerOnly = rfl::json::read<HeaderOnly>( text );
             if ( !headerOnly )
                 return Common::MakeFormattedError<CloudTypeData>( "{}", headerOnly.error().what() );
-            if ( auto header = CheckStatedHeader( headerOnly.value().Header, Common::Content::ContentKind::CloudType,
-                                                  kCloudTypeSchemaTag, kCloudTypeFormatVersion,
-                                                  CloudTypeTextSubsystems() );
+            if ( auto header =
+                      CheckStatedHeader( headerOnly.value().Header, Common::Content::ContentKind::CloudType,
+                                         kCloudTypeSchemaTag, kCloudTypeFormatVersion, CloudTypeTextSubsystems() );
                  !header )
-                return Common::MakeFormattedError<CloudTypeData>( "{}; run Tools/SceneMigrator", header.GetError() );
+                return Common::MakeFormattedError<CloudTypeData>( "{}; run Tools/SceneMigrator",
+                                                                  header.GetError() );
         }
 
         const auto parsed = rfl::json::read<CloudTypeData>( text );
