@@ -973,7 +973,8 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     const auto                  cooked     = Desert::Editor::PackageGame( options );
     ASSERT_FALSE( cooked.Success );
     EXPECT_EQ( cooked.Message.find( scheme.string() ), std::string::npos ) << cooked.Message;
-    EXPECT_GT( filesUnder().size(), withScheme.size() ) << "the fixture's font did not make the cook write anything";
+    EXPECT_GT( filesUnder().size(), withScheme.size() )
+         << "the fixture's font did not make the cook write anything";
 }
 
 // ── A PACKAGE STARTS BY ITSELF (П5) ───────────────────────────────────────────────────────────────
