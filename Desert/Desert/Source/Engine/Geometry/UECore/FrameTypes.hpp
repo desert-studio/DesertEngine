@@ -33,7 +33,7 @@ namespace Desert::Geometry
             const RealType Length = std::sqrt( X * X + Y * Y + Z * Z + W * W );
             if ( Length > Epsilon )
             {
-                const RealType Inv = (RealType)1 / Length;
+                const RealType Inv = static_cast<RealType>( 1 ) / Length;
                 X *= Inv;
                 Y *= Inv;
                 Z *= Inv;
@@ -45,22 +45,27 @@ namespace Desert::Geometry
         }
         TVector<RealType> AxisX() const
         {
-            const RealType twoY = 2 * Y, twoZ = 2 * Z;
+            const RealType twoY = 2 * Y;
+            const RealType twoZ = 2 * Z;
             return TVector<RealType>( 1 - ( twoY * Y + twoZ * Z ), twoY * X + twoZ * W, twoZ * X - twoY * W );
         }
         TVector<RealType> AxisY() const
         {
-            const RealType twoX = 2 * X, twoY = 2 * Y, twoZ = 2 * Z;
+            const RealType twoX = 2 * X;
+            const RealType twoY = 2 * Y;
+            const RealType twoZ = 2 * Z;
             return TVector<RealType>( twoY * X - twoZ * W, 1 - ( twoX * X + twoZ * Z ), twoZ * Y + twoX * W );
         }
         TVector<RealType> AxisZ() const
         {
-            const RealType twoX = 2 * X, twoY = 2 * Y, twoZ = 2 * Z;
+            const RealType twoX = 2 * X;
+            const RealType twoY = 2 * Y;
+            const RealType twoZ = 2 * Z;
             return TVector<RealType>( twoZ * X + twoY * W, twoZ * Y - twoX * W, 1 - ( twoX * X + twoY * Y ) );
         }
         void SetAxisAngleR( const TVector<RealType>& Axis, RealType AngleRad )
         {
-            const RealType Half = (RealType)0.5 * AngleRad;
+            const RealType Half = static_cast<RealType>( 0.5 ) * AngleRad;
             const RealType Sn   = std::sin( Half );
             W                   = std::cos( Half );
             X                   = Sn * Axis.X;
@@ -69,7 +74,8 @@ namespace Desert::Geometry
         }
         void SetFromTo( const TVector<RealType>& From, const TVector<RealType>& To )
         {
-            const TVector<RealType> from = Normalized( From ), to = Normalized( To );
+            const TVector<RealType> from = Normalized( From );
+            const TVector<RealType> to   = Normalized( To );
             const TVector<RealType> bisector = Normalized( from + to, TMathUtil<RealType>::ZeroTolerance );
             W                                = from.Dot( bisector );
             if ( W != 0 )
@@ -81,14 +87,14 @@ namespace Desert::Geometry
             }
             else if ( std::abs( from.X ) >= std::abs( from.Y ) )
             {
-                const RealType invLength = (RealType)1 / std::sqrt( from.X * from.X + from.Z * from.Z );
+                const RealType invLength = static_cast<RealType>( 1 ) / std::sqrt( from.X * from.X + from.Z * from.Z );
                 X                        = -from.Z * invLength;
                 Y                        = 0;
                 Z                        = +from.X * invLength;
             }
             else
             {
-                const RealType invLength = (RealType)1 / std::sqrt( from.Y * from.Y + from.Z * from.Z );
+                const RealType invLength = static_cast<RealType>( 1 ) / std::sqrt( from.Y * from.Y + from.Z * from.Z );
                 X                        = 0;
                 Y                        = +from.Z * invLength;
                 Z                        = -from.Y * invLength;
@@ -105,8 +111,8 @@ namespace Desert::Geometry
             if ( trace > 0 )
             {
                 RealType root = std::sqrt( trace + 1 );
-                W             = (RealType)0.5 * root;
-                root          = (RealType)0.5 / root;
+                W             = static_cast<RealType>( 0.5 ) * root;
+                root          = static_cast<RealType>( 0.5 ) / root;
                 X             = ( M( 2, 1 ) - M( 1, 2 ) ) * root;
                 Y             = ( M( 0, 2 ) - M( 2, 0 ) ) * root;
                 Z             = ( M( 1, 0 ) - M( 0, 1 ) ) * root;
@@ -123,8 +129,8 @@ namespace Desert::Geometry
                 const int         k    = Next[j];
                 RealType          root = std::sqrt( M( i, i ) - M( j, j ) - M( k, k ) + 1 );
                 TVector<RealType> quat( X, Y, Z );
-                quat[i] = (RealType)0.5 * root;
-                root    = (RealType)0.5 / root;
+                quat[i] = static_cast<RealType>( 0.5 ) * root;
+                root    = static_cast<RealType>( 0.5 ) / root;
                 W       = ( M( k, j ) - M( j, k ) ) * root;
                 quat[j] = ( M( j, i ) + M( i, j ) ) * root;
                 quat[k] = ( M( k, i ) + M( i, k ) ) * root;
@@ -164,7 +170,9 @@ namespace Desert::Geometry
 
         TVector<RealType> GetAxis( int AxisIndex ) const
         {
-            return AxisIndex == 0 ? Rotation.AxisX() : ( AxisIndex == 1 ? Rotation.AxisY() : Rotation.AxisZ() );
+            if ( AxisIndex == 0 )
+                return Rotation.AxisX();
+            return AxisIndex == 1 ? Rotation.AxisY() : Rotation.AxisZ();
         }
         TVector<RealType> X() const
         {

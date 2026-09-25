@@ -30,7 +30,7 @@ namespace Desert::Geometry
             FVector3d       edge  = Normalized( Mesh.GetVertex( ev.A == VertexID ? ev.B : ev.A ) - v );
             const FVector3d other = normal.Cross( edge );
             edge                  = other.Cross( normal );
-            return FFrame3d( v, edge, other, normal );
+            return { v, edge, other, normal };
         }
     } // namespace
 
@@ -94,7 +94,7 @@ namespace Desert::Geometry
         ResetUVs( Triangles );
 
         FDynamicSubmesh3 SubmeshCalc( Mesh, Triangles );
-        FDynamicMesh3&   Submesh = SubmeshCalc.GetSubmesh();
+        const FDynamicMesh3& Submesh = SubmeshCalc.GetSubmesh();
         if ( Submesh.TriangleCount() == 0 )
             return false;
 

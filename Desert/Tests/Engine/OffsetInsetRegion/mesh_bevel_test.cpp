@@ -12,6 +12,7 @@
 
 #include <glm/geometric.hpp>
 
+#include <array>
 #include <cmath>
 #include <map>
 #include <set>
@@ -276,7 +277,7 @@ namespace
 TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    FGroupTopology      topology( &mesh, true );
+    const FGroupTopology      topology( &mesh, true );
     const int           edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
@@ -302,7 +303,7 @@ TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    FGroupTopology      topology( &mesh, true );
+    const FGroupTopology      topology( &mesh, true );
 
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
@@ -331,7 +332,7 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 TEST( MeshBevel, UnknownGroupEdgeIsRefusedByName )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    FGroupTopology      topology( &mesh, true );
+    const FGroupTopology      topology( &mesh, true );
     FMeshBevelProbe     bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 99 } ) );
     EXPECT_NE( bevel.FailureReason.find( "group edge 99" ), std::string::npos ) << bevel.FailureReason;
@@ -340,7 +341,7 @@ TEST( MeshBevel, UnknownGroupEdgeIsRefusedByName )
 TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
 {
     FDynamicMesh3  mesh = TangentCube();
-    FGroupTopology topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
@@ -366,7 +367,7 @@ TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
 TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
 {
     FDynamicMesh3  mesh = TangentCube();
-    FGroupTopology topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
     const int      edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
@@ -413,7 +414,7 @@ TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
 TEST( MeshBevel, DisplaceAllTwelveEdgesInsetsEveryCornerIntoItsFace )
 {
     FDynamicMesh3  mesh = TangentCube();
-    FGroupTopology topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
     bevel.InsetDistance = 5.0;
@@ -441,7 +442,7 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
                       ( bInterleaved ? ", interleaved" : "" ) );
         FDynamicMesh3 mesh = bInterleaved ? InterleavedTangentCube( n ) : TangentCube( n );
         ASSERT_EQ( mesh.VertexCount(), 6 * n * n + 2 );
-        FGroupTopology topology( &mesh, true );
+        const FGroupTopology topology( &mesh, true );
 
         FMeshBevelProbe bevel;
         bevel.InsetDistance = 7.0;
@@ -479,7 +480,7 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
 TEST( MeshBevel, SubdividedCubeOneEdgeTerminatorsSlideOntoTheirOwnFace )
 {
     FDynamicMesh3  mesh = TangentCube( 2 );
-    FGroupTopology topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
     const int      edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
@@ -504,7 +505,7 @@ TEST( MeshBevel, SubdividedCubeOneEdgeTerminatorsSlideOntoTheirOwnFace )
     {
         const FVector3d orig = before.at( v );
         const FVector3d p    = mesh.GetVertex( v );
-        if ( !( orig.X == 50.0 && orig.Y == 50.0 ) )
+        if ( orig.X != 50.0 || orig.Y != 50.0 )
         {
             for ( int a = 0; a < 3; ++a )
                 EXPECT_DOUBLE_EQ( p[a], orig[a] )
@@ -572,19 +573,13 @@ namespace
         EXPECT_NEAR( SignedVolume( mesh ), expectedVolume, 1e-6 * expectedVolume );
     }
 
-    // ComputeUVs: every new triangle has primary UVs that are finite and not degenerate, from elements no old
-    // triangle uses (a new island per region); the other UV layers stay unset, as UE.
+    // ComputeUVs: every new triangle has primary UVs that are finite and not degenerate; the other UV layers stay
+    // unset, as UE. That the old triangles keep theirs is checked by ApplyKeepingOldUVs.
     void ExpectNewTriangleUVs( const FDynamicMesh3& mesh, const FMeshBevel& bevel )
     {
         if ( mesh.Attributes()->NumUVLayers() == 0 )
             return;
         const FDynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
-        const std::set<int>          newTris( bevel.NewTriangles.begin(), bevel.NewTriangles.end() );
-        std::set<int>                oldElements;
-        for ( const int t : mesh.TriangleIndicesItr() )
-            if ( newTris.count( t ) == 0 && uvs.IsSetTriangle( t ) )
-                for ( int j = 0; j < 3; ++j )
-                    oldElements.insert( uvs.GetTriangle( t )[j] );
         for ( const int t : bevel.NewTriangles )
         {
             if ( !uvs.IsSetTriangle( t ) )
@@ -592,15 +587,16 @@ namespace
                 ADD_FAILURE() << "new triangle " << t << " has no primary UVs";
                 continue;
             }
-            FVector2f a, b, c;
+            FVector2f a;
+            FVector2f b;
+            FVector2f c;
             uvs.GetTriElements( t, a, b, c );
             for ( const FVector2f& uv : { a, b, c } )
                 EXPECT_TRUE( std::isfinite( uv.X ) && std::isfinite( uv.Y ) ) << "new triangle " << t;
             const double area =
-                 0.5 * std::abs( double( b.X - a.X ) * ( c.Y - a.Y ) - double( b.Y - a.Y ) * ( c.X - a.X ) );
+                 0.5 * std::abs( static_cast<double>( b.X - a.X ) * ( c.Y - a.Y ) -
+                                  static_cast<double>( b.Y - a.Y ) * ( c.X - a.X ) );
             EXPECT_GT( area, 1e-6 ) << "new triangle " << t;
-            for ( int j = 0; j < 3; ++j )
-                EXPECT_EQ( oldElements.count( uvs.GetTriangle( t )[j] ), 0u ) << "new triangle " << t;
             for ( int layer = 1; layer < mesh.Attributes()->NumUVLayers(); ++layer )
                 EXPECT_FALSE( mesh.Attributes()->GetUVLayer( layer )->IsSetTriangle( t ) ) << "new triangle " << t;
         }
@@ -645,6 +641,44 @@ namespace
         }
     }
 
+    // Apply, and every triangle that had primary UVs before still exists with the same UV values in every corner:
+    // ComputeUVs writes the new triangles only, and the unlink may split an old element but never moves it.
+    bool ApplyKeepingOldUVs( FMeshBevel& bevel, FDynamicMesh3& mesh )
+    {
+        std::map<int, std::array<FVector2f, 3>> before;
+        const FDynamicMeshUVOverlay*            uvs =
+             mesh.HasAttributes() && mesh.Attributes()->NumUVLayers() > 0 ? mesh.Attributes()->PrimaryUV() : nullptr;
+        if ( uvs != nullptr )
+            for ( const int t : mesh.TriangleIndicesItr() )
+                if ( uvs->IsSetTriangle( t ) )
+                    uvs->GetTriElements( t, before[t][0], before[t][1], before[t][2] );
+        if ( !bevel.Apply( mesh ) )
+            return false;
+        EXPECT_EQ( uvs == nullptr, before.empty() );
+        for ( const auto& [t, corners] : before )
+        {
+            if ( !mesh.IsTriangle( t ) || !uvs->IsSetTriangle( t ) )
+            {
+                ADD_FAILURE() << "old triangle " << t << " lost its primary UVs";
+                continue;
+            }
+            std::array<FVector2f, 3> after;
+            uvs->GetTriElements( t, after[0], after[1], after[2] );
+            for ( int j = 0; j < 3; ++j )
+            {
+                EXPECT_EQ( after[j].X, corners[j].X ) << "old triangle " << t << " corner " << j;
+                EXPECT_EQ( after[j].Y, corners[j].Y ) << "old triangle " << t << " corner " << j;
+            }
+        }
+        return true;
+    }
+
+    // The end cap of the one beveled edge 1|3 at the top of the cube lies in face 5, at the bottom in face 6.
+    int CapMaterial( const FVector3d& p )
+    {
+        return p.Z > 0.0 ? 50 : 60;
+    }
+
     // Face f (polygroup f + 1) gets material 10 * (f + 1), so every face differs.
     void SetFaceMaterials( FDynamicMesh3& mesh )
     {
@@ -667,7 +701,7 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
     {
         SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" );
         FDynamicMesh3  mesh = TangentCube( n );
-        FGroupTopology topology( &mesh, true );
+        const FGroupTopology topology( &mesh, true );
         const int      edge = GroupEdgeBetween( topology, 1, 3 );
         ASSERT_GE( edge, 0 );
         ExpectClosedSolid( mesh, 1.0e6 );
@@ -675,7 +709,7 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
         FMeshBevelProbe bevel;
         bevel.InsetDistance = 5.0;
         ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
-        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
         ExpectNewTriangleNormals( mesh, bevel );
 
         EXPECT_EQ( Groups( mesh ).size(), 7u );
@@ -718,12 +752,12 @@ TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
         SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" +
                       ( bInterleaved ? ", interleaved" : "" ) );
         FDynamicMesh3  mesh = bInterleaved ? InterleavedTangentCube( n ) : TangentCube( n );
-        FGroupTopology topology( &mesh, true );
+        const FGroupTopology topology( &mesh, true );
 
         FMeshBevelProbe bevel;
         bevel.InsetDistance = 5.0;
         ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
         ExpectNewTriangleNormals( mesh, bevel );
 
         EXPECT_EQ( Groups( mesh ).size(), 26u );
@@ -754,14 +788,14 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
         FDynamicMesh3 mesh = TangentCube();
         ASSERT_TRUE( mesh.HasAttributes() && mesh.Attributes()->HasMaterialID() );
         SetFaceMaterials( mesh );
-        FGroupTopology  topology( &mesh, true );
+        const FGroupTopology  topology( &mesh, true );
         FMeshBevelProbe bevel;
         bevel.MaterialIDMode        = mode;
         bevel.SetConstantMaterialID = 7;
         ASSERT_TRUE(
              bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
              << bevel.FailureReason;
-        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
         EXPECT_EQ( bevel.NewTriangles.Num(), 4 );
         ExpectNewTriangleNormals( mesh, bevel );
 
@@ -774,7 +808,7 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
         for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
         {
             const int capMaterial =
-                 mode == EMode::ConstantMaterialID ? 7 : ( mesh.GetVertex( v.VertexID ).Z > 0.0 ? 50 : 60 );
+                 mode == EMode::ConstantMaterialID ? 7 : CapMaterial( mesh.GetVertex( v.VertexID ) );
             EXPECT_EQ( Material( mesh, v.NewTriangles[0] ), capMaterial ) << "terminator " << v.VertexID;
         }
     }
@@ -786,11 +820,11 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
 {
     FDynamicMesh3 mesh = TangentCube();
     SetFaceMaterials( mesh );
-    FGroupTopology  topology( &mesh, true );
+    const FGroupTopology  topology( &mesh, true );
     FMeshBevelProbe bevel;
     bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-    ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
     EXPECT_EQ( bevel.NewTriangles.Num(), 8 + 12 * 2 );
     for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
     {
@@ -837,7 +871,7 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
         ASSERT_EQ( bevel.Loops.Num(), 2 );
         EXPECT_EQ( bevel.Edges.Num(), 0 );
         EXPECT_EQ( bevel.Vertices.Num(), 0 );
-        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
 
         EXPECT_EQ( Groups( mesh ).size(), 5u );
         ExpectClosedSolid( mesh, 1.0e6 - 2.0 * ( 5000.0 - 500.0 / 3.0 ) );
@@ -872,7 +906,7 @@ TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
         ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::TerminatorVertex );
         EXPECT_GE( v.ConnectedBevelVertex, 0 ) << "terminator " << v.VertexID;
     }
-    ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
 
     EXPECT_EQ( Groups( mesh ).size(), 8u );
     EXPECT_EQ( bevel.NewTriangles.Num(), 2 * 2 + 2 * 2 );
@@ -902,7 +936,7 @@ TEST( MeshBevel, ApplyTerminatorOnATiltedCapStaysOnTheInsetLines )
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
          << bevel.FailureReason;
-    ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
 
     EXPECT_EQ( Groups( mesh ).size(), 7u );
     ExpectClosedSolid( mesh, 1.0e6 - 12.5 * ( 100.0 + 0.5 * ( 50.0 - 5.0 / 3.0 ) ) );

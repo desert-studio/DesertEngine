@@ -42,12 +42,12 @@ namespace Desert::Geometry
             Queue.Insert( CenterPointVtxID, 0 );
             ProcessQueueUntilTermination( ComputeToMaxDistanceIn );
         }
-        bool HasUV( int32 PointID ) const
+        [[nodiscard]] bool HasUV( int32 PointID ) const
         {
             const int32* Found = IDToNodeIndexMap.Find( PointID );
             return Found != nullptr && AllocatedNodes[*Found].bFrozen;
         }
-        FVector2d GetUV( int32 PointID ) const
+        [[nodiscard]] FVector2d GetUV( int32 PointID ) const
         {
             const int32* Found = IDToNodeIndexMap.Find( PointID );
             return ( Found != nullptr && AllocatedNodes[*Found].bFrozen )
@@ -58,11 +58,11 @@ namespace Desert::Geometry
     private:
         struct FGraphNode
         {
-            int32     PointID;
-            int32     ParentPointID;
-            double    GraphDistance;
+            int32     PointID       = 0;
+            int32     ParentPointID = 0;
+            double    GraphDistance = 0.0;
             FVector2d UV;
-            bool      bFrozen;
+            bool      bFrozen = false;
             FVector3d CachedNormal;
         };
         const PointSetType* PointSet;
@@ -72,16 +72,16 @@ namespace Desert::Geometry
         FFrame3d            SeedFrame;
         double              MaxGraphDistance = 0.0;
 
-        FVector3d GetPosition( int32 PointID ) const
+        [[nodiscard]] FVector3d GetPosition( int32 PointID ) const
         {
             return PointSet->GetVertex( PointID );
         }
-        FVector3d GetNormal( int32 PointID ) const
+        [[nodiscard]] FVector3d GetNormal( int32 PointID ) const
         {
             if ( PointSet->HasVertexNormals() )
             {
                 const FVector3f N = PointSet->GetVertexNormal( PointID );
-                return FVector3d( N.X, N.Y, N.Z );
+                return { N.X, N.Y, N.Z };
             }
             return FMeshNormals::ComputeVertexNormal( *PointSet, PointID );
         }
@@ -121,7 +121,7 @@ namespace Desert::Geometry
         static FVector2d ComputeLocalUV( const FFrame3d& Frame, FVector3d Position )
         {
             Position -= Frame.Origin;
-            return FVector2d( Position.Dot( Frame.X() ), Position.Dot( Frame.Y() ) );
+            return { Position.Dot( Frame.X() ), Position.Dot( Frame.Y() ) };
         }
         // the UV of Position from the neighbour's UV, in the neighbour's tangent frame rotated into the seed's
         static FVector2d PropagateUV( const FVector3d& Position, const FVector2d& NbrUV, const FFrame3d& NbrFrame,
@@ -193,14 +193,14 @@ namespace Desert::Geometry
                     {
                         Nbr.ParentPointID = ParentID;
                         Nbr.GraphDistance = NbrDist;
-                        Queue.Update( NbrPointID, float( NbrDist ) );
+                        Queue.Update( NbrPointID, static_cast<float>( NbrDist ) );
                     }
                 }
                 else
                 {
                     Nbr.ParentPointID = ParentID;
                     Nbr.GraphDistance = NbrDist;
-                    Queue.Insert( NbrPointID, float( NbrDist ) );
+                    Queue.Insert( NbrPointID, static_cast<float>( NbrDist ) );
                 }
             }
         }

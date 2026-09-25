@@ -16,6 +16,8 @@
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
 #include <algorithm>
+
+#include <algorithm>
 #include <string>
 
 namespace Desert::Geometry
@@ -24,12 +26,8 @@ namespace Desert::Geometry
     {
         bool AnyBoundaryEdge( const FDynamicMesh3& Mesh, const TArray<int>& EdgeList )
         {
-            for ( const int EdgeID : EdgeList )
-            {
-                if ( Mesh.IsBoundaryEdge( EdgeID ) )
-                    return true;
-            }
-            return false;
+            return std::ranges::any_of( EdgeList,
+                                        [&Mesh]( const int EdgeID ) { return Mesh.IsBoundaryEdge( EdgeID ); } );
         }
 
         void QuadsToTris( const FDynamicMesh3& Mesh, const TArray<FIndex2i>& Quads, TArray<int32>& TrisOut,
@@ -55,17 +53,14 @@ namespace Desert::Geometry
 
     bool FMeshBevel::RefuseBowties( const FDynamicMesh3& Mesh, const TArray<int32>& MeshVertices )
     {
-        for ( const int32 VertexID : MeshVertices )
-        {
-            if ( Mesh.IsBowtieVertex( VertexID ) )
-            {
-                // UE splits bowties first (FixBowties, B:415-574); SplitBowties is not ported.
-                Refuse( "vertex " + std::to_string( VertexID ) +
-                        " on the bevel edges is a bowtie (two separate triangle fans); split it first" );
-                return true;
-            }
-        }
-        return false;
+        const auto Bowtie = std::ranges::find_if( MeshVertices, [&Mesh]( const int32 VertexID )
+                                                  { return Mesh.IsBowtieVertex( VertexID ); } );
+        if ( Bowtie == MeshVertices.end() )
+            return false;
+        // UE splits bowties first (FixBowties, B:415-574); SplitBowties is not ported.
+        Refuse( "vertex " + std::to_string( *Bowtie ) +
+                " on the bevel edges is a bowtie (two separate triangle fans); split it first" );
+        return true;
     }
 
     bool FMeshBevel::InitializeFromGroupTopology( const FDynamicMesh3& Mesh, const FGroupTopology& Topology )

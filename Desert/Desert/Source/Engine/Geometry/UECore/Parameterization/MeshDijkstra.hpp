@@ -52,11 +52,11 @@ namespace Desert::Geometry
                 UpdateNeighboursSparse( NodeIndex );
             }
         }
-        double GetMaxGraphDistance() const
+        [[nodiscard]] double GetMaxGraphDistance() const
         {
             return MaxGraphDistance;
         }
-        int32 GetMaxGraphDistancePointID() const
+        [[nodiscard]] int32 GetMaxGraphDistancePointID() const
         {
             return MaxGraphDistancePointID;
         }
@@ -106,7 +106,7 @@ namespace Desert::Geometry
                         Nbr.ParentPointID = ParentID;
                         Nbr.GraphDistance = NbrDist;
                         Nbr.SeedPointID   = ParentSeed;
-                        Queue.Update( NbrPointID, float( NbrDist ) );
+                        Queue.Update( NbrPointID, static_cast<float>( NbrDist ) );
                     }
                 }
                 else
@@ -114,7 +114,7 @@ namespace Desert::Geometry
                     Nbr.ParentPointID = ParentID;
                     Nbr.GraphDistance = NbrDist;
                     Nbr.SeedPointID   = ParentSeed;
-                    Queue.Insert( NbrPointID, float( NbrDist ) );
+                    Queue.Insert( NbrPointID, static_cast<float>( NbrDist ) );
                 }
             }
         }

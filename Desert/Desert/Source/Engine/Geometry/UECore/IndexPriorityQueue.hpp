@@ -25,11 +25,11 @@ namespace Desert::Geometry
             Nodes.Reset();
             Nodes.Add( {} );
         }
-        int GetCount() const
+        [[nodiscard]] int GetCount() const
         {
             return Nodes.Num() - 1;
         }
-        bool Contains( int NodeID ) const
+        [[nodiscard]] bool Contains( int NodeID ) const
         {
             return NodeID >= 0 && NodeID < IdToIndex.Num() && IdToIndex[NodeID] > 0;
         }
@@ -84,7 +84,8 @@ namespace Desert::Geometry
             for ( ;; )
             {
                 int       Smallest = Index;
-                const int Left = 2 * Index, Right = 2 * Index + 1;
+                const int Left  = 2 * Index;
+                const int Right = 2 * Index + 1;
                 if ( Left <= Count && Nodes[Left].Priority < Nodes[Smallest].Priority )
                     Smallest = Left;
                 if ( Right <= Count && Nodes[Right].Priority < Nodes[Smallest].Priority )
