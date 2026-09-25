@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 using Common::Content::AssetGuid;
@@ -100,6 +101,7 @@ namespace
         fs::path                     User     = Proj.In( ContentKind::Scene, "Uses" );
         fs::path                     Other    = Proj.In( ContentKind::Scene, "Other" );
         Common::Utils::AssetRegistry Registry;
+        std::vector<uint64_t>        MaterialEdges = { Common::Content::HandleForGuid( Guid( 4 ) ) };
 
         Corpus()
         {
@@ -111,6 +113,8 @@ namespace
             Scan( Registry, Other, ContentKind::Scene );
             EXPECT_TRUE(
                  Registry.SetDependencies( Key( User ), { Common::Content::HandleForGuid( Guid( 1 ) ) } ) );
+            // The material's own edge (a texture it samples): the cook learned it, the move must carry it.
+            EXPECT_TRUE( Registry.SetDependencies( Key( Material ), MaterialEdges ) );
         }
     };
 } // namespace
@@ -150,6 +154,8 @@ TEST( AssetRenameMove, AMovedMaterialResolvesThroughTheRedirectorAndUndoRestores
     const auto* byEdge = c.Registry.FindByHandle( Common::Content::HandleForGuid( Guid( 1 ) ) );
     ASSERT_NE( byEdge, nullptr );
     EXPECT_EQ( byEdge->Key, Key( c.Renamed ) );
+    // The file did not change, so the edges the cook read out of it still hold at the new key.
+    EXPECT_EQ( byEdge->Dependencies, c.MaterialEdges );
     const auto* byOldPath = c.Registry.FindByReference( 0, c.Material.string() );
     ASSERT_NE( byOldPath, nullptr );
     EXPECT_EQ( byOldPath->Key, Key( c.Renamed ) );
