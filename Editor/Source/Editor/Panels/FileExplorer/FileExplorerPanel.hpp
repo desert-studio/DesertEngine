@@ -149,7 +149,8 @@ namespace Desert::Editor
         // Phase-3 navigation.
         void        GoBack();
         void        GoForward();
-        void        NavigateToPath( const std::string& path ); // resolves a visited path to its dir
+        // Resolves a visited path to its dir; false when `path` is not a folder under the project.
+        bool NavigateToPath( const std::string& path );
 
         // THE PINNED FOLDERS ARE NOT THIS PANEL'S, and К5 is why they used to look like they were. This
         // class owned a `m_Favorites` vector, a `FavoritesFile()` that spelled out `$HOME/.desertengine`
