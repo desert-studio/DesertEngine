@@ -215,9 +215,10 @@ TEST( ThumbnailFreshness, APictureWrittenAfterTheWaitWasGivenUpIsStillRecorded )
     WriteFile( png, "late-png-bytes" ); // the renderer finishes after the service stopped waiting
     const auto settled = capture.Settle();
     ASSERT_TRUE( settled.has_value() );
-    EXPECT_EQ( settled.value().What, ThumbnailFreshness::Capture::Landed::Written );
-    EXPECT_TRUE( settled.value().Late );
-    EXPECT_FALSE( settled.value().RecordError.has_value() );
+    const ThumbnailFreshness::Capture::Settled landed = settled.value_or( ThumbnailFreshness::Capture::Settled{} );
+    EXPECT_EQ( landed.What, ThumbnailFreshness::Capture::Landed::Written );
+    EXPECT_TRUE( landed.Late );
+    EXPECT_FALSE( landed.RecordError.has_value() );
     EXPECT_FALSE( capture.Outstanding() );
 
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "the late picture was re-queued";
@@ -255,7 +256,8 @@ TEST( ThumbnailFreshness, AnUntouchedOldPictureIsNotCertifiedByACapture )
     capture.GiveUp();
     const auto settled = capture.Settle(); // renderer went idle without writing
     ASSERT_TRUE( settled.has_value() );
-    EXPECT_EQ( settled.value().What, ThumbnailFreshness::Capture::Landed::NotWritten );
+    const ThumbnailFreshness::Capture::Settled landed = settled.value_or( ThumbnailFreshness::Capture::Settled{} );
+    EXPECT_EQ( landed.What, ThumbnailFreshness::Capture::Landed::NotWritten );
     EXPECT_FALSE( fs::exists( ThumbnailFreshness::RecordPath( png ) ) );
     EXPECT_FALSE( capture.Settle().has_value() ) << "a settled capture must not settle twice";
 }
