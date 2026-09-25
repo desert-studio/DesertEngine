@@ -84,8 +84,8 @@ namespace Desert::Geometry
             for ( ;; )
             {
                 int       Smallest = Index;
-                const int Left  = 2 * Index;
-                const int Right = 2 * Index + 1;
+                const int Left     = 2 * Index;
+                const int Right    = 2 * Index + 1;
                 if ( Left <= Count && Nodes[Left].Priority < Nodes[Smallest].Priority )
                     Smallest = Left;
                 if ( Right <= Count && Nodes[Right].Priority < Nodes[Smallest].Priority )

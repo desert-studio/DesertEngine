@@ -44,8 +44,8 @@ namespace Desert::Geometry
         FDynamicMeshUVEditor UVEditor( &Mesh, &UVOverlay );
         FUVEditResult        UVEditResult;
         const bool           bOK = UVEditor.SetTriangleUVsFromExpMap( TriangleSet, &UVEditResult );
-        UVEditor.TransformUVElements( UVEditResult.NewUVElements,
-                                      [UseUVScale]( const FVector2f& UV ) { return UV * static_cast<float>( UseUVScale ); } );
+        UVEditor.TransformUVElements( UVEditResult.NewUVElements, [UseUVScale]( const FVector2f& UV )
+                                      { return UV * static_cast<float>( UseUVScale ); } );
         return bOK;
     }
 } // namespace Desert::Geometry

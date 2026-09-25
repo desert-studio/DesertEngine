@@ -74,8 +74,8 @@ namespace Desert::Geometry
         }
         void SetFromTo( const TVector<RealType>& From, const TVector<RealType>& To )
         {
-            const TVector<RealType> from = Normalized( From );
-            const TVector<RealType> to   = Normalized( To );
+            const TVector<RealType> from     = Normalized( From );
+            const TVector<RealType> to       = Normalized( To );
             const TVector<RealType> bisector = Normalized( from + to, TMathUtil<RealType>::ZeroTolerance );
             W                                = from.Dot( bisector );
             if ( W != 0 )
@@ -87,17 +87,19 @@ namespace Desert::Geometry
             }
             else if ( std::abs( from.X ) >= std::abs( from.Y ) )
             {
-                const RealType invLength = static_cast<RealType>( 1 ) / std::sqrt( from.X * from.X + from.Z * from.Z );
-                X                        = -from.Z * invLength;
-                Y                        = 0;
-                Z                        = +from.X * invLength;
+                const RealType invLength =
+                     static_cast<RealType>( 1 ) / std::sqrt( from.X * from.X + from.Z * from.Z );
+                X = -from.Z * invLength;
+                Y = 0;
+                Z = +from.X * invLength;
             }
             else
             {
-                const RealType invLength = static_cast<RealType>( 1 ) / std::sqrt( from.Y * from.Y + from.Z * from.Z );
-                X                        = 0;
-                Y                        = +from.Z * invLength;
-                Z                        = -from.Y * invLength;
+                const RealType invLength =
+                     static_cast<RealType>( 1 ) / std::sqrt( from.Y * from.Y + from.Z * from.Z );
+                X = 0;
+                Y = +from.Z * invLength;
+                Z = -from.Y * invLength;
             }
             Normalize();
         }

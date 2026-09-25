@@ -277,7 +277,7 @@ namespace
 TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    const FGroupTopology      topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
     const int           edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
@@ -303,7 +303,7 @@ TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    const FGroupTopology      topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
@@ -332,7 +332,7 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 TEST( MeshBevel, UnknownGroupEdgeIsRefusedByName )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    const FGroupTopology      topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
     FMeshBevelProbe     bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 99 } ) );
     EXPECT_NE( bevel.FailureReason.find( "group edge 99" ), std::string::npos ) << bevel.FailureReason;
@@ -593,9 +593,8 @@ namespace
             uvs.GetTriElements( t, a, b, c );
             for ( const FVector2f& uv : { a, b, c } )
                 EXPECT_TRUE( std::isfinite( uv.X ) && std::isfinite( uv.Y ) ) << "new triangle " << t;
-            const double area =
-                 0.5 * std::abs( static_cast<double>( b.X - a.X ) * ( c.Y - a.Y ) -
-                                  static_cast<double>( b.Y - a.Y ) * ( c.X - a.X ) );
+            const double area = 0.5 * std::abs( static_cast<double>( b.X - a.X ) * ( c.Y - a.Y ) -
+                                                static_cast<double>( b.Y - a.Y ) * ( c.X - a.X ) );
             EXPECT_GT( area, 1e-6 ) << "new triangle " << t;
             for ( int layer = 1; layer < mesh.Attributes()->NumUVLayers(); ++layer )
                 EXPECT_FALSE( mesh.Attributes()->GetUVLayer( layer )->IsSetTriangle( t ) ) << "new triangle " << t;
@@ -646,8 +645,9 @@ namespace
     bool ApplyKeepingOldUVs( FMeshBevel& bevel, FDynamicMesh3& mesh )
     {
         std::map<int, std::array<FVector2f, 3>> before;
-        const FDynamicMeshUVOverlay*            uvs =
-             mesh.HasAttributes() && mesh.Attributes()->NumUVLayers() > 0 ? mesh.Attributes()->PrimaryUV() : nullptr;
+        const FDynamicMeshUVOverlay*            uvs = mesh.HasAttributes() && mesh.Attributes()->NumUVLayers() > 0
+                                                           ? mesh.Attributes()->PrimaryUV()
+                                                           : nullptr;
         if ( uvs != nullptr )
             for ( const int t : mesh.TriangleIndicesItr() )
                 if ( uvs->IsSetTriangle( t ) )
@@ -788,7 +788,7 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
         FDynamicMesh3 mesh = TangentCube();
         ASSERT_TRUE( mesh.HasAttributes() && mesh.Attributes()->HasMaterialID() );
         SetFaceMaterials( mesh );
-        const FGroupTopology  topology( &mesh, true );
+        const FGroupTopology topology( &mesh, true );
         FMeshBevelProbe bevel;
         bevel.MaterialIDMode        = mode;
         bevel.SetConstantMaterialID = 7;
@@ -820,7 +820,7 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
 {
     FDynamicMesh3 mesh = TangentCube();
     SetFaceMaterials( mesh );
-    const FGroupTopology  topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
     FMeshBevelProbe bevel;
     bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;

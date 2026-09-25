@@ -93,7 +93,7 @@ namespace Desert::Geometry
             return false;
         ResetUVs( Triangles );
 
-        FDynamicSubmesh3 SubmeshCalc( Mesh, Triangles );
+        FDynamicSubmesh3     SubmeshCalc( Mesh, Triangles );
         const FDynamicMesh3& Submesh = SubmeshCalc.GetSubmesh();
         if ( Submesh.TriangleCount() == 0 )
             return false;

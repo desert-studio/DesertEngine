@@ -1,7 +1,8 @@
 // FDynamicMeshUVEditor::SetTriangleUVsFromExpMap (ported from UE) on a CURVED patch. The bevel regions ComputeUVs
-// sees are flat or nearly so, where every vertex frame is the same and PropagateUV's rotation is the identity; on a
-// cylinder the vertex frames turn around the axis, so the rotation from a neighbour's frame into the seed's frame
-// carries the whole map. A cylinder is developable: the exponential map must unroll it with edge lengths kept.
+// sees are flat or nearly so, where every vertex frame is the same and PropagateUV's rotation is the identity; on
+// a cylinder the vertex frames turn around the axis, so the rotation from a neighbour's frame into the seed's
+// frame carries the whole map. A cylinder is developable: the exponential map must unroll it with edge lengths
+// kept.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 
@@ -69,10 +70,12 @@ TEST( DynamicMeshUVEditor, ExpMapUnrollsACylinderStripKeepingEdgeLengths )
         const FIndex3i elements = uvs.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
         {
-            const double    length3d = Distance( mesh.GetVertex( vertices[j] ), mesh.GetVertex( vertices[( j + 1 ) % 3] ) );
-            const FVector2f d        = uvs.GetElement( elements[( j + 1 ) % 3] ) - uvs.GetElement( elements[j] );
-            const double    lengthUV = std::sqrt( static_cast<double>( d.X ) * d.X + static_cast<double>( d.Y ) * d.Y );
-            worst                    = std::max( worst, std::abs( lengthUV / length3d - 1.0 ) );
+            const double length3d =
+                 Distance( mesh.GetVertex( vertices[j] ), mesh.GetVertex( vertices[( j + 1 ) % 3] ) );
+            const FVector2f d = uvs.GetElement( elements[( j + 1 ) % 3] ) - uvs.GetElement( elements[j] );
+            const double    lengthUV =
+                 std::sqrt( static_cast<double>( d.X ) * d.X + static_cast<double>( d.Y ) * d.Y );
+            worst = std::max( worst, std::abs( lengthUV / length3d - 1.0 ) );
         }
     }
     // Measured 0.0027 (the discrete upwind march); a reversed rotation sign in PropagateUV gives 0.58.
