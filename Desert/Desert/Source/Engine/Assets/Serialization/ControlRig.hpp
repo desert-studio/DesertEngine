@@ -28,9 +28,10 @@
  * migrator for a change that is not in them.
  *
  * `.anim` (`kAnimationVersion`) is the precedent that fits: a distinct animation-domain payload with a
- * sequence of its own. `.detheme` and `.decloudtype` are the shape that fits: `FormatVersion` is an
- * OPTIONAL integer the file states about itself, an unknown value is REFUSED by name rather than read as
- * if it meant what it means here, and there is no migration in the runtime at all.
+ * sequence of its own. `.detheme` and `.decloudtype` are the shape that fits: the version is stated by the
+ * file about itself (since v2 in the text asset header, under `CRIG`), an unknown value is REFUSED by name
+ * rather than read as if it meant what it means here, and there is no migration in the runtime at all -
+ * Tools/SceneMigrator raises the files.
  *
  * AND THERE IS NOTHING TO MIGRATE. Generation 1 is the first generation: there exists no `.derig` written
  * by an earlier build, so the corpus conversion the contract requires around a version bump has an empty
@@ -54,6 +55,7 @@
  */
 
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -62,9 +64,11 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -89,6 +93,9 @@ namespace Desert::Assets::Serialization
      *
      *   1 - controls with named parent spaces, and control -> bone drives by name (A12); a control's
      *       optional `ShapeTransform`, absent meaning identity (A13).
+     *   2 - the text asset header (T7c): Kind "ControlRig", the GUID that IS the rig's identity and its
+     *       handle (ControlRigAsset's constructor), and this number under `CRIG`; the top-level
+     *       FormatVersion is gone. A version-1 file is refused by name; Tools/SceneMigrator mints its GUID.
      *
      * See the file note for why this is its own sequence and not `Core::kSceneVersion`. An unknown value is
      * refused in BOTH directions rather than read as if it meant what it means here.
@@ -108,7 +115,16 @@ namespace Desert::Assets::Serialization
      * function, the corpus converted") is about a step that changes what existing bytes MEAN; this is not
      * one. The number moves the first time a `.derig` written today cannot be read as written.
      */
-    inline constexpr int32_t kControlRigVersion = 1;
+    inline constexpr int32_t kControlRigVersion = static_cast<int32_t>( Assets::kControlRigSchemaVersion );
+
+    /// The subsystem versions a .derig of this build states: the control rig schema, and nothing else.
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> ControlRigTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Assets::kControlRigSchemaTag,
+                                                static_cast<uint32_t>( kControlRigVersion ) } };
+        return versions;
+    }
 
     /// EVERY SCALAR HERE CARRIES AN INITIALISER, for `Serialization/Animation.hpp`'s reason: these structs
     /// are what reflect-cpp writes to disk, and a field left indeterminate is bytes that outlive the
@@ -266,8 +282,10 @@ namespace Desert::Assets::Serialization
      */
     struct ControlRigData
     {
-        std::optional<int32_t>          FormatVersion;
-        std::string                     Name;
+        /// The text asset header, FIRST so the registry reads it without parsing the rest. Absent only on
+        /// a rig that has never been written: WriteControlRig stamps it (the GUID kept, or minted when new).
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               Name;
         std::vector<ControlElementData> Controls;
         std::vector<ControlDriveData>   Drives;
 

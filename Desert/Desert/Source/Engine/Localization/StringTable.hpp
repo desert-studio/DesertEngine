@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
+
 #include <Engine/Localization/PluralRules.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -7,7 +9,9 @@
 
 #include <cstdint>
 #include <map>
+#include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -66,10 +70,24 @@ namespace Desert::Localization
     /// constant, because a second spelling of it is a slot that silently refuses a valid file.
     inline constexpr const char* kStringTableExtension = ".destrings";
 
-    /// The FILE layout's version. 1 — the first, and the only one that has ever existed. An unknown
-    /// version is REFUSED, never read anyway: a file written by a build this one is not may spell a field
-    /// the same and mean something else.
-    inline constexpr int32_t kStringTableFormatVersion = 1;
+    /// The FILE layout's version. An unknown version is REFUSED, never read anyway: a file written by a
+    /// build this one is not may spell a field the same and mean something else.
+    ///
+    /// VERSION 2 SINCE T7b: the file opens with the text asset header every text asset states
+    /// (Common/Content/TextAssetHeader.hpp) - Kind "StringTable", the GUID that IS the table's identity and
+    /// its handle (StringTableAsset's constructor), and this number under the tag `STRT`. The header is the
+    /// ONE place the version is stated: version 1's top-level FormatVersion is gone, so the two cannot
+    /// disagree. A version-1 file (no header) is refused by name; Tools/SceneMigrator mints its GUID once.
+    inline constexpr int32_t kStringTableFormatVersion = static_cast<int32_t>( Assets::kStringTableSchemaVersion );
+
+    /// The subsystem versions a .destrings of this build states: the string table schema, and nothing else.
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> StringTableTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Assets::kStringTableSchemaTag,
+                                                static_cast<uint32_t>( kStringTableFormatVersion ) } };
+        return versions;
+    }
 
     /// Grammatical gender, as a SELECTOR the caller supplies. `Unspecified` is not a fourth gender — it
     /// is "the caller said nothing", and it makes the gendered rungs of the lookup ladder unreachable
@@ -128,8 +146,10 @@ namespace Desert::Localization
     /// A whole `.destrings` file.
     struct StringTableData
     {
-        /// Absent means 1 — the first version, and the only one that has ever existed.
-        std::optional<int32_t> FormatVersion;
+        /// The text asset header, FIRST so a reader of the header alone (ContentScan, the registry) finds
+        /// it without parsing the rest. Absent only on a table that has never been written: WriteStringTable
+        /// stamps it, keeping the GUID it was read with and minting one for a new table.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         /// What to call this table in the editor. Absent means the file's stem.
         std::optional<std::string> DisplayName;

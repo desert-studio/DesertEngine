@@ -89,7 +89,6 @@ namespace
     UIThemeData Minimal()
     {
         UIThemeData d;
-        d.FormatVersion = Desert::Assets::kUIThemeFormatVersion;
         d.Colors        = { UIThemeColor{ "Ink", glm::vec3( 0.1f, 0.2f, 0.3f ) },
                             UIThemeColor{ "Paper", glm::vec3( 0.9f, 0.9f, 0.9f ) } };
         d.Metrics       = { UIThemeMetric{ "Radius", 11.0f } };
@@ -186,26 +185,35 @@ TEST( UIStyleSlots, EverySlotIsReadByTheCanvasWalk )
 
 TEST( UIThemeFormat, WriteThenReadIsTheSameTheme )
 {
-    const UIThemeData original = Minimal();
-    const auto        parsed   = ParseUITheme( WriteUITheme( original ) );
+    UIThemeData original = Minimal();
+    original.Header      = Desert::Assets::StampTextHeader( std::nullopt, Common::Content::ContentKind::UITheme,
+                                                            Desert::Assets::UIThemeTextSubsystems() );
+    const auto parsed    = ParseUITheme( WriteUITheme( original ) );
     ASSERT_TRUE( static_cast<bool>( parsed ) ) << parsed.GetError();
     EXPECT_EQ( parsed.GetValue(), original );
 }
 
 TEST( UIThemeFormat, AnUnknownFormatVersionIsRefusedWithTheVersionInTheMessage )
 {
-    UIThemeData d     = Minimal();
-    d.FormatVersion   = Desert::Assets::kUIThemeFormatVersion + 41;
-    const auto parsed = ParseUITheme( WriteUITheme( d ) );
     // WriteUITheme stamps the current version, so the refusal is provoked through the text instead.
-    std::string text = WriteUITheme( Minimal() );
-    const auto  at   = text.find( "\"FormatVersion\":" );
-    ASSERT_NE( at, std::string::npos );
-    text.replace( at, std::string( "\"FormatVersion\": 1" ).size(), "\"FormatVersion\": 42" );
+    std::string       text   = WriteUITheme( Minimal() );
+    const std::string stated = "\"UITH\": " + std::to_string( Desert::Assets::kUIThemeFormatVersion );
+    const auto        at     = text.find( stated );
+    ASSERT_NE( at, std::string::npos ) << text;
+    text.replace( at, stated.size(), "\"UITH\": 42" );
 
     const auto refused = ParseUITheme( text );
     ASSERT_FALSE( static_cast<bool>( refused ) );
     EXPECT_NE( refused.GetError().find( "42" ), std::string::npos ) << refused.GetError();
+}
+
+// A version-1 theme (top-level FormatVersion, no header, T7b) is refused by name, pointing at the migrator.
+TEST( UIThemeFormat, AVersionOneThemeWithoutAHeaderIsRefusedByName )
+{
+    const auto refused = ParseUITheme( R"({"FormatVersion":1,"Colors":[{"Name":"Ink","Value":[0.1,0.2,0.3]}]})" );
+    ASSERT_FALSE( static_cast<bool>( refused ) );
+    EXPECT_NE( refused.GetError().find( "format version 1" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }
 
 TEST( UIThemeFormat, AnEmptyFileIsRefusedRatherThanReadAsAnEmptyTheme )
