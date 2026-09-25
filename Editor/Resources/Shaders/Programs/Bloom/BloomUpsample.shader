@@ -7,7 +7,7 @@ Shader "BloomUpsample"
         // up to mip 0. u_Output is the larger (destination) mip; u_Source is sampled at the smaller mip's LOD.
 
         Uniform(0) sampler2D u_Source;
-        layout(binding = 1, rgba32f) uniform image2D u_Output;
+        layout(binding = 1, rgba16f) uniform image2D u_Output;
 
         PushConstant PushConstants
         {

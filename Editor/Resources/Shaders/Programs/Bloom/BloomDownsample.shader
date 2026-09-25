@@ -9,7 +9,7 @@ Shader "BloomDownsample"
         // whole bloom mip-chain can live in one image.
 
         Uniform(0) sampler2D u_Source;
-        layout(binding = 1, rgba32f) writeonly uniform image2D u_Output;
+        layout(binding = 1, rgba16f) writeonly uniform image2D u_Output;
 
         PushConstant PushConstants
         {
