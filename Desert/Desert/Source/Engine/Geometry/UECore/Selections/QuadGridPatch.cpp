@@ -1,4 +1,5 @@
-// Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Selections/QuadGridPatch.cpp:
+// Ported from UE 5.8
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Selections/QuadGridPatch.cpp:
 // 86-174,269-296, adapted: see QuadGridPatch.hpp; UE's ensure(false) on a bad input is the false return alone.
 #include "Engine/Geometry/UECore/Selections/QuadGridPatch.hpp"
 
@@ -6,8 +7,9 @@
 
 namespace Desert::Geometry
 {
-    bool FQuadGridPatch::InitializeFromQuadPatch( const FDynamicMesh3& Mesh, const TArray<TArray<FIndex2i>>& QuadRowsIn,
-                                                  const TArray<TArray<int32>>& VertexSpansIn )
+    bool FQuadGridPatch::InitializeFromQuadPatch( const FDynamicMesh3&            Mesh,
+                                                  const TArray<TArray<FIndex2i>>& QuadRowsIn,
+                                                  const TArray<TArray<int32>>&    VertexSpansIn )
     {
         if ( VertexSpansIn.Num() < 2 || QuadRowsIn.Num() != VertexSpansIn.Num() - 1 )
             return false;

@@ -1,5 +1,6 @@
-// Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Selections/QuadGridPatch.h
-// and Private/Selections/QuadGridPatch.cpp:86-174,269-296, adapted: UE Core via UECore.hpp, namespace
+// Ported from UE 5.8
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Selections/QuadGridPatch.h and
+// Private/Selections/QuadGridPatch.cpp:86-174,269-296, adapted: UE Core via UECore.hpp, namespace
 // Desert::Geometry. Only what the multi-segment FMeshBevel reads is ported: InitializeFromQuadPatch,
 // GetVertexColumn, FindColumnIndex and the size queries. The strip, sub-patch, split, append, reverse and triangle
 // list helpers have no caller here and are not carried.
@@ -12,8 +13,8 @@
 namespace Desert::Geometry
 {
     /**
-     * A grid of quads in a mesh, each quad a pair of triangles: NumVertexRowsV rows of NumVertexColsU vertex IDs and
-     * (NumVertexRowsV-1) rows of (NumVertexColsU-1) quads between them.
+     * A grid of quads in a mesh, each quad a pair of triangles: NumVertexRowsV rows of NumVertexColsU vertex IDs
+     * and (NumVertexRowsV-1) rows of (NumVertexColsU-1) quads between them.
      */
     class FQuadGridPatch
     {
@@ -21,15 +22,25 @@ namespace Desert::Geometry
         int NumVertexColsU = 0;
         int NumVertexRowsV = 0;
 
-        /** NumVertexRowsV rows of NumVertexColsU VertexIDs, may contain repeated element if the patch forms a loop */
+        /** NumVertexRowsV rows of NumVertexColsU VertexIDs, may contain repeated element if the patch forms a loop
+         */
         TArray<TArray<int32>> VertexSpans;
 
         /** Quads stored as pairs of triangle indices, (NumVertexRowsV-1) rows of (NumVertexColsU-1) */
         TArray<TArray<FIndex2i>> QuadTriangles;
 
-        int  NumVertexCols() const { return NumVertexColsU; }
-        int  NumVertexRows() const { return NumVertexRowsV; }
-        bool IsEmpty() const { return NumVertexColsU == 0 || NumVertexRowsV == 0; }
+        [[nodiscard]] int NumVertexCols() const
+        {
+            return NumVertexColsU;
+        }
+        [[nodiscard]] int NumVertexRows() const
+        {
+            return NumVertexRowsV;
+        }
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return NumVertexColsU == 0 || NumVertexRowsV == 0;
+        }
 
         /**
          * Initialize from rows of quads and the rows of vertices around them. Each quad must be exactly the four
@@ -43,6 +54,6 @@ namespace Desert::Geometry
         bool GetVertexColumn( int32 ColumnIndex, TArray<int32>& VerticesOut ) const;
 
         /** Find column that contains vertex, or InvalidID */
-        int32 FindColumnIndex( int32 VertexID ) const;
+        [[nodiscard]] int32 FindColumnIndex( int32 VertexID ) const;
     };
 } // namespace Desert::Geometry

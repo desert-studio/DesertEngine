@@ -1005,8 +1005,8 @@ TEST( MeshBevel, MultiSegmentAllTwelveEdgesKeepsTheChamferVolume )
     {
         for ( const int N : { 2, 3 } )
         {
-            SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + ", " + std::to_string( N ) +
-                          " subdivisions" );
+            SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + ", " +
+                          std::to_string( N ) + " subdivisions" );
             FDynamicMesh3        mesh = TangentCube( n );
             const FGroupTopology topology( &mesh, true );
             FMeshBevelProbe      bevel;
@@ -1019,7 +1019,8 @@ TEST( MeshBevel, MultiSegmentAllTwelveEdgesKeepsTheChamferVolume )
             EXPECT_EQ( Groups( mesh ).size(), 26u );
             // faces 12 n^2, strips 12 edges x n x (N + 1) quads, corners (N + 1)^2 each
             EXPECT_EQ( mesh.TriangleCount(), 12 * n * n + 24 * n * ( N + 1 ) + 8 * ( N + 1 ) * ( N + 1 ) );
-            EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) + 12 * ( n + 1 ) * N + 8 * N * ( N - 1 ) / 2 );
+            EXPECT_EQ( mesh.VertexCount(),
+                       6 * ( n + 1 ) * ( n + 1 ) + 12 * ( n + 1 ) * N + 8 * N * ( N - 1 ) / 2 );
             ExpectClosedSolid( mesh, 1.0e6 - 8.0 * ( 625.0 + 1125.0 + 125.0 / 3.0 ) );
             for ( const FMeshBevel::FBevelEdge& edge : bevel.Edges )
                 ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
@@ -1052,14 +1053,17 @@ TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
             int           TerminatorTrianglesPerSegment;
         };
         const std::vector<FCase> cases = {
-            { "one edge", { GroupEdgeBetween( baseTopology, 1, 3 ) }, 2 },
-            { "diagonal pair", { GroupEdgeBetween( baseTopology, 1, 3 ), GroupEdgeBetween( baseTopology, 2, 4 ) }, 4 },
+             { "one edge", { GroupEdgeBetween( baseTopology, 1, 3 ) }, 2 },
+             { "diagonal pair",
+               { GroupEdgeBetween( baseTopology, 1, 3 ), GroupEdgeBetween( baseTopology, 2, 4 ) },
+               4 },
         };
         for ( const FCase& c : cases )
         {
             for ( const int N : { 2, 3 } )
             {
-                SCOPED_TRACE( c.Name + ", n " + std::to_string( n ) + ", " + std::to_string( N ) + " subdivisions" );
+                SCOPED_TRACE( c.Name + ", n " + std::to_string( n ) + ", " + std::to_string( N ) +
+                              " subdivisions" );
                 const double         expected = ChamferVolume( base, c.GroupEdges );
                 FDynamicMesh3        mesh     = base;
                 const FGroupTopology topology( &mesh, true );

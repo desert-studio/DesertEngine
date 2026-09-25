@@ -1210,9 +1210,9 @@ namespace Desert::Geometry
     namespace
     {
         // Stand-in for UE's FUniformTessellate (Operations/UniformTessellate.cpp, 2138 lines, not ported): the one
-        // thing the bevel asks of it is to split every edge of a small polygon patch into TessellationNum + 1 equal
-        // segments and fill each triangle with the matching barycentric lattice. Input vertex IDs are kept (the
-        // junction code finds its corners by ID) and every sub-triangle keeps its parent's winding.
+        // thing the bevel asks of it is to split every edge of a small polygon patch into TessellationNum + 1
+        // equal segments and fill each triangle with the matching barycentric lattice. Input vertex IDs are kept
+        // (the junction code finds its corners by ID) and every sub-triangle keeps its parent's winding.
         FDynamicMesh3 UniformTessellatePatch( const FDynamicMesh3& Mesh, int32 TessellationNum )
         {
             FDynamicMesh3 Out;
@@ -1221,7 +1221,7 @@ namespace Desert::Geometry
             const int32 N = TessellationNum + 1;
             // interior vertices of each input edge, ordered from its lower to its higher vertex ID
             TMap<FIndex2i, TArray<int32>> EdgeVertices;
-            auto EdgePoint = [&]( int32 From, int32 To, int32 Step ) -> int32
+            auto                          EdgePoint = [&]( int32 From, int32 To, int32 Step ) -> int32
             {
                 const FIndex2i Key( std::min( From, To ), std::max( From, To ) );
                 if ( !EdgeVertices.Contains( Key ) )
@@ -1329,7 +1329,8 @@ namespace Desert::Geometry
         const int32           N = NumSubdivisions;
         TArray<TArray<int32>> VertexSpans;
         VertexSpans.SetNum( N + 2 );
-        // appends a column to VertexSpans, with new vertices on the interior of the edge between StartVID and EndVID
+        // appends a column to VertexSpans, with new vertices on the interior of the edge between StartVID and
+        // EndVID
         auto AppendNewVertColumn = [&Mesh, &VertexSpans, N]( int32 StartVID, int32 EndVID )
         {
             const FVector3d StartPos = Mesh.GetVertex( StartVID );
@@ -1342,8 +1343,8 @@ namespace Desert::Geometry
             }
             VertexSpans[N + 1].Add( EndVID );
         };
-        // appends the column of an already-generated adjacent strip: a bevel vertex joining exactly two bevel edges
-        // gets no polygon, so the two strips share that column
+        // appends the column of an already-generated adjacent strip: a bevel vertex joining exactly two bevel
+        // edges gets no polygon, so the two strips share that column
         auto AppendExistingVertColumn = [&VertexSpans, N]( const FQuadGridPatch* AdjacentQuadPatch,
                                                            int32                 CornerVertexID ) -> bool
         {
@@ -1359,7 +1360,8 @@ namespace Desert::Geometry
                 VertexSpans[j].Add( ColumnVerts[j] );
             return true;
         };
-        auto GetConnectedQuadStripRef = [this]( int32 BevelVertexIdx, int32 CurBevelEdgeIdx ) -> const FQuadGridPatch*
+        auto GetConnectedQuadStripRef = [this]( int32 BevelVertexIdx,
+                                                int32 CurBevelEdgeIdx ) -> const FQuadGridPatch*
         {
             if ( BevelVertexIdx == -1 )
                 return nullptr;
@@ -1382,8 +1384,10 @@ namespace Desert::Geometry
             std::reverse( SequentialQuadEdges.begin(), SequentialQuadEdges.end() );
         // SequentialQuadEdges may run against [BevelVertices.A, BevelVertices.B]; then the previous and next
         // patches are swapped
-        const int32    OriginalPrevVtxID = ( Edge.BevelVertices.A >= 0 ) ? Vertices[Edge.BevelVertices.A].VertexID : -1;
-        const int32    OriginalNextVtxID = ( Edge.BevelVertices.B >= 0 ) ? Vertices[Edge.BevelVertices.B].VertexID : -1;
+        const int32 OriginalPrevVtxID =
+             ( Edge.BevelVertices.A >= 0 ) ? Vertices[Edge.BevelVertices.A].VertexID : -1;
+        const int32 OriginalNextVtxID =
+             ( Edge.BevelVertices.B >= 0 ) ? Vertices[Edge.BevelVertices.B].VertexID : -1;
         const FIndex2i EdgeStartQuadVerts( SequentialQuadEdges[0].EdgeV0.B, SequentialQuadEdges[0].EdgeV1.A );
         const FIndex2i EdgeEndQuadVerts( SequentialQuadEdges[NumEdges - 1].EdgeV0.A,
                                          SequentialQuadEdges[NumEdges - 1].EdgeV1.B );
@@ -1404,7 +1408,8 @@ namespace Desert::Geometry
             const int32    QuadD  = EdgeV1.A;
             if ( k == 0 && ( PrevQuadPatch == nullptr || !AppendExistingVertColumn( PrevQuadPatch, QuadA ) ) )
                 AppendNewVertColumn( QuadA, QuadD );
-            if ( k != NumEdges - 1 || NextQuadPatch == nullptr || !AppendExistingVertColumn( NextQuadPatch, QuadB ) )
+            if ( k != NumEdges - 1 || NextQuadPatch == nullptr ||
+                 !AppendExistingVertColumn( NextQuadPatch, QuadB ) )
                 AppendNewVertColumn( QuadB, QuadC );
         }
 
@@ -1425,7 +1430,8 @@ namespace Desert::Geometry
                 Edge.StripQuads.Add( QuadTris );
             }
         }
-        if ( FailureReason.empty() && !Edge.StripQuadPatch.InitializeFromQuadPatch( Mesh, QuadSpans, VertexSpans ) )
+        if ( FailureReason.empty() &&
+             !Edge.StripQuadPatch.InitializeFromQuadPatch( Mesh, QuadSpans, VertexSpans ) )
             Refuse( Where + ": its " + std::to_string( NumStrips ) + " x " + std::to_string( NumEdges ) +
                     " quads do not form a quad grid" );
     }
@@ -1472,7 +1478,8 @@ namespace Desert::Geometry
                         std::to_string( EdgeID1 ) + ")" );
                 return;
             }
-            SequentialQuadEdges.Add( { Mesh.GetOrientedBoundaryEdgeV( EdgeID0 ), Mesh.GetOrientedBoundaryEdgeV( EdgeID1 ) } );
+            SequentialQuadEdges.Add(
+                 { Mesh.GetOrientedBoundaryEdgeV( EdgeID0 ), Mesh.GetOrientedBoundaryEdgeV( EdgeID1 ) } );
         }
         const bool bEdgeHasReverseOrder =
              SequentialQuadEdges.Num() > 1 && SequentialQuadEdges[0].EdgeV0.B == SequentialQuadEdges[1].EdgeV0.A;
@@ -1530,25 +1537,27 @@ namespace Desert::Geometry
             for ( int32 j = 0; j < NumStrips; ++j )
             {
                 FIndex2i QuadTris;
-                QuadTris.A = AppendOrRefuse( Mesh, VertexSpans[j][k + SwapOffset0], VertexSpans[j][k + SwapOffset1],
-                                             VertexSpans[j + 1][k], NewGroupID, Where );
+                QuadTris.A =
+                     AppendOrRefuse( Mesh, VertexSpans[j][k + SwapOffset0], VertexSpans[j][k + SwapOffset1],
+                                     VertexSpans[j + 1][k], NewGroupID, Where );
                 QuadTris.B = AppendOrRefuse( Mesh, VertexSpans[j + 1][k + SwapOffset1],
-                                             VertexSpans[j + 1][k + SwapOffset0], VertexSpans[j][k + 1], NewGroupID,
-                                             Where );
+                                             VertexSpans[j + 1][k + SwapOffset0], VertexSpans[j][k + 1],
+                                             NewGroupID, Where );
                 QuadSpans[j].Add( QuadTris );
                 Loop.StripQuads.Add( QuadTris );
             }
         }
-        if ( FailureReason.empty() && !Loop.StripQuadPatch.InitializeFromQuadPatch( Mesh, QuadSpans, VertexSpans ) )
+        if ( FailureReason.empty() &&
+             !Loop.StripQuadPatch.InitializeFromQuadPatch( Mesh, QuadSpans, VertexSpans ) )
             Refuse( "bevel loop: its " + std::to_string( NumStrips ) + " x " + std::to_string( NumEdges ) +
                     " quads do not form a quad grid" );
     }
 
     void FMeshBevel::AppendJunctionVertexPolygon_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex )
     {
-        // UnlinkJunctionVertex() split the junction vertex into one vertex per wedge, ordered so the wedge vertices
-        // wind the polygon correctly; the strips now add their subdivision vertices along each polygon side. The
-        // polygon is filled with a regular tessellation whose boundary is exactly that vertex loop.
+        // UnlinkJunctionVertex() split the junction vertex into one vertex per wedge, ordered so the wedge
+        // vertices wind the polygon correctly; the strips now add their subdivision vertices along each polygon
+        // side. The polygon is filled with a regular tessellation whose boundary is exactly that vertex loop.
         const std::string Where = "junction vertex " + std::to_string( Vertex.VertexID );
 
         // Walk the wedges: the end column of the strip running from wedge vertex A to the next one, B, is one side
@@ -1629,7 +1638,7 @@ namespace Desert::Geometry
             const FVector3d V11 = Mesh.GetVertex( At( NumEdgeVerts - 1, NumEdgeVerts - 1 ) );
             for ( int32 yi = 1; yi < NumEdgeVerts - 1; ++yi )
             {
-                const double    ty  = static_cast<double>( yi ) / static_cast<double>( NumEdgeVerts - 1 );
+                const double    ty   = static_cast<double>( yi ) / static_cast<double>( NumEdgeVerts - 1 );
                 const FVector3d RowA = Lerp( V00, V01, ty );
                 const FVector3d RowB = Lerp( V10, V11, ty );
                 for ( int32 xi = 1; xi < NumEdgeVerts - 1; ++xi )
@@ -1646,8 +1655,8 @@ namespace Desert::Geometry
                                                      Vertex.NewGroupID, Where );
                     if ( Mesh.IsTriangle( T0 ) )
                         Vertex.NewTriangles.Add( T0 );
-                    const int32 T1 = AppendOrRefuse( Mesh, At( x0, y0 + 1 ), At( x0 + 1, y0 + 1 ), At( x0 + 1, y0 ),
-                                                     Vertex.NewGroupID, Where );
+                    const int32 T1 = AppendOrRefuse( Mesh, At( x0, y0 + 1 ), At( x0 + 1, y0 + 1 ),
+                                                     At( x0 + 1, y0 ), Vertex.NewGroupID, Where );
                     if ( Mesh.IsTriangle( T1 ) )
                         Vertex.NewTriangles.Add( T1 );
                 }
@@ -1678,7 +1687,8 @@ namespace Desert::Geometry
         }
         FDynamicMesh3 Tess = UniformTessellatePatch( TmpMesh, NumEdgeVerts - 2 );
 
-        // Walk the patch border from corner 0 alongside PolygonVertices; corner 1 must be NumEdgeVerts - 1 steps on.
+        // Walk the patch border from corner 0 alongside PolygonVertices; corner 1 must be NumEdgeVerts - 1 steps
+        // on.
         const int32        NV = PolygonVertices.Num();
         FMeshBoundaryLoops BoundaryLoops( &Tess, true );
         TArray<int32>      VertexMap;
@@ -1724,9 +1734,9 @@ namespace Desert::Geometry
         Tess.ReverseOrientation();
         for ( const int32 TriangleID : Tess.TriangleIndicesItr() )
         {
-            const FIndex3i Tri = Tess.GetTriangle( TriangleID );
-            const int32    NewTriangleID =
-                 AppendOrRefuse( Mesh, VertexMap[Tri.A], VertexMap[Tri.B], VertexMap[Tri.C], Vertex.NewGroupID, Where );
+            const FIndex3i Tri        = Tess.GetTriangle( TriangleID );
+            const int32 NewTriangleID = AppendOrRefuse( Mesh, VertexMap[Tri.A], VertexMap[Tri.B], VertexMap[Tri.C],
+                                                        Vertex.NewGroupID, Where );
             if ( Mesh.IsTriangle( NewTriangleID ) )
                 Vertex.NewTriangles.Add( NewTriangleID );
         }
@@ -1735,8 +1745,8 @@ namespace Desert::Geometry
     namespace
     {
         // The end column of a terminator's strip at the terminator (UE CollectTerminatorVtxInfo, B:3085-3118),
-        // oriented so its first edge runs along the open boundary. Empty with Error set when the strip does not end
-        // in the terminator's two wedge vertices.
+        // oriented so its first edge runs along the open boundary. Empty with Error set when the strip does not
+        // end in the terminator's two wedge vertices.
         TArray<int32> TerminatorColumn( const FDynamicMesh3& Mesh, const FQuadGridPatch& Patch, int32 WedgeVertexA,
                                         int32 WedgeVertexB, std::string& Error )
         {
@@ -1776,11 +1786,12 @@ namespace Desert::Geometry
             Refuse( Where + ": ring-split edge " + std::to_string( RingSplitEdgeID ) + " no longer exists" );
             return;
         }
-        const FBevelEdge& IncomingEdge = Edges[Vertex.IncomingBevelEdgeIndices[0]];
-        const int32       FarVertexID  = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
-        std::string       Error;
-        const TArray<int32> QuadStripEdgeVerts = TerminatorColumn(
-             Mesh, IncomingEdge.StripQuadPatch, Vertex.Wedges[0].WedgeVertex, Vertex.Wedges[1].WedgeVertex, Error );
+        const FBevelEdge&   IncomingEdge = Edges[Vertex.IncomingBevelEdgeIndices[0]];
+        const int32         FarVertexID  = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
+        std::string         Error;
+        const TArray<int32> QuadStripEdgeVerts =
+             TerminatorColumn( Mesh, IncomingEdge.StripQuadPatch, Vertex.Wedges[0].WedgeVertex,
+                               Vertex.Wedges[1].WedgeVertex, Error );
         if ( QuadStripEdgeVerts.IsEmpty() )
         {
             Refuse( Where + ": " + Error );
@@ -1789,8 +1800,8 @@ namespace Desert::Geometry
         const int32 UseGroupID = ( Vertex.NewGroupID >= 0 ) ? Vertex.NewGroupID : Mesh.AllocateTriangleGroup();
         for ( int32 k = 0; k < QuadStripEdgeVerts.Num() - 1; ++k )
         {
-            const int32 TriangleID =
-                 AppendOrRefuse( Mesh, QuadStripEdgeVerts[k + 1], QuadStripEdgeVerts[k], FarVertexID, UseGroupID, Where );
+            const int32 TriangleID = AppendOrRefuse( Mesh, QuadStripEdgeVerts[k + 1], QuadStripEdgeVerts[k],
+                                                     FarVertexID, UseGroupID, Where );
             if ( Mesh.IsTriangle( TriangleID ) )
                 Vertex.NewTriangles.Add( TriangleID );
         }

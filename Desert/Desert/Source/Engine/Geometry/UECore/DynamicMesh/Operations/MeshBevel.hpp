@@ -7,8 +7,8 @@
 // with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
 // SplitBowties (B:415-574). The fields UE marks deprecated in 5.5 (GroupEdgeID, GroupIDs, CornerID,
 // IncomingBevelTopoEdges) are not ported, nor is the round profile (RoundWeight, MakeArcSplineCurve,
-// ApplyProfileShape_Round B:3241-3739) with the data only it reads (NormalsA/B, InteriorVertices, InteriorBorderLoop):
-// a multi-segment bevel here has UE's RoundWeight = 0 flat profile.
+// ApplyProfileShape_Round B:3241-3739) with the data only it reads (NormalsA/B, InteriorVertices,
+// InteriorBorderLoop): a multi-segment bevel here has UE's RoundWeight = 0 flat profile.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
@@ -37,8 +37,8 @@ namespace Desert::Geometry
         /** Distance (cm) each beveled edge is inset into its two adjacent faces. */
         double InsetDistance = 5.0;
 
-        /** Number of subdivisions inserted in each bevel strip; 0 is the one-segment chamfer. The profile across the
-         *  strip is flat (UE RoundWeight = 0), so every subdivision lies in the chamfer plane. */
+        /** Number of subdivisions inserted in each bevel strip; 0 is the one-segment chamfer. The profile across
+         * the strip is flat (UE RoundWeight = 0), so every subdivision lies in the chamfer plane. */
         int32 NumSubdivisions = 0;
 
         /** Options for MaterialID assignment on the new triangles generated for the bevel */
@@ -184,7 +184,8 @@ namespace Desert::Geometry
         void AppendLoopQuads_Multi( FDynamicMesh3& Mesh, FBevelLoop& Loop );
         void AppendJunctionVertexPolygon_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         void AppendTerminatorVertexTriangles_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
-        void AppendTerminatorVertexPairQuad_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex0, FBevelVertex& Vertex1 );
+        void AppendTerminatorVertexPairQuad_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex0,
+                                                   FBevelVertex& Vertex1 );
 
         /** Per-vertex normals within each new vertex polygon and each strip; no-op without attributes. */
         void ComputeNormals( FDynamicMesh3& Mesh );
