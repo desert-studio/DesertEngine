@@ -3,6 +3,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
@@ -8028,6 +8029,17 @@ namespace Desert::Editor
         }
         const std::string& content = contentRead.GetValue();
         phases.Lap( "read the file", content.size() );
+        // The old path of a moved scene: say where it went (the gate below could only name the GUID).
+        if ( const auto moved = Common::Content::RefuseRedirectorBytes(
+                  path.string(), content, Desert::Assets::ContentRegistry::KeyOfRedirectorTarget );
+             !moved )
+        {
+            LOG_ERROR( "{0}", moved.GetError() );
+            Editor::ToastManager::Push(
+                 "Scene not loaded — this path is a redirector to a moved scene (see the log)",
+                 Editor::ToastLevel::Error );
+            return;
+        }
         if ( const auto loadable = Desert::Core::ParseLoadableScene( path.string(), content ); !loadable )
         {
             LOG_ERROR( "{0}", loadable.GetError() );

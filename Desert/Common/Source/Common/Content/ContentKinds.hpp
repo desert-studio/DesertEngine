@@ -71,6 +71,7 @@ namespace Common::Content
         WorldIndex,
         Scene,
         Prefab,
+        Redirector,
         COUNT,
     };
 
@@ -87,6 +88,14 @@ namespace Common::Content
         std::string_view Extension;
         // The live constant the kind is enumerated from.
         const std::filesystem::path* Root;
+
+        // A kind with no root and no extension is one a file can only STATE in its header, never be
+        // found as by the directory walk: a redirector (AF10b) sits at the old path under the moved
+        // asset's own name and extension, so neither column could describe where it is.
+        [[nodiscard]] bool StatedOnly() const
+        {
+            return Root == nullptr;
+        }
     };
 
     // Index-matched to ContentKind. Adding an enumerator without a row here does not compile, which is
@@ -133,6 +142,9 @@ namespace Common::Content
              // Scenes and prefabs are assets with an identity (AF6f): their text header names this kind.
              /* Scene                */ { "Scene", E::SCENE_EXTENSION, &P::SCENE_PATH },
              /* Prefab               */ { "Prefab", E::PREFAB_EXTENSION, &P::PREFAB_PATH },
+             // UE's UObjectRedirector: the header-only file a move leaves at the old path, naming the moved
+             // asset's GUID (Common/Content/AssetRedirector.hpp). Stated only: see ContentKindSpec::StatedOnly.
+             /* Redirector           */ { "Redirector", "", nullptr },
         } };
     }
 
