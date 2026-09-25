@@ -10,9 +10,9 @@
 
 namespace Desert::Geometry
 {
-    // OPERATIONS THAT RE-CUT THE SURFACE - the second half of UE's PolyEdit verbs: Bevel (FMeshBevel), Insert
-    // Edge Loop (FMeshEdgeLoop / UEditMeshPolygonsTool's InsertEdgeLoop), Cut (a plane cut in the manner of
-    // FMeshPlaneCut, applied to polygroups) and Clean (FMeshClean-like weld / degenerate / isolated repair).
+    // OPERATIONS THAT RE-CUT THE SURFACE - the second half of UE's PolyEdit verbs: Bevel (FMeshBevel), Cut (a
+    // plane cut in the manner of FMeshPlaneCut, applied to polygroups) and Clean (FMeshClean-like weld /
+    // degenerate / isolated repair). Insert Edge Loop is the ported FGroupEdgeInserter (MeshRegionOperation.hpp).
     //
     // Same contract as EditMeshOperations.hpp: pure functions, the input is not touched, the result is a NEW
     // EditMesh plus the region the operation produced; a refusal leaves nothing half-done and names what and
@@ -54,19 +54,6 @@ namespace Desert::Geometry
     // PolyGroup mode.
     [[nodiscard]] Common::ResultStr<MeshEditOutcome>
     BevelSelection( const EditMesh& mesh, const ElementSelection& selection, float width );
-
-    // INSERT EDGE LOOP through the ring of quads crossing the one selected edge, at `position` in (0, 1)
-    // along each ring edge (measured from the end on the same side of the ring as the selected edge's
-    // lower-ID vertex). A QUAD is a triangle pair in one polygroup whose shared edge is, in both triangles,
-    // opposite the single largest angle - the diagonal of a quad a generator split in two; a fan triangle (two
-    // equal largest angles) is not half of a quad. The ring walks both ways from the edge and stops at the
-    // mesh's open border (the loop simply ends there) or at a triangle that is not half of a quad (the loop
-    // ends at that triangle's far corner: the edge it enters is split, its spoke closes the loop) - the
-    // Report says which ends stopped where. Every ring edge gets one vertex (+N vertices, +2N triangles on a
-    // closed ring of N quads); attributes are interpolated, polygroups kept. Refused: not exactly one edge in
-    // Edge mode; position outside (0, 1); an edge with no quad on either side.
-    [[nodiscard]] Common::ResultStr<MeshEditOutcome>
-    InsertEdgeLoop( const EditMesh& mesh, const ElementSelection& selection, float position );
 
     // CUT the selected polygroups (any mode: the groups its whole triangles belong to) along the plane. Every
     // selected group the plane crosses is split in two: its triangles on the positive side get a new group,

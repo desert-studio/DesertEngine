@@ -23,9 +23,23 @@
 #include <cmath>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 
 namespace Desert::Editor::Core
 {
+    namespace
+    {
+        // Distinct polygroups in use - the log line reports them because a topology edit (Insert Edge Loop, Weld)
+        // is judged by its groups, which the triangle and vertex counts alone do not show.
+        int CountPolygroups( const Geometry::FDynamicMesh3& mesh )
+        {
+            std::unordered_set<int> groups;
+            for ( const int t : mesh.TriangleIndicesItr() )
+                groups.insert( mesh.GetTriangleGroup( t ) );
+            return static_cast<int>( groups.size() );
+        }
+    } // namespace
+
     const char* ToString( MeshOperation operation )
     {
         switch ( operation )
@@ -233,11 +247,18 @@ namespace Desert::Editor::Core
             after                        = std::move( done.Mesh );
             outcome.Selection            = std::move( done.Selection );
         }
-        else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges )
+        else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges ||
+                  operation == MeshOperation::InsertEdgeLoop )
         {
-            auto repaired = operation == MeshOperation::FillHole
-                                 ? Geometry::FillHoles( *before, selection )
-                                 : Geometry::WeldEdges( *before, selection.Mode() );
+            const auto repair = [&]
+            {
+                if ( operation == MeshOperation::FillHole )
+                    return Geometry::FillHoles( *before, selection );
+                if ( operation == MeshOperation::WeldEdges )
+                    return Geometry::WeldEdges( *before, selection.Mode() );
+                return Geometry::InsertEdgeLoop( *before, selection, args.LoopPosition );
+            };
+            auto repaired = repair();
             if ( !repaired.IsSuccess() )
                 return Common::MakeError<bool>( repaired.GetError() );
             Geometry::RegionOutcome done = repaired.ExtractValue();
@@ -269,6 +290,7 @@ namespace Desert::Editor::Core
                 case MeshOperation::Outset:
                 case MeshOperation::FillHole:
                 case MeshOperation::WeldEdges:
+                case MeshOperation::InsertEdgeLoop:
                     return Common::MakeFormattedError<bool>( "Mesh {}: runs on FDynamicMesh3, not the EditMesh",
                                                              ToString( operation ) );
                 case MeshOperation::Offset:
@@ -276,9 +298,6 @@ namespace Desert::Editor::Core
                     break;
                 case MeshOperation::Bevel:
                     result = Geometry::BevelSelection( beforeMesh, editSelection, distance );
-                    break;
-                case MeshOperation::InsertEdgeLoop:
-                    result = Geometry::InsertEdgeLoop( beforeMesh, editSelection, args.LoopPosition );
                     break;
                 case MeshOperation::Cut:
                     if ( !args.CutPlane )
@@ -452,9 +471,12 @@ namespace Desert::Editor::Core
         }
         else
             Commands::RecordEditMeshChange( entity, label, committed, std::move( selectionChange ) );
-        LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d})", label,
-                  after->TriangleCount(), after->TriangleCount() - before->TriangleCount(), after->VertexCount(),
-                  after->VertexCount() - before->VertexCount() );
+        const int groupsBefore = CountPolygroups( *before );
+        const int groupsAfter  = CountPolygroups( *after );
+        LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d}), {5} polygroups ({6:+d})",
+                  label, after->TriangleCount(), after->TriangleCount() - before->TriangleCount(),
+                  after->VertexCount(), after->VertexCount() - before->VertexCount(), groupsAfter,
+                  groupsAfter - groupsBefore );
         if ( !outcome.Report.empty() )
             LOG_INFO( "[Mesh Selection] {0}: {1}", label, outcome.Report );
         return Common::MakeSuccess( true );

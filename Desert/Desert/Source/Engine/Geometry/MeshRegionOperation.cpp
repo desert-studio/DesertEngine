@@ -3,6 +3,7 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MergeCoincidentMeshEdges.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
@@ -155,6 +156,62 @@ namespace Desert::Geometry
             const FGroupTopology afterTopology( mesh.get(), true );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
+        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
+    }
+
+    Common::ResultStr<RegionOutcome> InsertEdgeLoop( const FDynamicMesh3&    before,
+                                                     const ElementSelection& selection, float position )
+    {
+        if ( selection.Mode() != ElementMode::Edge || selection.Empty() )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Insert Edge Loop: select one group edge in Edge mode ({} elements selected in mode {})",
+                 selection.Ids().size(), static_cast<int>( selection.Mode() ) );
+        // isfinite first: the negated form this replaced also refused NaN, and so must this one.
+        if ( !std::isfinite( position ) || position <= 0.0f || position >= 1.0f )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Insert Edge Loop: position {} is outside (0, 1)", position );
+        auto mesh = std::make_shared<FDynamicMesh3>( before );
+        if ( !mesh->HasTriangleGroups() )
+            return Common::MakeError<RegionOutcome>( "Mesh Insert Edge Loop: the mesh has no polygroups" );
+        FGroupTopology topology( mesh.get(), true );
+        int            groupEdge = IndexConstants::InvalidID;
+        for ( const int e : selection.Ids() )
+        {
+            const int found = topology.FindGroupEdgeID( e );
+            if ( found < 0 )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Insert Edge Loop: selected edge {} lies on no group edge", e );
+            if ( groupEdge >= 0 && found != groupEdge )
+                return Common::MakeFormattedError<RegionOutcome>(
+                     "Mesh Insert Edge Loop: the selection spans group edges {} and {} - select one", groupEdge,
+                     found );
+            groupEdge = found;
+        }
+
+        const TArray<double>                         proportions = { static_cast<double>( position ) };
+        FGroupEdgeInserter::FEdgeLoopInsertionParams params;
+        params.Mesh               = mesh.get();
+        params.Topology           = &topology;
+        params.GroupEdgeID        = groupEdge;
+        params.SortedInputLengths = &proportions;
+        params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
+        TSet<int32>                               newEids;
+        TSet<int32>                               problemGroupEdges;
+        FGroupEdgeInserter::FOptionalOutputParams out;
+        out.NewEidsOut             = &newEids;
+        out.ProblemGroupEdgeIDsOut = &problemGroupEdges;
+        if ( !FGroupEdgeInserter::InsertEdgeLoops( params, out ) )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Insert Edge Loop: the loop across group edge {} failed ({} problem group edges)", groupEdge,
+                 problemGroupEdges.Num() );
+        if ( auto tangents = RecomputeTangents( *mesh, "Insert Edge Loop" ); !tangents.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( tangents.GetError() );
+
+        ElementSelection result( ElementMode::Edge );
+        for ( const int32 e : newEids )
+            if ( auto added = result.Add( *mesh, e ); !added.IsSuccess() )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh Insert Edge Loop: new edge {}: {}", e,
+                                                                  added.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
     }
 

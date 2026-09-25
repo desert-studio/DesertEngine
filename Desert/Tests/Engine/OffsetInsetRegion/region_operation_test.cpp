@@ -15,6 +15,8 @@
 
 #include <glm/geometric.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -343,4 +345,105 @@ TEST( RegionOperation, WeldEdgesRefusesAnOpenBoxWithNoCoincidentPair )
     ASSERT_FALSE( welded.IsSuccess() ) << "nothing was welded, yet the operation succeeded";
     EXPECT_NE( welded.GetError().find( "no coincident edge pair" ), std::string::npos ) << welded.GetError();
     EXPECT_NE( welded.GetError().find( "the 4 boundary edges" ), std::string::npos ) << welded.GetError();
+}
+
+namespace
+{
+    // The Edge selection the editor's group-level pick makes: every mesh edge of the group edge between two faces.
+    ElementSelection GroupEdgeBetween( const FDynamicMesh3& mesh, int faceA, int faceB )
+    {
+        const FGroupTopology topology( &mesh, true );
+        ElementSelection     selection( ElementMode::Edge );
+        for ( int e = 0; e < topology.Edges.Num(); ++e )
+        {
+            const FIndex2i g = topology.Edges[e].Groups;
+            if ( ( g.A == faceA + 1 && g.B == faceB + 1 ) || ( g.A == faceB + 1 && g.B == faceA + 1 ) )
+                for ( const int eid : topology.GetGroupEdgeEdges( e ) )
+                    EXPECT_TRUE( selection.Add( mesh, eid ).IsSuccess() ) << "edge " << eid;
+        }
+        return selection;
+    }
+
+    size_t GroupCount( const FDynamicMesh3& mesh )
+    {
+        std::vector<int> groups;
+        for ( const int t : mesh.TriangleIndicesItr() )
+            if ( std::find( groups.begin(), groups.end(), mesh.GetTriangleGroup( t ) ) == groups.end() )
+                groups.push_back( mesh.GetTriangleGroup( t ) );
+        return groups.size();
+    }
+} // namespace
+
+// The editor's Insert Edge Loop (P12i): the group edge between +X and +Z picked, the loop at 0.5 runs round the
+// four faces it crosses, splits each into two new groups (6 -> 10), keeps the cube closed, selects the new loop
+// edges and renders back with a tangent frame.
+TEST( RegionOperation, InsertEdgeLoopSplitsTheCubeRingIntoTenGroups )
+{
+    const FDynamicMesh3 before = TangentCube();
+    ASSERT_EQ( GroupCount( before ), 6u );
+    auto loop = InsertEdgeLoop( before, GroupEdgeBetween( before, kPlusX, kPlusZ ), 0.5f );
+    ASSERT_TRUE( loop.IsSuccess() ) << loop.GetError();
+    const RegionOutcome done = loop.ExtractValue();
+    EXPECT_EQ( GroupCount( *done.Mesh ), 10u );
+    EXPECT_TRUE( done.Mesh->IsClosed() );
+    EXPECT_EQ( GroupCount( before ), 6u ) << "the input mesh must not be touched";
+    EXPECT_EQ( done.Selection.Mode(), ElementMode::Edge );
+    EXPECT_GE( done.Selection.Ids().size(), 4u );
+    for ( const int eid : done.Selection.Ids() )
+    {
+        const FIndex2i v = done.Mesh->GetEdgeV( eid );
+        EXPECT_NEAR( done.Mesh->GetVertex( v.A ).Y, 0.0, 1e-6 );
+        EXPECT_NEAR( done.Mesh->GetVertex( v.B ).Y, 0.0, 1e-6 );
+    }
+    auto render = ToRenderMesh( *done.Mesh );
+    ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
+    for ( const Vertex& v : render.GetValue().Vertices )
+        EXPECT_NEAR( glm::dot( v.Tangent, v.Normal ), 0.0f, 1e-5f );
+}
+
+// The position is measured from the group edge's first corner: 0.25 and 0.75 put the loop on opposite sides.
+TEST( RegionOperation, InsertEdgeLoopPositionMovesTheLoopAlongTheEdge )
+{
+    const FDynamicMesh3        before = TangentCube();
+    std::array<double, 2>      y{};
+    const std::array<float, 2> at{ 0.25f, 0.75f };
+    for ( size_t i = 0; i < at.size(); ++i )
+    {
+        auto loop = InsertEdgeLoop( before, GroupEdgeBetween( before, kPlusX, kPlusZ ), at[i] );
+        ASSERT_TRUE( loop.IsSuccess() ) << loop.GetError();
+        const RegionOutcome done = loop.ExtractValue();
+        ASSERT_FALSE( done.Selection.Empty() );
+        y[i] = done.Mesh->GetVertex( done.Mesh->GetEdgeV( done.Selection.Ids()[0] ).A ).Y;
+    }
+    EXPECT_NEAR( std::abs( y[0] ), 25.0, 1e-6 );
+    EXPECT_NEAR( y[0], -y[1], 1e-6 );
+}
+
+TEST( RegionOperation, InsertEdgeLoopRefusalsNameTheCause )
+{
+    const FDynamicMesh3 cube    = TangentCube();
+    auto                refused = [&]( const ElementSelection& selection, float position, const char* text )
+    {
+        auto r = InsertEdgeLoop( cube, selection, position );
+        if ( r.IsSuccess() )
+            return ::testing::AssertionFailure() << "succeeded, expected '" << text << "'";
+        if ( r.GetError().find( text ) == std::string::npos )
+            return ::testing::AssertionFailure() << r.GetError();
+        return ::testing::AssertionSuccess();
+    };
+    const ElementSelection edge = GroupEdgeBetween( cube, kPlusX, kPlusZ );
+    EXPECT_TRUE( refused( edge, 0.0f, "outside (0, 1)" ) );
+    EXPECT_TRUE( refused( edge, 1.0f, "outside (0, 1)" ) );
+    EXPECT_TRUE( refused( Groups( cube, { kPlusZ } ), 0.5f, "Edge mode" ) );
+    EXPECT_TRUE( refused( ElementSelection( ElementMode::Edge ), 0.5f, "Edge mode" ) );
+
+    // Two group edges picked: which loop to cut is ambiguous, so the operation refuses rather than choosing.
+    // Named, not iterated in place: Ids() is a span into the selection, and a range-for over a temporary's span
+    // reads freed memory (C++20 extends only the span's lifetime) - the first try of this test did exactly that.
+    const ElementSelection second = GroupEdgeBetween( cube, kPlusX, kPlusY );
+    ElementSelection       two    = edge;
+    for ( const int eid : second.Ids() )
+        ASSERT_TRUE( two.Add( cube, eid ).IsSuccess() ) << "edge " << eid;
+    ASSERT_GT( two.Size(), edge.Size() );
+    EXPECT_TRUE( refused( two, 0.5f, "spans group edges" ) );
 }
