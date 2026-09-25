@@ -124,7 +124,8 @@ TEST( JsonFacade, StrictTypeRefusesAMissingFieldWithItsPath )
 {
     // Everything present but one nested member: the error names exactly that member, and nothing is defaulted.
     const auto doc = Json::Read<Doc>( R"({"Name":"only","Nested":{"Values":[]},"List":[]})" );
-    ASSERT_FALSE( doc ) << "a missing field was filled from the in-struct default: " << Json::Write( doc.GetValue() );
+    ASSERT_FALSE( doc ) << "a missing field was filled from the in-struct default: "
+                        << Json::Write( doc.GetValue() );
     EXPECT_NE( doc.GetError().find( "field 'Nested.A': missing" ), std::string::npos ) << doc.GetError();
 
     // Several at once: each one reported with its own path.
@@ -136,13 +137,16 @@ TEST( JsonFacade, StrictTypeRefusesAMissingFieldWithItsPath )
 
 TEST( JsonFacade, StrictTypeRefusesAnUnknownKeyWithItsPath )
 {
-    const auto top = Json::Read<Doc>( R"({"Name":"a","Nested":{"A":1,"Values":[]},"List":[],"FromANewerBuild":42})" );
+    const auto top =
+         Json::Read<Doc>( R"({"Name":"a","Nested":{"A":1,"Values":[]},"List":[],"FromANewerBuild":42})" );
     ASSERT_FALSE( top ) << "an unknown key was silently ignored";
-    EXPECT_NE( top.GetError().find( "field 'FromANewerBuild': unknown key" ), std::string::npos ) << top.GetError();
+    EXPECT_NE( top.GetError().find( "field 'FromANewerBuild': unknown key" ), std::string::npos )
+         << top.GetError();
 
     const auto nested = Json::Read<Doc>( R"({"Name":"a","Nested":{"A":1,"Values":[],"Typo":0},"List":[]})" );
     ASSERT_FALSE( nested );
-    EXPECT_NE( nested.GetError().find( "field 'Nested.Typo': unknown key" ), std::string::npos ) << nested.GetError();
+    EXPECT_NE( nested.GetError().find( "field 'Nested.Typo': unknown key" ), std::string::npos )
+         << nested.GetError();
 }
 
 TEST( JsonFacade, OnlyAnOptionalMemberMayBeAbsentFromAStrictType )
