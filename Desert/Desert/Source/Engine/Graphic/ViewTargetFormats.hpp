@@ -19,13 +19,13 @@ namespace Desert::Graphic::ViewTargetFormats
     using Core::Formats::ImageFormat;
 
     // SceneRenderer::EnsureRendererResources.
-    inline constexpr ImageFormat kSceneColor      = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kSceneColor      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSceneDepth      = ImageFormat::DEPTH32F;
     inline constexpr ImageFormat kSceneColorCopy  = kSceneColor; // snapshot of the scene target, same texel
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic
-    inline constexpr ImageFormat kGBufferB        = ImageFormat::RGBA32F; // normal.xyz + roughness
+    inline constexpr ImageFormat kGBufferB        = ImageFormat::RGBA16F; // normal.xyz + roughness
     inline constexpr ImageFormat kGBufferC        = ImageFormat::RGBA32F; // world position.xyz
-    inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
 
@@ -33,12 +33,14 @@ namespace Desert::Graphic::ViewTargetFormats
     // height fog, clouds) also spells its format in the shader's image qualifier (rgba32f / rgba16f): change
     // the two together.
     inline constexpr ImageFormat kSilhouetteMask = ImageFormat::RGBA8F;
+    // Seeds are PIXEL COORDINATES (JFA_Init.shader: o_Seed = vec4(pixelCoord, ...)): half floats stop being
+    // exact integers above 2048 px, so 16F would misplace the outline on a wide window. Keep 32F.
     inline constexpr ImageFormat kJFASeed        = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA8F;
+    inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kSMAAEdges      = ImageFormat::RGBA8F;
-    inline constexpr ImageFormat kSMAABlend      = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kBloom          = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kSMAABlend      = ImageFormat::RGBA8F;
+    inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kLightShaft     = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kLensFlare      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kHeightFog      = ImageFormat::RGBA16F;
@@ -47,10 +49,10 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
 
     // Screen-space reflections and RSM global illumination.
-    inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kSSRAccum  = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kGIResolve = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kGIAccum   = ImageFormat::RGBA16F;
     // The RSM render pass MUST stay compatible with the G-buffer's (it reuses the G-buffer pipeline), so its
     // attachments are the G-buffer's formats by construction rather than a second spelling of them.
     inline constexpr ImageFormat kRSMAlbedo   = kGBufferA;

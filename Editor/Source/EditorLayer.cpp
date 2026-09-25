@@ -549,7 +549,9 @@ namespace Desert::Editor
         // ran — so with two `.anim` files on disk it reported the four procedural clips and nothing else.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
-        m_SceneRenderer    = std::make_unique<Graphic::SceneRenderer>();
+        // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
+        // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
+        m_SceneRenderer    = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
         m_MainScene        = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
         m_PrimaryScene     = m_MainScene; // the always-present document #-1 (see SetActiveScene)
 
@@ -2774,7 +2776,7 @@ namespace Desert::Editor
         // label across a session, and the log lines below are how a slot leak is read.
         doc->Name = "Scene " + std::to_string( id + 1 ); // the main scene reads as "Scene 1"
 
-        doc->Renderer = std::make_unique<Graphic::SceneRenderer>();
+        doc->Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
         doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
         BuildSceneSystems( *doc->Scene );
         // Reported: AddSceneView is void and the document is already in the well by the time this runs, so
@@ -2891,7 +2893,7 @@ namespace Desert::Editor
             return;
         }
 
-        auto       renderer  = std::make_unique<Graphic::SceneRenderer>();
+        auto       renderer  = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
         const auto viewIndex = scene->AddView( renderer.get() );
         if ( !viewIndex )
         {

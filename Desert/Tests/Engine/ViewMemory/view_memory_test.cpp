@@ -41,15 +41,15 @@ TEST( ViewMemory, PrintsTheCensusForMainAndPreview )
 
 TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
-    // 96 scene targets + 108 post stack + 20.5 half/quarter chains and fog + 9 clouds + 48 SSR + 48 GI.
-    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 329.49, 0.01 );
-    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (14 MiB).
-    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 148897792u );
+    // 64 scene targets + 72 post stack + 17.8 half/quarter chains and fog + 9 clouds + 24 SSR + 24 GI.
+    EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 210.83, 0.01 );
+    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (10 MiB).
+    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 144703488u );
 }
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
 {
-    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 233.49, 0.01 );
+    EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 162.83, 0.01 );
     // One 1024 cascade (R32F + D24S8).
     EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 8388608u );
 }
@@ -60,7 +60,7 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
     // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 14 MiB RSM.
-    EXPECT_EQ( main - preview, 339574784u ) << "main " << main << " preview " << preview;
+    EXPECT_EQ( main - preview, 235847680u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )
@@ -91,6 +91,46 @@ TEST( ViewMemory, ViewScaledBytesScaleWithPixels )
     // Four times the pixels, the same bytes per pixel (to within mip-chain rounding).
     EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ),
                  ViewBytesPerPixel( kSceneViewProfile, 2 * kW, 2 * kH ), 0.05 );
+}
+
+// RT1h: a view built before its surface has a size is built at kUnsizedViewExtent. Every target the census
+// names must still exist there (a zero-sized image is a device error, not a small allocation), and the whole
+// view must cost what the constant's comment says — under a mebibyte — instead of the window's 1.3-2.1 GiB.
+TEST( ViewMemory, TheUnsizedViewBuildsEveryTargetForUnderAMebibyte )
+{
+    using namespace Desert::Graphic;
+    const auto rows = ViewTargetCensus( kSceneViewProfile, kUnsizedViewExtent.Width, kUnsizedViewExtent.Height );
+    ASSERT_FALSE( rows.empty() );
+    for ( const auto& row : rows )
+    {
+        EXPECT_GT( row.Width, 0u ) << row.Name;
+        EXPECT_GT( row.Height, 0u ) << row.Name;
+        if ( row.ScalesWithView )
+        {
+            EXPECT_LE( row.Width, kUnsizedViewExtent.Width ) << row.Name;
+            EXPECT_LE( row.Height, kUnsizedViewExtent.Height ) << row.Name;
+        }
+    }
+    EXPECT_LT( SumViewTargets( rows ).ViewScaledBytes, 1ull << 20 );
+}
+
+// A view built for a W x H surface allocates its full-resolution targets at exactly W x H: the census the
+// renderer logs at its build is taken at the extent the renderer was constructed with.
+TEST( ViewMemory, AViewportSizedViewHoldsTargetsAtTheViewportSize )
+{
+    using namespace Desert::Graphic;
+    constexpr ViewExtent viewport{ 1280, 720 };
+    const auto           rows    = ViewTargetCensus( kSceneViewProfile, viewport.Width, viewport.Height );
+    bool                 sawFull = false;
+    for ( const auto& row : rows )
+    {
+        if ( !row.ScalesWithView )
+            continue;
+        EXPECT_LE( row.Width, viewport.Width ) << row.Name;
+        EXPECT_LE( row.Height, viewport.Height ) << row.Name;
+        sawFull = sawFull || ( row.Width == viewport.Width && row.Height == viewport.Height );
+    }
+    EXPECT_TRUE( sawFull );
 }
 
 int main( int argc, char** argv )

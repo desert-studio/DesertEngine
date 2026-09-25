@@ -52,6 +52,32 @@ namespace Desert::Graphic
     // A one-shot capture (asset thumbnails, photogrammetry preview): the preview profile without the sun.
     inline constexpr ViewProfile kThumbnailViewProfile{ kNoShadowQuality, true, false, false };
 
+    /**
+     * @brief THE EXTENT A VIEW BUILDS ITS TARGETS AT — its own surface's, never the window's.
+     *
+     * UE's FSceneViewFamily takes its size from the viewport it renders into. Ours read the WINDOW in
+     * SceneRenderer::EnsureRendererResources, so every view — a 512 px thumbnail, the Details ball, the
+     * main viewport before its panel was laid out — was first built at 4112x2578 on a large monitor
+     * (2.1 GiB at 210.8 B/px) and shrank one frame later. The extent is a constructor argument so the
+     * caller that owns the surface is the one that states it.
+     */
+    struct ViewExtent
+    {
+        uint32_t Width  = 0;
+        uint32_t Height = 0;
+
+        bool operator==( const ViewExtent& ) const = default;
+    };
+
+    // A view whose surface has no size yet: an editor viewport panel is sized by ImGui on its first frame,
+    // after Scene::Init has built the renderer. Built at this and resized on that first frame, instead of
+    // deferring the build: Init also rebinds the scene into the render graph over the systems the build
+    // constructs, and every scene system and panel between Init and the first frame reaches those systems,
+    // so "not built yet" would become a state all of them had to handle. 64 keeps every derived target
+    // non-empty with room to spare (the smallest divisor in the census is 1/4 and
+    // bloom's 6-level chain starts at 32 px) for 0.8 MiB of view-scaled targets.
+    inline constexpr ViewExtent kUnsizedViewExtent{ 64, 64 };
+
     struct ViewTarget
     {
         std::string_view           Name;

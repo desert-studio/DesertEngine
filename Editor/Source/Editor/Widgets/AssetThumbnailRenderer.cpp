@@ -79,7 +79,8 @@ namespace Desert::Editor
         // the budget the renderer was BUILT with, so `settings.EnableShadows = false` a few lines further
         // down arrives after the money is spent. It was: 320 MiB of shadow maps for a renderer that has
         // never drawn a shadow and never will. See Graphic::ShadowQuality.
-        m_Renderer        = std::make_unique<Graphic::SceneRenderer>( Graphic::kThumbnailViewProfile );
+        m_Renderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ kRenderSize, kRenderSize },
+                                                               Graphic::kThumbnailViewProfile );
         m_Scene           = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get() );
         const auto inited = m_Scene->Init();
         if ( !inited.IsSuccess() )
@@ -225,8 +226,8 @@ namespace Desert::Editor
                                       Graphic::SunLightFx{} );
 
         // Resize ONCE here (after the camera exists) so the camera projection becomes square. We render at
-        // kRenderSize (2x the output) and downscale on write = supersampled anti-aliasing. Resize recreates
-        // framebuffers + idles the GPU, so we never call it per render.
+        // kRenderSize (2x the output) and downscale on write = supersampled anti-aliasing. The renderer was
+        // built at this extent, so its half of the call rebuilds nothing; the camera's half is why it is here.
         m_Scene->Resize( kRenderSize, kRenderSize );
 
         m_Inited = true;
