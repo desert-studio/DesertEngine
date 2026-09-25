@@ -13,10 +13,10 @@ namespace Desert::Geometry
             for ( int32 j = 0; j < 3; ++j )
             {
                 if ( TriV[j] == VertexID )
-                    return FIndex2i( TriEdges[( j == 0 ) ? 2 : j - 1], TriEdges[j] );
+                    return { TriEdges[( j == 0 ) ? 2 : j - 1], TriEdges[j] };
             }
         }
-        return FIndex2i( IndexConstants::InvalidID, IndexConstants::InvalidID );
+        return { IndexConstants::InvalidID, IndexConstants::InvalidID };
     }
 
     int32 FindSharedEdgeInTriangles( const FDynamicMesh3& Mesh, int32 Triangle0, int32 Triangle1 )

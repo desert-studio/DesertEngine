@@ -51,10 +51,10 @@ namespace Desert::Geometry
                     // UE stops at the first ring neighbour: a refused connection ends the walk.
                     if ( !TrisConnectedTest( FromTriangleID, TriNbrTris[j], TriEdges[j] ) )
                         break;
-                    return FIndex3i( TriNbrTris[j], TriEdges[j], j );
+                    return { TriNbrTris[j], TriEdges[j], j };
                 }
             }
         }
-        return FIndex3i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID );
+        return { IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID };
     }
 } // namespace Desert::Geometry

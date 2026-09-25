@@ -40,8 +40,9 @@ namespace
     // Rotates about X by 30 degrees and shifts, so the polygon tests do not run in an axis plane.
     FVector3d Tilt( double X, double Y )
     {
-        const double c = std::cos( 0.5235987755982988 ), s = std::sin( 0.5235987755982988 );
-        return FVector3d( X + 7.0, Y * c - 3.0, Y * s + 11.0 );
+        const double c = std::cos( 0.5235987755982988 );
+        const double s = std::sin( 0.5235987755982988 );
+        return { X + 7.0, Y * c - 3.0, Y * s + 11.0 };
     }
 
     FVector3d TriangleCross( const TArray<FVector3d>& P, const FIndex3i& T )
@@ -131,8 +132,8 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
     ExpectNear( Loop[3], FVector3d( 10, 90, 0 ), "loop corner 3" );
 
     // An open span 0-1-2 over edges 0 and 1: the ends are projected onto their one line.
-    TArray<int32>     SpanVertices = { Corners[0], Corners[1], Corners[2] };
-    TArray<FLine3d>   SpanLines    = { Lines[0], Lines[1] };
+    const TArray<int32>   SpanVertices = { Corners[0], Corners[1], Corners[2] };
+    const TArray<FLine3d> SpanLines    = { Lines[0], Lines[1] };
     TArray<FVector3d> Span;
     SolveInsetVertexPositionsFromInsetLines( Mesh, SpanLines, SpanVertices, Span, false );
     ASSERT_EQ( Span.Num(), 3 );
@@ -156,7 +157,8 @@ TEST( BevelPrimitives, PolygonPlaneIsNewellNormalCentroidAndArea )
 {
     const TArray<FVector3d> P = { FVector3d( 0, 0, 0 ), FVector3d( 100, 0, 0 ), FVector3d( 100, 100, 0 ),
                                   FVector3d( 0, 100, 0 ) };
-    FVector3d               Normal, Centroid;
+    FVector3d               Normal;
+    FVector3d               Centroid;
     const double            Area = PolygonTriangulation::ComputePolygonPlane( P, Normal, Centroid );
     EXPECT_NEAR( Area, 10000.0, Tol );
     // UE's convention (VectorUtil::Normal): the front of a polygon is the side it looks clockwise from, so a
@@ -170,7 +172,8 @@ TEST( BevelPrimitives, EarClipOfAConcavePolygonCoversItOnce )
     // An L of three 10 cm cells, counter-clockwise, tilted out of the axis planes; vertex 3 is the reflex corner.
     const TArray<FVector3d> P = { Tilt( 0, 0 ),   Tilt( 20, 0 ),  Tilt( 20, 10 ),
                                   Tilt( 10, 10 ), Tilt( 10, 20 ), Tilt( 0, 20 ) };
-    FVector3d               PolygonNormal, Centroid;
+    FVector3d               PolygonNormal;
+    FVector3d               Centroid;
     PolygonTriangulation::ComputePolygonPlane( P, PolygonNormal, Centroid );
 
     for ( const bool bHoleFill : { true, false } )

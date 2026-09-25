@@ -121,7 +121,8 @@ TEST( MeshIndexUtil, VertexEdgesComeInTriangleOrder )
 TEST( MeshIndexUtil, SharedEdgeOfAdjacentTrianglesOnly )
 {
     const FDynamicMesh3 mesh     = TangentCube();
-    int                 adjacent = 0, apart = 0;
+    int                 adjacent = 0;
+    int                 apart    = 0;
     for ( const int a : mesh.TriangleIndicesItr() )
         for ( const int b : mesh.TriangleIndicesItr() )
         {
@@ -155,7 +156,8 @@ TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
         ASSERT_EQ( groupEdges.size(), 3u ) << "cube corner " << v;
         for ( int k = 0; k < 3; ++k )
         {
-            TArray<int32> s0, s1;
+            TArray<int32> s0;
+            TArray<int32> s1;
             ASSERT_TRUE( SplitInteriorVertexTrianglesIntoSubsets( &mesh, v, groupEdges[k],
                                                                   groupEdges[( k + 1 ) % 3], s0, s1 ) );
             ExpectPartition( mesh, v, s0, s1 );
@@ -186,7 +188,8 @@ TEST( MeshIndexUtil, BoundarySplitPartitionsTheOpenFan )
     {
         if ( mesh.IsBoundaryEdge( e ) )
             continue;
-        TArray<int32> s0, s1;
+        TArray<int32> s0;
+        TArray<int32> s1;
         ASSERT_TRUE( SplitBoundaryVertexTrianglesIntoSubsets( &mesh, v, e, s0, s1 ) );
         ExpectPartition( mesh, v, s0, s1 );
         ++tested;
@@ -196,7 +199,8 @@ TEST( MeshIndexUtil, BoundarySplitPartitionsTheOpenFan )
     for ( const int e : mesh.VtxEdgesItr( v ) )
         if ( mesh.IsBoundaryEdge( e ) )
         {
-            TArray<int32> s0, s1;
+            TArray<int32> s0;
+            TArray<int32> s1;
             EXPECT_FALSE( SplitBoundaryVertexTrianglesIntoSubsets( &mesh, v, e, s0, s1 ) );
         }
 }

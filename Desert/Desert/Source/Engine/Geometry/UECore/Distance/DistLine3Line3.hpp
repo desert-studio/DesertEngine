@@ -35,7 +35,7 @@ namespace Desert::Geometry
 
         Real Get()
         {
-            return (Real)std::sqrt( ComputeResult() );
+            return static_cast<Real>( std::sqrt( ComputeResult() ) );
         }
 
         Real GetSquared()
@@ -54,8 +54,11 @@ namespace Desert::Geometry
             Real          a01   = -Line1.Direction.Dot( Line2.Direction );
             Real          b0    = kDiff.Dot( Line1.Direction );
             Real          c     = kDiff.SquaredLength();
-            Real          det   = std::abs( (Real)1 - a01 * a01 );
-            Real          b1, s0, s1, sqrDist;
+            Real          det   = std::abs( static_cast<Real>( 1 ) - a01 * a01 );
+            Real          b1;
+            Real          s0;
+            Real          s1;
+            Real          sqrDist;
 
             if ( det >= TMathUtil<Real>::ZeroTolerance )
             {
@@ -63,11 +66,11 @@ namespace Desert::Geometry
                 s1 = a01 * b0 - b1;
 
                 // Two interior points are closest.
-                Real invDet = ( (Real)1 ) / det;
+                Real invDet = static_cast<Real>( 1 ) / det;
                 s0          = ( a01 * b1 - b0 ) * invDet;
                 s1 *= invDet;
                 sqrDist =
-                     s0 * ( s0 + a01 * s1 + ( (Real)2 ) * b0 ) + s1 * ( a01 * s0 + s1 + ( (Real)2 ) * b1 ) + c;
+                     s0 * ( s0 + a01 * s1 + static_cast<Real>( 2 ) * b0 ) + s1 * ( a01 * s0 + s1 + static_cast<Real>( 2 ) * b1 ) + c;
                 Line1ClosestPoint = Line1.Origin + s0 * Line1.Direction;
                 Line2ClosestPoint = Line2.Origin + s1 * Line2.Direction;
                 Line1Parameter    = s0;
@@ -77,7 +80,7 @@ namespace Desert::Geometry
             else
             {
                 // Lines are parallel, closest pair at line1 origin
-                Line1Parameter    = (Real)0;
+                Line1Parameter    = static_cast<Real>( 0 );
                 Line1ClosestPoint = Line1.Origin;
                 Line2Parameter    = Line2.Project( Line1.Origin );
                 Line2ClosestPoint = Line2.PointAt( Line2Parameter );
@@ -86,11 +89,11 @@ namespace Desert::Geometry
             }
 
             // Account for numerical round-off errors.
-            DistanceSquared = ( sqrDist < (Real)0 ) ? (Real)0 : sqrDist;
+            DistanceSquared = ( sqrDist < static_cast<Real>( 0 ) ) ? static_cast<Real>( 0 ) : sqrDist;
             return DistanceSquared;
         }
     };
 
-    typedef TDistLine3Line3<float>  FDistLine3Line3f;
-    typedef TDistLine3Line3<double> FDistLine3Line3d;
+    using FDistLine3Line3f = TDistLine3Line3<float>;
+    using FDistLine3Line3d = TDistLine3Line3<double>;
 } // namespace Desert::Geometry

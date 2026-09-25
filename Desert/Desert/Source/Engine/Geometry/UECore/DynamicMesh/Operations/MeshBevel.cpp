@@ -16,8 +16,6 @@
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
 #include <algorithm>
-
-#include <algorithm>
 #include <string>
 
 namespace Desert::Geometry

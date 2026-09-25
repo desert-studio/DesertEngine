@@ -61,6 +61,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef TLine3<double> FLine3d;
-    typedef TLine3<float>  FLine3f;
+    using FLine3d = TLine3<double>;
+    using FLine3f = TLine3<float>;
 } // namespace Desert::Geometry

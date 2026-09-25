@@ -22,8 +22,9 @@ namespace Desert::Geometry
                 const FVector3d            B        = Mesh.GetVertex( EdgeVT.Vert.B );
                 const FVector3d            EdgeDir  = Normalized( A - B );
                 const FVector3d            Midpoint = ( A + B ) * 0.5;
-                FVector3d                  Normal, Centroid;
-                double                     Area;
+                FVector3d                  Normal;
+                FVector3d                  Centroid;
+                double                     Area = 0.0;
                 Mesh.GetTriInfo( EdgeVT.Tri.A, Normal, Area, Centroid );
 
                 FVector3d InsetDir = Normal.Cross( EdgeDir );
@@ -62,10 +63,11 @@ namespace Desert::Geometry
         const int32 NumVertices = VertexIDs.Num();
         VertexPositionsOut.SetNum( NumVertices );
 
-        int32 StartIndex = 0, EndIndex = NumVertices;
+        int32 StartIndex = 0;
+        int32 EndIndex   = NumVertices;
 
         // An open vertex span has no two lines to intersect at its start/end, so those use the nearest points.
-        if ( bIsLoop == false )
+        if ( !bIsLoop )
         {
             StartIndex = 1;
             EndIndex   = NumVertices - 1;

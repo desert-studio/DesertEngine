@@ -837,7 +837,7 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
 TEST( MeshBevel, ApplyAfterRefusedInitializationReturnsFalse )
 {
     FDynamicMesh3  mesh = TangentCube();
-    FGroupTopology topology( &mesh, true );
+    const FGroupTopology topology( &mesh, true );
     FMeshBevel     bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 999 } ) );
     const std::string reason = bevel.FailureReason;
@@ -861,10 +861,15 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
         for ( const int t : mesh.TriangleIndicesItr() )
         {
             const int face = t / ( 2 * n * n );
-            mesh.SetTriangleGroup( t, face == 4 ? 1 : ( face == 5 ? 3 : 2 ) );
+            int       group = 2;
+            if ( face == 4 )
+                group = 1;
+            else if ( face == 5 )
+                group = 3;
+            mesh.SetTriangleGroup( t, group );
         }
         SetFaceMaterials( mesh );
-        FGroupTopology  topology( &mesh, true );
+        const FGroupTopology  topology( &mesh, true );
         FMeshBevelProbe bevel;
         bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
         ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
@@ -895,7 +900,7 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
 TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
 {
     FDynamicMesh3   mesh = TangentCube();
-    FGroupTopology  topology( &mesh, true );
+    const FGroupTopology  topology( &mesh, true );
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges(
          mesh, topology, { GroupEdgeBetween( topology, 1, 3 ), GroupEdgeBetween( topology, 2, 4 ) } ) )
@@ -932,7 +937,7 @@ TEST( MeshBevel, ApplyTerminatorOnATiltedCapStaysOnTheInsetLines )
             mesh.SetVertex( v, FVector3d( p.X, p.Y, 50.0 + 0.5 * p.X ) );
     }
     ExpectClosedSolid( mesh, 1.0e6 );
-    FGroupTopology  topology( &mesh, true );
+    const FGroupTopology  topology( &mesh, true );
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
          << bevel.FailureReason;
