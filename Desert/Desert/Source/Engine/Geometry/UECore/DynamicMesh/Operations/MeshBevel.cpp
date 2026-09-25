@@ -1085,7 +1085,7 @@ namespace Desert::Geometry
             // written those partners into NewMeshEdges (or refused), so the fallback is not ported.
             const int32 EdgeID0 = Edge.MeshEdges[k];
             const int32 EdgeID1 = Edge.NewMeshEdges[k];
-            FIndex2i QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
+            FIndex2i    QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
             if ( EdgeID0 == EdgeID1 || !Mesh.IsEdge( EdgeID1 ) )
             {
                 Refuse( Where + ": mesh edge " + std::to_string( EdgeID0 ) + " has no unlinked partner (" +
