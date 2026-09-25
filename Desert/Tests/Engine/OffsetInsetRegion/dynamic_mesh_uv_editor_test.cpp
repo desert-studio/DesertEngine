@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -74,6 +75,6 @@ TEST( DynamicMeshUVEditor, ExpMapUnrollsACylinderStripKeepingEdgeLengths )
             worst                    = std::max( worst, std::abs( lengthUV / length3d - 1.0 ) );
         }
     }
-    std::printf( "worst relative edge length error %.6f\n", worst );
-    EXPECT_LT( worst, 0.05 );
+    // Measured 0.0027 (the discrete upwind march); a reversed rotation sign in PropagateUV gives 0.58.
+    EXPECT_LT( worst, 0.01 );
 }
