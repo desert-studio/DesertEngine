@@ -250,6 +250,73 @@ TEST( LandscapePaint, StrokeAcrossTwoTilesKeepsSumsAndEdgesAndUndoes )
     EXPECT_EQ( tiles.at( { 0, 0 } ).WeightLayers().size(), 2u );
 }
 
+// The screen half of undo: LandscapeECSSystem re-uploads a tile's weightmap only when the Weights consumer's
+// dirty list is non-empty, and it has already drained that list on the stroke's own frames. So undo and redo
+// must dirty it again (and only it: the heights did not change), and the texels it then uploads must be the
+// pre-stroke ones exactly. A painted tile that had no layers before goes back to none (its weightmap is freed).
+TEST( LandscapePaint, UndoAndRedoDirtyTheWeightmapAndRestoreItsTexels )
+{
+    LandscapeRoot root;
+    root.QuadsPerTile = 7;
+    root.SpacingCm    = 100.0f;
+    std::map<std::pair<int32_t, int32_t>, LandscapeTileData> tiles;
+    tiles.emplace( std::make_pair( 0, 0 ), Tile( 8 ) );
+    tiles.emplace( std::make_pair( 1, 0 ), Tile( 8 ) );
+    Fill( tiles.at( { 0, 0 } ), "Rock", 255u ); // (1, 0) starts with no layers at all
+    const LandscapeTileLookup lookup = [&]( int32_t x, int32_t z )
+    {
+        auto it = tiles.find( { x, z } );
+        if ( it == tiles.end() )
+            return LandscapeTileSlot{};
+        return LandscapeTileSlot{ LandscapeTileState::Present, &it->second };
+    };
+    const auto drainAll = [&]
+    {
+        for ( auto& [key, tile] : tiles )
+            for ( auto c : { LandscapeDirtyConsumer::Gpu, LandscapeDirtyConsumer::Physics,
+                             LandscapeDirtyConsumer::Weights } )
+                tile.TakeDirtyRects( c );
+    };
+    const std::vector<uint8_t> westBefore = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) );
+    drainAll();
+
+    LandscapePaintStroke   stroke( root, lookup, { { "Grass", 0.5f, false }, { "Rock", 0.5f, false } } );
+    LandscapeBrushSettings brush;
+    brush.RadiusCm = 300.0f;
+    brush.Strength = 1.0f;
+    const glm::vec2 at( 700.0f, 350.0f ); // on the seam: both tiles are painted
+    auto            weights = ComputeLandscapeBrush( root, brush, { &at, 1 } );
+    ASSERT_TRUE( weights.IsSuccess() );
+    LandscapePaintSettings paint;
+    paint.Layer = "Grass";
+    for ( int step = 0; step < 5; ++step )
+        ASSERT_TRUE( stroke.Apply( weights.GetValue(), brush, paint, false ).IsSuccess() );
+    ASSERT_FALSE( tiles.at( { 1, 0 } ).WeightLayers().empty() );
+    const std::vector<uint8_t> westStroke = LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) );
+    ASSERT_NE( westStroke, westBefore ); // the stroke did change what the GPU shows
+    auto record = stroke.Finish();
+    ASSERT_TRUE( record.IsSuccess() ) << record.GetError();
+    drainAll(); // the renderer uploaded the stroke on its own frames
+
+    ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), true ).IsSuccess() );
+    for ( auto& [key, tile] : tiles )
+    {
+        const auto& dirty = tile.DirtyRects( LandscapeDirtyConsumer::Weights );
+        ASSERT_EQ( dirty.size(), 1u ) << "tile " << key.first;
+        EXPECT_EQ( dirty[0], tile.Bounds() ) << "tile " << key.first;
+        EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Gpu ).empty() ) << "tile " << key.first;
+        EXPECT_TRUE( tile.DirtyRects( LandscapeDirtyConsumer::Physics ).empty() ) << "tile " << key.first;
+    }
+    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) ), westBefore );
+    EXPECT_TRUE( tiles.at( { 1, 0 } ).WeightLayers().empty() );
+
+    drainAll();
+    ASSERT_TRUE( ApplyLandscapePaintRecord( lookup, record.GetValue(), false ).IsSuccess() );
+    EXPECT_FALSE( tiles.at( { 0, 0 } ).DirtyRects( LandscapeDirtyConsumer::Weights ).empty() );
+    EXPECT_FALSE( tiles.at( { 1, 0 } ).DirtyRects( LandscapeDirtyConsumer::Weights ).empty() );
+    EXPECT_EQ( LandscapeWeightmapTexels( tiles.at( { 0, 0 } ) ), westStroke );
+}
+
 TEST( LandscapePaint, UnknownTargetLayerIsRefused )
 {
     LandscapeRoot             root;
