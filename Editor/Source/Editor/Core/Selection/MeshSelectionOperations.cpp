@@ -23,9 +23,23 @@
 #include <cmath>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 
 namespace Desert::Editor::Core
 {
+    namespace
+    {
+        // Distinct polygroups in use - the log line reports them because a topology edit (Insert Edge Loop, Weld)
+        // is judged by its groups, which the triangle and vertex counts alone do not show.
+        int CountPolygroups( const Geometry::FDynamicMesh3& mesh )
+        {
+            std::unordered_set<int> groups;
+            for ( const int t : mesh.TriangleIndicesItr() )
+                groups.insert( mesh.GetTriangleGroup( t ) );
+            return static_cast<int>( groups.size() );
+        }
+    } // namespace
+
     const char* ToString( MeshOperation operation )
     {
         switch ( operation )
@@ -452,9 +466,12 @@ namespace Desert::Editor::Core
         }
         else
             Commands::RecordEditMeshChange( entity, label, committed, std::move( selectionChange ) );
-        LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d})", label,
-                  after->TriangleCount(), after->TriangleCount() - before->TriangleCount(), after->VertexCount(),
-                  after->VertexCount() - before->VertexCount() );
+        const int groupsBefore = CountPolygroups( *before );
+        const int groupsAfter  = CountPolygroups( *after );
+        LOG_INFO( "[Mesh Selection] {0}: {1} triangles ({2:+d}), {3} vertices ({4:+d}), {5} polygroups ({6:+d})",
+                  label, after->TriangleCount(), after->TriangleCount() - before->TriangleCount(),
+                  after->VertexCount(), after->VertexCount() - before->VertexCount(), groupsAfter,
+                  groupsAfter - groupsBefore );
         if ( !outcome.Report.empty() )
             LOG_INFO( "[Mesh Selection] {0}: {1}", label, outcome.Report );
         return Common::MakeSuccess( true );
