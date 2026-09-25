@@ -163,10 +163,7 @@ namespace Desert::Editor
         // reported as "never completed" by the give-up path if the service were ever ticked again.
         m_Queue.clear();
         m_Queued.clear();
-        m_InFlight.clear();
-        m_InFlightPng.clear();
-        m_InFlightPngBefore.reset();
-        m_InFlightSourceHash.reset();
+        m_Capture.Reset();
         m_InFlightTicks = 0;
         m_Captured      = 0;
         m_Skipped       = 0;
@@ -316,7 +313,7 @@ namespace Desert::Editor
         // Idle for long enough: hand the renderer slot back. Counted here rather than at the point the last
         // capture finished, because "the queue drained" and "no panel has asked for anything since" are
         // different facts and only the second one means the service is done.
-        if ( m_Renderer && m_Queue.empty() && m_InFlight.empty() && !m_Renderer->HasPending() )
+        if ( m_Renderer && m_Queue.empty() && !m_Capture.Outstanding() && !m_Renderer->HasPending() )
         {
             // The run's own report used to be here, and it moved to the top of this function when the
             // paint queue arrived — see the note there. What is left in this branch is only the thing
@@ -340,60 +337,54 @@ namespace Desert::Editor
 
         m_Renderer->Tick();
 
-        // Resolve the capture that was in flight.
-        if ( !m_InFlight.empty() )
+        // Settle the capture that was dispatched — the one still waited for, or one the give-up below
+        // stopped waiting for and whose PNG the renderer wrote anyway (ThumbnailFreshness::Capture, TH1c).
+        if ( m_Capture.Outstanding() && !m_Renderer->HasPending() )
         {
-            if ( !m_Renderer->HasPending() )
+            const std::optional<ThumbnailFreshness::Capture::Settled> settled = m_Capture.Settle();
+            m_InFlightTicks = 0;
+            if ( !settled )
+                return;
+            if ( settled->What == ThumbnailFreshness::Capture::Landed::NotWritten )
             {
-                // THE FILE MUST HAVE MOVED, not merely be present. "Does the PNG exist?" was a sound test
-                // only while a capture was never dispatched against an existing file; now that a STALE
-                // thumbnail is re-captured (ShouldQueue), the old picture is sitting at that exact path
-                // before the renderer starts, and an existence check would certify a capture that wrote
-                // nothing at all — the failure would then be invisible AND the stale picture would be
-                // queued again on the next Request, every frame, forever.
-                const std::optional<std::filesystem::file_time_type> after = PngStamp( m_InFlightPng );
-                if ( !after || after == m_InFlightPngBefore )
-                {
-                    // The renderer finished but produced nothing — the asset cannot be previewed. Remember
-                    // it, or every frame from now on would re-queue the same doomed request.
-                    LOG_WARN( "[Thumbnails] no preview produced for '{}' — not retrying (the file at '{}' "
-                              "was {} by the capture)",
-                              m_InFlight, m_InFlightPng, after ? "left unchanged" : "not written" );
-                    m_Failed.insert( m_InFlight );
-                }
-                else
-                {
-                    ++m_Captured;
-                    // The record is what makes the picture survive a restart (ThumbnailFreshness, TH1).
-                    // Without it the next session cannot tell this PNG from one made before the asset's
-                    // last edit, and re-captures it.
-                    if ( m_InFlightSourceHash )
-                        if ( const Common::BoolResultStr recorded =
-                                  ThumbnailFreshness::Record( m_InFlightPng, *m_InFlightSourceHash );
-                             !recorded )
-                            LOG_WARN( "[Thumbnails] {} — it will be captured again next session.",
-                                      recorded.GetError() );
-                }
-                m_Queued.erase( m_InFlight );
-                m_InFlight.clear();
-                m_InFlightPng.clear();
-                m_InFlightPngBefore.reset();
-                m_InFlightSourceHash.reset();
-                m_InFlightTicks = 0;
+                // The renderer finished but produced nothing — the asset cannot be previewed. Remember
+                // it, or every frame from now on would re-queue the same doomed request. (A late capture
+                // is already in m_Failed from the give-up.)
+                LOG_WARN( "[Thumbnails] no preview produced for '{}' — not retrying (the file at '{}' was "
+                          "left unchanged or not written)",
+                          settled->Identity, settled->Png.string() );
+                m_Failed.insert( settled->Identity );
             }
-            else if ( ++m_InFlightTicks > kInFlightGiveUpTicks )
+            else
             {
-                LOG_WARN( "[Thumbnails] '{}' never completed — giving up so the queue can drain",
-                          m_InFlight );
-                m_Failed.insert( m_InFlight );
-                m_Queued.erase( m_InFlight );
-                m_InFlight.clear();
-                m_InFlightPng.clear();
-                m_InFlightPngBefore.reset();
-                m_InFlightSourceHash.reset();
-                m_InFlightTicks = 0;
+                ++m_Captured;
+                if ( settled->Late )
+                {
+                    // It did complete: the give-up's verdict was wrong, and the picture is recorded now.
+                    m_Failed.erase( settled->Identity );
+                    LOG_INFO( "[Thumbnails] '{}' completed after the wait was given up — recorded.",
+                              settled->Identity );
+                }
+                if ( settled->RecordError )
+                    LOG_WARN( "[Thumbnails] '{}': {} — it will be captured again next session.", settled->Identity,
+                              *settled->RecordError );
             }
+            m_Queued.erase( settled->Identity );
             return; // one capture at a time — the renderer has a single slot
+        }
+        if ( m_Capture.Waiting() )
+        {
+            if ( ++m_InFlightTicks > kInFlightGiveUpTicks )
+            {
+                LOG_WARN( "[Thumbnails] '{}' never completed — giving up so the queue can drain; a picture it "
+                          "still writes is recorded when it lands",
+                          m_Capture.Identity() );
+                m_Failed.insert( m_Capture.Identity() );
+                m_Queued.erase( m_Capture.Identity() );
+                m_Capture.GiveUp();
+                m_InFlightTicks = 0;
+            }
+            return;
         }
 
         if ( m_Renderer->HasPending() )
@@ -450,19 +441,7 @@ namespace Desert::Editor
             return;
         }
 
-        m_InFlight          = req.Identity;
-        m_InFlightPng       = req.Png;
-        m_InFlightPngBefore  = PngStamp( req.Png );
-        m_InFlightSourceHash = ThumbnailFreshness::ContentHash( req.Source );
-        m_InFlightTicks      = 0;
-    }
-
-    std::optional<std::filesystem::file_time_type> ThumbnailService::PngStamp( const std::string& png )
-    {
-        std::error_code ec;
-        const auto      stamp = std::filesystem::last_write_time( png, ec );
-        if ( ec )
-            return std::nullopt;
-        return stamp;
+        m_Capture.Begin( req.Identity, req.Png, req.Source );
+        m_InFlightTicks = 0;
     }
 } // namespace Desert::Editor

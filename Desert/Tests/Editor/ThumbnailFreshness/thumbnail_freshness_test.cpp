@@ -195,3 +195,67 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+// TH1c. The service gives up waiting on a slow capture, but the renderer still writes the PNG later. That
+// late picture must carry the hash taken at DISPATCH, or the next session re-renders it (the two
+// M_SIL_*_Clouds materials in the TH1b measurement were re-captured on every launch).
+TEST( ThumbnailFreshness, APictureWrittenAfterTheWaitWasGivenUpIsStillRecorded )
+{
+    const TempDir  dir;
+    const fs::path source = dir.Root / "M.demat";
+    const fs::path png    = dir.Root / "M.png";
+    WriteFile( source, "material v1" );
+
+    ThumbnailFreshness::Capture capture;
+    capture.Begin( "assets:M.demat", png, source );
+    capture.GiveUp();
+    EXPECT_TRUE( capture.Outstanding() );
+    EXPECT_FALSE( capture.Waiting() );
+
+    WriteFile( png, "late-png-bytes" ); // the renderer finishes after the service stopped waiting
+    const auto settled = capture.Settle();
+    ASSERT_TRUE( settled.has_value() );
+    EXPECT_EQ( settled->What, ThumbnailFreshness::Capture::Landed::Written );
+    EXPECT_TRUE( settled->Late );
+    EXPECT_FALSE( settled->RecordError.has_value() );
+    EXPECT_FALSE( capture.Outstanding() );
+
+    EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "the late picture was re-queued";
+}
+
+// The dispatch-time hash is the one recorded: an edit made while the (slow) capture ran must read as stale.
+TEST( ThumbnailFreshness, ALatePictureOfAnEditedAssetIsStillStale )
+{
+    const TempDir  dir;
+    const fs::path source = dir.Root / "M.demat";
+    const fs::path png    = dir.Root / "M.png";
+    WriteFile( source, "material v1" );
+
+    ThumbnailFreshness::Capture capture;
+    capture.Begin( "assets:M.demat", png, source );
+    capture.GiveUp();
+    WriteFile( source, "material v2, edited during the capture" );
+    WriteFile( png, "late-png-of-v1" );
+    ASSERT_TRUE( capture.Settle().has_value() );
+
+    EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Capture );
+}
+
+// An old picture already at the target is not a capture: the file has to MOVE, late or on time.
+TEST( ThumbnailFreshness, AnUntouchedOldPictureIsNotCertifiedByACapture )
+{
+    const TempDir  dir;
+    const fs::path source = dir.Root / "M.demat";
+    const fs::path png    = dir.Root / "M.png";
+    WriteFile( source, "material v1" );
+    WriteFile( png, "old picture, no record" );
+
+    ThumbnailFreshness::Capture capture;
+    capture.Begin( "assets:M.demat", png, source );
+    capture.GiveUp();
+    const auto settled = capture.Settle(); // renderer went idle without writing
+    ASSERT_TRUE( settled.has_value() );
+    EXPECT_EQ( settled->What, ThumbnailFreshness::Capture::Landed::NotWritten );
+    EXPECT_FALSE( fs::exists( ThumbnailFreshness::RecordPath( png ) ) );
+    EXPECT_FALSE( capture.Settle().has_value() ) << "a settled capture must not settle twice";
+}

@@ -204,4 +204,104 @@ namespace Desert::Editor::ThumbnailFreshness
         seen.Recorded = Detail::Memoised( RecordPath( png ), Detail::ParseRecord );
         return seen;
     }
+
+    /// The PNG's modification time, absent when there is no file. What "the capture wrote it" is measured by.
+    [[nodiscard]] inline std::optional<std::filesystem::file_time_type> Stamp( const std::filesystem::path& png )
+    {
+        std::error_code ec;
+        const auto      stamp = std::filesystem::last_write_time( png, ec );
+        if ( ec )
+            return std::nullopt;
+        return stamp;
+    }
+
+    /**
+     * @brief One renderer capture, from dispatch until the renderer is idle again — INCLUDING after the
+     * service stopped waiting for it.
+     *
+     * GIVING UP DOES NOT FORGET THE DISPATCH (TH1c). The service stops waiting after a fixed number of
+     * frames so the queue is not held hostage, but the renderer's single slot finishes the job anyway and
+     * writes the PNG seconds later. That late PNG used to land with no record beside it: a picture the
+     * next session could not tell from a stale one, so it was re-rendered on every launch (the two
+     * M_SIL_*_Clouds materials in the TH1b measurement). The late PNG is ACCEPTED, not refused: it was
+     * rendered from the asset as it stood at dispatch, and the hash taken THEN is what gets recorded, so
+     * an edit made in the meantime still reads as stale (Record). Refusing it would discard a finished,
+     * correct render only to pay for it again next session.
+     *
+     * THE PICTURE MUST HAVE MOVED, not merely exist: a stale thumbnail is re-captured in place, so the old
+     * file sits at the target path before the renderer starts, and an existence check would certify a
+     * capture that wrote nothing.
+     */
+    class Capture
+    {
+    public:
+        enum class Landed
+        {
+            Written,   ///< the PNG changed since dispatch; the dispatch-time hash was recorded beside it
+            NotWritten ///< the renderer went idle without touching the target
+        };
+
+        struct Settled
+        {
+            std::string                Identity;
+            std::filesystem::path      Png;
+            Landed                     What = Landed::NotWritten;
+            bool                       Late = false;  ///< the service had already given up on it
+            std::optional<std::string> RecordError;  ///< Written, but the record could not be saved
+        };
+
+        /// The renderer accepted a capture of `source` into `png`. Hash and stamp are taken NOW.
+        void Begin( std::string identity, std::filesystem::path png, const std::filesystem::path& source )
+        {
+            m_Identity   = std::move( identity );
+            m_PngBefore  = Stamp( png );
+            m_SourceHash = ContentHash( source );
+            m_Png        = std::move( png );
+            m_GaveUp     = false;
+        }
+
+        /// A capture is dispatched and not yet settled, waited for or not.
+        [[nodiscard]] bool Outstanding() const { return !m_Identity.empty(); }
+        /// Outstanding, and the service is still waiting for it.
+        [[nodiscard]] bool Waiting() const { return Outstanding() && !m_GaveUp; }
+        [[nodiscard]] const std::string& Identity() const { return m_Identity; }
+
+        /// Stop waiting. The dispatch is KEPT, so the PNG the renderer still writes gets its record.
+        void GiveUp() { m_GaveUp = true; }
+
+        /// Call once the renderer is idle. Empty when nothing was outstanding.
+        [[nodiscard]] std::optional<Settled> Settle()
+        {
+            if ( !Outstanding() )
+                return std::nullopt;
+            Settled settled{ m_Identity, m_Png, Landed::NotWritten, m_GaveUp, std::nullopt };
+            const std::optional<std::filesystem::file_time_type> after = Stamp( m_Png );
+            if ( after && after != m_PngBefore )
+            {
+                settled.What = Landed::Written;
+                if ( !m_SourceHash )
+                    settled.RecordError = "the source could not be hashed at dispatch";
+                else if ( const Common::BoolResultStr recorded = Record( m_Png, *m_SourceHash ); !recorded )
+                    settled.RecordError = recorded.GetError();
+            }
+            Reset();
+            return settled;
+        }
+
+        void Reset()
+        {
+            m_Identity.clear();
+            m_Png.clear();
+            m_PngBefore.reset();
+            m_SourceHash.reset();
+            m_GaveUp = false;
+        }
+
+    private:
+        std::string                                    m_Identity;
+        std::filesystem::path                          m_Png;
+        std::optional<std::filesystem::file_time_type> m_PngBefore;
+        std::optional<uint64_t>                        m_SourceHash;
+        bool                                           m_GaveUp = false;
+    };
 } // namespace Desert::Editor::ThumbnailFreshness
