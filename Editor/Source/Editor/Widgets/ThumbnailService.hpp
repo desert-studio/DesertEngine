@@ -217,6 +217,7 @@ namespace Desert::Editor
         std::unordered_set<std::string>         m_Failed;  // gave up: do not retry every frame
         std::string                             m_InFlight;      // identity of the asset being captured
         std::string                             m_InFlightPng;   // its target PNG, checked on completion
+        std::optional<uint64_t> m_InFlightSourceHash; // source bytes at dispatch, recorded beside the PNG
         // The target's modification time BEFORE the capture started, absent when there was no file. The
         // completion test compares against it rather than asking whether the file exists — see Tick().
         std::optional<std::filesystem::file_time_type> m_InFlightPngBefore;

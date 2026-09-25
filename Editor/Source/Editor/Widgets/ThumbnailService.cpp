@@ -166,6 +166,7 @@ namespace Desert::Editor
         m_InFlight.clear();
         m_InFlightPng.clear();
         m_InFlightPngBefore.reset();
+                m_InFlightSourceHash.reset();
         m_InFlightTicks = 0;
         m_Captured      = 0;
         m_Skipped       = 0;
@@ -274,8 +275,16 @@ namespace Desert::Editor
         // cloud bake: work outside the pool is invisible to the profiler, unbounded in thread count, and
         // obeys no shared budget. The lambda captures its two strings BY VALUE, so nothing it touches can
         // outlive or be outlived by this object.
-        m_PaintInFlight = Common::JobSystem::Get().Async( [source = req.Source, png = req.Png]
-                                                          { return CloudThumbnail::Write( source, png ); } );
+        // The source hash is taken HERE, at dispatch, for the reason ThumbnailFreshness::Record gives.
+        m_PaintInFlight = Common::JobSystem::Get().Async(
+             [source = req.Source, png = req.Png,
+              hash = ThumbnailFreshness::ContentHash( req.Source )]() -> Common::BoolResultStr
+             {
+                 Common::BoolResultStr written = CloudThumbnail::Write( source, png );
+                 if ( !written || !hash )
+                     return written;
+                 return ThumbnailFreshness::Record( png, *hash );
+             } );
     }
 
     void ThumbnailService::Tick()
@@ -355,11 +364,21 @@ namespace Desert::Editor
                 else
                 {
                     ++m_Captured;
+                    // The record is what makes the picture survive a restart (ThumbnailFreshness, TH1).
+                    // Without it the next session cannot tell this PNG from one made before the asset's
+                    // last edit, and re-captures it.
+                    if ( m_InFlightSourceHash )
+                        if ( const Common::BoolResultStr recorded =
+                                  ThumbnailFreshness::Record( m_InFlightPng, *m_InFlightSourceHash );
+                             !recorded )
+                            LOG_WARN( "[Thumbnails] {} — it will be captured again next session.",
+                                      recorded.GetError() );
                 }
                 m_Queued.erase( m_InFlight );
                 m_InFlight.clear();
                 m_InFlightPng.clear();
                 m_InFlightPngBefore.reset();
+                m_InFlightSourceHash.reset();
                 m_InFlightTicks = 0;
             }
             else if ( ++m_InFlightTicks > kInFlightGiveUpTicks )
@@ -371,6 +390,7 @@ namespace Desert::Editor
                 m_InFlight.clear();
                 m_InFlightPng.clear();
                 m_InFlightPngBefore.reset();
+                m_InFlightSourceHash.reset();
                 m_InFlightTicks = 0;
             }
             return; // one capture at a time — the renderer has a single slot
@@ -432,8 +452,9 @@ namespace Desert::Editor
 
         m_InFlight          = req.Identity;
         m_InFlightPng       = req.Png;
-        m_InFlightPngBefore = PngStamp( req.Png );
-        m_InFlightTicks     = 0;
+        m_InFlightPngBefore  = PngStamp( req.Png );
+        m_InFlightSourceHash = ThumbnailFreshness::ContentHash( req.Source );
+        m_InFlightTicks      = 0;
     }
 
     std::optional<std::filesystem::file_time_type> ThumbnailService::PngStamp( const std::string& png )
