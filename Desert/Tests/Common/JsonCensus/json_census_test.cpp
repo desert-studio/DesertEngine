@@ -28,7 +28,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Desert/Common/Source/Common/Json/Json.hpp" );
+            const std::ifstream probe( prefix + "Desert/Common/Source/Common/Json/Json.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -38,8 +38,8 @@ namespace
 
     std::string ReadAll( const fs::path& path )
     {
-        std::ifstream      in( path, std::ios::binary );
-        std::ostringstream buffer;
+        const std::ifstream in( path, std::ios::binary );
+        std::ostringstream  buffer;
         buffer << in.rdbuf();
         return buffer.str();
     }

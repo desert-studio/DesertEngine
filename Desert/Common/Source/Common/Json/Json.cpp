@@ -42,8 +42,9 @@ namespace Common::Json
             std::size_t              start = 0;
             while ( start <= body.size() )
             {
-                const std::size_t end    = body.find( '\n', start );
-                const std::string_view line   = body.substr( start, end == std::string_view::npos ? end : end - start );
+                const std::size_t      end = body.find( '\n', start );
+                const std::string_view line =
+                     body.substr( start, end == std::string_view::npos ? end : end - start );
                 const std::size_t digits = line.find_first_not_of( "0123456789" );
                 if ( digits != 0 && digits != std::string_view::npos && line.substr( digits ).starts_with( ") " ) )
                     items.emplace_back( line.substr( digits + 2 ) );
@@ -58,38 +59,54 @@ namespace Common::Json
             return items;
         }
 
-        void Describe( std::string_view message, std::string path, std::vector<std::string>& out )
+        void Describe( std::string_view rflMessage, std::vector<std::string>& out )
         {
-            // rfl reports a nested failure as one prefix per level it unwinds through. Peeling them into a
-            // dotted path is what lets the message point at the line a person has to edit.
-            std::string_view rest = message;
-            std::string_view name;
-            while ( rest.starts_with( kNested ) && rest.find( "': ", kNested.size() ) != std::string_view::npos )
+            // rfl nests "N errors:" lists inside one another; an explicit stack walks them in reading order.
+            struct Pending
             {
-                TakeQuoted( rest, kNested, name );
-                AppendPath( path, name );
-                rest.remove_prefix( 2 ); // the ": " after the quote
-            }
+                std::string Message;
+                std::string Path;
+            };
+            std::vector<Pending> stack{ Pending{ std::string( rflMessage ), {} } };
+            while ( !stack.empty() )
+            {
+                const Pending current = std::move( stack.back() );
+                std::string   path    = current.Path;
+                stack.pop_back();
 
-            if ( rest.starts_with( kMany ) && rest.find( " errors:\n" ) != std::string_view::npos )
-            {
-                for ( const auto& item : SplitItems( rest.substr( rest.find( '\n' ) + 1 ) ) )
-                    Describe( item, path, out );
-                return;
-            }
+                // rfl reports a nested failure as one prefix per level it unwinds through. Peeling them into a
+                // dotted path is what lets the message point at the line a person has to edit.
+                std::string_view rest = current.Message;
+                std::string_view name;
+                while ( rest.starts_with( kNested ) &&
+                        rest.find( "': ", kNested.size() ) != std::string_view::npos )
+                {
+                    TakeQuoted( rest, kNested, name );
+                    AppendPath( path, name );
+                    rest.remove_prefix( 2 ); // the ": " after the quote
+                }
 
-            std::string what( rest );
-            if ( TakeQuoted( rest, kMissing, name ) )
-            {
-                AppendPath( path, name );
-                what = "missing — the format requires it (only a std::optional member may be absent)";
+                if ( rest.starts_with( kMany ) && rest.find( " errors:\n" ) != std::string_view::npos )
+                {
+                    const auto items = SplitItems( rest.substr( rest.find( '\n' ) + 1 ) );
+                    for ( auto item = items.rbegin(); item != items.rend(); ++item )
+                        stack.push_back( Pending{ *item, path } );
+                    continue;
+                }
+
+                std::string what( rest );
+                if ( TakeQuoted( rest, kMissing, name ) )
+                {
+                    AppendPath( path, name );
+                    what = "missing — the format requires it (only a std::optional member may be absent)";
+                }
+                else if ( TakeQuoted( rest, kUnknown, name ) )
+                {
+                    AppendPath( path, name );
+                    what = "unknown key — the format does not declare it";
+                }
+                out.push_back( path.empty() ? "document: " + what : "field '" + path + "': " + what );
             }
-            else if ( TakeQuoted( rest, kUnknown, name ) )
-            {
-                AppendPath( path, name );
-                what = "unknown key — the format does not declare it";
-            }
-            out.push_back( path.empty() ? "document: " + what : "field '" + path + "': " + what );
         }
     } // namespace
 
@@ -98,7 +115,7 @@ namespace Common::Json
         std::string DescribeReadError( std::string_view rflMessage )
         {
             std::vector<std::string> lines;
-            Describe( rflMessage, {}, lines );
+            Describe( rflMessage, lines );
             std::string joined;
             for ( const auto& line : lines )
             {
