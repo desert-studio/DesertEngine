@@ -42,8 +42,8 @@ namespace Desert::Editor::MaterialEdit
     // same values authored in a different order are the same material, and comparing the vectors
     // positionally would report a document as permanently unapplied after a Discard.
     //
-    // The shader is compared through SurfaceMaterialAsset::ShaderNameOf() rather than the optional, so an absent name and
-    // an explicit "StaticMeshPBR" compare EQUAL. They are the same shader; a material that was saved
+    // The shader is compared through SurfaceMaterialAsset::ShaderNameOf() rather than the optional, so an absent
+    // name and an explicit "StaticMeshPBR" compare EQUAL. They are the same shader; a material that was saved
     // before the field existed must not read as differing from the one the editor just wrote.
     [[nodiscard]] inline bool AuthoredValuesEqual( const Assets::MaterialData& a, const Assets::MaterialData& b )
     {

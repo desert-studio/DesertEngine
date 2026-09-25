@@ -443,8 +443,8 @@ namespace Desert::Editor
         SlotSwatch swatch;
 
         auto*             shaderService = Runtime::ResourceRegistry::GetShaderService();
-        const Assets::MaterialData* parentData = parent ? &parent->Data() : nullptr;
-        const std::string           shaderName = parent ? parent->GetShaderName() : asset.GetShaderName();
+        const Assets::MaterialData* parentData    = parent ? &parent->Data() : nullptr;
+        const std::string           shaderName    = parent ? parent->GetShaderName() : asset.GetShaderName();
         auto shader = shaderService ? shaderService->GetByName( shaderName ) : nullptr;
         if ( !shader )
             return swatch;
@@ -781,8 +781,9 @@ namespace Desert::Editor
 
                 // The shader the slot RENDERS with: an instance's own ShaderName is empty and would read
                 // as the engine default here, so it comes from the parent chain.
-                const std::string shaderName = asset ? ( parentAsset ? parentAsset->GetShaderName() : asset->GetShaderName() )
-                                                     : std::string( "Engine default material" );
+                const std::string shaderName =
+                     asset ? ( parentAsset ? parentAsset->GetShaderName() : asset->GetShaderName() )
+                           : std::string( "Engine default material" );
 
                 SlotRow row;
                 row.Index      = i;

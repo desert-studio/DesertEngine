@@ -115,7 +115,7 @@ TEST( AssetMissingFile, AnUnparseableMaterialLoadsUsableAndRefusesToSaveOverItsF
 // the only ones that are not "custom" (the batched backend), which is what hot reload asks.
 TEST( AssetMissingFile, AMaterialWithoutAShaderResolvesToTheStandardSurface )
 {
-    const fs::path path = MissingPath( "no_shader.demat" );
+    const fs::path                       path = MissingPath( "no_shader.demat" );
     Desert::Assets::SurfaceMaterialAsset material( Desert::Assets::AssetPriority::Medium, path );
     ASSERT_TRUE( material.Load().IsSuccess() );
 
@@ -126,10 +126,9 @@ TEST( AssetMissingFile, AMaterialWithoutAShaderResolvesToTheStandardSurface )
 
 TEST( AssetMissingFile, AMaterialNamingAShaderResolvesToThatName )
 {
-    const auto header =
-         std::string( R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a00)" );
-    const auto body = std::string( R"(","Versions":{"MATL":3},"Dependencies":[]},"ShaderName":")" );
-    const auto tail = std::string( R"(","Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
+    const auto header = std::string( R"({"Header":{"Kind":"Material","Guid":"5a1f0c0e9d3b4e7a8c21f00d0000a00)" );
+    const auto body   = std::string( R"(","Versions":{"MATL":3},"Dependencies":[]},"ShaderName":")" );
+    const auto tail   = std::string( R"(","Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})" );
 
     const fs::path unlitPath = PathWith( "unlit.demat", header + "2" + body + "Unlit" + tail );
     Desert::Assets::SurfaceMaterialAsset unlit( Desert::Assets::AssetPriority::Medium, unlitPath );

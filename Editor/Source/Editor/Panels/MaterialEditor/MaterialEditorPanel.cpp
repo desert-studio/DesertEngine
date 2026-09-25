@@ -660,8 +660,7 @@ namespace Desert::Editor
         if ( !drawn )
             return;
 
-        if ( const PushedIdentity wanted{ drawn->GetMetadata().Handle, m_Shape, DrawnShaderName(),
-                                          m_PreviewMesh };
+        if ( const PushedIdentity wanted{ drawn->GetMetadata().Handle, m_Shape, DrawnShaderName(), m_PreviewMesh };
              !( wanted == m_Pushed ) )
         {
             const auto domain = EffectiveDomain();
