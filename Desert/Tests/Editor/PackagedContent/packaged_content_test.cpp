@@ -184,6 +184,7 @@ TEST( PackagedContent, APackageWithoutAChunkSchemeIsRefusedByPathAndWritesNoArch
     ASSERT_FALSE( refused.Success ) << "a project with no chunk scheme packaged anyway: " << refused.Message;
     EXPECT_NE( refused.Message.find( scheme.string() ), std::string::npos ) << refused.Message;
     EXPECT_FALSE( fs::exists( proj / "Content.dpak" ) ) << "the refusal still wrote an archive";
+    EXPECT_FALSE( fs::exists( proj / "Cooked" ) ) << "the scheme was read only after the cook had run";
 
     // The way out the message names, taken: the default scheme makes the same project package.
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( scheme ) );
@@ -913,6 +914,39 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
          << "the refusal does not name a script this host can run: " << result.Message;
     EXPECT_NE( result.Message.find( host.RuntimeBinary ), std::string::npos )
          << "the refusal does not say which file was missing: " << result.Message;
+}
+
+// THE SCHEME IS READ BEFORE THE COOK (PK1b). The refusal needs nothing but the file, so it must come
+// before the cook's minutes of work and before anything reaches the output directory. The Runtime binary
+// is deliberately absent too: in the old order the cook ran and then the missing binary answered first,
+// so a message naming the scheme proves the scheme was the FIRST thing asked.
+TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWritesNothing )
+{
+    EnvironmentGuard guard;
+
+    const fs::path base = fs::temp_directory_path() / "desert_pkg_scheme_first";
+    fs::remove_all( base );
+    const fs::path proj = base / "proj";
+
+    WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
+    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    SetEnv( "HOME", base.string() );
+    fs::current_path( proj );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+
+    const fs::path scheme = Common::Content::ChunkSchemePath();
+    ASSERT_FALSE( fs::exists( scheme ) );
+
+    Desert::Editor::PackageOptions options;
+    options.OutputDir = ( base / "out" ).string();
+    options.Config    = "Release"; // nothing was built into base/build/Bin/Release
+
+    const auto result = Desert::Editor::PackageGame( options );
+    ASSERT_FALSE( result.Success ) << "a project with no chunk scheme packaged anyway";
+    EXPECT_NE( result.Message.find( scheme.string() ), std::string::npos )
+         << "something other than the scheme answered first: " << result.Message;
+    EXPECT_FALSE( fs::exists( proj / "Cooked" ) ) << "the cook ran before the scheme was read";
+    EXPECT_FALSE( fs::exists( base / "out" ) ) << "the refusal left something in the output directory";
 }
 
 // ── A PACKAGE STARTS BY ITSELF (П5) ───────────────────────────────────────────────────────────────

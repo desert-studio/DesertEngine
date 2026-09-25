@@ -213,12 +213,11 @@ namespace Desert::Editor
         // and the scheme file carries only what cannot be derived from them (chunk roots, and the
         // keys pinned to the base). The scheme is REQUIRED: an absent, blank or broken file refuses
         // the package by path, and a one-archive project says so in its file (owner, 2026-09-25).
-        Common::ResultStr<Common::Content::ChunkPlan> PlanTheDivision()
+        // It is READ by the caller before the cook (see PackageGame), and only the plan is built
+        // here, because the plan needs the registry the cook and the gather produce.
+        Common::ResultStr<Common::Content::ChunkPlan> PlanTheDivision( const Common::Content::ChunkScheme& scheme )
         {
-            const auto scheme = Common::Content::LoadChunkScheme( Common::Content::ChunkSchemePath() );
-            if ( !scheme )
-                return Common::MakeError<Common::Content::ChunkPlan>( scheme.GetError() );
-            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme.GetValue() );
+            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme );
         }
 
         // What the packager says about the division, so a one-archive project and a divided one are
@@ -287,6 +286,13 @@ namespace Desert::Editor
 
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
+
+        // THE SCHEME BEFORE THE COOK. A missing or broken ContentChunks.json is a refusal that needs
+        // nothing but the file, so it is answered before the cook's minutes of work and before any
+        // write: reading it after the cook made the person wait for a result that was never usable.
+        const auto scheme = Common::Content::LoadChunkScheme( Common::Content::ChunkSchemePath() );
+        if ( !scheme )
+            return { false, scheme.GetError(), "" };
 
         // THE COOK FIRST, because it is a PRODUCER OF THE REGISTRY the gather below reads. Cook BEFORE
         // packing: every deterministic startup cost — shader SPIR-V, font atlases, icon SDFs, and the
@@ -411,7 +417,7 @@ namespace Desert::Editor
                 return { false, error, "" };
             ++stats.Files;
 
-            const auto plan = PlanTheDivision();
+            const auto plan = PlanTheDivision( scheme.GetValue() );
             if ( !plan )
                 return { false, plan.GetError(), "" };
 
@@ -658,6 +664,11 @@ namespace Desert::Editor
         if ( !ProjectContext::HasProject() )
             return { false, "No project is open.", "" };
 
+        // The scheme before the cook, for PackageGame's reason.
+        const auto scheme = Common::Content::LoadChunkScheme( Common::Content::ChunkSchemePath() );
+        if ( !scheme )
+            return { false, scheme.GetError(), "" };
+
         // Same cook as PackageGame, for THIS build's profile: the dev pak serves the runtime the
         // developer launches next to this editor, which is built in the same configuration. (A
         // cross-config dev runtime misses and self-heals into loose Cooked/ — dev machines are
@@ -700,7 +711,7 @@ namespace Desert::Editor
         // AND THE SAME DIVISION. A dev archive set that was not divided the way the shipped one is
         // would make the developer's runtime read a layout no player ever gets, which is the one
         // property this entry point exists to avoid.
-        const auto plan = PlanTheDivision();
+        const auto plan = PlanTheDivision( scheme.GetValue() );
         if ( !plan )
             return { false, plan.GetError(), "" };
 
