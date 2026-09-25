@@ -11,6 +11,7 @@
 //
 // Manual retain/release: this target is not built with -fobjc-arc (neither is Common's MacOS code).
 
+#include <Editor/Splash/SplashControls.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashLayout.hpp>
 #include <Editor/Splash/SplashScreen.hpp>
@@ -18,17 +19,32 @@
 #include <Common/Core/Logger.hpp>
 
 #import <AppKit/AppKit.h>
+#import <CoreText/CoreText.h>
 #import <QuartzCore/QuartzCore.h>
 
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
+#include <memory>
 #include <optional>
 #include <thread>
+
+// A patch of the splash a mouse-down cannot drag the window by: the two buttons. Everything else of the
+// splash moves the window (movableByWindowBackground), the way the editor's title bar does.
+@interface DesertSplashButtonArea : NSView
+@end
+@implementation DesertSplashButtonArea
+- (BOOL)mouseDownCanMoveWindow
+{
+    return NO;
+}
+@end
 
 namespace Desert::Editor::Splash
 {
@@ -73,6 +89,75 @@ namespace Desert::Editor::Splash
             NSString* string = [NSString stringWithUTF8String:text.c_str()];
             return ( string != nullptr ) ? string : @"";
         }
+
+        // The editor's icon font, loaded from its file (it is not installed in the system). Null, and said
+        // once, when the file is missing: the buttons then draw the system font's closest characters.
+        CTFontRef LoadIconFont( const CGFloat size )
+        {
+            NSURL*     url         = [NSURL fileURLWithPath:ToNS( UI::kIconFontFile.string() )];
+            CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL( (__bridge CFURLRef)url );
+            CTFontRef  font        = nullptr;
+            if ( descriptors != nullptr && CFArrayGetCount( descriptors ) > 0 )
+                font = CTFontCreateWithFontDescriptor(
+                     (CTFontDescriptorRef)CFArrayGetValueAtIndex( descriptors, 0 ), size, nullptr );
+            if ( descriptors != nullptr )
+                CFRelease( descriptors );
+            if ( font == nullptr )
+                LOG_WARN( "[Splash] icon font '{}' could not be read; the window buttons draw system characters",
+                          UI::kIconFontFile.string() );
+            return font; // +1 or null
+        }
+
+        void SetFill( CALayer* layer, const UI::ButtonColour& colour )
+        {
+            CGColorRef fill       = MakeColour( colour.R, colour.G, colour.B, colour.A );
+            layer.backgroundColor = fill;
+            CGColorRelease( fill );
+        }
+
+        // Where the pointer is and whether its left button is down, asked of the window server rather than
+        // of the event stream: the event stream is the main thread's, and the main thread is loading.
+        struct Pointer
+        {
+            CGPoint Location{};
+            bool    Down = false;
+        };
+        Pointer ReadPointer()
+        {
+            Pointer    pointer;
+            CGEventRef event = CGEventCreate( nullptr );
+            if ( event != nullptr )
+            {
+                pointer.Location = CGEventGetLocation( event );
+                CFRelease( event );
+            }
+            pointer.Down = CGEventSourceButtonState( kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft );
+            return pointer;
+        }
+
+        // The window's frame as the window server has it now — top-origin, points — including every move a
+        // drag made since. Nothing when it is not on screen (minimized).
+        std::optional<CGRect> OnScreenBounds( const CGWindowID window )
+        {
+            const void*    ids[] = { reinterpret_cast<const void*>( static_cast<uintptr_t>( window ) ) };
+            CFArrayRef     list  = CFArrayCreate( nullptr, ids, 1, nullptr );
+            CFArrayRef     info  = CGWindowListCreateDescriptionFromArray( list );
+            std::optional<CGRect> bounds;
+            if ( info != nullptr && CFArrayGetCount( info ) > 0 )
+            {
+                auto      entry    = (CFDictionaryRef)CFArrayGetValueAtIndex( info, 0 );
+                auto      onScreen = (CFBooleanRef)CFDictionaryGetValue( entry, kCGWindowIsOnscreen );
+                auto      rect     = (CFDictionaryRef)CFDictionaryGetValue( entry, kCGWindowBounds );
+                CGRect    frame{};
+                if ( onScreen != nullptr && CFBooleanGetValue( onScreen ) && rect != nullptr &&
+                     CGRectMakeWithDictionaryRepresentation( rect, &frame ) )
+                    bounds = frame;
+            }
+            if ( info != nullptr )
+                CFRelease( info );
+            CFRelease( list );
+            return bounds;
+        }
     } // namespace
 
     class SplashScreenMacOS final : public SplashScreen
@@ -103,7 +188,8 @@ namespace Desert::Editor::Splash
                                                 visible.origin.y + ( visible.size.height - h ) * 0.5, w, h );
 
             m_Window                    = [[NSWindow alloc] initWithContentRect:frame
-                                                   styleMask:NSWindowStyleMaskBorderless
+                                                   styleMask:NSWindowStyleMaskBorderless |
+                                                             NSWindowStyleMaskMiniaturizable
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
             m_Window.releasedWhenClosed = NO;
@@ -114,6 +200,11 @@ namespace Desert::Editor::Splash
             // started it — the place every engine's splash sits.
             m_Window.level = NSFloatingWindowLevel;
             m_Window.title = @"Desert Engine";
+            // Moved by its background, as the editor's title bar moves the editor. The drag is the window
+            // server's once AppKit has handed it the draggable region, so it does not wait on the loading
+            // main thread either.
+            m_Window.movableByWindowBackground = YES;
+            m_Fit                              = fit;
 
             NSView* view    = m_Window.contentView;
             view.wantsLayer = YES;
@@ -170,6 +261,41 @@ namespace Desert::Editor::Splash
             CGColorRelease( sand );
             [m_Root addSublayer:m_Fill];
 
+            // THE WINDOW BUTTONS: the editor frame's minimize and close, same squares, colours and glyphs
+            // (WindowButtonStyle.hpp), in the splash's top-right corner.
+            CTFontRef iconFont = LoadIconFont( kButtonGlyphSize );
+            for ( const SplashButton button : { SplashButton::Minimize, SplashButton::Close } )
+            {
+                const Rect rect         = ButtonRect( button );
+                CALayer*   square       = [[CALayer alloc] init];
+                square.frame            = ToCG( rect );
+                CATextLayer* glyph      = [[CATextLayer alloc] init];
+                const bool   close      = button == SplashButton::Close;
+                glyph.font              = iconFont != nullptr ? (CFTypeRef)iconFont
+                                                              : (__bridge CFTypeRef)[NSFont systemFontOfSize:kButtonGlyphSize];
+                glyph.fontSize          = kButtonGlyphSize;
+                glyph.string            = iconFont != nullptr ? ToNS( close ? UI::kCloseGlyph : UI::kMinimizeGlyph )
+                                                              : ( close ? @"\u2715" : @"\u2013" );
+                glyph.alignmentMode     = kCAAlignmentCenter;
+                glyph.contentsScale     = scale;
+                CGColorRef white        = MakeColour( 1, 1, 1, 0.9 );
+                glyph.foregroundColor   = white;
+                CGColorRelease( white );
+                const CGFloat line      = LineHeight( kButtonGlyphSize );
+                glyph.frame             = CGRectMake( 0, ( rect.H - line ) * 0.5, rect.W, line );
+                [square addSublayer:glyph];
+                [m_Root addSublayer:square];
+                m_ButtonSquares[close ? 1 : 0] = square;
+                m_ButtonGlyphs[close ? 1 : 0]  = glyph;
+
+                NSView* area = [[DesertSplashButtonArea alloc]
+                     initWithFrame:NSMakeRect( rect.X * fit, rect.Y * fit, rect.W * fit, rect.H * fit )];
+                [view addSubview:area];
+                [area release];
+            }
+            if ( iconFont != nullptr )
+                CFRelease( iconFont );
+
             m_Project.string = ToNS( content.ProjectName );
             m_Version.string = ToNS( content.Version );
             ApplyStatus( ProgressSnapshot{} );
@@ -203,7 +329,8 @@ namespace Desert::Editor::Splash
                 LOG_INFO( "[Splash] on screen {:.0f} ms after the process started", ms );
             }
 
-            m_Thread = std::thread( [this] { Run(); } );
+            m_WindowId = static_cast<CGWindowID>( m_Window.windowNumber );
+            m_Thread   = std::thread( [this] { Run(); } );
         }
 
         ~SplashScreenMacOS() override
@@ -213,6 +340,9 @@ namespace Desert::Editor::Splash
 
         void SetProgress( const ProgressSnapshot& progress ) override
         {
+            // On the main thread, which is where AppKit wants a window minimized: a minimize clicked while
+            // the main thread was inside a long call is carried out at its next progress report.
+            MinimizeIfAsked( m_Window, m_MinimizeAsked );
             {
                 const std::lock_guard<std::mutex> lock( m_Mutex );
                 m_Pending = progress;
@@ -250,14 +380,66 @@ namespace Desert::Editor::Splash
             // The delayed perform retains the window until it has run, so the release below is safe.
             [m_Window performSelector:@selector( orderOut: ) withObject:nil afterDelay:kFadeOutSeconds];
 
-            for ( CALayer* layer : { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage,
-                                     (CALayer*)m_Percent, (CALayer*)m_Item, m_Track, m_Fill, m_Image, m_Root } )
+            for ( CALayer* layer :
+                  { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage, (CALayer*)m_Percent,
+                    (CALayer*)m_Item, m_Track, m_Fill, m_Image, (CALayer*)m_ButtonGlyphs[0],
+                    (CALayer*)m_ButtonGlyphs[1], m_ButtonSquares[0], m_ButtonSquares[1], m_Root } )
                 [layer release];
             [m_Window release];
             m_Window = nil;
         }
 
     private:
+        static void MinimizeIfAsked( NSWindow* window, const std::shared_ptr<std::atomic<bool>>& asked )
+        {
+            if ( window != nil && asked->exchange( false ) )
+                [window miniaturize:nil];
+        }
+
+        // One look at the pointer, on the splash's thread: hover and pressed colours, and a click on
+        // either button. Returns whether anything visible changed.
+        bool TrackPointer()
+        {
+            const Pointer pointer = ReadPointer();
+            SplashButton  under   = SplashButton::None;
+            if ( const auto bounds = OnScreenBounds( m_WindowId ) )
+            {
+                const DesignPoint at =
+                     ScreenToDesign( (float)pointer.Location.x, (float)pointer.Location.y,
+                                     (float)bounds->origin.x, (float)bounds->origin.y, (float)m_Fit );
+                under = HitTestButtons( at.X, at.Y );
+            }
+            const SplashButton before[2] = { m_Buttons.Hovered(), m_Buttons.Pressed() };
+            const SplashButton clicked   = m_Buttons.Update( under, pointer.Down );
+            if ( clicked == SplashButton::Close && !CloseRequested() )
+            {
+                LOG_INFO( "[Splash] close clicked; the editor stops loading and exits" );
+                NoteCloseClicked();
+            }
+            else if ( clicked == SplashButton::Minimize )
+            {
+                m_MinimizeAsked->store( true );
+                // And through the main queue too, which the main run loop drains whenever the editor
+                // pumps events between stages; whichever comes first minimizes, the other finds nothing.
+                NSWindow* window = m_Window;
+                auto      asked  = m_MinimizeAsked;
+                [window retain];
+                dispatch_async( dispatch_get_main_queue(), ^{
+                  MinimizeIfAsked( window, asked );
+                  [window release];
+                } );
+            }
+            return clicked == SplashButton::Close || before[0] != m_Buttons.Hovered() ||
+                   before[1] != m_Buttons.Pressed();
+        }
+
+        // Called inside a transaction the caller owns.
+        void ApplyButtons()
+        {
+            SetFill( m_ButtonSquares[0], ButtonFill( SplashButton::Minimize, m_Buttons ) );
+            SetFill( m_ButtonSquares[1], ButtonFill( SplashButton::Close, m_Buttons ) );
+        }
+
         // Called inside a transaction the caller owns.
         void ApplyStatus( const ProgressSnapshot& status )
         {
@@ -269,8 +451,10 @@ namespace Desert::Editor::Splash
             m_Item.frame        = ToCG( layout.Item );
             m_Track.frame       = ToCG( layout.BarTrack );
             m_Fill.frame        = ToCG( layout.BarFill );
-            m_Stage.string      = ToNS( status.Stage );
-            m_Item.string       = ToNS( status.Item );
+            // Once close is clicked the load is being abandoned, and the stage the main thread last
+            // reported is no longer what is happening.
+            m_Stage.string      = ToNS( CloseRequested() ? std::string( "Closing..." ) : status.Stage );
+            m_Item.string       = ToNS( CloseRequested() ? std::string{} : status.Item );
             // No stage yet means no plan yet: a "0%" there would be a number that says nothing.
             m_Percent.string = ToNS( status.Stage.empty() ? std::string{} : FormatPercent( status.Fraction ) );
         }
@@ -308,20 +492,32 @@ namespace Desert::Editor::Splash
                 LOG_WARN( "[Splash] no picture, drawing on the plain background: {}", pixels.GetError() );
             }
 
+            // Woken by a new status, and otherwise every kPointerPeriod to look at the pointer: the buttons
+            // answer from this thread, because the main thread that owns the event stream is loading.
+            constexpr auto   kPointerPeriod = std::chrono::milliseconds( 16 );
+            ProgressSnapshot status;
             for ( ;; )
             {
-                ProgressSnapshot status;
+                bool statusChanged = false;
                 {
                     std::unique_lock<std::mutex> lock( m_Mutex );
-                    m_Wake.wait( lock, [this] { return m_Stop || m_Pending.has_value(); } );
+                    m_Wake.wait_for( lock, kPointerPeriod, [this] { return m_Stop || m_Pending.has_value(); } );
                     if ( m_Stop )
                         return;
-                    status = std::move( *m_Pending );
-                    m_Pending.reset();
+                    if ( m_Pending )
+                    {
+                        status = std::move( *m_Pending );
+                        m_Pending.reset();
+                        statusChanged = true;
+                    }
                 }
+                const bool buttonsChanged = TrackPointer();
+                if ( !statusChanged && !buttonsChanged )
+                    continue;
                 [CATransaction begin];
                 [CATransaction setDisableActions:YES];
                 ApplyStatus( status );
+                ApplyButtons();
                 [CATransaction commit];
                 [CATransaction flush];
             }
@@ -339,6 +535,15 @@ namespace Desert::Editor::Splash
         CATextLayer* m_Item    = nil;
         CALayer*     m_Track   = nil;
         CALayer*     m_Fill    = nil;
+        // [0] minimize, [1] close.
+        CALayer*     m_ButtonSquares[2] = { nil, nil };
+        CATextLayer* m_ButtonGlyphs[2]  = { nil, nil };
+        CGWindowID   m_WindowId         = 0;
+        CGFloat      m_Fit              = 1.0;
+        // Touched by the splash's thread only.
+        ButtonTracker m_Buttons;
+        // Set by the splash's thread, carried out on the main thread (AppKit's rule for window changes).
+        std::shared_ptr<std::atomic<bool>> m_MinimizeAsked = std::make_shared<std::atomic<bool>>( false );
 
         std::thread             m_Thread;
         std::mutex              m_Mutex;

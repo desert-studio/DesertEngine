@@ -15,6 +15,7 @@
 //
 // NOT RUN ON THE MACHINE IT WAS WRITTEN ON (macOS). What CI proves for this file is that it compiles.
 
+#include <Editor/Splash/SplashControls.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashLayout.hpp>
 #include <Editor/Splash/SplashScreen.hpp>
@@ -123,6 +124,28 @@ namespace Desert::Editor::Splash
                 case kStatusMessage:
                     InvalidateRect( window, nullptr, FALSE );
                     return 0;
+                case WM_NCHITTEST:
+                {
+                    // THE PICTURE MOVES THE WINDOW: everything but the two buttons answers as a caption, so
+                    // the system drags the splash on this thread, as the editor's title bar drags the editor.
+                    const LRESULT hit = DefWindowProcW( window, message, wParam, lParam );
+                    if ( hit != HTCLIENT || !self )
+                        return hit;
+                    POINT at{ static_cast<short>( LOWORD( lParam ) ), static_cast<short>( HIWORD( lParam ) ) };
+                    ScreenToClient( window, &at );
+                    return self->ButtonAt( at.x, at.y ) == SplashButton::None ? HTCAPTION : HTCLIENT;
+                }
+                case WM_MOUSEMOVE:
+                case WM_LBUTTONDOWN:
+                case WM_LBUTTONUP:
+                    if ( self )
+                        self->Pointer( window, static_cast<short>( LOWORD( lParam ) ),
+                                       static_cast<short>( HIWORD( lParam ) ), message );
+                    return 0;
+                case WM_MOUSELEAVE:
+                    if ( self )
+                        self->Pointer( window, -1, -1, message );
+                    return 0;
                 case WM_ERASEBKGND:
                     return 1; // the whole client area is painted in WM_PAINT
                 case WM_PAINT:
@@ -172,8 +195,15 @@ namespace Desert::Editor::Splash
             const int y       = work.top + ( static_cast<int>( workH ) - h ) / 2;
 
             HWND window =
-                 CreateWindowExW( WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED, kClassName, L"Desert Engine",
-                                  WS_POPUP, x, y, w, h, nullptr, nullptr, instance, nullptr );
+                 // An APP window with a minimize box, not a tool window: minimized, it has a taskbar button to
+                 // come back from.
+                 CreateWindowExW( WS_EX_APPWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED, kClassName, L"Desert Engine",
+                                  WS_POPUP | WS_MINIMIZEBOX, x, y, w, h, nullptr, nullptr, instance, nullptr );
+            const std::wstring iconFont = UI::kIconFontFile.wstring();
+            m_IconFontLoaded = AddFontResourceExW( iconFont.c_str(), FR_PRIVATE, nullptr ) > 0;
+            if ( !m_IconFontLoaded )
+                LOG_WARN( "[Splash] icon font '{}' could not be loaded; the window buttons draw system characters",
+                          UI::kIconFontFile.string() );
             if ( window )
             {
                 SetWindowLongPtrW( window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>( this ) );
@@ -318,6 +348,12 @@ namespace Desert::Editor::Splash
             {
                 std::lock_guard<std::mutex> lock( m_Mutex );
                 status = m_Status;
+                // Once close is clicked the load is being abandoned; the last stage is not what happens.
+                if ( CloseRequested() )
+                {
+                    status.Stage = "Closing...";
+                    status.Item.clear();
+                }
                 if ( m_Picture )
                 {
                     BITMAPINFO info              = {};
@@ -377,6 +413,7 @@ namespace Desert::Editor::Splash
                 DeleteObject( sand );
             }
 
+            PaintButtons( dc );
             BitBlt( screen, 0, 0, w, h, dc, 0, 0, SRCCOPY );
 
             SelectObject( dc, oldFont );
@@ -388,6 +425,102 @@ namespace Desert::Editor::Splash
             DeleteDC( dc );
             EndPaint( window, &paint );
         }
+
+        RECT ToPixels( const Rect& rect ) const
+        {
+            const Rect flipped = FlipY( rect );
+            return { static_cast<LONG>( flipped.X * m_Scale ), static_cast<LONG>( flipped.Y * m_Scale ),
+                     static_cast<LONG>( ( flipped.X + flipped.W ) * m_Scale ),
+                     static_cast<LONG>( ( flipped.Y + flipped.H ) * m_Scale ) };
+        }
+
+        SplashButton ButtonAt( const int x, const int y ) const
+        {
+            return HitTestButtons( static_cast<float>( x ) / m_Scale, kHeight - static_cast<float>( y ) / m_Scale );
+        }
+
+        // Every pointer message, on the splash's thread (which owns the window): hover, pressed, click.
+        void Pointer( HWND window, const int x, const int y, const UINT message )
+        {
+            if ( message == WM_MOUSEMOVE && !m_TrackingLeave )
+            {
+                TRACKMOUSEEVENT track{ sizeof( TRACKMOUSEEVENT ), TME_LEAVE, window, 0 };
+                m_TrackingLeave = TrackMouseEvent( &track ) != FALSE;
+            }
+            if ( message == WM_MOUSELEAVE )
+                m_TrackingLeave = false;
+            if ( message == WM_LBUTTONDOWN )
+                SetCapture( window );
+            if ( message == WM_LBUTTONUP )
+                ReleaseCapture();
+
+            const SplashButton under   = message == WM_MOUSELEAVE ? SplashButton::None : ButtonAt( x, y );
+            const bool         down    = ( message == WM_LBUTTONDOWN ) ||
+                                         ( message == WM_MOUSEMOVE && ( GetKeyState( VK_LBUTTON ) & 0x8000 ) != 0 );
+            const SplashButton clicked = m_Buttons.Update( under, down );
+            if ( clicked == SplashButton::Close && !CloseRequested() )
+            {
+                LOG_INFO( "[Splash] close clicked; the editor stops loading and exits" );
+                NoteCloseClicked();
+            }
+            else if ( clicked == SplashButton::Minimize )
+                ShowWindow( window, SW_MINIMIZE );
+            InvalidateRect( window, nullptr, FALSE );
+        }
+
+        // The editor frame's two buttons (WindowButtonStyle.hpp): the square blended over the picture at
+        // the shared colour's alpha, the glyph from the icon font.
+        void PaintButtons( HDC dc )
+        {
+            const int glyphPx = -static_cast<int>( kButtonGlyphSize * m_Scale * 96.0f / 72.0f + 0.5f );
+            HFONT     font    = CreateFontW( glyphPx, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                             DEFAULT_PITCH, m_IconFontLoaded ? L"Material Design Icons" : L"Segoe UI" );
+            HGDIOBJ   old     = SelectObject( dc, font );
+            SetBkMode( dc, TRANSPARENT );
+            SetTextColor( dc, RGB( 230, 230, 230 ) );
+            for ( const SplashButton button : { SplashButton::Minimize, SplashButton::Close } )
+            {
+                RECT                   box    = ToPixels( ButtonRect( button ) );
+                const UI::ButtonColour colour = ButtonFill( button, m_Buttons );
+                if ( colour.A > 0.0f )
+                {
+                    // One pixel of the colour, stretched and blended: GDI's only per-call alpha fill.
+                    HDC         pixelDc = CreateCompatibleDC( dc );
+                    HBITMAP     pixel   = CreateCompatibleBitmap( dc, 1, 1 );
+                    HGDIOBJ     oldBmp  = SelectObject( pixelDc, pixel );
+                    SetPixel( pixelDc, 0, 0,
+                              RGB( static_cast<BYTE>( colour.R * 255.0f ), static_cast<BYTE>( colour.G * 255.0f ),
+                                   static_cast<BYTE>( colour.B * 255.0f ) ) );
+                    BLENDFUNCTION blend{ AC_SRC_OVER, 0, static_cast<BYTE>( colour.A * 255.0f ), 0 };
+                    GdiAlphaBlend( dc, box.left, box.top, box.right - box.left, box.bottom - box.top, pixelDc, 0, 0,
+                                   1, 1, blend );
+                    SelectObject( pixelDc, oldBmp );
+                    DeleteObject( pixel );
+                    DeleteDC( pixelDc );
+                }
+                const bool   close = button == SplashButton::Close;
+                std::wstring glyph = L"\u2013";
+                if ( m_IconFontLoaded )
+                {
+                    const char* utf8 = close ? UI::kCloseGlyph : UI::kMinimizeGlyph;
+                    wchar_t     wide[4]{};
+                    const int   n = MultiByteToWideChar( CP_UTF8, 0, utf8, -1, wide, 4 );
+                    glyph         = std::wstring( wide, n > 0 ? static_cast<size_t>( n - 1 ) : 0 );
+                }
+                else if ( close )
+                    glyph = L"\u2715";
+                DrawTextW( dc, glyph.c_str(), static_cast<int>( glyph.size() ), &box,
+                           DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX );
+            }
+            SelectObject( dc, old );
+            DeleteObject( font );
+        }
+
+        // Touched by the splash's thread only.
+        ButtonTracker m_Buttons;
+        bool          m_TrackingLeave  = false;
+        bool          m_IconFontLoaded = false;
 
         SplashContent m_Content;
         float         m_Scale = 1.0f;

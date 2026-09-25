@@ -21,12 +21,13 @@
 //     (the arrangement UE's FWindowsPlatformSplash uses), so it paints however long the main thread is
 //     away.
 //
-// ONE INTERFACE, THREE CALLS, and the callers never know which platform answered. `SetProgress` never
+// ONE INTERFACE, FOUR CALLS, and the callers never know which platform answered. `SetProgress` never
 // blocks on the window system: it records the newest snapshot and wakes the splash's thread, which applies
 // it. What the snapshot says — stage, item, weighted percentage — is `ProgressModel` (SplashProgress.hpp).
 
 #include <Editor/Splash/SplashProgress.hpp>
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -62,5 +63,23 @@ namespace Desert::Editor::Splash
 
         /// The platform's splash, already on screen when this returns. Main thread only.
         [[nodiscard]] static std::unique_ptr<SplashScreen> Show( const SplashContent& content );
+
+        /// A person pressed the splash's close button. Set from the splash's own thread — the click is
+        /// seen there, because the main thread is the one busy loading — and read by the main thread
+        /// between stages (and between shader programs of the preload). What it asks for is the
+        /// editor's ordinary close; nothing here ends the process.
+        [[nodiscard]] bool CloseRequested() const
+        {
+            return m_CloseRequested.load( std::memory_order_acquire );
+        }
+
+    protected:
+        void NoteCloseClicked()
+        {
+            m_CloseRequested.store( true, std::memory_order_release );
+        }
+
+    private:
+        std::atomic<bool> m_CloseRequested{ false };
     };
 } // namespace Desert::Editor::Splash

@@ -734,6 +734,8 @@ namespace Desert::Editor
         bool                                  m_Revealed = false;
         // The pending count the splash last showed during the settle, so the label is pushed on change only.
         size_t m_SplashOutstandingShown = SIZE_MAX;
+        // The splash's close was acted on (Application::Close asked once, not every frame until it lands).
+        bool m_QuitFromSplash = false;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the

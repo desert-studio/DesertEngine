@@ -96,7 +96,9 @@
 #include <array>
 #include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
+#include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
+#include "Editor/Widgets/WindowButtonStyle.hpp"
 #include "Editor/Builtin/BuiltinMeshRegistry.hpp"
 
 // 3. Editor Panels
@@ -735,7 +737,7 @@ namespace Desert::Editor
         ::ImGui::CreateContext();
 
         // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( "Resources/Fonts/materialdesignicons-webfont.ttf" );
+        Editor::EditorResources::Initialize( UI::kIconFontFile.string() );
 
         // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
         m_ImGuiLayer = ImGui::ImGuiLayer::Create();
@@ -795,7 +797,9 @@ namespace Desert::Editor
         // start, and one call: the splash says what it is before it begins, and cannot say more during it.
         MakeSplashPlan();
         BeginSplashStage( m_ShaderStage );
-        m_AssetPreloader->PreloadShaders( SplashItems() );
+        // The splash's close button, pressed during this one long call, stops it between programs.
+        m_AssetPreloader->PreloadShaders( SplashItems(),
+                                          [this]() { return m_Splash && m_Splash->CloseRequested(); } );
 
         BuildSceneSystems( *m_MainScene );
 
@@ -1273,7 +1277,19 @@ namespace Desert::Editor
         // THERE USED TO BE A GATE HERE — "only after one frame with the loading overlay has been
         // presented" — and it existed for the overlay alone: a stage run before that frame froze a blank
         // window. The overlay is gone (the splash, a window of its own, replaced it), and so is the gate.
-        if ( StartupLoading() )
+        //
+        // CLOSE ON THE SPLASH ENDS THE START HERE, before the next stage: the editor leaves through the same
+        // Application::Close the window frame's close button and the control channel's `quit` take.
+        const Splash::StartupStep step = Splash::NextStartupStep( m_Splash && m_Splash->CloseRequested(),
+                                                                  m_StartupNext, m_StartupStages.size() );
+        if ( step == Splash::StartupStep::Quit && !m_QuitFromSplash )
+        {
+            m_QuitFromSplash = true;
+            LOG_INFO( "[Startup] closed on the splash; {} of {} stage(s) not run", m_StartupStages.size() - m_StartupNext,
+                      m_StartupStages.size() );
+            const_cast<Engine::Application*>( m_Application )->Close( 0 );
+        }
+        if ( step == Splash::StartupStep::RunStage )
         {
             {
                 DESERT_PROFILE_SCOPE( "Startup stage" );
