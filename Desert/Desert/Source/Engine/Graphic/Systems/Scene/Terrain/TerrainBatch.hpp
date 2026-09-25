@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -247,9 +248,9 @@ namespace Desert::Graphic::System
             if ( handle != 0 )
                 parts.push_back( name + "=" + std::to_string( handle ) );
         if ( heightmap != nullptr )
-            parts.push_back( "u_Heightmap=@" + std::to_string( reinterpret_cast<uintptr_t>( heightmap ) ) );
+            parts.push_back( "u_Heightmap=@" + std::to_string( std::bit_cast<uintptr_t>( heightmap ) ) );
         if ( weightmap != nullptr )
-            parts.push_back( "u_Weightmap=@" + std::to_string( reinterpret_cast<uintptr_t>( weightmap ) ) );
+            parts.push_back( "u_Weightmap=@" + std::to_string( std::bit_cast<uintptr_t>( weightmap ) ) );
         std::sort( parts.begin(), parts.end() );
 
         std::string key;

@@ -546,13 +546,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   nullptr the same frame its tile stops being hovered.
     //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's FMeshSurfacePath::Mesh, HostOutlivesUs
     //   like the other P12 operation objects -- the path is built over the caller's mesh and embedded in-place.
+    //   L8g (landscape weights on the GPU) adds +1 Raw and +1 Shared, the heightmap's pair again:
+    //   TerrainBatch.hpp's LandscapeWeightDraw::Weightmap (raw, frame-scoped, with a row) and its owner,
+    //   LandscapeECSSystem::TileGpu::Weightmap (shared).
     //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
-    //   P12g +1 Raw): 435 / 350 / 139 / 42 = 966.
-    EXPECT_EQ( CountOf( Form::Raw ), 435 );
-    EXPECT_EQ( CountOf( Form::Shared ), 350 );
+    //   P12g +1 Raw, L8g +1 Raw +1 Shared): 436 / 351 / 139 / 42 = 968.
+    EXPECT_EQ( CountOf( Form::Raw ), 436 );
+    EXPECT_EQ( CountOf( Form::Shared ), 351 );
     EXPECT_EQ( CountOf( Form::Unique ), 139 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 966 )
+    EXPECT_EQ( (int)Members().size(), 968 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -810,7 +813,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // -> 348 with P8a: EditMeshBridge's cached EditMesh view and the selection tools' EditMesh views.
     // -> 350 with P12: ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, the same immutable
     // EditMesh held by the tool and by its committed snapshot - see TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 350 );
+    // -> 351 with L8g: LandscapeECSSystem::TileGpu::Weightmap, the tile's weight image beside its heightmap.
+    EXPECT_EQ( CountOf( Form::Shared ), 351 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

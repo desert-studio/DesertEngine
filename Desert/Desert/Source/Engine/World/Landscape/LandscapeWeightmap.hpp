@@ -54,14 +54,15 @@ namespace Desert::World::Landscape
         out.Count = static_cast<uint32_t>( std::min<size_t>( layers.size(), kLandscapeMaxWeightLayers ) );
         for ( uint32_t c = 0; c < out.Count; ++c )
         {
-            bool named = false;
+            const auto channel = static_cast<glm::length_t>( c ); // glm indexes vectors with a signed int
+            bool       named   = false;
             for ( const auto& info : root )
             {
                 if ( info.Name != layers[c].Name )
                     continue;
-                out.Colors[c]     = glm::vec4( info.Color, 1.0f );
-                out.AlphaBlend[c] = info.NoWeightBlend ? 1.0f : 0.0f;
-                named             = true;
+                out.Colors[c]           = glm::vec4( info.Color, 1.0f );
+                out.AlphaBlend[channel] = info.NoWeightBlend ? 1.0f : 0.0f;
+                named                   = true;
                 break;
             }
             if ( !named )
