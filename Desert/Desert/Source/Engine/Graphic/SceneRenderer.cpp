@@ -1359,13 +1359,15 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SubmitLandscapeTile( Image2D* heightmap, const System::LandscapeTileDraw& tile,
-                                             const glm::vec3& layerModes, const MaterialOverrides& overrides )
+                                             const glm::vec3& layerModes, const MaterialOverrides& overrides,
+                                             const System::LandscapeWeightDraw& weights )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap  = heightmap,
                          .Landscape  = tile,
                          .LayerModes = layerModes,
+                         .Weights    = weights,
                          .Overrides  = overrides } );
     }
 

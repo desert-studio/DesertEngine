@@ -549,13 +549,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   P12h (FGroupEdgeInserter port) adds +8 Raw, all CallScoped argument packs in GroupEdgeInserter.hpp:
     //   FEdgeLoopInsertionParams::Mesh/Topology/SortedInputLengths, FGroupEdgeInsertionParams::Mesh/Topology,
     //   FGroupEdgeInserterOptionalOutputParams::NewEidsOut/ChangedTidsOut/ProblemGroupEdgeIDsOut (UE's parameter
-    //   structs). Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1
-    //   Raw, P12g +1 Raw, P12h +8 Raw): 443 / 350 / 139 / 42 = 974.
-    EXPECT_EQ( CountOf( Form::Raw ), 443 );
-    EXPECT_EQ( CountOf( Form::Shared ), 350 );
+    //   structs).
+    //   L8g (landscape weights on the GPU) adds +1 Raw and +1 Shared, the heightmap's pair again:
+    //   TerrainBatch.hpp's LandscapeWeightDraw::Weightmap (raw, frame-scoped, with a row) and its owner,
+    //   LandscapeECSSystem::TileGpu::Weightmap (shared).
+    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
+    //   P12g +1 Raw, P12h +8 Raw, L8g +1 Raw +1 Shared): 444 / 351 / 139 / 42 = 976.
+    EXPECT_EQ( CountOf( Form::Raw ), 444 );
+    EXPECT_EQ( CountOf( Form::Shared ), 351 );
     EXPECT_EQ( CountOf( Form::Unique ), 139 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 974 )
+    EXPECT_EQ( (int)Members().size(), 976 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -813,7 +817,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // -> 348 with P8a: EditMeshBridge's cached EditMesh view and the selection tools' EditMesh views.
     // -> 350 with P12: ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, the same immutable
     // EditMesh held by the tool and by its committed snapshot - see TheScanFindsTheCensusedPopulation.
-    EXPECT_EQ( CountOf( Form::Shared ), 350 );
+    // -> 351 with L8g: LandscapeECSSystem::TileGpu::Weightmap, the tile's weight image beside its heightmap.
+    EXPECT_EQ( CountOf( Form::Shared ), 351 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

@@ -28,6 +28,9 @@ namespace Desert::Graphic::System
         // Per-layer mode (grass, rock, snow) from the root's LandscapeMaterial: 0 = Auto (rules), 1 = Off.
         glm::vec3 LayerModes = glm::vec3( 0.0f );
 
+        // The tile's painted weight layers (LayerCount 0 = none).
+        LandscapeWeightDraw Weights;
+
         // The root's material, as param + texture overrides applied generically to the DataDrivenMaterial by
         // name (params e.g. "Tint"/"DetailTiling"; textures = the layers u_GrassTex/u_RockTex/...). Unset
         // samplers keep the backend white fallback.

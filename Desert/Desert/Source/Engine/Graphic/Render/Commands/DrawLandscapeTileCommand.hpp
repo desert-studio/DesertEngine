@@ -24,16 +24,19 @@ namespace Desert::Graphic::Render
         System::LandscapeTileDraw Tile;
         glm::vec3                 LayerModes;
         MaterialOverrides         Overrides;
+        System::LandscapeWeightDraw Weights;
 
         DrawLandscapeTileCommand( Image2D* heightmap, const System::LandscapeTileDraw& tile,
-                                  const glm::vec3& layerModes, MaterialOverrides overrides )
-             : Heightmap( heightmap ), Tile( tile ), LayerModes( layerModes ), Overrides( std::move( overrides ) )
+                                  const glm::vec3& layerModes, MaterialOverrides overrides,
+                                  const System::LandscapeWeightDraw& weights )
+             : Heightmap( heightmap ), Tile( tile ), LayerModes( layerModes ), Overrides( std::move( overrides ) ),
+               Weights( weights )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SubmitLandscapeTile( Heightmap, Tile, LayerModes, Overrides );
+            renderer.SubmitLandscapeTile( Heightmap, Tile, LayerModes, Overrides, Weights );
         }
     };
 } // namespace Desert::Graphic::Render

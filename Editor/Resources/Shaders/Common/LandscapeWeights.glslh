@@ -1,0 +1,52 @@
+// A landscape tile's painted weight layers over the ground its height/slope rules made — the surface stage's
+// half of UE's weightmap (the other half, the RGBA8 texture, is LandscapeWeightmapTexels on the C++ side).
+// Pure arithmetic, so the LandscapePaint suite compiles this file as C++ and checks the blend the GPU runs.
+//
+// Ported from UE 5.8 Engine/Source/Runtime/Landscape/Private/Materials/MaterialExpressionLandscapeLayerBlend.cpp:
+// 180-325 (UMaterialExpressionLandscapeLayerBlend::Compile), adapted: the layer inputs are the root layers'
+// flat colours instead of material graphs, LB_HeightBlend is not carried (no layer has a height input), and
+// what the weight-blended layers leave unclaimed is the rule albedo rather than zero — UE allocates a layer to
+// a component on its first stroke with every weight zero, and our tiles start with no layer at all, so the
+// unpainted ground has to stay the ground and not go black.
+#ifndef LANDSCAPE_WEIGHTS_GLSLH
+#define LANDSCAPE_WEIGHTS_GLSLH
+
+struct LandscapeWeightBlendResult
+{
+    vec3  Albedo;
+    // How much of the pixel is still the rule albedo (1 = unpainted). The caller scales what only the
+    // rules produce — the snow's gloss — by it, so a painted layer does not shine like snow.
+    float RuleShare;
+};
+
+// w          = the weightmap texel, one layer per channel, 0..1.
+// c0..c3     = each channel's root layer colour in rgb; a = 1 when the root names the layer, 0 when it does
+//              not (the channel is then not drawn at all, as if unpainted).
+// alphaBlend = 1 per channel whose layer is NoWeightBlend (UE's LB_AlphaBlend), 0 for weight-blended ones.
+LandscapeWeightBlendResult LandscapeWeightBlend( vec4 w, vec4 c0, vec4 c1, vec4 c2, vec4 c3, vec4 alphaBlend,
+                                                 vec3 ruleAlbedo )
+{
+    vec4 drawn    = w * vec4( c0.a, c1.a, c2.a, c3.a );
+    vec4 weighted = drawn * ( vec4( 1.0f ) - alphaBlend );
+    vec4 laidOver = drawn * alphaBlend;
+
+    // LB_WeightBlend: the layers add by weight, with no renormalisation (the painter keeps their sum at
+    // 255, LandscapeNormalizeWeights). Whatever they leave is the rules' ground.
+    float claimed = weighted.x + weighted.y + weighted.z + weighted.w;
+    float rule    = claimed < 1.0f ? 1.0f - claimed : 0.0f;
+
+    LandscapeWeightBlendResult r;
+    r.Albedo = vec3( c0 ) * weighted.x + vec3( c1 ) * weighted.y + vec3( c2 ) * weighted.z +
+               vec3( c3 ) * weighted.w + ruleAlbedo * rule;
+
+    // LB_AlphaBlend: blended last, each a lerp over everything below it, in channel order.
+    r.Albedo = mix( r.Albedo, vec3( c0 ), laidOver.x );
+    r.Albedo = mix( r.Albedo, vec3( c1 ), laidOver.y );
+    r.Albedo = mix( r.Albedo, vec3( c2 ), laidOver.z );
+    r.Albedo = mix( r.Albedo, vec3( c3 ), laidOver.w );
+    r.RuleShare = rule * ( 1.0f - laidOver.x ) * ( 1.0f - laidOver.y ) * ( 1.0f - laidOver.z ) *
+                  ( 1.0f - laidOver.w );
+    return r;
+}
+
+#endif // LANDSCAPE_WEIGHTS_GLSLH
