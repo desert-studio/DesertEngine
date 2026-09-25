@@ -101,15 +101,6 @@ namespace Desert::Editor::ThumbnailFormats
          { "bmp", Producer::Decoded, "the image itself" },
          { "gif", Producer::Decoded, "the first frame of the image" },
          { "tga", Producer::Decoded, "the image itself" },
-         { "hdr", Producer::Decoded,
-           "the equirectangular environment map itself. Not a render of the sky it makes: that would need "
-           "the IBL bake and a slot, and the latitude-longitude strip is what an artist recognises a "
-           "captured environment by. RE-EXAMINED 2026-09-23 against the owner's request for a sphere "
-           "preview and UPHELD: the bake was measured at 252-386 ms with the device idle, and paying it "
-           "per tile on a scroll is the wrong place for it. The sphere the owner asked for is the LIVE, "
-           "orbitable ball in the Details Skybox section, which costs no extra renderer slot because that "
-           "panel already owns a preview viewport" },
-
          // ── An offscreen render, and therefore a renderer slot ─────────────────────────────────────
          { "demat", Producer::RenderedMaterial,
            "the material on a sphere, or on a camera-facing card "
@@ -141,6 +132,13 @@ namespace Desert::Editor::ThumbnailFormats
          { "dcmv", Producer::Painted,
            "the sculpted body seen from the side: the maximum density along the view axis through the "
            "stored voxels, which is the silhouette of the hero cloud itself" },
+         { "hdr", Producer::Painted,
+           "the environment wrapped onto a ball, the way UE's Content Browser shows a cube texture "
+           "(HdrSphereThumbnail.hpp). The 2026-09-23 refusal priced a sphere as the IBL bake plus a slot, "
+           "252-386 ms per tile; that is the price of a ball LIT by the environment. A ball the map is "
+           "PAINTED onto needs neither: each pixel's sphere normal is one lookup in the file's own texels "
+           "through the bake's own PanoramaSampleUV, then the renderer's default ACES — microseconds on a "
+           "JobSystem worker, no device, no slot" },
          { "detheme", Producer::Painted,
            "the theme's palette, in file order: the first eight colour tokens as horizontal bands on the "
            "family backdrop. A theme IS its colours, so this is not a chart about the file — it is the "

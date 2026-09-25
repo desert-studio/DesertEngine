@@ -21,6 +21,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Editor/Source/Editor/Widgets/CloudThumbnail.cpp",
+        "%{wks.location}/Editor/Source/Editor/Widgets/HdrSphereThumbnail.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
