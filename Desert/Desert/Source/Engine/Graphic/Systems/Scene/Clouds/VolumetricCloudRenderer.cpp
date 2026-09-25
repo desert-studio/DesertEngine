@@ -1,4 +1,5 @@
 #include "VolumetricCloudRenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialBake.hpp>
@@ -1565,7 +1566,7 @@ namespace Desert::Graphic::System
                  .Tag        = tag,
                  .Width      = width,
                  .Height     = height,
-                 .Format     = Core::Formats::ImageFormat::RGBA16F,
+                 .Format     = ViewTargetFormats::kCloudTrace,
                  .Mips       = 1u,
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
@@ -1590,9 +1591,9 @@ namespace Desert::Graphic::System
         }
 
         const double traceMiB = BytesToMiB(
-             Core::Formats::CalculateImageSize( traceWidth, traceHeight, Core::Formats::ImageFormat::RGBA16F ) );
+             Core::Formats::CalculateImageSize( traceWidth, traceHeight, ViewTargetFormats::kCloudTrace ) );
         const double halfMiB = BytesToMiB(
-             Core::Formats::CalculateImageSize( halfWidth, halfHeight, Core::Formats::ImageFormat::RGBA16F ) );
+             Core::Formats::CalculateImageSize( halfWidth, halfHeight, ViewTargetFormats::kCloudTrace ) );
 
         if ( !m_TraceImage || !m_TraceGuideImage || !m_HistoryImage[0] || !m_HistoryImage[1] ||
              !m_HistoryGuideImage[0] || !m_HistoryGuideImage[1] )

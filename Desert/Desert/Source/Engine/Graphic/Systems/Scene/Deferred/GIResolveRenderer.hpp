@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
@@ -38,7 +39,7 @@ namespace Desert::Graphic::System
             {
                 FramebufferSpecification accumSpec;
                 accumSpec.DebugName = "GIAccum" + std::to_string( i );
-                accumSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+                accumSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kGIAccum );
                 m_AccumFB[i] = Framebuffer::Create( accumSpec );
                 m_AccumFB[i]->Resize( target->GetFramebufferWidth(), target->GetFramebufferHeight() );
             }

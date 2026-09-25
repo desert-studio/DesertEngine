@@ -80,6 +80,17 @@ TEST( ImageFormatBytesPerPixel, EveryEnumeratorHasItsRealSize )
     EXPECT_EQ( GetBytesPerPixel( ImageFormat::DEPTH24STENCIL8 ), 4u );
     EXPECT_EQ( GetBytesPerPixel( ImageFormat::DEPTH32F ), 4u );
     EXPECT_EQ( GetBytesPerPixel( ImageFormat::R16_UNORM ), 2u ) << "a landscape tile's upload is sized by this";
+    EXPECT_EQ( GetBytesPerPixel( ImageFormat::R32F ), 4u ) << "the shadow cascades' colour map is sized by this";
+}
+
+// The shadow colour map carries one float of light-space depth, sampled as colour (.r): an aspect or a
+// channel count of anything else would make its barrier or its census row wrong.
+TEST( ImageFormatBytesPerPixel, R32FIsOneColourChannelOfFourBytes )
+{
+    EXPECT_EQ( Formats::PreservedChannelCount( ImageFormat::R32F ), 1u );
+    EXPECT_EQ( GetImageAspect( ImageFormat::R32F ), Formats::ImageAspect_Colour );
+    EXPECT_FALSE( Formats::IsBlockCompressed( ImageFormat::R32F ) );
+    EXPECT_EQ( CalculateImageSize( 2048, 2048, ImageFormat::R32F ), 2048u * 2048u * 4u );
 }
 
 // The landscape heightmap is one 16-bit channel, sampled as colour: an aspect or channel count of anything

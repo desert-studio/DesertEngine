@@ -1,4 +1,5 @@
 #include "FXAARenderer.hpp"
+#include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -16,7 +17,7 @@ namespace Desert::Graphic::System
 
         FramebufferSpecification fbSpec;
         fbSpec.DebugName = debugName;
-        fbSpec.Attachments.Attachments.push_back( Core::Formats::ImageFormat::RGBA32F );
+        fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kFXAA );
 
         m_Framebuffer = Graphic::Framebuffer::Create( fbSpec );
         m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
