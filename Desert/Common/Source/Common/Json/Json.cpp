@@ -2,48 +2,111 @@
 
 #include <rflcpp/rfl/Generic.hpp>
 
+#include <string>
+#include <vector>
+
 namespace Common::Json
 {
+    namespace
+    {
+        constexpr std::string_view kNested  = "Failed to parse field '";
+        constexpr std::string_view kMissing = "Field named '";
+        constexpr std::string_view kUnknown = "Value named '";
+        constexpr std::string_view kMany    = "Found ";
+
+        void AppendPath( std::string& path, std::string_view name )
+        {
+            if ( !path.empty() )
+                path += '.';
+            path += name;
+        }
+
+        // Takes "<prefix>NAME'" off the front of rest and returns NAME, or nothing when rest does not start so.
+        bool TakeQuoted( std::string_view& rest, std::string_view prefix, std::string_view& name )
+        {
+            if ( !rest.starts_with( prefix ) )
+                return false;
+            const std::size_t close = rest.find( '\'', prefix.size() );
+            if ( close == std::string_view::npos )
+                return false;
+            name = rest.substr( prefix.size(), close - prefix.size() );
+            rest = rest.substr( close + 1 );
+            return true;
+        }
+
+        // rfl joins several failures of one object as "Found N errors:\n1) ...\n2) ...", indenting each
+        // item's own continuation lines by four spaces; this splits them back into the item texts.
+        std::vector<std::string> SplitItems( std::string_view body )
+        {
+            std::vector<std::string> items;
+            std::size_t              start = 0;
+            while ( start <= body.size() )
+            {
+                const std::size_t end  = body.find( '\n', start );
+                std::string_view  line = body.substr( start, end == std::string_view::npos ? end : end - start );
+                const std::size_t digits = line.find_first_not_of( "0123456789" );
+                if ( digits != 0 && digits != std::string_view::npos && line.substr( digits ).starts_with( ") " ) )
+                    items.emplace_back( line.substr( digits + 2 ) );
+                else if ( !items.empty() && line.starts_with( "    " ) )
+                    items.back().append( "\n" ).append( line.substr( 4 ) );
+                else if ( !line.empty() )
+                    items.emplace_back( line ); // rfl's "More than 10 errors occurred" tail
+                if ( end == std::string_view::npos )
+                    break;
+                start = end + 1;
+            }
+            return items;
+        }
+
+        void Describe( std::string_view message, std::string path, std::vector<std::string>& out )
+        {
+            // rfl reports a nested failure as one prefix per level it unwinds through. Peeling them into a
+            // dotted path is what lets the message point at the line a person has to edit.
+            std::string_view rest = message;
+            std::string_view name;
+            while ( rest.starts_with( kNested ) && rest.find( "': ", kNested.size() ) != std::string_view::npos )
+            {
+                TakeQuoted( rest, kNested, name );
+                AppendPath( path, name );
+                rest.remove_prefix( 2 ); // the ": " after the quote
+            }
+
+            if ( rest.starts_with( kMany ) && rest.find( " errors:\n" ) != std::string_view::npos )
+            {
+                for ( const auto& item : SplitItems( rest.substr( rest.find( '\n' ) + 1 ) ) )
+                    Describe( item, path, out );
+                return;
+            }
+
+            std::string what( rest );
+            if ( TakeQuoted( rest, kMissing, name ) )
+            {
+                AppendPath( path, name );
+                what = "missing — the format requires it (only a std::optional member may be absent)";
+            }
+            else if ( TakeQuoted( rest, kUnknown, name ) )
+            {
+                AppendPath( path, name );
+                what = "unknown key — the format does not declare it";
+            }
+            out.push_back( path.empty() ? "document: " + what : "field '" + path + "': " + what );
+        }
+    } // namespace
+
     namespace Detail
     {
         std::string DescribeReadError( std::string_view rflMessage )
         {
-            // rfl reports a nested failure as one prefix per level it unwinds through. Peeling them into a
-            // dotted path is what lets the message point at the line a person has to edit.
-            constexpr std::string_view kNested  = "Failed to parse field '";
-            constexpr std::string_view kMissing = "Field named '";
-
-            std::string      path;
-            std::string_view rest = rflMessage;
-            while ( rest.starts_with( kNested ) )
+            std::vector<std::string> lines;
+            Describe( rflMessage, {}, lines );
+            std::string joined;
+            for ( const auto& line : lines )
             {
-                const std::size_t close = rest.find( "': ", kNested.size() );
-                if ( close == std::string_view::npos )
-                    break;
-                if ( !path.empty() )
-                    path += '.';
-                path += rest.substr( kNested.size(), close - kNested.size() );
-                rest = rest.substr( close + 3 );
+                if ( !joined.empty() )
+                    joined += "; ";
+                joined += line;
             }
-
-            // The innermost level of a missing field names the field itself rather than a parse failure.
-            if ( rest.starts_with( kMissing ) )
-            {
-                const std::size_t close = rest.find( '\'', kMissing.size() );
-                if ( close != std::string_view::npos )
-                {
-                    if ( !path.empty() )
-                        path += '.';
-                    path += rest.substr( kMissing.size(), close - kMissing.size() );
-                    rest = rest.substr( close + 1 );
-                    while ( rest.starts_with( ' ' ) )
-                        rest.remove_prefix( 1 );
-                }
-            }
-
-            if ( path.empty() )
-                return "document: " + std::string( rest );
-            return "field '" + path + "': " + std::string( rest );
+            return joined;
         }
     } // namespace Detail
 

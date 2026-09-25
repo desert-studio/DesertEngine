@@ -47,11 +47,13 @@ namespace Common::Content
 
     ResultStr<ChunkScheme> ParseChunkScheme( std::string_view json )
     {
-        // An absent or empty scheme is a project that has not been divided, not a broken one: it must
-        // produce exactly the single-archive behaviour that predates chunks.
+        // A scheme file that exists but holds nothing is not "undivided": it is a file that lost its
+        // content, and reading it as an empty scheme would quietly package everything into one archive.
+        // An undivided project says so on purpose: WriteChunkScheme of an empty ChunkScheme.
         const std::string text( json );
         if ( text.find_first_not_of( " \t\r\n" ) == std::string::npos )
-            return MakeSuccess( ChunkScheme{} );
+            return MakeError<ChunkScheme>( "the chunk scheme is empty; an undivided project writes an empty "
+                                           "'Chunks' list and an empty 'AlwaysBase' list, not an empty file" );
 
         const auto parsed = Json::Read<ChunkSchemeJson>( text );
         if ( !parsed )
