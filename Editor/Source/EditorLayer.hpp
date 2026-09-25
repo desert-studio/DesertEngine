@@ -242,7 +242,7 @@ namespace Desert::Editor
         // asks, which is exactly when a fresh answer is wanted.
         static std::vector<Common::Filepath> CollectAvailableScenes();
         void LoadScene( const Common::Filepath& path );
-        void LoadSceneInternal( const Common::Filepath& path );
+        void LoadSceneInternal( const Common::Filepath& requested );
 
         void NewSceneInternal(); // clears the current scene to a fresh empty one (File -> New Scene / Ctrl+N)
 

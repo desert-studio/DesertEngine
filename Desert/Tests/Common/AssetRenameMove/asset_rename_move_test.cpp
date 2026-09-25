@@ -123,7 +123,7 @@ namespace
 
 TEST( AssetRenameMove, TheConfirmListNamesExactlyTheReferrers )
 {
-    Corpus      c;
+    const Corpus c;
     const auto* row = c.Registry.FindByKey( Key( c.Material ) );
     ASSERT_NE( row, nullptr );
     EXPECT_EQ( Common::Content::ReferrersOf( c.Registry, *row ), std::vector<std::string>{ Key( c.User ) } );
@@ -220,7 +220,7 @@ TEST( AssetRenameMove, UndoRefusesARedirectorThatIsNoLongerTheOneTheMoveWrote )
 TEST( AssetRenameMove, TheEditorRouteMovesThroughTheRegistryAndTheUndoStack )
 {
     namespace CR = Desert::Assets::ContentRegistry;
-    Corpus c;
+    const Corpus c;
     CR::ResetForTest();
     ASSERT_GT( CR::Detail::Publish( c.Registry ), 0u );
     const std::string materialBytes = Bytes( c.Material );
