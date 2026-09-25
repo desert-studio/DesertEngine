@@ -404,11 +404,11 @@ def main():
             strip_scene_v29(old, new, ext)
             strip_scene_v30(old, new, ext)
             strip_material_v3(old, new, ext)
+            strip_retarget_rig_guid(root, old, new, ext)
             if old != new:
                 differ.append(path)
             compared += 1
             continue
-        strip_retarget_rig_guid(root, old, new, ext)
         strip_text_kind_header(old, new, ext, path)
         header_ok = strip_text_header(old, new, ext)
         stated = isinstance(new, dict) and new.get("SceneVersion", 26 if header_ok else None)
