@@ -24,7 +24,8 @@ namespace
         TempDir()
         {
             Root = fs::temp_directory_path() /
-                   ( "th1_freshness_" + std::to_string( std::chrono::steady_clock::now().time_since_epoch().count() ) );
+                   ( "th1_freshness_" +
+                     std::to_string( std::chrono::steady_clock::now().time_since_epoch().count() ) );
             fs::create_directories( Root );
         }
         ~TempDir()
@@ -59,7 +60,8 @@ TEST( ThumbnailFreshness, EveryObservationHasExactlyOneVerdict )
 {
     using V = ThumbnailFreshness::Verdict;
     for ( const bool exists : { false, true } )
-        for ( const std::optional<uint64_t> recorded : { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 } } )
+        for ( const std::optional<uint64_t> recorded :
+              { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 } } )
             for ( const std::optional<uint64_t> current :
                   { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 }, std::optional<uint64_t>{ 2 } } )
             {
@@ -75,9 +77,9 @@ TEST( ThumbnailFreshness, SameBytesAreShown_WhateverTheClockSays )
 {
     // The owner's defect: every launch re-captured unchanged materials. A checkout, a pull or a launcher
     // update moves the source's modtime past the PNG's without touching its bytes.
-    TempDir         dir;
-    const fs::path  source = dir.Root / "M_Red.demat";
-    const fs::path  png    = dir.Root / "assets_Materials_M_Red.png";
+    TempDir        dir;
+    const fs::path source = dir.Root / "M_Red.demat";
+    const fs::path png    = dir.Root / "assets_Materials_M_Red.png";
     WriteFile( source, "{ \"AlbedoColor\": [1, 0, 0, 1] }" );
     Capture( png, source );
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show );
@@ -115,7 +117,8 @@ TEST( ThumbnailFreshness, AnEditIsCapturedExactlyOnce )
     // Same size, and the modtime may well round to the same tick: the memo must still see the new bytes.
     WriteFile( source, "{ \"Roughness\": 0.9 }" );
     fs::last_write_time( source, fs::last_write_time( source ) + std::chrono::seconds( 2 ) );
-    EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Capture ) << "an edited material kept its old picture";
+    EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Capture )
+         << "an edited material kept its old picture";
 
     Capture( png, source );
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "the re-capture did not settle";
@@ -173,12 +176,14 @@ TEST( ThumbnailFreshness, AnOutdatedPictureIsDrawnWhileItsReplacementIsCaptured 
 TEST( ThumbnailFreshness, ThePlaceholderIsOnlyForNoPictureAtAll )
 {
     for ( const bool exists : { false, true } )
-        for ( const std::optional<uint64_t> recorded : { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 } } )
+        for ( const std::optional<uint64_t> recorded :
+              { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 } } )
             for ( const std::optional<uint64_t> current :
                   { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 }, std::optional<uint64_t>{ 2 } } )
             {
                 const ThumbnailFreshness::Observation seen{ exists, recorded, current };
-                EXPECT_EQ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::Placeholder, !exists );
+                EXPECT_EQ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::Placeholder,
+                           !exists );
                 // Every state is drawn as something AND, if it is a placeholder, a capture is owed.
                 if ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::Placeholder )
                     EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Capture );

@@ -62,7 +62,7 @@ namespace Desert::Editor
             const auto seen = m_Stamps.find( sourcePath );
             if ( stampEc || ( seen != m_Stamps.end() && seen->second == stamp ) )
                 return it->second; // may be null (decode previously failed)
-            m_Cache.erase( it ); // the file was rewritten since it was decoded
+            m_Cache.erase( it );   // the file was rewritten since it was decoded
         }
 
         if ( m_Cache.size() >= kMaxEntries )

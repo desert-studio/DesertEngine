@@ -166,7 +166,7 @@ namespace Desert::Editor
         m_InFlight.clear();
         m_InFlightPng.clear();
         m_InFlightPngBefore.reset();
-                m_InFlightSourceHash.reset();
+        m_InFlightSourceHash.reset();
         m_InFlightTicks = 0;
         m_Captured      = 0;
         m_Skipped       = 0;

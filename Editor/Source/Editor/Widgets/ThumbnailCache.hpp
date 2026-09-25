@@ -107,7 +107,7 @@ namespace Desert::Editor
         static constexpr std::size_t kMaxEntries = 512; // bound VRAM/handles
 
         std::unordered_map<std::string, std::shared_ptr<Graphic::Image2D>> m_Cache;
-        std::unordered_map<std::string, std::filesystem::file_time_type>    m_Stamps; // modtime at decode
+        std::unordered_map<std::string, std::filesystem::file_time_type>   m_Stamps; // modtime at decode
 
         // Every constructed cache, so ReleaseAll() can reach the ones no panel owns. Raw pointers to
         // objects that deregister themselves; this set outlives them all and holds nothing that needs a
