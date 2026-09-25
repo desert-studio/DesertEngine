@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "ec838680efeee3ada2b232f3cfec5d67",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "A6Curve_Cubic",
     "TickRate": {
         "Numerator": 24000,

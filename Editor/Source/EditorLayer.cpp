@@ -3754,6 +3754,9 @@ namespace Desert::Editor
                 // that title: a document's ImGui id is "###doc<subject>", so it could never have matched.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Modeling" ).c_str(), left );
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "Landscape" ).c_str(), left );
+                // UE's World Partition editor is a docked tab whose map fills it. The left column is the
+                // tallest node that is not the level, so the map gets a near-square canvas beside the Outliner.
+                ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "World Partition" ).c_str(), left );
 
                 // The well itself. It is what makes the document node FINDABLE: a dock node with nothing in
                 // it is not drawn at all, so without a permanent occupant the area would exist in the

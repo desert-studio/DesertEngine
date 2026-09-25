@@ -47,6 +47,11 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
+    -- Common: CloudNoiseVolume.cpp writes and reads the AF1 asset envelope (AssetGuid, WriteAssetEnvelope,
+    -- ReadAssetEnvelope) that lives in Common::Content.
+    -- Optick: Common's JobSystem registers its worker threads with the profiler.
+    links { "Common", "Optick" }
+
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

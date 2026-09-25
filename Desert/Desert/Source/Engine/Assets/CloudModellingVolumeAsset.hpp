@@ -70,6 +70,10 @@ namespace Desert::Assets
         static Common::BoolResultStr Save( const Common::Filepath&         filepath,
                                            const CloudModellingVolumeData& volume );
 
+        /// The GUID the `.dcmv` envelope header at @p filepath states (VFS first); null when the file is
+        /// absent, bare or not a modelling volume. The constructor adopts it; Save keeps it on a re-bake.
+        static Common::Content::AssetGuid ReadCloudModellingVolumeGuid( const Common::Filepath& filepath );
+
     private:
         CloudModellingVolumeData m_Volume;
         bool                     m_Ready    = false;

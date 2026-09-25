@@ -10,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -25,10 +26,12 @@ namespace Desert::Assets
     //
     // A FILE WITHOUT A HEADER IS REFUSED, NOT READ ANYWAY: it states no identity, and reading it would hand
     // it a handle nobody can reference again. The migration mints its GUID once, in the file. The old
-    // generation named its version in a top-level `FormatVersion`; `absentMeans` is the version a file that
-    // left it out was (nullopt when leaving it out was never legal).
-    [[nodiscard]] inline Common::BoolResultStr RefuseTextWithoutHeader( const std::string& text, int current,
-                                                                        std::optional<int> absentMeans )
+    // generation named its version in a top-level member (`FormatVersion` for most kinds); `absentMeans` is the
+    // version a file that left it out was (nullopt when leaving it out was never legal); `versionMember` names
+    // that member for the kinds that spelled it otherwise (a .anim said `Version`).
+    [[nodiscard]] inline Common::BoolResultStr
+    RefuseTextWithoutHeader( const std::string& text, int current, std::optional<int> absentMeans,
+                             std::string_view versionMember = "FormatVersion" )
     {
         const auto tree = rfl::json::read<rfl::Generic>( text );
         if ( !tree )
@@ -37,7 +40,7 @@ namespace Desert::Assets
         if ( !fields || fields.value().get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
             return BOOLSUCCESS;
         std::string version = absentMeans ? std::to_string( *absentMeans ) : "(unstated)";
-        if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
+        if ( const auto stated = fields.value().get( std::string( versionMember ) ); stated.has_value() )
             if ( const auto number = stated.value().to_int(); number.has_value() )
                 version = std::to_string( number.value() );
         return Common::MakeFormattedError<bool>(

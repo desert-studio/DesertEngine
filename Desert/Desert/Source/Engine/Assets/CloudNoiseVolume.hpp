@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
@@ -103,7 +104,13 @@ namespace Desert::Assets
     /// 1 — magic, versions, resolution, format, four channel meanings, the recipe, length and CRC.
     /// 2 — adds @ref CloudNoiseVolumeOrigin, because a volume can now arrive from OUTSIDE the generator and
     ///     a file that cannot say so would have to lie about its recipe. See the enum.
-    inline constexpr uint32_t kCloudNoiseContainerVersion = 2u;
+    /// 3 — the version-2 bytes after magic and version, inside the AF1 binary envelope (kind
+    ///     CloudNoiseVolume, the volume's GUID, this version under kCloudNoiseSubsystemTag). A bare container
+    ///     of any version is refused by name; Tools/SceneMigrator wraps it, once, in the file.
+    inline constexpr uint32_t kCloudNoiseContainerVersion = 3u;
+
+    /// The tag the envelope header states kCloudNoiseContainerVersion under.
+    inline constexpr uint32_t kCloudNoiseSubsystemTag = Common::Content::FourCC( "DCNV" );
 
     /**
      * @brief Where a volume's voxels came from — and therefore whether the recipe beside them means
@@ -134,6 +141,10 @@ namespace Desert::Assets
     /// A decoded volume: what it contains, how it was made, and the voxels themselves.
     struct CloudNoiseVolumeData
     {
+        /// The volume's identity, the GUID its envelope header states (container 3). Null on a volume never
+        /// written; EncodeCloudNoiseVolume mints one for it, so carrying it through an edit keeps the handle.
+        Common::Content::AssetGuid Guid;
+
         CloudNoiseVolumeParams Params;
         uint32_t               GeneratorVersion = kCloudNoiseGeneratorVersion;
 
@@ -184,38 +195,48 @@ namespace Desert::Assets
     CloudNoiseVolumeParams EmptyImportedRecipe( uint32_t resolution );
 
     /**
-     * @brief Serialises a volume into the container.
+     * @brief Serialises a volume into its payload: the container fields after magic and version, then the
+     *        voxels.
      *
      * Total: any @p data that Validate accepts encodes. The result is exactly
-     * `header size + 4 * Resolution^3` bytes.
+     * `kCloudNoiseHeaderSize + 4 * Resolution^3` bytes. The GUID is not in it - the envelope carries that.
      */
-    std::vector<unsigned char> EncodeCloudNoiseVolume( const CloudNoiseVolumeData& data );
+    std::vector<unsigned char> EncodeCloudNoisePayload( const CloudNoiseVolumeData& data );
 
     /**
-     * @brief Parses a container back into a volume, or says why it could not.
+     * @brief Parses a payload back into a volume (GUID left null), or says why it could not.
      *
-     * REFUSES RATHER THAN GUESSES, and each refusal names the number that was wrong: a wrong magic, an
-     * unknown container version, a resolution that does not match the payload length, a truncated file, a
-     * payload whose checksum disagrees. A silent fallback here would be a sky that renders from whatever
-     * bytes happened to be in the file, which is the single hardest class of defect to trace back.
-     *
-     * ACCEPTS VERSION 1 AND MIGRATES IT, ONCE, HERE. A v1 file predates the origin field, and there was
-     * exactly one way to make one — the generator — so it migrates to Generated with no guesswork at all.
-     * The migration is stated in this function and nowhere else, and it raises 1 to 2 and only that: when
-     * the last v1 file in the wild is gone, the branch marked below is what gets deleted.
+     * REFUSES RATHER THAN GUESSES, and each refusal names the number that was wrong: a resolution that does
+     * not match the payload length, a truncated payload, a checksum that disagrees, an unknown format or
+     * channel order. A silent fallback here would be a sky that renders from whatever bytes happened to be
+     * in the file, which is the single hardest class of defect to trace back.
      */
-    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoiseVolume( const std::vector<unsigned char>& bytes );
+    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoisePayload( const std::vector<unsigned char>& bytes );
 
-    /// Byte length of the CURRENT (v2) container header. Exposed because the round-trip test asserts the
-    /// total file size, and a header that grew without the constant moving would pass a test that meant
-    /// nothing.
-    inline constexpr size_t kCloudNoiseHeaderSize = 76u;
+    /**
+     * @brief Serialises a volume into its AF1 binary envelope (kind CloudNoiseVolume, the volume's GUID,
+     *        one PAYL section).
+     *
+     * The GUID travels in `data.Guid`; a null one is a volume never written before and gets a fresh GUID
+     * here.
+     */
+    Common::ResultStr<std::vector<unsigned char>> EncodeCloudNoiseVolume( const CloudNoiseVolumeData& data );
 
-    /// Byte length of the v1 header — four bytes shorter, the origin being what v2 added. Named because the
-    /// migration path needs it and a bare 72 in the decoder would be the kind of number nobody dares touch.
-    inline constexpr size_t kCloudNoiseHeaderSizeV1 = 72u;
+    /**
+     * @brief Reads a `.dcnv` file: the envelope, then its payload. The GUID comes back in `Guid`.
+     *
+     * A BARE 'DCNV' CONTAINER (versions 1 and 2) IS REFUSED BY NAME, never read: it has no GUID, so reading
+     * it would hand the volume a path-derived handle nothing else agrees with. The migrator wraps it.
+     */
+    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoiseVolume( const std::vector<unsigned char>& file );
 
-    /// The four bytes every container starts with.
+    /// Byte length of the payload header (the version-2 container header less its magic and version).
+    /// Exposed because the round-trip test asserts the payload size, and a header that grew without the
+    /// constant moving would pass a test that meant nothing.
+    inline constexpr size_t kCloudNoiseHeaderSize = 68u;
+
+    /// The four bytes a BARE container (versions 1 and 2, before the envelope) started with. Kept so the
+    /// decoder can refuse such a file by name and the migrator can recognise what it wraps.
     inline constexpr char kCloudNoiseMagic[4] = { 'D', 'C', 'N', 'V' };
 
     /// The extension the Content Browser, the file dialog and the drag-and-drop payload all agree on.
