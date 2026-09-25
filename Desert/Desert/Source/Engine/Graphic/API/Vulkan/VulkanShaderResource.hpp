@@ -21,7 +21,7 @@ namespace Desert::Graphic::API::Vulkan
         //
         // Why sampled images are split three ways but storage images only two: a sampled binding is
         // seeded with a FALLBACK image before anything writes it (VulkanMaterialBackend::
-        // InitializeWithFallbacks), and that fallback must have the matching view type, so 2D, 3D and
+        // WriteFallbacks), and that fallback must have the matching view type, so 2D, 3D and
         // cube each need their own bucket. A storage binding is written from a mip VIEW the caller
         // supplies (VulkanPipelineCompute::RecordDescriptorsAndDispatch), which already carries its
         // own view type — so nothing downstream needs a storage 2D told apart from a storage cube,
@@ -73,7 +73,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Every image binding @p set declares, each tagged with the fallback it needs.
         //
-        // VulkanMaterialBackend::InitializeWithFallbacks drives itself off THIS list rather than walking
+        // VulkanMaterialBackend::WriteFallbacks drives itself off THIS list rather than walking
         // the buckets itself, so the set of bindings that get a fallback is the set that exists — by
         // construction, in one place. It matters because a binding nobody writes is an UNDEFINED
         // descriptor, and the failure is silent: reflection produced a layout entry, the shader samples

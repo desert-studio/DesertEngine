@@ -20,8 +20,6 @@ namespace Desert::Graphic
         // (we push the full reflected range size) are defined rather than garbage.
         m_PushConstantBuffer.ZeroInitialize();
         InitializeProperties();
-
-        m_MaterialBackend->InitializeDefaults();
     }
 
     void MaterialExecutor::InitializeProperties()
