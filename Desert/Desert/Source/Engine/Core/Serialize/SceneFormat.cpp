@@ -1,5 +1,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
+#include <Common/Content/AssetRedirector.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -38,6 +40,12 @@ namespace Desert::Core
 
     Common::ResultStr<SceneSerialized> ParseLoadableScene( std::string_view source, const std::string& json )
     {
+        // Opened by path, the old path of a moved scene holds a redirector: name it, not "unreadable JSON".
+        // By GUID here (this gate links no registry); the editor's open names the new path before calling.
+        if ( auto moved = Common::Content::RefuseRedirectorBytes( source, json ); !moved )
+            return Common::MakeError<SceneSerialized>(
+                 fmt::format( "[SceneSerializer] {0}. Nothing was loaded.", moved.GetError() ) );
+
         auto parsed = rfl::json::read<SceneSerialized>( json );
         if ( !parsed )
         {
