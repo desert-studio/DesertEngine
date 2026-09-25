@@ -29,6 +29,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/CompGeom/PolygonTriangulation.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/MeshTangents.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/GroupTopology.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/SplitAttributeWelder.cpp",

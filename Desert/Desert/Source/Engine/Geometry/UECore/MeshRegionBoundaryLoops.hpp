@@ -28,6 +28,8 @@ namespace Desert::Geometry
                          const TArray<int>* BowtieVerticesIn = nullptr );
         /** UE InitializeFromVertices with bAutoOrient = false (FMeshBoundaryLoops never orients). */
         bool InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn );
+        /** UE EdgeLoop.cpp:21-38: Vertices[i] is the vertex Edges[i-1] and Edges[i] share. */
+        void InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int>& EdgesIn );
         bool IsBoundaryLoop( const FDynamicMesh3& Mesh ) const;
         int  GetVertexCount() const
         {
