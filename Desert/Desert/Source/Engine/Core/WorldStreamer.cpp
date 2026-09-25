@@ -93,7 +93,7 @@ namespace Desert::Core
         streamer->m_RecordIds.reserve( snapshot->Entities.size() );
         for ( const Assets::EntityData& record : snapshot->Entities )
             streamer->m_RecordIds.push_back( record.id.value_or( Common::UUID( 0 ) ) );
-        auto begun = Rules::BeginWorldStreaming( *snapshot, RegistryMeshBounds(), Rules::ResidencySettings{},
+        auto begun = Rules::BeginWorldStreaming( *snapshot, RegistryMeshBounds(), streamer->m_Settings,
                                                  std::span( &source, 1 ), *streamer );
         if ( !begun )
             return Common::MakeError<Result>( "world streaming: " + begun.GetError() );
@@ -101,8 +101,15 @@ namespace Desert::Core
             return Common::MakeSuccess( Result() );
 
         streamer->m_Executor = begun.ExtractValue();
-        streamer->m_Snapshot = snapshot;
-        streamer->m_Loader   = std::make_unique<WorldCellLoader>(
+        // A streaming begin is what a WorldPartition block produces; a begin without one is a broken invariant.
+        const std::optional<WorldPartitionSerialized>& partition = snapshot->WorldPartition;
+        if ( !partition.has_value() )
+            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                              "': streaming began but the snapshot states no WorldPartition" );
+        streamer->m_Partition  = *partition;
+        streamer->m_LastSource = source;
+        streamer->m_Snapshot   = snapshot;
+        streamer->m_Loader     = std::make_unique<WorldCellLoader>(
              std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
         streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': Play streams {1} record(s); {2} resident at the start around ({3:.0f}, "
@@ -125,7 +132,7 @@ namespace Desert::Core
         auto&       observations = world.Indexed.Observations;
         auto        plan         = std::move( world.Indexed.Plan );
         auto        begun        = Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
-             std::move( plan ), partition, Rules::ResidencySettings{}, recordCount, observations );
+             std::move( plan ), partition, streamer->m_Settings, recordCount, observations );
         if ( !begun )
             return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
                                               "': " + begun.GetError() );
@@ -133,8 +140,9 @@ namespace Desert::Core
         streamer->m_RecordIds.reserve( world.Indexed.RecordIds.size() );
         for ( const std::uint64_t id : world.Indexed.RecordIds )
             streamer->m_RecordIds.emplace_back( id );
-        streamer->m_Index  = world.Index;
-        streamer->m_Loader = std::make_unique<WorldCellLoader>(
+        streamer->m_Partition = partition;
+        streamer->m_Index     = world.Index;
+        streamer->m_Loader    = std::make_unique<WorldCellLoader>(
              std::make_shared<WorldCells::CookedCellSource>( *world.Index, VfsReader( world.Directory ) ) );
         streamer->m_MostResident = streamer->Executor().LiveRecords();
         LOG_INFO( "[WorldPartition] '{0}': a cooked world of {1} record(s) in {2} unit(s) from '{3}'; {4} "
@@ -161,8 +169,9 @@ namespace Desert::Core
             return Common::MakeError( where.GetError() );
         const Rules::StreamingSource source = where.GetValue();
 
-        m_LastTick = TickReport{};
-        auto tick  = Executor().Tick( std::span( &source, 1 ), nowSeconds, *this );
+        m_LastTick   = TickReport{};
+        m_LastSource = source;
+        auto tick    = Executor().Tick( std::span( &source, 1 ), nowSeconds, *this );
         if ( !tick )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + tick.GetError() );
 

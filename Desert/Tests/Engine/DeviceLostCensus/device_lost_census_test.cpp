@@ -496,6 +496,38 @@ TEST( DeviceLostCensus, OnlyBeginFrameCanArmTheCommandBuffer )
                          "BeginFrame is the only function the device-lost gate sits in front of.";
 }
 
+TEST( DeviceLostCensus, EveryRecordingEntryPointAsksIsRecording )
+{
+    // THE OTHER HALF OF THE ARMING INVARIANT. BeginFrame is gated, but a loss noted MID-FRAME left the
+    // buffer armed, and the rest of that frame recorded down to a vkCmdBeginRenderPass on a null
+    // framebuffer: exit 139 right after "closing down in order" (WP20c). IsRecording() disarms on a lost
+    // device, so a guard that reads the raw field instead reopens exactly that window.
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const fs::path file   = fs::path( root ) / "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp";
+    const std::string src = StripCommentsAndStrings( ReadAll( file ) );
+    const std::string gate = BodyOf( src, "VulkanRendererAPI::IsRecording" );
+    ASSERT_FALSE( gate.empty() ) << "VulkanRendererAPI::IsRecording is not in " << file.string();
+    EXPECT_NE( gate.find( "AllowWork" ), std::string::npos ) << "IsRecording must ask the device-lost gate";
+
+    for ( const std::string raw : { "if ( !m_CurrentCommandBuffer", "if ( m_CurrentCommandBuffer )" } )
+        for ( std::size_t at = 0; ( at = src.find( raw, at ) ) != std::string::npos; at += raw.size() )
+            ADD_FAILURE() << file.filename().string() << ":"
+                          << 1 + std::count( src.begin(), src.begin() + static_cast<std::ptrdiff_t>( at ), '\n' )
+                          << " guards recording on the raw field; ask IsRecording() so a mid-frame loss stops it";
+
+    int guards = 0;
+    for ( const std::string asked : { "if ( !IsRecording()", "if ( IsRecording() )" } )
+        for ( std::size_t at = 0; ( at = src.find( asked, at ) ) != std::string::npos; at += asked.size() )
+            ++guards;
+    EXPECT_GE( guards, 20 ) << "the recording entry points stopped asking IsRecording()";
+
+    const std::string begin = BodyOf( src, "VulkanRendererAPI::BeginRenderPass" );
+    EXPECT_NE( begin.find( "== VK_NULL_HANDLE" ), std::string::npos )
+         << "BeginRenderPass must refuse a framebuffer whose attachments failed to create";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

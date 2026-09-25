@@ -102,6 +102,31 @@ namespace Desert::Core
             return &scene == m_Scene;
         }
 
+        // WHAT THE EDITOR'S WORLD PARTITION PANEL PAINTS IN PLAY (Editor/Panels/WorldPartition): the cells,
+        // each unit's residency, the settings that turn a source's position into its loading circle, and
+        // where the source was on the last Tick. Read-only views of the executor's own state, not copies.
+        [[nodiscard]] const Rules::WorldPartitionPlan& Plan() const
+        {
+            return m_Executor->Plan(); // NOLINT(bugprone-unchecked-optional-access): see Executor() below
+        }
+        [[nodiscard]] const Rules::ResidencyState& Residency() const
+        {
+            return m_Executor->State(); // NOLINT(bugprone-unchecked-optional-access): see Executor() below
+        }
+        [[nodiscard]] const WorldPartitionSerialized& Partition() const
+        {
+            return m_Partition;
+        }
+        [[nodiscard]] const Rules::ResidencySettings& Settings() const
+        {
+            return m_Settings;
+        }
+        // nullopt until the first source is known: Begin reads one, BeginCooked waits for the first Tick.
+        [[nodiscard]] const std::optional<Rules::StreamingSource>& LastSource() const
+        {
+            return m_LastSource;
+        }
+
         // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
         ~WorldStreamer() override;
         WorldStreamer( const WorldStreamer& )            = delete;
@@ -145,5 +170,10 @@ namespace Desert::Core
         std::size_t m_MostResident     = 0;
 
         TickReport m_LastTick;
+
+        // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
+        Rules::ResidencySettings              m_Settings;
+        WorldPartitionSerialized              m_Partition;
+        std::optional<Rules::StreamingSource> m_LastSource;
     };
 } // namespace Desert::Core
