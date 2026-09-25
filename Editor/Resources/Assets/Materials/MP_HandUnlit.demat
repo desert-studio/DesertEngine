@@ -3,13 +3,15 @@
         "Kind": "Material",
         "Guid": "58b25001fd9a29362681f26b0c4ebf67",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["68041dd187501b26980a7415a7b882fc"]
     },
-    "ShaderName": "Unlit",
+    "Shader": {
+        "Guid": "68041dd187501b26980a7415a7b882fc",
+        "Path": "engine:Shaders/Programs/Unlit/Unlit.shader"
+    },
     "Params": [],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

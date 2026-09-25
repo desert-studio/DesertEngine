@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "0d7f234fc14e1f8ef95528082a290ebd",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["e6f14c7dc0603759cc564e8e5d57ec27"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "e6f14c7dc0603759cc564e8e5d57ec27"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -25,6 +28,5 @@
             "Guid": "e6f14c7dc0603759cc564e8e5d57ec27",
             "Path": "assets:Clouds/Types/Lenticular.decloudtype"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }
