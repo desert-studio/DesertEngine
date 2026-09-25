@@ -43,7 +43,7 @@ namespace Common::Json
             while ( start <= body.size() )
             {
                 const std::size_t end    = body.find( '\n', start );
-                std::string_view  line   = body.substr( start, end == std::string_view::npos ? end : end - start );
+                const std::string_view line   = body.substr( start, end == std::string_view::npos ? end : end - start );
                 const std::size_t digits = line.find_first_not_of( "0123456789" );
                 if ( digits != 0 && digits != std::string_view::npos && line.substr( digits ).starts_with( ") " ) )
                     items.emplace_back( line.substr( digits + 2 ) );

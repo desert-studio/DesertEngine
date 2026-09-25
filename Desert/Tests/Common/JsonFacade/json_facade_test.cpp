@@ -59,7 +59,7 @@ namespace FacadeTest
     class WithPrivate
     {
     public:
-        int Get() const
+        [[nodiscard]] int Get() const
         {
             return m_Value;
         }
