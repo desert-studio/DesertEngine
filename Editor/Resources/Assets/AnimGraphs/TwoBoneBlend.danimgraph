@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "291baa80f72b77f73f1a105fda2702cd",
+        "Versions": {
+            "ANGR": 1
+        },
+        "Dependencies": []
+    },
     "Name": "TwoBoneBlend",
     "Entry": "Wave",
     "Parameters": [],

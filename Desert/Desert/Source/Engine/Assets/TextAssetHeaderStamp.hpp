@@ -40,6 +40,10 @@ namespace Desert::Assets
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
     inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
     inline constexpr uint32_t kRetargetSchemaVersion = 2;
+    // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
+    // stated no version at all - that generation is 0, and a file of it is refused by name.
+    inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "5533f20f4432c76df2f0d7515450000b",
+        "Versions": {
+            "ANGR": 1
+        },
+        "Dependencies": []
+    },
     "Name": "OneBoneBlend",
     "Entry": "Hover",
     "Parameters": [],

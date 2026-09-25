@@ -13,7 +13,8 @@ locator, routed by slot name into Textures / CloudAssets / ShaderRefs, states th
 re-spells Params through MaterialData's float storage; that is normalised away only when every slot number pairs
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
 it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b),
-.derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone.
+.derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone; .danimgraph 0 -> ANGR 1
+(T7d) gains the header and had no version member to drop.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -309,6 +310,7 @@ TEXT_HEADER_RAISES = {
     ".detheme": ("UITheme", "UITH", 1, 2, True),  # T7b
     ".derig": ("ControlRig", "CRIG", 1, 2, True),  # T7c
     ".retarget": ("Retarget", "RTGT", 1, 2, True),  # T7c
+    ".danimgraph": ("AnimGraph", "ANGR", 0, 1, True),  # T7d: generation 0 stated no version at all
 }
 
 
