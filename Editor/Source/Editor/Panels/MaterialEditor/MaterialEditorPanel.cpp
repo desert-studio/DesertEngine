@@ -513,7 +513,7 @@ namespace Desert::Editor
         const auto& data   = owner.Data();
 
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
-        auto  shader        = shaderService ? shaderService->GetByName( owner.GetShaderName() ) : nullptr;
+        auto  shader        = shaderService != nullptr ? shaderService->GetByName( owner.GetShaderName() ) : nullptr;
         if ( !shader )
             return {};
 
@@ -2171,7 +2171,7 @@ namespace Desert::Editor
     const ::Desert::Core::Formats::ShaderProgramMeta* MaterialEditorPanel::Schema() const
     {
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
-        auto  shader        = shaderService ? shaderService->GetByName( DrawnShaderName() ) : nullptr;
+        auto  shader        = shaderService != nullptr ? shaderService->GetByName( DrawnShaderName() ) : nullptr;
         if ( !shader )
             return nullptr;
 
