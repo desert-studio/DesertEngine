@@ -28,7 +28,8 @@ namespace Desert::Reflection
         // then falls back to FromPath.
         std::function<uint64_t( uint64_t guid, const std::string& assetType )> FromGuid;
         // The header GUID text of the asset `handle` names ("" for 0 or an asset with no identity). A
-        // SkyboxAsset field is written as {"Guid": ToGuid, "Path": ToPath} and read back by ResolveGuidRef.
+        // SkyboxAsset or TextureAsset field is written as {"Guid": ToGuid, "Path": ToPath} and read back by
+        // ResolveGuidRef.
         std::function<std::string( uint64_t handle, const std::string& assetType )> ToGuid;
     };
 

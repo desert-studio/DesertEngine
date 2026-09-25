@@ -69,6 +69,9 @@ if bash scripts/CI/RepoOnlyIncludes.sh --require-replacements >"$LOG/includes.lo
 
 # (c) clang-format 18 on the changed lines (Homebrew v22 disagrees with CI; the gate names its binary)
 if PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckFormat.sh "$BASE" >"$LOG/format.log" 2>&1; then fmt=ok; else fmt=RED; fail=1; fi
+# (g) clang-tidy on the changed lines, as CI runs it: the 09-24 batch reached dev with 13 tidy errors because no
+# gate before the merge ran it (agents never run tidy on their own — the one pass is here, once per hand-off).
+if PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckTidy.sh "$(git merge-base "$BASE" HEAD)" >"$LOG/tidy.log" 2>&1; then tidy=ok; else tidy=RED; fail=1; fi
 
 # (d) .claude: an agent cannot commit it, so anything the branch would bring into base on merge is a stale
 # or foreign copy (one such merge nearly rolled back the guard). Measured from the merge-base: a branch that
@@ -82,7 +85,7 @@ behind=""; git diff --quiet "$BASE" HEAD -- .claude || behind=" (.claude differs
 dirty=""; git diff --quiet HEAD -- . ':!.cache' || dirty=" DIRTY tree: no marker"
 
 secs=$(( $(date +%s) - start ))
-line="$passed/$total suites, includes $inc, format $fmt, .claude $cl — ${secs}s"
+line="$passed/$total suites, includes $inc, format $fmt, tidy $tidy, .claude $cl — ${secs}s"
 { echo "$line"; printf 'RED %s\n' "${red[@]:+${red[@]}}"; printf 'STALE %s\n' "${stale[@]:+${stale[@]}}"; } >"$LOG/summary.txt"
 echo "$line$behind$dirty; logs $LOG"
 i=0; for r in "${red[@]:+${red[@]}}"; do i=$((i + 1)); [ $i -le 6 ] && echo "  RED $r"; done

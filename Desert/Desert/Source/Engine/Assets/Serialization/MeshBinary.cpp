@@ -41,6 +41,7 @@ namespace Desert::Assets::Serialization
             uint64_t Count;       // elements, not bytes
         };
         static_assert( sizeof( SectionRow ) == 24 );
+        static_assert( sizeof( SectionRow ) == Common::Content::kMeshBinarySectionRowSize );
 
         struct BinSubmesh
         {
@@ -63,6 +64,13 @@ namespace Desert::Assets::Serialization
         static_assert( sizeof( BinSubmesh ) == 136 );
         static_assert( offsetof( BinSubmesh, Transform ) == 32 );
         static_assert( offsetof( BinSubmesh, MaterialGuidHi ) == 120 );
+        // The content scan reads the material GUIDs through Common's description of this record
+        // (MeshBinaryHeader.hpp) without linking the engine; these pin the two to one layout.
+        static_assert( sizeof( BinSubmesh ) == Common::Content::kMeshBinarySubmeshSizeV3 );
+        static_assert( offsetof( BinSubmesh, MaterialGuidHi ) ==
+                       Common::Content::kMeshBinarySubmeshMaterialGuidOffset );
+        static_assert( offsetof( BinSubmesh, MaterialGuidLo ) ==
+                       Common::Content::kMeshBinarySubmeshMaterialGuidOffset + 8 );
 
         // Versions 1 and 2 end the row in an 8-byte material NUMBER from before material GUIDs (AF7c) where
         // v3 has the GUID; the first 120 bytes are the same. Only the number 0 (no material) is read: a
@@ -135,6 +143,7 @@ namespace Desert::Assets::Serialization
             SecPolyGroups, // version 2
             SecCount_      // one past the last id; also the number of rows in the table
         };
+        static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
         constexpr uint32_t kSectionCount = SecCount_ - 1;
         // Version 1 is version 2 without its last section (MeshBinary.hpp); the table is otherwise identical.
         constexpr uint32_t kSectionCountV1 = SecStrings;
