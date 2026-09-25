@@ -1,5 +1,6 @@
 // AF4b: the mesh asset envelope (META + IMPT + SRCE) round-trips byte for byte, states kind/GUID/dependencies
-// from its header prefix alone, and refuses a file whose sections are reordered, missing or corrupted.
+// from its header prefix alone, and refuses a file whose sections are reordered, missing or corrupted. AF4d: SRCE
+// is a LIST of source models (UE SourceModels, one per authored LOD) and round-trips at any count.
 #include <Engine/Assets/MeshSourceAsset.hpp>
 
 #include <gtest/gtest.h>
@@ -27,7 +28,7 @@ namespace
         a.Import.Settings.UniformScale = 2.54f;
         a.Import.Settings.UpAxis       = MeshSourceUpAxis::Z;
         a.Import.Settings.LodPolicy    = MeshLodPolicy::None;
-        auto& m                        = a.Source.Mesh;
+        auto& m                        = a.Source.Models.emplace_back().Mesh;
         m.Positions   = { -50.f, 0.f, -25.f, 50.f, 0.f, -25.f, 50.f, 10.f, 25.f, -50.f, 0.f, 25.f };
         m.Triangles   = { 0, 1, 2, 0, 2, 3 };
         m.PolyGroups  = { 7, 7 };
@@ -41,6 +42,25 @@ namespace
         if ( skinned )
             a.Source.Skin = MeshSkin{
                  0x5EE1E7011ULL, { "root", "arm" }, { { 0, 0, 1.f }, { 2, 1, 0.75f }, { 2, 0, 0.25f } } };
+        return a;
+    }
+
+    // The quad plus two authored LODs: LOD1 keeps both slots on one triangle each, LOD2 is one triangle of slot 0
+    // with no overlays at all (every optional layer is per model).
+    MeshSourceAsset MakeQuadWithLods()
+    {
+        MeshSourceAsset a    = MakeQuad( false );
+        auto&           lod1 = a.Source.Models.emplace_back().Mesh;
+        lod1.Positions       = { -40.f, 0.f, -20.f, 40.f, 0.f, -20.f, 40.f, 8.f, 20.f, -40.f, 0.f, 20.f };
+        lod1.Triangles       = { 0, 1, 2, 0, 2, 3 };
+        lod1.PolyGroups      = { 3, 4 };
+        lod1.MaterialIds     = { 1, 0 };
+        lod1.Normals         = Desert::Geometry::EditMeshOverlaySer{ { 0.f, 1.f, 0.f }, { 0, 0, 0, 0, 0, 0 } };
+        auto& lod2           = a.Source.Models.emplace_back().Mesh;
+        lod2.Positions       = { -30.f, 0.f, -15.f, 30.f, 0.f, -15.f, 0.f, 0.f, 15.f };
+        lod2.Triangles       = { 0, 1, 2 };
+        lod2.PolyGroups      = { 0 };
+        lod2.MaterialIds     = { 0 };
         return a;
     }
 
@@ -246,15 +266,15 @@ TEST( MeshSourceAsset, KindAndSkinMustAgree )
 TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
 {
     MeshSourceAsset slot            = MakeQuad( false );
-    slot.Source.Mesh.MaterialIds[1] = 4;
+    slot.Source.Models[0].Mesh.MaterialIds[1] = 4;
     EXPECT_FALSE( EncodeMeshSourceAsset( slot ).IsSuccess() );
     MeshSourceAsset torn = MakeQuad( false );
-    if ( !torn.Source.Mesh.Colors.has_value() )
+    if ( !torn.Source.Models[0].Mesh.Colors.has_value() )
     {
         ADD_FAILURE() << "the quad fixture lost its colour overlay";
         return;
     }
-    torn.Source.Mesh.Colors.value().Triangles[3] = 0; // half-unset triangle
+    torn.Source.Models[0].Mesh.Colors.value().Triangles[3] = 0; // half-unset triangle
     EXPECT_FALSE( EncodeMeshSourceAsset( torn ).IsSuccess() );
     MeshSourceAsset scale              = MakeQuad( false );
     scale.Import.Settings.UniformScale = 0.0f;
@@ -270,6 +290,61 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     }
     weight.Source.Skin.value().Influences[0].Bone = 2;
     EXPECT_FALSE( EncodeMeshSourceAsset( weight ).IsSuccess() );
+}
+
+TEST( MeshSourceAsset, ThreeSourceModelsRoundTripByteIdentical )
+{
+    const MeshSourceAsset a     = MakeQuadWithLods();
+    const auto            bytes = Encode( a );
+    const auto            back  = DecodeMeshSourceAsset( bytes );
+    if ( !back.IsSuccess() )
+    {
+        ADD_FAILURE() << back.GetError();
+        return;
+    }
+    ASSERT_EQ( back.GetValue().Source.Models.size(), 3u );
+    EXPECT_EQ( back.GetValue(), a );
+    EXPECT_EQ( Encode( back.GetValue() ), bytes );
+    EXPECT_NE( bytes, Encode( MakeQuad( false ) ) ) << "the authored LODs are part of the stored source";
+
+    // The decode above also held the Meta bounds against LOD0's (a stale cache is refused), so a smaller LOD
+    // riding in the file does not move them.
+}
+
+TEST( MeshSourceAsset, EverySourceModelIsInTheSourceHash )
+{
+    const MeshSourceAsset a    = MakeQuadWithLods();
+    const uint64_t        base = MeshSourceHash( a.Source );
+    for ( size_t k = 0; k < a.Source.Models.size(); ++k )
+    {
+        MeshSourceAsset moved = a;
+        moved.Source.Models[k].Mesh.Positions[0] += 1.0f;
+        EXPECT_NE( MeshSourceHash( moved.Source ), base ) << "LOD" << k;
+    }
+    MeshSourceAsset dropped = a;
+    dropped.Source.Models.pop_back();
+    EXPECT_NE( MeshSourceHash( dropped.Source ), base ) << "the model count";
+}
+
+TEST( MeshSourceAsset, MalformedSourceModelsAreRefused )
+{
+    MeshSourceAsset none = MakeQuad( false );
+    none.Source.Models.clear();
+    const auto noModel = EncodeMeshSourceAsset( none );
+    ASSERT_FALSE( noModel.IsSuccess() );
+    EXPECT_NE( noModel.GetError().find( "LOD0 is required" ), std::string::npos ) << noModel.GetError();
+
+    MeshSourceAsset slot                      = MakeQuadWithLods();
+    slot.Source.Models[2].Mesh.MaterialIds[0] = 9;
+    const auto badSlot                        = EncodeMeshSourceAsset( slot );
+    ASSERT_FALSE( badSlot.IsSuccess() );
+    EXPECT_NE( badSlot.GetError().find( "LOD2" ), std::string::npos ) << badSlot.GetError();
+
+    MeshSourceAsset skinned = MakeQuad( true );
+    skinned.Source.Models.push_back( MakeQuadWithLods().Source.Models[1] );
+    const auto twoSkinned = EncodeMeshSourceAsset( skinned );
+    ASSERT_FALSE( twoSkinned.IsSuccess() );
+    EXPECT_NE( twoSkinned.GetError().find( "exactly one" ), std::string::npos ) << twoSkinned.GetError();
 }
 
 int main( int argc, char** argv )

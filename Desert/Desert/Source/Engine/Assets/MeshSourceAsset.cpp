@@ -25,7 +25,9 @@ namespace Desert::Assets
     namespace
     {
         constexpr uint32_t kImportInfoVersion = 1;
-        constexpr uint32_t kSourceVersion     = 1;
+        // 2: SRCE holds a LIST of source models (one per authored LOD) ahead of the shared slots; version 1 held
+        // one mesh and was never written by an import, so it has no migration.
+        constexpr uint32_t kSourceVersion = 2;
 
         const CC::SubsystemVersion kKnown[] = { { kMeshAssetSubsystemTag, kMeshAssetSubsystemVersion } };
 
@@ -216,34 +218,34 @@ namespace Desert::Assets
             return Common::MakeSuccess( true );
         }
 
-        Common::BoolResultStr ValidateSource( const MeshSourceData& s, const CC::ContentKind kind )
+        Common::BoolResultStr ValidateModel( const Geometry::EditMeshSer& m, const size_t lod, const size_t slots )
         {
-            const Geometry::EditMeshSer& m = s.Mesh;
             if ( m.Positions.size() % 3 != 0 || m.Triangles.size() % 3 != 0 )
-                return Common::MakeFormattedError<bool>(
-                     "mesh source has {} position floats and {} triangle indices; both must be multiples of 3",
-                     m.Positions.size(), m.Triangles.size() );
+                return Common::MakeFormattedError<bool>( "mesh source LOD{} has {} position floats and {} "
+                                                         "triangle indices; both must be multiples of 3",
+                                                         lod, m.Positions.size(), m.Triangles.size() );
             if ( m.Triangles.empty() )
-                return Common::MakeError<bool>( "mesh source has no triangles" );
+                return Common::MakeFormattedError<bool>( "mesh source LOD{} has no triangles", lod );
             for ( const float p : m.Positions )
                 if ( !std::isfinite( p ) )
-                    return Common::MakeError<bool>( "mesh source has a non-finite position" );
+                    return Common::MakeFormattedError<bool>( "mesh source LOD{} has a non-finite position", lod );
             const size_t triangles = m.Triangles.size() / 3;
             const auto   vertices  = static_cast<int64_t>( m.Positions.size() / 3 );
             for ( size_t i = 0; i < m.Triangles.size(); ++i )
                 if ( m.Triangles[i] < 0 || m.Triangles[i] >= vertices )
                     return Common::MakeFormattedError<bool>(
-                         "mesh source triangle {} names vertex {}, the mesh has {}", i / 3, m.Triangles[i],
-                         vertices );
+                         "mesh source LOD{} triangle {} names vertex {}, the mesh has {}", lod, i / 3,
+                         m.Triangles[i], vertices );
             if ( m.PolyGroups.size() != triangles || m.MaterialIds.size() != triangles )
                 return Common::MakeFormattedError<bool>(
-                     "mesh source has {} triangles but {} polygroups and {} material ids (one each per triangle)",
-                     triangles, m.PolyGroups.size(), m.MaterialIds.size() );
+                     "mesh source LOD{} has {} triangles but {} polygroups and {} material ids (one each per "
+                     "triangle)",
+                     lod, triangles, m.PolyGroups.size(), m.MaterialIds.size() );
             for ( size_t t = 0; t < triangles; ++t )
-                if ( m.MaterialIds[t] < 0 || static_cast<size_t>( m.MaterialIds[t] ) >= s.MaterialSlots.size() )
+                if ( m.MaterialIds[t] < 0 || static_cast<size_t>( m.MaterialIds[t] ) >= slots )
                     return Common::MakeFormattedError<bool>(
-                         "mesh source triangle {} uses material slot {}, the asset has {} slots", t,
-                         m.MaterialIds[t], s.MaterialSlots.size() );
+                         "mesh source LOD{} triangle {} uses material slot {}, the asset has {} slots", lod, t,
+                         m.MaterialIds[t], slots );
             if ( m.Normals )
                 if ( auto r = ValidateOverlay( *m.Normals, "normal", 3, triangles ); !r.IsSuccess() )
                     return r;
@@ -256,11 +258,27 @@ namespace Desert::Assets
             for ( const Geometry::EditMeshOverlaySer& uv : m.UVs )
                 if ( auto r = ValidateOverlay( uv, "UV", 2, triangles ); !r.IsSuccess() )
                     return r;
+            return Common::MakeSuccess( true );
+        }
+
+        Common::BoolResultStr ValidateSource( const MeshSourceData& s, const CC::ContentKind kind )
+        {
+            if ( s.Models.empty() )
+                return Common::MakeError<bool>( "mesh source has no source model (LOD0 is required)" );
+            for ( size_t lod = 0; lod < s.Models.size(); ++lod )
+                if ( auto r = ValidateModel( s.Models[lod].Mesh, lod, s.MaterialSlots.size() ); !r.IsSuccess() )
+                    return r;
 
             const bool skinned = kind == CC::ContentKind::SkinnedMesh;
             if ( skinned != s.Skin.has_value() )
                 return Common::MakeFormattedError<bool>( "a {} asset {} a skin", CC::KindName( kind ),
                                                          skinned ? "needs" : "cannot carry" );
+            if ( s.Skin && s.Models.size() != 1 )
+                return Common::MakeFormattedError<bool>( "a skinned mesh source has {} source models; its skin "
+                                                         "names LOD0's vertices, so it has exactly "
+                                                         "one",
+                                                         s.Models.size() );
+            const auto vertices = static_cast<int64_t>( s.Models.front().Mesh.Positions.size() / 3 );
             if ( s.Skin )
                 for ( const MeshSkinInfluence& inf : s.Skin->Influences )
                 {
@@ -342,19 +360,23 @@ namespace Desert::Assets
         // ── SRCE ──────────────────────────────────────────────────────────────────────────────────────
         std::vector<std::byte> EncodeSource( const MeshSourceData& s )
         {
-            Writer                       w;
-            const Geometry::EditMeshSer& m = s.Mesh;
+            Writer w;
             w.U32( kSourceVersion );
-            w.Floats( m.Positions );
-            w.Ints( m.Triangles );
-            w.Ints( m.PolyGroups );
-            w.Ints( m.MaterialIds );
-            w.OptionalOverlay( m.Normals );
-            w.OptionalOverlay( m.Tangents );
-            w.OptionalOverlay( m.Colors );
-            w.U32( static_cast<uint32_t>( m.UVs.size() ) );
-            for ( const Geometry::EditMeshOverlaySer& uv : m.UVs )
-                w.Overlay( uv );
+            w.U32( static_cast<uint32_t>( s.Models.size() ) );
+            for ( const MeshSourceModel& model : s.Models )
+            {
+                const Geometry::EditMeshSer& m = model.Mesh;
+                w.Floats( m.Positions );
+                w.Ints( m.Triangles );
+                w.Ints( m.PolyGroups );
+                w.Ints( m.MaterialIds );
+                w.OptionalOverlay( m.Normals );
+                w.OptionalOverlay( m.Tangents );
+                w.OptionalOverlay( m.Colors );
+                w.U32( static_cast<uint32_t>( m.UVs.size() ) );
+                for ( const Geometry::EditMeshOverlaySer& uv : m.UVs )
+                    w.Overlay( uv );
+            }
             w.U32( static_cast<uint32_t>( s.MaterialSlots.size() ) );
             for ( const MeshMaterialSlot& slot : s.MaterialSlots )
             {
@@ -387,18 +409,23 @@ namespace Desert::Assets
             if ( r.Ok && version != kSourceVersion )
                 return Common::MakeFormattedError<MeshSourceData>(
                      "mesh Source version {} is not the {} this build reads", version, kSourceVersion );
-            MeshSourceData         s;
-            Geometry::EditMeshSer& m = s.Mesh;
-            m.Positions              = r.Floats();
-            m.Triangles              = r.Ints();
-            m.PolyGroups             = r.Ints();
-            m.MaterialIds            = r.Ints();
-            m.Normals                = r.OptionalOverlay();
-            m.Tangents               = r.OptionalOverlay();
-            m.Colors                 = r.OptionalOverlay();
-            m.UVs.resize( r.Count( 8 ) );
-            for ( Geometry::EditMeshOverlaySer& uv : m.UVs )
-                uv = r.Overlay();
+            MeshSourceData s;
+            // The smallest model is 4 empty arrays + 3 absent-overlay flags + a UV count: 23 bytes.
+            s.Models.resize( r.Count( 23 ) );
+            for ( MeshSourceModel& model : s.Models )
+            {
+                Geometry::EditMeshSer& m = model.Mesh;
+                m.Positions              = r.Floats();
+                m.Triangles              = r.Ints();
+                m.PolyGroups             = r.Ints();
+                m.MaterialIds            = r.Ints();
+                m.Normals                = r.OptionalOverlay();
+                m.Tangents               = r.OptionalOverlay();
+                m.Colors                 = r.OptionalOverlay();
+                m.UVs.resize( r.Count( 8 ) );
+                for ( Geometry::EditMeshOverlaySer& uv : m.UVs )
+                    uv = r.Overlay();
+            }
             s.MaterialSlots.resize( r.Count( 20 ) );
             for ( MeshMaterialSlot& slot : s.MaterialSlots )
             {
@@ -490,7 +517,7 @@ namespace Desert::Assets
         envelope.Asset.Dependencies = MeshSourceDependencies( asset.Source );
         CC::EnvelopeMeta meta;
         meta.Name   = asset.Name;
-        meta.Bounds = MeshSourceBounds( asset.Source.Mesh );
+        meta.Bounds = MeshSourceBounds( asset.Source.Models.front().Mesh );
         envelope.Sections.push_back(
              { CC::EnvelopeSection::Meta, CC::EnvelopeCodec::Stored, CC::EncodeEnvelopeMeta( meta ) } );
         envelope.Sections.push_back(
@@ -548,7 +575,7 @@ namespace Desert::Assets
         // cache disagrees with its source is refused, not silently re-derived.
         if ( !meta.GetValue().Tags.empty() )
             return Common::MakeError<MeshSourceAsset>( "a mesh asset's Meta carries no tags" );
-        if ( meta.GetValue().Bounds != MeshSourceBounds( asset.Source.Mesh ) )
+        if ( meta.GetValue().Bounds != MeshSourceBounds( asset.Source.Models.front().Mesh ) )
             return Common::MakeError<MeshSourceAsset>(
                  "the mesh asset's Meta bounds are not the bounds of its source" );
         if ( e.Asset.Dependencies != MeshSourceDependencies( asset.Source ) )
