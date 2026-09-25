@@ -15,7 +15,7 @@ namespace Desert::Graphic
     // Instanced Static Mesh with ONE material it built for itself (`m_StaticInstancedMaterial` /
     // `m_InstancedGBufferMaterial`). That material has no `.demat` behind it, so MaterialFactory never
     // ran over it, so nothing ever called `SetImage` on any of its samplers — and what they keep is what
-    // `VulkanMaterialBackend::InitializeWithFallbacks` wrote into them at creation:
+    // `VulkanMaterialBackend::WriteFallbacks` wrote into them at creation:
     // `VulkanFallbackTextures::CreateFallbackTexture2D`'s 1x1 image of {1,1,1,1}. Not the schema default
     // (`Material::BindSchemaDefaultTexture` is reached only from MaterialFactory, which never ran) —
     // the two happen to agree on white, and the line that DOES the thing is the backend's.

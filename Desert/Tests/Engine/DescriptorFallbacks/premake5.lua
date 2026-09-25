@@ -1,6 +1,6 @@
 -- Descriptor-fallback coverage test. Compiles GLSL to SPIR-V with shaderc, runs the ENGINE's
 -- reflection over it, and asserts that every image binding it produces is enumerated — with the right
--- view type — by the list VulkanMaterialBackend::InitializeWithFallbacks drives itself off.
+-- view type — by the list VulkanMaterialBackend::WriteFallbacks drives itself off.
 --
 -- Same recipe as Tests/Engine/ShaderReflection: VulkanShaderReflection.cpp holds no VkDevice, and
 -- CollectImageBindings is a pure function over reflection data, so this needs no GPU — which is the
