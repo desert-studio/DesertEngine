@@ -5,6 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
@@ -337,16 +338,84 @@ namespace Common::Utils
         return it == m_KeyByHandle.end() ? nullptr : FindByKey( it->second );
     }
 
+    namespace
+    {
+        constexpr std::string_view kRedirectorKind = "Redirector";
+
+        // The chain as a message: "a -> b -> c".
+        std::string Chain( const std::vector<std::string_view>& keys )
+        {
+            std::string text;
+            for ( const std::string_view key : keys )
+            {
+                if ( !text.empty() )
+                    text += " -> ";
+                text += key;
+            }
+            return text;
+        }
+    } // namespace
+
+    ResultStr<const AssetRegistryEntry*> AssetRegistry::FollowRedirectors( const AssetRegistryEntry& row ) const
+    {
+        const AssetRegistryEntry*     at = &row;
+        std::vector<std::string_view> passed;
+        while ( at->Kind == kRedirectorKind )
+        {
+            if ( std::ranges::find( passed, std::string_view( at->Key ) ) != passed.end() )
+            {
+                passed.emplace_back( at->Key );
+                return MakeFormattedError<const AssetRegistryEntry*>( "redirector cycle: {}", Chain( passed ) );
+            }
+            passed.emplace_back( at->Key );
+            if ( passed.size() > kMaxRedirectorChain )
+                return MakeFormattedError<const AssetRegistryEntry*>( "redirector chain longer than {} links: {}",
+                                                                      kMaxRedirectorChain, Chain( passed ) );
+            if ( at->Dependencies.size() != 1 )
+                return MakeFormattedError<const AssetRegistryEntry*>(
+                     "redirector '{}' has {} target edges, a redirector has one", at->Key,
+                     at->Dependencies.size() );
+            const AssetRegistryEntry* next = FindByHandle( at->Dependencies.front() );
+            if ( next == nullptr )
+                return MakeFormattedError<const AssetRegistryEntry*>(
+                     "redirector '{}' names asset {:016x}, which no row states (chain: {})", at->Key,
+                     at->Dependencies.front(), Chain( passed ) );
+            at = next;
+        }
+        return MakeSuccess( at );
+    }
+
+    namespace
+    {
+        // A broken redirector is not "no such asset": it is logged by name, and the caller gets the absence
+        // it already handles for a dangling reference.
+        const AssetRegistryEntry* Followed( const AssetRegistry& registry, const AssetRegistryEntry* row )
+        {
+            if ( row == nullptr || row->Kind != kRedirectorKind )
+                return row;
+            auto followed = registry.FollowRedirectors( *row );
+            if ( !followed )
+            {
+                LOG_ERROR( "[AssetRegistry] {}", followed.GetError() );
+                return nullptr;
+            }
+            // THE LOCATOR MISSED: the path names where the asset was. One line, not a refusal; AF10d's fix-up
+            // rewrites the referrer and deletes the redirector.
+            LOG_WARN( "[AssetRegistry] '{}' is a redirector to '{}'", row->Key, followed.GetValue()->Key );
+            return followed.GetValue();
+        }
+    } // namespace
+
     const AssetRegistryEntry* AssetRegistry::FindByReference( uint64_t handle, std::string_view path ) const
     {
         if ( handle != 0 )
         {
             if ( const AssetRegistryEntry* row = FindByHandle( handle ) )
-                return row;
+                return Followed( *this, row );
         }
         if ( path.empty() )
             return nullptr;
-        return FindByKey( AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) );
+        return Followed( *this, FindByKey( AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) ) );
     }
 
     const AssetRegistryEntry* AssetRegistry::FindByGuidReference( const Content::AssetGuid& guid,
@@ -355,7 +424,17 @@ namespace Common::Utils
         if ( !guid.IsNull() )
             for ( const AssetRegistryEntry& row : m_Entries )
                 if ( row.Guid.has_value() && *row.Guid == guid )
-                    return &row;
+                {
+                    // The GUID answered and the path hint names somewhere else: the asset moved. One line.
+                    if ( !path.empty() )
+                    {
+                        const std::string hinted = AssetHandle::StableKeyForPath( std::filesystem::path( path ) );
+                        if ( !hinted.empty() && hinted != row.Key )
+                            LOG_WARN( "[AssetRegistry] locator '{}' is stale; its GUID lives at '{}'", hinted,
+                                      row.Key );
+                    }
+                    return Followed( *this, &row );
+                }
         return FindByReference( 0, path );
     }
 
