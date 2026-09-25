@@ -205,7 +205,11 @@ namespace Desert::Graphic::API::Vulkan
         m_SwapChainImages.Images.resize( swapChainImagesCount );
         m_SwapChainImages.ImagesView.resize( swapChainImagesCount );
 
-        Engine::FrameManager::GetInstance().Initialize( swapChainImagesCount );
+        if ( !Engine::FrameManager::GetInstance().AdoptSwapchainImageCount( swapChainImagesCount ) )
+            return Common::MakeFormattedError<bool>(
+                 "the rebuilt swapchain has {} image(s) where the first had {}; the per-frame semaphores, fences "
+                 "and command buffers are sized by the first count and cannot follow a change.",
+                 swapChainImagesCount, Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
         VK_CHECK_RESULT( vkGetSwapchainImagesKHR( lDevice, m_SwapChain, &swapChainImagesCount, m_SwapChainImages.Images.data() ) );
 
         for ( uint32_t i = 0; i < swapChainImagesCount; i++ )
@@ -296,21 +300,37 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<VkResult> VulkanSwapChain::AcquireNextImage( VkSemaphore presentCompleteSemaphore,
-                                                                   uint32_t*   imageIndex )
+    Common::ResultStr<Graphic::AcquireStatus> VulkanSwapChain::AcquireNextImage( VkSemaphore presentCompleteSemaphore,
+                                                                                 uint32_t*   imageIndex )
     {
         // "vkAcquireNextImageKHR(): Semaphore must not have any pending operations" is what this line
         // produced after the device died — a message that reads as OUR synchronisation defect and is
         // nothing of the sort. The acquire simply must not be issued.
         if ( !Graphic::DeviceLost::AllowWork() )
-            return Common::MakeError<VkResult>( "the device is lost; refusing to acquire an image." );
+            return Common::MakeError<Graphic::AcquireStatus>( "the device is lost; refusing to acquire an image." );
 
         const auto vkLogicalDevice = m_LogicalDevice.lock();
         if ( !vkLogicalDevice ) DESERT_VERIFY( false );
 
-        VK_RETURN_RESULT( vkAcquireNextImageKHR( vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain,
-                                                 UINT64_MAX, presentCompleteSemaphore, VK_NULL_HANDLE,
-                                                 imageIndex ) );
+        // SUBOPTIMAL IS AN IMAGE, NOT A FAILURE (see Engine/Graphic/SwapchainAcquire.hpp). It used to leave
+        // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
+        // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
+        const VkResult res = vkAcquireNextImageKHR( vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain,
+                                                    UINT64_MAX, presentCompleteSemaphore, VK_NULL_HANDLE,
+                                                    imageIndex );
+        switch ( res )
+        {
+            case VK_SUCCESS:
+                return Common::MakeSuccess( Graphic::AcquireStatus::Acquired );
+            case VK_SUBOPTIMAL_KHR:
+                return Common::MakeSuccess( Graphic::AcquireStatus::AcquiredSuboptimal );
+            case VK_ERROR_OUT_OF_DATE_KHR:
+                return Common::MakeSuccess( Graphic::AcquireStatus::OutOfDate );
+            default:
+                (void)NoteIfDeviceLost( res, "vkAcquireNextImageKHR", __FILE__, __LINE__ );
+                return Common::MakeFormattedError<Graphic::AcquireStatus>( "vkAcquireNextImageKHR failed: {}",
+                                                                           VkResultToString( res ) );
+        }
     }
 
     void VulkanSwapChain::OnResize( uint32_t width, uint32_t height )
@@ -318,33 +338,35 @@ namespace Desert::Graphic::API::Vulkan
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 
-        const auto device = m_LogicalDevice.lock();
-        if ( !device ) DESERT_VERIFY( false );
-
-        Release();
         // THE RESULT WAS DISCARDED HERE. A swapchain that failed to rebuild left every handle below stale
         // and the frame loop carried on regardless — including on the device-lost path, where the rebuild
         // is exactly what must not proceed.
+        const auto recreated = Rebuild( width, height );
+        if ( !recreated.IsSuccess() )
+            LOG_ERROR( "[SwapChain] resize to {}x{} failed: {}", width, height, recreated.GetError() );
+    }
+
+    Common::ResultStr<bool> VulkanSwapChain::Rebuild( uint32_t width, uint32_t height )
+    {
+        if ( !Graphic::DeviceLost::AllowWork() )
+            return Common::MakeError<bool>( "the device is lost; refusing to rebuild the swapchain." );
+
+        const auto device = m_LogicalDevice.lock();
+        if ( !device ) DESERT_VERIFY( false );
+
+        // Release waits for the device to go idle, so nothing still reads the images being destroyed.
+        Release();
         const auto recreated = CreateSwapChain( device, &width, &height );
         if ( !recreated.IsSuccess() )
-        {
-            LOG_ERROR( "[SwapChain] resize to {}x{} failed: {}", width, height, recreated.GetError() );
-            return;
-        }
+            return recreated;
 
-        const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
-        if ( !cmdAlloc.IsSuccess() )
-        {
-            LOG_ERROR( "[SwapChain] resize could not transition the new images: {}", cmdAlloc.GetError() );
-            return;
-        }
-        const VkCommandBuffer cmd = cmdAlloc.GetValue();
-        for ( auto& image : GetSwapChainVKImage() )
-        {
-            VkImageMemoryBarrier barrier = { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = image, .subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 } };
-            vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier );
-        }
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        // NO LAYOUT TRANSITION OF THE NEW IMAGES HERE, and there used to be one: UNDEFINED -> PRESENT_SRC
+        // on every image, submitted right after the rebuild. None of them is acquired at that point, and
+        // touching a presentable image outside acquire..present is illegal ("performs a layout transition on
+        // presentable VkImage, but the image has not been acquired", once per image). It was never needed:
+        // the swapchain render pass starts from UNDEFINED and clears, so each image gets its layout inside
+        // the frame that acquired it.
+        return BOOLSUCCESS;
     }
 
     void VulkanSwapChain::Release()
