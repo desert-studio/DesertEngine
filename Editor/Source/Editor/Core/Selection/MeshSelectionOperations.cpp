@@ -250,10 +250,15 @@ namespace Desert::Editor::Core
         else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges ||
                   operation == MeshOperation::InsertEdgeLoop )
         {
-            auto repaired = operation == MeshOperation::FillHole ? Geometry::FillHoles( *before, selection )
-                            : operation == MeshOperation::WeldEdges
-                                 ? Geometry::WeldEdges( *before, selection.Mode() )
-                                 : Geometry::InsertEdgeLoop( *before, selection, args.LoopPosition );
+            const auto repair = [&]
+            {
+                if ( operation == MeshOperation::FillHole )
+                    return Geometry::FillHoles( *before, selection );
+                if ( operation == MeshOperation::WeldEdges )
+                    return Geometry::WeldEdges( *before, selection.Mode() );
+                return Geometry::InsertEdgeLoop( *before, selection, args.LoopPosition );
+            };
+            auto repaired = repair();
             if ( !repaired.IsSuccess() )
                 return Common::MakeError<bool>( repaired.GetError() );
             Geometry::RegionOutcome done = repaired.ExtractValue();

@@ -166,7 +166,8 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: select one group edge in Edge mode ({} elements selected in mode {})",
                  selection.Ids().size(), static_cast<int>( selection.Mode() ) );
-        if ( !( position > 0.0f && position < 1.0f ) )
+        // isfinite first: the negated form this replaced also refused NaN, and so must this one.
+        if ( !std::isfinite( position ) || position <= 0.0f || position >= 1.0f )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: position {} is outside (0, 1)", position );
         auto mesh = std::make_shared<FDynamicMesh3>( before );
