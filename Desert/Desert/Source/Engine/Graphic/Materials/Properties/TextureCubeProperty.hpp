@@ -15,9 +15,6 @@ namespace Desert::Graphic
 
         void Apply( MaterialBackend* backend ) override
         {
-            if ( !IsDirty() )
-                return;
-
             // NO `if ( m_Texture )` HERE ANY MORE — that guard was the Г14 defect, one link before the
             // descriptor. A slot told "nothing" marked itself dirty, skipped the write and then marked
             // itself clean, so the descriptor kept the last cube ANY scene had given it. Both ends looked
@@ -25,9 +22,14 @@ namespace Desert::Graphic
             // middle link dropped it: CornellDemo -> Clouds_Protocol -> CornellDemo came back lit by the
             // cloud scene's sky. `UniformImageCube::SetImageCube( nullptr )` is what "nothing" MEANS, and
             // it is a write like any other.
-            m_Uniform->SetImageCube( m_Texture );
+            // The uniform is shared by every view, so it is re-pointed once per write, not per view.
+            if ( m_UniformVersion != GetVersion() )
+            {
+                m_Uniform->SetImageCube( m_Texture );
+                m_UniformVersion = GetVersion();
+            }
+            // Asked every time: whether THIS view's set is behind is the set's record, not a flag here.
             backend->ApplyTextureCube( this );
-            MarkClean();
         }
 
         /// Point this sampler at @p texture, or at NOTHING when it is null.
@@ -45,7 +47,7 @@ namespace Desert::Graphic
         void SetTexture( const ImageCube* texture )
         {
             m_Texture = texture;
-            MarkDirty(); // every slot owes itself this write — INCLUDING the one that clears it
+            NoteWritten(); // INCLUDING the write that clears it
         }
 
         const auto& GetUniform() const
@@ -56,5 +58,6 @@ namespace Desert::Graphic
     private:
         std::shared_ptr<ShaderResources::UniformImageCube> m_Uniform;
         const ImageCube*                            m_Texture = nullptr;
+        uint64_t                                           m_UniformVersion = PropertyVersion::kNeverWritten;
     };
 } // namespace Desert::Graphic

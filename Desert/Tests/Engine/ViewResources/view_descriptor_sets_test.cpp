@@ -62,15 +62,14 @@ namespace
             return static_cast<FakeSets*>( Sets.FindActive( frame ) );
         }
 
-        // An image write, as ApplyTexture2D does it: into the active view's set, and recorded as a seed.
+        // An image write, as ApplyTexture2D does it: into the active view's set only. A view opened later is
+        // brought up to date by DescriptorCopyRecord versions (MaterialParamUpload), not by replaying seeds.
         void WriteImage( uint32_t frame, uint32_t binding, uint64_t image )
         {
             FakeSets* sets = Resolve( frame );
             if ( sets == nullptr )
                 return;
             sets->Descriptors[binding] = image;
-            Sets.Seed( binding,
-                       [this, binding, image]( uint32_t f ) { Active( f )->Descriptors[binding] = image; } );
         }
     };
 } // namespace
@@ -117,22 +116,6 @@ TEST( ViewDescriptorSets, SetsAreMadeLazilyOncePerViewAndFrame )
 
 // The "black material in a preview opened later" defect: the texture was written while the viewport alone
 // was open, its dirty window closed, and a view opened afterwards must still get it — not the fallback.
-TEST( ViewDescriptorSets, AViewOpenedAfterAnImageWriteStartsWithThatImage )
-{
-    FakeMaterial  material;
-    ViewResources viewport( "Viewport" );
-    {
-        const ActiveViewScope active( viewport );
-        material.WriteImage( 0, 2, 777 );
-    }
-    ViewResources         preview( "Preview opened later" );
-    const ActiveViewScope active( preview );
-    FakeSets*             sets = material.Resolve( 0 );
-    ASSERT_NE( sets, nullptr );
-    EXPECT_EQ( sets->Descriptors[2], 777u ) << "the later view binds the fallback instead of the material's image";
-    EXPECT_EQ( sets->Descriptors[1], kFallback ) << "a binding with no seed must still get its fallback";
-}
-
 // Closing a view gives its sets back; destroying the material takes its sets from every live view.
 TEST( ViewDescriptorSets, SetsLeaveWithTheViewAndWithTheMaterial )
 {

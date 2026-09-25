@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Core/FrameManager.hpp>
+
 #include <cstdint>
 
 // WHEN A CACHED Render2D MATERIAL EXECUTOR MAY BE DESTROYED.
@@ -26,16 +28,29 @@
 // may still be reading, which is a use-after-free in the GPU rather than the CPU and shows up as
 // corruption rather than a crash. An entry may therefore only be retired once no frame that could have
 // recorded a draw against it can still be in flight. The caller passes that window in — it is
-// `PropertyDirty::DirtyLifetime()`, frames-in-flight times renderer slots, the SAME window the material
-// properties use — so the two cannot drift apart into disagreeing about how long a frame lives.
+// `ExecutorRetireWindow()` below, the one place that says how long a recorded frame lives for this cache.
 
 namespace Desert::Graphic::Render2D
 {
     /**
+     * @brief Frames that must pass before a cache entry may be retired: frames in flight x renderer slots.
+     *
+     * Frames in flight is the GPU bound — the oldest submitted frame that may still read an executor's sets.
+     * The renderer-slot factor is margin this window carried while it was shared with the material properties'
+     * dirty countdown (now versions, PropertyVersion.hpp); it is kept so retiring stays exactly as conservative
+     * as it was. Frames in flight is floored at 3 before FrameManager knows it, so the window is never zero.
+     */
+    inline uint32_t ExecutorRetireWindow()
+    {
+        const uint32_t framesInFlight = Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
+        return ( framesInFlight > 0 ? framesInFlight : 3u ) * Engine::kMaxRendererSlots;
+    }
+
+    /**
      * @brief May a cache entry last used on @p lastUsedFrame be destroyed on @p currentFrame?
      *
      * @param window frames that must have passed since the last use. Callers pass
-     *               PropertyDirty::DirtyLifetime(); a smaller number is the defect this exists to stop.
+     *               ExecutorRetireWindow(); a smaller number is the defect this exists to stop.
      *
      * Strictly greater than @p window, not >=: an entry used `window` frames ago is exactly at the edge
      * of the in-flight range, and the edge belongs to the GPU.

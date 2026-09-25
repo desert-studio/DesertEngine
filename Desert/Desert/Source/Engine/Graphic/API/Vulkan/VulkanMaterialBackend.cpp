@@ -219,7 +219,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         auto& record = sets->BoundCopies;
-        if ( !record.NeedsWrite( binding, copy.CopyId, uniformProp->IsDirty() ) )
+        if ( !record.NeedsWrite( binding, copy.CopyId, uniformProp->GetVersion() ) )
             return;
 
         const auto handle = std::bit_cast<uint64_t>( copy.Info.buffer );
@@ -238,8 +238,7 @@ namespace Desert::Graphic::API::Vulkan
 
         UpdateDescriptorSets( { wds } );
         NoteDescriptorWrite( *sets, binding, handle );
-        record.NoteWritten( binding, copy.CopyId );
-        uniformProp->MarkClean();
+        record.NoteWritten( binding, copy.CopyId, uniformProp->GetVersion() );
     }
 
     void VulkanMaterialBackend::ApplyStorageBuffer( MaterialProperty* prop )
@@ -275,7 +274,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         auto& record = sets->BoundCopies;
-        if ( !record.NeedsWrite( binding, copy.CopyId, storageProp->IsDirty() ) )
+        if ( !record.NeedsWrite( binding, copy.CopyId, storageProp->GetVersion() ) )
             return;
 
         const auto handle = std::bit_cast<uint64_t>( copy.Info.buffer );
@@ -293,14 +292,13 @@ namespace Desert::Graphic::API::Vulkan
 
         UpdateDescriptorSets( { wds } );
         NoteDescriptorWrite( *sets, binding, handle );
-        record.NoteWritten( binding, copy.CopyId );
-        storageProp->MarkClean();
+        record.NoteWritten( binding, copy.CopyId, storageProp->GetVersion() );
     }
 
     void VulkanMaterialBackend::ApplyTexture2D( MaterialProperty* prop )
     {
         auto textureProp = static_cast<Texture2DProperty*>( prop );
-        if ( !textureProp || !textureProp->IsDirty() )
+        if ( !textureProp )
             return;
 
         auto vulkanImage =
@@ -312,26 +310,18 @@ namespace Desert::Graphic::API::Vulkan
         const uint64_t absoluteFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t binding       = vulkanImage->GetBinding();
 
-        // The property is dirty for a few frames only; a view that makes its sets after that would keep
-        // the fallback. The seed writes the image the uniform holds WHEN the set is made — recorded even
-        // if this write is swallowed below, because the next set must still get it.
-        m_ViewSets.Seed( binding,
-                         [this, weak = std::weak_ptr( vulkanImage ), binding]( const uint32_t frame )
-                         {
-                             const auto image = weak.lock();
-                             if ( !image )
-                                 return;
-                             auto info = image->GetDescriptorImageInfo();
-                             UpdateDescriptorSets( { DescriptorSetBuilder::GetSampler2DWDS(
-                                  this, frame, 0, binding, 1U, &info ) } );
-                         } );
-
         IViewDescriptorSetCopy* sets = ActiveSets( frameIndex );
         if ( sets == nullptr )
             return;
 
         auto       descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
         const auto handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
+
+        // A set that already points at this image view with this version has nothing to learn; a new set
+        // (a view that first records now, however late) has an empty record and takes the write.
+        auto& record = sets->BoundCopies;
+        if ( !record.NeedsWrite( binding, handle, textureProp->GetVersion() ) )
+            return;
 
         // See ApplyUniformBuffer. For textures this is the "second terrain keeps the first
         // one's splat" path — the reason TerrainRenderer keys one material per texture set.
@@ -345,13 +335,13 @@ namespace Desert::Graphic::API::Vulkan
 
         UpdateDescriptorSets( { wds } );
         NoteDescriptorWrite( *sets, binding, handle );
-        textureProp->MarkClean();
+        record.NoteWritten( binding, handle, textureProp->GetVersion() );
     }
 
     void VulkanMaterialBackend::ApplyTextureCube( MaterialProperty* prop )
     {
         auto textureProp = static_cast<TextureCubeProperty*>( prop );
-        if ( !textureProp || !textureProp->IsDirty() )
+        if ( !textureProp )
             return;
 
         auto vulkanImage =
@@ -363,26 +353,18 @@ namespace Desert::Graphic::API::Vulkan
         const uint64_t absoluteFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const uint32_t binding       = vulkanImage->GetBinding();
 
-        // The property is dirty for a few frames only; a view that makes its sets after that would keep
-        // the fallback. The seed writes the image the uniform holds WHEN the set is made — recorded even
-        // if this write is swallowed below, because the next set must still get it.
-        m_ViewSets.Seed( binding,
-                         [this, weak = std::weak_ptr( vulkanImage ), binding]( const uint32_t frame )
-                         {
-                             const auto image = weak.lock();
-                             if ( !image )
-                                 return;
-                             auto info = image->GetDescriptorImageInfo();
-                             UpdateDescriptorSets( { DescriptorSetBuilder::GetSamplerCubeWDS(
-                                  this, frame, 0, binding, 1U, &info ) } );
-                         } );
-
         IViewDescriptorSetCopy* sets = ActiveSets( frameIndex );
         if ( sets == nullptr )
             return;
 
         auto       descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
         const auto handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
+
+        // A set that already points at this image view with this version has nothing to learn; a new set
+        // (a view that first records now, however late) has an empty record and takes the write.
+        auto& record = sets->BoundCopies;
+        if ( !record.NeedsWrite( binding, handle, textureProp->GetVersion() ) )
+            return;
 
         // See ApplyUniformBuffer.
         if ( sets->FlushedFrame == absoluteFrame )
@@ -396,7 +378,7 @@ namespace Desert::Graphic::API::Vulkan
 
         UpdateDescriptorSets( { wds } );
         NoteDescriptorWrite( *sets, binding, handle );
-        textureProp->MarkClean();
+        record.NoteWritten( binding, handle, textureProp->GetVersion() );
     }
 
     void VulkanMaterialBackend::ReportShapeDriftOnce()

@@ -64,11 +64,9 @@ namespace Desert::Graphic
      *
      *   - FALLBACKS FIRST. A set is never bound with an undefined descriptor: the initializer writes a
      *     fallback into every declared binding the moment the set is made.
-     *   - THEN THE SEEDS. A texture is written only while its property is dirty, and that window closes after
-     *     a few frames. A view opened after it would keep the fallback — the "black material in a preview
-     *     opened later" defect. So every image write also records a SEED (how to write the property's current
-     *     image), and each new set replays every seed after its fallbacks. Buffers need no seed: their
-     *     bindings are re-checked on every apply against BoundCopies, which a fresh set starts empty.
+     *   - THEN THE PROPERTIES' OWN WRITES. Every binding is checked on every apply against BoundCopies (the
+     *     resource and the property version it was written with), which a fresh set starts empty — so a view
+     *     opened long after a one-off texture write still takes it on its first apply.
      *
      * A write never touches another view's set: the active view's copy is the only one resolved.
      */
@@ -106,7 +104,7 @@ namespace Desert::Graphic
         }
 
         // The active view's sets for `frameIndex`, made through `make` the first time, then given
-        // `initialize` (the fallbacks) and every seed, in that order.
+        // `initialize` (the fallbacks).
         [[nodiscard]] Common::BoolResultStr Resolve( const uint32_t frameIndex, const SetMaker& make,
                                                      const SetWriter& initialize, IViewDescriptorSetCopy*& out )
         {
@@ -130,20 +128,7 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             out = static_cast<IViewDescriptorSetCopy*>( &view.Acquire( m_Key, frameIndex, handOver ) );
             initialize( frameIndex );
-            for ( const auto& [binding, seed] : m_Seeds )
-                seed( frameIndex );
             return Common::MakeSuccess( true );
-        }
-
-        // Records how to write `binding`'s current image into a new set; replaces the previous seed.
-        void Seed( const uint32_t binding, SetWriter write )
-        {
-            m_Seeds[binding] = std::move( write );
-        }
-
-        [[nodiscard]] std::size_t SeedCount() const noexcept
-        {
-            return m_Seeds.size();
         }
 
     private:
@@ -165,7 +150,6 @@ namespace Desert::Graphic
 
         ViewResourceKey m_Key = ViewResourceKey::Allocate();
         // Ordered by binding so the replay order is deterministic.
-        std::map<uint32_t, SetWriter> m_Seeds;
     };
 
     /// What one allocation attempt from one pool came to.

@@ -77,6 +77,16 @@ namespace Desert::ShaderResources::API::Vulkan
         return BOOLSUCCESS;
     }
 
+    uint64_t VulkanUniformBuffer::ActiveAppliedVersion() const
+    {
+        return m_Block.ActiveAppliedVersion( EngineContext::GetInstance().GetCurrentFrameIndex() );
+    }
+
+    void VulkanUniformBuffer::NoteActiveApplied( const uint64_t version )
+    {
+        m_Block.NoteActiveApplied( EngineContext::GetInstance().GetCurrentFrameIndex(), version );
+    }
+
     Common::BoolResultStr VulkanUniformBuffer::EnsureMapped()
     {
         // "Can a write land now?" — which, with lazy copies, means "does the active view have a mapped
