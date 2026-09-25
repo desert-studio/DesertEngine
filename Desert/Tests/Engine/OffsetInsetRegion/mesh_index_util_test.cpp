@@ -159,7 +159,8 @@ TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
             ASSERT_TRUE( SplitInteriorVertexTrianglesIntoSubsets( &mesh, v, groupEdges[k],
                                                                   groupEdges[( k + 1 ) % 3], s0, s1 ) );
             ExpectPartition( mesh, v, s0, s1 );
-            // Two of a corner's three group edges fence off exactly one face: one side is one polygroup, the other two.
+            // Two of a corner's three group edges fence off exactly one face: one side is one polygroup, the other
+            // two.
             auto singleGroup = [&]( const TArray<int32>& side )
             {
                 for ( int32 i = 1; i < side.Num(); ++i )
