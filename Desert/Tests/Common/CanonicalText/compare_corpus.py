@@ -15,7 +15,8 @@ one-to-one with a (GUID, locator) across the corpus and every locator names a tr
 it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b),
 .derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone; .danimgraph 0 -> ANGR 1
 (T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
-swaps its top-level `Version` (not FormatVersion) for the header.
+swaps its top-level `Version` (not FormatVersion) for the header; .retarget RTGT 2 -> 3 (T7f) names its rig by
+{Guid, Path}, normalised back only when the Guid is the one the named cooked rig states.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -337,6 +338,24 @@ def strip_text_kind_header(old, new, ext, path):
     return True
 
 
+def strip_retarget_rig_guid(root, old, new, ext):
+    """.retarget RTGT 2 -> 3 (T7f): the bare rig path becomes {Guid, Path}, the Guid the one the named
+    Editor/Cooked/Meshes rig's header states and the header's one Dependency. Normalised back to the v2 shape
+    only when all of that holds. True when stripped."""
+    if ext != ".retarget" or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_header, header, rig = old.get("Header", {}), new.get("Header", {}), new.get("SourceSkeleton")
+    if old_header.get("Versions") != {"RTGT": 2} or header.get("Versions") != {"RTGT": 3} or \
+            not isinstance(old.get("SourceSkeleton"), str) or not isinstance(rig, dict) or \
+            rig.get("Path") != old["SourceSkeleton"] or header.get("Dependencies") != [rig.get("Guid")] or \
+            locator_header_guid(f"{root}/Editor/Cooked/Meshes/{rig['Path']}") != rig.get("Guid"):
+        return False
+    new["SourceSkeleton"] = rig["Path"]
+    header["Versions"] = {"RTGT": 2}
+    header["Dependencies"] = []
+    return True
+
+
 def locator_file(root, locator):
     """The tracked file an `assets:` / `engine:` locator names."""
     scheme, _, rel = locator.partition(":")
@@ -389,6 +408,7 @@ def main():
                 differ.append(path)
             compared += 1
             continue
+        strip_retarget_rig_guid(root, old, new, ext)
         strip_text_kind_header(old, new, ext, path)
         header_ok = strip_text_header(old, new, ext)
         stated = isinstance(new, dict) and new.get("SceneVersion", 26 if header_ok else None)

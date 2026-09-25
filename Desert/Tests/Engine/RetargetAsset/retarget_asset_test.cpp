@@ -463,7 +463,7 @@ TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
     const File::RetargetAssetData data = ShippedRetarget();
     const auto rigGuid = Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path );
     ASSERT_FALSE( rigGuid.IsNull() ) << data.SourceSkeleton.Path << " states no header GUID";
-    EXPECT_EQ( data.SourceSkeleton.Guid, Desert::Common::Content::AssetGuidToText( rigGuid ) );
+    EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( rigGuid ) );
 }
 
 TEST( RetargetAssetTest, AHeaderThatDoesNotStateTheRigAsItsDependencyIsRefused )
