@@ -93,6 +93,46 @@ TEST( ViewMemory, ViewScaledBytesScaleWithPixels )
                  ViewBytesPerPixel( kSceneViewProfile, 2 * kW, 2 * kH ), 0.05 );
 }
 
+// RT1h: a view built before its surface has a size is built at kUnsizedViewExtent. Every target the census
+// names must still exist there (a zero-sized image is a device error, not a small allocation), and the whole
+// view must cost what the constant's comment says — under a mebibyte — instead of the window's 1.3-2.1 GiB.
+TEST( ViewMemory, TheUnsizedViewBuildsEveryTargetForUnderAMebibyte )
+{
+    using namespace Desert::Graphic;
+    const auto rows = ViewTargetCensus( kSceneViewProfile, kUnsizedViewExtent.Width, kUnsizedViewExtent.Height );
+    ASSERT_FALSE( rows.empty() );
+    for ( const auto& row : rows )
+    {
+        EXPECT_GT( row.Width, 0u ) << row.Name;
+        EXPECT_GT( row.Height, 0u ) << row.Name;
+        if ( row.ScalesWithView )
+        {
+            EXPECT_LE( row.Width, kUnsizedViewExtent.Width ) << row.Name;
+            EXPECT_LE( row.Height, kUnsizedViewExtent.Height ) << row.Name;
+        }
+    }
+    EXPECT_LT( SumViewTargets( rows ).ViewScaledBytes, 1ull << 20 );
+}
+
+// A view built for a W x H surface allocates its full-resolution targets at exactly W x H: the census the
+// renderer logs at its build is taken at the extent the renderer was constructed with.
+TEST( ViewMemory, AViewportSizedViewHoldsTargetsAtTheViewportSize )
+{
+    using namespace Desert::Graphic;
+    constexpr ViewExtent viewport{ 1280, 720 };
+    const auto           rows = ViewTargetCensus( kSceneViewProfile, viewport.Width, viewport.Height );
+    bool                 sawFull = false;
+    for ( const auto& row : rows )
+    {
+        if ( !row.ScalesWithView )
+            continue;
+        EXPECT_LE( row.Width, viewport.Width ) << row.Name;
+        EXPECT_LE( row.Height, viewport.Height ) << row.Name;
+        sawFull = sawFull || ( row.Width == viewport.Width && row.Height == viewport.Height );
+    }
+    EXPECT_TRUE( sawFull );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

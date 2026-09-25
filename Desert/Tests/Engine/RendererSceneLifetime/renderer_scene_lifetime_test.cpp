@@ -526,6 +526,33 @@ TEST( RendererSceneLifetime, TheSkyboxProducerStatesAbsenceInsteadOfFallingSilen
 }
 
 // Only gtest is linked, not gtest_main — every suite in this tree brings its own entry point.
+// RT1h: A VIEW IS BUILT AT ITS SURFACE'S SIZE, NOT THE WINDOW'S. The build used to read the window, so a
+// 512 px thumbnail and a viewport panel not yet laid out were first built at 4112x2578 (2.1 GiB) and shrank
+// a frame later. The build must read the extent the constructor was given, and Resize must record the new
+// extent before its "not built yet" exit, or a size learned before Init would be built at the old one.
+TEST( RendererSceneLifetime, TheBuildReadsTheViewExtentAndNeverTheWindow )
+{
+    const std::string source = StripComments( EngineSource( "Graphic/SceneRenderer.cpp" ) );
+
+    const std::size_t ensure = source.find( "SceneRenderer::EnsureRendererResources()" );
+    ASSERT_NE( ensure, std::string::npos );
+    const std::size_t ensureEnd = source.find( "\n    }\n", ensure );
+    ASSERT_NE( ensureEnd, std::string::npos );
+    const std::string build = source.substr( ensure, ensureEnd - ensure );
+    EXPECT_EQ( build.find( "GetWindow" ), std::string::npos ) << "EnsureRendererResources reads the window size.";
+    EXPECT_NE( build.find( "m_ViewExtent.Width" ), std::string::npos );
+    EXPECT_NE( build.find( "m_ViewExtent.Height" ), std::string::npos );
+
+    const std::size_t resize = source.find( "SceneRenderer::Resize(" );
+    ASSERT_NE( resize, std::string::npos );
+    const std::size_t record  = source.find( "m_ViewExtent = ViewExtent{ width, height }", resize );
+    const std::size_t unbuilt = source.find( "if ( !m_TargetFramebuffer )", resize );
+    ASSERT_NE( record, std::string::npos ) << "Resize no longer records the extent the next build reads.";
+    ASSERT_NE( unbuilt, std::string::npos );
+    EXPECT_LT( record, unbuilt ) << "Resize leaves before recording the extent: a size learned before the "
+                                    "build would be lost.";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

@@ -134,7 +134,7 @@ namespace Desert::Graphic::Render2D
         // and the number is per capture. An element a few hundred pixels across that paid the viewport's
         // shadow budget would make six of them cost 2 GB of shadow maps alone. Passed to the CONSTRUCTOR
         // because MeshRenderer allocates from it inside Init() — a value arriving later is read by nothing.
-        capture.Renderer = std::make_unique<SceneRenderer>( kPreviewViewProfile );
+        capture.Renderer = std::make_unique<SceneRenderer>( ViewExtent{ demand.Width, demand.Height }, kPreviewViewProfile );
         capture.Scene    = std::make_shared<Core::Scene>( "UIRenderTexture", capture.Renderer.get() );
 
         // THE WORLD NEEDS SOMETHING TO COLLECT IT. A Core::Scene adds no ECS systems of its own, so

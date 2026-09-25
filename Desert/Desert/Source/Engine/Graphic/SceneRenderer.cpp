@@ -131,9 +131,9 @@ namespace Desert::Graphic
         // Ensure the phase registry exists before any system registers custom phases or passes.
         RenderPhaseRegistry::CreateInstance();
 
-        const auto window = EngineContext::GetInstance().GetWindow();
-        const auto width  = window ? window->GetWidth() : 1280;
-        const auto height = window ? window->GetHeight() : 720;
+        // The surface's size, never the window's: see ViewExtent.
+        const uint32_t width  = m_ViewExtent.Width;
+        const uint32_t height = m_ViewExtent.Height;
 
         // Framebuffer. MSAA applies HERE only: every scene system renders into this target at N
         // samples and the render pass resolves to single-sample for the post stack. Read once —
@@ -446,8 +446,8 @@ namespace Desert::Graphic
         return SlotPool().InUseCount();
     }
 
-    SceneRenderer::SceneRenderer( const ViewProfile& profile )
-         : m_SlotLease( SlotPool() ), m_ViewProfile( profile )
+    SceneRenderer::SceneRenderer( const ViewExtent& extent, const ViewProfile& profile )
+         : m_SlotLease( SlotPool() ), m_ViewProfile( profile ), m_ViewExtent( extent )
     {
         if ( !m_SlotLease.IsValid() )
         {
@@ -1275,6 +1275,15 @@ namespace Desert::Graphic
     void SceneRenderer::Resize( const uint32_t width, const uint32_t height )
     {
         if ( width == 0 && height == 0 )
+            return;
+        // Same size: nothing to rebuild. The thumbnail renderer resizes to the extent it was built at so
+        // that its camera turns square, and a rebuild would idle the device for identical targets.
+        if ( m_ViewExtent == ViewExtent{ width, height } )
+            return;
+        m_ViewExtent = ViewExtent{ width, height };
+        // Before the first build there is no target yet and the extent is all there is to update: the
+        // build reads it.
+        if ( !m_TargetFramebuffer )
             return;
         auto& renderer = Renderer::GetInstance();
         // Ensure all in-flight GPU work is done before destroying/recreating Vulkan resources
