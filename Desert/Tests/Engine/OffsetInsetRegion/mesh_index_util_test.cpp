@@ -159,12 +159,15 @@ TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
             ASSERT_TRUE( SplitInteriorVertexTrianglesIntoSubsets( &mesh, v, groupEdges[k],
                                                                   groupEdges[( k + 1 ) % 3], s0, s1 ) );
             ExpectPartition( mesh, v, s0, s1 );
-            // The two group edges bound exactly one face's triangles at this corner: one side is one polygroup.
-            const int   g0 = mesh.GetTriangleGroup( s0[0] ), g1 = mesh.GetTriangleGroup( s1[0] );
-            const auto& one = ( s0.Num() <= s1.Num() ) ? s0 : s1;
-            const int   g   = ( s0.Num() <= s1.Num() ) ? g0 : g1;
-            for ( int32 i = 0; i < one.Num(); ++i )
-                EXPECT_EQ( mesh.GetTriangleGroup( one[i] ), g );
+            // Two of a corner's three group edges fence off exactly one face: one side is one polygroup, the other two.
+            auto singleGroup = [&]( const TArray<int32>& side )
+            {
+                for ( int32 i = 1; i < side.Num(); ++i )
+                    if ( mesh.GetTriangleGroup( side[i] ) != mesh.GetTriangleGroup( side[0] ) )
+                        return false;
+                return true;
+            };
+            EXPECT_TRUE( singleGroup( s0 ) != singleGroup( s1 ) ) << "corner " << v << " split " << k;
         }
         ++corners;
     }
