@@ -127,6 +127,7 @@
 #include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
+#include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Animation/AnimLayersPanel.hpp"
@@ -917,6 +918,21 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
+        // THE TEXTURE VIEWER. Read-only, no renderer slot: it draws the image the texture service owns.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Texture2D ) ),
+             Registration{ "Texture2D", ICON_MDI_IMAGE,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::TextureViewerDocument>(
+                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
         // THE FOUR CLOUD DOCUMENTS. Each takes the raw AssetManager pointer the panels already held, so the
         // move from singleton to document changed the panels' ownership of their subject and nothing about
         // how they reach their assets.
@@ -1130,6 +1146,9 @@ namespace Desert::Editor
                                                  }
                                                  return SubjectEditorRegistry::PathOpenOutcome::NotMine;
                                              } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Assets::kTextureAssetExtension ) }, [this]( const std::string& path )
+             { return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [this]( const std::string& path )
@@ -5105,6 +5124,36 @@ namespace Desert::Editor
                                            "that is a defect in the palette, not in the request.",
                                            path );
                                   } } );
+        }
+
+        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Walked from disk
+        // because the browser shows loose disk folders; the label is the path under the assets root.
+        {
+            std::error_code ec;
+            for ( auto it =
+                       std::filesystem::recursive_directory_iterator( Common::Constants::Path::ASSETS_PATH, ec );
+                  !ec && it != std::filesystem::recursive_directory_iterator(); it.increment( ec ) )
+            {
+                if ( !it->is_directory( ec ) )
+                    continue;
+                const std::string folder = it->path().generic_string();
+                const std::string label =
+                     std::filesystem::relative( it->path(), Common::Constants::Path::ASSETS_PATH, ec )
+                          .generic_string();
+                commands.push_back( { "Browse", label, [this, folder]
+                                      {
+                                          if ( !m_FileExplorerPanel )
+                                              return Common::MakeFormattedError<bool>(
+                                                   "the Assets browser does not exist in this session; '{}' "
+                                                   "cannot be shown",
+                                                   folder );
+                                          Core::PanelRequests::Open( "Assets" );
+                                          if ( !m_FileExplorerPanel->NavigateToPath( folder ) )
+                                              return Common::MakeFormattedError<bool>(
+                                                   "'{}' is not a folder the Assets browser can reach", folder );
+                                          return PaletteCommandDone();
+                                      } } );
+            }
         }
 
         // THE LEVELS, which every other kind of document could already be opened by name from here and a

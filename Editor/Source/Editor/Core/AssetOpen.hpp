@@ -26,8 +26,8 @@ namespace Desert::Editor::Core
     // WHY THE REGISTRY IS ASKED BEFORE QUEUEING. EditorLayer's drain would refuse a type with no editor as
     // well, but a frame later and to the log only; a caller that asked through this route (a script over
     // the control channel, a Details button) gets the refusal as its own answer, on the same call.
-    [[nodiscard]] inline Common::ResultStr<SubjectId> AssetSubjectFor( const Assets::AssetMetadata*  found,
-                                                                       const Assets::AssetHandle&    requested,
+    [[nodiscard]] inline Common::ResultStr<SubjectId> AssetSubjectFor( const Assets::AssetMetadata* found,
+                                                                       const Assets::AssetHandle&   requested,
                                                                        const SubjectEditorRegistry& editors )
     {
         if ( found == nullptr )
@@ -53,8 +53,8 @@ namespace Desert::Editor::Core
     // collapse inside SubjectOpenRequests::Request, so a double-click that also fires a single-click action
     // opens one window; a second request on a later frame reaches the document well, which FOCUSES the window
     // already open for that subject instead of building a second one.
-    [[nodiscard]] inline Common::ResultStr<SubjectId> RequestOpenAsset( const Assets::AssetMetadata*  found,
-                                                                        const Assets::AssetHandle&    requested,
+    [[nodiscard]] inline Common::ResultStr<SubjectId> RequestOpenAsset( const Assets::AssetMetadata* found,
+                                                                        const Assets::AssetHandle&   requested,
                                                                         const SubjectEditorRegistry& editors )
     {
         auto subject = AssetSubjectFor( found, requested, editors );
