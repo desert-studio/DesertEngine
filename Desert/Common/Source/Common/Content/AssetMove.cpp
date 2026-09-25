@@ -7,6 +7,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <ranges>
 #include <span>
 
 namespace Common::Content
@@ -206,11 +207,11 @@ namespace Common::Content
                 if ( at == at.parent_path() )
                     break;
             }
-            for ( auto it = missing.rbegin(); it != missing.rend(); ++it )
+            for ( const fs::path& folder : std::ranges::reverse_view( missing ) )
             {
-                if ( !fs::create_directory( *it, ec ) && ec )
-                    return MakeError( "move folder: could not create '" + it->string() + "': " + ec.message() );
-                made.push_back( *it );
+                if ( !fs::create_directory( folder, ec ) && ec )
+                    return MakeError( "move folder: could not create '" + folder.string() + "': " + ec.message() );
+                made.push_back( folder );
             }
             return MakeSuccess( true );
         }
@@ -234,19 +235,19 @@ namespace Common::Content
                 return MakeError( "undo move folder: '" + record.To.string() + "' -> '" + record.From.string() +
                                   "': " + ec.message() );
         }
-        for ( auto it = record.PlainFiles.rbegin(); it != record.PlainFiles.rend(); ++it )
+        for ( const auto& [plainFrom, plainTo] : std::ranges::reverse_view( record.PlainFiles ) )
         {
-            fs::create_directories( it->first.parent_path(), ec );
-            if ( const auto moved = MoveFileAtomic( it->second, it->first ); !moved )
+            fs::create_directories( plainFrom.parent_path(), ec );
+            if ( const auto moved = MoveFileAtomic( plainTo, plainFrom ); !moved )
                 return MakeError( "undo move folder: " + moved.GetError() );
         }
-        for ( auto it = record.Assets.rbegin(); it != record.Assets.rend(); ++it )
-            if ( const auto undone = UndoAssetMove( registry, *it ); !undone )
+        for ( const AssetMoveRecord& asset : std::ranges::reverse_view( record.Assets ) )
+            if ( const auto undone = UndoAssetMove( registry, asset ); !undone )
                 return MakeError( "undo move folder '" + record.From.string() + "': " + undone.GetError() );
         // Newest first, so a made folder is removed before the made folder holding it.
-        for ( auto it = record.CreatedDirectories.rbegin(); it != record.CreatedDirectories.rend(); ++it )
-            if ( !fs::remove( *it, ec ) || ec )
-                return MakeError( "undo move folder: the folder the move made, '" + it->string() +
+        for ( const fs::path& made : std::ranges::reverse_view( record.CreatedDirectories ) )
+            if ( !fs::remove( made, ec ) || ec )
+                return MakeError( "undo move folder: the folder the move made, '" + made.string() +
                                   "', could not be removed (" + ( ec ? ec.message() : "missing" ) + ")" );
         return MakeSuccess( true );
     }

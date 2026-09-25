@@ -3980,18 +3980,19 @@ namespace Desert::Editor
                                       return Common::MakeError( "rename: the Assets window does not exist" );
                                   return m_FileExplorerPanel->RenameSelected();
                               } } );
-        // One command per entry the Assets window shows, as a click would reach it (AF10c).
+        // One command per entry the Assets window shows, as a click would reach it (AF10c). Bound, not a
+        // lambda: `bugprone-exception-escape` fires on a parameter-less lambda here (see RunDocumentAction).
         if ( m_FileExplorerPanel != nullptr )
         {
             for ( const std::string& path : m_FileExplorerPanel->ShownEntries( false ) )
                 commands.push_back( { "Assets", "Select asset " + path,
-                                      [this, path] { return m_FileExplorerPanel->SelectEntry( path ); } } );
+                                      std::bind_front( &FileExplorerPanel::SelectEntry, std::to_address( m_FileExplorerPanel ), path ) } );
             for ( const std::string& path : m_FileExplorerPanel->ShownEntries( true ) )
             {
                 commands.push_back( { "Assets", "Select asset " + path,
-                                      [this, path] { return m_FileExplorerPanel->SelectEntry( path ); } } );
+                                      std::bind_front( &FileExplorerPanel::SelectEntry, std::to_address( m_FileExplorerPanel ), path ) } );
                 commands.push_back( { "Assets", "Open folder " + path,
-                                      [this, path] { return m_FileExplorerPanel->OpenFolder( path ); } } );
+                                      std::bind_front( &FileExplorerPanel::OpenFolder, std::to_address( m_FileExplorerPanel ), path ) } );
             }
         }
 
