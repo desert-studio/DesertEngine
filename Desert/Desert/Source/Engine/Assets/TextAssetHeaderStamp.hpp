@@ -24,9 +24,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kMaterialSchemaVersion = 3;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
-    // state it without the cloud maths.
+    // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
+    // the header's one Dependency.
     inline constexpr uint32_t kCloudTypeSchemaTag     = Common::Content::FourCC( "CLTY" );
-    inline constexpr uint32_t kCloudTypeSchemaVersion = 4;
+    inline constexpr uint32_t kCloudTypeSchemaVersion = 5;
     // A .destrings: the string table file layout, stated in the header since v2 (T7b; v1 had a top-level
     // FormatVersion, absent meaning 1, and no header).
     inline constexpr uint32_t kStringTableSchemaTag     = Common::Content::FourCC( "STRT" );

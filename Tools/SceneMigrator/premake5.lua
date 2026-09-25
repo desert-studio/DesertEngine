@@ -72,6 +72,9 @@ project "SceneMigrator"
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- THE CLOUD TYPE WRITER AND GATE, since T7h: the CLTY 4 -> 5 step writes through the engine's own
+        -- WriteCloudType and gates with its own ParseCloudType; pure, no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
     }
 
     dependson { "Desert" }

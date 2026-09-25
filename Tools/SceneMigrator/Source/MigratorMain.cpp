@@ -47,6 +47,9 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
+#include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/CloudNoiseVolume.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
@@ -358,9 +361,10 @@ namespace
     };
 
     constexpr std::array kTextHeaderRaises{
-         // .decloudtype 3 -> 4 (AF7v, T6b1).
+         // .decloudtype 3 -> 4 (AF7v, T6b1). The literal 4 and not kCloudTypeSchemaVersion: CLTY 5 (T7h) names
+         // the noise volume by GUID, which this splice cannot state, so RaiseCloudTypeV4ToV5 takes it on.
          TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
-                          Desert::Assets::kCloudTypeSchemaTag, 3, Desert::Assets::kCloudTypeSchemaVersion,
+                          Desert::Assets::kCloudTypeSchemaTag, 3, 4,
                           "FormatVersion", false },
          // .destrings 1 -> 2 (T7b).
          TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
@@ -526,6 +530,94 @@ namespace
         std::string written   = File::WriteRetarget( v3 );
         if ( auto loadable = File::ParseRetarget( written ); !loadable )
             return Common::MakeError<Result>( "the raised text does not pass the engine's own ParseRetarget: " +
+                                              loadable.GetError() );
+        return Common::MakeSuccess( Result( std::move( written ) ) );
+    }
+
+    // The GUID a `.dcnv` envelope header states; null when the file is absent, bare or not a noise volume.
+    // The engine's CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid, minus the VFS the migrator has no use for.
+    Common::Content::AssetGuid ReadNoiseVolumeGuid( const std::filesystem::path& file )
+    {
+        namespace CC                              = Common::Content;
+        const CC::SubsystemVersion       kKnown[] = { { Desert::Assets::kCloudNoiseSubsystemTag,
+                                                        Desert::Assets::kCloudNoiseContainerVersion } };
+        const CC::AssetHeaderReadContext context{ kKnown };
+        std::ifstream                    in( file, std::ios::binary );
+        if ( !in )
+            return {};
+        const auto header = CC::ReadEnvelopeHeader( in, context );
+        if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
+            return {};
+        return header.GetValue().Asset.Guid;
+    }
+
+    // .decloudtype CLTY 4 -> 5 (T7h): the noise volume named by {Guid, Path}, the GUID read out of the named
+    // `.dcnv`'s envelope, and stated as the header's one Dependency. nullopt when the text already states 5;
+    // any other version, or a volume that is not there or states no GUID, is refused by name and the caller
+    // leaves the file untouched. A type naming no volume only moves its version.
+    //
+    // THE VOLUME IS LOOKED UP WHERE THE ENGINE LOOKS: relative to the assets root this type lies under (its
+    // Clouds/Types folder's root). The text written is the engine's own WriteCloudType, and it must pass
+    // the engine's own ParseCloudType before the caller writes a byte.
+    Common::ResultStr<std::optional<std::string>> RaiseCloudTypeV4ToV5( const std::filesystem::path& path,
+                                                                        const std::string&           text )
+    {
+        using Result    = std::optional<std::string>;
+        namespace Paths = Common::Constants::Path;
+        struct HeaderOnly
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        };
+        const auto header = rfl::json::read<HeaderOnly>( text );
+        const int  stated =
+             header ? Desert::Assets::StatedVersion( header.value().Header, Desert::Assets::kCloudTypeSchemaTag ) : 0;
+        if ( stated == static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) )
+            return Common::MakeSuccess( Result{} );
+        const auto tree   = rfl::json::read<rfl::Generic>( text );
+        auto       fields = tree ? tree.value().to_object() : rfl::Error( "not a JSON object" );
+        if ( stated != 4 || !fields )
+            return Common::MakeError<Result>( "not a readable CLTY 4 cloud type (states CLTY " +
+                                              std::to_string( stated ) + ")" );
+        rfl::Generic::Object doc = fields.value();
+
+        std::vector<std::string> dependencies;
+        if ( const auto named = doc.get( "NoiseVolume" ); named )
+        {
+            const auto relative = named.value().to_string();
+            if ( !relative )
+                return Common::MakeError<Result>( "its NoiseVolume is not a CLTY 4 path string" );
+            auto assetsRoot = Paths::RootForContentPath( Paths::ContentDir::CloudType, path );
+            if ( assetsRoot && assetsRoot->filename().empty() )
+                assetsRoot = assetsRoot->parent_path();
+            if ( !assetsRoot )
+                return Common::MakeError<Result>( "lies under no <assets>/Clouds/Types folder, so there is no "
+                                                  "assets root holding its noise volume '" +
+                                                  relative.value() + "'" );
+            const std::filesystem::path volume = ( *assetsRoot / relative.value() ).lexically_normal();
+            const Common::Content::AssetGuid guid = ReadNoiseVolumeGuid( volume );
+            if ( guid.IsNull() )
+                return Common::MakeError<Result>( "its noise volume " + volume.generic_string() +
+                                                  " is missing or states no envelope GUID; raise the volume first" );
+            rfl::Generic::Object ref;
+            ref["Guid"]        = rfl::Generic( Common::Content::AssetGuidToText( guid ) );
+            ref["Path"]        = rfl::Generic( relative.value() );
+            doc["NoiseVolume"] = rfl::Generic( ref );
+            dependencies.push_back( Common::Content::AssetGuidToText( guid ) );
+        }
+
+        Desert::Assets::CloudTypeData raised;
+        {
+            auto typed = rfl::json::read<Desert::Assets::CloudTypeData>( rfl::json::write( rfl::Generic( doc ) ) );
+            if ( !typed )
+                return Common::MakeError<Result>( std::string( "the CLTY 4 body does not read: " ) +
+                                                  typed.error().what() );
+            raised = typed.value();
+        }
+        raised.Header->Versions     = { { "CLTY", 5 } };
+        raised.Header->Dependencies = dependencies;
+        std::string written         = Desert::Assets::WriteCloudType( raised );
+        if ( auto loadable = Desert::Assets::ParseCloudType( written ); !loadable )
+            return Common::MakeError<Result>( "the raised text does not pass the engine's own ParseCloudType: " +
                                               loadable.GetError() );
         return Common::MakeSuccess( Result( std::move( written ) ) );
     }
@@ -2149,6 +2241,23 @@ namespace Desert::Migration
                     {
                         steps << ( steps.tellp() > 0 ? "; " : "" ) << "RTGT 2 -> 3, source rig by GUID";
                         text = *rigged.GetValue();
+                    }
+                }
+                // Chained the same way, so a CLTY 3 type lands at CLTY 5.
+                if ( row->Kind == Common::Content::ContentKind::CloudType )
+                {
+                    const auto named = RaiseCloudTypeV4ToV5( path, text );
+                    if ( !named )
+                    {
+                        err << "FAIL   " << path.string() << " — CLTY 4 -> 5: " << named.GetError()
+                            << " (original untouched)\n";
+                        ++failed;
+                        continue;
+                    }
+                    if ( named.GetValue().has_value() )
+                    {
+                        steps << ( steps.tellp() > 0 ? "; " : "" ) << "CLTY 4 -> 5, noise volume by GUID";
+                        text = *named.GetValue();
                     }
                 }
                 if ( steps.tellp() > 0 )

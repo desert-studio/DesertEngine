@@ -16,6 +16,7 @@
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 
+#include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -976,4 +977,97 @@ TEST( SceneMigratorWritePath, AGenerationThreeClipIsRaisedToAHeaderKeepingItsSke
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised clip";
     fs::remove_all( dir );
+}
+
+// THE CLOUD TYPE PASS (T7h, CLTY 4 -> 5): the noise volume a type names is looked up relative to the assets
+// root its Clouds/Types folder lies under, and named by {Guid, Path}, the GUID the `.dcnv` envelope states and
+// the header's one Dependency. A type that names none only moves its version.
+namespace
+{
+    constexpr const char* kCloudTypeShapeV4 =
+         R"("Shape":{"BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,)"
+         R"("Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,)"
+         R"(0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,)"
+         R"("AnvilThicknessKm":0.0,"AnvilStrength":0.0,"DetailCharacter":0.6,"DetailFactor":1.0,)"
+         R"("DensityFactor":1.0,"ExtinctionFactor":1.0,"PlacementScale":1.0,"PlacementAnisotropy":1.0})";
+
+    void WriteCloudTypeV4( const fs::path& file, const Common::Content::AssetGuid& guid, const char* noise )
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Header":{"Kind":"CloudType","Guid":")" << Common::Content::AssetGuidToText( guid )
+            << R"(","Versions":{"CLTY":4},"Dependencies":[]},)";
+        if ( noise )
+            out << R"("NoiseVolume":")" << noise << R"(",)";
+        out << kCloudTypeShapeV4 << "}";
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, ACloudTypeV4NamesItsNoiseVolumeByTheVolumesEnvelopeGuid )
+{
+    const fs::path assets = MakeTempDir( "T7hCloudTypeV4" ) / "Resources" / "Assets";
+    const fs::path types  = assets / "Clouds" / "Types";
+    fs::create_directories( types );
+
+    Desert::Assets::CloudNoiseVolumeData volume; // the default recipe: a legal volume
+    volume.Guid        = Common::Content::AssetGuid::Generate();
+    const auto encoded = Desert::Assets::EncodeCloudNoiseVolume( volume );
+    if ( !encoded )
+    {
+        ADD_FAILURE() << encoded.GetError();
+        return;
+    }
+    {
+        std::ofstream out( assets / "Clouds" / "Fine.dcnv", std::ios::binary );
+        out.write( reinterpret_cast<const char*>( encoded.GetValue().data() ),
+                   static_cast<std::streamsize>( encoded.GetValue().size() ) );
+    }
+    const Common::Content::AssetGuid own = Common::Content::AssetGuid::Generate();
+    WriteCloudTypeV4( types / "Wisp.decloudtype", own, "Clouds/Fine.dcnv" );
+    WriteCloudTypeV4( types / "Plain.decloudtype", Common::Content::AssetGuid::Generate(), nullptr );
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { types.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( report.find( "CLTY 4 -> 5" ), std::string::npos ) << report;
+
+    const auto wisp = Desert::Assets::ParseCloudType( ReadRaw( types / "Wisp.decloudtype" ) );
+    if ( !wisp )
+    {
+        ADD_FAILURE() << wisp.GetError();
+        return;
+    }
+    const std::string volumeGuid = Common::Content::AssetGuidToText( volume.Guid );
+    EXPECT_EQ( wisp.GetValue().Header->Guid, Common::Content::AssetGuidToText( own ) ) << "a second identity";
+    EXPECT_EQ( wisp.GetValue().NoiseVolume, ( Desert::Assets::AssetGuidRef{ volumeGuid, "Clouds/Fine.dcnv" } ) );
+    EXPECT_EQ( wisp.GetValue().Header->Dependencies, std::vector<std::string>{ volumeGuid } );
+
+    const auto plain = Desert::Assets::ParseCloudType( ReadRaw( types / "Plain.decloudtype" ) );
+    if ( !plain )
+    {
+        ADD_FAILURE() << plain.GetError();
+        return;
+    }
+    EXPECT_FALSE( plain.GetValue().NoiseVolume.has_value() );
+    EXPECT_TRUE( plain.GetValue().Header->Dependencies.empty() );
+
+    const std::string raised = ReadRaw( types / "Wisp.decloudtype" );
+    EXPECT_EQ( RunTool( { types.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( types / "Wisp.decloudtype" ), raised ) << "a second run changed a CLTY 5 file";
+    fs::remove_all( assets.parent_path().parent_path() );
+}
+
+TEST( SceneMigratorWritePath, ACloudTypeV4WhoseNoiseVolumeIsMissingIsRefusedByNameAndUntouched )
+{
+    const fs::path types = MakeTempDir( "T7hCloudTypeNoVolume" ) / "Resources" / "Assets" / "Clouds" / "Types";
+    fs::create_directories( types );
+    WriteCloudTypeV4( types / "Wisp.decloudtype", Common::Content::AssetGuid::Generate(), "Clouds/Gone.dcnv" );
+    const std::string before = ReadRaw( types / "Wisp.decloudtype" );
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { types.string() }, report, errors ), 1 ) << report;
+    EXPECT_NE( errors.find( "Wisp.decloudtype" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "Gone.dcnv" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( types / "Wisp.decloudtype" ), before ) << "a refused cloud type was rewritten";
+    fs::remove_all( types.parent_path().parent_path().parent_path().parent_path() );
 }
