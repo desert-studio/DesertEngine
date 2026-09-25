@@ -12,13 +12,13 @@
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include "LODFold.hpp"
+#include "MeshDeriver.hpp"
 
 #include <Common/Core/Constants.hpp>
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
-#include <Engine/Geometry/MeshLOD.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -185,60 +185,6 @@ namespace Desert::Editor
             return Common::MakeError<bool>( firstFailure );
         return BOOLSUCCESS;
     }
-
-    namespace
-    {
-        // Bakes each static submesh's LOD triangle sets at cook time (meshopt) into SubmeshData.LODs, so the
-        // load path can skip the simplification pass. Skinned meshes are left un-LODed (as before).
-        void BakeStaticMeshLODs( Desert::Assets::Serialization::MeshAssetData& data )
-        {
-            if ( data.IsSkinned )
-                return;
-            for ( auto& sm : data.Submeshes )
-            {
-                if ( !sm.LODs.empty() )
-                    continue; // author LODs already folded in (FoldExternalLODMeshes) -> don't regenerate
-
-                const uint32_t triCount = sm.IndexCount / 3;
-                if ( triCount < 8 || sm.VertexCount == 0 ||
-                     sm.VertexOffset + sm.VertexCount > data.StaticVertices.size() )
-                    continue;
-
-                std::vector<float> pos;
-                pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
-                for ( uint32_t v = 0; v < sm.VertexCount; ++v )
-                {
-                    const auto& p = data.StaticVertices[sm.VertexOffset + v].Position;
-                    pos.push_back( p.x );
-                    pos.push_back( p.y );
-                    pos.push_back( p.z );
-                }
-
-                std::vector<Desert::Index> localTris;
-                localTris.reserve( triCount );
-                const uint32_t triStart = sm.IndexOffset / 3;
-                if ( triStart + triCount > data.Indices.size() )
-                    continue;
-                for ( uint32_t t = 0; t < triCount; ++t )
-                {
-                    const auto& idx = data.Indices[triStart + t];
-                    localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
-                }
-
-                const auto levels = Desert::Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
-                sm.LODs.clear();
-                sm.LODs.reserve( levels.size() );
-                for ( const auto& lvl : levels )
-                {
-                    std::vector<Desert::Assets::Serialization::IndexData> tris;
-                    tris.reserve( lvl.size() );
-                    for ( const auto& tri : lvl )
-                        tris.push_back( { tri.V1, tri.V2, tri.V3 } );
-                    sm.LODs.push_back( std::move( tris ) );
-                }
-            }
-        }
-    } // namespace
 
     Common::BoolResultStr
     ImportManager::SerializeMeshAsset( const Desert::Assets::Serialization::MeshAssetData& dataIn,
