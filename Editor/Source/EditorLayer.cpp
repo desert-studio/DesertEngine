@@ -103,6 +103,7 @@
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
+#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -849,6 +850,10 @@ namespace Desert::Editor
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
         m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
+        // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
+        // the getter each frame, because Stop and a streaming error destroy it from this side.
+        m_Panels.Add<Editor::WorldPartitionPanel>( m_MainScene, m_AssetManager.get(),
+                                                   [this] { return m_WorldStreamer.get(); } );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
         m_Panels.Add<Editor::HistoryPanel>();
@@ -7503,8 +7508,8 @@ namespace Desert::Editor
         // every panel behind a closed submenu as ungrouped. Measured — the first capture of this menu showed
         // ten panels under "NOT YET GROUPED" that are grouped. The census has to be readable without opening
         // anything, so it is stated once here and the drawing below refers to it.
-        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections", "Details",
-                                                           "Scene Settings", "Scene Validation" };
+        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections",      "Details",
+                                                           "Scene Settings", "Scene Validation", "World Partition" };
         static constexpr const char* kContentGroup[]   = { "Assets", "Asset References", "Shader Library" };
         static constexpr const char* kOutputGroup[]    = { "Logs", "Lua Console", "History" };
         static constexpr const char* kViewportGroup[]  = { "Scene###scene" };
