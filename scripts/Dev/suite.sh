@@ -7,6 +7,7 @@
 set -u
 source "$(dirname "$0")/_common.sh"
 case "${1:-}" in -h|--help|"") dev_help "$0"; exit 0 ;; esac
+build_only=""; [ "${1:-}" = --build-only ] && { build_only=1; shift; }  # handoff_check builds first, runs itself
 cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir suite)
 dev_regen_makefiles "$LOG" || exit 2
@@ -23,6 +24,7 @@ else
             { echo "suite.sh: build of $s FAILED; log $LOG/build.log"; grep -m 8 -E "error:|Undefined symbols|No rule" "$LOG/build.log"; exit 2; }
     done
 fi
+[ -n "$build_only" ] && { echo "suite.sh: built $# suite(s)"; exit 0; }
 fail=0
 for s in "$@"; do
     dev_capped "${SUITE_TIMEOUT:-300}" "build/Bin/Tests/Debug/$s" </dev/null >"$LOG/$s.log" 2>&1
