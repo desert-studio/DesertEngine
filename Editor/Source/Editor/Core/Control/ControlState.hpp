@@ -105,6 +105,7 @@ namespace Desert::Editor::Control
 
         std::vector<DocumentSnapshot>       Documents;      ///< most recently used first
         std::vector<ClosedDocumentSnapshot> RecentlyClosed; ///< newest first
+        bool                                DocumentWellOpen = true; ///< the "Documents" window, not its documents
         std::vector<PanelSnapshot>          Panels;         ///< tools only; a document is never here
 
         uint32_t RendererSlotsLive    = 0;
@@ -271,6 +272,7 @@ namespace Desert::Editor::Control
             // The list the empty document well offers back, newest first. Named on the wire because it is
             // the one piece of document state that outlives the window it describes.
             documents["recentlyClosed"] = rfl::Generic( closed );
+            documents["wellOpen"]       = rfl::Generic( snapshot.DocumentWellOpen );
             root["documents"]           = rfl::Generic( documents );
         }
 

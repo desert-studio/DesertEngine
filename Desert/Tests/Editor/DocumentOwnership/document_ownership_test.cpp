@@ -186,7 +186,7 @@ namespace
         {
             const auto opened = Store.Open( std::move( document ) );
             if ( opened.Document )
-                View.Touch( opened.Document->Subject() );
+                View.Opened( opened.Document->Subject() ); // as EditorLayer::ServiceSubjectOpenRequests
             return opened.Document;
         }
 
@@ -1222,4 +1222,74 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ── The Documents window closes; its documents do not ────────────────────────────────────────────────
+
+TEST( DocumentWellWindow, ClosingTheWindowClosesNoDocument )
+{
+    EditorDocuments well;
+    well.Add( MakeDocument( DocumentTitle( "A", Asset( 1 ) ), Asset( 1 ) ) );
+    well.Add( MakeDocument( DocumentTitle( "B", Asset( 2 ) ), Asset( 2 ) ) );
+    const std::vector<SubjectId> before = well.View.MostRecentOrder();
+
+    well.View.WindowOpenFlag() = false; // the x
+    EXPECT_FALSE( well.View.IsWindowOpen() );
+    EXPECT_EQ( well.Count(), 2u );
+    EXPECT_EQ( well.View.MostRecentOrder(), before );
+    EXPECT_TRUE( well.View.RecentlyClosed().empty() );
+
+    well.View.ShowWindow(); // Window > Documents
+    EXPECT_TRUE( well.View.IsWindowOpen() );
+    EXPECT_EQ( well.View.MostRecentOrder(), before ); // the same tabs come back
+}
+
+TEST( DocumentWellWindow, OpeningADocumentBringsTheWindowBack )
+{
+    EditorDocuments well;
+    well.View.CloseWindow();
+    well.Add( MakeDocument( DocumentTitle( "A", Asset( 1 ) ), Asset( 1 ) ) );
+    EXPECT_TRUE( well.View.IsWindowOpen() );
+
+    // Asking for an open one by name (FocusDocument) does too.
+    well.View.CloseWindow();
+    well.View.Opened( Asset( 1 ) );
+    EXPECT_TRUE( well.View.IsWindowOpen() );
+}
+
+TEST( DocumentWellWindow, FocusFollowingAClickDoesNotReopenIt )
+{
+    EditorDocuments well;
+    well.Add( MakeDocument( DocumentTitle( "A", Asset( 1 ) ), Asset( 1 ) ) );
+    well.View.CloseWindow();
+    well.View.Touch( Asset( 1 ) );
+    EXPECT_FALSE( well.View.IsWindowOpen() );
+
+    // Nor does a subject nobody has open.
+    well.View.Opened( Asset( 99 ) );
+    EXPECT_FALSE( well.View.IsWindowOpen() );
+}
+
+TEST( DocumentWellWindow, TheLayoutLineSaysClosedAndReadsBack )
+{
+    EditorDocuments saved;
+    EXPECT_EQ( saved.View.LayoutLine(), DocumentWell::kLayoutOpen );
+    saved.View.CloseWindow();
+    EXPECT_EQ( saved.View.LayoutLine(), "Open=0" );
+
+    EditorDocuments restarted;
+    ASSERT_TRUE( restarted.View.IsWindowOpen() );
+    EXPECT_TRUE( restarted.View.ReadLayoutLine( saved.View.LayoutLine() ) );
+    EXPECT_FALSE( restarted.View.IsWindowOpen() );
+
+    EXPECT_TRUE( restarted.View.ReadLayoutLine( "Open=1" ) );
+    EXPECT_TRUE( restarted.View.IsWindowOpen() );
+}
+
+TEST( DocumentWellWindow, AnUnknownLayoutLineIsRefusedAndChangesNothing )
+{
+    EditorDocuments well;
+    well.View.CloseWindow();
+    EXPECT_FALSE( well.View.ReadLayoutLine( "Open=yes" ) );
+    EXPECT_FALSE( well.View.IsWindowOpen() );
 }

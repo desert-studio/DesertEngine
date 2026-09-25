@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Editor
@@ -101,6 +102,18 @@ namespace Desert::Editor
             m_MostRecent.insert( m_MostRecent.begin(), subject );
         }
 
+        // A document was opened, or an open one was asked for by name. Touch, plus the one rule that makes a
+        // closable well safe: whoever opens a document gets to SEE it, so a well the user closed comes back.
+        // Plain Touch (focus following a click on a document tab) leaves the window alone — the user who
+        // closed it is looking at that document already.
+        void Opened( const SubjectId& subject )
+        {
+            if ( !m_Documents->Find( subject ) )
+                return;
+            Touch( subject );
+            m_WindowOpen = true;
+        }
+
         // A document has left the owner. Drops it from the ring and records it under RecentlyClosed.
         //
         // TOLD, NOT DISCOVERED. The well used to perform the release itself, so it learned of a close by
@@ -150,6 +163,50 @@ namespace Desert::Editor
             return m_RecentlyClosed;
         }
 
+        // ── THE WINDOW ─────────────────────────────────────────────────────────────────────────────────
+        // The "Documents" window has a close button like any tool (UE's document area works the same way).
+        // Closing the window closes no document: the documents live in OpenDocuments, not here.
+        [[nodiscard]] bool IsWindowOpen() const noexcept
+        {
+            return m_WindowOpen;
+        }
+        // The flag ImGui's close button writes (Begin's p_open).
+        [[nodiscard]] bool& WindowOpenFlag() noexcept
+        {
+            return m_WindowOpen;
+        }
+        void ShowWindow() noexcept
+        {
+            m_WindowOpen = true;
+        }
+        void CloseWindow() noexcept
+        {
+            m_WindowOpen = false;
+        }
+
+        // THE WINDOW'S LINE IN THE EDITOR LAYOUT (imgui.ini and every View > Layouts file), so open or closed
+        // survives a restart and travels with a named layout. A layout that has no line — the default, or
+        // one saved before the window could close — means open.
+        static constexpr std::string_view kLayoutOpen   = "Open=1";
+        static constexpr std::string_view kLayoutClosed = "Open=0";
+
+        [[nodiscard]] std::string_view LayoutLine() const noexcept
+        {
+            return m_WindowOpen ? kLayoutOpen : kLayoutClosed;
+        }
+        // False for a line this build does not write; the window state is then left untouched and the
+        // caller reports the line.
+        [[nodiscard]] bool ReadLayoutLine( std::string_view line ) noexcept
+        {
+            if ( line == kLayoutOpen )
+                m_WindowOpen = true;
+            else if ( line == kLayoutClosed )
+                m_WindowOpen = false;
+            else
+                return false;
+            return true;
+        }
+
     private:
         void RememberClosed( ClosedDocument closed )
         {
@@ -166,6 +223,7 @@ namespace Desert::Editor
         // point of the split is that a document's lifetime is short.
         std::vector<SubjectId>           m_MostRecent;
         std::vector<ClosedDocument>      m_RecentlyClosed;
+        bool                             m_WindowOpen = true;
     };
 
     // How many of the six renderer slots the OPEN DOCUMENTS are holding right now.
