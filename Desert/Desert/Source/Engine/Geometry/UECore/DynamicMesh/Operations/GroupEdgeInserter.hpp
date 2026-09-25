@@ -13,6 +13,25 @@
 
 namespace Desert::Geometry
 {
+    /** Optional outputs of FGroupEdgeInserter::InsertEdgeLoops() and InsertGroupEdge(). */
+    struct FGroupEdgeInserterOptionalOutputParams
+    {
+        /** Edge IDs of the edges composing the newly inserted group edges. */
+        TSet<int32>* NewEidsOut = nullptr;
+
+        /**
+         * Any triangle IDs whose triangles were deleted or changed by the operation (but not newly
+         * created tids). Useful for setting up undo.
+         */
+        TSet<int32>* ChangedTidsOut = nullptr;
+
+        /**
+         * In loop insertion, the group edge IDs in the original topology that surround non-quad-like
+         * groups that stopped the loop.
+         */
+        TSet<int32>* ProblemGroupEdgeIDsOut = nullptr;
+    };
+
     /**
      * Used to insert group edges and group edge loops, by cutting the triangles of a group with a plane.
      */
@@ -49,30 +68,13 @@ namespace Desert::Geometry
             double VertexTolerance = 1e-4 * 10; // UE: KINDA_SMALL_NUMBER * 10
         };
 
-        struct FOptionalOutputParams
-        {
-            // A nested class with default initializers used as a default argument needs a user-provided
-            // constructor on clang (as UE).
-            FOptionalOutputParams() {}
+        // Defined at namespace scope: a nested struct with default member initializers cannot be the type of a
+        // default argument inside its enclosing class (it is not complete there), which UE works around with an
+        // empty user-provided constructor.
+        using FOptionalOutputParams = FGroupEdgeInserterOptionalOutputParams;
 
-            /** Edge IDs of the edges composing the newly inserted group edges. */
-            TSet<int32>* NewEidsOut = nullptr;
-
-            /**
-             * Any triangle IDs whose triangles were deleted or changed by the operation (but not newly
-             * created tids). Useful for setting up undo.
-             */
-            TSet<int32>* ChangedTidsOut = nullptr;
-
-            /**
-             * In loop insertion, the group edge IDs in the original topology that surround non-quad-like
-             * groups that stopped the loop.
-             */
-            TSet<int32>* ProblemGroupEdgeIDsOut = nullptr;
-        };
-
-        bool InsertEdgeLoops( const FEdgeLoopInsertionParams& Params,
-                              FOptionalOutputParams           OptionalOut = FOptionalOutputParams() );
+        static bool InsertEdgeLoops( const FEdgeLoopInsertionParams& Params,
+                                     FOptionalOutputParams           OptionalOut = FOptionalOutputParams() );
 
         /** Point along a group edge that is used as a start/endpoint for an inserted group edge. */
         struct FGroupEdgeSplitPoint
@@ -116,7 +118,7 @@ namespace Desert::Geometry
             double VertexTolerance = 1e-4 * 10; // UE: KINDA_SMALL_NUMBER * 10
         };
 
-        bool InsertGroupEdge( FGroupEdgeInsertionParams& Params,
-                              FOptionalOutputParams      OptionalOut = FOptionalOutputParams() );
+        static bool InsertGroupEdge( FGroupEdgeInsertionParams& Params,
+                                     FOptionalOutputParams      OptionalOut = FOptionalOutputParams() );
     };
 } // namespace Desert::Geometry

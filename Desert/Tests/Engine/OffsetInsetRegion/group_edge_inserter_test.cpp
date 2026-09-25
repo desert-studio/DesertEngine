@@ -79,8 +79,20 @@ namespace
         return groups;
     }
 
-    constexpr int kPlusXGroup = 1;
-    constexpr int kPlusZGroup = 5;
+    constexpr int kPlusXGroup  = 1;
+    constexpr int kMinusXGroup = 2;
+    constexpr int kPlusZGroup  = 5;
+
+    int GroupEdgeBetween( const FGroupTopology& topology, int groupA, int groupB )
+    {
+        for ( int e = 0; e < topology.Edges.Num(); ++e )
+        {
+            const FIndex2i g = topology.Edges[e].Groups;
+            if ( ( g.A == groupA && g.B == groupB ) || ( g.A == groupB && g.B == groupA ) )
+                return e;
+        }
+        return -1;
+    }
 } // namespace
 
 TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
@@ -99,7 +111,7 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     }
     ASSERT_GE( groupEdge, 0 );
 
-    const TArray<double>                        proportions = { 0.5 };
+    const TArray<double>                         proportions = { 0.5 };
     FGroupEdgeInserter::FEdgeLoopInsertionParams params;
     params.Mesh               = &mesh;
     params.Topology           = &topology;
@@ -110,7 +122,7 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     TSet<int32>                               newEids;
     FGroupEdgeInserter::FOptionalOutputParams out;
     out.NewEidsOut = &newEids;
-    ASSERT_TRUE( FGroupEdgeInserter().InsertEdgeLoops( params, out ) );
+    ASSERT_TRUE( FGroupEdgeInserter::InsertEdgeLoops( params, out ) );
 
     EXPECT_EQ( GroupIDs( mesh ).size(), 10u );
     EXPECT_TRUE( mesh.IsClosed() );
@@ -119,19 +131,19 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     // The loop runs at y = 0 all the way round: every new edge lies in that plane, and every vertex is either
     // on it or on one of the cube's y = +-50 rings.
     EXPECT_GE( newEids.Num(), 4 );
-    for ( int eid : newEids )
+    for ( const int eid : newEids )
     {
         const FIndex2i v = mesh.GetEdgeV( eid );
         EXPECT_NEAR( mesh.GetVertex( v.A ).Y, 0.0, 1e-6 );
         EXPECT_NEAR( mesh.GetVertex( v.B ).Y, 0.0, 1e-6 );
     }
-    for ( int vid : mesh.VertexIndicesItr() )
+    for ( const int vid : mesh.VertexIndicesItr() )
     {
         const double y = mesh.GetVertex( vid ).Y;
         EXPECT_TRUE( std::abs( y ) < 1e-6 || std::abs( std::abs( y ) - 50.0 ) < 1e-6 ) << "vertex " << vid;
     }
     // +Y and -Y are not crossed: each still has its two triangles.
-    for ( int group : { 3, 4 } )
+    for ( const int group : { 3, 4 } )
     {
         int count = 0;
         for ( int t : mesh.TriangleIndicesItr() )
@@ -173,14 +185,54 @@ TEST( GroupEdgeInserter, GroupEdgeAcrossOneFaceSplitsOnlyThatFace )
     for ( int i = 0; i < 2; ++i )
     {
         FGroupEdgeInserter::FGroupEdgeSplitPoint& p = i == 0 ? params.StartPoint : params.EndPoint;
-        p.ElementID                                  = alongX[i];
-        p.bIsVertex                                  = false;
-        p.EdgeTValue                                 = 0.5;
-        const FIndex2i v                             = mesh.GetEdgeV( alongX[i] );
-        p.Tangent = Normalized( mesh.GetVertex( v.B ) - mesh.GetVertex( v.A ) );
+        p.ElementID                                 = alongX[i];
+        p.bIsVertex                                 = false;
+        p.EdgeTValue                                = 0.5;
+        const FIndex2i v                            = mesh.GetEdgeV( alongX[i] );
+        p.Tangent                                   = Normalized( mesh.GetVertex( v.B ) - mesh.GetVertex( v.A ) );
     }
-    ASSERT_TRUE( FGroupEdgeInserter().InsertGroupEdge( params ) );
+    ASSERT_TRUE( FGroupEdgeInserter::InsertGroupEdge( params ) );
     EXPECT_EQ( GroupIDs( mesh ).size(), 7u );
     EXPECT_TRUE( mesh.IsClosed() );
     EXPECT_EQ( topology.Groups.Num(), 7 );
+}
+
+// An OPEN strip: the cube without its -X face, so the faces around Y are -Z, +X, +Z with a hole on either end.
+// A loop started on the +X/+Z group edge cannot come back round to close itself (as on the whole cube, where
+// the forward walk alone reaches every face): it must walk forward into one side AND backward into the other,
+// and the three faces of the strip each split in two. Skipping the backward walk leaves one side unsplit.
+TEST( GroupEdgeInserter, EdgeLoopOnAnOpenStripWalksBothWays )
+{
+    FDynamicMesh3    mesh = TangentCube();
+    std::vector<int> minusX;
+    for ( int t : mesh.TriangleIndicesItr() )
+        if ( mesh.GetTriangleGroup( t ) == kMinusXGroup )
+            minusX.push_back( t );
+    ASSERT_EQ( minusX.size(), 2u );
+    for ( const int t : minusX )
+        ASSERT_EQ( mesh.RemoveTriangle( t ), EMeshResult::Ok );
+    ASSERT_FALSE( mesh.IsClosed() );
+    ASSERT_EQ( GroupIDs( mesh ).size(), 5u );
+
+    FGroupTopology topology( &mesh, true );
+    const int      groupEdge = GroupEdgeBetween( topology, kPlusXGroup, kPlusZGroup );
+    ASSERT_GE( groupEdge, 0 );
+
+    const TArray<double>                         proportions = { 0.5 };
+    FGroupEdgeInserter::FEdgeLoopInsertionParams params;
+    params.Mesh               = &mesh;
+    params.Topology           = &topology;
+    params.GroupEdgeID        = groupEdge;
+    params.SortedInputLengths = &proportions;
+    params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
+    ASSERT_TRUE( FGroupEdgeInserter::InsertEdgeLoops( params ) );
+
+    // -Z, +X and +Z are cut in two; +Y and -Y are not crossed.
+    EXPECT_EQ( GroupIDs( mesh ).size(), 8u );
+    EXPECT_EQ( topology.Groups.Num(), 8 );
+    for ( const int vid : mesh.VertexIndicesItr() )
+    {
+        const double y = mesh.GetVertex( vid ).Y;
+        EXPECT_TRUE( std::abs( y ) < 1e-6 || std::abs( std::abs( y ) - 50.0 ) < 1e-6 ) << "vertex " << vid;
+    }
 }
