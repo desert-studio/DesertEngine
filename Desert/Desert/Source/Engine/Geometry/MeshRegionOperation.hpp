@@ -55,6 +55,16 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<RegionOutcome> FillHoles( const FDynamicMesh3&    before,
                                                               const ElementSelection& selection );
 
+    // Insert Edge Loop, as UE's UPolyEditInsertEdgeLoopActivity drives FEdgeLoopInsertionOp
+    // (PolyEditInsertEdgeLoopActivity.cpp:30-75, EdgeLoopInsertionOp.cpp:25-66) with the PlaneCut mode and one
+    // ProportionOffset: FGroupEdgeInserter::InsertEdgeLoops across the group edge the EDGE selection lies on,
+    // `position` in (0, 1) measured from that group edge's EndpointCorners.A (UE's unflipped direction). Every
+    // crossed group is split in two new groups (a cube: 6 -> 10). The result selects the new loop's edges.
+    // Refused, by name and numbers: a selection not in Edge mode or empty, edges on more than one group edge,
+    // position outside (0, 1), or the inserter's own failure (with the problem group edge count).
+    [[nodiscard]] Common::ResultStr<RegionOutcome>
+    InsertEdgeLoop( const FDynamicMesh3& before, const ElementSelection& selection, float position );
+
     // Weld Edges: FMergeCoincidentMeshEdges with UE's defaults (MergeCoincidentMeshEdges.h) and the split
     // attributes welded along merged edges, the settings of test WeldClosesACubeCutAlongEverySeam. Mesh-wide;
     // leaves an empty selection in @p mode. Refused when there is no boundary edge to weld.

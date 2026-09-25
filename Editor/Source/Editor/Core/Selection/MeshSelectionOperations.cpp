@@ -233,11 +233,13 @@ namespace Desert::Editor::Core
             after                        = std::move( done.Mesh );
             outcome.Selection            = std::move( done.Selection );
         }
-        else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges )
+        else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges ||
+                  operation == MeshOperation::InsertEdgeLoop )
         {
-            auto repaired = operation == MeshOperation::FillHole
-                                 ? Geometry::FillHoles( *before, selection )
-                                 : Geometry::WeldEdges( *before, selection.Mode() );
+            auto repaired = operation == MeshOperation::FillHole ? Geometry::FillHoles( *before, selection )
+                            : operation == MeshOperation::WeldEdges
+                                 ? Geometry::WeldEdges( *before, selection.Mode() )
+                                 : Geometry::InsertEdgeLoop( *before, selection, args.LoopPosition );
             if ( !repaired.IsSuccess() )
                 return Common::MakeError<bool>( repaired.GetError() );
             Geometry::RegionOutcome done = repaired.ExtractValue();
@@ -269,6 +271,7 @@ namespace Desert::Editor::Core
                 case MeshOperation::Outset:
                 case MeshOperation::FillHole:
                 case MeshOperation::WeldEdges:
+                case MeshOperation::InsertEdgeLoop:
                     return Common::MakeFormattedError<bool>( "Mesh {}: runs on FDynamicMesh3, not the EditMesh",
                                                              ToString( operation ) );
                 case MeshOperation::Offset:
@@ -276,9 +279,6 @@ namespace Desert::Editor::Core
                     break;
                 case MeshOperation::Bevel:
                     result = Geometry::BevelSelection( beforeMesh, editSelection, distance );
-                    break;
-                case MeshOperation::InsertEdgeLoop:
-                    result = Geometry::InsertEdgeLoop( beforeMesh, editSelection, args.LoopPosition );
                     break;
                 case MeshOperation::Cut:
                     if ( !args.CutPlane )
