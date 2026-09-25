@@ -459,7 +459,6 @@ namespace Desert::Editor
         {
             path = asset->GetMetadata().Filepath.generic_string();
 
-            std::error_code ec;
             // HOW it is photographed comes from the ONE place that decides — the material's shader domain,
             // plus the cutout rule this file used to hold its own copy of. A refusal (a domain no producer
             // draws) leaves `png` empty, and the swatch below is then the true statement about it.
@@ -468,34 +467,14 @@ namespace Desert::Editor
                                                                                        path, route.GetValue() )
                                             : std::string();
 
-            // THE SAME RULE THE SERVICE APPLIES, out of the same header, and that is the point. This used
-            // to be a hand-written copy of the margin comparison while ThumbnailService::ShouldQueue asked
-            // only whether the file existed. When the two disagreed — a source newer than its picture —
-            // this panel refused to draw and the service refused to render, and the material showed a flat
-            // colour swatch for the rest of the project's life.
-            bool haveFresh = ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( png, path ) ) ==
-                             ThumbnailFreshness::Verdict::Show;
-            if ( !haveFresh )
-            {
-                // Drop the decoded copy of a picture we have just decided not to show; the RequestMaterial
-                // above has already queued the replacement, because it asked this same question.
-                m_Thumbnails.Invalidate( png );
-            }
-            if ( haveFresh )
-            {
-                // The PNG on disk moved since this panel decoded it — drop the decoded copy or the slot
-                // keeps showing the OLD render. The regeneration is no longer ours to know about: the
-                // Material Editor window edits and saves the material now, and it cannot reach this cache.
-                const auto stamp = std::filesystem::last_write_time( png, ec );
-                if ( !ec )
-                {
-                    const auto seen = m_ThumbnailStamps.find( png );
-                    if ( seen != m_ThumbnailStamps.end() && seen->second != stamp )
-                        m_Thumbnails.Invalidate( png );
-                    m_ThumbnailStamps[png] = stamp;
-                }
+            // THE SAME RULE THE SERVICE APPLIES, out of the same header, and that is the point: the
+            // RequestMaterial above asked Judge whether a capture is owed and queued it; Choose says what
+            // to draw meanwhile — any picture of this material on disk, outdated or not, before a flat
+            // swatch. ThumbnailCache::Get re-decodes the PNG once the capture rewrites it, so this panel
+            // keeps no table of stamps (the Material Editor window saves materials and cannot reach it).
+            if ( !png.empty() && ThumbnailFreshness::Choose( ThumbnailFreshness::Observe( png, path ) ) ==
+                                      ThumbnailFreshness::Picture::CachedPng )
                 thumb = m_Thumbnails.Get( png );
-            }
         }
 
         // An InvisibleButton rather than a Dummy: the preview is the row's drag-drop target, and a drop
