@@ -269,12 +269,13 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     slot.Source.Models[0].Mesh.MaterialIds[1] = 4;
     EXPECT_FALSE( EncodeMeshSourceAsset( slot ).IsSuccess() );
     MeshSourceAsset torn = MakeQuad( false );
-    if ( !torn.Source.Models[0].Mesh.Colors.has_value() )
+    std::optional<Desert::Geometry::EditMeshOverlaySer>& colors = torn.Source.Models[0].Mesh.Colors;
+    if ( !colors.has_value() )
     {
         ADD_FAILURE() << "the quad fixture lost its colour overlay";
         return;
     }
-    torn.Source.Models[0].Mesh.Colors.value().Triangles[3] = 0; // half-unset triangle
+    colors.value().Triangles[3] = 0; // half-unset triangle
     EXPECT_FALSE( EncodeMeshSourceAsset( torn ).IsSuccess() );
     MeshSourceAsset scale              = MakeQuad( false );
     scale.Import.Settings.UniformScale = 0.0f;
