@@ -165,6 +165,8 @@ namespace Desert::Graphic::API::Vulkan
              std::vector<std::vector<uint64_t>>(
                   slots, std::vector<uint64_t>( setCount, std::numeric_limits<uint64_t>::max() ) ) );
         m_FrameWrites.assign( framesInFlight, std::vector<FrameWriteRecord>( slots ) );
+        // Fresh sets point at nothing, so every binding is owed a write.
+        m_BoundCopies.assign( framesInFlight, std::vector<ShaderResources::DescriptorCopyRecord>( slots ) );
 
         const std::vector<VkDescriptorSetLayout> layouts = RawHandles( m_Layouts );
 
@@ -259,40 +261,59 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanMaterialBackend::ApplyUniformBuffer( MaterialProperty* prop )
     {
+        // Called on EVERY Apply, dirty or not (UniformBufferProperty::Apply): whether the set must be
+        // rewritten is no longer "is the value dirty" alone but also "is the set still pointing at the copy
+        // this view binds now" — see DescriptorCopyRecord in ShaderResources/ViewCopiedBlock.hpp.
         auto uniformProp = static_cast<UniformBufferProperty*>( prop );
-        if ( !uniformProp || !uniformProp->IsDirty() )
+        if ( !uniformProp )
             return;
 
-        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const uint32_t frameIndex    = EngineContext::GetInstance().GetCurrentFrameIndex();
         const uint64_t absoluteFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-        const uint32_t setIndex = 0; // Simplified
+        const uint32_t slot          = EngineContext::GetInstance().GetActiveRendererSlot();
+        const uint32_t setIndex      = 0; // Simplified
 
-        if ( auto bufferInfo = uniformProp->GetUniform() )
+        auto vulkanBuffer =
+             sp_cast<ShaderResources::API::Vulkan::VulkanUniformBuffer>( uniformProp->GetUniform() );
+        if ( !vulkanBuffer || frameIndex >= m_BoundCopies.size() || slot >= m_BoundCopies[frameIndex].size() )
+            return;
+
+        const uint32_t                                                     binding = vulkanBuffer->GetBinding();
+        ShaderResources::API::Vulkan::VulkanUniformBuffer::ViewCopyBinding copy;
+        const auto resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
+        if ( !resolved.IsSuccess() )
         {
-            if ( auto vulkanBuffer = sp_cast<ShaderResources::API::Vulkan::VulkanUniformBuffer>( bufferInfo ) )
-            {
-                auto& descriptorBufferInfo = vulkanBuffer->GetDescriptorBufferInfo( frameIndex );
-                const uint64_t handle               = reinterpret_cast<uint64_t>( descriptorBufferInfo.buffer );
-
-                // At most one descriptor flush per (frame, slot) per frame — the set is bound into the
-                // recording command buffer right after the first draw's Apply, and rewriting it then is
-                // illegal. A LATER Apply carrying a DIFFERENT resource is therefore a swallowed rebind:
-                // kept swallowed, but never silent.
-                if ( m_DescriptorSetsUpdateFrame[frameIndex][EngineContext::GetInstance().GetActiveRendererSlot()]
-                                                [setIndex] == absoluteFrame )
-                {
-                    ReportSwallowedRebind( frameIndex, vulkanBuffer->GetBinding(), handle, "uniform buffer" );
-                    return;
-                }
-
-                auto wds = DescriptorSetBuilder::GetUniformWDS( this, frameIndex, 0, vulkanBuffer->GetBinding(),
-                                                                1U, &descriptorBufferInfo );
-
-                UpdateDescriptorSets( { wds } );
-                NoteDescriptorWrite( frameIndex, vulkanBuffer->GetBinding(), handle );
-                uniformProp->MarkClean();
-            }
+            // Nothing valid to point the set at, so the write is skipped (the set keeps its fallback or its
+            // last LIVE copy). Named once per binding: this runs per draw.
+            if ( m_BindRefusalReported.insert( binding ).second )
+                LOG_ERROR( "[MaterialBackend] '{}' binding {}: no uniform-buffer copy to bind -- {}",
+                           m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<no shader>" ), binding,
+                           resolved.GetError() );
+            return;
         }
+
+        auto& record = m_BoundCopies[frameIndex][slot];
+        if ( !record.NeedsWrite( binding, copy.CopyId, uniformProp->IsDirty() ) )
+            return;
+
+        const uint64_t handle = reinterpret_cast<uint64_t>( copy.Info.buffer );
+
+        // At most one descriptor flush per (frame, slot) per frame — the set is bound into the recording
+        // command buffer right after the first draw's Apply, and rewriting it then is illegal. A LATER
+        // Apply carrying a DIFFERENT resource is therefore a swallowed rebind: kept swallowed, but never
+        // silent. The record is NOT updated, so the next frame rewrites it.
+        if ( m_DescriptorSetsUpdateFrame[frameIndex][slot][setIndex] == absoluteFrame )
+        {
+            ReportSwallowedRebind( frameIndex, binding, handle, "uniform buffer" );
+            return;
+        }
+
+        auto wds = DescriptorSetBuilder::GetUniformWDS( this, frameIndex, 0, binding, 1U, &copy.Info );
+
+        UpdateDescriptorSets( { wds } );
+        NoteDescriptorWrite( frameIndex, binding, handle );
+        record.NoteWritten( binding, copy.CopyId );
+        uniformProp->MarkClean();
     }
 
     void VulkanMaterialBackend::ApplyStorageBuffer( MaterialProperty* prop )

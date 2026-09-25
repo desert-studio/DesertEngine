@@ -1,13 +1,13 @@
--- "A material parameter must reach every (frame in flight x renderer slot) copy of its uniform buffer,
--- by whichever route the material was submitted."
+-- "A material parameter must reach every (view x frame in flight) copy of its uniform buffer, by
+-- whichever route the material was submitted, and one view's write must never reach another's copy."
 --
 -- Same recipe as Tests/Engine/DescriptorFallbacks and Tests/Engine/GpuTimestampLayout: the units under
 -- test hold no VkDevice, so they need no GPU. UniformBufferProperty and FieldProperty are header-only,
--- ShaderResources::UniformBuffer is abstract (the test derives a recording buffer from it), and
--- BufferCopyLayout.hpp is pure integer arithmetic. FrameManager and EngineContext are plain counter
+-- ShaderResources::UniformBuffer is abstract (the test derives a recording buffer from it, on the
+-- production ViewCopiedBlock), and BufferCopyLayout.hpp is pure integer arithmetic. FrameManager and EngineContext are plain counter
 -- singletons the test drives by hand to simulate the (frame x slot) matrix.
 --
--- Nothing is compiled in: every unit is a header. Writing the descriptors themselves does need a device
+-- Only ViewResources.cpp is compiled in; every other unit is a header. Writing the descriptors themselves does need a device
 -- and is therefore NOT covered here.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
@@ -23,6 +23,8 @@ project(test_name)
 
     files {
         test_files,
+        -- The per-view copy register the uniform-buffer copies live in (GPU-free, see its own suite).
+        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/ViewResources.cpp",
     }
 
     includedirs {

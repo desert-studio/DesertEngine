@@ -1,38 +1,35 @@
-// A material parameter must reach EVERY (frame in flight x renderer slot) copy of its uniform buffer,
-// by whichever route the material was submitted.
+// A material parameter must reach EVERY (view x frame in flight) copy of its uniform buffer, by
+// whichever route the material was submitted — and one view's write must never reach another view's copy.
 //
-// The defect this suite exists for: a shader-graph material with a Color/Float Param rendered black on
-// two frames out of three. The values were right; they had been written into exactly ONE of the three
-// frame-in-flight copies, because UniformBufferProperty::UpdateFields writes the copy belonging to the
-// pair that is recording and nobody came back on the following frames to write the others. Materials
-// submitted as a MaterialComponent shader override escaped it only by accident — they re-apply their
-// parameters every frame, and SetParamRaw calls UpdateFields as a side effect.
+// The defect this suite was written for: a shader-graph material with a Color/Float Param rendered black on
+// two frames out of three, because UniformBufferProperty::UpdateFields wrote only the copy of the frame that
+// was recording. So the first relation asserted is still THE TWO ROUTES LEAVE THE SAME BYTES IN THE SAME
+// COPIES: route A restates its value every frame (the override producer), route B applies it once and then
+// flushes (the material-asset producer).
 //
-// So the relation asserted here is the one that was broken: THE TWO ROUTES MUST LEAVE THE SAME BYTES IN
-// THE SAME COPIES. Route A restates its value every frame (the override producer). Route B applies it
-// once and then flushes every frame (the material-asset producer, as MeshRenderer now drives it through
-// DataDrivenMaterial::FlushParameterBuffers). Anything that makes B stop serving a copy that A serves is
-// the defect coming back.
+// Copies are per VIEW now (Engine/Graphic/ViewResources.hpp), made lazily, and that brings two regressions
+// the renderer-slot matrix could not have, each pinned here by a test that is red without its fix:
+//   B. a view opened after a one-shot write gets a NEW copy — seeded from the block's CPU image, not zeroed;
+//   A. a descriptor set is rewritten when the copy it points at is not the copy the view binds now, even
+//      when the property is clean — or a preview opened in a closed one's slot binds a freed buffer.
 //
-// The field writes below go through UniformBufferProperty::WriteField rather than reaching the
-// FieldProperty directly, because that is now the only way in: a bare field write left the owning
-// buffer unaware of which of its two fill routes had been used. See Tests/Engine/BufferFillKind.
-//
-// No GPU: UniformBufferProperty and FieldProperty are header-only, and ShaderResources::UniformBuffer is
-// abstract, so the copies live in a std::vector here. The copy a write lands in is resolved with the
-// PRODUCTION function, ShaderResources::BufferCopyIndex — the same one VulkanUniformBuffer uses. A test
-// that recomputed that arithmetic itself would be the very thing this engine keeps getting burned by:
-// two places obliged to agree, with nothing checking that they do.
+// No GPU: the double runs the PRODUCTION copy policy (ShaderResources::ViewCopiedBlock, the same object
+// VulkanUniformBuffer holds) over byte vectors instead of mapped VkBuffers. A double that restated the
+// policy would be two places obliged to agree with nothing checking that they do.
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/Materials/MaterialBackend.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/ShaderResources/BufferCopyLayout.hpp>
+#include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -45,55 +42,114 @@ namespace
     constexpr uint32_t kSlots          = Engine::kMaxRendererSlots;
     constexpr uint32_t kFieldSize      = sizeof( float ) * 4;
 
-    // Records what the GPU would have received. NOT a second implementation of the copy layout: it
-    // resolves the target copy with the production BufferCopyIndex, so if that arithmetic ever changes
-    // this instrument changes with it.
+    class BytesCopy final : public IBlockCopy
+    {
+    public:
+        explicit BytesCopy( uint32_t size ) : Bytes( size, std::byte{ 0xCD } ) // not zero: seeding must overwrite
+        {
+        }
+
+        Common::BoolResultStr Write( const void* data, uint32_t size, uint32_t offset ) override
+        {
+            if ( static_cast<size_t>( offset ) + size > Bytes.size() )
+                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit {}", size, offset,
+                                                         Bytes.size() );
+            if ( size != 0 )
+                std::memcpy( Bytes.data() + offset, data, size );
+            return Common::MakeSuccess( true );
+        }
+
+        std::vector<std::byte> Bytes;
+    };
+
+    // Records what the GPU would have received, per (view, frame), through the production ViewCopiedBlock.
     class RecordingUniformBuffer final : public UniformBuffer
     {
     public:
         explicit RecordingUniformBuffer( const ShaderLayout::UniformBuffer& model )
-             : UniformBuffer( model ), m_Copies( BufferCopyCount( kFramesInFlight, kSlots ),
-                                                 std::vector<std::byte>( model.Size, std::byte{ 0 } ) )
+             : UniformBuffer( model ), m_Block( model.Size )
         {
         }
 
-        // Answers, like the interface it stands in for (Г13). A double that could not refuse would let
-        // this suite pass over a production signature that can, which is how a fake stops testing
-        // anything -- and the out-of-range case is now the REFUSAL the real buffer gives rather than a
-        // fatal assertion, so the caller's handling of it is exercised too.
         Common::BoolResultStr SetData( const void* data, uint32_t size, uint32_t offset ) override
         {
-            auto& copy = m_Copies[CurrentCopy()];
-            if ( static_cast<size_t>( offset ) + size > copy.size() )
-                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit {}", size, offset,
-                                                         copy.size() );
-            std::memcpy( copy.data() + offset, data, size );
-            return Common::MakeSuccess( true );
+            return m_Block.Write( data, size, offset, Frame(), Maker() );
         }
 
         Common::BoolResultStr EnsureMapped() override
         {
-            return Common::MakeSuccess( true );
+            IBlockCopy* copy = nullptr;
+            return m_Block.Resolve( Frame(), Maker(), copy );
         }
+
         const void* GetData() const override
         {
-            return m_Copies[CurrentCopy()].data();
+            return nullptr;
         }
 
-        /// Bytes the (frame x slot) pair would read.
-        const std::vector<std::byte>& Copy( uint32_t frame, uint32_t slot ) const
+        // The copy the descriptor would be written with now (VulkanUniformBuffer::BindActiveCopy's id).
+        uint64_t BindActiveCopy()
         {
-            return m_Copies[BufferCopyIndex( frame, slot, kSlots )];
+            IBlockCopy* copy = nullptr;
+            EXPECT_TRUE( m_Block.Resolve( Frame(), Maker(), copy ).IsSuccess() );
+            return copy != nullptr ? copy->GetId() : 0;
         }
 
-        static uint32_t CurrentCopy()
+        // Bytes `view` holds for `frame`, or nullopt when it has no copy.
+        std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view, uint32_t frame ) const
         {
-            return BufferCopyIndex( Engine::FrameManager::GetInstance().GetCurrentFrameIndex(),
-                                    EngineContext::GetInstance().GetActiveRendererSlot(), kSlots );
+            const auto* copy = view.Find( m_Block.GetKey(), frame );
+            if ( copy == nullptr )
+                return std::nullopt;
+            return static_cast<const BytesCopy*>( copy )->Bytes;
         }
 
     private:
-        std::vector<std::vector<std::byte>> m_Copies;
+        static uint32_t Frame()
+        {
+            return Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        }
+
+        ViewCopiedBlock::CopyMaker Maker() const
+        {
+            const uint32_t size = GetSize();
+            return [size]( std::string_view, uint32_t, std::unique_ptr<IBlockCopy>& out )
+            {
+                out = std::make_unique<BytesCopy>( size );
+                return Common::MakeSuccess( true );
+            };
+        }
+
+        ViewCopiedBlock m_Block;
+    };
+
+    // Counts the backend's uniform-buffer applies; the other kinds are not under test.
+    class RecordingBackend final : public Graphic::MaterialBackend
+    {
+    public:
+        RecordingBackend() : MaterialBackend( nullptr )
+        {
+        }
+        void InitializeDefaults() override
+        {
+        }
+        void ApplyUniformBuffer( Graphic::MaterialProperty* ) override
+        {
+            ++UniformApplies;
+        }
+        void ApplyStorageBuffer( Graphic::MaterialProperty* ) override
+        {
+        }
+        void ApplyTexture2D( Graphic::MaterialProperty* ) override
+        {
+        }
+        void ApplyTextureCube( Graphic::MaterialProperty* ) override
+        {
+        }
+        void FlushUpdates() override
+        {
+        }
+        uint32_t UniformApplies = 0;
     };
 
     ShaderLayout::UniformBuffer MakeModel()
@@ -106,7 +162,6 @@ namespace
         return model;
     }
 
-    // The four bytes an artist authored.
     std::vector<std::byte> Authored( float r, float g, float b, float a )
     {
         const float            v[4] = { r, g, b, a };
@@ -120,35 +175,30 @@ namespace
     protected:
         void SetUp() override
         {
-            // Both are plain counter singletons; nothing here touches a device.
             EngineContext::CreateInstance();
             Engine::FrameManager::CreateInstance().Initialize( kFramesInFlight );
             EngineContext::GetInstance().SetActiveRendererSlot( 0 );
         }
+        void TearDown() override
+        {
+            Graphic::ViewResourceRegistry::FrameContext().Clear();
+        }
     };
 
-    // How the two producers differ, expressed once so the tests below read as the comparison they are.
     enum class Route
     {
         RestateEveryFrame, // MaterialComponent shader override: re-applies its params per draw
         ApplyOnceThenFlush // material asset: params applied when the asset loaded, flushed per draw
     };
 
-    // Drives @p frameCount frames of one route and returns the buffer it wrote. Frame numbering starts
-    // from whatever FrameManager is on, so callers comparing two routes re-Initialize between them.
-    std::shared_ptr<RecordingUniformBuffer>
-    RunRoute( Route route, uint32_t frameCount, const std::vector<std::byte>& value, bool flushPerDraw = true )
+    void RunRoute( Graphic::UniformBufferProperty& prop, Route route, uint32_t frameCount,
+                   const std::vector<std::byte>& value )
     {
-        auto                           buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
-        Graphic::UniformBufferProperty prop( buffer );
-
         if ( route == Route::ApplyOnceThenFlush )
         {
-            // Applied when the asset loads — one write, outside any recording.
             prop.WriteField( prop.GetField( "Tint" ), value.data(), value.size() );
             prop.UpdateFields();
         }
-
         for ( uint32_t i = 0; i < frameCount; ++i )
         {
             if ( route == Route::RestateEveryFrame )
@@ -156,127 +206,163 @@ namespace
                 prop.WriteField( prop.GetField( "Tint" ), value.data(), value.size() );
                 prop.UpdateFields();
             }
-            else if ( flushPerDraw && prop.HasDirtyFields() )
+            else if ( prop.HasDirtyFields() )
             {
                 prop.UpdateFields();
             }
             Engine::FrameManager::GetInstance().NextFrame();
         }
-
-        return buffer;
-    }
-
-    /// Copies a renderer on @p slot would read across every frame in flight.
-    std::set<std::vector<std::byte>> CopiesSeenBy( const RecordingUniformBuffer& buffer, uint32_t slot )
-    {
-        std::set<std::vector<std::byte>> seen;
-        for ( uint32_t f = 0; f < kFramesInFlight; ++f )
-            seen.insert( buffer.Copy( f, slot ) );
-        return seen;
     }
 } // namespace
 
-// The headline relation: one value, two routes, identical bytes in identical copies.
 TEST_F( MaterialParamUpload, BothRoutesLeaveTheSameBytesInEveryFrameCopy )
 {
-    const auto value = Authored( 0.9f, 0.12f, 0.08f, 1.0f );
+    const auto                     value    = Authored( 0.9f, 0.12f, 0.08f, 1.0f );
+    auto                           restated = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    auto                           asset    = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::ViewResources         view( "main" );
+    const Graphic::ActiveViewScope scope( view );
 
-    auto viaOverride = RunRoute( Route::RestateEveryFrame, kFramesInFlight * 2, value );
+    Graphic::UniformBufferProperty overrideProp( restated );
+    RunRoute( overrideProp, Route::RestateEveryFrame, kFramesInFlight * 2, value );
     Engine::FrameManager::GetInstance().Initialize( kFramesInFlight );
-    auto viaAsset = RunRoute( Route::ApplyOnceThenFlush, kFramesInFlight * 2, value );
+    Graphic::UniformBufferProperty assetProp( asset );
+    RunRoute( assetProp, Route::ApplyOnceThenFlush, kFramesInFlight * 2, value );
 
     for ( uint32_t f = 0; f < kFramesInFlight; ++f )
     {
-        EXPECT_EQ( viaAsset->Copy( f, 0 ), value ) << "asset route left frame copy " << f << " unwritten";
-        EXPECT_EQ( viaAsset->Copy( f, 0 ), viaOverride->Copy( f, 0 ) )
-             << "the two routes disagree on frame copy " << f;
+        ASSERT_TRUE( asset->Copy( view, f ).has_value() ) << "asset route never made frame copy " << f;
+        EXPECT_EQ( *asset->Copy( view, f ), value ) << "asset route left frame copy " << f << " unwritten";
+        EXPECT_EQ( asset->Copy( view, f ), restated->Copy( view, f ) ) << "the routes disagree on frame " << f;
     }
 }
 
-// The defect, stated as the thing that must not be true: no frame may read a copy nobody wrote.
-// Unwritten copies are zero-filled by the allocator, which is exactly why the mesh rendered BLACK.
-TEST_F( MaterialParamUpload, NoFrameReadsAnUnwrittenCopy )
+// The isolation invariant: two views, two copies, and a write inside A's scope never reaches B's copy.
+TEST_F( MaterialParamUpload, AWriteInOneViewNeverReachesAnotherViewsExistingCopy )
 {
-    const auto value  = Authored( 0.08f, 0.25f, 0.95f, 1.0f );
-    auto       buffer = RunRoute( Route::ApplyOnceThenFlush, kFramesInFlight * 2, value );
+    const auto             first  = Authored( 0.1f, 0.2f, 0.3f, 1.0f );
+    const auto             second = Authored( 0.7f, 0.6f, 0.5f, 1.0f );
+    auto                   buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::ViewResources a( "viewport" );
+    Graphic::ViewResources b( "preview" );
 
-    const auto seen = CopiesSeenBy( *buffer, 0 );
-    ASSERT_EQ( seen.size(), 1u ) << "the frames in flight do not agree — some copy was never served";
-    EXPECT_EQ( *seen.begin(), value );
+    {
+        const Graphic::ActiveViewScope scope( b );
+        ASSERT_TRUE( buffer->SetData( first.data(), kFieldSize, 0 ).IsSuccess() );
+    }
+    {
+        const Graphic::ActiveViewScope scope( a );
+        ASSERT_TRUE( buffer->SetData( second.data(), kFieldSize, 0 ).IsSuccess() );
+    }
+
+    EXPECT_EQ( a.CopyCount(), 1u );
+    EXPECT_EQ( b.CopyCount(), 1u );
+    EXPECT_EQ( *buffer->Copy( a, 0 ), second );
+    EXPECT_EQ( *buffer->Copy( b, 0 ), first ) << "view A's write reached view B's existing copy";
 }
 
-// SABOTAGE, kept as a test: applying the value once and never flushing again is precisely the code that
-// shipped, and it must be distinguishable from the fix. If this ever starts finding every copy written,
-// the mechanism has changed and the two tests above have stopped guarding anything.
-TEST_F( MaterialParamUpload, ApplyingOnceWithoutAPerDrawFlushServesExactlyOneCopy )
+// THE RISK THE LEAD NAMED: a write outside every scope (UI, bakes) must land in the frame context, not in
+// the copy of whichever view recorded last.
+TEST_F( MaterialParamUpload, AWriteOutsideEveryViewLandsInTheFrameContextNotTheLastView )
 {
-    const auto value  = Authored( 0.9f, 0.12f, 0.08f, 1.0f );
-    auto       buffer = RunRoute( Route::ApplyOnceThenFlush, kFramesInFlight * 2, value, /*flushPerDraw=*/false );
+    const auto             inView  = Authored( 0.3f, 0.3f, 0.3f, 1.0f );
+    const auto             outside = Authored( 0.9f, 0.0f, 0.9f, 1.0f );
+    auto                   buffer  = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::ViewResources view( "viewport" );
 
-    uint32_t written = 0;
-    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
-        if ( buffer->Copy( f, 0 ) == value )
-            ++written;
+    {
+        const Graphic::ActiveViewScope scope( view );
+        ASSERT_TRUE( buffer->SetData( inView.data(), kFieldSize, 0 ).IsSuccess() );
+    }
+    ASSERT_TRUE( buffer->SetData( outside.data(), kFieldSize, 0 ).IsSuccess() );
 
-    EXPECT_EQ( written, 1u ) << "one write outside recording must reach exactly one frame copy";
-    EXPECT_LT( written, kFramesInFlight ) << "the remaining copies are the black frames";
+    EXPECT_EQ( *buffer->Copy( view, 0 ), inView ) << "the write outside every view landed in the last view";
+    const auto frameContext = buffer->Copy( Graphic::ViewResourceRegistry::FrameContext(), 0 );
+    ASSERT_TRUE( frameContext.has_value() ) << "the write outside every view made no frame-context copy";
+    EXPECT_EQ( *frameContext, outside );
 }
 
-// A view that opens later must not inherit the first view's drained dirty budget: its own copies are
-// still owed the value. This is the multi-renderer half of the same relation, and it is what a live
-// material-preview window will stand on.
-//
-// The middle assertion — slot 1 is still UNTOUCHED while only slot 0 has recorded — is the load-bearing
-// one, and it was added after a sabotage went green: with the slot term removed from BufferCopyIndex the
-// two slots share one copy, so checking only that both ended up holding the value passed happily on a
-// layout with no slot dimension at all. Asserting that slot 0's writes did NOT reach slot 1 is what
-// makes this test about slots rather than about bytes.
-TEST_F( MaterialParamUpload, ASecondRendererSlotIsStillOwedTheValue )
+// Regression B: a view opened AFTER a one-shot write (field route, dirty window long over) must read the
+// value, not zeroes. Red when Resolve does not seed the new copy.
+TEST_F( MaterialParamUpload, AViewOpenedAfterAOneShotWriteIsSeededWithIt )
 {
     const auto                     value  = Authored( 0.1f, 0.85f, 0.15f, 1.0f );
-    const auto                     zeros  = std::vector<std::byte>( kFieldSize, std::byte{ 0 } );
     auto                           buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
     Graphic::UniformBufferProperty prop( buffer );
-
-    prop.WriteField( prop.GetField( "Tint" ), value.data(), value.size() );
-    prop.UpdateFields();
-
-    // Slot 0 records alone for a while — long enough to drain its own dirty window.
-    EngineContext::GetInstance().SetActiveRendererSlot( 0 );
-    for ( uint32_t i = 0; i < kFramesInFlight * 2; ++i )
+    Graphic::ViewResources         main( "viewport" );
     {
-        if ( prop.HasDirtyFields() )
-            prop.UpdateFields();
-        Engine::FrameManager::GetInstance().NextFrame();
+        const Graphic::ActiveViewScope scope( main );
+        RunRoute( prop, Route::ApplyOnceThenFlush, kFramesInFlight * kSlots * 2, value );
     }
+    ASSERT_FALSE( prop.HasDirtyFields() ) << "the dirty window must be over for this to test the seed";
 
+    Graphic::ViewResources         preview( "preview" );
+    const Graphic::ActiveViewScope scope( preview );
     for ( uint32_t f = 0; f < kFramesInFlight; ++f )
     {
-        EXPECT_EQ( buffer->Copy( f, 0 ), value ) << "slot 0 lost frame copy " << f;
-        EXPECT_EQ( buffer->Copy( f, 1 ), zeros )
-             << "slot 0's write reached slot 1's copy " << f
-             << " — the slot dimension is not separating "
-                "the two views, which is the defect Docs/RENDERER_FRAME_STATE.md exists for";
-    }
-
-    // Now a second view opens and records. It has served none of its own copies yet.
-    EngineContext::GetInstance().SetActiveRendererSlot( 1 );
-    for ( uint32_t i = 0; i < kFramesInFlight * 2; ++i )
-    {
-        if ( prop.HasDirtyFields() )
-            prop.UpdateFields();
+        ASSERT_TRUE( buffer->EnsureMapped().IsSuccess() );
+        EXPECT_EQ( *buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() ), value )
+             << "a new view's copy started without the material's parameters (frame " << f << ")";
         Engine::FrameManager::GetInstance().NextFrame();
-    }
-
-    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
-    {
-        EXPECT_EQ( buffer->Copy( f, 0 ), value ) << "slot 0 lost frame copy " << f;
-        EXPECT_EQ( buffer->Copy( f, 1 ), value ) << "slot 1 never received frame copy " << f;
     }
 }
 
-// The layout relation the instrument above depends on, asserted rather than trusted: distinct pairs
-// never collide, and every index is inside the allocation.
+// Regression A, half one: a CLEAN property still reaches the backend, which is the only place that can
+// tell a set pointing at a dropped copy. Red when UniformBufferProperty::Apply gates on IsDirty().
+TEST_F( MaterialParamUpload, ACleanPropertyStillAsksTheBackend )
+{
+    auto                           buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    Graphic::UniformBufferProperty prop( buffer );
+    RecordingBackend               backend;
+
+    prop.Apply( &backend );
+    EXPECT_EQ( backend.UniformApplies, 1u ) << "a clean property never asked whether its copy changed";
+}
+
+// Regression A, half two: a preview closed and another opened (the slot's set was written for the closed
+// one's copy) must be rewritten although nothing is dirty. Red when NeedsWrite looks at dirtiness alone.
+TEST_F( MaterialParamUpload, ASetWrittenForAClosedViewsCopyIsRewrittenForTheNextView )
+{
+    auto                 buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+    DescriptorCopyRecord set; // one [frame][slot] set, reused by both previews
+    constexpr uint32_t   kBinding = 1;
+
+    uint64_t closedCopy = 0;
+    {
+        Graphic::ViewResources         first( "preview A" );
+        const Graphic::ActiveViewScope scope( first );
+        closedCopy = buffer->BindActiveCopy();
+        ASSERT_TRUE( set.NeedsWrite( kBinding, closedCopy, /*propertyDirty=*/false ) );
+        set.NoteWritten( kBinding, closedCopy );
+        EXPECT_FALSE( set.NeedsWrite( kBinding, closedCopy, false ) ) << "an up-to-date set was rewritten";
+    } // preview A closes: its copy is dropped (deferred-deleted in production)
+
+    Graphic::ViewResources         second( "preview B" );
+    const Graphic::ActiveViewScope scope( second );
+    const uint64_t                 liveCopy = buffer->BindActiveCopy();
+    EXPECT_NE( liveCopy, closedCopy ) << "copy ids were reused — the ABA a VkBuffer handle would have";
+    EXPECT_TRUE( set.NeedsWrite( kBinding, liveCopy, false ) )
+         << "the set still points at the closed preview's freed copy and would not be rewritten";
+}
+
+TEST_F( MaterialParamUpload, DestroyingTheBufferTakesItsCopiesBackFromEveryView )
+{
+    Graphic::ViewResources a( "viewport" );
+    Graphic::ViewResources b( "preview" );
+    {
+        auto buffer = std::make_shared<RecordingUniformBuffer>( MakeModel() );
+        for ( Graphic::ViewResources* view : { &a, &b } )
+        {
+            const Graphic::ActiveViewScope scope( *view );
+            ASSERT_TRUE( buffer->EnsureMapped().IsSuccess() );
+        }
+        ASSERT_EQ( a.CopyCount() + b.CopyCount(), 2u );
+    }
+    EXPECT_EQ( a.CopyCount(), 0u );
+    EXPECT_EQ( b.CopyCount(), 0u );
+}
+
+// The storage-buffer layout (still per renderer slot until RT2d), asserted rather than trusted.
 TEST( BufferCopyLayout, DistinctPairsNeverShareACopy )
 {
     std::set<uint32_t> seen;
@@ -292,8 +378,6 @@ TEST( BufferCopyLayout, DistinctPairsNeverShareACopy )
     EXPECT_EQ( seen.size(), BufferCopyCount( kFramesInFlight, kSlots ) );
 }
 
-// Out-of-range slots fold onto 0 — the same fallback SceneRenderer takes when it runs out of leases.
-// In range this must be the identity, or a stray slot would quietly share another view's copy.
 TEST( BufferCopyLayout, OutOfRangeSlotFoldsOntoZeroAndInRangeDoesNot )
 {
     EXPECT_EQ( BufferCopyIndex( 2, kSlots, kSlots ), BufferCopyIndex( 2, 0, kSlots ) );

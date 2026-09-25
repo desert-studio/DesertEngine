@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/ShaderResources/ViewCopiedBlock.hpp>
+
 #include <Engine/Graphic/Materials/MaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -98,6 +100,14 @@ namespace Desert::Graphic::API::Vulkan
             std::unordered_map<uint32_t, uint64_t> Handles; // binding -> VkBuffer / VkImageView bits
         };
         std::vector<std::vector<FrameWriteRecord>> m_FrameWrites;
+
+        // [frame][slot]: which uniform-buffer COPY each binding of the set was last written with. A clean
+        // property is not enough to skip the write any more: the view's copy may have been dropped and
+        // re-made (a closed preview's slot reused), and the set would still point at the freed buffer.
+        std::vector<std::vector<ShaderResources::DescriptorCopyRecord>> m_BoundCopies;
+
+        // Bindings whose "no copy to bind" refusal was already logged (once per material lifetime).
+        std::unordered_set<uint32_t> m_BindRefusalReported;
 
         // Bindings whose swallowed rebind was already reported, so a per-draw defect logs once per
         // material lifetime instead of once per draw per frame.
