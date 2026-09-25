@@ -15,11 +15,13 @@
 // the includes below, which is why they are here and not in the callers.
 
 #include "Engine/Geometry/EditMesh.hpp"
+#include "Engine/Geometry/EditMeshAsset.hpp"
 #include "Engine/Geometry/EditMeshConversion.hpp"
 #include "Engine/Geometry/EditMeshModelOperations.hpp"
 #include "Engine/Geometry/EditMeshNormals.hpp"
 #include "Engine/Geometry/EditMeshOperations.hpp"
 #include "Engine/Geometry/EditMeshSelection.hpp"
+#include "Engine/Geometry/EditMeshSerialization.hpp"
 #include "Engine/Geometry/EditMeshTopologyOperations.hpp"
 #include "Engine/Geometry/EditMeshXformOperations.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
@@ -71,4 +73,20 @@ namespace Desert::Geometry::Bridge
     // bake); the function itself by P8b.
     [[nodiscard]] Common::BoolResultStr SetEditableMeshFromEditMesh( ECS::StaticMeshComponent& component,
                                                                      EditMesh                  mesh );
+
+    // The mesh deriver's two crossings (AF4c): a MeshSourceAsset keeps its source in the saved form, and the
+    // deriver builds on the EditMesh (tangents, the import transform) before writing the render buffers. Inline
+    // so the deriver's suite, which compiles the geometry it runs and not the ECS behind the rest of this
+    // bridge, links without it. Refused with FromSerialized's / ToMeshAssetData's reason. removed by the card
+    // that moves MeshDeriver onto the ported core; the functions themselves by P8b.
+    [[nodiscard]] inline Common::ResultStr<EditMesh> EditMeshFromSavedForm( const EditMeshSer& saved )
+    {
+        return FromSerialized( saved );
+    }
+
+    [[nodiscard]] inline Common::ResultStr<Assets::Serialization::MeshAssetData>
+    MeshAssetDataFromEditMesh( const EditMesh& mesh, std::span<const Common::Content::AssetGuid> slotMaterials )
+    {
+        return ToMeshAssetData( mesh, slotMaterials );
+    }
 } // namespace Desert::Geometry::Bridge

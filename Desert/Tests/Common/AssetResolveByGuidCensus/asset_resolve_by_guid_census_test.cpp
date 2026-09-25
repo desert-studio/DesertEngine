@@ -31,6 +31,7 @@
 // AssetManager, which a Common-only suite cannot link.
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
@@ -91,10 +92,6 @@ namespace
          PathOnlyRow{
               ContentKind::Retarget,
               "header states a GUID but StoredFormFor(RetargetAsset) writes AssetsRelative path only (AF10f)" },
-         PathOnlyRow{ ContentKind::StringTable,
-                      "header states a GUID but text keys name the table by path, no GUID beside it (AF10f)" },
-         PathOnlyRow{ ContentKind::Scene,
-                      "header states a GUID but scenes are opened and listed by path (AF10f)" },
          PathOnlyRow{ ContentKind::Prefab,
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
          PathOnlyRow{ ContentKind::WorldCell,
@@ -103,6 +100,11 @@ namespace
               ContentKind::WorldIndex,
               "envelope states a GUID but a world is found by its directory beside the scene (AF10f, with WP)" },
     };
+
+    // THE KINDS A REDIRECTOR CARRIES (AF10b): their referrers still write the path alone, but the file a move
+    // leaves at the old path (Common/Content/AssetRedirector.hpp) names the moved asset's GUID, so the
+    // pre-move reference reaches it. Proven by the census with a redirector at the old path instead of a decoy.
+    constexpr std::array kRedirected = { ContentKind::StringTable, ContentKind::Scene };
 
     // The kinds whose referrers write a GUID beside the path, each with the reader that honours it:
     // mesh/material slots of mesh components and the texture slot (ResolveGuidRef, ComponentRegistry.cpp
@@ -221,6 +223,8 @@ namespace
         const AssetGuid guid{ 0xAF10A000ull + static_cast<uint64_t>( kind ), 0x5EEDull };
         switch ( kind )
         {
+            case ContentKind::Redirector:
+                return {};
             case ContentKind::StaticMesh:
                 return SyntheticMesh( false, guid );
             case ContentKind::SkinnedMesh:
@@ -298,7 +302,7 @@ namespace
     };
 
     // Moves one asset of `kind` inside a fresh project and resolves the reference a referrer wrote before.
-    Outcome MoveAndResolve( ContentKind kind, const fs::path& project )
+    Outcome MoveAndResolve( ContentKind kind, const fs::path& project, bool leaveRedirector )
     {
         Outcome                 outcome;
         const std::vector<char> bytes  = FixtureBytes( kind );
@@ -323,13 +327,27 @@ namespace
 
         fs::create_directories( after.parent_path() );
         fs::rename( before, after );
-        const std::vector<char> decoy = WithOtherGuid( bytes, original.GetValue().Guid );
-        if ( decoy.empty() )
+        if ( leaveRedirector )
         {
-            outcome.Error = "could not build a decoy with another GUID";
-            return outcome;
+            const Common::Content::AssetRedirector redirector{ AssetGuid::Generate(),
+                                                               stated.value_or( AssetGuid{} ),
+                                                               Common::AssetHandle::StableKeyForPath( before ) };
+            if ( auto written = Common::Content::WriteRedirectorFile( before, redirector ); !written )
+            {
+                outcome.Error = std::string( written.GetError() );
+                return outcome;
+            }
         }
-        WriteBytes( before, decoy );
+        else
+        {
+            const std::vector<char> decoy = WithOtherGuid( bytes, original.GetValue().Guid );
+            if ( decoy.empty() )
+            {
+                outcome.Error = "could not build a decoy with another GUID";
+                return outcome;
+            }
+            WriteBytes( before, decoy );
+        }
 
         Common::Utils::AssetRegistry registry;
         for ( const fs::path& file : { after, before } )
@@ -368,8 +386,11 @@ TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
     {
         const auto        kind = static_cast<ContentKind>( i );
         const std::string name( Common::Content::KindSpec( kind ).Name );
-        const Outcome     result = MoveAndResolve( kind, fs::canonical( project ) );
-        const auto        reason = PathOnlyReason( kind );
+        if ( Common::Content::KindSpec( kind ).StatedOnly() ) // a redirector is the mechanism, not a referent
+            continue;
+        const bool    redirected = Contains( kRedirected, kind );
+        const Outcome result     = MoveAndResolve( kind, fs::canonical( project ), redirected );
+        const auto    reason     = PathOnlyReason( kind );
         if ( !result.Error.empty() )
         {
             ADD_FAILURE() << name << ": fixture could not be moved and rescanned: " << result.Error;
@@ -381,7 +402,9 @@ TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
         else
             EXPECT_TRUE( result.ResolvedToMoved )
                  << name << ": after the move the pre-move reference resolved to " << result.Answer
-                 << " instead of the moved asset — it resolves by PATH. Fix it or add a named register row.";
+                 << " instead of the moved asset — it resolves by PATH"
+                 << ( redirected ? " even through the redirector left at the old path" : "" )
+                 << ". Fix it or add a named register row.";
     }
     fs::remove_all( project );
 }
