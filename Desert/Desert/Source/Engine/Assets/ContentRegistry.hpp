@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetMove.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
 
@@ -502,6 +503,77 @@ namespace Desert::Assets
                 return;
             state.Registry.SetBounds( key, bounds );
             state.Dirty = true;
+        }
+
+        // RENAME / MOVE OF ONE ASSET (AF10c), the editor's single route: the Common move (file renamed, a
+        // redirector written at the old path, the registry's rows swapped) under this registry's lock, so a
+        // reader never sees the old row gone and the new one not yet there. The moved row's path handle is
+        // recorded in the path index, as `Publish` does for every row, so a handle minted from the new key
+        // names it at once. `redirectorSelf` is passed back by a redo so it writes the very same redirector.
+        inline Common::ResultStr<Common::Content::AssetMoveRecord>
+        MoveAsset( const std::filesystem::path& from, const std::filesystem::path& to,
+                   const std::optional<Common::Content::AssetGuid>& redirectorSelf = std::nullopt )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            auto moved = Common::Content::MoveAssetLeavingRedirector( state.Registry, from, to, redirectorSelf );
+            if ( !moved )
+                return moved;
+            if ( const Common::Utils::AssetRegistryEntry* row =
+                      state.Registry.FindByKey( Common::AssetHandle::StableKeyForPath( to ) ) )
+                static_cast<void>( Common::AssetPathIndex::Record( row->PathHandle(), row->Key ) );
+            state.Dirty = true;
+            return moved;
+        }
+
+        inline Common::BoolResultStr UndoMove( const Common::Content::AssetMoveRecord& record )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            auto undone = Common::Content::UndoAssetMove( state.Registry, record );
+            if ( undone )
+                state.Dirty = true;
+            return undone;
+        }
+
+        // True when `file` is content the registry has a row for - the files a rename must move through
+        // `MoveAsset`; anything else (a folder, a source image, a note) is a plain file operation.
+        inline bool HasRow( const std::filesystem::path& file )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            return state.Registry.FindByKey( Common::AssetHandle::StableKeyForPath( file ) ) != nullptr;
+        }
+
+        // The keys of every asset whose edges name `file`: what keeps loading through the redirector a move
+        // leaves, listed by the rename dialog before the user confirms. Empty for a file with no row.
+        inline std::vector<std::string> Referrers( const std::filesystem::path& file )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* row =
+                 state.Registry.FindByKey( Common::AssetHandle::StableKeyForPath( file ) );
+            return row != nullptr ? Common::Content::ReferrersOf( state.Registry, *row )
+                                  : std::vector<std::string>();
+        }
+
+        // THE FILE A PATH OPENS: the old path of a moved asset opens the file the registry resolves it to
+        // (through every redirector), so a scene or string table still named by its old path loads. A path
+        // the registry cannot resolve past itself is returned as given, and the loader's own redirector
+        // refusal then names the problem.
+        inline std::filesystem::path FileToOpen( const std::filesystem::path& file )
+        {
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByReference( 0, file.string() );
+            if ( row == nullptr || row->Key == Common::AssetHandle::StableKeyForPath( file ) )
+                return file;
+            return Common::AssetHandle::PathForStableKey( row->Key );
         }
 
         inline Common::BoolResultStr Save()

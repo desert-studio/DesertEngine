@@ -36,13 +36,14 @@ namespace Desert::Assets
 
     Common::BoolResultStr StringTableAsset::LoadFromFile()
     {
-        const std::string path = m_Metadata.Filepath.string();
+        // The old path of a moved table reads the table where it now lives, through the registry.
+        const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
+        const std::string           path = file.string();
 
         // Through the VFS first, so a packaged build reads its translations out of the `.dpak` exactly
         // like every other asset, then off the disk for a loose file the pak does not carry.
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
-                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
+        if ( const auto packed = Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file )
                                       : std::nullopt;
              packed.has_value() )
         {
@@ -50,7 +51,7 @@ namespace Desert::Assets
         }
         else
         {
-            if ( auto read = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath ); read )
+            if ( auto read = Common::Utils::FileSystem::ReadFileContent( file ); read )
             {
                 text = read.ExtractValue();
             }

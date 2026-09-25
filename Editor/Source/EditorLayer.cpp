@@ -3972,6 +3972,15 @@ namespace Desert::Editor
                                   } } );
         }
 
+        // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
+        // same dialog F2 opens.
+        commands.push_back( { "Assets", "Rename the selected asset", [this]
+                              {
+                                  if ( m_FileExplorerPanel == nullptr )
+                                      return Common::MakeError( "rename: the Assets window does not exist" );
+                                  return m_FileExplorerPanel->RenameSelected();
+                              } } );
+
         // THE SIX STAGES OF THE SKY, each as a command that opens the Clouds window ON that stage.
         //
         // Generated from the enum rather than typed, so a seventh stage is offered here the moment it
@@ -8004,8 +8013,13 @@ namespace Desert::Editor
         LOG_INFO( "[Scene] New empty scene" );
     }
 
-    void EditorLayer::LoadSceneInternal( const Common::Filepath& path )
+    void EditorLayer::LoadSceneInternal( const Common::Filepath& requested )
     {
+        // The old path of a moved scene opens the scene where it now lives (the registry follows the
+        // redirector the move left); only a redirector the registry cannot resolve reaches the refusal below.
+        const Common::Filepath path = Desert::Assets::ContentRegistry::FileToOpen( requested );
+        if ( path != requested )
+            LOG_INFO( "'{}' was moved; opening '{}'", requested.string(), path.string() );
         if ( !std::filesystem::exists( path ) )
         {
             LOG_ERROR( "Scene file does not exist: {0}", path.string() );

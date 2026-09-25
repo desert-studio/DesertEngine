@@ -14,6 +14,9 @@ project(test_name)
     
     includedirs {
         "%{wks.location}/Desert/Common/Source",
+        -- The editor's route (ContentRegistry::MoveAsset + AssetMoveCommand) is header-only over Common.
+        "%{wks.location}/Desert/Desert/Source",
+        "%{wks.location}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

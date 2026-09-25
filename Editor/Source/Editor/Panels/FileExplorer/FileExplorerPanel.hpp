@@ -206,6 +206,9 @@ namespace Desert::Editor
         {
             m_Refresh = true;
         }
+        // Opens the rename dialog on the selected asset (the palette's "Assets / Rename the selected
+        // asset"); refused, by name, when nothing is selected.
+        Common::BoolResultStr RenameSelected();
 
     private:
         // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than
@@ -288,6 +291,7 @@ namespace Desert::Editor
         bool                     m_ShowRenamePopup   = false;
         std::string              m_RenamePath;
         char                     m_RenameBuf[128]    = { 0 };
+        std::vector<std::string> m_RenameReferrers; // registry keys that keep loading through the redirector
         bool                     m_ShowDeleteConfirm = false;
         std::vector<std::string> m_PendingDeleteList; // paths queued for the delete-confirm modal
         std::vector<std::string> m_DeleteReferencers; // assets still pointing at the delete target(s)

@@ -9,6 +9,8 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
+#include <Editor/Core/Commands/AssetMoveCommand.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 
 #include <gtest/gtest.h>
 
@@ -211,6 +213,44 @@ TEST( AssetRenameMove, UndoRefusesARedirectorThatIsNoLongerTheOneTheMoveWrote )
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "no longer the redirector" ), std::string::npos ) << refused.GetError();
     EXPECT_TRUE( fs::exists( c.Renamed ) );
+}
+
+// The editor's route: the process registry moves under its lock, the undo stack takes the move back and
+// redoes it, and the old path opens the moved file.
+TEST( AssetRenameMove, TheEditorRouteMovesThroughTheRegistryAndTheUndoStack )
+{
+    namespace CR = Desert::Assets::ContentRegistry;
+    Corpus c;
+    CR::ResetForTest();
+    ASSERT_GT( CR::Detail::Publish( c.Registry ), 0u );
+    const std::string materialBytes = Bytes( c.Material );
+    Desert::Editor::CommandHistory::Get().Clear();
+
+    EXPECT_TRUE( CR::HasRow( c.Material ) );
+    EXPECT_EQ( CR::Referrers( c.Material ), std::vector<std::string>{ Key( c.User ) } );
+    const auto moved = Desert::Editor::MoveAssetWithUndo( c.Material, c.Renamed, "Rename" );
+    ASSERT_TRUE( moved ) << moved.GetError();
+    EXPECT_TRUE( CR::Dirty() );
+    EXPECT_EQ( CR::FileToOpen( c.Material ), c.Renamed );
+    EXPECT_EQ( CR::FileToOpen( c.User ), c.User );
+    EXPECT_EQ( CR::Referrers( c.Renamed ), std::vector<std::string>{ Key( c.User ) } );
+
+    ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Undo() );
+    EXPECT_EQ( Bytes( c.Material ), materialBytes );
+    EXPECT_FALSE( fs::exists( c.Renamed ) );
+    EXPECT_EQ( CR::Get().Serialize(), c.Registry.Serialize() );
+
+    ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Redo() );
+    EXPECT_EQ( Bytes( c.Renamed ), materialBytes );
+    EXPECT_TRUE( Common::Content::ReadRedirectorFile( c.Material ) );
+
+    // A refusal pushes nothing: the next undo is the move above, not a phantom entry.
+    const auto refused = Desert::Editor::MoveAssetWithUndo( c.Other, c.Renamed, "Rename" );
+    EXPECT_FALSE( refused );
+    ASSERT_TRUE( Desert::Editor::CommandHistory::Get().Undo() );
+    EXPECT_FALSE( fs::exists( c.Renamed ) );
+    Desert::Editor::CommandHistory::Get().Clear();
+    CR::ResetForTest();
 }
 
 int main( int argc, char** argv )
