@@ -10,6 +10,7 @@
 #include <Engine/Assets/MeshSourceAsset.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/PakFile.hpp>
 
 #include <algorithm>
 #include <array>
@@ -464,6 +465,12 @@ namespace Desert::Assets
                 b.Hi[axis] = std::max( b.Hi[axis], mesh.Positions[i + axis] );
             }
         return b;
+    }
+
+    uint64_t MeshSourceHash( const MeshSourceData& source )
+    {
+        const std::vector<std::byte> image = EncodeSource( source );
+        return Common::Utils::PakContentHash( image.data(), image.size() );
     }
 
     Common::ResultStr<std::vector<std::byte>> EncodeMeshSourceAsset( const MeshSourceAsset& asset )

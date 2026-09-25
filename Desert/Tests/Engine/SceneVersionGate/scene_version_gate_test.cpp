@@ -26,11 +26,15 @@
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
+#include <Common/Content/AssetRedirector.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <algorithm>
 #include <array>
 #include <fstream>
 #include <sstream>
@@ -295,6 +299,28 @@ TEST( SceneVersionGate, TextThatIsNotASceneFailsAsAReadAndStillNamesTheFile )
          << "a file that is not a scene is not fixed by migrating it, and saying so sends the reader to a "
             "tool that will also fail: "
          << loadable.GetError();
+}
+
+// The editor opens a scene BY FILE. After a move (AF10b) the old path holds a binary redirector; the gate says
+// so and names where the scene went (here by GUID: this suite has no registry), instead of "not JSON".
+TEST( SceneVersionGate, ARedirectorAtTheOldPathIsRefusedAsARedirectorNotAsBrokenText )
+{
+    const Common::Content::AssetGuid target{ 0xAF10B2ull, 7 };
+    const auto                       encoded = Common::Content::EncodeRedirector(
+         Common::Content::AssetRedirector{ { 0xAF10B2ull, 8 }, target, "Scene/Before.desce" } );
+    ASSERT_TRUE( static_cast<bool>( encoded ) ) << encoded.GetError();
+    std::string bytes( encoded.GetValue().size(), '\0' );
+    std::ranges::transform( encoded.GetValue(), bytes.begin(),
+                            []( std::byte b ) { return static_cast<char>( b ); } );
+
+    const auto loadable = ParseLoadableScene( "Before.desce", bytes );
+
+    ASSERT_FALSE( static_cast<bool>( loadable ) );
+    EXPECT_TRUE( Mentions( loadable.GetError(), "Before.desce" ) ) << loadable.GetError();
+    EXPECT_TRUE( Mentions( loadable.GetError(), "is a redirector" ) ) << loadable.GetError();
+    EXPECT_TRUE( Mentions( loadable.GetError(), Common::Content::AssetGuidToText( target ) ) )
+         << loadable.GetError();
+    EXPECT_FALSE( Mentions( loadable.GetError(), "not a readable scene file" ) ) << loadable.GetError();
 }
 
 // ---------------------------------------------------------------------------------------------------

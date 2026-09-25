@@ -1,5 +1,7 @@
 #include <Common/Content/ContentScan.hpp>
+
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -188,7 +190,7 @@ namespace Common::Content
 
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
-        ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, std::nullopt };
+        ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
         if ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh )
         {
             // The mesh's box, from its 64-byte header and not its body — the reason the box is in the header.
@@ -203,6 +205,16 @@ namespace Common::Content
             described.HeaderError = stated.GetError();
         else
             described.Header = stated.GetValue();
+        // A REDIRECTOR'S OLD KEY IS IN ITS META SECTION, which the header read does not reach. The file is a
+        // header and one small section, so reading it whole here costs what the header read did.
+        if ( described.Header && described.Header->Kind == ContentKind::Redirector )
+        {
+            auto redirector = ReadRedirectorFile( file );
+            if ( !redirector )
+                described.HeaderError = redirector.GetError();
+            else
+                described.RedirectedFrom = redirector.GetValue().OldKey;
+        }
         return described;
     }
 
@@ -216,6 +228,9 @@ namespace Common::Content
             {
                 const auto            kind = static_cast<ContentKind>( i );
                 const ContentKindSpec spec = KindSpec( kind );
+                // A redirector is found under the moved asset's kind and states its own in the header.
+                if ( spec.StatedOnly() )
+                    continue;
 
                 // Through `ListFilesRecursive` and not a bare iterator, because that primitive is the one
                 // that also sees what a mounted `.dpak` holds — a packaged game's content directories do
@@ -278,7 +293,19 @@ namespace Common::Content
             return MakeFormattedError<Utils::AssetRegistryEntry>( "{}: {}", key, file.HeaderError );
         if ( file.Header )
         {
-            if ( file.Header->Kind != file.Kind )
+            // A REDIRECTOR SITS WHERE THE MOVED ASSET SAT, under that asset's extension and root, so the walk
+            // finds it as the old kind and its header says otherwise; that disagreement is its whole shape.
+            // What it must agree with instead is the key it was written for: a redirector copied or moved
+            // elsewhere would answer for a path it was never left at.
+            if ( file.Header->Kind == ContentKind::Redirector )
+            {
+                entry.Kind = std::string( KindName( ContentKind::Redirector ) );
+                if ( file.RedirectedFrom != key )
+                    return MakeFormattedError<Utils::AssetRegistryEntry>(
+                         "{}: this redirector was written for '{}' and answers only there", key,
+                         file.RedirectedFrom );
+            }
+            else if ( file.Header->Kind != file.Kind )
                 return MakeFormattedError<Utils::AssetRegistryEntry>(
                      "{}: its header states kind '{}' and it sits where a '{}' belongs", key,
                      KindName( file.Header->Kind ), entry.Kind );

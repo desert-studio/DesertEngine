@@ -572,12 +572,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   RT2e +2 Shared +1 Unique: DescriptorPoolChain::m_Pools and VulkanViewSets::m_Pool (a view's
     //   descriptor pool, co-held by the chain and by every set allocated from it, so the sets' deferred free
     //   is queued before the pool's destruction), and ViewDescriptorSets::HandOver::m_Copy (the made sets,
-    //   held for the one call that moves them into a view): 452 / 354 / 144 / 42 = 992.
-    EXPECT_EQ( CountOf( Form::Raw ), 452 );
+    //   held for the one call that moves them into a view).
+    //   AV1b +1 Raw +1 Unique: TextureViewerDocument::m_Assets (row in the register) and its m_UIHelper,
+    //   the ImGui texture cache the document alone owns: 453 / 354 / 145 / 42 = 994.
+    EXPECT_EQ( CountOf( Form::Raw ), 453 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
-    EXPECT_EQ( CountOf( Form::Unique ), 144 );
+    EXPECT_EQ( CountOf( Form::Unique ), 145 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 992 )
+    EXPECT_EQ( (int)Members().size(), 994 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

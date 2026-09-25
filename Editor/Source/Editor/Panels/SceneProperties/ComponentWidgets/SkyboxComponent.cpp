@@ -1,4 +1,5 @@
 #include "SkyboxComponent.hpp"
+#include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -154,6 +155,7 @@ namespace Desert::Editor
                   }
 
                   ImGui::EndGroup();
+                  DrawAssetFieldOpen( static_cast<uint64_t>( skybox.SkyboxHandle ) );
 
                   // ── THE PARAMETERS ────────────────────────────────────────────────────────────────
                   //

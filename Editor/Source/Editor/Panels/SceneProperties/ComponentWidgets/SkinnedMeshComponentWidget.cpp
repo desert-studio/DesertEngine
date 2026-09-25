@@ -1,4 +1,5 @@
 #include "SkinnedMeshComponentWidget.hpp"
+#include <Editor/Widgets/AssetFieldOpen.hpp>
 
 #include <ImGui/imgui.h>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -172,6 +173,7 @@ namespace Desert::Editor
             ImGui::SameLine();
             if ( Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot ) )
                 ImGui::OpenPopup( "skinned_mesh_selector" );
+            DrawAssetFieldOpen( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.MeshHandle ) );
 
             if ( ImGui::BeginPopup( "skinned_mesh_selector" ) )
             {
