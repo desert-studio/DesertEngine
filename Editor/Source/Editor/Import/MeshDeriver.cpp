@@ -5,10 +5,7 @@
 #include "MeshDeriver.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
-#include <Engine/Geometry/EditMeshAsset.hpp>
-#include <Engine/Geometry/EditMeshNormals.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
-#include <Engine/Geometry/EditMeshXformOperations.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -90,7 +87,7 @@ namespace Desert::Editor
                  "'{}' is a skinned mesh; its render data is not derived yet (the skeleton's form is AF4f's)",
                  asset.Name );
 
-        auto lifted = Geometry::FromSerialized( asset.Source.Mesh );
+        auto lifted = Geometry::Bridge::EditMeshFromSavedForm( asset.Source.Mesh );
         if ( !lifted.IsSuccess() )
             return Common::MakeFormattedError<std::string>( "'{}': the source does not load: {}", asset.Name,
                                                             lifted.GetError() );
@@ -130,7 +127,7 @@ namespace Desert::Editor
             slotMaterials.push_back( asset.Source.MaterialSlots[static_cast<size_t>( id )].Material );
         }
 
-        auto data = Geometry::ToMeshAssetData( transformed.GetValue().Mesh, slotMaterials );
+        auto data = Geometry::Bridge::MeshAssetDataFromEditMesh( transformed.GetValue().Mesh, slotMaterials );
         if ( !data.IsSuccess() )
             return Common::MakeFormattedError<std::string>( "'{}': {}", asset.Name, data.GetError() );
         Ser::MeshAssetData out = data.ExtractValue();
