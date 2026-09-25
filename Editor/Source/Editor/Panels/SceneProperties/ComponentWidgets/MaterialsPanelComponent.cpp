@@ -444,7 +444,7 @@ namespace Desert::Editor
 
         auto*             shaderService = Runtime::ResourceRegistry::GetShaderService();
         const Assets::MaterialData* parentData    = parent != nullptr ? &parent->Data() : nullptr;
-        const std::string           shaderName    = parent != nullptr ? parent->GetShaderName() : asset.GetShaderName();
+        const std::string shaderName = parent != nullptr ? parent->GetShaderName() : asset.GetShaderName();
         auto shader = shaderService ? shaderService->GetByName( shaderName ) : nullptr;
         if ( !shader )
             return swatch;

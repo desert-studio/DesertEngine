@@ -513,7 +513,7 @@ namespace Desert::Editor
         const auto& data   = owner.Data();
 
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
-        auto  shader        = shaderService != nullptr ? shaderService->GetByName( owner.GetShaderName() ) : nullptr;
+        auto  shader = shaderService != nullptr ? shaderService->GetByName( owner.GetShaderName() ) : nullptr;
         if ( !shader )
             return {};
 
