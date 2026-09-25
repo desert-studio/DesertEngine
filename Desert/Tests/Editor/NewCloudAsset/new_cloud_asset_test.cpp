@@ -323,6 +323,42 @@ TEST( NewCloudAsset, ACreatedModellingVolumeReadsBackAsWhatWasWritten )
     EXPECT_EQ( read.GetValue().Voxels, written.Voxels );
 }
 
+TEST( NewCloudAsset, ARebakeOverAnExistingModellingVolumeKeepsItsGuidAndANewPathMintsItsOwn )
+{
+    // Same property as the noise volume's: a re-bake over the same file keeps the GUID every reference names,
+    // the same body saved elsewhere does NOT carry that GUID along, and a loaded asset adopts it.
+    const auto path  = Scratch() / "RebakedCloudBody.dcmv";
+    const auto other = Scratch() / "CopiedCloudBody.dcmv";
+    std::filesystem::remove( path );
+    std::filesystem::remove( other );
+
+    auto body = Editor::NewCloudAsset::DefaultModellingVolume( {} );
+    ASSERT_TRUE( body ) << body.GetError();
+
+    ASSERT_TRUE( Assets::CloudModellingVolumeAsset::Save( path, body.GetValue() ) );
+    const auto first = Assets::CloudModellingVolumeAsset::ReadCloudModellingVolumeGuid( path );
+    ASSERT_FALSE( first.IsNull() );
+
+    Assets::CloudModellingVolumeData rebaked = body.GetValue();
+    rebaked.Recipe.BlendRadiusKm *= 0.5f;
+    ASSERT_TRUE( Assets::CloudModellingVolumeAsset::Save( path, rebaked ) );
+    EXPECT_EQ( Assets::CloudModellingVolumeAsset::ReadCloudModellingVolumeGuid( path ), first );
+
+    const auto read = Assets::DecodeCloudModellingVolume( ReadBytes( path ) );
+    ASSERT_TRUE( read ) << read.GetError();
+    EXPECT_EQ( read.GetValue().Guid, first );
+
+    rebaked.Guid = first;
+    ASSERT_TRUE( Assets::CloudModellingVolumeAsset::Save( other, rebaked ) );
+    const auto copied = Assets::CloudModellingVolumeAsset::ReadCloudModellingVolumeGuid( other );
+    EXPECT_FALSE( copied.IsNull() );
+    EXPECT_NE( copied, first );
+
+    const Assets::CloudModellingVolumeAsset asset( Assets::AssetPriority::Low, path );
+    EXPECT_EQ( static_cast<uint64_t>( asset.GetMetadata().Handle ),
+               static_cast<uint64_t>( Common::Content::HandleForGuid( first ) ) );
+}
+
 // ---------------------------------------------------------------------------------------------------
 // AND A REFUSAL IS CARRIED, NOT SWALLOWED
 // ---------------------------------------------------------------------------------------------------

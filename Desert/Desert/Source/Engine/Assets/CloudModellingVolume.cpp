@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <span>
 #include <mutex>
 #include <tuple>
 
@@ -816,7 +817,7 @@ namespace Desert::Assets
         return Common::MakeSuccess( std::move( slice ) );
     }
 
-    std::vector<unsigned char> EncodeCloudModellingVolume( const CloudModellingVolumeData& data )
+    std::vector<unsigned char> EncodeCloudModellingPayload( const CloudModellingVolumeData& data )
     {
         std::vector<unsigned char> blobBytes;
         blobBytes.reserve( data.Recipe.Blobs.size() * kCloudModellingBlobBytes );
@@ -840,8 +841,6 @@ namespace Desert::Assets
         std::vector<unsigned char> out;
         out.reserve( kCloudModellingHeaderSize + blobBytes.size() + data.Voxels.size() );
 
-        out.insert( out.end(), kCloudModellingMagic, kCloudModellingMagic + sizeof( kCloudModellingMagic ) );
-        WriteU32( out, kCloudModellingContainerVersion );
         WriteU32( out, data.GeneratorVersion );
         WriteU32( out, kCloudModellingVolumeWidth );
         WriteU32( out, kCloudModellingVolumeHeight );
@@ -873,33 +872,107 @@ namespace Desert::Assets
         return out;
     }
 
+    Common::ResultStr<std::vector<unsigned char>>
+    EncodeCloudModellingVolume( const CloudModellingVolumeData& data )
+    {
+        namespace CC                             = Common::Content;
+        const std::vector<unsigned char> payload = EncodeCloudModellingPayload( data );
+
+        CC::AssetEnvelope envelope;
+        envelope.Asset.Kind       = CC::ContentKind::CloudModellingVolume;
+        envelope.Asset.Guid       = data.Guid.IsNull() ? CC::AssetGuid::Generate() : data.Guid;
+        envelope.Asset.Subsystems = { { kCloudModellingSubsystemTag, kCloudModellingContainerVersion } };
+        const auto* first         = reinterpret_cast<const std::byte*>( payload.data() );
+        envelope.Sections.push_back(
+             { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, { first, first + payload.size() } } );
+
+        auto file = CC::WriteAssetEnvelope( envelope );
+        if ( !file )
+            return Common::MakeFormattedError<std::vector<unsigned char>>( "cannot wrap modelling volume: {}",
+                                                                           file.GetError() );
+        const auto* begin = reinterpret_cast<const unsigned char*>( file.GetValue().data() );
+        return Common::MakeSuccess( std::vector<unsigned char>( begin, begin + file.GetValue().size() ) );
+    }
+
     Common::ResultStr<CloudModellingVolumeData>
-    DecodeCloudModellingVolume( const std::vector<unsigned char>& bytes )
+    DecodeCloudModellingVolume( const std::vector<unsigned char>& file )
+    {
+        namespace CC = Common::Content;
+
+        // A BARE CONTAINER IS REFUSED BY NAME, never read: it has no GUID, so reading it would hand the
+        // volume a path-derived handle nothing else agrees with. The migrator wraps it once, in the file.
+        if ( file.size() >= 8u &&
+             std::memcmp( file.data(), kCloudModellingMagic, sizeof( kCloudModellingMagic ) ) == 0 )
+            return Common::MakeFormattedError<CloudModellingVolumeData>(
+                 "a bare 'DCMV' container version {} (no asset envelope, no GUID); this build reads version {} "
+                 "inside the envelope - run Tools/SceneMigrator --write over the file",
+                 ReadU32( file.data() + 4 ), kCloudModellingContainerVersion );
+
+        const CC::SubsystemVersion kKnown[] = { { kCloudModellingSubsystemTag, kCloudModellingContainerVersion } };
+        auto                       envelope = CC::ReadAssetEnvelope(
+             std::span<const std::byte>( reinterpret_cast<const std::byte*>( file.data() ), file.size() ),
+             CC::AssetHeaderReadContext{ kKnown } );
+        if ( !envelope )
+            return Common::MakeFormattedError<CloudModellingVolumeData>(
+                 "not a cloud modelling volume envelope: {}", envelope.GetError() );
+        const CC::AssetEnvelope& e = envelope.GetValue();
+        if ( e.Asset.Kind != CC::ContentKind::CloudModellingVolume )
+            return Common::MakeFormattedError<CloudModellingVolumeData>(
+                 "the envelope's kind is {}, not CloudModellingVolume", CC::KindName( e.Asset.Kind ) );
+        if ( e.Asset.Subsystems.size() != 1u || e.Asset.Subsystems[0].Tag != kCloudModellingSubsystemTag )
+            return Common::MakeFormattedError<CloudModellingVolumeData>(
+                 "the envelope states {} subsystem versions; a modelling volume states exactly one, under 'DCMV'",
+                 e.Asset.Subsystems.size() );
+        const auto section = std::find_if( e.Sections.begin(), e.Sections.end(),
+                                           []( const auto& s ) { return s.Tag == CC::EnvelopeSection::Payload; } );
+        if ( section == e.Sections.end() )
+            return Common::MakeFormattedError<CloudModellingVolumeData>(
+                 "the envelope has no {} section",
+                 CC::FourCCToString( static_cast<uint32_t>( CC::EnvelopeSection::Payload ) ) );
+
+        const auto* bytes = reinterpret_cast<const unsigned char*>( section->Bytes.data() );
+        auto        decoded =
+             DecodeCloudModellingPayload( std::vector<unsigned char>( bytes, bytes + section->Bytes.size() ) );
+        if ( !decoded )
+            return decoded;
+        CloudModellingVolumeData data = decoded.ExtractValue();
+        data.Guid                     = e.Asset.Guid;
+        return Common::MakeSuccess( std::move( data ) );
+    }
+
+    Common::ResultStr<Common::Content::AssetGuid> ReadCloudModellingVolumeGuid( std::istream& in )
+    {
+        namespace CC                        = Common::Content;
+        const CC::SubsystemVersion kKnown[] = { { kCloudModellingSubsystemTag, kCloudModellingContainerVersion } };
+        const CC::AssetHeaderReadContext context{ kKnown };
+
+        auto header = CC::ReadEnvelopeHeader( in, context );
+        if ( !header )
+            return Common::MakeFormattedError<CC::AssetGuid>( "not a cloud modelling volume envelope: {}",
+                                                              header.GetError() );
+        if ( header.GetValue().Asset.Kind != CC::ContentKind::CloudModellingVolume )
+            return Common::MakeFormattedError<CC::AssetGuid>(
+                 "the envelope's kind is {}, not CloudModellingVolume",
+                 CC::KindName( header.GetValue().Asset.Kind ) );
+        return Common::MakeSuccess( header.GetValue().Asset.Guid );
+    }
+
+    Common::ResultStr<CloudModellingVolumeData>
+    DecodeCloudModellingPayload( const std::vector<unsigned char>& bytes )
     {
         if ( bytes.size() < kCloudModellingHeaderSize )
             return Common::MakeFormattedError<CloudModellingVolumeData>(
-                 "file is {} bytes, shorter than the {}-byte header", bytes.size(), kCloudModellingHeaderSize );
+                 "payload is {} bytes, shorter than the {}-byte header", bytes.size(), kCloudModellingHeaderSize );
 
         const unsigned char* at = bytes.data();
 
-        if ( std::memcmp( at, kCloudModellingMagic, sizeof( kCloudModellingMagic ) ) != 0 )
-            return Common::MakeFormattedError<CloudModellingVolumeData>(
-                 "not a cloud modelling volume: magic is '{:02X}{:02X}{:02X}{:02X}', expected 'DCMV'", at[0],
-                 at[1], at[2], at[3] );
-
-        const uint32_t containerVersion = ReadU32( at + 4 );
-        if ( containerVersion != kCloudModellingContainerVersion )
-            return Common::MakeFormattedError<CloudModellingVolumeData>(
-                 "container version {} is not the {} this build reads", containerVersion,
-                 kCloudModellingContainerVersion );
-
         CloudModellingVolumeData data;
-        data.GeneratorVersion = ReadU32( at + 8 );
+        data.GeneratorVersion = ReadU32( at + 0 );
 
-        const uint32_t width  = ReadU32( at + 12 );
-        const uint32_t height = ReadU32( at + 16 );
-        const uint32_t depth  = ReadU32( at + 20 );
-        const uint32_t format = ReadU32( at + 24 );
+        const uint32_t width  = ReadU32( at + 4 );
+        const uint32_t height = ReadU32( at + 8 );
+        const uint32_t depth  = ReadU32( at + 12 );
+        const uint32_t format = ReadU32( at + 16 );
 
         if ( width != kCloudModellingVolumeWidth || height != kCloudModellingVolumeHeight ||
              depth != kCloudModellingVolumeDepth )
@@ -916,7 +989,7 @@ namespace Desert::Assets
 
         for ( uint32_t channel = 0; channel < 4u; ++channel )
         {
-            const uint32_t stored = ReadU32( at + 28u + static_cast<size_t>( channel ) * 4u );
+            const uint32_t stored = ReadU32( at + 20u + static_cast<size_t>( channel ) * 4u );
             if ( stored != channel )
                 return Common::MakeFormattedError<CloudModellingVolumeData>(
                      "channel {} declares meaning {}, but this build reads volumes whose channels are "
@@ -924,15 +997,15 @@ namespace Desert::Assets
                      channel, stored );
         }
 
-        data.Recipe.SizeKm           = glm::vec3( ReadF32( at + 44 ), ReadF32( at + 48 ), ReadF32( at + 52 ) );
-        data.Recipe.BlendRadiusKm    = ReadF32( at + 56 );
-        data.Recipe.ProfileDepthKm   = ReadF32( at + 60 );
-        data.Recipe.EnvelopeMarginKm = ReadF32( at + 64 );
+        data.Recipe.SizeKm           = glm::vec3( ReadF32( at + 36 ), ReadF32( at + 40 ), ReadF32( at + 44 ) );
+        data.Recipe.BlendRadiusKm    = ReadF32( at + 48 );
+        data.Recipe.ProfileDepthKm   = ReadF32( at + 52 );
+        data.Recipe.EnvelopeMarginKm = ReadF32( at + 56 );
 
-        const uint32_t blobCount   = ReadU32( at + 68 );
-        const uint64_t voxelBytes  = ReadU64( at + 72 );
-        const uint32_t storedVoxel = ReadU32( at + 80 );
-        const uint32_t storedBlob  = ReadU32( at + 84 );
+        const uint32_t blobCount   = ReadU32( at + 60 );
+        const uint64_t voxelBytes  = ReadU64( at + 64 );
+        const uint32_t storedVoxel = ReadU32( at + 72 );
+        const uint32_t storedBlob  = ReadU32( at + 76 );
 
         if ( blobCount == 0u || blobCount > kMaxBlobs )
             return Common::MakeFormattedError<CloudModellingVolumeData>( "header declares {} lumps, outside 1..{}",
@@ -952,7 +1025,7 @@ namespace Desert::Assets
 
         if ( bytes.size() != expected )
             return Common::MakeFormattedError<CloudModellingVolumeData>(
-                 "file is {} bytes; a header, {} lumps and the payload are {}", bytes.size(), blobCount,
+                 "payload is {} bytes; a header, {} lumps and the voxels are {}", bytes.size(), blobCount,
                  expected );
 
         const unsigned char* blobAt = at + kCloudModellingHeaderSize;

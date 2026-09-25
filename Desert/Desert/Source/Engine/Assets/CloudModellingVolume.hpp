@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <istream>
 #include <vector>
 
 namespace Desert::Assets
@@ -266,7 +268,13 @@ namespace Desert::Assets
     ///     kCloudModellingDefaultVolumeName — is re-baked by this same change. `Tools/CloudVolumeBaker
     ///     --in old.dcmv --out new.dcmv` is what a re-bake is FOR, and it cannot help across this bump,
     ///     which is why the recipe also lives in code as CloudModellingDefaultRecipe().
-    inline constexpr uint32_t kCloudModellingContainerVersion = 2u;
+    /// 3 — the version-2 bytes after magic and version, inside the AF1 binary envelope (kind
+    ///     CloudModellingVolume, the volume's GUID, this version under kCloudModellingSubsystemTag). A bare
+    ///     container of any version is refused by name; Tools/SceneMigrator wraps it, once, in the file.
+    inline constexpr uint32_t kCloudModellingContainerVersion = 3u;
+
+    /// The tag the envelope header states kCloudModellingContainerVersion under.
+    inline constexpr uint32_t kCloudModellingSubsystemTag = Common::Content::FourCC( "DCMV" );
 
     /// The volume's shape, FIXED BY THE FORMAT. Mirrored by CLOUD_MODELLING_VOLUME_WIDTH and its two
     /// siblings in Editor/Resources/Shaders/Common/CloudAuthored.glslh, which needs them as compile-time
@@ -288,6 +296,11 @@ namespace Desert::Assets
     /// A decoded volume: the recipe that produced it, and the voxels themselves.
     struct CloudModellingVolumeData
     {
+        /// The volume's identity, the GUID its envelope header states (container 3). Null on a volume never
+        /// written; EncodeCloudModellingVolume mints one for it, so carrying it through an edit keeps the
+        /// handle.
+        Common::Content::AssetGuid Guid;
+
         CloudModellingVolumeRecipe Recipe;
         uint32_t                   GeneratorVersion = kCloudModellingGeneratorVersion;
 
@@ -509,35 +522,64 @@ namespace Desert::Assets
                                                                         CloudModellingAxis axis, uint32_t index );
 
     /**
-     * @brief Serialises a volume into the container.
+     * @brief Serialises a volume into its payload: the container fields after magic and version, the lumps,
+     *        then the voxels.
      *
      * Total: any @p data whose recipe Validate accepts encodes. The result is exactly
-     * `kCloudModellingHeaderSize + 32 * blobCount + kCloudModellingVoxelBytes` bytes.
+     * `kCloudModellingHeaderSize + kCloudModellingBlobBytes * blobCount + kCloudModellingVoxelBytes` bytes.
+     * The GUID is not in it - the envelope carries that.
      */
-    std::vector<unsigned char> EncodeCloudModellingVolume( const CloudModellingVolumeData& data );
+    std::vector<unsigned char> EncodeCloudModellingPayload( const CloudModellingVolumeData& data );
 
     /**
-     * @brief Parses a container back into a volume, or says why it could not.
+     * @brief Parses a payload back into a volume (GUID left null), or says why it could not.
      *
-     * REFUSES RATHER THAN GUESSES, and each refusal names the number that was wrong: a wrong magic, an
-     * unknown container version, extents that are not the format's, a truncated file, a payload whose
-     * checksum disagrees, a recipe Validate rejects. A silent fallback here would be a hero cloud rendered
-     * from whatever bytes happened to be in the file, which is the single hardest class of defect to trace
-     * back.
+     * REFUSES RATHER THAN GUESSES, and each refusal names the number that was wrong: extents that are not
+     * the format's, a truncated payload, a checksum that disagrees, a recipe Validate rejects. A silent
+     * fallback here would be a hero cloud rendered from whatever bytes happened to be in the file, which is
+     * the single hardest class of defect to trace back.
      */
     Common::ResultStr<CloudModellingVolumeData>
-    DecodeCloudModellingVolume( const std::vector<unsigned char>& bytes );
+    DecodeCloudModellingPayload( const std::vector<unsigned char>& payload );
 
-    /// Byte length of the container's FIXED header — the part before the blob array. Exposed because the
-    /// round-trip test asserts the total file size, and a header that grew without this constant moving
-    /// would pass a test that meant nothing.
-    inline constexpr size_t kCloudModellingHeaderSize = 88u;
+    /**
+     * @brief Serialises a volume into its AF1 binary envelope (kind CloudModellingVolume, the volume's GUID,
+     *        one PAYL section).
+     *
+     * The GUID travels in `data.Guid`; a null one is a volume never written before and gets a fresh GUID
+     * here.
+     */
+    Common::ResultStr<std::vector<unsigned char>>
+    EncodeCloudModellingVolume( const CloudModellingVolumeData& data );
+
+    /**
+     * @brief Reads a `.dcmv` file: the envelope, then its payload. The GUID comes back in `Guid`.
+     *
+     * A BARE 'DCMV' CONTAINER (versions 1 and 2) IS REFUSED BY NAME, never read: it has no GUID, so reading
+     * it would hand the volume a path-derived handle nothing else agrees with. The migrator wraps it.
+     */
+    Common::ResultStr<CloudModellingVolumeData>
+    DecodeCloudModellingVolume( const std::vector<unsigned char>& file );
+
+    /**
+     * @brief The GUID a `.dcmv` envelope header on @p in states, reading only the header.
+     *
+     * Refuses by name a stream that is not a modelling-volume envelope (a bare container, another kind,
+     * a truncated header). The asset adopts the GUID at creation; a re-bake over an existing file keeps it.
+     */
+    Common::ResultStr<Common::Content::AssetGuid> ReadCloudModellingVolumeGuid( std::istream& in );
+
+    /// Byte length of the payload's FIXED header (the version-2 container header less its magic and
+    /// version) — the part before the blob array. Exposed because the round-trip test asserts the payload
+    /// size, and a header that grew without this constant moving would pass a test that meant nothing.
+    inline constexpr size_t kCloudModellingHeaderSize = 80u;
 
     /// Bytes per blob in the file: twelve floats and one `uint32`, in the order the encoder writes them.
     inline constexpr size_t kCloudModellingBlobBytes = 52u;
 
-    /// The four bytes every container starts with. `DCMV` — Desert Cloud Modelling Volume, beside `DCNV`,
-    /// Desert Cloud Noise Volume.
+    /// The four bytes a BARE container (versions 1 and 2, before the envelope) started with, kept so the
+    /// decoder can refuse such a file by name and the migrator can recognise what it wraps.
+    /// `DCMV` — Desert Cloud Modelling Volume, beside `DCNV`, Desert Cloud Noise Volume.
     inline constexpr char kCloudModellingMagic[4] = { 'D', 'C', 'M', 'V' };
 
     /// The extension the Content Browser, the file dialog and the drag-and-drop payload all agree on.
