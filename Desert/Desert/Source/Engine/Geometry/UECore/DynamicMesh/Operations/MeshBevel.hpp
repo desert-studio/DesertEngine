@@ -1,14 +1,18 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/MeshBevel.h:26-378 and
-// Private/Operations/MeshBevel.cpp:47-131,576-668,669-2082,2084-3240,3740-3774,3814-3969 (setup, topology build,
-// unlink, displacement, meshing of the chamfer and of the multi-segment flat bevel, Apply, normals, material IDs),
-// adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a
-// named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED
-// with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
-// SplitBowties (B:415-574). The fields UE marks deprecated in 5.5 (GroupEdgeID, GroupIDs, CornerID,
-// IncomingBevelTopoEdges) are not ported, nor is the round profile (RoundWeight, MakeArcSplineCurve,
-// ApplyProfileShape_Round B:3241-3739) with the data only it reads (NormalsA/B, InteriorVertices,
-// InteriorBorderLoop): a multi-segment bevel here has UE's RoundWeight = 0 flat profile.
+// Private/Operations/MeshBevel.cpp:47-131,576-668,669-2082,2084-3740,3814-3969 (setup, topology build,
+// unlink, displacement, meshing of the chamfer and of the multi-segment bevel, the round profile, Apply, normals,
+// material IDs), adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel
+// are replaced by a named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not
+// beveled) is REFUSED with the vertex and the cause; bowtie vertices on the bevel graph are refused up front
+// instead of FixBowties' SplitBowties (B:415-574). The fields UE marks deprecated in 5.5 (GroupEdgeID, GroupIDs,
+// CornerID, IncomingBevelTopoEdges) are not ported. The round profile (RoundWeight, MakeArcSplineCurve,
+// ApplyProfileShape_Round B:3241-3739) is ported for loops, edges and 4-sided junction patches only: UE's
+// valence-3 PN-triangle patch and valence >= 5 MVC patch (and DeformNormals, which only they read) are not, so a
+// round profile with such a junction is refused before any edit. FInterpCurveVector becomes the two-point cubic
+// Hermite FArcSplineCurve evaluated in double (UE evaluates at a float parameter); a strip column takes its
+// NormalsA/B by its end vertices rather than by UE's column index, and a missing border curve is a refusal, not
+// UE's ensure.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
@@ -37,9 +41,17 @@ namespace Desert::Geometry
         /** Distance (cm) each beveled edge is inset into its two adjacent faces. */
         double InsetDistance = 5.0;
 
-        /** Number of subdivisions inserted in each bevel strip; 0 is the one-segment chamfer. The profile across
-         * the strip is flat (UE RoundWeight = 0), so every subdivision lies in the chamfer plane. */
+        /** Number of subdivisions inserted in each bevel strip; 0 is the one-segment chamfer. */
         int32 NumSubdivisions = 0;
+
+        /**
+         * "Roundness" of the bevel profile, ignored when NumSubdivisions = 0. 1 approximates a circular arc
+         * tangent to both faces, larger values pull towards a sharper crease, negative values give an inverted
+         * arc. DEFAULT 0 (UE's default is 1.0): the flat profile, every subdivision in the chamfer plane, so
+         * callers written before the round profile existed keep their output bit for bit. Non-zero with
+         * subdivisions refuses a junction of 3 or of 5+ bevelled edges (their patches are not ported).
+         */
+        double RoundWeight = 0.0;
 
         /** Options for MaterialID assignment on the new triangles generated for the bevel */
         enum class EMaterialIDMode
@@ -66,7 +78,8 @@ namespace Desert::Geometry
          * Bevel the initialized edges in place (UE Apply, B:576): unlink, displace, mesh, then the primary normals
          * normals, primary UVs (one ExpMap island per region, as UE: other UV layers stay unset) and material
          * IDs of NewTriangles. Returns false with FailureReason (the mesh is then partially edited) as soon as a
-         * phase refuses. NumSubdivisions > 0 meshes through CreateBevelMeshing_Multi (flat profile).
+         * phase refuses. NumSubdivisions > 0 meshes through CreateBevelMeshing_Multi, which then applies the
+         * round profile when RoundWeight != 0.
          */
         bool Apply( FDynamicMesh3& Mesh );
 
@@ -84,6 +97,9 @@ namespace Desert::Geometry
             TArray<int32>     NewGroupIDs;
             TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
             FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
+            // normals at NewPositions0 / NewPositions1 before the strips are added (the arc's tangent-plane
+            // boundary condition); only filled for a round profile
+            TArray<FVector3d> NormalsA, NormalsB;
         };
 
         struct FBevelEdge
@@ -103,6 +119,9 @@ namespace Desert::Geometry
             int32             NewGroupID = -1;
             TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
             FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
+            // normals at NewPositions0 / NewPositions1 before the strips are added (the arc's tangent-plane
+            // boundary condition); only filled for a round profile
+            TArray<FVector3d> NormalsA, NormalsB;
         };
 
         struct FOneRingWedge
@@ -123,6 +142,14 @@ namespace Desert::Geometry
             Unknown
         };
 
+        /** A vertex added inside a junction polygon, with its coordinates in the polygon's frame. */
+        struct FBevelVertex_InteriorVertex
+        {
+            int32 VertexID = -1;
+            // 4-sided patch: one (tx, ty, 0), the vertex's grid coordinates in the planar quad
+            TArray<FVector3d> BorderFrameWeight;
+        };
+
         struct FBevelVertex
         {
             int32            VertexID   = -1; // initial mesh vertex ID of the Bevel Vertex
@@ -136,6 +163,10 @@ namespace Desert::Geometry
             TArray<int32> NewTriangles;      // triangles of the polygon generated by this vertex (NumEdges > 2)
             FIndex2i      TerminatorInfo;    // TerminatorVertex: [EdgeID, FarVertexID] in the one-ring
             int32 ConnectedBevelVertex = -1; // another FBevelVertex index TerminatorInfo's edge directly reaches
+            // multi-segment 4-sided junction polygon: its added interior vertices, and its corners in the order
+            // c00, c10, c01, c11 (read by the round profile)
+            TArray<FBevelVertex_InteriorVertex> InteriorVertices;
+            TArray<int32>                       InteriorBorderLoop;
         };
 
     protected:
@@ -186,6 +217,23 @@ namespace Desert::Geometry
         void AppendTerminatorVertexTriangles_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         void AppendTerminatorVertexPairQuad_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex0,
                                                    FBevelVertex& Vertex1 );
+
+        /** UE's FInterpCurveVector with two CIM_CurveUser points at parameters 0 and 1: a cubic Hermite. */
+        struct FArcSplineCurve
+        {
+            FVector3d Pos0, Pos1;         // points at T = 0 and T = 1
+            FVector3d Tangent0, Tangent1; // their (arrive == leave) tangents
+            FVector3d Eval( double T ) const;
+        };
+        /** Hermite approximation of the arc from PosA to PosB tangent to the planes (PosA, NormalA) and (PosB,
+         *  NormalB); tangents scaled by |RoundWeight| * sqrt(2), and swapped for a negative RoundWeight. */
+        FArcSplineCurve MakeArcSplineCurve( const FVector3d& PosA, const FVector3d& NormalA, const FVector3d& PosB,
+                                            const FVector3d& NormalB ) const;
+        /** Deform the finished multi-segment topology into the round profile: each strip column onto its arc,
+         *  then each 4-sided junction patch by blending its four border arcs. */
+        void ApplyProfileShape_Round( FDynamicMesh3& Mesh );
+        /** A round profile with subdivisions refuses a junction of 3 or of 5+ bevelled edges before any edit. */
+        void RefuseUnportedRoundJunctions();
 
         /** Per-vertex normals within each new vertex polygon and each strip; no-op without attributes. */
         void ComputeNormals( FDynamicMesh3& Mesh );

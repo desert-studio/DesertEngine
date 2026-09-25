@@ -1214,3 +1214,247 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
         ExpectAllTrianglesOutward( mesh );
     }
 }
+
+namespace
+{
+    // UE's arc Hermite (tangents sqrt(2) x the right-angle square's sides) stays inside the true arc: radius r at
+    // the ends, r (sqrt(2)/2 + 1/4) = 0.957 r at the middle.
+    constexpr double kArcInnerRatio = 0.70710678118654752 + 0.25;
+    constexpr double kPi            = 3.14159265358979323846;
+
+    struct FRoundRun
+    {
+        FDynamicMesh3   Mesh;
+        FMeshBevelProbe Bevel;
+        bool            bApplied = false;
+    };
+
+    void RunRound( FRoundRun& run, const TArray<int32>& groupEdges, int subdivisions, double roundWeight )
+    {
+        const FGroupTopology topology( &run.Mesh, true );
+        run.Bevel.InsetDistance   = 5.0;
+        run.Bevel.NumSubdivisions = subdivisions;
+        run.Bevel.RoundWeight     = roundWeight;
+        ASSERT_TRUE( groupEdges.IsEmpty()
+                          ? run.Bevel.InitializeFromGroupTopology( run.Mesh, topology )
+                          : run.Bevel.InitializeFromGroupTopologyEdges( run.Mesh, topology, groupEdges ) )
+             << run.Bevel.FailureReason;
+        run.bApplied = run.Bevel.Apply( run.Mesh );
+    }
+
+    // Distance of p to the line through a along the unit direction dir.
+    double DistanceToLine( const FVector3d& p, const FVector3d& a, const FVector3d& dir )
+    {
+        const FVector3d ap = p - a;
+        return Distance( ap, ap.Dot( dir ) * dir );
+    }
+
+    void ExpectSameVertices( const FDynamicMesh3& a, const FDynamicMesh3& b )
+    {
+        ASSERT_EQ( a.MaxVertexID(), b.MaxVertexID() );
+        for ( const int v : a.VertexIndicesItr() )
+        {
+            ASSERT_TRUE( b.IsVertex( v ) );
+            const FVector3d pa = a.GetVertex( v ), pb = b.GetVertex( v );
+            EXPECT_EQ( pa.X, pb.X ) << "vertex " << v;
+            EXPECT_EQ( pa.Y, pb.Y ) << "vertex " << v;
+            EXPECT_EQ( pa.Z, pb.Z ) << "vertex " << v;
+        }
+    }
+} // namespace
+
+// One 90-degree cube edge, round: every strip column bends onto the arc of radius d tangent to both faces (centre
+// = A + B - the original edge point), within the Hermite's 4.3 % inward bound; the solid lies strictly between the
+// chamfer and the cube, and grows with the segment count.
+TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
+{
+    const FDynamicMesh3  base = TangentCube( 1 );
+    const FGroupTopology baseTopology( &base, true );
+    const TArray<int32>  groupEdges = { GroupEdgeBetween( baseTopology, 1, 3 ) };
+    const double         chamfer    = ChamferVolume( base, groupEdges );
+    double               previous   = chamfer;
+    for ( const int N : { 1, 2, 3, 5, 8 } )
+    {
+        SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+        FRoundRun run{ base };
+        RunRound( run, groupEdges, N, 1.0 );
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
+        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        const FMeshBevel::FBevelEdge& edge  = run.Bevel.Edges[0];
+        const FVector3d               e0    = edge.InitialPositions[0];
+        const FVector3d               dir   = Normalized( edge.InitialPositions.Last() - e0 );
+        const FQuadGridPatch&         patch = edge.StripQuadPatch;
+        ASSERT_EQ( patch.NumVertexRows(), N + 2 );
+        for ( int c = 0; c < patch.NumVertexCols(); ++c )
+        {
+            TArray<int32> column;
+            ASSERT_TRUE( patch.GetVertexColumn( c, column ) );
+            const FVector3d a      = run.Mesh.GetVertex( column[0] );
+            const FVector3d b      = run.Mesh.GetVertex( column.Last() );
+            const FVector3d p0     = e0 + ( a - e0 ).Dot( dir ) * dir;
+            const FVector3d centre = a + b - p0;
+            EXPECT_NEAR( Distance( a, centre ), 5.0, 1e-9 );
+            EXPECT_NEAR( Distance( b, centre ), 5.0, 1e-9 );
+            for ( int k = 1; k < column.Num() - 1; ++k )
+            {
+                const double r = Distance( run.Mesh.GetVertex( column[k] ), centre );
+                EXPECT_LE( r, 5.0 + 1e-9 ) << "column " << c << " row " << k;
+                EXPECT_GE( r, 5.0 * kArcInnerRatio - 1e-9 ) << "column " << c << " row " << k;
+            }
+        }
+        const double volume = SignedVolume( run.Mesh );
+        EXPECT_GT( volume, chamfer );
+        EXPECT_LT( volume, 1.0e6 );
+        EXPECT_GT( volume, previous );
+        previous = volume;
+        ExpectAllTrianglesOutward( run.Mesh );
+    }
+}
+
+// The top loop, round: closed and outward, strictly between the chamfer and the cube, growing with the segments.
+TEST( MeshBevel, RoundTopLoopLiesBetweenChamferAndCube )
+{
+    double previous = TopFaceChamferVolume( 5.0 );
+    for ( const int N : { 1, 2, 3, 5 } )
+    {
+        SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+        FRoundRun run{ TangentCube( 1 ) };
+        for ( const int t : run.Mesh.TriangleIndicesItr() )
+            run.Mesh.SetTriangleGroup( t, t / 2 == 4 ? 1 : 2 );
+        RunRound( run, {}, N, 1.0 );
+        ASSERT_EQ( run.Bevel.Loops.Num(), 1 );
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
+        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        const double volume = SignedVolume( run.Mesh );
+        EXPECT_GT( volume, previous );
+        EXPECT_LT( volume, 1.0e6 );
+        previous = volume;
+        ExpectAllTrianglesOutward( run.Mesh );
+    }
+}
+
+// A 4-edge junction on the top-front cube edge: the top and the +Y side each split at x = 0. Two strips are
+// quarter-cylinders around the same axis, two are flat; the 4-sided patch between them must stay on that cylinder.
+TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
+{
+    for ( const int N : { 1, 2, 3 } )
+    {
+        SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+        FRoundRun run{ TangentCube( 2 ) };
+        for ( const int t : run.Mesh.TriangleIndicesItr() )
+        {
+            const FVector3d c = run.Mesh.GetTriCentroid( t );
+            if ( c.Z > 49.0 )
+                run.Mesh.SetTriangleGroup( t, c.X > 0.0 ? 8 : 7 );
+            else if ( c.Y > 49.0 )
+                run.Mesh.SetTriangleGroup( t, c.X > 0.0 ? 10 : 9 );
+        }
+        const FGroupTopology topology( &run.Mesh, true );
+        const TArray<int32>  groupEdges = { GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 7, 9 ),
+                                            GroupEdgeBetween( topology, 8, 10 ),
+                                            GroupEdgeBetween( topology, 9, 10 ) };
+        const double         chamfer    = ChamferVolume( run.Mesh, groupEdges );
+        RunRound( run, groupEdges, N, 1.0 );
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
+        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        int patches = 0;
+        for ( const FMeshBevel::FBevelVertex& v : run.Bevel.Vertices )
+        {
+            if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex )
+                continue;
+            ++patches;
+            ASSERT_EQ( v.Wedges.Num(), 4 );
+            ASSERT_EQ( v.InteriorVertices.Num(), N * N );
+            for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : v.InteriorVertices )
+            {
+                const double r = DistanceToLine( run.Mesh.GetVertex( iv.VertexID ), FVector3d( 0, 45, 45 ),
+                                                 FVector3d( 1, 0, 0 ) );
+                EXPECT_LE( r, 5.0 + 1e-9 ) << "vertex " << iv.VertexID;
+                EXPECT_GE( r, 5.0 * kArcInnerRatio - 1e-9 ) << "vertex " << iv.VertexID;
+            }
+        }
+        EXPECT_EQ( patches, 1 );
+        const double volume = SignedVolume( run.Mesh );
+        EXPECT_GT( volume, chamfer );
+        EXPECT_LT( volume, 1.0e6 );
+        ExpectAllTrianglesOutward( run.Mesh );
+    }
+}
+
+// Valence 3 (a cube corner) and 5 (five sectors meeting on a flat face) have no ported round patch: refused by
+// name before the mesh is touched. The same inputs with RoundWeight 0 still bevel.
+TEST( MeshBevel, RoundRefusesValenceThreeAndFiveJunctionsByName )
+{
+    {
+        FRoundRun run{ TangentCube( 1 ) };
+        const int vertices = run.Mesh.VertexCount();
+        RunRound( run, {}, 2, 1.0 );
+        EXPECT_FALSE( run.bApplied );
+        EXPECT_NE( run.Bevel.FailureReason.find( "joins 3 bevelled edges" ), std::string::npos )
+             << run.Bevel.FailureReason;
+        EXPECT_NE( run.Bevel.FailureReason.find( "PN-triangle" ), std::string::npos ) << run.Bevel.FailureReason;
+        EXPECT_EQ( run.Mesh.VertexCount(), vertices );
+    }
+    FDynamicMesh3 fan = TangentCube( 2 );
+    for ( const int t : fan.TriangleIndicesItr() )
+    {
+        const FVector3d c = fan.GetTriCentroid( t );
+        if ( c.Z > 49.0 )
+        {
+            const double angle = std::atan2( c.Y, c.X ) + kPi;
+            fan.SetTriangleGroup( t, 7 + std::min( 4, static_cast<int>( angle / ( 2.0 * kPi / 5.0 ) ) ) );
+        }
+    }
+    const FGroupTopology topology( &fan, true );
+    TArray<int32>        groupEdges;
+    for ( int s = 0; s < 5; ++s )
+        groupEdges.Add( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
+    FRoundRun run{ fan };
+    RunRound( run, groupEdges, 2, 1.0 );
+    bool bHasFive = false;
+    for ( const FMeshBevel::FBevelVertex& v : run.Bevel.Vertices )
+        bHasFive =
+             bHasFive || ( v.VertexType == FMeshBevel::EBevelVertexType::JunctionVertex && v.Wedges.Num() == 5 );
+    ASSERT_TRUE( bHasFive );
+    EXPECT_FALSE( run.bApplied );
+    EXPECT_NE( run.Bevel.FailureReason.find( "joins 5 bevelled edges" ), std::string::npos )
+         << run.Bevel.FailureReason;
+    FRoundRun flat{ fan };
+    RunRound( flat, groupEdges, 2, 0.0 );
+    EXPECT_TRUE( flat.bApplied ) << flat.Bevel.FailureReason;
+}
+
+// RoundWeight 0 (the default) is the flat profile bit for bit: an explicit 0 and a value under the tolerance give
+// the default's vertices exactly, and with no subdivisions RoundWeight is ignored.
+TEST( MeshBevel, RoundWeightZeroIsTheFlatProfileBitExact )
+{
+    for ( const int N : { 0, 2, 3 } )
+    {
+        SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+        FRoundRun reference{ TangentCube( 2 ) };
+        {
+            const FGroupTopology topology( &reference.Mesh, true );
+            reference.Bevel.InsetDistance   = 5.0;
+            reference.Bevel.NumSubdivisions = N;
+            ASSERT_TRUE( reference.Bevel.InitializeFromGroupTopology( reference.Mesh, topology ) );
+            ASSERT_TRUE( reference.Bevel.Apply( reference.Mesh ) ) << reference.Bevel.FailureReason;
+        }
+        for ( const double w : { 0.0, 1e-9 } )
+        {
+            FRoundRun run{ TangentCube( 2 ) };
+            RunRound( run, {}, N, w );
+            ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+            ExpectSameVertices( reference.Mesh, run.Mesh );
+        }
+        if ( N == 0 )
+        {
+            FRoundRun run{ TangentCube( 2 ) };
+            RunRound( run, {}, 0, 1.0 );
+            ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+            ExpectSameVertices( reference.Mesh, run.Mesh );
+        }
+    }
+}

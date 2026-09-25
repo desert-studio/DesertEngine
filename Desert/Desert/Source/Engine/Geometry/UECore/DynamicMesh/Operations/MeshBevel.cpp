@@ -11,6 +11,7 @@
 #include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
+#include "Engine/Geometry/UECore/FrameTypes.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingUVUtil.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
@@ -1636,6 +1637,10 @@ namespace Desert::Geometry
             const FVector3d V10 = Mesh.GetVertex( At( NumEdgeVerts - 1, 0 ) );
             const FVector3d V01 = Mesh.GetVertex( At( 0, NumEdgeVerts - 1 ) );
             const FVector3d V11 = Mesh.GetVertex( At( NumEdgeVerts - 1, NumEdgeVerts - 1 ) );
+            // only the four corners go into InteriorBorderLoop; the round profile blends the curves between them
+            Vertex.InteriorBorderLoop =
+                 TArray<int32>( { At( 0, 0 ), At( NumEdgeVerts - 1, 0 ), At( 0, NumEdgeVerts - 1 ),
+                                  At( NumEdgeVerts - 1, NumEdgeVerts - 1 ) } );
             for ( int32 yi = 1; yi < NumEdgeVerts - 1; ++yi )
             {
                 const double    ty   = static_cast<double>( yi ) / static_cast<double>( NumEdgeVerts - 1 );
@@ -1645,6 +1650,10 @@ namespace Desert::Geometry
                 {
                     const double tx = static_cast<double>( xi ) / static_cast<double>( NumEdgeVerts - 1 );
                     At( xi, yi )    = Mesh.AppendVertex( Lerp( RowA, RowB, tx ) );
+                    FBevelVertex_InteriorVertex InteriorVertex;
+                    InteriorVertex.VertexID = At( xi, yi );
+                    InteriorVertex.BorderFrameWeight.Add( FVector3d( tx, ty, 0.0 ) );
+                    Vertex.InteriorVertices.Add( InteriorVertex );
                 }
             }
             for ( int32 y0 = 0; y0 < NumEdgeVerts - 1; ++y0 )
@@ -1850,6 +1859,28 @@ namespace Desert::Geometry
 
     void FMeshBevel::CreateBevelMeshing_Multi( FDynamicMesh3& Mesh )
     {
+        // The round profile's arcs are tangent to the faces on either side of the strip: take those normals now,
+        // while each unlinked side vertex still touches only its own faces.
+        const bool bRound = std::abs( RoundWeight ) > FMathf::ZeroTolerance;
+        if ( bRound )
+        {
+            auto FillNormals = [&Mesh]( const TArray<int32>& MeshVertices, const TArray<int32>& NewMeshVertices,
+                                        TArray<FVector3d>& NormalsA, TArray<FVector3d>& NormalsB )
+            {
+                NormalsA.SetNum( MeshVertices.Num() );
+                NormalsB.SetNum( MeshVertices.Num() );
+                for ( int32 k = 0; k < MeshVertices.Num(); ++k )
+                {
+                    NormalsA[k] = FMeshNormals::ComputeVertexNormal( Mesh, MeshVertices[k] );
+                    NormalsB[k] = FMeshNormals::ComputeVertexNormal( Mesh, NewMeshVertices[k] );
+                }
+            };
+            for ( FBevelEdge& Edge : Edges )
+                FillNormals( Edge.MeshVertices, Edge.NewMeshVertices, Edge.NormalsA, Edge.NormalsB );
+            for ( FBevelLoop& Loop : Loops )
+                FillNormals( Loop.MeshVertices, Loop.NewMeshVertices, Loop.NormalsA, Loop.NormalsB );
+        }
+
         // Strips first: the junction polygons take their sides from the strips' end columns.
         for ( FBevelEdge& Edge : Edges )
             AppendEdgeQuads_Multi( Mesh, Edge );
@@ -1884,11 +1915,250 @@ namespace Desert::Geometry
                 AppendTerminatorVertexTriangles_Multi( Mesh, Vertex );
             }
         }
+        // All topology is final; the round profile only moves vertices.
+        if ( bRound && FailureReason.empty() )
+            ApplyProfileShape_Round( Mesh );
+    }
+
+    FVector3d FMeshBevel::FArcSplineCurve::Eval( double T ) const
+    {
+        // FMath::CubicInterp, the CIM_CurveUser segment between parameters 0 and 1
+        const double T2 = T * T;
+        const double T3 = T2 * T;
+        return ( 2.0 * T3 - 3.0 * T2 + 1.0 ) * Pos0 + ( T3 - 2.0 * T2 + T ) * Tangent0 + ( T3 - T2 ) * Tangent1 +
+               ( -2.0 * T3 + 3.0 * T2 ) * Pos1;
+    }
+
+    FMeshBevel::FArcSplineCurve FMeshBevel::MakeArcSplineCurve( const FVector3d& PosA, const FVector3d& NormalA,
+                                                                const FVector3d& PosB,
+                                                                const FVector3d& NormalB ) const
+    {
+        // A and B with their surface normals: B projected onto A's tangent plane gives the direction of the
+        // tangent at A, and the other way round. For a planar right angle these tangents are the sides of the
+        // square spanned by the arc; a cubic Hermite with them is too flat, so they are scaled by sqrt(2) (UE's
+        // default; the arc midpoint then lies at 0.957 of the radius). A curve rather than an exact arc keeps
+        // non-planar inputs reasonable.
+        const FVector3d AB       = PosB - PosA;
+        const FVector3d TangentA = AB - AB.Dot( NormalA ) * NormalA;
+        const FVector3d BA       = PosA - PosB;
+        const FVector3d TangentB = BA - BA.Dot( NormalB ) * NormalB;
+
+        FArcSplineCurve Curve;
+        Curve.Pos0                = PosA;
+        Curve.Pos1                = PosB;
+        const double TangentScale = std::abs( RoundWeight ) * std::sqrt( 2.0 );
+        if ( RoundWeight >= 0 )
+        {
+            Curve.Tangent0 = TangentScale * TangentA;
+            Curve.Tangent1 = -TangentScale * TangentB;
+        }
+        else
+        {
+            Curve.Tangent0 = -TangentScale * TangentB;
+            Curve.Tangent1 = TangentScale * TangentA;
+        }
+        return Curve;
+    }
+
+    void FMeshBevel::RefuseUnportedRoundJunctions()
+    {
+        if ( NumSubdivisions <= 0 || std::abs( RoundWeight ) <= FMathf::ZeroTolerance )
+            return;
+        for ( const FBevelVertex& Vertex : Vertices )
+        {
+            const int32 NumWedges = Vertex.Wedges.Num();
+            if ( Vertex.VertexType != EBevelVertexType::JunctionVertex || NumWedges <= 2 || NumWedges == 4 )
+                continue;
+            Refuse( "junction vertex " + std::to_string( Vertex.VertexID ) + " joins " +
+                    std::to_string( NumWedges ) + " bevelled edges: the round profile (RoundWeight " +
+                    std::to_string( RoundWeight ) + ") is ported for 4-edge junctions only; " +
+                    ( NumWedges == 3 ? "valence 3 needs UE's PN-triangle patch"
+                                     : "valence 5 or more needs UE's mean-value-coordinate patch" ) );
+            return;
+        }
+    }
+
+    void FMeshBevel::ApplyProfileShape_Round( FDynamicMesh3& Mesh )
+    {
+        // Each strip column (a vertex pair split by the unlink, joined by the subdivided column) is bent onto the
+        // arc between its end vertices; the 4-sided junction patches then blend their four curved borders.
+        // A column's normals are taken by its end vertices: UE indexes them by column, which assumes the patch
+        // columns run in MeshVertices order (it detects only a reversed edge patch).
+        struct FColumnSide
+        {
+            int32 Index    = -1;
+            bool  bSwapped = false; // column starts on the NewMeshVertices side
+        };
+        auto ColumnSide = []( const TArray<int32>& MeshVertices, const TArray<int32>& NewMeshVertices, int32 A,
+                              int32 B ) -> FColumnSide
+        {
+            for ( int32 k = 0; k < MeshVertices.Num(); ++k )
+            {
+                if ( MeshVertices[k] == A && NewMeshVertices[k] == B )
+                    return { k, false };
+                if ( NewMeshVertices[k] == A && MeshVertices[k] == B )
+                    return { k, true };
+            }
+            return {};
+        };
+        auto ProjectToPlane = []( const FVector3d& V, const FVector3d& PlaneNormal )
+        { return Normalized( V - V.Dot( PlaneNormal ) * PlaneNormal ); };
+        auto BendColumn = [&Mesh]( const TArray<int32>& ColVerts, const FArcSplineCurve& Curve )
+        {
+            const int32 NV = ColVerts.Num();
+            for ( int32 k = 1; k < NV - 1; ++k )
+                Mesh.SetVertex( ColVerts[k],
+                                Curve.Eval( static_cast<double>( k ) / static_cast<double>( NV - 1 ) ) );
+        };
+
+        // Loops have no junctions: every column gets its own arc (the last column repeats the first).
+        for ( FBevelLoop& Loop : Loops )
+        {
+            const FQuadGridPatch& Patch = Loop.StripQuadPatch;
+            for ( int32 Col = 0; Col < Patch.NumVertexCols() - 1; ++Col )
+            {
+                TArray<int32> ColVerts;
+                Patch.GetVertexColumn( Col, ColVerts );
+                const int32       A    = ColVerts[0];
+                const int32       B    = ColVerts.Last();
+                const FColumnSide Side = ColumnSide( Loop.MeshVertices, Loop.NewMeshVertices, A, B );
+                if ( Side.Index < 0 )
+                {
+                    Refuse( "bevel loop: strip column " + std::to_string( Col ) + " from vertex " +
+                            std::to_string( A ) + " to " + std::to_string( B ) + " is no unlinked vertex pair" );
+                    return;
+                }
+                const FVector3d PosA = Mesh.GetVertex( A ), PosB = Mesh.GetVertex( B );
+                // the section plane through the original vertex and its two inset positions
+                const FVector3d InitialPosition = Loop.InitialPositions[Side.Index];
+                const FVector3d PlaneNormal     = Normalized(
+                     Normalized( PosA - InitialPosition ).Cross( Normalized( PosB - InitialPosition ) ) );
+                const FVector3d NormalA = ProjectToPlane(
+                     Side.bSwapped ? Loop.NormalsB[Side.Index] : Loop.NormalsA[Side.Index], PlaneNormal );
+                const FVector3d NormalB = ProjectToPlane(
+                     Side.bSwapped ? Loop.NormalsA[Side.Index] : Loop.NormalsB[Side.Index], PlaneNormal );
+                BendColumn( ColVerts, MakeArcSplineCurve( PosA, NormalA, PosB, NormalB ) );
+            }
+        }
+
+        // Edges likewise, keeping each column's curve by its end-vertex pair for the junction patches.
+        TMap<FIndex2i, FArcSplineCurve> BorderCurves;
+        for ( FBevelEdge& Edge : Edges )
+        {
+            const FQuadGridPatch& Patch  = Edge.StripQuadPatch;
+            const int32           NumVtx = Edge.MeshVertices.Num();
+            for ( int32 Col = 0; Col < Patch.NumVertexCols(); ++Col )
+            {
+                TArray<int32> ColVerts;
+                Patch.GetVertexColumn( Col, ColVerts );
+                const int32       A    = ColVerts[0];
+                const int32       B    = ColVerts.Last();
+                const FColumnSide Side = ColumnSide( Edge.MeshVertices, Edge.NewMeshVertices, A, B );
+                if ( Side.Index < 0 )
+                {
+                    Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": strip column " +
+                            std::to_string( Col ) + " from vertex " + std::to_string( A ) + " to " +
+                            std::to_string( B ) + " is no unlinked vertex pair" );
+                    return;
+                }
+                const FVector3d PosA = Mesh.GetVertex( A ), PosB = Mesh.GetVertex( B );
+                const FVector3d InitialPosition    = Edge.InitialPositions[Side.Index];
+                FVector3d       SectionPlaneNormal = Normalized(
+                     Normalized( PosA - InitialPosition ).Cross( Normalized( PosB - InitialPosition ) ) );
+                // At a junction of 3+ edges the corner was inset along every edge, so the original vertex and the
+                // two inset positions no longer span the section: it is the plane through A and B that contains
+                // the original edge direction.
+                const bool bIsEndpoint = Side.Index == 0 || Side.Index == NumVtx - 1;
+                if ( bIsEndpoint )
+                {
+                    const FBevelVertex& BevelVtx =
+                         Vertices[Side.Index == 0 ? Edge.BevelVertices.A : Edge.BevelVertices.B];
+                    if ( BevelVtx.VertexType == EBevelVertexType::JunctionVertex &&
+                         BevelVtx.IncomingBevelEdgeIndices.Num() > 2 )
+                    {
+                        FVector3d InitialEdgeDirection =
+                             Side.Index == 0 ? Edge.InitialPositions[1] - InitialPosition
+                                             : InitialPosition - Edge.InitialPositions[NumVtx - 2];
+                        if ( Normalize( InitialEdgeDirection ) > 0.0 )
+                        {
+                            FFrame3d TempFrame( PosA, Normalized( PosB - PosA ) );
+                            TempFrame.ConstrainedAlignAxis( 1, InitialEdgeDirection, TempFrame.Z() );
+                            SectionPlaneNormal = TempFrame.Y();
+                        }
+                    }
+                }
+                const FVector3d NormalA = ProjectToPlane(
+                     Side.bSwapped ? Edge.NormalsB[Side.Index] : Edge.NormalsA[Side.Index], SectionPlaneNormal );
+                const FVector3d NormalB = ProjectToPlane(
+                     Side.bSwapped ? Edge.NormalsA[Side.Index] : Edge.NormalsB[Side.Index], SectionPlaneNormal );
+                const FArcSplineCurve Curve = MakeArcSplineCurve( PosA, NormalA, PosB, NormalB );
+                BorderCurves.Add( FIndex2i( A, B ), Curve );
+                BendColumn( ColVerts, Curve );
+            }
+        }
+
+        // 4-sided junction patches (RefuseUnportedRoundJunctions admitted no other polygon): blend the two "X"
+        // border curves along the two "Y" ones.
+        //   c01  X2   c11      ty = 1
+        //    Y1 |  XInterp | Y2
+        //   c00  X1   c10      ty = 0;   tx = 0 at Y1, 1 at Y2
+        for ( const FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.InteriorVertices.IsEmpty() )
+                continue;
+            const std::string Where = "junction vertex " + std::to_string( Vertex.VertexID );
+            if ( Vertex.InteriorBorderLoop.Num() != 4 )
+            {
+                Refuse( Where + ": the round profile has no patch for its " +
+                        std::to_string( Vertex.InteriorBorderLoop.Num() ) + "-corner polygon" );
+                return;
+            }
+            const int32 c00 = Vertex.InteriorBorderLoop[0], c10 = Vertex.InteriorBorderLoop[1];
+            const int32 c01 = Vertex.InteriorBorderLoop[2], c11 = Vertex.InteriorBorderLoop[3];
+            // a border curve keyed (P, Q) or, reversed, (Q, P)
+            auto BorderCurve = [&BorderCurves]( int32 P, int32 Q, bool& bReversed ) -> const FArcSplineCurve*
+            {
+                bReversed                    = false;
+                const FArcSplineCurve* Found = BorderCurves.Find( FIndex2i( P, Q ) );
+                if ( Found == nullptr )
+                {
+                    Found     = BorderCurves.Find( FIndex2i( Q, P ) );
+                    bReversed = true;
+                }
+                return Found;
+            };
+            bool bReversedY1 = false, bReversedY2 = false, bReversedX1 = false, bReversedX2 = false;
+            const FArcSplineCurve* CurveY1 = BorderCurve( c00, c01, bReversedY1 );
+            const FArcSplineCurve* CurveY2 = BorderCurve( c10, c11, bReversedY2 );
+            const FArcSplineCurve* CurveX1 = BorderCurve( c00, c10, bReversedX1 );
+            const FArcSplineCurve* CurveX2 = BorderCurve( c01, c11, bReversedX2 );
+            if ( CurveY1 == nullptr || CurveY2 == nullptr || CurveX1 == nullptr || CurveX2 == nullptr )
+            {
+                Refuse( Where + ": a side of its 4-sided patch is no bevel strip end column" );
+                return;
+            }
+            // the X curves' end tangents, pointing out of the patch at tx = 0 and along +tx at tx = 1
+            const FVector3d Tangent00 = bReversedX1 ? CurveX1->Tangent1 : -CurveX1->Tangent0;
+            const FVector3d Tangent10 = bReversedX1 ? -CurveX1->Tangent0 : CurveX1->Tangent1;
+            const FVector3d Tangent01 = bReversedX2 ? CurveX2->Tangent1 : -CurveX2->Tangent0;
+            const FVector3d Tangent11 = bReversedX2 ? -CurveX2->Tangent0 : CurveX2->Tangent1;
+            for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
+            {
+                const double    tx = InteriorVtx.BorderFrameWeight[0].X, ty = InteriorVtx.BorderFrameWeight[0].Y;
+                FArcSplineCurve InterpolatedXCurve;
+                InterpolatedXCurve.Pos0     = CurveY1->Eval( bReversedY1 ? 1.0 - ty : ty );
+                InterpolatedXCurve.Pos1     = CurveY2->Eval( bReversedY2 ? 1.0 - ty : ty );
+                InterpolatedXCurve.Tangent0 = -Lerp( Tangent00, Tangent01, ty );
+                InterpolatedXCurve.Tangent1 = Lerp( Tangent10, Tangent11, ty );
+                Mesh.SetVertex( InteriorVtx.VertexID, InterpolatedXCurve.Eval( tx ) );
+            }
+        }
     }
 
     bool FMeshBevel::Apply( FDynamicMesh3& Mesh )
     {
         // UE's FixBowties is RefuseBowties at initialization; each phase below may Refuse.
+        RefuseUnportedRoundJunctions();
         if ( !FailureReason.empty() )
             return false;
         UnlinkEdges( Mesh );
