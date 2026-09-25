@@ -8,6 +8,7 @@
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -16,6 +17,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -163,6 +165,45 @@ TEST( AssetRedirector, AMovedSceneIsFoundThroughTheRedirectorAtItsOldPath )
     const auto* byGuidHint = registry.FindByGuidReference( AssetGuid{}, oldPath.string() );
     ASSERT_NE( byGuidHint, nullptr );
     EXPECT_EQ( byGuidHint->Key, Key( newPath ) );
+}
+
+// A loader that opens the OLD path by file (the editor's scene open, a string table's LoadFromFile) reads the
+// redirector's bytes; it must refuse them by name and point at the moved asset, never parse them as text.
+TEST( AssetRedirector, OpeningTheOldPathByFileIsRefusedByNameAndPointsAtTheMovedAsset )
+{
+    const Project  project( "AF10b_OpenByFile" );
+    const fs::path oldPath = project.Scene( "Before" );
+    const fs::path newPath = project.Scene( "After" );
+    WriteScene( newPath, Guid( 7 ) );
+    WriteRedirector( oldPath, Guid( 8 ), Guid( 7 ) );
+    Common::Utils::AssetRegistry registry;
+    Scan( registry, newPath );
+    Scan( registry, oldPath );
+
+    std::ifstream     in( oldPath, std::ios::binary );
+    const std::string bytes( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+
+    const auto keyOf = [&registry]( const AssetGuid& target ) -> std::string
+    {
+        const auto* row = registry.FindByHandle( Common::Content::HandleForGuid( target ) );
+        return row != nullptr ? row->Key : std::string();
+    };
+    const auto named = Common::Content::RefuseRedirectorBytes( oldPath.string(), bytes, keyOf );
+    ASSERT_FALSE( named );
+    EXPECT_NE( named.GetError().find( "is a redirector" ), std::string::npos ) << named.GetError();
+    EXPECT_NE( named.GetError().find( Key( newPath ) ), std::string::npos ) << named.GetError();
+
+    // Without a registry that knows the target, the GUID is the name.
+    const auto unresolved = Common::Content::RefuseRedirectorBytes( oldPath.string(), bytes );
+    ASSERT_FALSE( unresolved );
+    EXPECT_NE( unresolved.GetError().find( Common::Content::AssetGuidToText( Guid( 7 ) ) ), std::string::npos )
+         << unresolved.GetError();
+
+    // Text and other DAST files are the loader's own parser's business.
+    EXPECT_TRUE( Common::Content::RefuseRedirectorBytes( "t", "{ \"Header\": {} }", keyOf ) );
+    std::ifstream     scene( newPath, std::ios::binary );
+    const std::string sceneBytes( ( std::istreambuf_iterator<char>( scene ) ), std::istreambuf_iterator<char>() );
+    EXPECT_TRUE( Common::Content::RefuseRedirectorBytes( newPath.string(), sceneBytes, keyOf ) );
 }
 
 TEST( AssetRedirector, AChainResolvesACycleAndAMissingTargetAreRefusedByName )

@@ -266,6 +266,18 @@ namespace Desert::Assets
             return Detail::Get_().Registry;
         }
 
+        // The current key of the asset a redirector names, through any further redirectors; "" when the
+        // registry cannot say. The namer Common::Content::RefuseRedirectorBytes takes.
+        inline std::string KeyOfRedirectorTarget( const Common::Content::AssetGuid& target )
+        {
+            const Common::Utils::AssetRegistry& registry = Get();
+            const Common::Utils::AssetRegistryEntry* row = registry.FindByHandle( Common::Content::HandleForGuid( target ) );
+            if ( row == nullptr )
+                return {};
+            auto followed = registry.FollowRedirectors( *row );
+            return followed ? followed.GetValue()->Key : std::string();
+        }
+
         inline std::vector<std::filesystem::path> FilesOfKind( Common::Content::ContentKind kind )
         {
             Detail::State& state = Detail::Get_();

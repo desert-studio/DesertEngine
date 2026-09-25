@@ -1,6 +1,8 @@
 #include <Common/Content/AssetRedirector.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
+
 
 namespace Common::Content
 {
@@ -94,5 +96,26 @@ namespace Common::Content
         if ( !redirector )
             return MakeFormattedError<AssetRedirector>( "{} ('{}')", redirector.GetError(), file.string() );
         return redirector;
+    }
+
+    BoolResultStr RefuseRedirectorBytes( std::string_view source, std::string_view bytes,
+                                         const RedirectorTargetNamer& nameTarget )
+    {
+        // The magic's four characters lead the file in order (FourCC: first character, lowest byte).
+        if ( !bytes.starts_with( "DAST" ) )
+            return BOOLSUCCESS;
+        auto redirector = DecodeRedirector( std::as_bytes( std::span( bytes.data(), bytes.size() ) ) );
+        if ( !redirector )
+            return BOOLSUCCESS; // Another DAST file: not ours to judge here.
+
+        const AssetRedirector& found = redirector.GetValue();
+        const std::string      key   = nameTarget ? nameTarget( found.Target ) : std::string();
+        if ( !key.empty() )
+            return MakeFormattedError( "'{}' is a redirector left by a move (written for '{}'): the asset now "
+                                       "lives at '{}'; open it there",
+                                       source, found.OldKey, key );
+        return MakeFormattedError( "'{}' is a redirector left by a move (written for '{}') to asset {}, which "
+                                   "the asset registry does not resolve",
+                                   source, found.OldKey, AssetGuidToText( found.Target ) );
     }
 } // namespace Common::Content

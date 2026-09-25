@@ -1,5 +1,8 @@
 #include "StringTableAsset.hpp"
+#include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/CanonicalText.hpp>
+
+#include <Engine/Assets/ContentRegistry.hpp>
 
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
@@ -57,6 +60,12 @@ namespace Desert::Assets
         {
             m_Ready = false;
             return Common::MakeFormattedError<bool>( "String table '{}' is empty or could not be opened", path );
+        }
+
+        if ( auto moved = Common::Content::RefuseRedirectorBytes( path, text, ContentRegistry::KeyOfRedirectorTarget ); !moved )
+        {
+            m_Ready = false;
+            return Common::MakeFormattedError<bool>( "String table not loaded: {}", moved.GetError() );
         }
 
         auto parsed = Localization::ParseStringTable( text );

@@ -4,8 +4,10 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Common::Content
@@ -40,4 +42,15 @@ namespace Common::Content
 
     [[nodiscard]] ResultStr<AssetRedirector> DecodeRedirector( std::span<const std::byte> file );
     [[nodiscard]] ResultStr<AssetRedirector> ReadRedirectorFile( const std::filesystem::path& file );
+
+    // A LOADER THAT OPENS BY FILE, not through the registry (the editor opening a scene, a string table
+    // loaded from its path), finds a redirector's bytes where the moved asset's text used to be. Its text
+    // parser would refuse them as unreadable, which is true and useless; this refuses them by name and
+    // says where the asset went. Success for anything that is not a redirector: its own parser judges it.
+    // @p nameTarget returns the target's current key, or "" when it does not know the GUID; without one, or
+    // on "", the message names the GUID. A callback, not the registry, so a loader that links no registry
+    // (the scene version gate's suites) can still refuse by name.
+    using RedirectorTargetNamer = std::function<std::string( const AssetGuid& )>;
+    [[nodiscard]] BoolResultStr RefuseRedirectorBytes( std::string_view source, std::string_view bytes,
+                                                       const RedirectorTargetNamer& nameTarget = {} );
 } // namespace Common::Content
