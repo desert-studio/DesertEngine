@@ -573,12 +573,11 @@ namespace
              header ? Desert::Assets::StatedVersion( header.value().Header, Desert::Assets::kCloudTypeSchemaTag ) : 0;
         if ( stated == static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) )
             return Common::MakeSuccess( Result{} );
-        const auto tree   = rfl::json::read<rfl::Generic>( text );
-        auto       fields = tree ? tree.value().to_object() : rfl::Error( "not a JSON object" );
-        if ( stated != 4 || !fields )
+        const auto tree = rfl::json::read<rfl::Generic>( text );
+        if ( stated != 4 || !tree || !tree.value().to_object() )
             return Common::MakeError<Result>( "not a readable CLTY 4 cloud type (states CLTY " +
                                               std::to_string( stated ) + ")" );
-        rfl::Generic::Object doc = fields.value();
+        rfl::Generic::Object doc = tree.value().to_object().value();
 
         std::vector<std::string> dependencies;
         if ( const auto named = doc.get( "NoiseVolume" ); named )
