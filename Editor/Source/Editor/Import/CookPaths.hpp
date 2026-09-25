@@ -13,7 +13,9 @@
 // These are PURE (no directory creation) — callers create_directories before writing.
 namespace Desert::Editor::CookPaths
 {
-    // Source mesh -> Cooked/Meshes/<rel>.<ext> (ext = ".stmesh" / ".skmesh" / "_<anim>.anim" / ".skeleton").
+    // SKINNED OUTPUTS ONLY (AF4d): source -> Cooked/Meshes/<rel>.<ext> (ext = ".skmesh" / "_<anim>.anim" /
+    // ".skeleton"). A static mesh is never cooked here - its asset is MeshAsset( source ), below - and AF4f moves
+    // the skinned kinds beside their source the same way, retiring this root.
     // Meshes under Resources/Assets/Meshes keep their layout (relative to that dir). Mesh sources ANYWHERE ELSE
     // under content (e.g. a character pack in Resources/Assets/Collections/<pack>/) map relative to Assets/
     // (then Resources/) instead — otherwise the relative path escapes Cooked/Meshes with "../" and the cooked
@@ -27,7 +29,7 @@ namespace Desert::Editor::CookPaths
         return result;
     }
 
-    inline std::filesystem::path CookedMesh( const std::filesystem::path& source, const std::string& ext )
+    inline std::filesystem::path CookedSkinned( const std::filesystem::path& source, const std::string& ext )
     {
         namespace fs = std::filesystem;
         std::error_code ec;
@@ -70,7 +72,7 @@ namespace Desert::Editor::CookPaths
     // pack, in any other folder, merges with the first.
     //
     // Derived from the COOKED path rather than from the source path directly, so that "where is this
-    // asset in the project" is answered in exactly one place. CookedMesh's ladder already decides what a
+    // asset in the project" is answered in exactly one place. CookedSkinned's ladder already decides what a
     // source outside Resources/Assets/Meshes means; asking it again here would be a second answer to a
     // question that already has one, and two answers that must agree is the defect this file was created
     // to end.
@@ -79,7 +81,7 @@ namespace Desert::Editor::CookPaths
         namespace fs = std::filesystem;
         std::error_code ec;
 
-        fs::path rel = fs::relative( CookedMesh( source, "" ), Common::Constants::Path::MESH_PATH_COOKED, ec );
+        fs::path rel = fs::relative( CookedSkinned( source, "" ), Common::Constants::Path::MESH_PATH_COOKED, ec );
         rel.replace_extension();
         return rel;
     }
