@@ -276,9 +276,9 @@ namespace
 // +X (group 1) / +Y (group 3) edge runs along Z: its top end caps into +Z (5), its bottom end into -Z (6).
 TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 {
-    const FDynamicMesh3 mesh = TangentCube();
+    const FDynamicMesh3  mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
-    const int           edge = GroupEdgeBetween( topology, 1, 3 );
+    const int            edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
     FMeshBevelProbe bevel;
@@ -302,7 +302,7 @@ TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 
 TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 {
-    const FDynamicMesh3 mesh = TangentCube();
+    const FDynamicMesh3  mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
@@ -331,16 +331,16 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 
 TEST( MeshBevel, UnknownGroupEdgeIsRefusedByName )
 {
-    const FDynamicMesh3 mesh = TangentCube();
+    const FDynamicMesh3  mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
-    FMeshBevelProbe     bevel;
+    FMeshBevelProbe      bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 99 } ) );
     EXPECT_NE( bevel.FailureReason.find( "group edge 99" ), std::string::npos ) << bevel.FailureReason;
 }
 
 TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
 {
-    FDynamicMesh3  mesh = TangentCube();
+    FDynamicMesh3        mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
@@ -366,9 +366,9 @@ TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
 
 TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
 {
-    FDynamicMesh3  mesh = TangentCube();
+    FDynamicMesh3        mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
-    const int      edge = GroupEdgeBetween( topology, 1, 3 );
+    const int            edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
     FMeshBevelProbe bevel;
@@ -413,7 +413,7 @@ TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
 
 TEST( MeshBevel, DisplaceAllTwelveEdgesInsetsEveryCornerIntoItsFace )
 {
-    FDynamicMesh3  mesh = TangentCube();
+    FDynamicMesh3        mesh = TangentCube();
     const FGroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
@@ -479,9 +479,9 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
 
 TEST( MeshBevel, SubdividedCubeOneEdgeTerminatorsSlideOntoTheirOwnFace )
 {
-    FDynamicMesh3  mesh = TangentCube( 2 );
+    FDynamicMesh3        mesh = TangentCube( 2 );
     const FGroupTopology topology( &mesh, true );
-    const int      edge = GroupEdgeBetween( topology, 1, 3 );
+    const int            edge = GroupEdgeBetween( topology, 1, 3 );
     ASSERT_GE( edge, 0 );
 
     FMeshBevelProbe bevel;
@@ -700,9 +700,9 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
     for ( const int n : { 1, 2 } )
     {
         SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" );
-        FDynamicMesh3  mesh = TangentCube( n );
+        FDynamicMesh3        mesh = TangentCube( n );
         const FGroupTopology topology( &mesh, true );
-        const int      edge = GroupEdgeBetween( topology, 1, 3 );
+        const int            edge = GroupEdgeBetween( topology, 1, 3 );
         ASSERT_GE( edge, 0 );
         ExpectClosedSolid( mesh, 1.0e6 );
 
@@ -751,7 +751,7 @@ TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
     {
         SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" +
                       ( bInterleaved ? ", interleaved" : "" ) );
-        FDynamicMesh3  mesh = bInterleaved ? InterleavedTangentCube( n ) : TangentCube( n );
+        FDynamicMesh3        mesh = bInterleaved ? InterleavedTangentCube( n ) : TangentCube( n );
         const FGroupTopology topology( &mesh, true );
 
         FMeshBevelProbe bevel;
@@ -789,7 +789,7 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
         ASSERT_TRUE( mesh.HasAttributes() && mesh.Attributes()->HasMaterialID() );
         SetFaceMaterials( mesh );
         const FGroupTopology topology( &mesh, true );
-        FMeshBevelProbe bevel;
+        FMeshBevelProbe      bevel;
         bevel.MaterialIDMode        = mode;
         bevel.SetConstantMaterialID = 7;
         ASSERT_TRUE(
@@ -821,7 +821,7 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
     FDynamicMesh3 mesh = TangentCube();
     SetFaceMaterials( mesh );
     const FGroupTopology topology( &mesh, true );
-    FMeshBevelProbe bevel;
+    FMeshBevelProbe      bevel;
     bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
     ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
