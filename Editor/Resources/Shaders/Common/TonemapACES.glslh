@@ -1,0 +1,48 @@
+// #pragma once
+
+// THE ONE PLACE THE ACES FILM CURVE IS WRITTEN. SceneComposite grades every frame through it, and the
+// editor's HDR thumbnail (Editor/Widgets/HdrSphereThumbnail.cpp) includes this same text compiled as C++,
+// so the ball in the Content Browser is graded by the operator the viewport uses rather than by a
+// transcription that would read correct alone and drift silently.
+//
+// `float(...)` around the literals: as C++ they are DOUBLES, and glm has no vec3 (op) double overload.
+
+// ACES, as Unreal grades. This is the DEFAULT operator (decision D-10): the reference frame the
+// sky programme measures itself against was captured through UE's ACES-derived film curve, so
+// while the two sides used different operators every number in Docs/Clouds/CALIBRATION.md was
+// reporting the gap between two TONEMAPPERS rather than between two skies.
+//
+// WHICH FIT, AND WHY THIS ONE. Two approximations are in common use. Narkowicz's is a single
+// rational curve applied per channel in sRGB — one line, and visibly not the same operator: it
+// rolls each channel off independently, so a bright SATURATED colour shifts hue on its way to
+// white instead of desaturating toward it. Stephen Hill's fit (BakingLab/ACES.hlsl, MIT) keeps
+// the structure of the real thing: into AP1, the RRT+ODT shoulder there, back out. That matters
+// here specifically, because mean SATURATION is one of the five numbers this programme
+// calibrates with — an operator that gets saturation wrong corrupts the very measurement the
+// operator was changed to make honest. The price is two 3x3 products in one fullscreen pass,
+// which is nothing next to the cloud march it is grading.
+//
+// The constants are the published matrices TRANSPOSED: the HLSL original lists ROWS, GLSL's
+// mat3(...) fills COLUMNS. Copying them across verbatim gives a colour rotation that looks
+// plausible and is wrong, which is the kind of defect this programme has already paid for once.
+vec3 TonemapACES(vec3 color)
+{
+    const mat3 ACESInput = mat3(
+        0.59719, 0.07600, 0.02840,
+        0.35458, 0.90834, 0.13383,
+        0.04823, 0.01566, 0.83777);
+    const mat3 ACESOutput = mat3(
+         1.60475, -0.10208, -0.00327,
+        -0.53108,  1.10813, -0.07276,
+        -0.07367, -0.00605,  1.07602);
+
+    vec3 v = ACESInput * color;
+    vec3 a = v * (v + float(0.0245786)) - float(0.000090537);
+    // No epsilon and none needed: 0.983729x^2 + 0.432951x + 0.238081 has a negative
+    // discriminant, so it has no real root and cannot be zero for any v the matrix can produce
+    // (including the negatives a saturated colour picks up on the way into AP1).
+    vec3 b = v * (float(0.983729) * v + float(0.4329510)) + float(0.238081);
+    // The clamp is the ODT's range, not a safety net: AP1 holds colours sRGB cannot, and those
+    // come back out of the second matrix slightly outside [0,1].
+    return clamp(ACESOutput * (a / b), float(0.0), float(1.0));
+}

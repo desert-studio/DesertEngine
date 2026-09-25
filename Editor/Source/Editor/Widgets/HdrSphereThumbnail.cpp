@@ -18,40 +18,27 @@ namespace Desert::Editor::HdrSphereThumbnail
         // THE SHADER'S OWN TEXT, NOT A PARAPHRASE OF IT. `PanoramaSampleUV` is the one mapping the
         // PanoramaToCubemap and DiffuseIrradiance bakes read an equirectangular file with; compiling the
         // same file here means a change to the convention moves the ball and the skybox together, instead
-        // of leaving a C++ copy that reads correct alone. Included by a path relative to this file rather
-        // than through an include directory, because the Editor project does not put the shader tree on
-        // its include path and one producer is not a reason to make every Editor TU see it. The anonymous
-        // namespace and the glm spellings are the house arrangement for shader maths compiled as C++
+        // of leaving a C++ copy that reads correct alone. `TonemapACES` is likewise the viewport's own film
+        // curve (SceneComposite includes the same file), so the ball is graded as the frame is. Included by a path
+        // relative to this file rather than through an include directory, because the Editor project does not put
+        // the shader tree on its include path and one producer is not a reason to make every Editor TU see it. The
+        // anonymous namespace and the glm spellings are the house arrangement for shader maths compiled as C++
         // (Desert/Tests/Engine/SkyPanorama/SkyPanoramaReference.hpp).
         using vec2 = glm::vec2;
         using vec3 = glm::vec3;
+        using mat3 = glm::mat3;
         using glm::acos;
         using glm::atan;
         using glm::clamp;
         DESERT_GLSL_AS_CPP_BEGIN
 #include "../../../Resources/Shaders/Common/SkyPanorama.glslh"
+#include "../../../Resources/Shaders/Common/TonemapACES.glslh"
         DESERT_GLSL_AS_CPP_END
 
         glm::vec3 Texel( const EquirectMap& map, uint32_t x, uint32_t y )
         {
             const size_t at = ( static_cast<size_t>( y ) * map.Width + x ) * 3u;
             return { map.Rgb[at + 0], map.Rgb[at + 1], map.Rgb[at + 2] };
-        }
-
-        // Rendition of SceneComposite.shader's TonemapACES — Stephen Hill's fit, the renderer's DEFAULT
-        // operator (decision D-10). That shader keeps the function inline in a program rather than in a
-        // shared .glslh, so it cannot be included here the way the panorama mapping is; the matrices are
-        // transcribed column-major exactly as the GLSL `mat3(...)` constructors list them.
-        glm::vec3 TonemapAces( const glm::vec3& color )
-        {
-            const glm::mat3 input( 0.59719f, 0.07600f, 0.02840f, 0.35458f, 0.90834f, 0.13383f, 0.04823f, 0.01566f,
-                                   0.83777f );
-            const glm::mat3 output( 1.60475f, -0.10208f, -0.00327f, -0.53108f, 1.10813f, -0.07276f, -0.07367f,
-                                    -0.00605f, 1.07602f );
-            const glm::vec3 v = input * color;
-            const glm::vec3 a = v * ( v + 0.0245786f ) - 0.000090537f;
-            const glm::vec3 b = v * ( 0.983729f * v + 0.4329510f ) + 0.238081f;
-            return glm::clamp( output * ( a / b ), 0.0f, 1.0f );
         }
 
         float EncodeSrgb( float linear )
@@ -101,7 +88,7 @@ namespace Desert::Editor::HdrSphereThumbnail
     std::array<unsigned char, 3> ToDisplay( const glm::vec3& linear )
     {
         constexpr float kExposure = 1.0f; // SceneComposite's manual default; a tile has no scene to adapt to
-        const glm::vec3 mapped    = TonemapAces( linear * kExposure );
+        const glm::vec3 mapped    = TonemapACES( linear * kExposure );
         std::array<unsigned char, 3> out{};
         for ( int c = 0; c < 3; ++c )
             out[static_cast<size_t>( c )] =
@@ -173,6 +160,7 @@ namespace Desert::Editor::HdrSphereThumbnail
         int width    = 0;
         int height   = 0;
         int channels = 0;
+
         const std::unique_ptr<float, void ( * )( void* )> pixels(
              stbi_loadf_from_memory( payload.data(), size, &width, &height, &channels, 3 ), stbi_image_free );
         if ( !pixels )
