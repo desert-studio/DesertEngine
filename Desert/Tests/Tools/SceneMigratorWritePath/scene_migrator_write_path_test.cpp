@@ -492,11 +492,11 @@ TEST( SceneMigratorWritePath, ACloudNoiseVolumeIsWrappedInTheEnvelopeOnceAndASec
         volume.Voxels[i] = static_cast<unsigned char>( ( i * 31u ) & 0xFFu );
     const std::vector<unsigned char> payload = Desert::Assets::EncodeCloudNoisePayload( volume );
 
-    const fs::path dir = MakeTempDir( "T7gCloudNoiseMigration" );
+    const fs::path dir    = MakeTempDir( "T7gCloudNoiseMigration" );
     const fs::path v2File = dir / "BareV2.dcnv";
     const fs::path v1File = dir / "BareV1.dcnv";
-    std::string    v2     = std::string( "DCNV" ) + std::string( "\x02\0\0\0", 4 ) +
-                     std::string( payload.begin(), payload.end() );
+    std::string    v2 =
+         std::string( "DCNV" ) + std::string( "\x02\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
     // Version 1 is version 2 without the origin word at payload offset 52.
     std::string v1 = std::string( "DCNV" ) + std::string( "\x01\0\0\0", 4 ) +
                      std::string( payload.begin(), payload.begin() + 52 ) +

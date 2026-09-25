@@ -170,7 +170,7 @@ namespace Desert::Assets
 
     Common::ResultStr<std::vector<unsigned char>> EncodeCloudNoiseVolume( const CloudNoiseVolumeData& data )
     {
-        namespace CC                     = Common::Content;
+        namespace CC                             = Common::Content;
         const std::vector<unsigned char> payload = EncodeCloudNoisePayload( data );
 
         CC::AssetEnvelope envelope;
@@ -223,10 +223,9 @@ namespace Desert::Assets
                  "the envelope has no {} section",
                  CC::FourCCToString( static_cast<uint32_t>( CC::EnvelopeSection::Payload ) ) );
 
-        auto decoded = DecodeCloudNoisePayload(
-             std::vector<unsigned char>( reinterpret_cast<const unsigned char*>( section->Bytes.data() ),
-                                         reinterpret_cast<const unsigned char*>( section->Bytes.data() ) +
-                                              section->Bytes.size() ) );
+        auto decoded = DecodeCloudNoisePayload( std::vector<unsigned char>(
+             reinterpret_cast<const unsigned char*>( section->Bytes.data() ),
+             reinterpret_cast<const unsigned char*>( section->Bytes.data() ) + section->Bytes.size() ) );
         if ( !decoded )
             return decoded;
         CloudNoiseVolumeData data = decoded.ExtractValue();

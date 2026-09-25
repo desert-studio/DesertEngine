@@ -20,9 +20,8 @@ namespace Desert::Assets
         const auto guid = ReadCloudNoiseVolumeGuid( m_Metadata.Filepath );
         if ( guid.IsNull() )
             return;
-        AdoptHandleFromFile(
-             Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
-             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
+                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::Content::AssetGuid CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( const Common::Filepath& filepath )
@@ -33,8 +32,8 @@ namespace Desert::Assets
         const CC::AssetHeaderReadContext context{ kKnown };
 
         std::optional<Common::ResultStr<CC::EnvelopeHeader>> header;
-        if ( const auto packed = Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath )
-                                                                         : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath ) : std::nullopt;
              packed.has_value() )
         {
             std::istringstream in( *packed );
