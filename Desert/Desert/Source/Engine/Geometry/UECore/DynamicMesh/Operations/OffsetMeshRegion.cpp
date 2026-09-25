@@ -16,7 +16,7 @@ namespace Desert::Geometry
                                           TArray<TArray<int32_t>>& ComponentsOut )
     {
         TSet<int32_t> const Remaining( Triangles );
-        TSet<int32_t> Visited;
+        TSet<int32_t>       Visited;
         for ( int32_t const Seed : Triangles )
         {
             if ( Visited.Contains( Seed ) )

@@ -89,7 +89,7 @@ namespace Desert::Geometry
 
         /** Initialize a PolygroupSet for given Mesh and specific Polygroup attribute layer, found by name. If not
          * valid, fall back to standard triangle group layer. */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, std::string AttribName );
+        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, const std::string& AttribName );
 
         /** Initialize a PolygroupSet by copying an existing PolygroupSet */
         explicit FPolygroupSet( const FPolygroupSet* CopyIn );

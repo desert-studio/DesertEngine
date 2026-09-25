@@ -314,7 +314,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             }
 
             // Add onto stack. Longest length neighbor is at top of stack
-            for ( int NeighborTid : NeighborTids )
+            for ( int const NeighborTid : NeighborTids )
             {
                 if ( NeighborTid != FDynamicMesh3::InvalidID )
                 {
@@ -821,7 +821,7 @@ void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormal
     for ( int32_t i = 0; i < NumVertices; ++i )
     {
         int32_t const vid    = Vertices[i];
-        FVector3d Normal = FMeshNormals::ComputeVertexNormal(
+        FVector3d     Normal = FMeshNormals::ComputeVertexNormal(
              *Mesh, vid, std::function<bool( int32_t )>( TriangleSetFunc ), true, true );
         int32_t const nid = NormalOverlay->AppendElement( FVector3f( Normal ) );
         VertNormals[i] = nid;

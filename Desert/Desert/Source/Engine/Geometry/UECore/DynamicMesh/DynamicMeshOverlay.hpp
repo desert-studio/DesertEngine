@@ -672,9 +672,9 @@ namespace Desert::Geometry
         void GetTriBaryInterpolate( int32_t TriangleID, const AsType* BaryCoords, AsType* DataOut ) const
         {
             int32_t const TriIndex   = 3 * TriangleID;
-            int32_t      ElemIndex0 = ElementTriangles[TriIndex] * ElementSize;
-            int32_t      ElemIndex1 = ElementTriangles[TriIndex + 1] * ElementSize;
-            int32_t      ElemIndex2 = ElementTriangles[TriIndex + 2] * ElementSize;
+            int32_t       ElemIndex0 = ElementTriangles[TriIndex] * ElementSize;
+            int32_t       ElemIndex1 = ElementTriangles[TriIndex + 1] * ElementSize;
+            int32_t       ElemIndex2 = ElementTriangles[TriIndex + 2] * ElementSize;
             const AsType Bary0 = (AsType)BaryCoords[0], Bary1 = (AsType)BaryCoords[1],
                          Bary2 = (AsType)BaryCoords[2];
             for ( int32_t i = 0; i < ElementSize; ++i )

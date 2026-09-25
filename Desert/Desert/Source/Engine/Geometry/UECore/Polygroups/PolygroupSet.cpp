@@ -154,7 +154,7 @@ FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, int32_t PolygroupLaye
     UE_ENSURE_MSGF( false, "FPolygroupSet: Attribute index missing!" );
 }
 
-FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, std::string AttribName )
+FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, const std::string& AttribName )
 {
     Mesh            = MeshIn;
     PolygroupAttrib = FindPolygroupLayerByName( *MeshIn, AttribName );

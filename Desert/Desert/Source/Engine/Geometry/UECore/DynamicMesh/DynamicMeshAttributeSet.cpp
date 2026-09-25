@@ -13,13 +13,13 @@ namespace
     template <typename LayerType, typename MakeFn>
     void SetNumLayers( std::vector<std::unique_ptr<LayerType>>& Layers, int32_t Num, MakeFn&& Make )
     {
-        if ( (int32_t)Layers.size() == Num )
+        if ( static_cast<int32_t>( Layers.size() ) == Num )
         {
             return;
         }
-        if ( Num >= (int32_t)Layers.size() )
+        if ( Num >= static_cast<int32_t>( Layers.size() ) )
         {
-            for ( auto i = (int32_t)Layers.size(); i < Num; ++i )
+            for ( auto i = static_cast<int32_t>( Layers.size() ); i < Num; ++i )
             {
                 Layers.push_back( Make() );
             }
@@ -28,7 +28,7 @@ namespace
         {
             Layers.resize( Num );
         }
-        UE_ENSURE( (int32_t)Layers.size() == Num );
+        UE_ENSURE( static_cast<int32_t>( Layers.size() ) == Num );
     }
 } // namespace
 

@@ -120,9 +120,9 @@ namespace Desert::Geometry
 
     void FSmallListSet::AppendWithElementOffset( const FSmallListSet& Other, int32_t ElementOffset )
     {
-        int32_t const OrigListBlocksNum         = static_cast<int32_t>( ListBlocks.Num() );
-        int32_t const OrigListHeadsNum          = static_cast<int32_t>( ListHeads.Num() );
-        int32_t const OrigLinkedListElementsNum = static_cast<int32_t>( LinkedListElements.Num() );
+        auto const    OrigListBlocksNum         = static_cast<int32_t>( ListBlocks.Num() );
+        auto const    OrigListHeadsNum          = static_cast<int32_t>( ListHeads.Num() );
+        auto const    OrigLinkedListElementsNum = static_cast<int32_t>( LinkedListElements.Num() );
         int32_t const OrigFreeHeadIndex         = FreeHeadIndex;
 
         // Append ListHeads indices
@@ -132,7 +132,7 @@ namespace Desert::Geometry
             // Offset appended non-null indices to point to appended ListBlock indices
             if ( ListHeads[Idx] != NullValue )
             {
-                ListHeads[Idx] += (int32_t)OrigListBlocksNum;
+                ListHeads[Idx] += OrigListBlocksNum;
             }
         }
 
