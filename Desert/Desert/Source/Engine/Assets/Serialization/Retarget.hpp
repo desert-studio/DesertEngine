@@ -76,9 +76,9 @@
  *
  * `.anim` (`kAnimationVersion`) and `.derig` (`kControlRigVersion`) are the precedents that fit: distinct
  * animation-domain payloads with sequences of their own. `.detheme`, `.decloudtype` and `.derig` are the
- * SHAPE that fits: `FormatVersion` is an OPTIONAL integer the file states about itself, an unknown value
- * is REFUSED by name rather than read as if it meant what it means here, and there is no migration in the
- * runtime at all.
+ * SHAPE that fits: the version is stated by the file about itself (since v2 in the text asset header,
+ * under `RTGT`), an unknown value is REFUSED by name rather than read as if it meant what it means here,
+ * and there is no migration in the runtime at all - Tools/SceneMigrator raises the files.
  *
  * AND THERE IS NOTHING TO MIGRATE. Generation 1 is the first generation: no build has ever written a
  * `.retarget`, so the corpus conversion the contract requires around a version bump has an empty input.
@@ -96,6 +96,7 @@
  */
 
 #include <Engine/Animation/Retarget/Retargeter.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -106,7 +107,9 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -130,6 +133,9 @@ namespace Desert::Assets::Serialization
      *
      *   1 - the source rig by relative path, the two pelvis names, both retarget poses, the chains and the
      *       renames (A25).
+     *   2 - the text asset header (T7c): Kind "Retarget", the GUID that IS the retarget's identity and its
+     *       handle (RetargetAsset's constructor), and this number under `RTGT`; the top-level FormatVersion
+     *       is gone. A version-1 file is refused by name; Tools/SceneMigrator mints its GUID.
      *
      * See the file note for why this is its own sequence and not `Core::kSceneVersion`. An unknown value
      * is refused in BOTH directions rather than read as if it meant what it means here, and there is no
@@ -140,7 +146,16 @@ namespace Desert::Assets::Serialization
      * cannot be read as written; a field whose absence means what the build did before it existed is not
      * such a change.
      */
-    inline constexpr int32_t kRetargetVersion = 1;
+    inline constexpr int32_t kRetargetVersion = static_cast<int32_t>( Assets::kRetargetSchemaVersion );
+
+    /// The subsystem versions a .retarget of this build states: the retarget schema, and nothing else.
+    [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> RetargetTextSubsystems()
+    {
+        static const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Assets::kRetargetSchemaTag,
+                                                static_cast<uint32_t>( kRetargetVersion ) } };
+        return versions;
+    }
 
     /// EVERY SCALAR HERE CARRIES AN INITIALISER, for `Serialization/Animation.hpp`'s reason: these structs
     /// are what reflect-cpp writes to disk, and a field left indeterminate is bytes that outlive the
@@ -227,8 +242,10 @@ namespace Desert::Assets::Serialization
      */
     struct RetargetAssetData
     {
-        std::optional<int32_t> FormatVersion;
-        std::string            Name;
+        /// The text asset header, FIRST so the registry reads it without parsing the rest. Absent only on
+        /// a retarget that has never been written: WriteRetarget stamps it (the GUID kept, or minted when new).
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+        std::string                                               Name;
 
         /// The `.skeleton` the CLIPS are authored on, RELATIVE to the cooked meshes root (e.g.
         /// "IKProbe.skeleton"). Resolved by `RetargetAsset::ResolveDependencies`, which performs the one

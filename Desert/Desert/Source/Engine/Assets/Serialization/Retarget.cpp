@@ -1,4 +1,5 @@
 #include <Engine/Assets/Serialization/Retarget.hpp>
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Animation/Skeleton.hpp>
@@ -228,24 +229,10 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<RetargetAssetData>( "the file is empty" );
         }
 
-        // THE VERSION IS READ FIRST, ON ITS OWN, as an untyped tree — see the header. A struct imposes the
-        // rest of the schema on a document whose whole problem may be that it does not match the schema.
-        if ( const auto tree = rfl::json::read<rfl::Generic>( text ); tree )
+        // A version-1 file (top-level FormatVersion, absent meaning 1, no header) is refused by name.
+        if ( auto headed = Assets::RefuseTextWithoutHeader( text, kRetargetVersion, 1 ); !headed )
         {
-            if ( const auto fields = tree.value().to_object(); fields )
-            {
-                if ( const auto stated = fields.value().get( "FormatVersion" ); stated.has_value() )
-                {
-                    const auto number = stated.value().to_int();
-                    if ( number.has_value() && number.value() != kRetargetVersion )
-                    {
-                        return Common::MakeFormattedError<RetargetAssetData>(
-                             "retarget format version {} was written by a different build; this one reads "
-                             "version {}",
-                             number.value(), kRetargetVersion );
-                    }
-                }
-            }
+            return Common::MakeFormattedError<RetargetAssetData>( "retarget {}", headed.GetError() );
         }
 
         const auto parsed = rfl::json::read<RetargetAssetData>( text );
@@ -256,12 +243,12 @@ namespace Desert::Assets::Serialization
 
         RetargetAssetData data = parsed.value();
 
-        const int32_t version = data.FormatVersion.value_or( kRetargetVersion );
-        if ( version != kRetargetVersion )
+        if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::Retarget,
+                                                      Assets::kRetargetSchemaTag, kRetargetVersion,
+                                                      RetargetTextSubsystems() );
+             !header )
         {
-            return Common::MakeFormattedError<RetargetAssetData>(
-                 "retarget format version {} was written by a different build; this one reads version {}", version,
-                 kRetargetVersion );
+            return Common::MakeFormattedError<RetargetAssetData>( "retarget {}", header.GetError() );
         }
 
         if ( auto valid = ValidateRetargetData( data ); !valid )
@@ -269,14 +256,14 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<RetargetAssetData>( "{}", valid.GetError() );
         }
 
-        data.FormatVersion = kRetargetVersion;
         return Common::MakeSuccess( std::move( data ) );
     }
 
     std::string WriteRetarget( const RetargetAssetData& data )
     {
         RetargetAssetData out = data;
-        out.FormatVersion     = kRetargetVersion;
+        out.Header            = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::Retarget,
+                                                         RetargetTextSubsystems() );
         return rfl::json::write( out, YYJSON_WRITE_PRETTY );
     }
 
@@ -342,7 +329,6 @@ namespace Desert::Assets::Serialization
                                                   const RetargetSetup& setup )
     {
         RetargetAssetData out;
-        out.FormatVersion      = kRetargetVersion;
         out.Name               = name;
         out.SourceSkeleton     = sourceSkeleton;
         out.SourcePelvisBone   = setup.SourcePelvisBone;

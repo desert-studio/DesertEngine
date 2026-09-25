@@ -544,13 +544,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   UI1 (asset info popup) adds +1 Raw: FileExplorerPanel::m_TooltipEntry, OwnedByThisObject like the
     //   panel's other DirectoryInformation views -- it names a node in m_Directories and is cleared to
     //   nullptr the same frame its tile stops being hovered.
-    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw):
-    //   434 / 350 / 139 / 42 = 965.
-    EXPECT_EQ( CountOf( Form::Raw ), 434 );
+    //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's FMeshSurfacePath::Mesh, HostOutlivesUs
+    //   like the other P12 operation objects -- the path is built over the caller's mesh and embedded in-place.
+    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
+    //   P12g +1 Raw): 435 / 350 / 139 / 42 = 966.
+    EXPECT_EQ( CountOf( Form::Raw ), 435 );
     EXPECT_EQ( CountOf( Form::Shared ), 350 );
     EXPECT_EQ( CountOf( Form::Unique ), 139 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 965 )
+    EXPECT_EQ( (int)Members().size(), 966 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

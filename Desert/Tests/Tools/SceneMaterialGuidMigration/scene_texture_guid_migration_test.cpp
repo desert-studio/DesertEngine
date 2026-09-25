@@ -253,7 +253,7 @@ namespace
         { return type == "SkyboxAsset" && path == kSkyKey ? SkyHandle() : 0; };
         r.FromGuid = [fromGuidAsked]( uint64_t guid, const std::string& type ) -> uint64_t
         {
-            if ( fromGuidAsked )
+            if ( fromGuidAsked != nullptr )
                 ++*fromGuidAsked;
             return type == "SkyboxAsset" && guid == SkyHandle() ? guid : 0;
         };

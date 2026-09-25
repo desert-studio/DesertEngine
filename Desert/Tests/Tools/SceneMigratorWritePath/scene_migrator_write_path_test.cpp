@@ -373,6 +373,80 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
     fs::remove_all( dir );
 }
 
+// THE STRING TABLE AND THEME PASSES (T7b, 1 -> 2): the same step as the cloud type's, one table row each.
+// A v1 file - with FormatVersion stated, and with it left out ("absent means 1") - gains the header with a
+// fresh GUID and the kind's tag at 2; a second run changes nothing; a version with no step is refused and
+// left untouched.
+namespace
+{
+    void ExpectTextKindRaisedOnce( const char* extension, Common::Content::ContentKind kind, const char* body )
+    {
+        const fs::path    dir    = MakeTempDir( ( std::string( "T7bRaise" ) + ( extension + 1 ) ).c_str() );
+        const fs::path    stated = dir / ( std::string( "Stated" ) + extension );
+        const fs::path    absent = dir / ( std::string( "Absent" ) + extension );
+        const fs::path    stale  = dir / ( std::string( "Future" ) + extension );
+        const std::string bodyText( body );
+        {
+            std::ofstream out( stated, std::ios::binary );
+            out << R"({"FormatVersion":1,"DisplayName":"Stated",)" << bodyText << "}";
+        }
+        {
+            std::ofstream out( absent, std::ios::binary );
+            out << R"({"DisplayName":"Absent",)" << bodyText << "}";
+        }
+        {
+            std::ofstream out( stale, std::ios::binary );
+            out << R"({"FormatVersion":7,)" << bodyText << "}";
+        }
+        const std::string staleBytes = ReadRaw( stale );
+
+        std::string report;
+        std::string errors;
+        EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 1 ) << "the v7 file was not a failure";
+        EXPECT_NE( errors.find( stale.filename().string() ), std::string::npos ) << errors;
+        EXPECT_EQ( ReadRaw( stale ), staleBytes ) << "a refused file was rewritten";
+        fs::remove( stale );
+
+        const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+        std::vector<std::string>                      guids;
+        std::vector<std::string>                      raisedTexts;
+        for ( const fs::path& file : { stated, absent } )
+        {
+            const std::string raised = ReadRaw( file );
+            raisedTexts.push_back( raised );
+            EXPECT_EQ( raised.find( "FormatVersion" ), std::string::npos ) << raised;
+            EXPECT_NE( raised.find( file.stem().string() ), std::string::npos )
+                 << "the payload was lost: " << raised;
+            const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
+            ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+            EXPECT_EQ( header.GetValue().Kind, kind );
+            EXPECT_FALSE( header.GetValue().Guid.IsNull() );
+            ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
+            EXPECT_EQ( header.GetValue().Subsystems[0].Version, 2u );
+            guids.push_back( Common::Content::AssetGuidToText( header.GetValue().Guid ) );
+        }
+        EXPECT_NE( guids[0], guids[1] ) << "two files were minted one GUID";
+
+        EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+        EXPECT_EQ( ReadRaw( stated ), raisedTexts[0] ) << "a second run changed a v2 file (a second GUID?)";
+        EXPECT_EQ( ReadRaw( absent ), raisedTexts[1] ) << "a second run changed a v2 file (a second GUID?)";
+        EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+        fs::remove_all( dir );
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, AStringTableGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    ExpectTextKindRaisedOnce( ".destrings", Common::Content::ContentKind::StringTable,
+                              R"("Entries":[{"Key":"menu.play","Forms":{"en":{"other":"PLAY"}}}])" );
+}
+
+TEST( SceneMigratorWritePath, AThemeGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    ExpectTextKindRaisedOnce( ".detheme", Common::Content::ContentKind::UITheme,
+                              R"("Colors":[{"Name":"Text","Value":[1,1,1,1]}])" );
+}
+
 // THE CLOUD LAYOUT PASS (AF7y, T6b2, container 1 -> 2). Written first; RED until the pass exists. A bare
 // "DCLY" v1 file is wrapped in the AF1 binary envelope with a fresh GUID, which the header-only read finds;
 // the painting's bytes survive unchanged inside it; a second run leaves the file byte-identical.
@@ -540,4 +614,17 @@ TEST( SceneMigratorWritePath, AMatl2NumberNamingAnAssetOfAnotherKindIsRefused )
     EXPECT_NE( errors.find( "cloud layout" ), std::string::npos ) << errors;
     EXPECT_EQ( ReadRaw( file ), before );
     fs::remove_all( root.Dir );
+}
+
+// THE CONTROL RIG AND RETARGET PASSES (T7c, 1 -> 2): two more rows of the same step.
+TEST( SceneMigratorWritePath, AControlRigGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    ExpectTextKindRaisedOnce( ".derig", Common::Content::ContentKind::ControlRig,
+                              R"("Name":"R","Controls":[],"Drives":[])" );
+}
+
+TEST( SceneMigratorWritePath, ARetargetGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    ExpectTextKindRaisedOnce( ".retarget", Common::Content::ContentKind::Retarget,
+                              R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton")" );
 }

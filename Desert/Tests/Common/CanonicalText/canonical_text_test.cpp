@@ -406,9 +406,13 @@ TEST( CanonicalText, AFailedWriterRefusesTheSaveAndLeavesTheFileAsItWas )
 
     // The same call with good text replaces the file, laid out canonically.
     ASSERT_TRUE( Common::Content::WriteCanonicalJsonFileAtomic( file, R"({"kept":false})" ) );
-    std::ifstream      again( file, std::ios::binary );
+    // Scoped for the same reason as the reader above: an open stream makes remove_all below refuse on
+    // Windows ("being used by another process").
     std::ostringstream after;
-    after << again.rdbuf();
+    {
+        const std::ifstream again( file, std::ios::binary );
+        after << again.rdbuf();
+    }
     EXPECT_TRUE( IsCanonicalJsonText( after.str() ) );
     EXPECT_NE( after.str().find( "false" ), std::string::npos );
     fs::remove_all( dir );

@@ -41,6 +41,14 @@
 *.dlht         -text
 *.destrings    -text
 *.deproj       -text
+*.dgraph       -text
+*.cloudshape.json -text
+*.detex        -text
+*.dvol         -text
+
+# Canonical-text registers compared byte for byte by their tests (LegacyMaterialIds: Windows CI
+# 2026-09-24 read it back CRLF and the "re-writing changes no byte" check failed on every line).
+Editor/Resources/LegacyMaterialIds.json -text
 
 # The cooked texture container (B17). It stopped being JSON the day it grew a pixel payload, and a
 # line-ending translation inside a mip chain would not merely resize the file — it would rewrite every

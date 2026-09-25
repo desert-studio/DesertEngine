@@ -27,6 +27,19 @@ namespace Desert::Assets
     // state it without the cloud maths.
     inline constexpr uint32_t kCloudTypeSchemaTag     = Common::Content::FourCC( "CLTY" );
     inline constexpr uint32_t kCloudTypeSchemaVersion = 4;
+    // A .destrings: the string table file layout, stated in the header since v2 (T7b; v1 had a top-level
+    // FormatVersion, absent meaning 1, and no header).
+    inline constexpr uint32_t kStringTableSchemaTag     = Common::Content::FourCC( "STRT" );
+    inline constexpr uint32_t kStringTableSchemaVersion = 2;
+    // A .detheme: the UI theme file layout, stated in the header since v2 (T7b; v1 as the string table's).
+    inline constexpr uint32_t kUIThemeSchemaTag     = Common::Content::FourCC( "UITH" );
+    inline constexpr uint32_t kUIThemeSchemaVersion = 2;
+    // A .derig: the control rig file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
+    inline constexpr uint32_t kControlRigSchemaVersion = 2;
+    // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
+    inline constexpr uint32_t kRetargetSchemaVersion = 2;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.
