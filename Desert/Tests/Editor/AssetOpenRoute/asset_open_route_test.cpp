@@ -162,7 +162,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up, prefix += "../" )
         {
-            std::ifstream in( prefix + relative );
+            const std::ifstream in( prefix + relative );
             if ( !in )
                 continue;
             std::ostringstream text;

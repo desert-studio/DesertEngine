@@ -63,10 +63,10 @@ namespace
 
 TEST( MaterialDocumentOpen, AFieldAndABrowserDoubleClickReachTheSameSubject )
 {
-    TempMaterial          tmp;
-    Assets::AssetManager  manager;
-    SubjectEditorRegistry editors = RegistryOfEditorLayerTypes();
-    const auto            written = Assets::WriteMaterialFile( tmp.File, Assets::MaterialData{} );
+    const TempMaterial          tmp;
+    Assets::AssetManager        manager;
+    const SubjectEditorRegistry editors = RegistryOfEditorLayerTypes();
+    const auto                  written = Assets::WriteMaterialFile( tmp.File, Assets::MaterialData{} );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
 
     (void)Editor::Core::SubjectOpenRequests::Drain();
@@ -115,7 +115,7 @@ TEST( MaterialDocumentOpen, EveryRegisteredTypeOpensFromAFieldAsItsOwnSubject )
 
 TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRoute )
 {
-    TempMaterial         tmp;
+    const TempMaterial   tmp;
     Assets::AssetManager manager;
     const auto           written = Assets::WriteMaterialFile( tmp.File, Assets::MaterialData{} );
     ASSERT_TRUE( written.IsSuccess() ) << written.GetError();

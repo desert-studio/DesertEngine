@@ -929,7 +929,7 @@ namespace Desert::Editor
                                // material service; registered LAZILY (the shell only), the first Get builds it.
                                if ( auto* materialService = Runtime::ResourceRegistry::GetMaterialService() )
                                {
-                                   if ( !materialService->Get( handle ) )
+                                   if ( materialService->Get( handle ) == nullptr )
                                        materialService->RegisterAsset( ready.GetValue() );
                                }
                                return std::make_unique<Editor::MaterialEditorPanel>( handle, m_AssetManager );
@@ -5221,9 +5221,10 @@ namespace Desert::Editor
                 // clang-tidy 18 reports every palette lambda that captures a std::string by copy (the "Open",
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
-                // NOLINTNEXTLINE(bugprone-exception-escape)
+                // NOLINTBEGIN(bugprone-exception-escape)
                 commands.push_back(
                      { "Browse", label, [this, folder] { return ShowFolderInBrowser( folder ); } } );
+                // NOLINTEND(bugprone-exception-escape)
             }
         }
 

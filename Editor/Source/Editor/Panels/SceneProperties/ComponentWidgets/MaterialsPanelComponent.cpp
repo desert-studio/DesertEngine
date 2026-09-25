@@ -606,7 +606,7 @@ namespace Desert::Editor
                                        : std::string( "None" );
         if ( Utils::ImGuiUtilities::AssetSlot( "slot", name.c_str(), asset == nullptr ) )
             action = SlotAction::Pick;
-        DrawAssetFieldOpen( asset ? static_cast<uint64_t>( asset->GetMetadata().Handle ) : 0 );
+        DrawAssetFieldOpen( asset != nullptr ? static_cast<uint64_t>( asset->GetMetadata().Handle ) : 0 );
         acceptDrop();
 
         // A strip of flat icon actions, UE's row of small buttons under the asset field. Text buttons
