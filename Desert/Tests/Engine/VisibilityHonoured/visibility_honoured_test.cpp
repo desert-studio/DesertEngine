@@ -220,10 +220,12 @@ namespace
     // collected inline in Scene.cpp and goes through no system at all.
     constexpr const char* kDirectionalLightSite = "Desert/Desert/Source/Engine/Core/Scene.cpp";
 
-    // These are the base class and the pure rules, not systems.
+    // These are the base class and the pure rules, not systems. LandscapeTileImage.hpp is the in-place
+    // GPU-copy refresh rule LandscapeECSSystem calls per tile (L8-leak); it walks no entities, so the
+    // system that calls it carries the verdict.
     bool IsNotASystem( const std::string& filename )
     {
-        return filename == "System.hpp" || filename == "SystemRules.hpp";
+        return filename == "System.hpp" || filename == "SystemRules.hpp" || filename == "LandscapeTileImage.hpp";
     }
 
     std::string RepositoryRoot()
