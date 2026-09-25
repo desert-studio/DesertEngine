@@ -22,11 +22,12 @@ namespace
         constexpr uint32_t       kN = 4;
         for ( uint32_t z = 0; z <= kN; ++z )
             for ( uint32_t x = 0; x <= kN; ++x )
-                render.Vertices.push_back( { { static_cast<float>( x ) * 10.0f, 0.0f, static_cast<float>( z ) * 10.0f },
-                                             { 0.0f, 1.0f, 0.0f },
-                                             { 1.0f, 0.0f, 0.0f },
-                                             { 0.0f, 0.0f, 1.0f },
-                                             { static_cast<float>( x ) / kN, static_cast<float>( z ) / kN } } );
+                render.Vertices.push_back(
+                     { { static_cast<float>( x ) * 10.0f, 0.0f, static_cast<float>( z ) * 10.0f },
+                       { 0.0f, 1.0f, 0.0f },
+                       { 1.0f, 0.0f, 0.0f },
+                       { 0.0f, 0.0f, 1.0f },
+                       { static_cast<float>( x ) / kN, static_cast<float>( z ) / kN } } );
         for ( uint32_t z = 0; z < kN; ++z )
             for ( uint32_t x = 0; x < kN; ++x )
             {

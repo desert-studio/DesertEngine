@@ -30,7 +30,8 @@ namespace Desert::Editor
                 continue; // author LODs already folded in (FoldExternalLODMeshes) -> don't regenerate
 
             const uint32_t triCount = sm.IndexCount / 3;
-            if ( triCount < 8 || sm.VertexCount == 0 || sm.VertexOffset + sm.VertexCount > data.StaticVertices.size() )
+            if ( triCount < 8 || sm.VertexCount == 0 ||
+                 sm.VertexOffset + sm.VertexCount > data.StaticVertices.size() )
                 continue;
 
             std::vector<float> pos;

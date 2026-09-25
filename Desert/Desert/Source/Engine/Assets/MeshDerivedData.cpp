@@ -76,8 +76,8 @@ namespace Desert::Assets
             return Common::MakeFormattedError<std::string>( "mesh asset '{}': {}", asset.string(),
                                                             built.GetError() );
         if ( auto put = Common::DDC::Put( kMeshDeriver, key, built.GetValue() ); !put.IsSuccess() )
-            return Common::MakeFormattedError<std::string>( "mesh asset '{}': render data built but not cached: {}",
-                                                            asset.string(), put.GetError() );
+            return Common::MakeFormattedError<std::string>(
+                 "mesh asset '{}': render data built but not cached: {}", asset.string(), put.GetError() );
         return built;
     }
 } // namespace Desert::Assets
