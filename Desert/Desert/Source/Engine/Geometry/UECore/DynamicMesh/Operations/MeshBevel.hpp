@@ -1,9 +1,9 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/MeshBevel.h:26-378 and
-// Private/Operations/MeshBevel.cpp:75-131,669-1172 (setup and topology build of the chamfer bevel), adapted: UE
-// Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a named
-// FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED with
-// the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
+// Private/Operations/MeshBevel.cpp:75-131,669-1602 (setup, topology build and unlink of the chamfer bevel),
+// adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a
+// named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED
+// with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
 // SplitBowties (B:415-574). The fields UE marks deprecated in 5.5 (GroupEdgeID, GroupIDs, CornerID,
 // IncomingBevelTopoEdges) and the multi-segment data (StripQuadPatch, NormalsA/B, InteriorVertices,
 // InteriorBorderLoop) have no reader in the chamfer path and are not ported.
@@ -118,11 +118,26 @@ namespace Desert::Geometry
         void BuildJunctionVertex( FBevelVertex& Vertex, const FDynamicMesh3& Mesh );
         void BuildTerminatorVertex( FBevelVertex& Vertex, const FDynamicMesh3& Mesh );
 
+        // Unlink: split the bevel edges open; afterwards each MeshEdges[i] and NewMeshEdges[i] is a boundary edge
+        // pair recorded in MeshEdgePairs. UE's FDynamicMeshChangeTracker parameter is dropped (not ported).
+        void UnlinkEdges( FDynamicMesh3& Mesh );
+        void UnlinkBevelEdgeInterior( FDynamicMesh3& Mesh, FBevelEdge& BevelEdge );
+        void UnlinkLoops( FDynamicMesh3& Mesh );
+        void UnlinkBevelLoop( FDynamicMesh3& Mesh, FBevelLoop& BevelLoop );
+        void UnlinkVertices( FDynamicMesh3& Mesh );
+        void UnlinkJunctionVertex( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
+        void UnlinkTerminatorVertex( FDynamicMesh3& Mesh, FBevelVertex& BevelVertex );
+        void FixUpUnlinkedBevelEdges( const FDynamicMesh3& Mesh );
+
     private:
         void InitVertexSet( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         void FinalizeTerminatorVertex( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         /** Records the first refusal; later ones are consequences of the same input. */
         void Refuse( const std::string& Reason );
         bool RefuseBowties( const FDynamicMesh3& Mesh, const TArray<int32>& MeshVertices );
+        /** SplitVertex, refusing (with Where and the result) when it fails; NewVertexOut = VertexID then. */
+        bool SplitOrKeep( FDynamicMesh3& Mesh, int32 VertexID, const TArray<int32>& Triangles,
+                          const std::string& Where, int32& NewVertexOut );
+        void PairSplitWedgeBorderEdges( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
     };
 } // namespace Desert::Geometry

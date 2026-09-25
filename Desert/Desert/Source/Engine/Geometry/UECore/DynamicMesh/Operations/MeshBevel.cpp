@@ -508,4 +508,307 @@ namespace Desert::Geometry
 
         Vertex.VertexType = EBevelVertexType::TerminatorVertex;
     }
+
+    // ---- Unlink (B:1174-1602): open the bevel edges into pairs of boundary edges ----
+
+    void FMeshBevel::UnlinkEdges( FDynamicMesh3& Mesh )
+    {
+        for ( FBevelEdge& Edge : Edges )
+            UnlinkBevelEdgeInterior( Mesh, Edge );
+    }
+
+    namespace
+    {
+        struct FVertexSplit
+        {
+            int32         VertexID = -1;
+            bool          bOK      = false;
+            TArray<int32> TriSets[2];
+        };
+
+        // The subset functions pick Set0 arbitrarily per vertex; make Set0 the same side of the span at every
+        // vertex by requiring it to share a triangle with the previous vertex's Set0.
+        void ReconcileTriangleSets( TArray<FVertexSplit>& SplitSequence )
+        {
+            const int32   N = SplitSequence.Num();
+            TArray<int32> PrevTriSet0;
+            for ( int32 k = 0; k < N; ++k )
+            {
+                if ( PrevTriSet0.Num() == 0 && SplitSequence[k].TriSets[0].Num() > 0 )
+                {
+                    PrevTriSet0 = SplitSequence[k].TriSets[0];
+                }
+                else
+                {
+                    bool bFoundInSet0 = false;
+                    for ( const int32 tid : SplitSequence[k].TriSets[0] )
+                    {
+                        if ( PrevTriSet0.Contains( tid ) )
+                        {
+                            bFoundInSet0 = true;
+                            break;
+                        }
+                    }
+                    if ( !bFoundInSet0 )
+                        Swap( SplitSequence[k].TriSets[0], SplitSequence[k].TriSets[1] );
+                    PrevTriSet0 = SplitSequence[k].TriSets[0];
+                }
+            }
+        }
+    } // namespace
+
+    bool FMeshBevel::SplitOrKeep( FDynamicMesh3& Mesh, int32 VertexID, const TArray<int32>& Triangles,
+                                  const std::string& Where, int32& NewVertexOut )
+    {
+        FDynamicMesh3::FVertexSplitInfo SplitInfo;
+        const EMeshResult               Result = Mesh.SplitVertex( VertexID, Triangles, SplitInfo );
+        if ( Result == EMeshResult::Ok )
+        {
+            NewVertexOut = SplitInfo.NewVertex;
+            return true;
+        }
+        // UE only ensure()s here and keeps the vertex shared, which later meshes a degenerate strip.
+        Refuse( Where + ": SplitVertex(" + std::to_string( VertexID ) + ", " + std::to_string( Triangles.Num() ) +
+                " triangles) failed with EMeshResult " + std::to_string( static_cast<int>( Result ) ) );
+        NewVertexOut = VertexID;
+        return false;
+    }
+
+    void FMeshBevel::UnlinkBevelEdgeInterior( FDynamicMesh3& Mesh, FBevelEdge& BevelEdge )
+    {
+        const int32          N = BevelEdge.MeshVertices.Num();
+        TArray<FVertexSplit> SplitsToProcess;
+        SplitsToProcess.SetNum( N );
+        const std::string Where = "bevel edge " + std::to_string( BevelEdge.EdgeIndex );
+
+        // Endpoints are split here only on the mesh boundary; otherwise UnlinkVertices owns them.
+        const int32 EndVertex[2] = { 0, N - 1 };
+        const int32 EndEdge[2]   = { 0, N - 2 };
+        for ( int32 j = 0; j < 2; ++j )
+        {
+            FVertexSplit& Split = SplitsToProcess[EndVertex[j]];
+            Split.VertexID      = BevelEdge.MeshVertices[EndVertex[j]];
+            if ( !BevelEdge.bEndpointBoundaryFlag[j] )
+                continue;
+            const int32 SplitEdge = BevelEdge.MeshEdges[EndEdge[j]];
+            Split.bOK             = SplitBoundaryVertexTrianglesIntoSubsets( &Mesh, Split.VertexID, SplitEdge,
+                                                                             Split.TriSets[0], Split.TriSets[1] );
+            if ( !Split.bOK )
+                Refuse( Where + ": boundary end vertex " + std::to_string( Split.VertexID ) +
+                        " cannot be split along edge " + std::to_string( SplitEdge ) );
+        }
+        for ( int32 k = 1; k < N - 1; ++k )
+        {
+            FVertexSplit& Split = SplitsToProcess[k];
+            Split.VertexID      = BevelEdge.MeshVertices[k];
+            // A span vertex on the mesh boundary stays shared by both sides (UE): the strip pinches there.
+            if ( Mesh.IsBoundaryVertex( Split.VertexID ) )
+                continue;
+            Split.bOK = SplitInteriorVertexTrianglesIntoSubsets( &Mesh, Split.VertexID, BevelEdge.MeshEdges[k - 1],
+                                                                 BevelEdge.MeshEdges[k], Split.TriSets[0],
+                                                                 Split.TriSets[1] );
+            if ( !Split.bOK )
+                Refuse( Where + ": vertex " + std::to_string( Split.VertexID ) + " cannot be split along edges " +
+                        std::to_string( BevelEdge.MeshEdges[k - 1] ) + " and " +
+                        std::to_string( BevelEdge.MeshEdges[k] ) );
+        }
+
+        ReconcileTriangleSets( SplitsToProcess );
+
+        for ( const FVertexSplit& Split : SplitsToProcess )
+        {
+            int32 NewVertex = Split.VertexID; // unsplit: the same vertex on both sides
+            if ( Split.bOK )
+                SplitOrKeep( Mesh, Split.VertexID, Split.TriSets[0], Where, NewVertex );
+            BevelEdge.NewMeshVertices.Add( NewVertex );
+        }
+
+        for ( int32 k = 0; k < N - 1; ++k )
+        {
+            const int32 Edge0 = BevelEdge.MeshEdges[k];
+            const int32 Edge1 = Mesh.FindEdge( BevelEdge.NewMeshVertices[k], BevelEdge.NewMeshVertices[k + 1] );
+            BevelEdge.NewMeshEdges.Add( Edge1 );
+            if ( Mesh.IsEdge( Edge1 ) && Edge0 != Edge1 && !MeshEdgePairs.Contains( Edge0 ) )
+            {
+                MeshEdgePairs.Add( Edge0, Edge1 );
+                MeshEdgePairs.Add( Edge1, Edge0 );
+            }
+        }
+    }
+
+    void FMeshBevel::UnlinkBevelLoop( FDynamicMesh3& Mesh, FBevelLoop& BevelLoop )
+    {
+        const int32          N = BevelLoop.MeshVertices.Num();
+        TArray<FVertexSplit> SplitsToProcess;
+        SplitsToProcess.SetNum( N );
+        for ( int32 k = 0; k < N; ++k )
+        {
+            FVertexSplit& Split = SplitsToProcess[k];
+            Split.VertexID      = BevelLoop.MeshVertices[k];
+            if ( Mesh.IsBoundaryVertex( Split.VertexID ) )
+                continue; // shared by both sides, as on an edge span
+            const int32 PrevEdge = ( k == 0 ) ? BevelLoop.MeshEdges.Last() : BevelLoop.MeshEdges[k - 1];
+            const int32 CurEdge  = BevelLoop.MeshEdges[k];
+            Split.bOK = SplitInteriorVertexTrianglesIntoSubsets( &Mesh, Split.VertexID, PrevEdge, CurEdge,
+                                                                 Split.TriSets[0], Split.TriSets[1] );
+            if ( !Split.bOK )
+                Refuse( "bevel loop vertex " + std::to_string( Split.VertexID ) + " cannot be split along edges " +
+                        std::to_string( PrevEdge ) + " and " + std::to_string( CurEdge ) );
+        }
+
+        ReconcileTriangleSets( SplitsToProcess );
+
+        // Loops move TriSets[1] where edge spans move TriSets[0]; kept as in UE.
+        for ( const FVertexSplit& Split : SplitsToProcess )
+        {
+            int32 NewVertex = Split.VertexID;
+            if ( Split.bOK )
+                SplitOrKeep( Mesh, Split.VertexID, Split.TriSets[1], "bevel loop", NewVertex );
+            BevelLoop.NewMeshVertices.Add( NewVertex );
+        }
+
+        for ( int32 k = 0; k < N; ++k )
+        {
+            const int32 Edge0 = BevelLoop.MeshEdges[k];
+            const int32 Edge1 =
+                 Mesh.FindEdge( BevelLoop.NewMeshVertices[k], BevelLoop.NewMeshVertices[( k + 1 ) % N] );
+            BevelLoop.NewMeshEdges.Add( Edge1 );
+            if ( Mesh.IsEdge( Edge1 ) && Edge0 != Edge1 && !MeshEdgePairs.Contains( Edge0 ) )
+            {
+                MeshEdgePairs.Add( Edge0, Edge1 );
+                MeshEdgePairs.Add( Edge1, Edge0 );
+            }
+        }
+    }
+
+    void FMeshBevel::UnlinkLoops( FDynamicMesh3& Mesh )
+    {
+        for ( FBevelLoop& Loop : Loops )
+            UnlinkBevelLoop( Mesh, Loop );
+    }
+
+    void FMeshBevel::UnlinkVertices( FDynamicMesh3& Mesh )
+    {
+        // All terminators before any junction, as in UE.
+        for ( FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.VertexType == EBevelVertexType::TerminatorVertex )
+                UnlinkTerminatorVertex( Mesh, Vertex );
+        }
+        for ( FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.VertexType == EBevelVertexType::JunctionVertex )
+                UnlinkJunctionVertex( Mesh, Vertex );
+        }
+    }
+
+    void FMeshBevel::PairSplitWedgeBorderEdges( const FDynamicMesh3& Mesh, FBevelVertex& Vertex )
+    {
+        // A border edge the split duplicated has a new ID at the same index of the wedge's own end triangle.
+        for ( FOneRingWedge& Wedge : Vertex.Wedges )
+        {
+            for ( int32 j = 0; j < 2; ++j )
+            {
+                const int32 OldWedgeEdgeID    = Wedge.BorderEdges[j];
+                const int32 OldWedgeEdgeIndex = Wedge.BorderEdgeTriEdgeIndices[j];
+                const int32 TriangleID        = ( j == 0 ) ? Wedge.Triangles[0] : Wedge.Triangles.Last();
+                const int32 CurWedgeEdgeID    = Mesh.GetTriEdges( TriangleID )[OldWedgeEdgeIndex];
+                if ( OldWedgeEdgeID == CurWedgeEdgeID )
+                    continue;
+                if ( !MeshEdgePairs.Contains( OldWedgeEdgeID ) )
+                {
+                    MeshEdgePairs.Add( OldWedgeEdgeID, CurWedgeEdgeID );
+                    MeshEdgePairs.Add( CurWedgeEdgeID, OldWedgeEdgeID );
+                }
+                Wedge.BorderEdges[j] = CurWedgeEdgeID;
+            }
+        }
+    }
+
+    void FMeshBevel::UnlinkJunctionVertex( FDynamicMesh3& Mesh, FBevelVertex& Vertex )
+    {
+        // Wedge 0 keeps the original vertex; every other wedge gets its own copy.
+        const std::string Where = "junction vertex " + std::to_string( Vertex.VertexID );
+        for ( int32 k = 1; k < Vertex.Wedges.Num(); ++k )
+        {
+            FOneRingWedge& Wedge = Vertex.Wedges[k];
+            SplitOrKeep( Mesh, Vertex.VertexID, Wedge.Triangles, Where, Wedge.WedgeVertex );
+        }
+        PairSplitWedgeBorderEdges( Mesh, Vertex );
+    }
+
+    void FMeshBevel::UnlinkTerminatorVertex( FDynamicMesh3& Mesh, FBevelVertex& BevelVertex )
+    {
+        const std::string Where = "terminator vertex " + std::to_string( BevelVertex.VertexID );
+        if ( SplitOrKeep( Mesh, BevelVertex.VertexID, BevelVertex.Wedges[1].Triangles, Where,
+                          BevelVertex.Wedges[1].WedgeVertex ) )
+            PairSplitWedgeBorderEdges( Mesh, BevelVertex );
+    }
+
+    void FMeshBevel::FixUpUnlinkedBevelEdges( const FDynamicMesh3& Mesh )
+    {
+        for ( FBevelEdge& Edge : Edges )
+        {
+            // A sub-edge whose "new" edge is still the old one (always so for a single-edge span, whose ends are
+            // split by the vertex unlinks) takes its partner from the pairs those unlinks recorded.
+            const bool bSingleEdge        = Edge.MeshEdges.Num() == 1;
+            bool       bFailedEdgePairing = false;
+            for ( int32 Idx = 0; Idx < Edge.MeshEdges.Num(); ++Idx )
+            {
+                const bool bNewEdgeIsOld = Edge.MeshEdges[Idx] == Edge.NewMeshEdges[Idx];
+                if ( !bSingleEdge && !bNewEdgeIsOld )
+                    continue;
+                const int32* FoundOtherEdge = MeshEdgePairs.Find( Edge.MeshEdges[Idx] );
+                if ( FoundOtherEdge == nullptr )
+                {
+                    Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": mesh edge " +
+                            std::to_string( Edge.MeshEdges[Idx] ) + " was not split into a pair" );
+                    bFailedEdgePairing = true;
+                    break;
+                }
+                Edge.NewMeshEdges[Idx] = *FoundOtherEdge;
+            }
+            if ( bFailedEdgePairing )
+                continue;
+
+            // Re-point the span's end vertices at the wedge vertices that now own its end edges.
+            for ( int32 j = 0; j < 2; ++j )
+            {
+                const int32         vi          = ( j == 0 ) ? 0 : ( Edge.MeshVertices.Num() - 1 );
+                const int32         ei          = ( j == 0 ) ? 0 : ( Edge.MeshEdges.Num() - 1 );
+                const FBevelVertex* BevelVertex = GetBevelVertexFromVertexID( Edge.MeshVertices[vi] );
+                if ( BevelVertex == nullptr )
+                {
+                    Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": end vertex " +
+                            std::to_string( Edge.MeshVertices[vi] ) + " is not a bevel vertex" );
+                    break;
+                }
+                int32&      V0       = Edge.MeshVertices[vi];
+                int32&      V1       = Edge.NewMeshVertices[vi];
+                const int32 E0       = Edge.MeshEdges[ei];
+                const int32 E1       = Edge.NewMeshEdges[ei];
+                bool        bFoundV0 = false;
+                bool        bFoundV1 = false;
+                for ( const FOneRingWedge& Wedge : BevelVertex->Wedges )
+                {
+                    for ( const int32 tid : Wedge.Triangles )
+                    {
+                        const FIndex3i TriEdges = Mesh.GetTriEdges( tid );
+                        if ( TriEdges.Contains( E0 ) && !bFoundV0 )
+                        {
+                            V0       = Wedge.WedgeVertex;
+                            bFoundV0 = true;
+                            break;
+                        }
+                        if ( TriEdges.Contains( E1 ) && !bFoundV1 )
+                        {
+                            V1       = Wedge.WedgeVertex;
+                            bFoundV1 = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 } // namespace Desert::Geometry

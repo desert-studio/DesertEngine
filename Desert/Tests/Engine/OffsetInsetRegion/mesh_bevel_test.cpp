@@ -9,6 +9,8 @@
 
 #include <glm/geometric.hpp>
 
+#include <cmath>
+#include <map>
 #include <set>
 #include <vector>
 
@@ -85,8 +87,70 @@ namespace
     {
     public:
         using FMeshBevel::Edges;
+        using FMeshBevel::FixUpUnlinkedBevelEdges;
+        using FMeshBevel::MeshEdgePairs;
+        using FMeshBevel::UnlinkEdges;
+        using FMeshBevel::UnlinkLoops;
+        using FMeshBevel::UnlinkVertices;
         using FMeshBevel::Vertices;
+
+        // The unlink phases in UE Apply's order (B:576).
+        void Unlink( FDynamicMesh3& mesh )
+        {
+            UnlinkEdges( mesh );
+            UnlinkLoops( mesh );
+            UnlinkVertices( mesh );
+            FixUpUnlinkedBevelEdges( mesh );
+        }
     };
+
+    // Unlink only re-indexes: every vertex still sits on one of the cube's corners.
+    void ExpectPositionsAreCubeCorners( const FDynamicMesh3& mesh )
+    {
+        for ( const int v : mesh.VertexIndicesItr() )
+        {
+            const FVector3d p = mesh.GetVertex( v );
+            for ( int a = 0; a < 3; ++a )
+                EXPECT_DOUBLE_EQ( std::abs( p[a] ), 50.0 ) << "vertex " << v << " axis " << a;
+        }
+    }
+
+    // After unlink, both sides of every span edge are boundary edges paired with each other, at the same place.
+    void ExpectEdgesUnlinkedIntoPairs( const FDynamicMesh3& mesh, const FMeshBevelProbe& bevel )
+    {
+        for ( const FMeshBevel::FBevelEdge& e : bevel.Edges )
+        {
+            ASSERT_EQ( e.NewMeshEdges.Num(), e.MeshEdges.Num() );
+            ASSERT_EQ( e.NewMeshVertices.Num(), e.MeshVertices.Num() );
+            for ( int32 i = 0; i < e.MeshEdges.Num(); ++i )
+            {
+                const int e0 = e.MeshEdges[i];
+                const int e1 = e.NewMeshEdges[i];
+                EXPECT_NE( e0, e1 ) << "bevel edge " << e.EdgeIndex;
+                EXPECT_TRUE( mesh.IsBoundaryEdge( e0 ) ) << e0;
+                EXPECT_TRUE( mesh.IsBoundaryEdge( e1 ) ) << e1;
+                const int32* partner = bevel.MeshEdgePairs.Find( e0 );
+                ASSERT_NE( partner, nullptr ) << e0;
+                EXPECT_EQ( *partner, e1 );
+            }
+            for ( int32 i = 0; i < e.MeshVertices.Num(); ++i )
+            {
+                EXPECT_NE( e.MeshVertices[i], e.NewMeshVertices[i] ) << "bevel edge " << e.EdgeIndex;
+                EXPECT_EQ( mesh.GetVertex( e.MeshVertices[i] ), e.InitialPositions[i] );
+                EXPECT_EQ( mesh.GetVertex( e.NewMeshVertices[i] ), e.InitialPositions[i] );
+            }
+        }
+    }
+
+    void ExpectPairsSymmetric( const FMeshBevelProbe& bevel )
+    {
+        for ( const auto& pair : bevel.MeshEdgePairs )
+        {
+            const int32* back = bevel.MeshEdgePairs.Find( pair.second );
+            ASSERT_NE( back, nullptr ) << pair.first << " -> " << pair.second;
+            EXPECT_EQ( *back, pair.first );
+        }
+    }
 
     int GroupEdgeBetween( const FGroupTopology& topology, int groupA, int groupB )
     {
@@ -176,4 +240,77 @@ TEST( MeshBevel, UnknownGroupEdgeIsRefusedByName )
     FMeshBevelProbe     bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 99 } ) );
     EXPECT_NE( bevel.FailureReason.find( "group edge 99" ), std::string::npos ) << bevel.FailureReason;
+}
+
+TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
+{
+    FDynamicMesh3  mesh = TangentCube();
+    FGroupTopology topology( &mesh, true );
+
+    FMeshBevelProbe bevel;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+    bevel.Unlink( mesh );
+    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+    // each corner splits into its three wedges: 8 + 16, and every face is an island of 4 boundary edges
+    EXPECT_EQ( mesh.VertexCount(), 24 );
+    int boundary = 0;
+    for ( const int e : mesh.BoundaryEdgeIndicesItr() )
+    {
+        (void)e;
+        ++boundary;
+    }
+    EXPECT_EQ( boundary, 24 );
+    EXPECT_EQ( bevel.MeshEdgePairs.Num(), 24 );
+    ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
+    ExpectPairsSymmetric( bevel );
+    ExpectPositionsAreCubeCorners( mesh );
+    EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
+}
+
+TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
+{
+    FDynamicMesh3  mesh = TangentCube();
+    FGroupTopology topology( &mesh, true );
+    const int      edge = GroupEdgeBetween( topology, 1, 3 );
+    ASSERT_GE( edge, 0 );
+
+    FMeshBevelProbe bevel;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
+    bevel.Unlink( mesh );
+    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+    // each terminator splits once; the bevel edge and both cap-face split edges open into pairs
+    EXPECT_EQ( mesh.VertexCount(), 10 );
+    std::map<int, std::vector<int>> adjacency;
+    int                             boundary = 0;
+    for ( const int e : mesh.BoundaryEdgeIndicesItr() )
+    {
+        const FIndex2i ev = mesh.GetEdgeV( e );
+        adjacency[ev.A].push_back( ev.B );
+        adjacency[ev.B].push_back( ev.A );
+        ++boundary;
+    }
+    EXPECT_EQ( boundary, 6 );
+    // one simple loop: six vertices of boundary degree two, all reachable from one
+    ASSERT_EQ( adjacency.size(), 6u );
+    for ( const auto& [v, next] : adjacency )
+        EXPECT_EQ( next.size(), 2u ) << "vertex " << v;
+    std::set<int>    seen{ adjacency.begin()->first };
+    std::vector<int> stack{ adjacency.begin()->first };
+    while ( !stack.empty() )
+    {
+        const int v = stack.back();
+        stack.pop_back();
+        for ( const int n : adjacency[v] )
+        {
+            if ( seen.insert( n ).second )
+                stack.push_back( n );
+        }
+    }
+    EXPECT_EQ( seen.size(), 6u );
+    ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
+    ExpectPairsSymmetric( bevel );
+    ExpectPositionsAreCubeCorners( mesh );
+    EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
 }
