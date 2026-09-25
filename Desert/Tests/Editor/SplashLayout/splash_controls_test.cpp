@@ -74,9 +74,9 @@ TEST( SplashControls, APressIsAClickOnlyWhenItStartsAndEndsOnTheSameButton )
 // The start as EditorLayer::OnUpdate runs it: one stage per frame, NextStartupStep asked before each.
 TEST( SplashControls, CloseAskedBetweenStagesStopsEveryLaterStage )
 {
-    std::vector<int> ran;
-    bool             closeRequested = false;
-    bool             quit           = false;
+    std::vector<int>                   ran;
+    bool                               closeRequested = false;
+    bool                               quit           = false;
     std::vector<std::function<void()>> stages;
     for ( int i = 0; i < 6; ++i )
         stages.emplace_back(

@@ -139,16 +139,16 @@ namespace Desert::Editor::Splash
         // drag made since. Nothing when it is not on screen (minimized).
         std::optional<CGRect> OnScreenBounds( const CGWindowID window )
         {
-            const void*    ids[] = { reinterpret_cast<const void*>( static_cast<uintptr_t>( window ) ) };
-            CFArrayRef     list  = CFArrayCreate( nullptr, ids, 1, nullptr );
-            CFArrayRef     info  = CGWindowListCreateDescriptionFromArray( list );
+            const void*           ids[] = { reinterpret_cast<const void*>( static_cast<uintptr_t>( window ) ) };
+            CFArrayRef            list  = CFArrayCreate( nullptr, ids, 1, nullptr );
+            CFArrayRef            info  = CGWindowListCreateDescriptionFromArray( list );
             std::optional<CGRect> bounds;
             if ( info != nullptr && CFArrayGetCount( info ) > 0 )
             {
-                auto      entry    = (CFDictionaryRef)CFArrayGetValueAtIndex( info, 0 );
-                auto      onScreen = (CFBooleanRef)CFDictionaryGetValue( entry, kCGWindowIsOnscreen );
-                auto      rect     = (CFDictionaryRef)CFDictionaryGetValue( entry, kCGWindowBounds );
-                CGRect    frame{};
+                auto   entry    = (CFDictionaryRef)CFArrayGetValueAtIndex( info, 0 );
+                auto   onScreen = (CFBooleanRef)CFDictionaryGetValue( entry, kCGWindowIsOnscreen );
+                auto   rect     = (CFDictionaryRef)CFDictionaryGetValue( entry, kCGWindowBounds );
+                CGRect frame{};
                 if ( onScreen != nullptr && CFBooleanGetValue( onScreen ) && rect != nullptr &&
                      CGRectMakeWithDictionaryRepresentation( rect, &frame ) )
                     bounds = frame;
@@ -177,8 +177,8 @@ namespace Desert::Editor::Splash
                 LOG_WARN( "[Splash] application icon '{}' not found; the Dock keeps the generic icon",
                           kAppIcon.string() );
 
-            NSScreen*     screen  = [NSScreen mainScreen];
-            const NSRect  visible =
+            NSScreen*    screen = [NSScreen mainScreen];
+            const NSRect visible =
                  ( screen != nullptr ) ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
             const CGFloat backing = ( screen != nullptr ) ? screen.backingScaleFactor : 2.0;
             const CGFloat fit     = FitScale( (float)visible.size.width, (float)visible.size.height );
@@ -187,11 +187,11 @@ namespace Desert::Editor::Splash
             const NSRect  frame   = NSMakeRect( visible.origin.x + ( visible.size.width - w ) * 0.5,
                                                 visible.origin.y + ( visible.size.height - h ) * 0.5, w, h );
 
-            m_Window                    = [[NSWindow alloc] initWithContentRect:frame
-                                                   styleMask:NSWindowStyleMaskBorderless |
-                                                             NSWindowStyleMaskMiniaturizable
-                                                     backing:NSBackingStoreBuffered
-                                                       defer:NO];
+            m_Window                    = [[NSWindow alloc]
+                 initWithContentRect:frame
+                           styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskMiniaturizable
+                             backing:NSBackingStoreBuffered
+                               defer:NO];
             m_Window.releasedWhenClosed = NO;
             m_Window.opaque             = NO;
             m_Window.backgroundColor    = [NSColor clearColor];
@@ -266,23 +266,23 @@ namespace Desert::Editor::Splash
             CTFontRef iconFont = LoadIconFont( kButtonGlyphSize );
             for ( const SplashButton button : { SplashButton::Minimize, SplashButton::Close } )
             {
-                const Rect rect         = ButtonRect( button );
-                CALayer*   square       = [[CALayer alloc] init];
-                square.frame            = ToCG( rect );
-                CATextLayer* glyph      = [[CATextLayer alloc] init];
-                const bool   close      = button == SplashButton::Close;
-                glyph.font              = iconFont != nullptr ? (CFTypeRef)iconFont
-                                                              : (__bridge CFTypeRef)[NSFont systemFontOfSize:kButtonGlyphSize];
-                glyph.fontSize          = kButtonGlyphSize;
-                glyph.string            = iconFont != nullptr ? ToNS( close ? UI::kCloseGlyph : UI::kMinimizeGlyph )
-                                                              : ( close ? @"\u2715" : @"\u2013" );
-                glyph.alignmentMode     = kCAAlignmentCenter;
-                glyph.contentsScale     = scale;
-                CGColorRef white        = MakeColour( 1, 1, 1, 0.9 );
-                glyph.foregroundColor   = white;
+                const Rect rect       = ButtonRect( button );
+                CALayer*   square     = [[CALayer alloc] init];
+                square.frame          = ToCG( rect );
+                CATextLayer* glyph    = [[CATextLayer alloc] init];
+                const bool   close    = button == SplashButton::Close;
+                glyph.font            = iconFont != nullptr ? (CFTypeRef)iconFont
+                                                            : (__bridge CFTypeRef)[NSFont systemFontOfSize:kButtonGlyphSize];
+                glyph.fontSize        = kButtonGlyphSize;
+                glyph.string          = iconFont != nullptr ? ToNS( close ? UI::kCloseGlyph : UI::kMinimizeGlyph )
+                                                            : ( close ? @"\u2715" : @"\u2013" );
+                glyph.alignmentMode   = kCAAlignmentCenter;
+                glyph.contentsScale   = scale;
+                CGColorRef white      = MakeColour( 1, 1, 1, 0.9 );
+                glyph.foregroundColor = white;
                 CGColorRelease( white );
-                const CGFloat line      = LineHeight( kButtonGlyphSize );
-                glyph.frame             = CGRectMake( 0, ( rect.H - line ) * 0.5, rect.W, line );
+                const CGFloat line = LineHeight( kButtonGlyphSize );
+                glyph.frame        = CGRectMake( 0, ( rect.H - line ) * 0.5, rect.W, line );
                 [square addSublayer:glyph];
                 [m_Root addSublayer:square];
                 m_ButtonSquares[close ? 1 : 0] = square;
@@ -405,8 +405,8 @@ namespace Desert::Editor::Splash
             if ( const auto bounds = OnScreenBounds( m_WindowId ) )
             {
                 const DesignPoint at =
-                     ScreenToDesign( (float)pointer.Location.x, (float)pointer.Location.y,
-                                     (float)bounds->origin.x, (float)bounds->origin.y, (float)m_Fit );
+                     ScreenToDesign( (float)pointer.Location.x, (float)pointer.Location.y, (float)bounds->origin.x,
+                                     (float)bounds->origin.y, (float)m_Fit );
                 under = HitTestButtons( at.X, at.Y );
             }
             const SplashButton before[2] = { m_Buttons.Hovered(), m_Buttons.Pressed() };
@@ -453,8 +453,8 @@ namespace Desert::Editor::Splash
             m_Fill.frame        = ToCG( layout.BarFill );
             // Once close is clicked the load is being abandoned, and the stage the main thread last
             // reported is no longer what is happening.
-            m_Stage.string      = ToNS( CloseRequested() ? std::string( "Closing..." ) : status.Stage );
-            m_Item.string       = ToNS( CloseRequested() ? std::string{} : status.Item );
+            m_Stage.string = ToNS( CloseRequested() ? std::string( "Closing..." ) : status.Stage );
+            m_Item.string  = ToNS( CloseRequested() ? std::string{} : status.Item );
             // No stage yet means no plan yet: a "0%" there would be a number that says nothing.
             m_Percent.string = ToNS( status.Stage.empty() ? std::string{} : FormatPercent( status.Fraction ) );
         }
@@ -545,12 +545,12 @@ namespace Desert::Editor::Splash
         // Set by the splash's thread, carried out on the main thread (AppKit's rule for window changes).
         std::shared_ptr<std::atomic<bool>> m_MinimizeAsked = std::make_shared<std::atomic<bool>>( false );
 
-        std::thread             m_Thread;
-        std::mutex              m_Mutex;
-        std::condition_variable m_Wake;
+        std::thread                     m_Thread;
+        std::mutex                      m_Mutex;
+        std::condition_variable         m_Wake;
         std::optional<ProgressSnapshot> m_Pending;
-        bool                    m_Stop   = false;
-        bool                    m_Closed = false;
+        bool                            m_Stop   = false;
+        bool                            m_Closed = false;
     };
 
     std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent& content )

@@ -20,7 +20,6 @@ namespace Desert::Editor::UI
         // 4px invisible margin, which is where the number comes from.
         constexpr float kGripThickness = 6.0f;
 
-
         ImVec4 ToImGui( const ButtonColour& colour )
         {
             return ImVec4( colour.R, colour.G, colour.B, colour.A );
@@ -39,9 +38,9 @@ namespace Desert::Editor::UI
             ImGui::PushStyleColor( ImGuiCol_ButtonActive, active );
             ImGui::PushStyleVar( ImGuiStyleVar_FrameRounding, 0.0f );
 
-            const float height = ImGui::GetFrameHeight();
-            const bool  clicked =
-                 ImGui::Button( ( std::string( icon ) + "##" + id ).c_str(), ImVec2( kWindowButtonWidth, height ) );
+            const float height  = ImGui::GetFrameHeight();
+            const bool  clicked = ImGui::Button( ( std::string( icon ) + "##" + id ).c_str(),
+                                                 ImVec2( kWindowButtonWidth, height ) );
 
             ImGui::PopStyleVar();
             ImGui::PopStyleColor( 3 );

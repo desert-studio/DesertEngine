@@ -60,7 +60,7 @@ namespace Desert::Assets
         // The number of registry rows `PreloadCookedAssetsAndMaterials` works through — the splash weighs
         // the stage by it before the stage begins.
         static std::size_t CookedAssetRowCount();
-        void PreloadSkyboxes();
+        void               PreloadSkyboxes();
         // @p progress names each shader program as it is compiled; `ShaderRowCount` is how many there are.
         // @p stop is asked before each program; true ends the preload there, the rest unregistered.
         void               PreloadShaders( const ItemProgress& progress = {}, const StopRequested& stop = {} );

@@ -200,7 +200,7 @@ namespace Desert::Editor::Splash
                  CreateWindowExW( WS_EX_APPWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED, kClassName, L"Desert Engine",
                                   WS_POPUP | WS_MINIMIZEBOX, x, y, w, h, nullptr, nullptr, instance, nullptr );
             const std::wstring iconFont = UI::kIconFontFile.wstring();
-            m_IconFontLoaded = AddFontResourceExW( iconFont.c_str(), FR_PRIVATE, nullptr ) > 0;
+            m_IconFontLoaded            = AddFontResourceExW( iconFont.c_str(), FR_PRIVATE, nullptr ) > 0;
             if ( !m_IconFontLoaded )
                 LOG_WARN( "[Splash] icon font '{}' could not be loaded; the window buttons draw system characters",
                           UI::kIconFontFile.string() );
@@ -363,12 +363,12 @@ namespace Desert::Editor::Splash
                     info.bmiHeader.biPlanes      = 1;
                     info.bmiHeader.biBitCount    = 32;
                     info.bmiHeader.biCompression = BI_RGB;
-                    const int srcW = static_cast<int>( m_Picture->Width );
-                    const int srcH = static_cast<int>( m_Picture->Height );
+                    const int srcW               = static_cast<int>( m_Picture->Width );
+                    const int srcH               = static_cast<int>( m_Picture->Height );
                     SetStretchBltMode( dc, HALFTONE );
                     SetBrushOrgEx( dc, 0, 0, nullptr );
-                    StretchDIBits( dc, 0, 0, w, h, 0, 0, srcW, srcH, m_Picture->Rgba.data(), &info,
-                                   DIB_RGB_COLORS, SRCCOPY );
+                    StretchDIBits( dc, 0, 0, w, h, 0, 0, srcW, srcH, m_Picture->Rgba.data(), &info, DIB_RGB_COLORS,
+                                   SRCCOPY );
                 }
                 else
                 {
@@ -436,7 +436,8 @@ namespace Desert::Editor::Splash
 
         SplashButton ButtonAt( const int x, const int y ) const
         {
-            return HitTestButtons( static_cast<float>( x ) / m_Scale, kHeight - static_cast<float>( y ) / m_Scale );
+            return HitTestButtons( static_cast<float>( x ) / m_Scale,
+                                   kHeight - static_cast<float>( y ) / m_Scale );
         }
 
         // Every pointer message, on the splash's thread (which owns the window): hover, pressed, click.
@@ -454,9 +455,9 @@ namespace Desert::Editor::Splash
             if ( message == WM_LBUTTONUP )
                 ReleaseCapture();
 
-            const SplashButton under   = message == WM_MOUSELEAVE ? SplashButton::None : ButtonAt( x, y );
-            const bool         down    = ( message == WM_LBUTTONDOWN ) ||
-                                         ( message == WM_MOUSEMOVE && ( GetKeyState( VK_LBUTTON ) & 0x8000 ) != 0 );
+            const SplashButton under = message == WM_MOUSELEAVE ? SplashButton::None : ButtonAt( x, y );
+            const bool         down  = ( message == WM_LBUTTONDOWN ) ||
+                              ( message == WM_MOUSEMOVE && ( GetKeyState( VK_LBUTTON ) & 0x8000 ) != 0 );
             const SplashButton clicked = m_Buttons.Update( under, down );
             if ( clicked == SplashButton::Close && !CloseRequested() )
             {
@@ -474,8 +475,8 @@ namespace Desert::Editor::Splash
         {
             const int glyphPx = -static_cast<int>( kButtonGlyphSize * m_Scale * 96.0f / 72.0f + 0.5f );
             HFONT     font    = CreateFontW( glyphPx, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                             DEFAULT_PITCH, m_IconFontLoaded ? L"Material Design Icons" : L"Segoe UI" );
+                                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH,
+                                      m_IconFontLoaded ? L"Material Design Icons" : L"Segoe UI" );
             HGDIOBJ   old     = SelectObject( dc, font );
             SetBkMode( dc, TRANSPARENT );
             SetTextColor( dc, RGB( 230, 230, 230 ) );
@@ -486,15 +487,15 @@ namespace Desert::Editor::Splash
                 if ( colour.A > 0.0f )
                 {
                     // One pixel of the colour, stretched and blended: GDI's only per-call alpha fill.
-                    HDC         pixelDc = CreateCompatibleDC( dc );
-                    HBITMAP     pixel   = CreateCompatibleBitmap( dc, 1, 1 );
-                    HGDIOBJ     oldBmp  = SelectObject( pixelDc, pixel );
+                    HDC     pixelDc = CreateCompatibleDC( dc );
+                    HBITMAP pixel   = CreateCompatibleBitmap( dc, 1, 1 );
+                    HGDIOBJ oldBmp  = SelectObject( pixelDc, pixel );
                     SetPixel( pixelDc, 0, 0,
                               RGB( static_cast<BYTE>( colour.R * 255.0f ), static_cast<BYTE>( colour.G * 255.0f ),
                                    static_cast<BYTE>( colour.B * 255.0f ) ) );
                     BLENDFUNCTION blend{ AC_SRC_OVER, 0, static_cast<BYTE>( colour.A * 255.0f ), 0 };
-                    GdiAlphaBlend( dc, box.left, box.top, box.right - box.left, box.bottom - box.top, pixelDc, 0, 0,
-                                   1, 1, blend );
+                    GdiAlphaBlend( dc, box.left, box.top, box.right - box.left, box.bottom - box.top, pixelDc, 0,
+                                   0, 1, 1, blend );
                     SelectObject( pixelDc, oldBmp );
                     DeleteObject( pixel );
                     DeleteDC( pixelDc );
