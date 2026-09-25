@@ -264,7 +264,7 @@ TEST( WorldPartitionMap, TheLegendNamesEveryStateAndSumsToTheCellCount )
     {
         EXPECT_EQ( sum( Map::Legend( plan, nullptr, level ) ), cellsAt( level ) ) << "Edit, level " << level;
 
-        ResidencyState before; // before the first step: no units yet, every cell Unloaded
+        const ResidencyState before; // before the first step: no units yet, every cell Unloaded
         EXPECT_EQ( sum( Map::Legend( plan, &before, level ) ), cellsAt( level ) )
              << "empty state, level " << level;
 

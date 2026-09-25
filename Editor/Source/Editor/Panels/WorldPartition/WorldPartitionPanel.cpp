@@ -10,6 +10,7 @@
 
 #include "WorldPartitionPanel.hpp"
 
+#include <ranges>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
@@ -334,11 +335,11 @@ namespace Desert::Editor
             const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
-            for ( auto it = legend.rbegin(); it != legend.rend(); ++it )
+            for ( const Map::LegendRow& entry : std::views::reverse( legend ) )
             {
                 row.y -= h + 2.0f;
-                list.AddRectFilled( row, ImVec2( row.x + h, row.y + h ), ToU32( Map::ColorOf( it->State ) ) );
-                const std::string text = std::format( "{} ({})", Map::NameOf( it->State ), it->Count );
+                list.AddRectFilled( row, ImVec2( row.x + h, row.y + h ), ToU32( Map::ColorOf( entry.State ) ) );
+                const std::string text = std::format( "{} ({})", Map::NameOf( entry.State ), entry.Count );
                 list.AddText( ImVec2( row.x + h + 6.0f, row.y ), IM_COL32( 230, 230, 230, 255 ), text.c_str() );
             }
         }
