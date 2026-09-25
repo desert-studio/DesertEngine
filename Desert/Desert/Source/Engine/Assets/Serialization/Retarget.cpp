@@ -287,6 +287,12 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<RetargetAssetData>( "{}", valid.GetError() );
         }
 
+        if ( !data.Header )
+        {
+            return Common::MakeFormattedError<RetargetAssetData>(
+                 "retarget '{}': the header was checked but is absent", data.Name );
+        }
+
         // ONE REFERENCE, TWO STATEMENTS OF IT: the header's Dependencies must be exactly the source rig's
         // GUID, or the registry's edge and the resolver's rig disagree and neither side would notice.
         if ( data.Header->Dependencies != std::vector<std::string>{ data.SourceSkeleton.Guid } )

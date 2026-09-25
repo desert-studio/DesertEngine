@@ -262,18 +262,19 @@ namespace
         namespace CC                             = Common::Content;
         const std::vector<unsigned char> payload = Assets::EncodeCloudModellingPayload( Body() );
         CC::AssetEnvelope                envelope;
-        envelope.Asset.Kind       = kind;
-        envelope.Asset.Guid       = CC::AssetGuid::Generate();
-        envelope.Asset.Subsystems = { { Assets::kCloudModellingSubsystemTag, version } };
-        const auto* first         = reinterpret_cast<const std::byte*>( payload.data() );
-        envelope.Sections.push_back(
-             { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, { first, first + payload.size() } } );
+        envelope.Asset.Kind                           = kind;
+        envelope.Asset.Guid                           = CC::AssetGuid::Generate();
+        envelope.Asset.Subsystems                     = { { Assets::kCloudModellingSubsystemTag, version } };
+        const std::span<const std::byte> payloadBytes = std::as_bytes( std::span( payload ) );
+        envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                       std::vector<std::byte>( payloadBytes.begin(), payloadBytes.end() ) } );
         const auto file = CC::WriteAssetEnvelope( envelope );
         EXPECT_TRUE( file ) << file.GetError();
         if ( !file )
             return {};
-        const auto* begin = reinterpret_cast<const unsigned char*>( file.GetValue().data() );
-        return { begin, begin + file.GetValue().size() };
+        std::vector<unsigned char> out( file.GetValue().size() );
+        std::memcpy( out.data(), file.GetValue().data(), file.GetValue().size() );
+        return out;
     }
 } // namespace
 
@@ -287,9 +288,8 @@ TEST( CloudModellingVolume, TheEnvelopeStatesKindGuidAndTheContainerVersionUnder
     namespace CC                        = Common::Content;
     const CC::SubsystemVersion kKnown[] = {
          { Assets::kCloudModellingSubsystemTag, Assets::kCloudModellingContainerVersion } };
-    const auto header = CC::ReadEnvelopeHeader(
-         std::span( reinterpret_cast<const std::byte*>( first.GetValue().data() ), first.GetValue().size() ),
-         CC::AssetHeaderReadContext{ kKnown } );
+    const auto header = CC::ReadEnvelopeHeader( std::as_bytes( std::span( first.GetValue() ) ),
+                                                CC::AssetHeaderReadContext{ kKnown } );
     ASSERT_TRUE( header ) << header.GetError();
     EXPECT_EQ( header.GetValue().Asset.Kind, CC::ContentKind::CloudModellingVolume );
     EXPECT_FALSE( header.GetValue().Asset.Guid.IsNull() );

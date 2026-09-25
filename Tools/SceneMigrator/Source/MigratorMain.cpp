@@ -1511,14 +1511,13 @@ namespace Desert::Migration
             const CC::SubsystemVersion kKnown[] = {
                  { Desert::Assets::kCloudNoiseSubsystemTag, Desert::Assets::kCloudNoiseContainerVersion } };
             const std::string bytes     = ReadAll( path );
-            const auto*       first     = reinterpret_cast<const std::byte*>( bytes.data() );
+            const auto        all       = std::as_bytes( std::span( bytes ) );
             constexpr size_t  kPrefix   = sizeof( Desert::Assets::kCloudNoiseMagic ) + 4u;
             constexpr size_t  kOriginAt = 52u; // payload offset of the origin word version 2 added
             if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudNoiseMagic,
                                                         sizeof( Desert::Assets::kCloudNoiseMagic ) ) != 0 )
             {
-                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
-                                                            CC::AssetHeaderReadContext{ kKnown } );
+                const auto header = CC::ReadEnvelopeHeader( all, CC::AssetHeaderReadContext{ kKnown } );
                 if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
                 {
                     err << "FAIL   " << path.string() << " — neither a bare 'DCNV' container nor a cloud noise "
@@ -1540,7 +1539,7 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            std::vector<std::byte> payload( first + kPrefix, first + bytes.size() );
+            std::vector<std::byte> payload( all.begin() + kPrefix, all.end() );
             if ( version == 1u )
             {
                 if ( payload.size() < kOriginAt )
@@ -1565,9 +1564,9 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            const auto* wrappedFirst = reinterpret_cast<const unsigned char*>( wrapped.GetValue().data() );
-            const auto  reread       = Desert::Assets::DecodeCloudNoiseVolume(
-                 std::vector<unsigned char>( wrappedFirst, wrappedFirst + wrapped.GetValue().size() ) );
+            std::vector<unsigned char> wrappedBytes( wrapped.GetValue().size() );
+            std::memcpy( wrappedBytes.data(), wrapped.GetValue().data(), wrapped.GetValue().size() );
+            const auto reread = Desert::Assets::DecodeCloudNoiseVolume( wrappedBytes );
             if ( !reread || !( reread.GetValue().Guid == envelope.Asset.Guid ) )
             {
                 err << "FAIL   " << path.string() << " — the wrapped noise volume does not read back: "
@@ -1602,13 +1601,12 @@ namespace Desert::Migration
             const CC::SubsystemVersion kKnown[] = { { Desert::Assets::kCloudModellingSubsystemTag,
                                                       Desert::Assets::kCloudModellingContainerVersion } };
             const std::string          bytes    = ReadAll( path );
-            const auto*                first    = reinterpret_cast<const std::byte*>( bytes.data() );
+            const auto                 all      = std::as_bytes( std::span( bytes ) );
             constexpr size_t           kPrefix  = sizeof( Desert::Assets::kCloudModellingMagic ) + 4u;
             if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudModellingMagic,
                                                         sizeof( Desert::Assets::kCloudModellingMagic ) ) != 0 )
             {
-                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
-                                                            CC::AssetHeaderReadContext{ kKnown } );
+                const auto header = CC::ReadEnvelopeHeader( all, CC::AssetHeaderReadContext{ kKnown } );
                 if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudModellingVolume )
                 {
                     err << "FAIL   " << path.string() << " — neither a bare 'DCMV' container nor a sculpted "
@@ -1637,7 +1635,7 @@ namespace Desert::Migration
             envelope.Asset.Guid       = CC::AssetGuid::Generate();
             envelope.Asset.Subsystems = { kKnown[0] };
             envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
-                                           std::vector<std::byte>( first + kPrefix, first + bytes.size() ) } );
+                                           std::vector<std::byte>( all.begin() + kPrefix, all.end() ) } );
             const auto wrapped = CC::WriteAssetEnvelope( envelope );
             if ( !wrapped )
             {
@@ -1645,9 +1643,9 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            const auto* wrappedFirst = reinterpret_cast<const unsigned char*>( wrapped.GetValue().data() );
-            const auto  reread       = Desert::Assets::DecodeCloudModellingVolume(
-                 std::vector<unsigned char>( wrappedFirst, wrappedFirst + wrapped.GetValue().size() ) );
+            std::vector<unsigned char> wrappedBytes( wrapped.GetValue().size() );
+            std::memcpy( wrappedBytes.data(), wrapped.GetValue().data(), wrapped.GetValue().size() );
+            const auto reread = Desert::Assets::DecodeCloudModellingVolume( wrappedBytes );
             if ( !reread || !( reread.GetValue().Guid == envelope.Asset.Guid ) )
             {
                 err << "FAIL   " << path.string() << " — the wrapped sculpted cloud volume does not read back: "
