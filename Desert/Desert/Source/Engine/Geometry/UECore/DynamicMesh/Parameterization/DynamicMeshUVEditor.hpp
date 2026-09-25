@@ -44,10 +44,10 @@ namespace Desert::Geometry
          * bUseExistingUVTopology keeps the triangles' current UV elements and only moves them (triangles without
          * UVs are skipped); otherwise a new island is made. False without a boundary or if the solve failed.
          */
-        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32>& Triangles,
-                                                              bool                 bUseExistingUVTopology,
-                                                              bool                 bPreserveIrregularity,
-                                                              FUVEditResult*       Result = nullptr );
+        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32_t>& Triangles,
+                                                              bool                   bUseExistingUVTopology,
+                                                              bool                   bPreserveIrregularity,
+                                                              FUVEditResult*         Result = nullptr );
 
     private:
         FDynamicMesh3*         Mesh;

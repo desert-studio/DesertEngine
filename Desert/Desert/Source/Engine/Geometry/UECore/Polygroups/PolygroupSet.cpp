@@ -8,8 +8,8 @@ using namespace Desert::Geometry;
 
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Polygroups/PolygroupUtil.cpp: 7-78 (the
-// polygroup-layer lookups FPolygroupSet uses), adapted: FName is std::string; the triangle-label lookups are not
-// ported.
+// polygroup-layer lookups FPolygroupSet uses), adapted: std::string is std::string; the triangle-label lookups are
+// not ported.
 namespace
 {
     const FDynamicMeshPolygroupAttribute* FindPolygroupLayerByName( const FDynamicMesh3& Mesh,

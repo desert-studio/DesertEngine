@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshNormals.h:1-259, adapted: UE Core
-// via UECore.hpp, namespace Desert::Geometry, TFunctionRef is std::function.
+// via UECore.hpp, namespace Desert::Geometry, std::function is std::function.
 
 #pragma once
 

@@ -1,8 +1,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/DynamicMeshAttributeSet.h:1-765,
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry; TIndirectArray is std::vector<std::unique_ptr>,
-// TUniquePtr is std::unique_ptr, FName is std::string; ported layers: UV, normal (+tangent/bitangent), colour,
-// MaterialID, polygroup layers and generic attached attributes. NOT ported: weight layers, triangle labels, skin
-// weights, morph targets, bones, sculpt layers (no Desert consumer), IsSameAs and FArchive serialization.
+// TUniquePtr is std::unique_ptr, std::string is std::string; ported layers: UV, normal (+tangent/bitangent),
+// colour, MaterialID, polygroup layers and generic attached attributes. NOT ported: weight layers, triangle
+// labels, skin weights, morph targets, bones, sculpt layers (no Desert consumer), IsSameAs and FArchive
+// serialization.
 
 #pragma once
 

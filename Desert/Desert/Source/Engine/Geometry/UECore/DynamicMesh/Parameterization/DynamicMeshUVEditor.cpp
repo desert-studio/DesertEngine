@@ -151,7 +151,7 @@ namespace Desert::Geometry
         return bFrameOK && NumFailed == 0;
     }
 
-    bool FDynamicMeshUVEditor::SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32>& Triangles,
+    bool FDynamicMeshUVEditor::SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32_t>& Triangles,
                                                                                 bool bUseExistingUVTopology,
                                                                                 bool bPreserveIrregularity,
                                                                                 FUVEditResult* Result )
@@ -162,17 +162,17 @@ namespace Desert::Geometry
             ResetUVs( Triangles );
 
         FDynamicMesh3                    Submesh;
-        std::unordered_map<int32, int32> BaseToSubmeshV;
-        TArray<int32>                    SubmeshToBaseV;
-        TArray<int32>                    SubmeshToBaseT;
-        for ( const int32 tid : Triangles )
+        std::unordered_map<int32_t, int32_t> BaseToSubmeshV;
+        TArray<int32_t>                      SubmeshToBaseV;
+        TArray<int32_t>                      SubmeshToBaseT;
+        for ( const int32_t tid : Triangles )
         {
             if ( bUseExistingUVTopology && !UVOverlay->IsSetTriangle( tid ) )
                 continue;
             const FIndex3i Triangle =
                  bUseExistingUVTopology ? UVOverlay->GetTriangle( tid ) : Mesh->GetTriangle( tid );
             FIndex3i NewTriangle;
-            for ( int32 j = 0; j < 3; ++j )
+            for ( int32_t j = 0; j < 3; ++j )
             {
                 const auto Found = BaseToSubmeshV.find( Triangle[j] );
                 if ( Found != BaseToSubmeshV.end() )
@@ -201,7 +201,7 @@ namespace Desert::Geometry
         if ( Longest == nullptr )
             return false;
         FSpectralConformalMeshUVSolver Solver( Submesh, bPreserveIrregularity );
-        for ( const int32 vid : Longest->Vertices )
+        for ( const int32_t vid : Longest->Vertices )
             Solver.AddBoundaryVertex( vid );
         TArray<FVector2d> UVBuffer;
         if ( !Solver.SolveUVs( UVBuffer ) )
@@ -209,21 +209,21 @@ namespace Desert::Geometry
 
         if ( bUseExistingUVTopology )
         {
-            for ( int32 k = 0; k < SubmeshToBaseV.Num(); ++k )
+            for ( int32_t k = 0; k < SubmeshToBaseV.Num(); ++k )
                 UVOverlay->SetElement( SubmeshToBaseV[k], ToFloat( UVBuffer[k] ) );
             if ( Result != nullptr )
-                Result->NewUVElements = MoveTemp( SubmeshToBaseV );
+                Result->NewUVElements = std::move( SubmeshToBaseV );
             return true;
         }
-        TArray<int32> VtxElementIDs;
-        TArray<int32> NewElementIDs;
+        TArray<int32_t> VtxElementIDs;
+        TArray<int32_t> NewElementIDs;
         VtxElementIDs.Init( FDynamicMesh3::InvalidID, Submesh.MaxVertexID() );
-        for ( const int32 vid : Submesh.VertexIndicesItr() )
+        for ( const int32_t vid : Submesh.VertexIndicesItr() )
         {
             VtxElementIDs[vid] = UVOverlay->AppendElement( ToFloat( UVBuffer[vid] ) );
             NewElementIDs.Add( VtxElementIDs[vid] );
         }
-        for ( const int32 tid : Submesh.TriangleIndicesItr() )
+        for ( const int32_t tid : Submesh.TriangleIndicesItr() )
         {
             const FIndex3i SubTri = Submesh.GetTriangle( tid );
             UVOverlay->SetTriangle(
@@ -231,7 +231,7 @@ namespace Desert::Geometry
                  FIndex3i( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B], VtxElementIDs[SubTri.C] ) );
         }
         if ( Result != nullptr )
-            Result->NewUVElements = MoveTemp( NewElementIDs );
+            Result->NewUVElements = std::move( NewElementIDs );
         return true;
     }
 } // namespace Desert::Geometry

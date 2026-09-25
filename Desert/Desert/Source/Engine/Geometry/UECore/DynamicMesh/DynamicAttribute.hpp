@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/DynamicAttribute.h:1-421, adapted: UE
-// Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; FName is std::string; undo/redo
-// change objects and FArchive serialization not ported.
+// Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; std::string is std::string;
+// undo/redo change objects and FArchive serialization not ported.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
