@@ -8,6 +8,7 @@
 #include <cassert>
 #include <map>
 #include <string>
+#include <unordered_map>
 
 namespace Desert::Geometry
 {
@@ -24,8 +25,13 @@ namespace Desert::Geometry
             return true;
         }
 
-        // Positions welded within a tolerance through a uniform grid of cells one tolerance wide: a point can
-        // only match inside its own cell or the 26 around it.
+        // Positions welded within a tolerance through a uniform hash grid, the pattern of UE's TPointHashGrid3
+        // (GeometryCore/Public/Spatial/PointHashGrid3.h): hashed cells rather than an ordered map, and only the
+        // cells the query box [p - tolerance, p + tolerance] touches. A match is per-axis within the tolerance,
+        // so a point in any other cell can never match and skipping it changes no result. Cells are
+        // kCellsPerTolerance tolerances wide: one tolerance wide, the box straddles two cells on every axis and
+        // every query is 8 probes; 8 wide, it straddles on an axis 1 time in 4, about 2 probes, while real
+        // vertex spacing (millimetres against a 0.01 mm tolerance) still leaves a cell with a point or two.
         class PositionWelder
         {
         public:
@@ -34,12 +40,14 @@ namespace Desert::Geometry
             }
             [[nodiscard]] int Find( const EditMesh& mesh, const glm::vec3& p ) const
             {
-                const auto base = Cell( p );
-                for ( int dx = -1; dx <= 1; ++dx )
-                    for ( int dy = -1; dy <= 1; ++dy )
-                        for ( int dz = -1; dz <= 1; ++dz )
+                const glm::vec3 reach( m_Tolerance );
+                const CellKey   lo = Cell( p - reach );
+                const CellKey   hi = Cell( p + reach );
+                for ( int64_t x = lo[0]; x <= hi[0]; ++x )
+                    for ( int64_t y = lo[1]; y <= hi[1]; ++y )
+                        for ( int64_t z = lo[2]; z <= hi[2]; ++z )
                         {
-                            const auto it = m_Cells.find( { base[0] + dx, base[1] + dy, base[2] + dz } );
+                            const auto it = m_Cells.find( { x, y, z } );
                             if ( it == m_Cells.end() )
                                 continue;
                             for ( const int v : it->second )
@@ -54,16 +62,36 @@ namespace Desert::Geometry
             }
 
         private:
-            [[nodiscard]] std::array<int64_t, 3> Cell( const glm::vec3& p ) const
+            static constexpr float kCellsPerTolerance = 8.0f;
+            using CellKey                             = std::array<int64_t, 3>;
+            struct CellHash
+            {
+                size_t operator()( const CellKey& c ) const noexcept
+                {
+                    // The cells of one mesh are a dense lattice, and a plain XOR of scaled axes sends whole
+                    // planes of it into a few buckets (measured: the 500^3 box spent half its weld walking
+                    // chains). Each axis is folded in through a full 64-bit avalanche (splitmix64's finaliser).
+                    uint64_t h = 0;
+                    for ( const int64_t axis : c )
+                    {
+                        h ^= static_cast<uint64_t>( axis ) + 0x9e3779b97f4a7c15ull + ( h << 6 ) + ( h >> 2 );
+                        h = ( h ^ ( h >> 30 ) ) * 0xbf58476d1ce4e5b9ull;
+                        h = ( h ^ ( h >> 27 ) ) * 0x94d049bb133111ebull;
+                        h ^= h >> 31;
+                    }
+                    return static_cast<size_t>( h );
+                }
+            };
+            [[nodiscard]] CellKey Cell( const glm::vec3& p ) const
             {
                 // A zero tolerance still needs a finite cell; 1 cm cells then hold exact matches only.
-                const float size = m_Tolerance > 0.0f ? m_Tolerance : 1.0f;
+                const float size = m_Tolerance > 0.0f ? m_Tolerance * kCellsPerTolerance : 1.0f;
                 return { static_cast<int64_t>( std::floor( p.x / size ) ),
                          static_cast<int64_t>( std::floor( p.y / size ) ),
                          static_cast<int64_t>( std::floor( p.z / size ) ) };
             }
-            float                                              m_Tolerance;
-            std::map<std::array<int64_t, 3>, std::vector<int>> m_Cells;
+            float                                                   m_Tolerance;
+            std::unordered_map<CellKey, std::vector<int>, CellHash> m_Cells;
         };
 
         template <typename Overlay>
@@ -111,8 +139,15 @@ namespace Desert::Geometry
             submesh.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32 units
             submesh.Transform    = glm::mat4( 1.0f );
 
-            // (vertex, normal element, tangent element, uv element) -> submesh-local render vertex.
-            std::map<std::array<int, 4>, uint32_t> corners;
+            // Per vertex, the (normal, tangent, uv element) corners already emitted and their submesh-local
+            // render vertex. A vertex has a handful of corners, so a scan is the whole lookup - linear in the
+            // triangle count, where an ordered map of every corner was N log N.
+            struct Corner
+            {
+                std::array<int, 3> Elements;
+                uint32_t           Local;
+            };
+            std::vector<std::vector<Corner>> corners( static_cast<size_t>( mesh.MaxVertexId() ) );
             for ( const int t : triangles )
             {
                 const auto& tri = mesh.GetTriangle( t );
@@ -124,9 +159,14 @@ namespace Desert::Geometry
                     const int                en = normals->GetTriangle( t )[j];
                     const int et = ( tangents != nullptr ) ? tangents->GetTriangle( t )[j] : InvalidId;
                     const int eu = ( uvs != nullptr ) ? uvs->GetTriangle( t )[j] : InvalidId;
-                    const std::array<int, 4> key{ v, en, et, eu };
-                    auto                     found = corners.find( key );
-                    if ( found == corners.end() )
+                    const std::array<int, 3> key{ en, et, eu };
+                    std::vector<Corner>&     at    = corners[static_cast<size_t>( v )];
+                    const auto               found = std::find_if( at.begin(), at.end(),
+                                                                   [&]( const Corner& c ) { return c.Elements == key; } );
+                    uint32_t                 local = 0;
+                    if ( found != at.end() )
+                        local = found->Local;
+                    else
                     {
                         Vertex vertex{};
                         vertex.Position = mesh.GetPosition( v );
@@ -139,12 +179,12 @@ namespace Desert::Geometry
                         }
                         if ( uvs != nullptr )
                             vertex.TexCoord = uvs->GetElement( eu );
-                        const auto local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
+                        local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
                         out.SourceVertices.push_back( v );
-                        found = corners.emplace( key, local ).first;
+                        at.push_back( { key, local } );
                     }
-                    *slots[j] = found->second;
+                    *slots[j] = local;
                 }
                 out.Indices.push_back( index );
                 out.SourceTriangles.push_back( t );
@@ -238,6 +278,10 @@ namespace Desert::Geometry
 
         for ( const Range& range : ranges )
         {
+            // Each render vertex is welded once and its triangles reuse the answer, as UE's MeshDescription
+            // conversion maps every vertex once: a closed grid shares a vertex between ~6 corners, and welding
+            // per corner made the 500^3 box pay 9 million grid queries instead of 1.5 million.
+            std::vector<int> weldedOf( range.VertexCount, InvalidId );
             for ( uint32_t k = 0; k < range.TriangleCount; ++k )
             {
                 const Index&                  index = render.Indices[range.FirstTriangle + k];
@@ -254,7 +298,12 @@ namespace Desert::Geometry
 
                 std::array<int, 3> corners{};
                 for ( int j = 0; j < 3; ++j )
-                    corners[j] = weldVertex( source[j]->Position );
+                {
+                    int& welded = weldedOf[local[j]];
+                    if ( welded == InvalidId )
+                        welded = weldVertex( source[j]->Position );
+                    corners[j] = welded;
+                }
                 if ( corners[0] == corners[1] || corners[1] == corners[2] || corners[2] == corners[0] )
                 {
                     ++result.DroppedDegenerate;
