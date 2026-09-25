@@ -38,8 +38,9 @@ namespace Desert::Assets
     inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
     inline constexpr uint32_t kControlRigSchemaVersion = 2;
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
     inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
-    inline constexpr uint32_t kRetargetSchemaVersion = 2;
+    inline constexpr uint32_t kRetargetSchemaVersion = 3;
     // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
