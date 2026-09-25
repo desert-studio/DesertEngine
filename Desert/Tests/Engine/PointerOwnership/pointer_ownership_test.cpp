@@ -567,11 +567,13 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   two set per lifetime: 446 / 351 / 143 / 42 = 982.
     //   WP20b +1 Raw +1 Shared: WorldPartitionPanel::m_Assets (row in the register) and the panel's m_Scene:
     //   447 / 352 / 143 / 42 = 984.
-    EXPECT_EQ( CountOf( Form::Raw ), 447 );
+    //   P13d +5 Raw: the ported ExpMap's FDynamicMeshUVEditor::Mesh/UVOverlay, FDynamicSubmesh3::BaseMesh,
+    //   TMeshDijkstra::PointSet, TMeshLocalParam::PointSet (rows in the register): 452 / 352 / 143 / 42 = 989.
+    EXPECT_EQ( CountOf( Form::Raw ), 452 );
     EXPECT_EQ( CountOf( Form::Shared ), 352 );
     EXPECT_EQ( CountOf( Form::Unique ), 143 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 984 )
+    EXPECT_EQ( (int)Members().size(), 989 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

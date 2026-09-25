@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,22 @@ namespace Desert::Editor::WorldPartitionMap
     // RGBA in 0..1 — UE's streaming status colour with its 2D tile opacity.
     [[nodiscard]] glm::vec4   ColorOf( CellState state );
     [[nodiscard]] const char* NameOf( CellState state );
+
+    // UE's legend names every state a cell can be in, not only the ones on screen. In Edit that is one state,
+    // in Play every residency (StateOf's range for a non-null residency).
+    [[nodiscard]] std::span<const CellState> LegendStates( bool streaming );
+
+    struct LegendRow
+    {
+        CellState   State;
+        std::size_t Count;
+    };
+    // One row per LegendStates( residency != nullptr ), counting EVERY cell of @p plan at @p level (< 0: all
+    // levels), on screen or not: the rows sum to the partition's cell count, so a zoomed or followed view
+    // cannot make cells vanish from the legend.
+    [[nodiscard]] std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                                 const ::Desert::Core::Rules::ResidencyState*     residency,
+                                                 int                                              level );
 
     // The streaming source's loading circle and its unload band, in pixels.
     [[nodiscard]] double RadiusPixels( const View& view, double radiusCm );

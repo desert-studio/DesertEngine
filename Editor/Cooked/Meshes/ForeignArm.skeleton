@@ -1,4 +1,12 @@
 {
+    "Header": {
+        "Kind": "Skeleton",
+        "Guid": "6e7625493009a5445f91e22e58561d44",
+        "Versions": {
+            "SKEL": 1
+        },
+        "Dependencies": []
+    },
     "Signature": 8155024733651207695,
     "Bones": [
         {

@@ -56,6 +56,7 @@
 #include <Engine/Assets/Serialization/AnimationClipBuild.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <rflcpp/rfl.hpp>
 #include <rflcpp/rfl/json.hpp>
@@ -274,7 +275,6 @@ namespace
             return {};
 
         File::AnimationAssetData clip;
-        clip.Version           = File::kAnimationVersion;
         clip.Name              = "ForeignArm_Swing";
         clip.TickRate          = File::FrameRateData{ 24000, 1 };
         clip.DisplayRate       = File::FrameRateData{ 8, 1 };
@@ -439,7 +439,8 @@ namespace
 TEST( RetargetAssetTest, ARetargetWrittenAndReadBackIsTheSameRetargetByValue )
 {
     const File::RetargetAssetData original = ShippedRetarget();
-    ASSERT_FALSE( original.SourceSkeleton.empty() );
+    ASSERT_FALSE( original.SourceSkeleton.Guid.empty() );
+    ASSERT_FALSE( original.SourceSkeleton.Path.empty() );
 
     auto reread = File::ParseRetarget( File::WriteRetarget( original ) );
     ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
@@ -447,6 +448,55 @@ TEST( RetargetAssetTest, ARetargetWrittenAndReadBackIsTheSameRetargetByValue )
     // BY VALUE, not "the text is non-empty" and not "it parsed". `operator==` is the only statement that
     // covers every field, including the ones a future row adds without anyone remembering this test.
     EXPECT_EQ( reread.GetValue(), original );
+
+    // THE PAIR BY ITSELF, because `operator==` on the whole struct would still pass if both halves were
+    // dropped the same way on both sides. And the header states the rig as its one Dependency.
+    EXPECT_EQ( reread.GetValue().SourceSkeleton, original.SourceSkeleton );
+    const auto& header = reread.GetValue().Header;
+    if ( !header )
+    {
+        ADD_FAILURE() << "the reread retarget has no header";
+        return;
+    }
+    EXPECT_EQ( header->Dependencies, std::vector<std::string>{ original.SourceSkeleton.Guid } );
+}
+
+TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
+{
+    // THE GUID IN THE RETARGET IS THE RIG'S OWN, read out of the shipped `.skeleton`'s header, and not a
+    // number minted beside it: a GUID nobody states resolves to nothing, which loads fine and does nothing.
+    const File::RetargetAssetData data = ShippedRetarget();
+    const auto                    rigGuid =
+         Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path );
+    ASSERT_FALSE( rigGuid.IsNull() ) << data.SourceSkeleton.Path << " states no header GUID";
+    EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( rigGuid ) );
+}
+
+TEST( RetargetAssetTest, AHeaderThatDoesNotStateTheRigAsItsDependencyIsRefused )
+{
+    // ONE REFERENCE, TWO STATEMENTS: the header's Dependencies and the payload's rig GUID. Each way they can
+    // disagree is refused by ParseRetarget, naming the rig's GUID.
+    const File::RetargetAssetData data = ShippedRetarget();
+    const std::string             text = File::WriteRetarget( data );
+    const std::string             dep  = "\"Dependencies\"";
+    ASSERT_NE( text.find( dep ), std::string::npos ) << text;
+
+    auto withDependencies = []( const File::RetargetAssetData& d, std::vector<std::string> deps )
+    {
+        auto parsed = File::ParseRetarget( File::WriteRetarget( d ) );
+        EXPECT_TRUE( parsed.IsSuccess() );
+        auto stamped                 = parsed.IsSuccess() ? parsed.ExtractValue() : d;
+        stamped.Header->Dependencies = std::move( deps );
+        return rfl::json::write( stamped );
+    };
+    const std::string other = "0123456789abcdef0123456789abcdef";
+    for ( const auto& deps : { std::vector<std::string>{}, std::vector<std::string>{ other },
+                               std::vector<std::string>{ data.SourceSkeleton.Guid, other } } )
+    {
+        const auto refused = File::ParseRetarget( withDependencies( data, deps ) );
+        ASSERT_FALSE( refused.IsSuccess() ) << deps.size() << " dependencies";
+        EXPECT_NE( refused.GetError().find( data.SourceSkeleton.Guid ), std::string::npos ) << refused.GetError();
+    }
 }
 
 TEST( RetargetAssetTest, TheFileSurvivesTheDiskAndTheRefusalNamesTheFile )
@@ -488,6 +538,24 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
         EXPECT_NE( backward.GetError().find( "format version 1" ), std::string::npos ) << backward.GetError();
         EXPECT_NE( backward.GetError().find( "SceneMigrator" ), std::string::npos ) << backward.GetError();
     }
+
+    // A VERSION-2 FILE - the header, but the rig as a bare path - is refused by name too (T7f): its
+    // `"RTGT": 2` is the one thing a reader can trust before the payload's shape is known.
+    // The payload is written in the v2 shape, the rig a bare string, so the refusal must come from the
+    // stated version and not from the typed read failing on the object it now expects.
+    std::string v2     = File::WriteRetarget( ShippedRetarget() );
+    const auto  rigAt  = v2.find( "\"SourceSkeleton\"" );
+    const auto  rigEnd = v2.find( '}', rigAt );
+    ASSERT_NE( rigAt, std::string::npos ) << v2;
+    ASSERT_NE( rigEnd, std::string::npos ) << v2;
+    v2.replace( rigAt, rigEnd + 1 - rigAt, R"("SourceSkeleton": "ForeignArm.skeleton")" );
+    const auto statedAt = v2.find( stated );
+    ASSERT_NE( statedAt, std::string::npos ) << v2;
+    v2.replace( statedAt, stated.size(), "\"RTGT\": 2" );
+    const auto older = File::ParseRetarget( v2 );
+    ASSERT_FALSE( older.IsSuccess() );
+    EXPECT_NE( older.GetError().find( "format version 2" ), std::string::npos ) << older.GetError();
+    EXPECT_NE( older.GetError().find( "SceneMigrator" ), std::string::npos ) << older.GetError();
 }
 
 TEST( RetargetAssetTest, EveryShapeOfUnusableRetargetIsRefusedAndTheMessageNamesTheRow )
@@ -502,16 +570,21 @@ TEST( RetargetAssetTest, EveryShapeOfUnusableRetargetIsRefusedAndTheMessageNames
     // ONE ROW PER REFUSAL, each naming the substring the message owes the author. A refusal that does not
     // say WHICH row is wrong sends a rigger to read the whole file.
     const Case cases[] = {
-         { "no source rig", "source rig", []( File::RetargetAssetData& d ) { d.SourceSkeleton.clear(); } },
+         { "no source rig", "source rig", []( File::RetargetAssetData& d ) { d.SourceSkeleton.Path.clear(); } },
+         { "no source rig GUID", "GUID", []( File::RetargetAssetData& d ) { d.SourceSkeleton.Guid.clear(); } },
+         { "a malformed source rig GUID", "GUID",
+           []( File::RetargetAssetData& d ) { d.SourceSkeleton.Guid = "not-a-guid"; } },
+         { "a null source rig GUID", "GUID",
+           []( File::RetargetAssetData& d ) { d.SourceSkeleton.Guid = std::string( 32, '0' ); } },
          // BOTH ROOTED SPELLINGS, because only one of them was caught. A POSIX absolute path is not
          // `is_absolute()` on Windows (no drive letter), so this row passed there until the validator
          // was changed to ask `has_root_path()`. One row per spelling, so neither can hide the other.
          { "an absolute source rig", "relative",
-           []( File::RetargetAssetData& d ) { d.SourceSkeleton = "/Users/someone/ForeignArm.skeleton"; } },
+           []( File::RetargetAssetData& d ) { d.SourceSkeleton.Path = "/Users/someone/ForeignArm.skeleton"; } },
          { "a drive-lettered source rig", "relative",
-           []( File::RetargetAssetData& d ) { d.SourceSkeleton = "C:/Users/someone/ForeignArm.skeleton"; } },
+           []( File::RetargetAssetData& d ) { d.SourceSkeleton.Path = "C:/Users/someone/ForeignArm.skeleton"; } },
          { "an escaping source rig", "relative",
-           []( File::RetargetAssetData& d ) { d.SourceSkeleton = "../../elsewhere/ForeignArm.skeleton"; } },
+           []( File::RetargetAssetData& d ) { d.SourceSkeleton.Path = "../../elsewhere/ForeignArm.skeleton"; } },
          { "no source pelvis", "pelvis", []( File::RetargetAssetData& d ) { d.SourcePelvisBone.clear(); } },
          { "no target pelvis", "pelvis", []( File::RetargetAssetData& d ) { d.TargetPelvisBone.clear(); } },
          { "an offset naming no bone", "offset", []( File::RetargetAssetData& d )
@@ -1014,11 +1087,12 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     ASSERT_TRUE( File::ValidateRetargetData( data ).IsSuccess() );
 
     // THE PATH IN THE FILE HAS TO NAME A FILE. The one join this project performs is
-    // `MESH_PATH_COOKED / SourceSkeleton`; checking it here is what stops the corpus from shipping a
-    // retarget whose source rig is a typo, which loads perfectly and does nothing.
-    const std::string rig = root + "Editor/Cooked/Meshes/" + data.SourceSkeleton;
+    // `MESH_PATH_COOKED / SourceSkeleton.Path` (for the reader; the rig resolves by GUID); checking it here is
+    // what stops the corpus from shipping a retarget whose source rig is a typo, which loads perfectly and does
+    // nothing.
+    const std::string rig = root + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path;
     EXPECT_FALSE( ReadFile( rig ).empty() )
-         << "the shipped retarget names " << data.SourceSkeleton << ", which is not in the cooked meshes";
+         << "the shipped retarget names " << data.SourceSkeleton.Path << ", which is not in the cooked meshes";
 
     // AND THE TWO RIGS MUST NOT SHARE A SIGNATURE, or `SkinnedMeshAsset::ResolveDependencies` could bind
     // IKProbe.skmesh to the source rig — see this file's header.
@@ -1089,7 +1163,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
          << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
 
     const File::AnimationAssetData builtClip = ForeignArmClipData();
-    EXPECT_EQ( shippedClip.value().Version, builtClip.Version );
+    EXPECT_TRUE( shippedClip.value().Header.has_value() ) << kSourceClip << " states no header";
     EXPECT_EQ( shippedClip.value().Name, builtClip.Name );
     EXPECT_EQ( shippedClip.value().DurationTicks, builtClip.DurationTicks );
     EXPECT_EQ( shippedClip.value().SkeletonSignature, builtClip.SkeletonSignature );
