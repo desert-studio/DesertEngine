@@ -120,7 +120,7 @@ TEST( ViewMemory, AViewportSizedViewHoldsTargetsAtTheViewportSize )
 {
     using namespace Desert::Graphic;
     constexpr ViewExtent viewport{ 1280, 720 };
-    const auto           rows = ViewTargetCensus( kSceneViewProfile, viewport.Width, viewport.Height );
+    const auto           rows    = ViewTargetCensus( kSceneViewProfile, viewport.Width, viewport.Height );
     bool                 sawFull = false;
     for ( const auto& row : rows )
     {
