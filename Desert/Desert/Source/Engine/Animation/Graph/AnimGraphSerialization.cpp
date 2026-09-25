@@ -2,15 +2,15 @@
 
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <array>
 #include <format>
 
-// reflect-cpp round-trip for the AnimGraph (all plain structs). DefaultIfMissing tolerates graphs saved by an
-// older build that lacked a field, so adding fields never breaks existing .danimgraph files. The header is the
-// one member that is NOT tolerated missing (T7d): it is the graph's identity, minted once by the migrator.
+// Common::Json round-trip for the AnimGraph (all plain structs), read STRICTLY: a field missing from a
+// .danimgraph is an error naming its path, never a default filled in behind the reader's back. A field added
+// later is either std::optional (its absence means something) or moved into the files by a migration. The
+// header is checked first on its own (T7d): it is the graph's identity, minted once by the migrator.
 namespace Desert::Animation::Graph
 {
     namespace
@@ -31,7 +31,7 @@ namespace Desert::Animation::Graph
         AnimGraph out = graph;
         out.Header    = Assets::StampTextHeader( graph.Header, Common::Content::ContentKind::AnimGraph,
                                                  AnimGraphTextSubsystems() );
-        return rfl::json::write( out );
+        return Common::Json::Write( out );
     }
 
     Common::ResultStr<AnimGraph> Deserialize( const std::string& json )
@@ -40,15 +40,15 @@ namespace Desert::Animation::Graph
         if ( auto headed = Assets::RefuseTextWithoutHeader( json, kAnimGraphVersion, 0 ); !headed )
             return Common::MakeError<AnimGraph>( std::format( "anim graph {}", headed.GetError() ) );
 
-        auto parsed = rfl::json::read<AnimGraph, rfl::DefaultIfMissing>( json );
+        auto parsed = Common::Json::Read<AnimGraph>( json );
         if ( !parsed )
-            return Common::MakeError<AnimGraph>( std::format( "bad .danimgraph: {}", parsed.error().what() ) );
+            return Common::MakeError<AnimGraph>( std::format( "bad .danimgraph: {}", parsed.GetError() ) );
 
         if ( auto header = Assets::CheckStatedHeader(
-                  parsed.value().Header, Common::Content::ContentKind::AnimGraph, Assets::kAnimGraphSchemaTag,
+                  parsed.GetValue().Header, Common::Content::ContentKind::AnimGraph, Assets::kAnimGraphSchemaTag,
                   kAnimGraphVersion, AnimGraphTextSubsystems() );
              !header )
             return Common::MakeError<AnimGraph>( std::format( "anim graph {}", header.GetError() ) );
-        return Common::MakeSuccess( parsed.value() );
+        return Common::MakeSuccess( parsed.GetValue() );
     }
 } // namespace Desert::Animation::Graph

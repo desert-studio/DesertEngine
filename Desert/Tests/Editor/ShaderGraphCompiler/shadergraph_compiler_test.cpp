@@ -874,16 +874,15 @@ TEST( ShaderGraphFormat, MalformedJsonIsRefusedAndSaysSo )
          << "the refusal does not say what kind of file failed: " << refused.GetError();
 }
 
-TEST( ShaderGraphFormat, AFieldAnOlderBuildNeverWroteTakesItsDefault )
+TEST( ShaderGraphFormat, AFieldTheFileDoesNotStateIsRefusedByName )
 {
-    // `DefaultIfMissing`, asserted rather than assumed: a graph written before `Lit` existed must still
-    // open, and it must open as the unlit surface that build meant. A strict read here would refuse
-    // every graph in anybody's project the first time the Document grew a member.
+    // STRICT, asserted rather than assumed (owner rule: a missing field is an error, not a fallback). A
+    // graph that does not state `Domain` and `Lit` is refused naming both, instead of opening as a surface
+    // nobody chose; every committed .dgraph states them (StrictCorpus in AssetHandleStability).
     const auto parsed = SGF::ParseShaderGraph( R"({"Name":"Old","NextId":3,"Nodes":[],"Links":[]})" );
-    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
-    EXPECT_EQ( parsed.GetValue().Name, "Old" );
-    EXPECT_EQ( parsed.GetValue().DomainEnum(), SGF::Domain::Surface );
-    EXPECT_FALSE( parsed.GetValue().Lit );
+    ASSERT_FALSE( parsed.IsSuccess() );
+    EXPECT_NE( parsed.GetError().find( "'Domain'" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "'Lit'" ), std::string::npos ) << parsed.GetError();
 }
 
 // THE DOCUMENT SAVES TO THE FILE IT WAS OPENED ON, and this is the U6 rule that the window being a tool

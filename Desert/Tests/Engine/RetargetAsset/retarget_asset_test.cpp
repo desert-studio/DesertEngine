@@ -518,7 +518,7 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
 {
     // WriteRetarget stamps the CURRENT version, so a future one is provoked through the text.
     std::string       text   = File::WriteRetarget( ShippedRetarget() );
-    const std::string stated = "\"RTGT\": " + std::to_string( File::kRetargetVersion );
+    const std::string stated = "\"RTGT\":" + std::to_string( File::kRetargetVersion );
     const auto        at     = text.find( stated );
     ASSERT_NE( at, std::string::npos ) << text;
     text.replace( at, stated.size(), "\"RTGT\": 42" );

@@ -2,22 +2,6 @@
 # outside Common/Json and the migrators. Format: <repo-relative path> | <owner task or KEEP>: <why>.
 # A row whose file is already clean is a failure: delete the row when the file moves to the facade.
 Desert/Common/Source/Common/Content/CanonicalText.cpp | KEEP: the canonical-layout printer walks yyjson documents itself; it is the layout, not a protocol
-Desert/Common/Source/Common/Content/TextAssetHeader.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/MaterialFormat.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Prefab/PrefabData.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Serialization/Animation.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Serialization/ControlRig.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Serialization/ShaderGraph.cpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/Serialization/Skeleton.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/TextAssetHeaderCheck.hpp | JS1b: asset formats move to Json::Read/Write
-Desert/Desert/Source/Engine/Assets/UIThemeData.cpp | JS1b: asset formats move to Json::Read/Write
 Desert/Desert/Source/Engine/Core/Scene.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/AuthoredComponentIO.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
@@ -32,7 +16,6 @@ Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c: scene/componen
 Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/WorldStreamer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Localization/StringTable.cpp | JS1b: asset formats move to Json::Read/Write
 Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Reflection/ReflectionTypes.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
@@ -50,6 +33,8 @@ Desert/Tests/Editor/PackagedContent/packaged_content_test.cpp | JS1d: test fixtu
 Desert/Tests/Editor/PreferenceOwnership/preference_ownership_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Editor/SceneSaveOutcome/scene_save_outcome_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Editor/TextureImport/texture_import_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Editor/ThumbnailFreshness/thumbnail_freshness_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Editor/ThumbnailSweep/thumbnail_sweep_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/AnimationClipCorpus/animation_clip_corpus_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/AnimationClipFormat/animation_clip_format_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/AssetHandleInverse/asset_handle_inverse_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it

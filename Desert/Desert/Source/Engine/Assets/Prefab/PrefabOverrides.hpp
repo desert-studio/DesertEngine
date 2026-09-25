@@ -16,7 +16,7 @@
 
 #include <Common/Core/UUID.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cstddef>
 #include <optional>
@@ -71,8 +71,9 @@ namespace Desert::Assets
     // A PAYLOAD THAT IS NOT AN OBJECT is compared whole, because it has no fields to take apart — that
     // is a real shape (a component serialized as an array or a scalar), and guessing at sub-structure
     // there would be a second definition of "field".
-    [[nodiscard]] std::optional<rfl::Generic> DiffPayload( const rfl::Generic& base, const rfl::Generic& live,
-                                                           PrefabDiffReport* report = nullptr );
+    [[nodiscard]] std::optional<Common::Json::Value> DiffPayload( const Common::Json::Value& base,
+                                                                  const Common::Json::Value& live,
+                                                                  PrefabDiffReport*          report = nullptr );
 
     // @p partial laid over @p current: every field @p partial states wins, every field it does not keeps
     // the value @p current has. This is the other half of DiffPayload and the reason a field-level
@@ -81,7 +82,8 @@ namespace Desert::Assets
     //
     // The two APPLIERS (this one, onto a live component, and LayerOverrideOntoRecord, onto a record) go
     // through here, so there is one statement of what "merge" means.
-    [[nodiscard]] rfl::Generic MergePayload( const rfl::Generic& current, const rfl::Generic& partial );
+    [[nodiscard]] Common::Json::Value MergePayload( const Common::Json::Value& current,
+                                                    const Common::Json::Value& partial );
 
     // The override's META — tag and transform — in the shape EntitySerializer::DeserializeEntity
     // consumes. COMPONENTS ARE DELIBERATELY NOT IN IT: they are now partial payloads, and handing a

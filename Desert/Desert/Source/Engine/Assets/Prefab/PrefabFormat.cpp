@@ -1,7 +1,7 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -43,35 +43,35 @@ namespace Desert::Assets
 
     Common::ResultStr<PrefabData> ParseLoadablePrefab( std::string_view source, const std::string& json )
     {
-        auto parsed = rfl::json::read<PrefabData>( json );
+        auto parsed = Common::Json::Read<PrefabData>( json );
         if ( !parsed )
         {
             return Common::MakeError<PrefabData>(
                  fmt::format( "[PrefabAsset] '{0}' is not a readable prefab file: {1}. Nothing was loaded.",
-                              source, parsed.error().what() ) );
+                              source, parsed.GetError() ) );
         }
 
-        if ( !PrefabIsAtCurrentVersion( parsed.value() ) )
-            return Common::MakeError<PrefabData>( RefusePrefabVersion( source, parsed.value() ) );
+        if ( !PrefabIsAtCurrentVersion( parsed.GetValue() ) )
+            return Common::MakeError<PrefabData>( RefusePrefabVersion( source, parsed.GetValue() ) );
 
         const Common::Content::AssetHeaderReadContext context{ Core::SceneTextSubsystems() };
-        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
+        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.GetValue().Header, context );
         if ( !header )
             return Common::MakeError<PrefabData>(
                  fmt::format( "[PrefabAsset] '{0}': {1}. Nothing was loaded.", source, header.GetError() ) );
         if ( header.GetValue().Kind != Common::Content::ContentKind::Prefab )
             return Common::MakeError<PrefabData>(
                  fmt::format( "[PrefabAsset] '{0}': the header says kind '{1}', not 'Prefab'. Nothing was loaded.",
-                              source, parsed.value().Header->Kind ) );
+                              source, parsed.GetValue().Header->Kind ) );
 
-        return Common::MakeSuccess( std::move( parsed.value() ) );
+        return Common::MakeSuccess( std::move( parsed.GetValue() ) );
     }
 
     Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab )
     {
         prefab.Header =
              StampTextHeader( prefab.Header, Common::Content::ContentKind::Prefab, Core::SceneTextSubsystems() );
-        return Common::Content::CanonicalJsonTextOfWriterOutput( rfl::json::write( prefab ) );
+        return Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( prefab ) );
     }
 
 } // namespace Desert::Assets

@@ -3,8 +3,7 @@
 
 #include <Engine/Localization/LocaleFormat.hpp>
 
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <unordered_set>
 
@@ -167,11 +166,11 @@ namespace Desert::Localization
         if ( auto headed = Assets::RefuseTextWithoutHeader( text, kStringTableFormatVersion, 1 ); !headed )
             return Common::MakeFormattedError<StringTableData>( "{}", headed.GetError() );
 
-        const auto parsed = rfl::json::read<StringTableData>( text );
+        const auto parsed = Common::Json::Read<StringTableData>( text );
         if ( !parsed )
-            return Common::MakeFormattedError<StringTableData>( "{}", parsed.error().what() );
+            return Common::MakeFormattedError<StringTableData>( "{}", parsed.GetError() );
 
-        StringTableData data = parsed.value();
+        StringTableData data = parsed.GetValue();
 
         if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::StringTable,
                                                       Assets::kStringTableSchemaTag, kStringTableFormatVersion,
@@ -190,6 +189,6 @@ namespace Desert::Localization
         StringTableData stamped = data;
         stamped.Header          = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::StringTable,
                                                            StringTableTextSubsystems() );
-        return rfl::json::write( stamped, YYJSON_WRITE_PRETTY );
+        return Common::Json::Write( stamped );
     }
 } // namespace Desert::Localization
