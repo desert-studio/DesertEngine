@@ -3,7 +3,6 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
 
-
 namespace Common::Content
 {
     namespace

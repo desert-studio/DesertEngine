@@ -310,7 +310,8 @@ TEST( SceneVersionGate, ARedirectorAtTheOldPathIsRefusedAsARedirectorNotAsBroken
          Common::Content::AssetRedirector{ { 0xAF10B2ull, 8 }, target, "Scene/Before.desce" } );
     ASSERT_TRUE( static_cast<bool>( encoded ) ) << encoded.GetError();
     std::string bytes( encoded.GetValue().size(), '\0' );
-    std::ranges::transform( encoded.GetValue(), bytes.begin(), []( std::byte b ) { return static_cast<char>( b ); } );
+    std::ranges::transform( encoded.GetValue(), bytes.begin(),
+                            []( std::byte b ) { return static_cast<char>( b ); } );
 
     const auto loadable = ParseLoadableScene( "Before.desce", bytes );
 

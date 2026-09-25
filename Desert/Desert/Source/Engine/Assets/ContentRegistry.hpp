@@ -270,8 +270,9 @@ namespace Desert::Assets
         // registry cannot say. The namer Common::Content::RefuseRedirectorBytes takes.
         inline std::string KeyOfRedirectorTarget( const Common::Content::AssetGuid& target )
         {
-            const Common::Utils::AssetRegistry& registry = Get();
-            const Common::Utils::AssetRegistryEntry* row = registry.FindByHandle( Common::Content::HandleForGuid( target ) );
+            const Common::Utils::AssetRegistry&      registry = Get();
+            const Common::Utils::AssetRegistryEntry* row =
+                 registry.FindByHandle( Common::Content::HandleForGuid( target ) );
             if ( row == nullptr )
                 return {};
             auto followed = registry.FollowRedirectors( *row );

@@ -62,7 +62,9 @@ namespace Desert::Assets
             return Common::MakeFormattedError<bool>( "String table '{}' is empty or could not be opened", path );
         }
 
-        if ( auto moved = Common::Content::RefuseRedirectorBytes( path, text, ContentRegistry::KeyOfRedirectorTarget ); !moved )
+        if ( auto moved =
+                  Common::Content::RefuseRedirectorBytes( path, text, ContentRegistry::KeyOfRedirectorTarget );
+             !moved )
         {
             m_Ready = false;
             return Common::MakeFormattedError<bool>( "String table not loaded: {}", moved.GetError() );

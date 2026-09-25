@@ -8032,8 +8032,9 @@ namespace Desert::Editor
              !moved )
         {
             LOG_ERROR( "{0}", moved.GetError() );
-            Editor::ToastManager::Push( "Scene not loaded — this path is a redirector to a moved scene (see the log)",
-                                        Editor::ToastLevel::Error );
+            Editor::ToastManager::Push(
+                 "Scene not loaded — this path is a redirector to a moved scene (see the log)",
+                 Editor::ToastLevel::Error );
             return;
         }
         if ( const auto loadable = Desert::Core::ParseLoadableScene( path.string(), content ); !loadable )
