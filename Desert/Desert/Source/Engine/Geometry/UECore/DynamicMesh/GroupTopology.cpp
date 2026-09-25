@@ -4,6 +4,8 @@
 // failure is kept as FailureReason; the extra-corner hook is not ported (see the header).
 #include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
 
+#include "Engine/Geometry/UECore/VectorTypes.hpp"
+
 using namespace Desert::Geometry;
 
 bool FGroupTopology::FGroupEdge::IsConnectedToVertices( const TSet<int>& Vertices ) const
@@ -309,6 +311,29 @@ void FGroupTopology::FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) 
     {
         FindCornerNbrEdges( Edge.EndpointCorners.B, EdgesOut );
     }
+}
+
+// UE GroupTopology.cpp:357-377.
+double FGroupTopology::GetEdgeArcLength( int32 GroupEdgeID, TArray<double>* PerVertexLengthsOut ) const
+{
+    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < Edges.Num() );
+    const TArray<int>& Vertices = GetGroupEdgeVertices( GroupEdgeID );
+    const int32        NumV     = Vertices.Num();
+    if ( PerVertexLengthsOut != nullptr )
+    {
+        PerVertexLengthsOut->SetNum( NumV );
+        ( *PerVertexLengthsOut )[0] = 0.0;
+    }
+    double AccumLength = 0;
+    for ( int32 k = 1; k < NumV; ++k )
+    {
+        AccumLength += Distance( Mesh->GetVertex( Vertices[k] ), Mesh->GetVertex( Vertices[k - 1] ) );
+        if ( PerVertexLengthsOut != nullptr )
+        {
+            ( *PerVertexLengthsOut )[k] = AccumLength;
+        }
+    }
+    return AccumLength;
 }
 
 bool FGroupTopology::IsBoundaryEdge( int32 GroupEdgeID ) const
