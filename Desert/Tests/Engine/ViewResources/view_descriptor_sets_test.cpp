@@ -58,8 +58,9 @@ namespace
 
         FakeSets* Active( uint32_t frame ) const
         {
-            return static_cast<FakeSets*>( Sets.FindActive( frame ) ); // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast):
-                                                                       // the maker above makes only FakeSets
+            return static_cast<FakeSets*>(
+                 Sets.FindActive( frame ) ); // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast):
+                                             // the maker above makes only FakeSets
         }
 
         // An image write, as ApplyTexture2D does it: into the active view's set, and recorded as a seed.
