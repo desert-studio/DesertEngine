@@ -1,7 +1,8 @@
 // Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Parameterization/
 // DynamicMeshUVEditor.h, adapted: only the ExpMap path the bevel needs (ResetUVs(Triangles), TransformUVElements,
-// EstimateGeodesicCenterFrameVertex, SetTriangleUVsFromExpMap); FExpMapOptions is not ported (its defaults, zero
-// normal-smoothing rounds, are what every UE caller here passes).
+// EstimateGeodesicCenterFrameVertex, SetTriangleUVsFromExpMap) and SetTriangleUVsFromFreeBoundarySpectralConformal
+// (the spectral branch of SetTriangleUVsFromConformal; the natural-conformal branch has no caller here);
+// FExpMapOptions is not ported (its defaults, zero normal-smoothing rounds, are what every UE caller here passes).
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
@@ -37,6 +38,16 @@ namespace Desert::Geometry
          * EstimateGeodesicCenterFrameVertex. False if the frame was a fallback or any triangle stayed unset.
          */
         bool SetTriangleUVsFromExpMap( const TArray<int32>& Triangles, FUVEditResult* Result = nullptr );
+
+        /**
+         * Spectral conformal UVs with a free boundary (nothing pinned; the longest boundary loop is the free set).
+         * bUseExistingUVTopology keeps the triangles' current UV elements and only moves them (triangles without
+         * UVs are skipped); otherwise a new island is made. False without a boundary or if the solve failed.
+         */
+        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32>& Triangles,
+                                                              bool                 bUseExistingUVTopology,
+                                                              bool                 bPreserveIrregularity,
+                                                              FUVEditResult*       Result = nullptr );
 
     private:
         FDynamicMesh3*         Mesh;
