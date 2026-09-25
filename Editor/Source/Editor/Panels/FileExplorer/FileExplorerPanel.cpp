@@ -1560,8 +1560,8 @@ namespace Desert::Editor
                     // written since M10 moved a mesh's thumbnail onto its cooked `.stmesh`. The ghost has
                     // been silently falling back to the type icon for every mesh ever since, which is
                     // exactly the kind of "it still works, just worse" a re-read site decays into.
-                    img = m_Thumbnails->Get( ThumbnailKey::DiskPath(
-                         CookPaths::MeshAsset( assetPath ).generic_string() ) );
+                    img = m_Thumbnails->Get(
+                         ThumbnailKey::DiskPath( CookPaths::MeshAsset( assetPath ).generic_string() ) );
                 }
             }
 

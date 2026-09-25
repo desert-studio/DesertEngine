@@ -25,7 +25,8 @@ namespace Desert::Editor::MeshDnD
             return s_Importer;
         }
 
-        // Source (Resources/Assets/Meshes/foo.obj) -> its mesh asset beside it (Resources/Assets/Meshes/foo.stmesh).
+        // Source (Resources/Assets/Meshes/foo.obj) -> its mesh asset beside it
+        // (Resources/Assets/Meshes/foo.stmesh).
         std::filesystem::path CookedStaticMeshPath( const std::string& sourcePath )
         {
             return CookPaths::MeshAsset( sourcePath );

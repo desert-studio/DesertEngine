@@ -208,7 +208,8 @@ namespace Common::Content
             std::vector<std::byte> bytes( meta->Size );
             in.clear();
             in.seekg( static_cast<std::streamoff>( meta->Offset ) );
-            if ( !in.read( reinterpret_cast<char*>( bytes.data() ), static_cast<std::streamsize>( bytes.size() ) ) )
+            if ( !in.read( reinterpret_cast<char*>( bytes.data() ),
+                           static_cast<std::streamsize>( bytes.size() ) ) )
                 return std::nullopt;
             const auto decoded = DecodeEnvelopeMeta( bytes );
             if ( !decoded )

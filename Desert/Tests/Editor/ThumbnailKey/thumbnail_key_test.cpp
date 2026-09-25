@@ -223,8 +223,8 @@ namespace
     //
     // The Details 3D Model row keys a mesh thumbnail on the REGISTERED asset's path, because a scene holds
     // a cooked handle and can reach nothing else: `mesh->GetMetadata().Filepath`, the `.stmesh` asset
-    // beside its source (AF4d). The asset browser and the Collections grid start from a SOURCE the user is looking at —
-    // an `.fbx` — and reach the same picture through `CookPaths::MeshAsset`. Two derivations, and until
+    // beside its source (AF4d). The asset browser and the Collections grid start from a SOURCE the user is looking
+    // at — an `.fbx` — and reach the same picture through `CookPaths::MeshAsset`. Two derivations, and until
     // 2026-09-08 they produced two different cache files for one mesh: the same 370 ms render, stored
     // twice under two names, neither able to satisfy the other panel.
     //

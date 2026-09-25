@@ -207,8 +207,8 @@ namespace Desert::Editor
         // chain is derived on load (BuildMeshPlatformData). Skinned meshes never had LODs folded or baked.
         if ( !dataIn.IsSkinned )
             return Common::MakeFormattedError<bool>(
-                "'{}': SerializeMeshAsset writes only skinned meshes; a static mesh is a MeshSourceAsset",
-                sourcePath.string() );
+                 "'{}': SerializeMeshAsset writes only skinned meshes; a static mesh is a MeshSourceAsset",
+                 sourcePath.string() );
         Desert::Assets::Serialization::MeshAssetData data       = dataIn;
         const std::filesystem::path                  cookedPath = BuildCookedPath( sourcePath, ".skmesh" );
 
