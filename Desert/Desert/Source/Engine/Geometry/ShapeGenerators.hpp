@@ -198,27 +198,37 @@ namespace Desert::Geometry
         }
 
         // A flat rectangular face split into nu x nv quads: corner `origin`, full edges `u` and `v`, facing
-        // cross(u, v). UV is 0..1 over the whole face, U along `u`.
+        // cross(u, v). UV is 0..1 over the whole face, U along `u`. The (nu+1) x (nv+1) grid points are
+        // emitted once and shared by the quads around them, as UE's FGridBoxMeshGenerator does: a flat face
+        // has one normal, one tangent and a continuous UV, so a private copy per quad carried nothing but four
+        // times the vertices for the weld to fold back together.
         inline void AddFaceGrid( ShapeMesh& m, GroupAssigner& groups, int face, const glm::vec3& origin,
                                  const glm::vec3& u, const glm::vec3& v, int nu, int nv )
         {
+            const glm::vec3 n    = glm::normalize( glm::cross( u, v ) );
+            const glm::vec3 t    = glm::normalize( u );
+            const auto      base = static_cast<uint32_t>( m.Vertices.size() );
+            const auto      at   = [&]( int i, int j ) {
+                return base + static_cast<uint32_t>( i ) * static_cast<uint32_t>( nv + 1 ) +
+                       static_cast<uint32_t>( j );
+            };
+            for ( int i = 0; i <= nu; ++i )
+                for ( int j = 0; j <= nv; ++j )
+                {
+                    const float s0 = static_cast<float>( i ) / static_cast<float>( nu );
+                    const float t0 = static_cast<float>( j ) / static_cast<float>( nv );
+                    PushVertex( m, origin + u * s0 + v * t0, n, t, glm::vec2( s0, t0 ) );
+                }
             for ( int i = 0; i < nu; ++i )
-            {
                 for ( int j = 0; j < nv; ++j )
                 {
-                    const float     u0 = static_cast<float>( i ) / static_cast<float>( nu );
-                    const float     u1 = static_cast<float>( i + 1 ) / static_cast<float>( nu );
-                    const float     v0 = static_cast<float>( j ) / static_cast<float>( nv );
-                    const float     v1 = static_cast<float>( j + 1 ) / static_cast<float>( nv );
-                    const glm::vec3 p0 = origin + u * u0 + v * v0;
-                    const glm::vec3 p1 = origin + u * u1 + v * v0;
-                    const glm::vec3 p2 = origin + u * u1 + v * v1;
-                    const glm::vec3 p3 = origin + u * u0 + v * v1;
-                    AddQuad(
-                         m, groups.Next( face ), { p0, p1, p2, p3 },
-                         { glm::vec2( u0, v0 ), glm::vec2( u1, v0 ), glm::vec2( u1, v1 ), glm::vec2( u0, v1 ) } );
+                    // p0..p3 counter-clockwise from outside: (i, j), (i+1, j), (i+1, j+1), (i, j+1).
+                    const int group = groups.Next( face );
+                    m.Indices.push_back( { at( i, j ), at( i + 1, j ), at( i + 1, j + 1 ) } );
+                    m.Indices.push_back( { at( i + 1, j + 1 ), at( i, j + 1 ), at( i, j ) } );
+                    m.Groups.push_back( group );
+                    m.Groups.push_back( group );
                 }
-            }
         }
 
         // ── LATHE: every round shape is a profile revolved about +Y ──────────────────────────────────
