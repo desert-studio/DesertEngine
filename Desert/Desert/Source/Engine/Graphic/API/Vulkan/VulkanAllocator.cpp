@@ -111,8 +111,11 @@ namespace Desert::Graphic::API::Vulkan
 #if defined( DESERT_CONFIG_DEBUG )
         static const bool s_Poison = []
         {
+            // Read once, from a function-local static, before any render thread exists; nothing sets the
+            // environment afterwards.
+            // NOLINTNEXTLINE(concurrency-mt-unsafe)
             const char* value  = std::getenv( "DESERT_POISON_NEW_MEMORY" );
-            const bool  poison = value && value[0] != '\0' && value[0] != '0';
+            const bool  poison = value != nullptr && value[0] != '\0' && value[0] != '0';
             if ( poison )
                 LOG_WARN( "[VmaAllocator] DESERT_POISON_NEW_MEMORY is set: new host-visible buffers are filled "
                           "with 0xCD and new 2D images without data are cleared to NaN / 0xCD" );
