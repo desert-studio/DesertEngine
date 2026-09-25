@@ -246,7 +246,7 @@ namespace Desert::Editor::ThumbnailFreshness
             std::string                Identity;
             std::filesystem::path      Png;
             Landed                     What = Landed::NotWritten;
-            bool                       Late = false;  ///< the service had already given up on it
+            bool                       Late = false; ///< the service had already given up on it
             std::optional<std::string> RecordError;  ///< Written, but the record could not be saved
         };
 
@@ -261,13 +261,25 @@ namespace Desert::Editor::ThumbnailFreshness
         }
 
         /// A capture is dispatched and not yet settled, waited for or not.
-        [[nodiscard]] bool Outstanding() const { return !m_Identity.empty(); }
+        [[nodiscard]] bool Outstanding() const
+        {
+            return !m_Identity.empty();
+        }
         /// Outstanding, and the service is still waiting for it.
-        [[nodiscard]] bool Waiting() const { return Outstanding() && !m_GaveUp; }
-        [[nodiscard]] const std::string& Identity() const { return m_Identity; }
+        [[nodiscard]] bool Waiting() const
+        {
+            return Outstanding() && !m_GaveUp;
+        }
+        [[nodiscard]] const std::string& Identity() const
+        {
+            return m_Identity;
+        }
 
         /// Stop waiting. The dispatch is KEPT, so the PNG the renderer still writes gets its record.
-        void GiveUp() { m_GaveUp = true; }
+        void GiveUp()
+        {
+            m_GaveUp = true;
+        }
 
         /// Call once the renderer is idle. Empty when nothing was outstanding.
         [[nodiscard]] std::optional<Settled> Settle()

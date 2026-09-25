@@ -217,7 +217,7 @@ namespace Desert::Editor
         std::unordered_set<std::string>         m_Queued;  // asset identities currently queued or in flight
         std::unordered_set<std::string>         m_Failed;  // gave up: do not retry every frame
         // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
-        ThumbnailFreshness::Capture m_Capture;
+        ThumbnailFreshness::Capture                    m_Capture;
         int                                            m_InFlightTicks = 0;
         int                                            m_IdleTicks     = 0; // consecutive frames with no work
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
@@ -254,6 +254,5 @@ namespace Desert::Editor
         std::string                        m_PaintInFlightIdentity;
         std::string                        m_PaintInFlightSource;
         int                                m_Painted = 0; ///< reported with m_Captured when the queue drains
-
     };
 } // namespace Desert::Editor

@@ -342,7 +342,7 @@ namespace Desert::Editor
         if ( m_Capture.Outstanding() && !m_Renderer->HasPending() )
         {
             const std::optional<ThumbnailFreshness::Capture::Settled> settled = m_Capture.Settle();
-            m_InFlightTicks = 0;
+            m_InFlightTicks                                                   = 0;
             if ( !settled )
                 return;
             if ( settled->What == ThumbnailFreshness::Capture::Landed::NotWritten )
