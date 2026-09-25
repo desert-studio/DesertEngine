@@ -34,7 +34,7 @@ namespace Desert::Geometry
         }
         constexpr static FIndex2i Max()
         {
-            return FIndex2i( std::numeric_limits<int>::max(), std::numeric_limits<int>::max() );
+            return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max() };
         }
         constexpr static FIndex2i Invalid()
         {
@@ -121,8 +121,8 @@ namespace Desert::Geometry
         }
         constexpr static FIndex3i Max()
         {
-            return FIndex3i( std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
-                             std::numeric_limits<int>::max() );
+            return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
+                     std::numeric_limits<int>::max() };
         }
         constexpr static FIndex3i Invalid()
         {
@@ -182,7 +182,7 @@ namespace Desert::Geometry
         /**
          * @return shifted triplet such that A=WantIndex0Value, and B,C values maintain the same relative ordering
          */
-        FIndex3i GetCycled( int32_t WantIndex0Value ) const
+        [[nodiscard]] FIndex3i GetCycled( int32_t WantIndex0Value ) const
         {
             if ( B == WantIndex0Value )
             {
@@ -220,8 +220,8 @@ namespace Desert::Geometry
         }
         static FIndex4i Max()
         {
-            return FIndex4i( std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
-                             std::numeric_limits<int>::max(), std::numeric_limits<int>::max() );
+            return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
+                     std::numeric_limits<int>::max(), std::numeric_limits<int>::max() };
         }
         static FIndex4i Invalid()
         {

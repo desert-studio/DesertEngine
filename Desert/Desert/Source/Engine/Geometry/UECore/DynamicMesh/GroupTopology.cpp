@@ -36,7 +36,7 @@ bool FGroupTopology::RebuildTopology()
     FailureReason.clear();
 
     int32_t MaxGroupID = 0;
-    for ( int32_t Tid : Mesh->TriangleIndicesItr() )
+    for ( int32_t const Tid : Mesh->TriangleIndicesItr() )
     {
         MaxGroupID = std::max( GetGroupID( Tid ), MaxGroupID );
     }
@@ -96,7 +96,7 @@ bool FGroupTopology::RebuildTopology()
 bool FGroupTopology::ShouldVertBeCorner( int VertexID ) const
 {
     int NumGroupEdges = 0;
-    for ( int32_t Eid : Mesh->VtxEdgesItr( VertexID ) )
+    for ( int32_t const Eid : Mesh->VtxEdgesItr( VertexID ) )
     {
         const FIndex2i EdgeTris = Mesh->GetEdgeT( Eid );
         if ( EdgeTris.B == IndexConstants::InvalidID || GetGroupID( EdgeTris.A ) != GetGroupID( EdgeTris.B ) )
@@ -360,8 +360,8 @@ void FGroupTopology::FindCornerNbrGroups( int CornerID, TArray<int>& GroupsOut )
     }
 }
 
-void FGroupTopology::ForCornerNbrEdges( int                                   CornerID,
-                                        std::function<bool( int32_t EdgeID )> ReturnTrueToContinue ) const
+void FGroupTopology::ForCornerNbrEdges( int                                          CornerID,
+                                        const std::function<bool( int32_t EdgeID )>& ReturnTrueToContinue ) const
 {
     UE_CHECK( CornerID >= 0 && CornerID < Corners.Num() );
     TSet<int32_t> ProcessedEdges;
@@ -369,7 +369,7 @@ void FGroupTopology::ForCornerNbrEdges( int                                   Co
     {
         for ( const FGroupBoundary& Boundary : FindGroupByID( GroupID )->Boundaries )
         {
-            for ( int32_t EdgeID : Boundary.GroupEdges )
+            for ( int32_t const EdgeID : Boundary.GroupEdges )
             {
                 const FGroupEdge& Edge = Edges[EdgeID];
                 if ( ( Edge.EndpointCorners.A != CornerID && Edge.EndpointCorners.B != CornerID ) ||
@@ -443,9 +443,9 @@ void FGroupTopology::CollectGroupBoundaryVertices( int GroupID, TSet<int>& Verti
 void FGroupTopology::GetSelectedTriangles( const FGroupTopologySelection& Selection,
                                            TArray<int32_t>&               Triangles ) const
 {
-    for ( int32_t GroupID : Selection.SelectedGroupIDs )
+    for ( int32_t const GroupID : Selection.SelectedGroupIDs )
     {
-        for ( int32_t TriangleID : GetGroupTriangles( GroupID ) )
+        for ( int32_t const TriangleID : GetGroupTriangles( GroupID ) )
         {
             Triangles.Add( TriangleID );
         }
@@ -454,7 +454,7 @@ void FGroupTopology::GetSelectedTriangles( const FGroupTopologySelection& Select
 
 void FGroupTopology::GetAllVertexGroups( int32_t VertexID, TArray<int32_t>& GroupsOut ) const
 {
-    for ( int32_t EdgeID : Mesh->VtxEdgesItr( VertexID ) )
+    for ( int32_t const EdgeID : Mesh->VtxEdgesItr( VertexID ) )
     {
         const FIndex2i EdgeTris = Mesh->GetEdgeT( EdgeID );
         GroupsOut.AddUnique( GetGroupID( EdgeTris.A ) );

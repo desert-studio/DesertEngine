@@ -26,10 +26,10 @@ namespace Desert::Geometry
     /** Standard Color overlay type - 4-element float (rbga) */
     typedef TDynamicMeshVectorOverlay<float, 4, FVector4f> FDynamicMeshColorOverlay;
     /** Standard per-triangle integer material ID */
-    typedef TDynamicMeshScalarTriangleAttribute<int32_t> FDynamicMeshMaterialAttribute;
+    using FDynamicMeshMaterialAttribute = TDynamicMeshScalarTriangleAttribute<int32_t>;
 
     /** Per-triangle integer polygroup ID */
-    typedef TDynamicMeshScalarTriangleAttribute<int32_t> FDynamicMeshPolygroupAttribute;
+    using FDynamicMeshPolygroupAttribute = TDynamicMeshScalarTriangleAttribute<int32_t>;
 
     /**
      * FDynamicMeshAttributeSet manages a set of extended attributes for a FDynamicMesh3.
@@ -116,7 +116,7 @@ namespace Desert::Geometry
         virtual bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
 
         /** @return true if the given vertex is a seam intersection vertex in any overlay */
-        virtual bool IsSeamIntersectionVertex( int32_t VertexID ) const;
+        [[nodiscard]] virtual bool IsSeamIntersectionVertex( int32_t VertexID ) const;
 
         /** @return true if the given edge is a material ID boundary */
         virtual bool IsMaterialBoundaryEdge( int EdgeID ) const;
@@ -250,7 +250,7 @@ namespace Desert::Geometry
         //
 
         /** @return number of Polygroup layers */
-        virtual int32_t NumPolygroupLayers() const;
+        [[nodiscard]] virtual int32_t NumPolygroupLayers() const;
 
         /** Set the number of Polygroup layers */
         virtual void SetNumPolygroupLayers( int32_t Num );
@@ -288,7 +288,7 @@ namespace Desert::Geometry
         // Generic attributes
         //
 
-        void AttachAttribute( std::string AttribName, FDynamicMeshAttributeBase* Attribute )
+        void AttachAttribute( const std::string& AttribName, FDynamicMeshAttributeBase* Attribute )
         {
             if ( GenericAttributes.Contains( AttribName ) )
             {
@@ -298,7 +298,7 @@ namespace Desert::Geometry
             RegisterExternalAttribute( Attribute );
         }
 
-        void RemoveAttribute( std::string AttribName )
+        void RemoveAttribute( const std::string& AttribName )
         {
             if ( GenericAttributes.Contains( AttribName ) )
             {
@@ -307,12 +307,12 @@ namespace Desert::Geometry
             }
         }
 
-        FDynamicMeshAttributeBase* GetAttachedAttribute( std::string AttribName )
+        FDynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName )
         {
             return GenericAttributes.Contains( AttribName ) ? GenericAttributes[AttribName].get() : nullptr;
         }
 
-        const FDynamicMeshAttributeBase* GetAttachedAttribute( std::string AttribName ) const
+        [[nodiscard]] const FDynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName ) const
         {
             const std::unique_ptr<FDynamicMeshAttributeBase>* Found = GenericAttributes.Find( AttribName );
             return Found ? Found->get() : nullptr;
@@ -323,12 +323,12 @@ namespace Desert::Geometry
             return GenericAttributes.Num();
         }
 
-        bool HasAttachedAttribute( std::string AttribName ) const
+        [[nodiscard]] bool HasAttachedAttribute( const std::string& AttribName ) const
         {
             return GenericAttributes.Contains( AttribName );
         }
 
-        size_t GetByteCount() const;
+        [[nodiscard]] size_t GetByteCount() const;
 
     protected:
         /** Parent mesh of this attribute set */

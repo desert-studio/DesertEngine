@@ -103,7 +103,7 @@ namespace Desert::Geometry
         TArray<FGroupEdge> Edges;
 
         int                GetCornerVertexID( int CornerID ) const;
-        int32_t            GetCornerIDFromVertexID( int32_t VertexID ) const;
+        [[nodiscard]] int32_t GetCornerIDFromVertexID( int32_t VertexID ) const;
         const FGroup*      FindGroupByID( int GroupID ) const;
         const TArray<int>& GetGroupTriangles( int GroupID ) const;
         const TArray<int>& GetGroupNbrGroups( int GroupID ) const;
@@ -112,13 +112,14 @@ namespace Desert::Geometry
         const TArray<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
         void               FindEdgeNbrGroups( int GroupEdgeID, TArray<int>& GroupsOut ) const;
         void               FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) const;
-        bool               IsBoundaryEdge( int32_t GroupEdgeID ) const;
+        [[nodiscard]] bool    IsBoundaryEdge( int32_t GroupEdgeID ) const;
         /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
         double GetEdgeArcLength( int32_t GroupEdgeID, TArray<double>* PerVertexLengthsOut = nullptr ) const;
-        bool   IsSimpleGroupEdge( int32_t GroupEdgeID ) const;
-        bool   IsIsolatedLoop( int32_t GroupEdgeID ) const;
+        [[nodiscard]] bool IsSimpleGroupEdge( int32_t GroupEdgeID ) const;
+        [[nodiscard]] bool IsIsolatedLoop( int32_t GroupEdgeID ) const;
         void               FindCornerNbrGroups( int CornerID, TArray<int>& GroupsOut ) const;
-        void ForCornerNbrEdges( int CornerID, std::function<bool( int32_t EdgeID )> ReturnTrueToContinue ) const;
+        void               ForCornerNbrEdges( int                                          CornerID,
+                                              const std::function<bool( int32_t EdgeID )>& ReturnTrueToContinue ) const;
         void FindCornerNbrEdges( int CornerID, TArray<int>& EdgesOut ) const;
         void FindCornerNbrCorners( int CornerID, TArray<int>& CornersOut ) const;
         void FindVertexNbrGroups( int VertexID, TArray<int>& GroupsOut ) const;

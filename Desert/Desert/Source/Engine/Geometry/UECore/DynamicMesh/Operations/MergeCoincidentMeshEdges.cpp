@@ -41,7 +41,7 @@ namespace Desert::Geometry
                             const auto It = Hash.find( { xi, yi, zi } );
                             if ( It == Hash.end() )
                                 continue;
-                            for ( int32_t Value : It->second )
+                            for ( int32_t const Value : It->second )
                                 if ( DistanceSqFunc( Value ) < RadiusSquared )
                                     ResultsOut.Add( Value );
                         }
@@ -72,7 +72,7 @@ namespace Desert::Geometry
         TArray<FVector3d> BoundaryMidPoints;
         TArray<int32_t>   ToMidPt;
         ToMidPt.Init( -1, Mesh->MaxEdgeID() );
-        for ( int32_t EID : Mesh->BoundaryEdgeIndicesItr() )
+        for ( int32_t const EID : Mesh->BoundaryEdgeIndicesItr() )
             ToMidPt[EID] = BoundaryMidPoints.Add( Mesh->GetEdgePoint( EID, 0.5 ) );
         InitialNumBoundaryEdges = BoundaryMidPoints.Num();
 
@@ -88,7 +88,7 @@ namespace Desert::Geometry
         const FAxisAlignedBox3d Bounds   = Mesh->GetBounds();
         const double            MaxDim   = std::max( Bounds.Max.X - Bounds.Min.X,
                                                      std::max( Bounds.Max.Y - Bounds.Min.Y, Bounds.Max.Z - Bounds.Min.Z ) );
-        const double            CellSize = std::max( FMathd::ZeroTolerance, MaxDim / (double)hashN );
+        const double CellSize = std::max( FMathd::ZeroTolerance, MaxDim / static_cast<double>( hashN ) );
         FPointHashGrid3         MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 

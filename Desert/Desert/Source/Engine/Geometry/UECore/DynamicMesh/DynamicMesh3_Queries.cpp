@@ -242,7 +242,7 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
         int PrevEID  = StartEID;
         WalkedEdges++;
         int   WalkTri   = Edges[StartEID].Tri[0];
-        int32_t SpanStart = TrianglesOut.Num();
+        int32_t const SpanStart = TrianglesOut.Num();
         IsLoop.Add( !bHasRemainingBoundaries );
         while ( true )
         {
@@ -617,7 +617,7 @@ FAxisAlignedBox3d FDynamicMesh3::GetBounds() const
  */
 FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<int32_t> VertexIDs ) const
 {
-    int32_t NumVertices = VertexIDs.Num();
+    int32_t const NumVertices = VertexIDs.Num();
     if ( NumVertices == 0 )
     {
         return FAxisAlignedBox3d::Empty();
@@ -627,7 +627,7 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<in
     FVector3d MaxVec = MinVec;
     for ( int Idx = 1; Idx < VertexIDs.Num(); ++Idx )
     {
-        int32_t VID = VertexIDs[Idx];
+        int32_t const VID = VertexIDs[Idx];
         MinVec    = Min( MinVec, Vertices[VID] );
         MaxVec    = Max( MaxVec, Vertices[VID] );
     }
@@ -636,7 +636,7 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<in
 
 FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const
 {
-    int32_t NumTriangles = TriangleIDs.Num();
+    int32_t const NumTriangles = TriangleIDs.Num();
     if ( NumTriangles == 0 )
     {
         return FAxisAlignedBox3d::Empty();
@@ -644,7 +644,7 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( TConstArrayView<
 
     auto UpdateBoundsWithTriangles = [this]( FAxisAlignedBox3d& Bounds, TConstArrayView<int32_t> IndexArray )
     {
-        for ( int32_t TID : IndexArray )
+        for ( int32_t const TID : IndexArray )
         {
             const FIndex3i& Tri = Triangles[TID];
             Bounds.Contain( Vertices[Tri.A] );

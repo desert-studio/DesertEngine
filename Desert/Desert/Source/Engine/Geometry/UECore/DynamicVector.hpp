@@ -24,7 +24,14 @@ namespace Desert::Geometry
 
         static constexpr uint32_t NumBitsNeeded( const uint32_t N )
         {
-            return N <= 1 ? 0 : 1 + NumBitsNeeded( ( N + 1 ) / 2 );
+            uint32_t Bits      = 0;
+            uint32_t Remaining = N;
+            while ( Remaining > 1 )
+            {
+                Remaining = ( Remaining + 1 ) / 2;
+                ++Bits;
+            }
+            return Bits;
         }
 
         static constexpr uint32_t GetBlockIndex( const uint32_t Index )
@@ -100,7 +107,7 @@ namespace Desert::Geometry
 
         TDynamicVector( const TArray<Type>& Array )
         {
-            const uint32_t N = static_cast<uint32_t>( Array.Num() );
+            const auto N = static_cast<uint32_t>( Array.Num() );
             SetNum( N );
             const Type* ArrayPtr = Array.GetData();
             for ( uint32_t Idx = 0; Idx < N; ++Idx )
@@ -111,7 +118,7 @@ namespace Desert::Geometry
 
         TDynamicVector( TArrayView<const Type> Array )
         {
-            const uint32_t N = static_cast<uint32_t>( Array.Num() );
+            const auto N = static_cast<uint32_t>( Array.Num() );
             SetNum( N );
             const Type* ArrayPtr = Array.GetData();
             for ( uint32_t Idx = 0; Idx < N; ++Idx )
@@ -323,7 +330,7 @@ namespace Desert::Geometry
             Blocks.Empty( NewReservedBlockCount );
         }
 
-        const Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock ) const
+        [[nodiscard]] const Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock ) const
         {
             UE_CHECK_SLOW( 0 <= BlockIndex && BlockIndex < Blocks.Num() && 0 <= IndexInBlock &&
                            IndexInBlock < BlockSize );
@@ -399,7 +406,7 @@ namespace Desert::Geometry
             // This is similar to what happens when computing the indices in operator[], but we additionally
             // account for (1) the vector being empty and (2) that the used item count within the last block needs
             // to be one more than the index of the last item.
-            const int32_t LastItemIndex = int32_t( Count - 1 );
+            const auto LastItemIndex  = static_cast<int32_t>( Count - 1 );
             CurBlock                  = Count != 0 ? GetBlockIndex( LastItemIndex ) : 0;
             CurBlockUsed              = Count != 0 ? GetIndexInBlock( LastItemIndex ) + 1 : 0;
         }
@@ -583,7 +590,7 @@ namespace Desert::Geometry
         // Determine how many blocks we need, but make sure we have at least one block available.
         const bool  bCountIsNotMultipleOfBlockSize = Count % BlockSize != 0;
         const int32_t NumBlocksNeeded =
-             std::max( 1, static_cast<int32_t>( Count ) / BlockSize + bCountIsNotMultipleOfBlockSize );
+             std::max( 1, static_cast<int32_t>( Count ) / BlockSize + ( bCountIsNotMultipleOfBlockSize ? 1 : 0 ) );
 
         // Determine how many blocks are currently allocated.
         int32_t NumBlocksCurrent = Blocks.Num();
@@ -654,7 +661,7 @@ namespace Desert::Geometry
     void TDynamicVector<Type, BlockSize>::Add( const TDynamicVector<Type, BlockSizeData>& Data )
     {
         const uint32_t Offset  = Num();
-        const uint32_t DataNum = static_cast<uint32_t>( Data.Num() );
+        const auto     DataNum = static_cast<uint32_t>( Data.Num() );
         SetNum( Offset + DataNum );
         for ( uint32_t DataIndex = 0; DataIndex < DataNum; ++DataIndex )
         {
@@ -666,7 +673,7 @@ namespace Desert::Geometry
     void TDynamicVector<Type, BlockSize>::Add( const TArray<Type>& Data )
     {
         const uint32_t Offset  = Num();
-        const uint32_t DataNum = static_cast<uint32_t>( Data.Num() );
+        const auto     DataNum = static_cast<uint32_t>( Data.Num() );
         SetNum( Offset + DataNum );
         for ( uint32_t DataIndex = 0; DataIndex < DataNum; ++DataIndex )
         {
@@ -678,7 +685,7 @@ namespace Desert::Geometry
     void TDynamicVector<Type, BlockSize>::Add( TArrayView<const Type> Data )
     {
         const uint32_t Offset  = Num();
-        const uint32_t DataNum = static_cast<uint32_t>( Data.Num() );
+        const auto     DataNum = static_cast<uint32_t>( Data.Num() );
         SetNum( Offset + DataNum );
         for ( uint32_t DataIndex = 0; DataIndex < DataNum; ++DataIndex )
         {

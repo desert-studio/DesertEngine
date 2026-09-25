@@ -169,7 +169,7 @@ namespace Desert::Geometry
 
         virtual bool Append( const TDynamicAttributeBase& Source, const FDynamicMesh3::FAppendInfo& Info ) override
         {
-            int32_t NewMaxID = Info.NumTriangle + Info.TriangleOffset;
+            int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
             if ( NewMaxID * AttribDimension > AttribValues.Num() )
             {
                 AttribValues.SetNum( NewMaxID * AttribDimension );
@@ -190,7 +190,7 @@ namespace Desert::Geometry
 
         virtual void AppendDefaulted( const FDynamicMesh3::FAppendInfo& Info ) override
         {
-            int32_t NewMaxID = Info.NumTriangle + Info.TriangleOffset;
+            int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
             AttribValues.SetMinimumSize( NewMaxID * AttribDimension, GetDefaultAttributeValue() );
         }
 
@@ -468,7 +468,7 @@ namespace Desert::Geometry
             return true;
         }
 
-        virtual size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const override
         {
             return AttribValues.GetByteCount();
         }

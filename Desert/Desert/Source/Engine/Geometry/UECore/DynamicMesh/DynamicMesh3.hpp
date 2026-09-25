@@ -470,7 +470,7 @@ namespace Desert::Geometry
          * Returns the current ShapeChangeStamp. This is incremented any time a mesh vertex position is changed
          * _or_ the mesh topology is modified. Change stamps are disabled by default.
          */
-        inline uint32_t GetShapeChangeStamp() const
+        uint32_t GetShapeChangeStamp() const
         {
             UE_ENSURE_MSGF( ChangeStampShape.bIsEnabled, "Shape change tracking is not enabled on this mesh. Use "
                                                          "SetShapeChangeStampEnabled() to enable." );
@@ -481,7 +481,7 @@ namespace Desert::Geometry
          * Returns the current TopologyChangeStamp. This is incremented when the mesh topology is modified.
          * Change stamps are disabled by default.
          */
-        inline uint32_t GetTopologyChangeStamp() const
+        uint32_t GetTopologyChangeStamp() const
         {
             UE_ENSURE_MSGF( ChangeStampTopology.bIsEnabled,
                             "Topology change tracking is not enabled on this mesh. Use "
@@ -491,7 +491,7 @@ namespace Desert::Geometry
 
         /** ChangeStamp is a combination of the Shape and Topology ChangeStamps. If neither flag is enabled, this
          * value will never change. */
-        inline uint64_t GetChangeStamp() const
+        uint64_t GetChangeStamp() const
         {
             return ChangeStampShape.GetValue() + ChangeStampTopology.GetValue();
         }
@@ -590,7 +590,7 @@ namespace Desert::Geometry
 
         /** Call EdgeFunc for each one-ring edge of a vertex. Currently this is more efficient than VtxEdgesItr()
          * due to overhead in the Values() enumerable */
-        void EnumerateVertexEdges( int32_t VertexID, std::function<void( int32_t )> EdgeFunc ) const
+        void EnumerateVertexEdges( int32_t VertexID, const std::function<void( int32_t )>& EdgeFunc ) const
         {
             UE_CHECK_SLOW( VertexRefCounts.IsValid( VertexID ) );
             VertexEdgeLists.Enumerate( VertexID, EdgeFunc );
@@ -614,7 +614,7 @@ namespace Desert::Geometry
         int32_t GetSingleVertexTriangle( int32_t VID ) const;
 
         /** Call ApplyFunc for each triangle connected to an Edge (1 or 2 triangles) */
-        void EnumerateEdgeTriangles( int32_t EdgeID, std::function<void( int32_t )> ApplyFunc ) const;
+        void EnumerateEdgeTriangles( int32_t EdgeID, const std::function<void( int32_t )>& ApplyFunc ) const;
 
         //
         // Mesh Construction
@@ -855,7 +855,7 @@ namespace Desert::Geometry
         inline FMeshTriEdgeID GetTriEdgeIDFromEdgeID( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
-            int32_t  TriIndex = Edges[EdgeID].Tri.A;
+            int32_t const TriIndex = Edges[EdgeID].Tri.A;
             FIndex3i TriEdges = TriangleEdges[TriIndex];
             if ( TriEdges.A == EdgeID )
             {

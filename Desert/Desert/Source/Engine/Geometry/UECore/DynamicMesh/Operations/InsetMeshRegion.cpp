@@ -49,9 +49,9 @@ namespace Desert::Geometry
             }
             TSet<int32_t> LoopVertices;
             for ( const FEdgeLoop& Loop : Loops.Loops )
-                for ( int32_t v : Loop.Vertices )
+                for ( int32_t const v : Loop.Vertices )
                     LoopVertices.Add( v );
-            for ( int32_t tid : Region.InitialTriangles )
+            for ( int32_t const tid : Region.InitialTriangles )
             {
                 const FIndex3i Tri = Mesh->GetTriangle( tid );
                 for ( int j = 0; j < 3; ++j )
@@ -104,19 +104,20 @@ namespace Desert::Geometry
             const FDynamicMeshEditor::FLoopPairSet& LoopPair  = LoopPairs[LoopIndex];
             const TArray<int32_t>&                  BaseLoopV = LoopPair.OuterVertices;
             const int32_t                           NumLoopV  = BaseLoopV.Num();
-            TArray<int32_t>                         NewGroupIDs, EdgeGroups;
+            TArray<int32_t>                         NewGroupIDs;
+            TArray<int32_t>                         EdgeGroups;
             TMap<int64_t, int32_t>                  NewGroupsMap; // (min, max) group pair packed
             for ( int32_t k = 0; k < NumLoopV; ++k )
             {
-                int32_t InsetGroupID = Mesh->GetTriangleGroup( InsetStitchSides[LoopIndex][k].first );
-                int32_t BaseEdgeID   = Mesh->FindEdge( BaseLoopV[k], BaseLoopV[( k + 1 ) % NumLoopV] );
-                int32_t BaseGroupID =
+                int32_t const InsetGroupID = Mesh->GetTriangleGroup( InsetStitchSides[LoopIndex][k].first );
+                int32_t const BaseEdgeID   = Mesh->FindEdge( BaseLoopV[k], BaseLoopV[( k + 1 ) % NumLoopV] );
+                int32_t const BaseGroupID =
                      ( BaseEdgeID >= 0 ) ? Mesh->GetTriangleGroup( Mesh->GetEdgeT( BaseEdgeID ).A ) : InsetGroupID;
                 const int64_t GroupPair = ( int64_t( std::min( BaseGroupID, InsetGroupID ) ) << 32 ) |
                                           uint32_t( std::max( BaseGroupID, InsetGroupID ) );
                 if ( !NewGroupsMap.Contains( GroupPair ) )
                 {
-                    int32_t NewGroupID = Mesh->AllocateTriangleGroup();
+                    int32_t const NewGroupID = Mesh->AllocateTriangleGroup();
                     NewGroupIDs.Add( NewGroupID );
                     NewGroupsMap.Add( GroupPair, NewGroupID );
                 }

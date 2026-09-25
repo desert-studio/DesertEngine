@@ -414,26 +414,27 @@ namespace Desert::Geometry
 
         FModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
         {
-            MaxIndex   = (uint64_t)std::max( (uint32_t)0, MaxIndexIn );
-            StartIndex = (uint64_t)std::max( (uint32_t)0, StartIndexIn );
+            MaxIndex   = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), MaxIndexIn ) );
+            StartIndex = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), StartIndexIn ) );
             CurIndex   = StartIndex;
             Count      = 0;
-            ModuloNum  = std::max( (uint64_t)1, MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
-                                                            // is 0 we will terminate on first iteration anyway
+            ModuloNum  = std::max( static_cast<uint64_t>( 1 ),
+                                   MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
+                                               // is 0 we will terminate on first iteration anyway
             ModuloPrime = ModuloPrimeIn;
             UE_CHECK( ModuloPrime > MaxIndex );
         }
 
         bool GetNextIndex( uint32_t& NextIndexOut )
         {
-            NextIndexOut = (uint32_t)CurIndex;
+            NextIndexOut = static_cast<uint32_t>( CurIndex );
             CurIndex     = ( CurIndex + ModuloPrime ) % ModuloNum;
             return ( Count++ != MaxIndex );
         }
 
         bool GetNextIndex( int32_t& NextIndexOut )
         {
-            NextIndexOut = (int32_t)CurIndex;
+            NextIndexOut = static_cast<int32_t>( CurIndex );
             CurIndex     = ( CurIndex + ModuloPrime ) % ModuloNum;
             return ( Count++ != MaxIndex );
         }

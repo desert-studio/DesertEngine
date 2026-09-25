@@ -81,8 +81,8 @@ EMeshResult TDynamicMeshOverlay<RealType, ElementSize>::InsertElement( int Eleme
 
 template <typename RealType, int ElementSize>
 void TDynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
-     std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )> TrisCanShareVertexPredicate,
-     RealType                                                           InitElementValue )
+     const std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )>& TrisCanShareVertexPredicate,
+     RealType                                                                  InitElementValue )
 {
     ClearElements(); // deletes all elements and initializes triangles to be 1:1 w/ parentmesh IDs
     FDynamicMesh3::FLocalIntArray  TrisActiveSubGroup, AppendedElements;
@@ -177,9 +177,9 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
     {
         VIDtoEID.SetNumUninitialized( ParentMesh->MaxVertexID() );
     }
-    for ( int32_t VertexID : ParentMesh->VertexIndicesItr() )
+    for ( int32_t const VertexID : ParentMesh->VertexIndicesItr() )
     {
-        int32_t ElementID;
+        int32_t ElementID = FDynamicMesh3::InvalidID;
         if ( bExactMapIDs )
         {
             ElementID          = VertexID;
@@ -202,14 +202,14 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
         }
     }
 
-    for ( int32_t TriangleID : ParentMesh->TriangleIndicesItr() )
+    for ( int32_t const TriangleID : ParentMesh->TriangleIndicesItr() )
     {
         FIndex3i Tri   = ParentMesh->GetTriangle( TriangleID );
-        int32_t  Start = 3 * TriangleID;
+        int32_t const Start = 3 * TriangleID;
         for ( int32_t SubIdx = 0; SubIdx < 3; ++SubIdx )
         {
-            int32_t VID = Tri[SubIdx];
-            int32_t EID = bNeedsRemap ? VIDtoEID[VID] : VID;
+            int32_t const VID = Tri[SubIdx];
+            int32_t const EID = bNeedsRemap ? VIDtoEID[VID] : VID;
             ElementTriangles.InsertAt( EID, Start + SubIdx, FDynamicMesh3::InvalidID );
             ElementsRefCounts.Increment( EID );
         }
@@ -218,7 +218,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
 
 template <typename RealType, int ElementSize>
 void TDynamicMeshOverlay<RealType, ElementSize>::SplitVerticesWithPredicate(
-     std::function<bool( int ElementID, int TriID )>                     ShouldSplitOutVertex,
+     const std::function<bool( int ElementID, int TriID )>&              ShouldSplitOutVertex,
      std::function<void( int ElementID, int TriID, RealType* FillVect )> GetNewElementValue )
 {
     for ( int TriID : ParentMesh->TriangleIndicesItr() )
@@ -364,7 +364,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
                 BowtieVerts.Add( VertexID );
             }
         }
-        for ( int32_t VertexID : BowtieVerts )
+        for ( int32_t const VertexID : BowtieVerts )
         {
             SplitBowtiesAtVertex( VertexID );
         }
@@ -398,7 +398,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
 
     UE_ENSURE( EMeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
                                                                          ContiguousGroupLengths, GroupIsLoop ) );
-    int32_t NumTris = TrianglesOut.Num();
+    int32_t const NumTris = TrianglesOut.Num();
 
     auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
     {
@@ -411,7 +411,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
     // Early out in the easy non-bowtie case of 1 element, 1 contiguous group
     if ( NumTris > 0 && ContiguousGroupLengths.Num() == 1 )
     {
-        int32_t FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
+        int32_t const FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
         bool  bSingleElement = true;
         for ( int32_t Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
         {
@@ -504,7 +504,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t  
                         ConnectedTris.Add( TrianglesOut[TriSubIdx] );
                     }
                 }
-                int32_t NewElementID = SplitElement( ElementID, ConnectedTris );
+                int32_t const NewElementID = SplitElement( ElementID, ConnectedTris );
                 if ( NewElementIDs )
                 {
                     NewElementIDs->Add( NewElementID );
@@ -902,7 +902,7 @@ template <typename RealType, int ElementSize>
 bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamIntersectionVertex( int32_t VertexID ) const
 {
     int32_t SeamCount = 0;
-    for ( int32_t EdgeID : ParentMesh->VtxEdgesItr( VertexID ) )
+    for ( int32_t const EdgeID : ParentMesh->VtxEdgesItr( VertexID ) )
     {
         SeamCount += int32_t( IsSeamEdge( EdgeID ) );
     }
@@ -928,7 +928,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
 
     UE_ENSURE( EMeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
                                                                          ContiguousGroupLengths, GroupIsLoop ) );
-    int32_t NumTris = TrianglesOut.Num();
+    int32_t const NumTris = TrianglesOut.Num();
 
     auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
     {
@@ -941,7 +941,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Vert
     // Handle the easy case of 1 element, 1 contiguous group
     if ( NumTris > 0 && ContiguousGroupLengths.Num() == 1 )
     {
-        int32_t FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
+        int32_t const FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
         bool  bSingleElement = true;
         for ( int32_t Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
         {
@@ -1325,7 +1325,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3
     int   orig_t0 = FlipInfo.Triangles.A;
     int   orig_t1 = FlipInfo.Triangles.B;
     bool  bT0Set = IsSetTriangle( orig_t0 ), bT1Set = IsSetTriangle( orig_t1 );
-    int32_t NumSet = (int32_t)bT0Set + (int32_t)bT1Set;
+    int32_t const NumSet = static_cast<int32_t>( bT0Set ) + static_cast<int32_t>( bT1Set );
     if ( NumSet == 0 )
     {
         return; // nothing to do on the overlay if both triangles are unset
@@ -1789,7 +1789,7 @@ bool TDynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVert
     int32_t Count = 0;
     for ( int tid : this->ParentMesh->VtxTrianglesItr( VertexID ) )
     {
-        int32_t BaseElemIdx    = 3 * tid;
+        int32_t const BaseElemIdx    = 3 * tid;
         bool  bIsSetTriangle = ( this->ElementTriangles[BaseElemIdx] >= 0 );
         if ( bIsSetTriangle )
         {
@@ -1797,10 +1797,10 @@ bool TDynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVert
 
             for ( int j = 0; j < 3; ++j )
             {
-                int32_t ElementIdx = this->ElementTriangles[BaseElemIdx + j];
+                int32_t const ElementIdx = this->ElementTriangles[BaseElemIdx + j];
                 if ( this->ParentVertices[ElementIdx] == VertexID )
                 {
-                    int32_t NumUnique = UniqueElements.Num();
+                    int32_t const NumUnique = UniqueElements.Num();
                     if ( bFindUniqueElements == false || ( UniqueElements.AddUnique( ElementIdx ) == NumUnique ) )
                     {
                         bool bContinue = ProcessFunc( tid, ElementIdx, this->GetElement( ElementIdx ) );
@@ -1899,7 +1899,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
     // verify that refcount list counts are same as actual reference counts
     for ( int32_t ElementID = 0; ElementID < RealRefCounts.Num(); ++ElementID )
     {
-        int32_t CurRefCount = ElementsRefCounts.GetRefCount( ElementID );
+        int32_t const CurRefCount = ElementsRefCounts.GetRefCount( ElementID );
         CheckOrFailF( ( RealRefCounts[ElementID] == 0 && CurRefCount == 0 ) ||
                       ( CurRefCount == RealRefCounts[ElementID] + 1 ) );
     }

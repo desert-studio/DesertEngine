@@ -88,7 +88,7 @@ void FMeshNormals::CopyToVertexNormals( FDynamicMesh3* SetMesh, bool bInvert ) c
     }
 
     float sign = ( bInvert ) ? -1.0f : 1.0f;
-    int   N    = std::min( Normals.Num(), SetMesh->MaxVertexID() );
+    int const N    = std::min( Normals.Num(), SetMesh->MaxVertexID() );
     for ( int vi = 0; vi < N; ++vi )
     {
         if ( Mesh->IsVertex( vi ) && SetMesh->IsVertex( vi ) )
@@ -113,7 +113,7 @@ void FMeshNormals::GetVertexNormalsFromOverlayNormals( ECombineSplitNormalsMetho
     if ( CombineSplitNormals == ECombineSplitNormalsMethod::Average )
     {
         Normals.Init( FVector3d::Zero(), Mesh->MaxVertexID() );
-        for ( int32_t TID : Mesh->TriangleIndicesItr() )
+        for ( int32_t const TID : Mesh->TriangleIndicesItr() )
         {
             if ( NormalOverlay->IsSetTriangle( TID ) )
             {
@@ -134,7 +134,7 @@ void FMeshNormals::GetVertexNormalsFromOverlayNormals( ECombineSplitNormalsMetho
     else // ECombineSplitNormalsMethod::CopyAny
     {
         Normals.Init( FVector3d::UnitZ(), Mesh->MaxVertexID() );
-        for ( int32_t TID : Mesh->TriangleIndicesItr() )
+        for ( int32_t const TID : Mesh->TriangleIndicesItr() )
         {
             if ( NormalOverlay->IsSetTriangle( TID ) )
             {
@@ -251,7 +251,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 
         while ( !TidsToSearch.IsEmpty() )
         {
-            int32_t CurrentTid = TidsToSearch.Pop();
+            int32_t const CurrentTid = TidsToSearch.Pop();
 
             if ( WalkedTidsOut.Contains( CurrentTid ) )
             {
@@ -281,7 +281,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             for ( int i = 0; i < 3; ++i )
             {
                 FIndex2i Tids     = Mesh->GetEdgeT( TriEdges[i] );
-                int32_t  OtherTid = ( Tids.A == CurrentTid ) ? Tids.B : Tids.A;
+                int32_t const OtherTid = ( Tids.A == CurrentTid ) ? Tids.B : Tids.A;
                 NeighborTids[i]   = OtherTid;
 
                 if ( OtherTid == FDynamicMesh3::InvalidID )
@@ -314,11 +314,11 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             }
 
             // Add onto stack. Longest length neighbor is at top of stack
-            for ( int32_t i = 0; i < 3; ++i )
+            for ( int NeighborTid : NeighborTids )
             {
-                if ( NeighborTids[i] != FDynamicMesh3::InvalidID )
+                if ( NeighborTid != FDynamicMesh3::InvalidID )
                 {
-                    TidsToSearch.Push( NeighborTids[i] );
+                    TidsToSearch.Push( NeighborTid );
                 }
             }
         }
@@ -330,7 +330,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 
     TSet<int32_t> CurrentWalkedTids;
 
-    for ( int32_t Tid : Mesh->TriangleIndicesItr() )
+    for ( int32_t const Tid : Mesh->TriangleIndicesItr() )
     {
         if ( Normals[Tid] == FVector3d::Zero() && !IslandDegenerates.Contains( Tid ) )
         {
@@ -353,7 +353,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
                 FVector3d NormalToUse = Normals[NonDegenerateNeighborTid];
                 UE_CHECK( NormalToUse != FVector3d::Zero() );
 
-                for ( int32_t WalkedTid : CurrentWalkedTids )
+                for ( int32_t const WalkedTid : CurrentWalkedTids )
                 {
                     Normals[WalkedTid] = NormalToUse;
                 }
@@ -443,7 +443,7 @@ void FMeshNormals::SmoothVertexNormals( FDynamicMesh3& Mesh, int32_t SmoothingRo
     SmoothingAlpha  = FMathd::Clamp( SmoothingAlpha, 0.0, 1.0 );
     if ( SmoothingRounds > 0 && SmoothingAlpha > 0 )
     {
-        int32_t           NumV = Mesh.MaxVertexID();
+        int32_t const     NumV = Mesh.MaxVertexID();
         TArray<FVector3d> SmoothedNormals;
         SmoothedNormals.SetNum( NumV );
         for ( int32_t ri = 0; ri < SmoothingRounds; ++ri )
@@ -468,7 +468,7 @@ void FMeshNormals::SmoothVertexNormals( FDynamicMesh3& Mesh, int32_t SmoothingRo
                          } );
 
             // update
-            for ( int32_t vid : Mesh.VertexIndicesItr() )
+            for ( int32_t const vid : Mesh.VertexIndicesItr() )
             {
                 Mesh.SetVertexNormal( vid, (FVector3f)SmoothedNormals[vid] );
             }
@@ -489,7 +489,7 @@ void FMeshNormals::QuickComputeVertexNormalsForTriangles( FDynamicMesh3& Mesh, c
     ParallelFor( VertexIDs.Num(),
                  [&]( int32_t i )
                  {
-                     int32_t   vid       = VertexIDs[i];
+                     int32_t const vid       = VertexIDs[i];
                      FVector3d VtxNormal = ComputeVertexNormal( Mesh, vid, bWeightByArea, bWeightByAngle );
                      Mesh.SetVertexNormal( vid, (FVector3f)VtxNormal );
                  } );
@@ -573,9 +573,9 @@ bool FMeshNormals::QuickRecomputeOverlayNormals( FDynamicMesh3& Mesh, bool bInve
 
                  for ( int32_t SubIdx = 0; SubIdx < 3; ++SubIdx )
                  {
-                     int32_t   ElID           = ElTri[SubIdx];
+                     int32_t const ElID           = ElTri[SubIdx];
                      FVector3f AddNormal      = TriNormalf * TriNormalWeights[SubIdx];
-                     int32_t   NormalArrayIdx = ElID * 3;
+                     int32_t const NormalArrayIdx = ElID * 3;
                      for ( int32_t VecIdx = 0; VecIdx < 3; ++VecIdx )
                      {
                          MeshNormalsLocals::AtomicFloatFetchAdd( Normals[NormalArrayIdx + VecIdx],
@@ -592,7 +592,7 @@ bool FMeshNormals::QuickRecomputeOverlayNormals( FDynamicMesh3& Mesh, bool bInve
              {
                  if ( NormalOverlay->IsElement( ElID ) )
                  {
-                     int32_t NormalsIdx = ElID * 3;
+                     int32_t const NormalsIdx = ElID * 3;
                      // Note: Normalization intentionally computed in double precision for accuracy
                      FVector3d Normal( Normals[NormalsIdx], Normals[NormalsIdx + 1], Normals[NormalsIdx + 2] );
                      NormalOverlay->SetElement( ElID, static_cast<FVector3f>( Sign * Normalized( Normal ) ) );
@@ -610,7 +610,7 @@ bool FMeshNormals::RecomputeOverlayTriNormals( FDynamicMesh3& Mesh, const TArray
     {
         FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
         TSet<int32_t>              UniqueElementIDs;
-        for ( int32_t tid : Triangles )
+        for ( int32_t const tid : Triangles )
         {
             if ( NormalOverlay->IsSetTriangle( tid ) )
             {
@@ -635,7 +635,7 @@ bool FMeshNormals::RecomputeOverlayElementNormals( FDynamicMesh3& Mesh, const TA
         ParallelFor( ElementIDs.Num(),
                      [&]( int32_t k )
                      {
-                         int32_t ElementID = ElementIDs[k];
+                         int32_t const ElementID = ElementIDs[k];
                          if ( NormalOverlay->IsElement( ElementID ) )
                          {
                              FVector3d NewNormal = FMeshNormals::ComputeOverlayNormal(
@@ -662,7 +662,7 @@ FVector3d FMeshNormals::ComputeVertexNormal( const FDynamicMesh3& Mesh, int Vert
                                             &Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
 
                                        FIndex3i Triangle = Mesh.GetTriangle( TriIdx );
-                                       int32_t  j        = IndexUtil::FindTriIndex( VertIdx, Triangle );
+                                       int32_t const j        = IndexUtil::FindTriIndex( VertIdx, Triangle );
                                        SumNormal += TriNormal * TriNormalWeights[j];
                                    } );
     return Normalized( SumNormal );
@@ -685,7 +685,7 @@ FVector3d FMeshNormals::ComputeVertexNormal( const FDynamicMesh3& Mesh, int32_t 
                                                 &Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
 
                                            FIndex3i Triangle = Mesh.GetTriangle( TriIdx );
-                                           int32_t  j        = IndexUtil::FindTriIndex( VertIdx, Triangle );
+                                           int32_t const j        = IndexUtil::FindTriIndex( VertIdx, Triangle );
                                            NormalSum += TriNormal * TriNormalWeights[j];
                                        }
                                    } );
@@ -711,7 +711,7 @@ FVector3d FMeshNormals::ComputeOverlayNormal( const FDynamicMesh3&             M
                  FVector3d TriNormalWeights =
                       GetVertexWeightsOnTriangle( &Mesh, TriIdx, Area, bWeightByArea, bWeightByAngle );
                  FIndex3i Triangle = NormalOverlay->GetTriangle( TriIdx );
-                 int32_t  j        = IndexUtil::FindTriIndex(
+                 int32_t const j        = IndexUtil::FindTriIndex(
                       ElemIdx, Triangle ); // todo: we computed already in TriangleHasElement...
                  SumNormal += Normal * TriNormalWeights[j];
                  Count++;
@@ -759,12 +759,12 @@ void FMeshNormals::InitializeOverlayToPerTriangleNormals( FDynamicMeshNormalOver
 
     NormalOverlay->ClearElements();
 
-    for ( int32_t tid : Mesh->TriangleIndicesItr() )
+    for ( int32_t const tid : Mesh->TriangleIndicesItr() )
     {
         FVector3d Normal = Mesh->GetTriNormal( tid );
-        int32_t   e0     = NormalOverlay->AppendElement( (FVector3f)Normal );
-        int32_t   e1     = NormalOverlay->AppendElement( (FVector3f)Normal );
-        int32_t   e2     = NormalOverlay->AppendElement( (FVector3f)Normal );
+        int32_t const e0     = NormalOverlay->AppendElement( FVector3f( Normal ) );
+        int32_t const e1     = NormalOverlay->AppendElement( FVector3f( Normal ) );
+        int32_t const e2     = NormalOverlay->AppendElement( FVector3f( Normal ) );
         NormalOverlay->SetTriangle( tid, FIndex3i( e0, e1, e2 ) );
     }
 }
@@ -812,7 +812,7 @@ void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormal
     TArray<int32_t> Vertices;
     TriangleToVertexIDs( Mesh, Triangles, Vertices );
     auto                   TriangleSetFunc = [&]( int32_t tid ) { return TriangleSet.Contains( tid ); };
-    int32_t                NumVertices     = Vertices.Num();
+    int32_t const          NumVertices     = Vertices.Num();
     TMap<int32_t, int32_t> TriangleMap;
     TriangleMap.Reserve( NumVertices );
 
@@ -820,16 +820,16 @@ void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormal
     VertNormals.SetNum( NumVertices );
     for ( int32_t i = 0; i < NumVertices; ++i )
     {
-        int32_t   vid    = Vertices[i];
+        int32_t const vid    = Vertices[i];
         FVector3d Normal = FMeshNormals::ComputeVertexNormal(
              *Mesh, vid, std::function<bool( int32_t )>( TriangleSetFunc ), true, true );
-        int32_t nid    = NormalOverlay->AppendElement( (FVector3f)Normal );
+        int32_t const nid = NormalOverlay->AppendElement( FVector3f( Normal ) );
         VertNormals[i] = nid;
 
         TriangleMap.Add( vid, i );
     }
 
-    for ( int32_t tid : Triangles )
+    for ( int32_t const tid : Triangles )
     {
         FIndex3i Tri = Mesh->GetTriangle( tid );
         Tri.A        = VertNormals[TriangleMap[Tri.A]];

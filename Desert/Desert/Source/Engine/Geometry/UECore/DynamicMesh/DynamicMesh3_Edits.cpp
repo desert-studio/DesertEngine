@@ -1498,7 +1498,7 @@ EMeshResult FDynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse
             if ( Options.bAllowHoleCollapse && IsBoundaryEdge( eid ) &&
                  ( ExistingEdge = FindEdge( o, b ) ) != InvalidID )
             {
-                int32_t WeldedTriangle = GetEdgeT( eid ).A;
+                int32_t const WeldedTriangle = GetEdgeT( eid ).A;
                 if ( ReplaceTriangleEdge( WeldedTriangle, eid, ExistingEdge ) == -1 ||
                      ReplaceEdgeTriangle( ExistingEdge, InvalidID, WeldedTriangle ) == -1 )
                 {
@@ -2087,12 +2087,12 @@ EMeshResult FDynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double In
     }
 
     // See if we can resolve this as an edge weld
-    for ( int32_t KeepAdjacentEid : VertexEdgeLists.Values( KeepVid ) )
+    for ( int32_t const KeepAdjacentEid : VertexEdgeLists.Values( KeepVid ) )
     {
-        int32_t KeepAdjacentVid = GetOtherEdgeVertex( KeepAdjacentEid, KeepVid );
+        int32_t const KeepAdjacentVid = GetOtherEdgeVertex( KeepAdjacentEid, KeepVid );
 
         // See if the adjacent vert is also adjacent to DiscardVid
-        for ( int32_t DiscardAdjacentEid : VertexEdgeLists.Values( DiscardVid ) )
+        for ( int32_t const DiscardAdjacentEid : VertexEdgeLists.Values( DiscardVid ) )
         {
             if ( GetOtherEdgeVertex( DiscardAdjacentEid, DiscardVid ) == KeepAdjacentVid )
             {

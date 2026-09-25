@@ -24,7 +24,10 @@ namespace Desert::Geometry
             bool bFailed = false;
             for ( int i = 0; i < NumQuads; ++i )
             {
-                int32_t a, b, c, d;
+                int32_t a = 0;
+                int32_t b = 0;
+                int32_t c = 0;
+                int32_t d = 0;
                 GetQuadVidsForIndex( i, a, b, c, d );
                 int NewGroupID = Editor.Mesh->AllocateTriangleGroup();
                 ResultOut.NewGroups.Add( NewGroupID );
@@ -109,12 +112,12 @@ namespace Desert::Geometry
             return false;
         for ( int32_t QuadIndex = 0; QuadIndex < EdgeLoop.Num(); ++QuadIndex )
         {
-            int32_t  Tid       = Mesh.GetEdgeT( EdgeLoop[QuadIndex] ).A;
-            int32_t  FirstVid  = VidLoop[QuadIndex];
-            int32_t  SecondVid = VidLoop[( QuadIndex + 1 ) % VidLoop.Num()];
+            int32_t const Tid       = Mesh.GetEdgeT( EdgeLoop[QuadIndex] ).A;
+            int32_t const FirstVid  = VidLoop[QuadIndex];
+            int32_t const SecondVid = VidLoop[( QuadIndex + 1 ) % VidLoop.Num()];
             FIndex3i TriVids   = Mesh.GetTriangle( Tid );
-            int8_t   SubIdx1   = (int8_t)IndexUtil::FindTriIndex( FirstVid, TriVids );
-            int8_t   SubIdx2   = (int8_t)IndexUtil::FindTriIndex( SecondVid, TriVids );
+            auto const    SubIdx1   = static_cast<int8_t>( IndexUtil::FindTriIndex( FirstVid, TriVids ) );
+            auto const    SubIdx2   = static_cast<int8_t>( IndexUtil::FindTriIndex( SecondVid, TriVids ) );
             if ( !( SubIdx1 >= 0 && SubIdx2 >= 0 ) )
                 return false;
             TriVertPairsOut.Add( FTriVidPair( Tid, std::pair<int8_t, int8_t>( SubIdx1, SubIdx2 ) ) );
@@ -278,7 +281,7 @@ namespace Desert::Geometry
                 else if ( bHandleBoundaryVertices )
                 {
                     // A mesh-border vertex: the duplicate becomes the "old" one, the original stays inner.
-                    int32_t NewVertID = Mesh->AppendVertex( *Mesh, VertID );
+                    int32_t const NewVertID = Mesh->AppendVertex( *Mesh, VertID );
                     OldVidsToNewVids.Add( VertID, NewVertID );
                     LoopPair.OuterVertices[vi]                                  = NewVertID;
                     LoopPair.OuterEdges[vi]                                     = FDynamicMesh3::InvalidID;

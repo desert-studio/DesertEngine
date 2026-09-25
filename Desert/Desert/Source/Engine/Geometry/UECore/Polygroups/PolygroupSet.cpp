@@ -12,12 +12,13 @@ using namespace Desert::Geometry;
 // ported.
 namespace
 {
-    const FDynamicMeshPolygroupAttribute* FindPolygroupLayerByName( const FDynamicMesh3& Mesh, std::string Name )
+    const FDynamicMeshPolygroupAttribute* FindPolygroupLayerByName( const FDynamicMesh3& Mesh,
+                                                                    const std::string&   Name )
     {
         const FDynamicMeshAttributeSet* AttributeSet = Mesh.Attributes();
         if ( AttributeSet == nullptr )
             return nullptr;
-        int32_t NumPolygroupLayers = AttributeSet->NumPolygroupLayers();
+        int32_t const NumPolygroupLayers = AttributeSet->NumPolygroupLayers();
         for ( int32_t k = 0; k < NumPolygroupLayers; ++k )
         {
             if ( AttributeSet->GetPolygroupLayer( k )->GetName() == Name )
@@ -33,7 +34,7 @@ namespace
         const FDynamicMeshAttributeSet* AttributeSet = Mesh.Attributes();
         if ( AttributeSet == nullptr )
             return -1;
-        int32_t NumPolygroupLayers = AttributeSet->NumPolygroupLayers();
+        int32_t const NumPolygroupLayers = AttributeSet->NumPolygroupLayers();
         for ( int32_t k = 0; k < NumPolygroupLayers; ++k )
         {
             if ( AttributeSet->GetPolygroupLayer( k ) == Layer )
@@ -167,14 +168,14 @@ void FPolygroupSet::RecalculateMaxGroupID()
     MaxGroupID = 0;
     if ( PolygroupAttrib )
     {
-        for ( int32_t tid : Mesh->TriangleIndicesItr() )
+        for ( int32_t const tid : Mesh->TriangleIndicesItr() )
         {
             MaxGroupID = std::max( MaxGroupID, PolygroupAttrib->GetValue( tid ) + 1 );
         }
     }
     else
     {
-        for ( int32_t tid : Mesh->TriangleIndicesItr() )
+        for ( int32_t const tid : Mesh->TriangleIndicesItr() )
         {
             MaxGroupID = std::max( MaxGroupID, Mesh->GetTriangleGroup( tid ) + 1 );
         }

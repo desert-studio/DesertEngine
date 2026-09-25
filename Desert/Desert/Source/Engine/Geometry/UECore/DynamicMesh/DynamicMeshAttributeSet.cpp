@@ -19,7 +19,7 @@ namespace
         }
         if ( Num >= (int32_t)Layers.size() )
         {
-            for ( int32_t i = (int32_t)Layers.size(); i < Num; ++i )
+            for ( auto i = (int32_t)Layers.size(); i < Num; ++i )
             {
                 Layers.push_back( Make() );
             }
@@ -294,8 +294,8 @@ void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttri
 {
     const bool bUseToMatch = bClearExisting || bDiscardExtraAttributes;
 
-    int32_t ExistingUVLayers = NumUVLayers();
-    int32_t RequiredUVLayers =
+    int32_t const ExistingUVLayers = NumUVLayers();
+    int32_t const RequiredUVLayers =
          bUseToMatch ? ToMatch.NumUVLayers() : std::max( ExistingUVLayers, ToMatch.NumUVLayers() );
     SetNumUVLayers( RequiredUVLayers );
     for ( int32_t k = bClearExisting ? 0 : ExistingUVLayers; k < NumUVLayers(); k++ )
@@ -303,8 +303,8 @@ void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttri
         UVLayers[k]->ClearElements();
     }
 
-    int32_t ExistingNormalLayers = NumNormalLayers();
-    int32_t RequiredNormalLayers =
+    int32_t const ExistingNormalLayers = NumNormalLayers();
+    int32_t const RequiredNormalLayers =
          bUseToMatch ? ToMatch.NumNormalLayers() : std::max( ExistingNormalLayers, ToMatch.NumNormalLayers() );
     SetNumNormalLayers( RequiredNormalLayers );
     for ( int32_t k = bClearExisting ? 0 : ExistingNormalLayers; k < NumNormalLayers(); k++ )
@@ -334,14 +334,14 @@ void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttri
         EnableMaterialID();
     }
 
-    int32_t ExistingPolygroupLayers = NumPolygroupLayers();
-    int32_t RequiredPolygroupLayers = bUseToMatch
-                                           ? ToMatch.NumPolygroupLayers()
-                                           : std::max( ExistingPolygroupLayers, ToMatch.NumPolygroupLayers() );
+    int32_t const ExistingPolygroupLayers = NumPolygroupLayers();
+    int32_t const RequiredPolygroupLayers =
+         bUseToMatch ? ToMatch.NumPolygroupLayers()
+                     : std::max( ExistingPolygroupLayers, ToMatch.NumPolygroupLayers() );
     SetNumPolygroupLayers( RequiredPolygroupLayers );
     for ( int32_t k = bClearExisting ? 0 : ExistingPolygroupLayers; k < NumPolygroupLayers(); k++ )
     {
-        PolygroupLayers[k]->Initialize( (int32_t)0 );
+        PolygroupLayers[k]->Initialize( static_cast<int32_t>( 0 ) );
         if ( k < ToMatch.NumPolygroupLayers() && PolygroupLayers[k]->GetName().empty() )
         {
             PolygroupLayers[k]->SetName( ToMatch.GetPolygroupLayer( k )->GetName() );
@@ -455,7 +455,7 @@ void FDynamicMeshAttributeSet::DisablePrimaryColors()
 
 int32_t FDynamicMeshAttributeSet::NumPolygroupLayers() const
 {
-    return (int32_t)PolygroupLayers.size();
+    return static_cast<int32_t>( PolygroupLayers.size() );
 }
 
 void FDynamicMeshAttributeSet::SetNumPolygroupLayers( int32_t Num )
@@ -479,7 +479,7 @@ void FDynamicMeshAttributeSet::EnableMaterialID()
     if ( HasMaterialID() == false )
     {
         MaterialIDAttrib = std::make_unique<FDynamicMeshMaterialAttribute>( ParentMesh );
-        MaterialIDAttrib->Initialize( (int32_t)0 );
+        MaterialIDAttrib->Initialize( static_cast<int32_t>( 0 ) );
     }
 }
 
@@ -651,7 +651,7 @@ void FDynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
     }
     for ( const auto& PolygroupLayer : PolygroupLayers )
     {
-        int32_t NewGroup = 0;
+        int32_t const NewGroup = 0;
         PolygroupLayer->SetNewValue( TriangleID, &NewGroup );
     }
 }

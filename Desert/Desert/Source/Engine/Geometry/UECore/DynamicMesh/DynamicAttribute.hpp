@@ -28,7 +28,7 @@ namespace Desert::Geometry
 
     public:
         /** Get optional identifier for this attribute set. */
-        std::string GetName() const
+        [[nodiscard]] std::string GetName() const
         {
             return Name;
         }
@@ -161,7 +161,7 @@ namespace Desert::Geometry
         {
         }
 
-        virtual size_t GetByteCount() const
+        [[nodiscard]] virtual size_t GetByteCount() const
         {
             return 0;
         }

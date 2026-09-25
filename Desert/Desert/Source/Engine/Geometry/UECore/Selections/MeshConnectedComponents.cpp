@@ -18,7 +18,7 @@ namespace
 } // namespace
 
 void FMeshConnectedComponents::FindTrianglesConnectedToSeeds(
-     const TArray<int>& SeedTriangles, std::function<bool( int32_t, int32_t )> TrisConnectedPredicate )
+     const TArray<int>& SeedTriangles, const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate )
 {
     // initial active set contains all valid triangles
     TArray<uint8_t> ActiveSet;
@@ -45,7 +45,7 @@ void FMeshConnectedComponents::FindTriComponents(
     ComponentQueue.Reserve( 256 );
 
     // keep finding valid seed triangles and growing connected components until we are done
-    for ( int32_t SeedTri : SeedList )
+    for ( int32_t const SeedTri : SeedList )
     {
         if ( ActiveSet.IsValidIndex( SeedTri ) &&
              ActiveSet[SeedTri] != static_cast<uint8_t>( EProcessingState::Invalid ) )
@@ -71,7 +71,7 @@ void FMeshConnectedComponents::FindTriComponents(
 }
 
 void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<int32_t>& ComponentQueue,
-                                                 TArray<uint8_t>& ActiveSet )
+                                                 TArray<uint8_t>& ActiveSet ) const
 {
     while ( ComponentQueue.Num() > 0 )
     {
@@ -96,7 +96,7 @@ void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<i
 
 void FMeshConnectedComponents::FindTriComponent(
      FComponent& Component, TArray<int32_t>& ComponentQueue, TArray<uint8_t>& ActiveSet,
-     const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate )
+     const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate ) const
 {
     while ( ComponentQueue.Num() > 0 )
     {
@@ -122,7 +122,7 @@ void FMeshConnectedComponents::FindTriComponent(
 
 void FMeshConnectedComponents::RemoveFromActiveSet( const FComponent& Component, TArray<uint8_t>& ActiveSet )
 {
-    for ( int32_t Tid : Component.Indices )
+    for ( int32_t const Tid : Component.Indices )
     {
         ActiveSet[Tid] = static_cast<uint8_t>( EProcessingState::Invalid );
     }

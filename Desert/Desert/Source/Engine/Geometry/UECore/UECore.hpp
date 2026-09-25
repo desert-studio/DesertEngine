@@ -89,7 +89,7 @@ namespace Desert::Geometry
         {
         }
 
-        int32_t Num() const
+        [[nodiscard]] int32_t Num() const
         {
             return static_cast<int32_t>( Data.size() );
         }
@@ -97,7 +97,7 @@ namespace Desert::Geometry
         {
             return Data.empty();
         }
-        bool IsValidIndex( int32_t Index ) const
+        [[nodiscard]] bool IsValidIndex( int32_t Index ) const
         {
             return Index >= 0 && Index < Num();
         }
@@ -294,7 +294,7 @@ namespace Desert::Geometry
         {
         }
 
-        int32_t Num() const
+        [[nodiscard]] int32_t Num() const
         {
             return static_cast<int32_t>( View.size() );
         }
@@ -360,7 +360,7 @@ namespace Desert::Geometry
         {
             return static_cast<int32_t>( Data.erase( Item ) );
         }
-        int32_t Num() const
+        [[nodiscard]] int32_t Num() const
         {
             return static_cast<int32_t>( Data.size() );
         }
@@ -420,7 +420,7 @@ namespace Desert::Geometry
         {
             return static_cast<int32_t>( Data.erase( Key ) );
         }
-        int32_t Num() const
+        [[nodiscard]] int32_t Num() const
         {
             return static_cast<int32_t>( Data.size() );
         }

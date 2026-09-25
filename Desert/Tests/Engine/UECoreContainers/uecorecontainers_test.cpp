@@ -117,10 +117,11 @@ TEST( UECoreDynamicVector, CopyMoveAndEqualityAcrossBlockSizes )
     for ( int i = 0; i < 9; ++i )
         Other.Add( i );
     EXPECT_TRUE( A == Other );
-    TDynamicVector<int, 4> Moved( std::move( A ) );
+    TDynamicVector<int, 4> const Moved( std::move( A ) );
     EXPECT_EQ( Moved.Num(), 9u );
-    EXPECT_TRUE( A.IsEmpty() );
-    A.Add( 1 ); // moved-from must still be usable
+    // The moved-from state is the contract under test here, so reading A after the move is the point.
+    EXPECT_TRUE( A.IsEmpty() ); // NOLINT(bugprone-use-after-move)
+    A.Add( 1 );                 // moved-from must still be usable
     EXPECT_EQ( A.Num(), 1u );
 }
 
@@ -349,7 +350,7 @@ TEST( UECoreSmallListSet, FindReplaceMoveAndEarlyOut )
     EXPECT_FALSE( Set.IsAllocated( 0 ) );
     EXPECT_EQ( Set.GetCount( 2 ), 10 );
     std::vector<int> Mapped;
-    for ( int v : Set.MappedValues( 2, []( int32_t v ) { return -v; } ) )
+    for ( int const v : Set.MappedValues( 2, []( int32_t v ) { return -v; } ) )
         Mapped.push_back( v );
     EXPECT_EQ( Mapped.size(), 10u );
 }

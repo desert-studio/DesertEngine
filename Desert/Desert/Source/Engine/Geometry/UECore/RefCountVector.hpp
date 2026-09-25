@@ -509,7 +509,7 @@ namespace Desert::Geometry
          * eg usage: for (FVector3d v : mapped_indices(fn_that_looks_up_mesh_vtx_from_id)) { ... }
          */
         template <typename ToType>
-        inline MappedEnumerable<ToType> MappedIndices( std::function<ToType( int )> MapFunc ) const
+        MappedEnumerable<ToType> MappedIndices( std::function<ToType( int )> MapFunc ) const
         {
             return MappedEnumerable<ToType>( Indices(), MapFunc );
         }
@@ -539,12 +539,12 @@ namespace Desert::Geometry
             }
         };
 
-        inline FilteredEnumerable FilteredIndices( std::function<bool( int )> FilterFunc ) const
+        FilteredEnumerable FilteredIndices( std::function<bool( int )> FilterFunc ) const
         {
             return FilteredEnumerable( Indices(), FilterFunc );
         }
 
-        size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
             return RefCounts.GetByteCount() + FreeIndices.GetByteCount();
         }

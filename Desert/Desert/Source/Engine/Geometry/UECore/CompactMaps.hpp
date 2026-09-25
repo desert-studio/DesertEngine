@@ -127,13 +127,13 @@ namespace Desert::Geometry
         }
 
         /** Get number of vertex mappings */
-        int32_t NumVertexMappings() const
+        [[nodiscard]] int32_t NumVertexMappings() const
         {
             return VertMap.Num();
         }
 
         /** Get number of triangle mappings */
-        int32_t NumTriangleMappings() const
+        [[nodiscard]] int32_t NumTriangleMappings() const
         {
             return TriMap.Num();
         }
@@ -153,7 +153,7 @@ namespace Desert::Geometry
         }
 
         /** Get mapping for a vertex */
-        int32_t GetVertexMapping( int32_t FromID ) const
+        [[nodiscard]] int32_t GetVertexMapping( int32_t FromID ) const
         {
             return VertMap[FromID];
         }
@@ -165,7 +165,7 @@ namespace Desert::Geometry
         }
 
         /** Get mapping for a triangle */
-        int32_t GetTriangleMapping( int32_t FromID ) const
+        [[nodiscard]] int32_t GetTriangleMapping( int32_t FromID ) const
         {
             return TriMap[FromID];
         }

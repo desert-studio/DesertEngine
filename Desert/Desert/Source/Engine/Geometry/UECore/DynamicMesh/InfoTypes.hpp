@@ -94,7 +94,7 @@ namespace Desert::Geometry
         /**
          * @return the (TriangleID, TriEdgeIndex) values packed into a 32 bit integer
          */
-        uint32_t Encoded() const
+        [[nodiscard]] uint32_t Encoded() const
         {
             return ( TriEdgeIndex << 30 ) | TriangleID;
         }

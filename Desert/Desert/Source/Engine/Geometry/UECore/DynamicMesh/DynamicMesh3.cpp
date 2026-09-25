@@ -66,10 +66,11 @@ FDynamicMesh3::FDynamicMesh3( FDynamicMesh3&& Other )
 
        Triangles{ std::move( Other.Triangles ) }, TriangleRefCounts{ std::move( Other.TriangleRefCounts ) },
        TriangleEdges{ std::move( Other.TriangleEdges ) }, TriangleGroups{ std::move( Other.TriangleGroups ) },
-       GroupIDCounter{ std::move( Other.GroupIDCounter ) },
+       GroupIDCounter{ Other.GroupIDCounter },
 
-       Edges{ std::move( Other.Edges ) }, EdgeRefCounts{ std::move( Other.EdgeRefCounts ) },
-       AttributeSet{ std::move( Other.AttributeSet ) }
+       AttributeSet{ std::move( Other.AttributeSet ) },
+
+       Edges{ std::move( Other.Edges ) }, EdgeRefCounts{ std::move( Other.EdgeRefCounts ) }
 {
     if ( AttributeSet )
     {
@@ -101,7 +102,7 @@ const FDynamicMesh3& FDynamicMesh3::operator=( FDynamicMesh3&& Other )
         TriangleRefCounts = std::move( Other.TriangleRefCounts );
         TriangleEdges     = std::move( Other.TriangleEdges );
         TriangleGroups    = std::move( Other.TriangleGroups );
-        GroupIDCounter    = std::move( Other.GroupIDCounter );
+        GroupIDCounter    = Other.GroupIDCounter;
 
         Edges         = std::move( Other.Edges );
         EdgeRefCounts = std::move( Other.EdgeRefCounts );
@@ -199,7 +200,8 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
     VertexEdgeLists.AppendWithElementOffset( ToAppend.VertexEdgeLists, UseAppendInfo->EdgeOffset );
 
     Triangles.Add( ToAppend.Triangles );
-    for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = Triangles.Num(); Idx < N; ++Idx )
+    for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = static_cast<int32_t>( Triangles.Num() ); Idx < N;
+          ++Idx )
     {
         Triangles[Idx].A += UseAppendInfo->VertexOffset;
         Triangles[Idx].B += UseAppendInfo->VertexOffset;
@@ -214,7 +216,8 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
         TriangleEdges.Resize( UseAppendInfo->TriangleOffset );
     }
     TriangleEdges.Add( ToAppend.TriangleEdges );
-    for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = Triangles.Num(); Idx < N; ++Idx )
+    for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = static_cast<int32_t>( Triangles.Num() ); Idx < N;
+          ++Idx )
     {
         TriangleEdges[Idx].A += UseAppendInfo->EdgeOffset;
         TriangleEdges[Idx].B += UseAppendInfo->EdgeOffset;
@@ -228,7 +231,8 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
         if ( ToAppend.TriangleGroups.IsSet() )
         {
             TriangleGroups->Add( *ToAppend.TriangleGroups );
-            for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = Triangles.Num(); Idx < N; ++Idx )
+            for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = static_cast<int32_t>( Triangles.Num() );
+                  Idx < N; ++Idx )
             {
                 ( *TriangleGroups )[Idx] += UseAppendInfo->GroupOffset;
             }
@@ -240,7 +244,7 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
     }
 
     Edges.Add( ToAppend.Edges );
-    for ( int32_t Idx = UseAppendInfo->EdgeOffset, N = Edges.Num(); Idx < N; ++Idx )
+    for ( int32_t Idx = UseAppendInfo->EdgeOffset, N = static_cast<int32_t>( Edges.Num() ); Idx < N; ++Idx )
     {
         Edges[Idx].Tri.A += UseAppendInfo->TriangleOffset;
         if ( Edges[Idx].Tri.B != INDEX_NONE )
@@ -707,7 +711,7 @@ int32_t FDynamicMesh3::GetSingleVertexTriangle( int32_t VID ) const
     return VertexEdgeLists.First( VID );
 }
 
-void FDynamicMesh3::EnumerateEdgeTriangles( int32_t EdgeID, std::function<void( int32_t )> ApplyFunc ) const
+void FDynamicMesh3::EnumerateEdgeTriangles( int32_t EdgeID, const std::function<void( int32_t )>& ApplyFunc ) const
 {
     UE_CHECK_SLOW( EdgeRefCounts.IsValid( EdgeID ) );
     if ( IsEdge( EdgeID ) )
@@ -723,8 +727,8 @@ void FDynamicMesh3::EnumerateEdgeTriangles( int32_t EdgeID, std::function<void( 
 
 size_t FDynamicMesh3::GetByteCount() const
 {
-    size_t ByteCount = VertexRefCounts.GetByteCount() + VertexEdgeLists.GetByteCount() +
-                       TriangleRefCounts.GetByteCount() + EdgeRefCounts.GetByteCount();
+    size_t const ByteCount = VertexRefCounts.GetByteCount() + VertexEdgeLists.GetByteCount() +
+                             TriangleRefCounts.GetByteCount() + EdgeRefCounts.GetByteCount();
     return ByteCount;
 }
 
@@ -899,7 +903,7 @@ bool FDynamicMesh3::CheckValidity( FValidityOptions ValidityOptions, EValidityCh
         {
             CheckOrFailF( vTris.Num() == GetVtxEdgeCount( vID ) || vTris.Num() == GetVtxEdgeCount( vID ) - 1 );
         }
-        int32_t VertexRefCount = VertexRefCounts.GetRefCount( vID );
+        int32_t const VertexRefCount = VertexRefCounts.GetRefCount( vID );
         CheckOrFailF( VertexRefCount == ( vTris.Num() + 1 ) );
         CheckOrFailF( triToVtxRefs[vID] == vTris.Num() );
         for ( int tID : vTris )
@@ -1021,7 +1025,8 @@ int FDynamicMesh3::FindTriangleEdge( int tID, int vA, int vB ) const
 int32_t FDynamicMesh3::FindEdgeInternal( int32_t vA, int32_t vB, bool& bIsBoundary ) const
 {
     // edge vertices must be sorted (min,max), that means we only need one index-check in inner loop.
-    int32_t vMax = vA, vMin = vB;
+    int32_t vMax = vA;
+    int32_t vMin = vB;
     if ( vB > vA )
     {
         vMax = vB;
@@ -1056,7 +1061,8 @@ int FDynamicMesh3::FindEdge( int vA, int vB ) const
 
     // edge vertices must be sorted (min,max),
     //   that means we only need one index-check in inner loop.
-    int32_t vMax = vA, vMin = vB;
+    int32_t vMax = vA;
+    int32_t vMin = vB;
     if ( vB > vA )
     {
         vMax = vB;

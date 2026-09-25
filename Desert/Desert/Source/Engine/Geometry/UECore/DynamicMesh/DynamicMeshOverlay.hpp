@@ -405,8 +405,8 @@ namespace Desert::Geometry
          * @param InitElementValue Initial element value, copied into all created elements
          */
         void CreateFromPredicate(
-             std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )> TrisCanShareVertexPredicate,
-             RealType                                                           InitElementValue );
+             const std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )>& TrisCanShareVertexPredicate,
+             RealType                                                                  InitElementValue );
 
         /**
          * Build overlay topology with one element per vertex.
@@ -427,7 +427,7 @@ namespace Desert::Geometry
          * @param GetNewElementValue function to assign a new value to any element that is split out
          */
         void SplitVerticesWithPredicate(
-             std::function<bool( int ElementIdx, int TriID )>                     ShouldSplitOutVertex,
+             const std::function<bool( int ElementIdx, int TriID )>&              ShouldSplitOutVertex,
              std::function<void( int ElementIdx, int TriID, RealType* FillVect )> GetNewElementValue );
 
         /**
@@ -472,7 +472,7 @@ namespace Desert::Geometry
          * @param NewElementIDs If not null, newly created element IDs are placed here. Note that this array is
          *   intentionally not cleared before appending to it.
          */
-        void SplitBowtiesAtVertex( int32_t Vid, TArray<int32_t>* NewElementIDs = nullptr );
+        void SplitBowtiesAtVertex( int32_t VertexID, TArray<int32_t>* NewElementIDs = nullptr );
 
         /**
          * Refine an existing overlay topology by splitting any bowties
@@ -620,7 +620,7 @@ namespace Desert::Geometry
         bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
         /** Returns true if the parent-mesh vertex is at a seam 'intersection' -- i.e., the end of a seam, or the
          * intersection w/ another seam. */
-        bool IsSeamIntersectionVertex( int32_t VertexID ) const;
+        [[nodiscard]] bool IsSeamIntersectionVertex( int32_t VertexID ) const;
 
         /**
          * Determines whether the base-mesh vertex has "bowtie" topology in the Overlay.
@@ -628,7 +628,7 @@ namespace Desert::Geometry
          * UV-components.
          * @return true if the base-mesh vertex has "bowtie" topology in the overlay
          */
-        bool IsBowtieInOverlay( int32_t VertexID ) const;
+        [[nodiscard]] bool IsBowtieInOverlay( int32_t VertexID ) const;
 
         /** @return true if the two triangles are connected, ie shared edge exists and is not a seam edge */
         bool AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const;
@@ -671,7 +671,7 @@ namespace Desert::Geometry
         template <typename AsType>
         void GetTriBaryInterpolate( int32_t TriangleID, const AsType* BaryCoords, AsType* DataOut ) const
         {
-            int32_t      TriIndex   = 3 * TriangleID;
+            int32_t const TriIndex   = 3 * TriangleID;
             int32_t      ElemIndex0 = ElementTriangles[TriIndex] * ElementSize;
             int32_t      ElemIndex1 = ElementTriangles[TriIndex + 1] * ElementSize;
             int32_t      ElemIndex2 = ElementTriangles[TriIndex + 2] * ElementSize;
@@ -695,7 +695,7 @@ namespace Desert::Geometry
          */
         bool IsSameAs( const TDynamicMeshOverlay<RealType, ElementSize>& Other, bool bIgnoreDataLayout ) const;
 
-        size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
             return ElementsRefCounts.GetByteCount() + Elements.GetByteCount() + ParentVertices.GetByteCount() +
                    ElementTriangles.GetByteCount();
@@ -816,7 +816,7 @@ namespace Desert::Geometry
          * Get the Element associated with a vertex of a triangle
          * @param TriVertexIndex index of vertex in triangle, valid values are 0,1,2
          */
-        inline void GetTriElement( int TriangleID, int32_t TriVertexIndex, VectorType& Value ) const
+        void GetTriElement( int TriangleID, int32_t TriVertexIndex, VectorType& Value ) const
         {
             UE_CHECK_SLOW( TriVertexIndex >= 0 && TriVertexIndex <= 2 );
             GetElement( BaseType::ElementTriangles[( 3 * TriangleID ) + TriVertexIndex], Value );

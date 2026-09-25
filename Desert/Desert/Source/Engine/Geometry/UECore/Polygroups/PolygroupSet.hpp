@@ -108,7 +108,7 @@ namespace Desert::Geometry
 
         /** @return index of current PolygroupAttribute into Mesh AttributeSet, or -1 if this information does not
          * exist */
-        int32_t GetPolygroupIndex() const
+        [[nodiscard]] int32_t GetPolygroupIndex() const
         {
             return GroupLayerIndex;
         }
@@ -116,7 +116,7 @@ namespace Desert::Geometry
         /**
          * @return PolygroupID for a TriangleID
          */
-        int32_t GetGroup( int32_t TriangleID ) const
+        [[nodiscard]] int32_t GetGroup( int32_t TriangleID ) const
         {
             return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
                                        : Mesh->GetTriangleGroup( TriangleID );
@@ -125,7 +125,7 @@ namespace Desert::Geometry
         /**
          * @return PolygroupID for a TriangleID
          */
-        int32_t GetTriangleGroup( int32_t TriangleID ) const
+        [[nodiscard]] int32_t GetTriangleGroup( int32_t TriangleID ) const
         {
             return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
                                        : Mesh->GetTriangleGroup( TriangleID );
