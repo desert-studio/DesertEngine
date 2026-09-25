@@ -721,3 +721,35 @@ TEST( SceneMigratorWritePath, ARowWithAVersionMemberKeepsAUint64AboveInt64Max )
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised file";
     fs::remove_all( dir );
 }
+
+// A .anim at generation 3 (T7e, ANIM 3 -> 4): `Version` is cut, the header spliced in, and the clip's
+// SkeletonSignature above INT64_MAX keeps its digits - the rig a clip names by it is matched byte for byte.
+TEST( SceneMigratorWritePath, AGenerationThreeClipIsRaisedToAHeaderKeepingItsSkeletonSignature )
+{
+    const fs::path dir  = MakeTempDir( "T7e3RaiseClip" );
+    const fs::path file = dir / "Big.anim";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Version":3,"Name":"Big","TickRate":{"Denominator":1,"Numerator":24000},)"
+               R"("DisplayRate":{"Denominator":1,"Numerator":30},"DurationTicks":24000,)"
+               R"("SkeletonSignature":9748021389765177955,"Channels":[],"Notifies":[],)"
+               R"("Sections":[{"Blend":0,"EndTick":24000,"Name":"Whole clip","StartTick":0,"Tracks":[],"Weight":[]}]})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "\"SkeletonSignature\": 9748021389765177955" ), std::string::npos )
+         << "the clip's rig signature was lost (a uint64 above INT64_MAX): " << raised;
+    EXPECT_EQ( raised.find( "\"Version\"" ), std::string::npos ) << "the old version member survived: " << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::Animation );
+    EXPECT_NE( raised.find( "\"ANIM\": 4" ), std::string::npos ) << raised;
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised clip";
+    fs::remove_all( dir );
+}

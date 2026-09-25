@@ -48,6 +48,10 @@ namespace Desert::Assets
     // version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
     inline constexpr uint32_t kSkeletonSchemaVersion = 1;
+    // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
+    // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
+    inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
+    inline constexpr uint32_t kAnimationSchemaVersion = 4;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

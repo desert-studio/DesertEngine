@@ -352,8 +352,9 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
              rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>(
                   ReadFile( path ) );
         ASSERT_TRUE( data.has_value() ) << path << " does not parse as a `.anim` at all";
-        EXPECT_EQ( data.value().Version, Desert::Assets::Serialization::kAnimationVersion )
-             << path << " is at `.anim` generation " << data.value().Version << " and this build reads "
+        const int stated = Desert::Assets::StatedVersion( data.value().Header, Desert::Assets::kAnimationSchemaTag );
+        EXPECT_EQ( stated, Desert::Assets::Serialization::kAnimationVersion )
+             << path << " is at `.anim` generation " << stated << " and this build reads "
              << Desert::Assets::Serialization::kAnimationVersion
              << ". Run Tools/SceneMigrator over it: the loader refuses it, so whatever plays it stands "
                 "still.";

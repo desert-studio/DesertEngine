@@ -1,4 +1,5 @@
 #include "AnimationClipWrite.hpp"
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Common/Core/Core.hpp> // BOOLSUCCESS
@@ -12,10 +13,6 @@ namespace Desert::Assets::Serialization
     AnimationAssetData BuildAssetDataFromClip( const Animation::AnimationClip& clip )
     {
         AnimationAssetData data;
-        // STAMPED, not inherited. A clip that came from a v0 file cannot reach here — the loader refuses
-        // it — so everything written is at the current generation by construction, and saying so in the
-        // file is what lets the next build tell the two apart.
-        data.Version           = kAnimationVersion;
         data.Name              = clip.AnimationName;
         data.TickRate          = FrameRateData{ clip.TickRate.Numerator, clip.TickRate.Denominator };
         data.DisplayRate       = FrameRateData{ clip.DisplayRate.Numerator, clip.DisplayRate.Denominator };
@@ -81,8 +78,12 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr SaveClipToFile( const std::filesystem::path& path, const Animation::AnimationClip& clip )
     {
-        const auto canonicalJson = Common::Content::CanonicalJsonTextOfWriterOutput(
-             rfl::json::write( BuildAssetDataFromClip( clip ) ) );
+        // A SAVE KEEPS THE CLIP'S IDENTITY: the GUID the file being replaced states, minted only for a new
+        // file (ANIM 4, T7e). Sequencer tracks and anim graphs name the clip, and a fresh GUID would orphan
+        // them. The header is stamped here, at the writer, so the version it states is this build's.
+        AnimationAssetData data = BuildAssetDataFromClip( clip );
+        data.Header = HeaderKeepingFileGuid( path, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
+        const auto canonicalJson = Common::Content::CanonicalJsonTextOfWriterOutput( WriteAnimationJson( data ) );
         if ( !canonicalJson )
             return Common::MakeError<bool>( canonicalJson.GetError() );
         const std::string& json = canonicalJson.GetValue();

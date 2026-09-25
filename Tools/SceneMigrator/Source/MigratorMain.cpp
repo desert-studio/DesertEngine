@@ -354,6 +354,11 @@ namespace
          // .skeleton 0 -> 1 (T7e): generation 0 stated no version member at all.
          TextHeaderRaise{ ".skeleton", Common::Content::ContentKind::Skeleton, Desert::Assets::kSkeletonSchemaTag,
                           0, Desert::Assets::kSkeletonSchemaVersion, nullptr, true },
+         // .anim 3 -> 4 (T7e): the clip's own `Version` moves into the header. Generations 0-2 reach 3 first
+         // through MigrateAnimationJson (the clip loop); a file that left `Version` out is generation 0, never 3.
+         TextHeaderRaise{ ".anim", Common::Content::ContentKind::Animation, Desert::Assets::kAnimationSchemaTag,
+                          Desert::Assets::Serialization::kAnimationLastVersionMember,
+                          Desert::Assets::kAnimationSchemaVersion, "Version", false },
     };
 
     const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
@@ -1587,11 +1592,13 @@ namespace Desert::Migration
                 continue;
             }
 
+            // Generations 0-2 are converted to 3 first (their keys and sections); a generation-3 text is
+            // raised as it is. Either way the header raise is the last step and mints the clip's GUID once.
             Desert::Assets::Serialization::AnimationMigrationReport report;
             const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( source, report );
             if ( !migrated )
             {
-                // A clip already at the current generation is the ordinary case on a second run, and it is
+                // A clip that already states its header is the ordinary case on a second run, and it is
                 // reported as "ok" rather than as a failure — the refusal is what keeps a second run from
                 // doubling the conversion, not a sign that anything is wrong.
                 if ( report.FromVersion >= Desert::Assets::Serialization::kAnimationVersion )
@@ -1606,44 +1613,65 @@ namespace Desert::Migration
                         << "\n";
                     continue;
                 }
-                err << "FAIL   " << path.string() << " — " << migrated.GetError() << "\n";
+                if ( report.FromVersion != Desert::Assets::Serialization::kAnimationLastVersionMember )
+                {
+                    err << "FAIL   " << path.string() << " — " << migrated.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+            }
+
+            std::ostringstream what;
+            if ( migrated )
+            {
+                // WHAT ACTUALLY HAPPENED TO THIS FILE, which is not the same sentence for both steps. A
+                // generation-0 file has its key times moved from float seconds onto the tick grid; a
+                // generation-1 one keeps every tick it had and gains the SHAPE each key now states. Printing
+                // the first sentence for both was true of the corpus on the day it was written and false the
+                // day a second step existed.
+                std::ostringstream what;
+                if ( report.FromVersion < 1 )
+                {
+                    what << " generation " << report.FromVersion << ": key times moved from float seconds onto "
+                         << "the " << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
+                         << report.DisplayRateNumerator << " fps"
+                         << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" )
+                         << "; " << report.KeysMoved << " key time(s) rounded";
+                    if ( report.KeysMoved > 0 )
+                    {
+                        what << ", worst by " << report.WorstMicro << " millionths of a tick";
+                    }
+                    what << ";";
+                }
+                else
+                {
+                    what << " generation " << report.FromVersion << ": every tick kept; display rate "
+                         << report.DisplayRateNumerator << " fps carried;";
+                }
+                what << " " << report.ShapesWritten
+                     << " key(s) now STATE their interpolation and tangent mode instead of inheriting a silent "
+                        "default;";
+                // THE GENERATION-3 SENTENCE, and it is a separate one because it is a separate claim: the
+                // step from 2 adds NO key shapes (they were already stated) and adds the section instead, so
+                // a line reporting only `ShapesWritten` would say "0" and read as a conversion that did
+                // nothing.
+                what << " " << report.SectionsWritten
+                     << " section(s) now STATE the range, blend type and weight its values are read under;";
+
+            }
+            const Common::Content::AssetGuid guid = Common::Content::AssetGuid::Generate();
+            const auto raised = RaiseTextToHeader( *TextHeaderRaiseFor( path ), migrated ? migrated.GetValue() : source,
+                                                   guid );
+            if ( !raised || !raised.GetValue().has_value() )
+            {
+                err << "FAIL   " << path.string() << " — the header raise "
+                    << ( raised ? std::string( "found a header already" ) : raised.GetError() ) << "\n";
                 ++failed;
                 continue;
             }
-
-            // WHAT ACTUALLY HAPPENED TO THIS FILE, which is not the same sentence for both steps. A
-            // generation-0 file has its key times moved from float seconds onto the tick grid; a
-            // generation-1 one keeps every tick it had and gains the SHAPE each key now states. Printing
-            // the first sentence for both was true of the corpus on the day it was written and false the
-            // day a second step existed.
-            std::ostringstream what;
-            if ( report.FromVersion < 1 )
-            {
-                what << " generation " << report.FromVersion << ": key times moved from float seconds onto "
-                     << "the " << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
-                     << report.DisplayRateNumerator << " fps"
-                     << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" )
-                     << "; " << report.KeysMoved << " key time(s) rounded";
-                if ( report.KeysMoved > 0 )
-                {
-                    what << ", worst by " << report.WorstMicro << " millionths of a tick";
-                }
-                what << ";";
-            }
-            else
-            {
-                what << " generation " << report.FromVersion << ": every tick kept; display rate "
-                     << report.DisplayRateNumerator << " fps carried;";
-            }
-            what << " " << report.ShapesWritten
-                 << " key(s) now STATE their interpolation and tangent mode instead of inheriting a silent "
-                    "default;";
-            // THE GENERATION-3 SENTENCE, and it is a separate one because it is a separate claim: the
-            // step from 2 adds NO key shapes (they were already stated) and adds the section instead, so
-            // a line reporting only `ShapesWritten` would say "0" and read as a conversion that did
-            // nothing.
-            what << " " << report.SectionsWritten
-                 << " section(s) now STATE the range, blend type and weight its values are read under;";
+            what << " generation " << Desert::Assets::Serialization::kAnimationLastVersionMember << " -> "
+                 << Desert::Assets::Serialization::kAnimationVersion << ": the version now lives in the text "
+                 << "asset header, GUID " << Common::Content::AssetGuidToText( guid ) << ";";
 
             if ( check )
             {
@@ -1652,7 +1680,7 @@ namespace Desert::Migration
                 continue;
             }
 
-            if ( !WriteText( path, migrated.GetValue(), err ) )
+            if ( !WriteText( path, *raised.GetValue(), err ) )
             {
                 err << "FAIL   " << path.string() << " — the conversion could not be written; the original "
                     << "file is untouched. It would have been:" << what.str() << "\n";

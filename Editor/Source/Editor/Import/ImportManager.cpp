@@ -287,7 +287,12 @@ namespace Desert::Editor
                                             const std::filesystem::path&                             sourcePath )
     {
         auto cookedPath = BuildCookedPath( sourcePath, "_" + data.Name + ".anim" );
-        return WriteCookedJson( data, cookedPath );
+        // A RE-IMPORT KEEPS THE CLIP'S IDENTITY (T7e, ANIM 4), as the rig's above: sequencer tracks and anim
+        // graphs name the clip, and a fresh GUID would orphan them.
+        auto stamped   = data;
+        stamped.Header = Assets::HeaderKeepingFileGuid( cookedPath, Common::Content::ContentKind::Animation,
+                                                        Assets::Serialization::AnimationTextSubsystems() );
+        return WriteCookedJson( stamped, cookedPath );
     }
 
     Common::BoolResultStr ImportManager::SerializeMaterialAsset( const ImportedMaterial&      material,

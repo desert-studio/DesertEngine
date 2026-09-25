@@ -274,7 +274,6 @@ namespace
             return {};
 
         File::AnimationAssetData clip;
-        clip.Version           = File::kAnimationVersion;
         clip.Name              = "ForeignArm_Swing";
         clip.TickRate          = File::FrameRateData{ 24000, 1 };
         clip.DisplayRate       = File::FrameRateData{ 8, 1 };
@@ -1089,7 +1088,7 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
          << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
 
     const File::AnimationAssetData builtClip = ForeignArmClipData();
-    EXPECT_EQ( shippedClip.value().Version, builtClip.Version );
+    EXPECT_TRUE( shippedClip.value().Header.has_value() ) << kSourceClip << " states no header";
     EXPECT_EQ( shippedClip.value().Name, builtClip.Name );
     EXPECT_EQ( shippedClip.value().DurationTicks, builtClip.DurationTicks );
     EXPECT_EQ( shippedClip.value().SkeletonSignature, builtClip.SkeletonSignature );
