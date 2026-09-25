@@ -152,25 +152,26 @@ namespace Desert::Geometry
     }
 
     bool FDynamicMeshUVEditor::SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32>& Triangles,
-                                                                               bool bUseExistingUVTopology,
-                                                                               bool bPreserveIrregularity,
-                                                                               FUVEditResult* Result )
+                                                                                bool bUseExistingUVTopology,
+                                                                                bool bPreserveIrregularity,
+                                                                                FUVEditResult* Result )
     {
         if ( UVOverlay == nullptr || Triangles.Num() == 0 )
             return false;
         if ( !bUseExistingUVTopology )
             ResetUVs( Triangles );
 
-        FDynamicMesh3                  Submesh;
+        FDynamicMesh3                    Submesh;
         std::unordered_map<int32, int32> BaseToSubmeshV;
-        TArray<int32>                  SubmeshToBaseV;
-        TArray<int32>                  SubmeshToBaseT;
+        TArray<int32>                    SubmeshToBaseV;
+        TArray<int32>                    SubmeshToBaseT;
         for ( const int32 tid : Triangles )
         {
             if ( bUseExistingUVTopology && !UVOverlay->IsSetTriangle( tid ) )
                 continue;
-            const FIndex3i Triangle = bUseExistingUVTopology ? UVOverlay->GetTriangle( tid ) : Mesh->GetTriangle( tid );
-            FIndex3i       NewTriangle;
+            const FIndex3i Triangle =
+                 bUseExistingUVTopology ? UVOverlay->GetTriangle( tid ) : Mesh->GetTriangle( tid );
+            FIndex3i NewTriangle;
             for ( int32 j = 0; j < 3; ++j )
             {
                 const auto Found = BaseToSubmeshV.find( Triangle[j] );
@@ -225,8 +226,9 @@ namespace Desert::Geometry
         for ( const int32 tid : Submesh.TriangleIndicesItr() )
         {
             const FIndex3i SubTri = Submesh.GetTriangle( tid );
-            UVOverlay->SetTriangle( SubmeshToBaseT[tid],
-                                    FIndex3i( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B], VtxElementIDs[SubTri.C] ) );
+            UVOverlay->SetTriangle(
+                 SubmeshToBaseT[tid],
+                 FIndex3i( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B], VtxElementIDs[SubTri.C] ) );
         }
         if ( Result != nullptr )
             Result->NewUVElements = MoveTemp( NewElementIDs );

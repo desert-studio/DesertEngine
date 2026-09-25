@@ -66,9 +66,9 @@ namespace
 
     FStats Measure( const FDynamicMesh3& mesh, const FDynamicMeshUVOverlay& uvs )
     {
-        FStats s;
-        int    count = 0;
-        double sumRatio = 0.0;
+        FStats              s;
+        int                 count    = 0;
+        double              sumRatio = 0.0;
         std::vector<double> ratios;
         for ( const int t : mesh.TriangleIndicesItr() )
         {
@@ -98,7 +98,7 @@ namespace
         }
         s.MeanAngleError /= count;
         for ( const double r : ratios )
-            s.MinAreaRatio = std::min( s.MinAreaRatio, r * ratios.size() / sumRatio );
+            s.MinAreaRatio = std::min( s.MinAreaRatio, r * static_cast<double>( ratios.size() ) / sumRatio );
         return s;
     }
 
@@ -138,9 +138,10 @@ TEST( SpectralConformalUV, SphericalCapInPlaceKeepsOrientationAndAngles )
     FDynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
     FDynamicMeshUVEditor   editor( &mesh, &uvs );
     ASSERT_TRUE( editor.SetTriangleUVsFromExpMap( AllTriangles( mesh ) ) );
-    const int elementsBefore = uvs.ElementCount();
+    const int     elementsBefore = uvs.ElementCount();
     FUVEditResult result;
-    ASSERT_TRUE( editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), true, true, &result ) );
+    ASSERT_TRUE(
+         editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), true, true, &result ) );
     EXPECT_EQ( uvs.ElementCount(), elementsBefore );
     EXPECT_EQ( result.NewUVElements.Num(), elementsBefore );
     const FStats s = Measure( mesh, uvs );

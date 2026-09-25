@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numbers>
 #include <random>
 
 namespace Desert::Geometry
@@ -39,7 +40,7 @@ namespace Desert::Geometry
                 const FVector3d EdgeAB( VertB - VertA );
                 const FVector3d EdgeAC( VertC - VertA );
                 const FVector3d EdgeBC( VertC - VertB );
-                OppositeEdge = { EdgeIds[1], EdgeIds[2], EdgeIds[0] };
+                OppositeEdge           = { EdgeIds[1], EdgeIds[2], EdgeIds[0] };
                 const double TwiceArea = EdgeAB.Cross( EdgeAC ).Length();
                 if ( TwiceArea > 2. * SmallTriangleArea )
                 {
@@ -51,13 +52,13 @@ namespace Desert::Geometry
                 else
                 {
                     // default small triangle - equilateral
-                    const double CotOf60 = 1. / std::sqrt( 3. );
+                    const double CotOf60 = std::numbers::inv_sqrt3;
                     Cotangent            = { CotOf60, CotOf60, CotOf60 };
                     Area                 = SmallTriangleArea;
                 }
             }
 
-            double GetOpposingCotangent( int32 EdgeID ) const
+            [[nodiscard]] double GetOpposingCotangent( int32 EdgeID ) const
             {
                 for ( int32 i = 0; i < 3; ++i )
                 {
@@ -95,10 +96,10 @@ namespace Desert::Geometry
                 double       WeightII   = 0.;
                 for ( const int32 EdgeId : Mesh.VtxEdgesItr( IVertId ) )
                 {
-                    const FIndex2i            EdgeV    = Mesh.GetEdgeV( EdgeId );
-                    const FIndex2i            EdgeT    = Mesh.GetEdgeT( EdgeId );
-                    const int32               JVertId  = EdgeV.A == IVertId ? EdgeV.B : EdgeV.A;
-                    const FCotanTriangleData& Tri0Data = TriData[ToTriIdx[EdgeT.A]];
+                    const FIndex2i            EdgeV      = Mesh.GetEdgeV( EdgeId );
+                    const FIndex2i            EdgeT      = Mesh.GetEdgeT( EdgeId );
+                    const int32               JVertId    = EdgeV.A == IVertId ? EdgeV.B : EdgeV.A;
+                    const FCotanTriangleData& Tri0Data   = TriData[ToTriIdx[EdgeT.A]];
                     double                    CotanAlpha = Tri0Data.GetOpposingCotangent( EdgeId );
                     double                    CotanBeta  = EdgeT.B != FDynamicMesh3::InvalidID
                                                                 ? TriData[ToTriIdx[EdgeT.B]].GetOpposingCotangent( EdgeId )
@@ -167,34 +168,25 @@ namespace Desert::Geometry
         }
     }
 
-    void FSparseMatrixD::MultiplyTransposed( const std::vector<double>& In, std::vector<double>& Out ) const
-    {
-        Out.assign( NumCols, 0.0 );
-        for ( int32 r = 0; r < NumRows; ++r )
-        {
-            for ( int32 k = RowStart[r]; k < RowStart[r + 1]; ++k )
-                Out[ColIndex[k]] += Values[k] * In[r];
-        }
-    }
-
     bool FSparseLDLT::Factorize( const FSparseMatrixD& Matrix )
     {
-        const int32 N = Matrix.Rows();
+        const int32 N = static_cast<int32>( Matrix.RowStart.size() ) - 1;
         // reverse Cuthill-McKee: breadth-first from a minimum-degree vertex, neighbours by increasing degree
         std::vector<int32> Degree( N, 0 );
         for ( int32 r = 0; r < N; ++r )
             Degree[r] = Matrix.RowStart[r + 1] - Matrix.RowStart[r];
         std::vector<int32> Order;
         Order.reserve( N );
-        std::vector<char> Visited( N, 0 );
+        std::vector<char>  Visited( N, 0 );
         std::vector<int32> Seeds( N );
         for ( int32 r = 0; r < N; ++r )
             Seeds[r] = r;
-        std::stable_sort( Seeds.begin(), Seeds.end(), [&Degree]( int32 L, int32 R ) { return Degree[L] < Degree[R]; } );
+        std::stable_sort( Seeds.begin(), Seeds.end(),
+                          [&Degree]( int32 L, int32 R ) { return Degree[L] < Degree[R]; } );
         std::vector<int32> Neighbours;
         for ( const int32 Seed : Seeds )
         {
-            if ( Visited[Seed] )
+            if ( Visited[Seed] != 0 )
                 continue;
             Visited[Seed] = 1;
             Order.push_back( Seed );
@@ -204,7 +196,7 @@ namespace Desert::Geometry
                 Neighbours.clear();
                 for ( int32 k = Matrix.RowStart[r]; k < Matrix.RowStart[r + 1]; ++k )
                 {
-                    if ( !Visited[Matrix.ColIndex[k]] )
+                    if ( Visited[Matrix.ColIndex[k]] == 0 )
                     {
                         Visited[Matrix.ColIndex[k]] = 1;
                         Neighbours.push_back( Matrix.ColIndex[k] );
@@ -274,7 +266,7 @@ namespace Desert::Geometry
 
     void FSparseLDLT::Solve( const std::vector<double>& B, std::vector<double>& X ) const
     {
-        const int32         N = static_cast<int32>( Perm.size() );
+        const auto          N = static_cast<int32>( Perm.size() );
         std::vector<double> Y( N );
         for ( int32 i = 0; i < N; ++i )
         {
@@ -349,7 +341,8 @@ namespace Desert::Geometry
                 const double   Value   = 1.0 / ( std::max( Mesh.GetTriArea( tid ), SmallTriangleArea ) / Scale );
                 // the edge is reversed to handle UE's mesh orientation, else the area term flips sign
                 for ( int32 k = 0; k < 3; ++k )
-                    AppendAreaEdge( ToIndex[TriVert[( k + 1 ) % 3]], ToIndex[TriVert[k]], NumVerts, -Value, Triplets );
+                    AppendAreaEdge( ToIndex[TriVert[( k + 1 ) % 3]], ToIndex[TriVert[k]], NumVerts, -Value,
+                                    Triplets );
             }
         }
         else
@@ -373,8 +366,8 @@ namespace Desert::Geometry
 
         // B selects the boundary, E (2V x 2) is its normalized centroid: the iteration uses (B - E E^T) x
         // without forming the dense E E^T
-        const double       InvSqrtBndr = 1.0 / std::sqrt( static_cast<double>( Boundary.Num() ) );
-        const auto         ApplyB      = [&]( const std::vector<double>& In, std::vector<double>& Out )
+        const double InvSqrtBndr = 1.0 / std::sqrt( static_cast<double>( Boundary.Num() ) );
+        const auto   ApplyB      = [&]( const std::vector<double>& In, std::vector<double>& Out )
         {
             double MeanU = 0.0;
             double MeanV = 0.0;
@@ -397,8 +390,8 @@ namespace Desert::Geometry
 
         // inverse power iteration for the smallest generalized eigenpair (FPowerMethod::Solve, bComputeLargest
         // false): x <- A^-1 B x, normalized, until ||A x - lambda B x||_inf < Tolerance
-        static constexpr double Tolerance     = 1e-10;
-        static constexpr int32  MaxIterations = 1000;
+        static constexpr double                Tolerance     = 1e-10;
+        static constexpr int32                 MaxIterations = 1000;
         std::mt19937_64                        Random( 0x5eed );
         std::uniform_real_distribution<double> Uniform( -1.0, 1.0 );
         std::vector<double>                    X( N );
