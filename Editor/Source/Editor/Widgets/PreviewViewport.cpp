@@ -687,6 +687,16 @@ namespace Desert::Editor
         ResetView();
     }
 
+    void PreviewViewport::SetCubemapBackdrop( bool cubeIsBackdrop )
+    {
+        if ( m_Fill != Fill::Cubemap || !m_CubemapPass )
+        {
+            LOG_ERROR( "[Preview] SetCubemapBackdrop without a cubemap on show — call SetCubemapMaterial first." );
+            return;
+        }
+        m_CubemapPass->SetBackdrop( cubeIsBackdrop );
+    }
+
     void PreviewViewport::SetVolumeMaterial( const Assets::AssetHandle& material )
     {
         EnsureInit();

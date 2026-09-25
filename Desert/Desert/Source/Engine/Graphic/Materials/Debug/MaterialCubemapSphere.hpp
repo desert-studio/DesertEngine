@@ -25,7 +25,7 @@ namespace Desert::Graphic
         // @p cube may not be null — the pass skips its draw entirely when the material resolves no cube,
         // so "no cubemap" is a named refusal in the panel rather than a black ball here.
         void Update( const Core::Camera* camera, const ImageCube* cube, const SkyLook& look,
-                     float radiusWorldUnits )
+                     float radiusWorldUnits, bool cubeIsBackdrop )
         {
             if ( !camera || !cube )
                 return;
@@ -36,7 +36,7 @@ namespace Desert::Graphic
             data.InvProjection = glm::inverse( data.Projection );
             data.InvView       = glm::inverse( data.View );
             data.CameraPos     = glm::vec4( camera->GetPosition(), 1.0f );
-            data.Params        = glm::vec4( radiusWorldUnits, 0.0f, 0.0f, 0.0f );
+            data.Params        = glm::vec4( radiusWorldUnits, cubeIsBackdrop ? 1.0f : 0.0f, 0.0f, 0.0f );
 
             if ( auto* ub = Get<UniformBufferProperty>( "CubemapSphereUB" ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
@@ -55,7 +55,7 @@ namespace Desert::Graphic
             glm::mat4 InvProjection;
             glm::mat4 InvView;
             glm::vec4 CameraPos;
-            glm::vec4 Params; // x = sphere radius (world units)
+            glm::vec4 Params; // x = sphere radius (world units), y = cube is the backdrop (0/1)
         };
     };
 } // namespace Desert::Graphic
