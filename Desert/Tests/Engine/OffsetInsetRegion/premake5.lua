@@ -33,6 +33,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingUVUtil.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/Solvers/MeshUVSolver.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/MeshTangents.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/GroupTopology.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/SplitAttributeWelder.cpp",
