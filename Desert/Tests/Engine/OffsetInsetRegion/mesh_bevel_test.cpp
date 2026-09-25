@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -1587,14 +1588,26 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
                 low    = std::min( low, r );
                 high   = std::max( high, r );
             }
-            std::cout << "n " << n << " N " << N << " rho " << rho << " border [" << borderLow / rho << ", "
+            std::cout << std::setprecision( 9 ) << "n " << n << " N " << N << " rho " << rho << " border [" << borderLow / rho << ", "
                       << borderHigh / rho << "] patch [" << low / rho << ", " << high / rho << "] axis " << onAxis
                       << "\n";
             // float UVs from an iterative spectral solve: symmetric to ~1e-2 cm
             EXPECT_LT( onAxis, 2e-2 );
-            // MEASURED, not derived (P13g3): UE's MVC blend overshoots its border (n 5: 1.18-1.20 rho, n 6: 1.22)
+            // The patch radii are PINNED, not bounded: no closed form exists (the blend runs on spectral-conformal
+            // UVs), and an envelope hides regressions: mean-value weights replaced by uniform ones overshoot only
+            // 2-6 % past a 1.25 rho cap. UE's MVC blend itself overshoots its own border by ~20 % (its comment:
+            // far border vertices exert too much influence); these are those values, measured (P13g3b) as
+            // {nearest, farthest interior vertex} / rho per subdivision count. The tolerance covers the float UV
+            // solve (the axis offset above is ~1e-2 cm, i.e. ~1e-3 rho sideways, second order in a radius).
+            const std::map<std::pair<int, int>, std::pair<double, double>> pinned{
+                 { { 5, 1 }, { 1.13618957, 1.19888555 } }, { { 5, 2 }, { 1.08152474, 1.19008789 } },
+                 { { 5, 3 }, { 1.05407579, 1.18632232 } }, { { 5, 5 }, { 1.02923656, 1.18312904 } },
+                 { { 6, 1 }, { 1.15199036, 1.21848439 } }, { { 6, 2 }, { 1.09608874, 1.21366289 } },
+                 { { 6, 3 }, { 1.06595106, 1.21155562 } }, { { 6, 5 }, { 1.03718914, 1.20972736 } } };
+            const std::pair<double, double> expected = pinned.at( { n, N } );
             EXPECT_GE( low, borderLow );
-            EXPECT_LE( high, 1.25 * rho );
+            EXPECT_NEAR( low / rho, expected.first, 5e-4 );
+            EXPECT_NEAR( high / rho, expected.second, 5e-4 );
             const double volume = SignedVolume( run.Mesh );
             EXPECT_GT( volume, chamfer );
             EXPECT_LT( volume, original );
