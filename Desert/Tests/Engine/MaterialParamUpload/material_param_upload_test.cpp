@@ -94,11 +94,13 @@ namespace
         }
 
         // Bytes `view` holds for `frame`, or nullopt when it has no copy.
-        std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view, uint32_t frame ) const
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view,
+                                                                  uint32_t                      frame ) const
         {
             const auto* copy = view.Find( m_Block.GetKey(), frame );
             if ( copy == nullptr )
                 return std::nullopt;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             return static_cast<const BytesCopy*>( copy )->Bytes;
         }
 
@@ -108,7 +110,7 @@ namespace
             return Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
         }
 
-        ViewCopiedBlock::CopyMaker Maker() const
+        [[nodiscard]] ViewCopiedBlock::CopyMaker Maker() const
         {
             const uint32_t size = GetSize();
             return [size]( std::string_view, uint32_t, std::unique_ptr<IBlockCopy>& out )
@@ -229,8 +231,13 @@ TEST_F( MaterialParamUpload, BothRoutesLeaveTheSameBytesInEveryFrameCopy )
 
     for ( uint32_t f = 0; f < kFramesInFlight; ++f )
     {
-        ASSERT_TRUE( asset->Copy( view, f ).has_value() ) << "asset route never made frame copy " << f;
-        EXPECT_EQ( *asset->Copy( view, f ), value ) << "asset route left frame copy " << f << " unwritten";
+        const auto assetCopy = asset->Copy( view, f );
+        if ( !assetCopy )
+        {
+            ADD_FAILURE() << "asset route never made frame copy " << f;
+            return;
+        }
+        EXPECT_EQ( *assetCopy, value ) << "asset route left frame copy " << f << " unwritten";
         EXPECT_EQ( asset->Copy( view, f ), restated->Copy( view, f ) ) << "the routes disagree on frame " << f;
     }
 }
@@ -255,8 +262,15 @@ TEST_F( MaterialParamUpload, AWriteInOneViewNeverReachesAnotherViewsExistingCopy
 
     EXPECT_EQ( a.CopyCount(), 1u );
     EXPECT_EQ( b.CopyCount(), 1u );
-    EXPECT_EQ( *buffer->Copy( a, 0 ), second );
-    EXPECT_EQ( *buffer->Copy( b, 0 ), first ) << "view A's write reached view B's existing copy";
+    const auto copyA = buffer->Copy( a, 0 );
+    const auto copyB = buffer->Copy( b, 0 );
+    if ( !copyA || !copyB )
+    {
+        ADD_FAILURE() << "a view lost its copy (A: " << copyA.has_value() << ", B: " << copyB.has_value() << ")";
+        return;
+    }
+    EXPECT_EQ( *copyA, second );
+    EXPECT_EQ( *copyB, first ) << "view A's write reached view B's existing copy";
 }
 
 // THE RISK THE LEAD NAMED: a write outside every scope (UI, bakes) must land in the frame context, not in
@@ -274,9 +288,15 @@ TEST_F( MaterialParamUpload, AWriteOutsideEveryViewLandsInTheFrameContextNotTheL
     }
     ASSERT_TRUE( buffer->SetData( outside.data(), kFieldSize, 0 ).IsSuccess() );
 
-    EXPECT_EQ( *buffer->Copy( view, 0 ), inView ) << "the write outside every view landed in the last view";
+    const auto viewCopy     = buffer->Copy( view, 0 );
     const auto frameContext = buffer->Copy( Graphic::ViewResourceRegistry::FrameContext(), 0 );
-    ASSERT_TRUE( frameContext.has_value() ) << "the write outside every view made no frame-context copy";
+    if ( !viewCopy || !frameContext )
+    {
+        ADD_FAILURE() << "a write made no copy (view: " << viewCopy.has_value()
+                      << ", frame context: " << frameContext.has_value() << ")";
+        return;
+    }
+    EXPECT_EQ( *viewCopy, inView ) << "the write outside every view landed in the last view";
     EXPECT_EQ( *frameContext, outside );
 }
 
@@ -299,7 +319,14 @@ TEST_F( MaterialParamUpload, AViewOpenedAfterAOneShotWriteIsSeededWithIt )
     for ( uint32_t f = 0; f < kFramesInFlight; ++f )
     {
         ASSERT_TRUE( buffer->EnsureMapped().IsSuccess() );
-        EXPECT_EQ( *buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() ), value )
+        const auto previewCopy =
+             buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() );
+        if ( !previewCopy )
+        {
+            ADD_FAILURE() << "binding the new view made no copy (frame " << f << ")";
+            return;
+        }
+        EXPECT_EQ( *previewCopy, value )
              << "a new view's copy started without the material's parameters (frame " << f << ")";
         Engine::FrameManager::GetInstance().NextFrame();
     }

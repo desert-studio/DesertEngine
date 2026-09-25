@@ -125,6 +125,7 @@ namespace Desert::ShaderResources
             if ( Graphic::IViewResourceCopy* existing = view.Find( m_Key, frameIndex ) )
             {
                 // Only this class inserts under m_Key, and it only inserts IBlockCopy.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 out = static_cast<IBlockCopy*>( existing );
                 return Common::MakeSuccess( true );
             }
@@ -132,7 +133,7 @@ namespace Desert::ShaderResources
             // Every refusal is produced BEFORE Acquire: Acquire throws on a null copy, and a view must never
             // be handed a copy that could not be seeded.
             std::unique_ptr<IBlockCopy> made;
-            const auto                  created = make( view.GetName(), frameIndex, made );
+            auto                        created = make( view.GetName(), frameIndex, made );
             if ( !created.IsSuccess() )
                 return created;
             if ( !made )
@@ -148,6 +149,7 @@ namespace Desert::ShaderResources
                                                          seeded.GetError() );
 
             HandOver handOver( std::move( made ) );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             out = static_cast<IBlockCopy*>( &view.Acquire( m_Key, frameIndex, handOver ) );
             return Common::MakeSuccess( true );
         }
@@ -165,7 +167,7 @@ namespace Desert::ShaderResources
             // Resolved BEFORE the image changes, so a copy created here is seeded with the previous
             // contents and then receives this write like any existing one — one path, not two.
             IBlockCopy* copy     = nullptr;
-            const auto  resolved = Resolve( frameIndex, make, copy );
+            auto        resolved = Resolve( frameIndex, make, copy );
             if ( !resolved.IsSuccess() )
                 return resolved;
 

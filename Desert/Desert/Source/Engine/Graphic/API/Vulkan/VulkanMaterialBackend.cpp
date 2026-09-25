@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 
+#include <bit>
 #include <limits>
 #include <cstring>
 #include <Engine/ShaderResources/API/Vulkan/VulkanUniformBuffer.hpp>
@@ -265,7 +266,7 @@ namespace Desert::Graphic::API::Vulkan
         // rewritten is no longer "is the value dirty" alone but also "is the set still pointing at the copy
         // this view binds now" — see DescriptorCopyRecord in ShaderResources/ViewCopiedBlock.hpp.
         auto uniformProp = static_cast<UniformBufferProperty*>( prop );
-        if ( !uniformProp )
+        if ( uniformProp == nullptr )
             return;
 
         const uint32_t frameIndex    = EngineContext::GetInstance().GetCurrentFrameIndex();
@@ -278,9 +279,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( !vulkanBuffer || frameIndex >= m_BoundCopies.size() || slot >= m_BoundCopies[frameIndex].size() )
             return;
 
-        const uint32_t                                                     binding = vulkanBuffer->GetBinding();
-        ShaderResources::API::Vulkan::ViewCopyBinding                      copy;
-        const auto resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
+        const uint32_t                                binding = vulkanBuffer->GetBinding();
+        ShaderResources::API::Vulkan::ViewCopyBinding copy;
+        const auto                                    resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )
         {
             // Nothing valid to point the set at, so the write is skipped (the set keeps its fallback or its
@@ -296,7 +297,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !record.NeedsWrite( binding, copy.CopyId, uniformProp->IsDirty() ) )
             return;
 
-        const uint64_t handle = reinterpret_cast<uint64_t>( copy.Info.buffer );
+        const auto handle = std::bit_cast<uint64_t>( copy.Info.buffer );
 
         // At most one descriptor flush per (frame, slot) per frame — the set is bound into the recording
         // command buffer right after the first draw's Apply, and rewriting it then is illegal. A LATER
@@ -322,7 +323,7 @@ namespace Desert::Graphic::API::Vulkan
         // buffer's copies are per view and made lazily, so a clean property can still own a set pointing at
         // a copy that was dropped (its view closed, or the buffer grew).
         auto storageProp = static_cast<StorageBufferProperty*>( prop );
-        if ( !storageProp )
+        if ( storageProp == nullptr )
             return;
 
         const uint32_t frameIndex    = EngineContext::GetInstance().GetCurrentFrameIndex();
@@ -351,7 +352,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !record.NeedsWrite( binding, copy.CopyId, storageProp->IsDirty() ) )
             return;
 
-        const uint64_t handle = reinterpret_cast<uint64_t>( copy.Info.buffer );
+        const auto handle = std::bit_cast<uint64_t>( copy.Info.buffer );
 
         // See ApplyUniformBuffer. This is the exact path that swallowed the particle system: one shared
         // billboard material, N emitters, and every SetBuffer after the first draw of the frame landed here

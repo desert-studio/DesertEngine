@@ -24,7 +24,7 @@ namespace Desert::ShaderResources::API::Vulkan
     public:
         VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
                              bool persistent = false );
-        virtual ~VulkanStorageBuffer() = default;
+        ~VulkanStorageBuffer() override = default;
 
         NO_DISCARD virtual Common::BoolResultStr EnsureMapped() override;
 
@@ -36,7 +36,7 @@ namespace Desert::ShaderResources::API::Vulkan
             return m_Binding;
         }
 
-        virtual uint32_t GetSize() const override;
+        NO_DISCARD uint32_t GetSize() const override;
 
         // The descriptor for (@p frameIndex x ACTIVE VIEW), with the id of the copy it points at so a set
         // written for a copy that has since been dropped is rewritten (DescriptorCopyRecord). The view is
@@ -44,7 +44,7 @@ namespace Desert::ShaderResources::API::Vulkan
         // persistent buffer answers with its one buffer for every frame and view.
         NO_DISCARD Common::BoolResultStr BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out );
 
-        virtual const void* GetData() const override;
+        NO_DISCARD const void* GetData() const override;
 
     private:
         bool IsPersistent() const

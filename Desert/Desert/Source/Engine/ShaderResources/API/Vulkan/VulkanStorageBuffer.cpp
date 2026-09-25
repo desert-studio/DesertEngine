@@ -88,6 +88,7 @@ namespace Desert::ShaderResources::API::Vulkan
             return Common::MakeFormattedError<bool>( "storage buffer '{}': {}", m_BufferName,
                                                      resolved.GetError() );
         // Only MakeCopy creates copies under this block's key, and it only creates MappedBufferCopy.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         out = static_cast<MappedBufferCopy*>( copy );
         return BOOLSUCCESS;
     }
@@ -169,7 +170,7 @@ namespace Desert::ShaderResources::API::Vulkan
     Common::BoolResultStr VulkanStorageBuffer::BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out )
     {
         MappedBufferCopy* copy     = nullptr;
-        const auto        resolved = ActiveCopy( frameIndex, copy );
+        auto              resolved = ActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )
             return resolved;
         out = copy->Binding();

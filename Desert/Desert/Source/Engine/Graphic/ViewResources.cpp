@@ -139,7 +139,7 @@ namespace Desert::Graphic
     ViewResources& ViewResourceRegistry::Active()
     {
         ViewResources* const view = State().ActiveView.load( std::memory_order_acquire );
-        return view ? *view : FrameContext();
+        return view != nullptr ? *view : FrameContext();
     }
 
     void ViewResourceRegistry::Register( ViewResources& view )
@@ -171,8 +171,8 @@ namespace Desert::Graphic
         const std::lock_guard<std::mutex> guard( state.Lock );
         // The view that was active before the scope opened may have been destroyed inside it; restoring it
         // then would re-arm a dangling pointer, so a view no longer on the live list restores the frame context.
-        const bool stillLive =
-             previous && std::find( state.Live.begin(), state.Live.end(), previous ) != state.Live.end();
+        const bool stillLive = previous != nullptr &&
+                               std::find( state.Live.begin(), state.Live.end(), previous ) != state.Live.end();
         state.ActiveView.store( stillLive ? previous : nullptr, std::memory_order_release );
     }
 

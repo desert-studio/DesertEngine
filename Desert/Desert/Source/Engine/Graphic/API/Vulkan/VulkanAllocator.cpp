@@ -149,9 +149,9 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool )
     {
-        if ( !descriptorPool )
+        if ( descriptorPool == VK_NULL_HANDLE )
             return;
-        uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
         m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex } );
     }
 

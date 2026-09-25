@@ -89,11 +89,12 @@ namespace Desert::ShaderResources::API::Vulkan
     Common::BoolResultStr VulkanUniformBuffer::BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out )
     {
         IBlockCopy* copy     = nullptr;
-        const auto  resolved = ActiveCopy( frameIndex, copy );
+        auto        resolved = ActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )
             return resolved;
 
         // Only MakeCopy creates copies under this block's key, and it only creates MappedBufferCopy.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         out = static_cast<const MappedBufferCopy*>( copy )->Binding();
         return BOOLSUCCESS;
     }

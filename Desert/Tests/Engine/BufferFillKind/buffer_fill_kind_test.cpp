@@ -99,6 +99,7 @@ namespace
         const auto* copy = view.Find( block.GetKey(), frame );
         if ( copy == nullptr )
             return std::nullopt;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         return static_cast<const BytesCopy*>( copy )->Bytes;
     }
 
@@ -130,11 +131,12 @@ namespace
         }
 
         // What the frame context (the view every write outside an ActiveViewScope lands in) holds.
-        std::optional<std::vector<std::byte>> Copy( uint32_t frame ) const
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( uint32_t frame ) const
         {
             return CopyOf( m_Block, Graphic::ViewResourceRegistry::FrameContext(), frame );
         }
-        std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view, uint32_t frame ) const
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view,
+                                                                  uint32_t                      frame ) const
         {
             return CopyOf( m_Block, view, frame );
         }
@@ -182,20 +184,21 @@ namespace
             IBlockCopy* copy = nullptr;
             return m_Block.Resolve( CurrentFrame(), BytesMaker( m_Block ), copy );
         }
-        uint32_t GetBinding() const override
+        [[nodiscard]] uint32_t GetBinding() const override
         {
             return 0;
         }
-        uint32_t GetSize() const override
+        [[nodiscard]] uint32_t GetSize() const override
         {
             return m_Block.GetSize();
         }
-        const void* GetData() const override
+        [[nodiscard]] const void* GetData() const override
         {
             return m_Block.GetContents();
         }
 
-        std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view, uint32_t frame ) const
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view,
+                                                                  uint32_t                      frame ) const
         {
             return CopyOf( m_Block, view, frame );
         }
@@ -535,7 +538,7 @@ namespace
     std::vector<std::byte> Bytes( std::initializer_list<uint8_t> values )
     {
         std::vector<std::byte> out;
-        for ( uint8_t v : values )
+        for ( const uint8_t v : values )
             out.push_back( std::byte{ v } );
         return out;
     }
@@ -558,11 +561,17 @@ TEST_F( BufferFill, TwoViewsHoldTwoStorageCopiesAndOnesWriteIsInvisibleToTheOthe
         ASSERT_TRUE( buffer.SetData( poseB.data(), 4, 0 ).IsSuccess() );
     }
 
-    const uint32_t frame = CurrentFrame();
-    ASSERT_TRUE( buffer.Copy( viewport, frame ).has_value() ) << "the viewport's write made no copy";
-    ASSERT_TRUE( buffer.Copy( preview, frame ).has_value() ) << "the preview's write made no copy";
-    EXPECT_EQ( *buffer.Copy( viewport, frame ), poseA ) << "the preview's write reached the viewport's copy";
-    EXPECT_EQ( *buffer.Copy( preview, frame ), poseB );
+    const uint32_t frame        = CurrentFrame();
+    const auto     viewportCopy = buffer.Copy( viewport, frame );
+    const auto     previewCopy  = buffer.Copy( preview, frame );
+    if ( !viewportCopy || !previewCopy )
+    {
+        ADD_FAILURE() << "a view's write made no copy (viewport: " << viewportCopy.has_value()
+                      << ", preview: " << previewCopy.has_value() << ")";
+        return;
+    }
+    EXPECT_EQ( *viewportCopy, poseA ) << "the preview's write reached the viewport's copy";
+    EXPECT_EQ( *previewCopy, poseB );
     EXPECT_EQ( viewport.CopyCount(), 1u ) << "one buffer, one frame: exactly one copy per view";
     EXPECT_EQ( preview.CopyCount(), 1u );
 }
@@ -591,13 +600,25 @@ TEST_F( BufferFill, AGrownStorageBufferReseedsEveryViewAtTheNewSizeFromTheLastCo
     EXPECT_EQ( buffer.GetSize(), 4u );
     EXPECT_EQ( preview.CopyCount(), 0u ) << "the preview kept a copy at the old size";
 
-    const uint32_t frame = CurrentFrame();
-    EXPECT_EQ( *buffer.Copy( viewport, frame ), Bytes( { 5, 6, 7, 8 } ) );
+    const uint32_t frame        = CurrentFrame();
+    const auto     viewportCopy = buffer.Copy( viewport, frame );
+    if ( !viewportCopy )
+    {
+        ADD_FAILURE() << "the viewport's write made no copy";
+        return;
+    }
+    EXPECT_EQ( *viewportCopy, Bytes( { 5, 6, 7, 8 } ) );
     {
         const Graphic::ActiveViewScope scope( preview );
         ASSERT_TRUE( buffer.EnsureMapped().IsSuccess() ); // what a bind does: resolve the view's copy
     }
-    EXPECT_EQ( *buffer.Copy( preview, frame ), Bytes( { 5, 6, 7, 8 } ) )
+    const auto previewCopy = buffer.Copy( preview, frame );
+    if ( !previewCopy )
+    {
+        ADD_FAILURE() << "binding the preview made no copy";
+        return;
+    }
+    EXPECT_EQ( *previewCopy, Bytes( { 5, 6, 7, 8 } ) )
          << "the preview's re-made copy did not start from the contents written before the growth";
 }
 

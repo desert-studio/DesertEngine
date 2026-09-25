@@ -12,7 +12,7 @@ namespace Desert::ShaderResources::API::Vulkan
     {
     public:
         VulkanUniformBuffer( const ShaderLayout::UniformBuffer& uniform );
-        virtual ~VulkanUniformBuffer() = default;
+        ~VulkanUniformBuffer() override = default;
 
         NO_DISCARD virtual Common::BoolResultStr SetData( const void* data, uint32_t size,
                                                           uint32_t offset = 0 ) override;

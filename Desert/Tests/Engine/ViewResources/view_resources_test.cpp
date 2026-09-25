@@ -92,7 +92,7 @@ TEST_F( ViewResourcesTest, CopiesAreLazyPerViewAndPerFrame )
     ViewResources         b( "b" );
 
     EXPECT_EQ( a.Find( key, 0 ), nullptr );
-    IViewResourceCopy& a0 = a.Acquire( key, 0, factory );
+    const IViewResourceCopy& a0 = a.Acquire( key, 0, factory );
     EXPECT_EQ( &a.Acquire( key, 0, factory ), &a0 ) << "a second bind in the same frame made a second copy";
     EXPECT_NE( &a.Acquire( key, 1, factory ), &a0 ) << "two frames in flight shared one copy";
     EXPECT_NE( &b.Acquire( key, 0, factory ), &a0 ) << "two views shared one copy";
@@ -154,6 +154,7 @@ TEST_F( ViewResourcesTest, TheFrameContextIsActiveOutsideEveryScope )
 TEST_F( ViewResourcesTest, ScopeRestoresTheFrameContextOnException )
 {
     ViewResources view( "main" );
+    bool          unwound = false;
     try
     {
         const ActiveViewScope scope( view );
@@ -161,7 +162,9 @@ TEST_F( ViewResourcesTest, ScopeRestoresTheFrameContextOnException )
     }
     catch ( const std::runtime_error& )
     {
+        unwound = true;
     }
+    ASSERT_TRUE( unwound );
     EXPECT_EQ( &ViewResourceRegistry::Active(), &ViewResourceRegistry::FrameContext() );
 }
 
