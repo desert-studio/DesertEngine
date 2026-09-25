@@ -781,9 +781,11 @@ namespace Desert::Editor
 
                 // The shader the slot RENDERS with: an instance's own ShaderName is empty and would read
                 // as the engine default here, so it comes from the parent chain.
-                const std::string shaderName =
-                     asset ? ( parentAsset ? parentAsset->GetShaderName() : asset->GetShaderName() )
-                           : std::string( "Engine default material" );
+                std::string shaderName = "Engine default material";
+                if ( parentAsset )
+                    shaderName = parentAsset->GetShaderName();
+                else if ( asset )
+                    shaderName = asset->GetShaderName();
 
                 SlotRow row;
                 row.Index      = i;
