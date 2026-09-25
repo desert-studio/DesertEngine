@@ -21,7 +21,7 @@ namespace Desert::Editor
     {
     public:
         AssetMoveCommand( Common::Content::AssetMoveRecord record, std::string label )
-            : m_Record( std::move( record ) ), m_Label( std::move( label ) )
+             : m_Record( std::move( record ) ), m_Label( std::move( label ) )
         {
         }
 

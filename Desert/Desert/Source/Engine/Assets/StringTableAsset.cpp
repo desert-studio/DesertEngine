@@ -43,8 +43,8 @@ namespace Desert::Assets
         // Through the VFS first, so a packaged build reads its translations out of the `.dpak` exactly
         // like every other asset, then off the disk for a loose file the pak does not carry.
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file )
-                                      : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
              packed.has_value() )
         {
             text = packed.value();

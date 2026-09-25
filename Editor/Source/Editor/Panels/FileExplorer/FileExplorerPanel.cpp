@@ -99,8 +99,8 @@ namespace Desert::Editor
         {
             std::string error;
             const bool  moved = MoveOrRename(
-                 filePath, std::filesystem::path( movePath ) / std::filesystem::path( filePath ).filename(), "Move",
-                 error );
+                 filePath, std::filesystem::path( movePath ) / std::filesystem::path( filePath ).filename(),
+                 "Move", error );
             if ( !moved )
                 LOG_ERROR( "[Assets] move '{}' -> '{}': {}", filePath, movePath, error );
             return moved;
@@ -2174,12 +2174,11 @@ namespace Desert::Editor
         for ( const auto& src : m_Clipboard )
         {
             std::string np, err;
-            const bool  ok = m_ClipboardCut
-                                 ? MoveOrRename( src,
-                                                 std::filesystem::path( m_CurrentDir->AssetPath ) /
-                                                      std::filesystem::path( src ).filename(),
-                                                 "Move", err )
-                                 : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
+            const bool  ok = m_ClipboardCut ? MoveOrRename( src,
+                                                            std::filesystem::path( m_CurrentDir->AssetPath ) /
+                                                                 std::filesystem::path( src ).filename(),
+                                                            "Move", err )
+                                            : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
             if ( !ok )
                 m_FileOpStatus = "Paste failed: " + err;
         }
