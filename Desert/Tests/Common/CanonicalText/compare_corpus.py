@@ -17,7 +17,8 @@ it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings
 (T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
 swaps its top-level `Version` (not FormatVersion) for the header; .retarget RTGT 2 -> 3 (T7f) names its rig by
 {Guid, Path}, normalised back only when the Guid is the one the named cooked rig states. The binary .dcnv
-bare DCNV 2 -> envelope DCNV 3 (T7g) must carry the old bytes after magic and version as its one payload.
+bare DCNV 2 -> envelope DCNV 3 and .dcmv bare DCMV 2 -> envelope DCMV 3 (T7g) must carry the old bytes after
+magic and version as their one payload.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -357,29 +358,35 @@ def strip_retarget_rig_guid(root, old, new, ext):
     return True
 
 
-def compare_noise_volumes(root, base, at_base):
-    """.dcnv bare DCNV 2 -> envelope DCNV 3 (T7g), binary, so outside the JSON walk. Branch on the BASE file:
-    a base that is already enveloped must match byte for byte; a bare base (magic 'DCNV', container 2) must
-    reappear as the one Stored payload of an envelope that states tag 'DCNV' - the old bytes after magic and
-    version, unchanged. Returns (compared, differ)."""
+# The binary containers T7g moved into the AF1 envelope: (extension, bare magic = envelope subsystem tag).
+_BINARY_ENVELOPE_ROWS = ((".dcnv", b"DCNV"), (".dcmv", b"DCMV"))
+
+
+def compare_binary_envelopes(root, base, at_base):
+    """.dcnv / .dcmv bare container 2 -> envelope container 3 (T7g), binary, so outside the JSON walk. Branch on
+    the BASE file: a base that is already enveloped must match byte for byte; a bare base (the row's magic,
+    container 2) must reappear as the one Stored payload of an envelope that states the same tag - the old
+    bytes after magic and version, unchanged. Returns (compared, differ)."""
     compared, differ = 0, []
-    files = [f for f in git("-C", root, "ls-files").decode().splitlines() if f.endswith(".dcnv")]
-    for path in files:
-        if path not in at_base:
-            continue
-        old = git("-C", root, "show", f"{base}:{path}")
-        with open(f"{root}/{path}", "rb") as f:
-            new = f.read()
-        compared += 1
-        if old[:4] != b"DCNV":
-            if old != new:
-                differ.append(path)
-            continue
-        version = struct.unpack("<I", old[4:8])[0]
-        payload = old[8:]
-        if version != 2 or new[:4] == b"DCNV" or new.count(payload) != 1 or \
-                b"DCNV" not in new[:len(new) - len(payload)]:
-            differ.append(f"{path}: bare DCNV {version} is not the one payload of a DCNV 3 envelope")
+    tracked = git("-C", root, "ls-files").decode().splitlines()
+    for ext, magic in _BINARY_ENVELOPE_ROWS:
+        for path in [f for f in tracked if f.endswith(ext)]:
+            if path not in at_base:
+                continue
+            old = git("-C", root, "show", f"{base}:{path}")
+            with open(f"{root}/{path}", "rb") as f:
+                new = f.read()
+            compared += 1
+            if old[:4] != magic:
+                if old != new:
+                    differ.append(path)
+                continue
+            version = struct.unpack("<I", old[4:8])[0]
+            payload = old[8:]
+            if version != 2 or new[:4] == magic or new.count(payload) != 1 or \
+                    magic not in new[:len(new) - len(payload)]:
+                tag = magic.decode()
+                differ.append(f"{path}: bare {tag} {version} is not the one payload of a {tag} 3 envelope")
     return compared, differ
 
 
@@ -445,9 +452,9 @@ def main():
             differ.append(path)
         compared += 1
 
-    noise_compared, noise_differ = compare_noise_volumes(root, base, at_base)
-    compared += noise_compared
-    differ += noise_differ
+    binary_compared, binary_differ = compare_binary_envelopes(root, base, at_base)
+    compared += binary_compared
+    differ += binary_differ
 
     known = material_header_guids(root, files)
     for handle, guids in sorted(_SLOT_PAIRS.items(), key=lambda kv: str(kv[0])):
