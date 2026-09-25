@@ -529,8 +529,8 @@ namespace Desert::Assets
         asset.Kind   = e.Asset.Kind;
         asset.Guid   = e.Asset.Guid;
         asset.Name   = meta.GetValue().Name;
-        asset.Import = std::move( import.GetValue() );
-        asset.Source = std::move( source.GetValue() );
+        asset.Import = import.GetValue();
+        asset.Source = source.GetValue();
         if ( auto r = ValidateImport( asset.Import ); !r.IsSuccess() )
             return Common::MakeError<MeshSourceAsset>( r.GetError() );
         if ( auto r = ValidateSource( asset.Source, asset.Kind ); !r.IsSuccess() )

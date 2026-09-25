@@ -248,8 +248,8 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     MeshSourceAsset slot            = MakeQuad( false );
     slot.Source.Mesh.MaterialIds[1] = 4;
     EXPECT_FALSE( EncodeMeshSourceAsset( slot ).IsSuccess() );
-    MeshSourceAsset torn                  = MakeQuad( false );
-    torn.Source.Mesh.Colors->Triangles[3] = 0; // half-unset triangle
+    MeshSourceAsset torn                         = MakeQuad( false );
+    torn.Source.Mesh.Colors.value().Triangles[3] = 0; // half-unset triangle
     EXPECT_FALSE( EncodeMeshSourceAsset( torn ).IsSuccess() );
     MeshSourceAsset scale              = MakeQuad( false );
     scale.Import.Settings.UniformScale = 0.0f;
@@ -257,8 +257,8 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     MeshSourceAsset anonymous = MakeQuad( false );
     anonymous.Import.SourceFile.clear();
     EXPECT_FALSE( EncodeMeshSourceAsset( anonymous ).IsSuccess() );
-    MeshSourceAsset weight                 = MakeQuad( true );
-    weight.Source.Skin->Influences[0].Bone = 2;
+    MeshSourceAsset weight                        = MakeQuad( true );
+    weight.Source.Skin.value().Influences[0].Bone = 2;
     EXPECT_FALSE( EncodeMeshSourceAsset( weight ).IsSuccess() );
 }
 
