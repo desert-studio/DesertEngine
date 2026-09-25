@@ -21,6 +21,7 @@
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <functional>
+#include <set>
 
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Core/Core.hpp>
@@ -115,6 +116,8 @@
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
+#include "Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp"
+#include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Panels/Animation/AnimGraphPanel.hpp"
 #include "Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp"
 #include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
@@ -130,6 +133,7 @@
 #include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
+#include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Animation/AnimLayersPanel.hpp"
@@ -911,9 +915,44 @@ namespace Desert::Editor
         m_SubjectEditors.Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Material ) ),
              Registration{ "Material", ICON_MDI_PALETTE_SWATCH,
-                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
-                               return std::make_unique<Editor::MaterialEditorPanel>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager );
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               // THE LOAD LIVES HERE, not in the routes that ask: a handle from a Details
+                               // field may name a material that is only a record, and every route ends here.
+                               const Assets::AssetHandle handle( subject.Owner );
+                               auto                      ready =
+                                    m_AssetManager
+                                                              ? EnsureMaterialLoaded( *m_AssetManager, handle )
+                                                              : Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
+                                                "no asset manager" );
+                               if ( !ready.IsSuccess() )
+                               {
+                                   LOG_ERROR( "[MaterialEditor] {} — no window opened.", ready.GetError() );
+                                   return nullptr;
+                               }
+                               // The window draws through the per-slot route, which resolves through the
+                               // material service; registered LAZILY (the shell only), the first Get builds it.
+                               if ( auto* materialService = Runtime::ResourceRegistry::GetMaterialService() )
+                               {
+                                   if ( materialService->Get( handle ) == nullptr )
+                                       materialService->RegisterAsset( ready.GetValue() );
+                               }
+                               return std::make_unique<Editor::MaterialEditorPanel>( handle, m_AssetManager );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
+        // THE TEXTURE VIEWER. Read-only, no renderer slot: it draws the image the texture service owns.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Texture2D ) ),
+             Registration{ "Texture2D", ICON_MDI_IMAGE,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::TextureViewerDocument>(
+                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -1103,20 +1142,21 @@ namespace Desert::Editor
         // AND WHICH EXTENSIONS EACH ONE ANSWERS FOR. Taken from the format's own constant, never spelled
         // again here: the palette ENUMERATES the project's openable files against this list, so a literal
         // that drifted from the resolver's would produce a list of entries the resolver then refuses.
-        m_SubjectEditors.RegisterPathOpener( { std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) },
-                                             [this]( const std::string& path )
-                                             {
-                                                 switch ( RequestMaterialDocument( m_AssetManager.get(), path ) )
-                                                 {
-                                                     case MaterialDocumentRequest::NotAMaterialPath:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
-                                                     case MaterialDocumentRequest::Failed:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
-                                                     case MaterialDocumentRequest::Requested:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
-                                                 }
-                                                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
-                                             } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) },
+             [this]( const std::string& path )
+             {
+                 switch ( RequestMaterialDocument( m_AssetManager.get(), path, m_SubjectEditors ) )
+                 {
+                     case MaterialDocumentRequest::NotAMaterialPath:
+                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+                     case MaterialDocumentRequest::Failed:
+                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
+                     case MaterialDocumentRequest::Requested:
+                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
+                 }
+                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+             } );
         m_SubjectEditors.RegisterPathOpener( { std::string( Assets::kCloudNoiseVolumeExtension ),
                                                std::string( Assets::kCloudTypeExtension ),
                                                std::string( Assets::kCloudModellingVolumeExtension ),
@@ -1134,6 +1174,9 @@ namespace Desert::Editor
                                                  }
                                                  return SubjectEditorRegistry::PathOpenOutcome::NotMine;
                                              } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Assets::kTextureAssetExtension ) }, [this]( const std::string& path )
+             { return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [this]( const std::string& path )
@@ -2119,7 +2162,8 @@ namespace Desert::Editor
         // The queue is a file-static inbox drained by ServiceSubjectOpenRequests, so "is anything queued"
         // is asked of the queue itself rather than of a copy this layer keeps — a copy would be a second
         // answer, and the two would disagree on exactly the frame an open was handled halfway.
-        quiescence.Set( Control::PendingWork::AssetOpens, Core::SubjectOpenRequests::HasPending() );
+        quiescence.Set( Control::PendingWork::AssetOpens,
+                        Core::SubjectOpenRequests::HasPending() || Core::AssetFieldRequests::HasPending() );
         quiescence.Set( Control::PendingWork::OpenRefusal, m_OpenRefusalPending );
         // Asked of the request itself, for SubjectOpenRequests' reason above. It stays pending for one
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
@@ -3101,8 +3145,38 @@ namespace Desert::Editor
         return name + " \xc2\xb7 " + what;
     }
 
+    Common::BoolResultStr EditorLayer::ShowFolderInBrowser( const std::string& folder )
+    {
+        if ( m_FileExplorerPanel == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "the Assets browser does not exist in this session; '{}' cannot be shown", folder );
+        Core::PanelRequests::Open( "Assets" );
+        if ( !m_FileExplorerPanel->NavigateToPath( folder ) )
+            return Common::MakeFormattedError<bool>( "'{}' is not a folder the Assets browser can reach", folder );
+        return PaletteCommandDone();
+    }
+
     void EditorLayer::ServiceSubjectOpenRequests()
     {
+        // ASSET FIELDS FIRST: an "Open" from Details becomes a subject request below, in this same frame.
+        for ( const Core::AssetFieldRequest& request : Core::AssetFieldRequests::Drain() )
+        {
+            const Assets::AssetMetadata* found =
+                 m_AssetManager ? m_AssetManager->FindMetadataByHandle( request.Handle ) : nullptr;
+            if ( request.Action == Core::AssetFieldAction::Open )
+            {
+                if ( auto opened = Core::RequestOpenAsset( found, request.Handle, m_SubjectEditors );
+                     !opened.IsSuccess() )
+                    LOG_WARN( "[Editor] Open: {} — no window opened.", opened.GetError() );
+                continue;
+            }
+            auto folder = Core::AssetFolderFor( found, request.Handle );
+            auto shown  = folder.IsSuccess() ? ShowFolderInBrowser( folder.GetValue().generic_string() )
+                                             : Common::MakeFormattedError<bool>( "{}", folder.GetError() );
+            if ( !shown.IsSuccess() )
+                LOG_WARN( "[Editor] Show in browser: {}", shown.GetError() );
+        }
+
         for ( const SubjectId& subject : Core::SubjectOpenRequests::Drain() )
         {
             // OPEN-OR-FOCUS, keyed by the subject, asked of the one owner of open documents. It does NOT
@@ -4256,6 +4330,30 @@ namespace Desert::Editor
             }
         }
 
+        if ( m_MainScene )
+        {
+            // The material pencil's request, made from the palette: macOS gives the control channel no
+            // synthetic click, and this is the same AssetFieldRequests entry the pencil and the field menu use.
+            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
+            {
+                const Common::UUID owner = *primary;
+                commands.push_back(
+                     { "Entity", "Open the selected entity's material", [this, owner]
+                       {
+                           auto ref = m_MainScene ? m_MainScene->FindEntityByID( owner ) : std::nullopt;
+                           if ( !ref )
+                               return Common::MakeFormattedError<bool>( "the selection is gone" );
+                           ECS::Entity entity =
+                                ref->get(); // HostOf takes a mutable entity; the handle copy is cheap
+                           const auto host = MaterialComponentWidget::HostOf( entity );
+                           if ( host.Slots == nullptr || host.Slots->empty() )
+                               return Common::MakeFormattedError<bool>(
+                                    "the selected entity has no material slot" );
+                           Core::AssetFieldRequests::Request( host.Slots->front(), Core::AssetFieldAction::Open );
+                           return PaletteCommandDone();
+                       } } );
+            }
+        }
         // SELECT EVERY PROP THAT MATCHES THIS ONE — UE's "Select > Matching", and the step without which
         // the collapse below has no input. A five-hundred-entity selection is five hundred ctrl-clicks,
         // which is also a gesture no unattended run can make; this turns "pick one crate" into "pick every
@@ -5095,9 +5193,10 @@ namespace Desert::Editor
         //
         // See Editor/Core/OpenableAssets.hpp for the labelling rule and the three `model.demat` that
         // motivated it.
-        for ( const OpenableAsset& asset : CollectOpenableAssets(
-                   Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH ),
-                   m_SubjectEditors.ClaimedExtensions(), Common::Constants::Path::ASSETS_PATH ) )
+        const std::vector<std::filesystem::path> assetFiles =
+             Common::Utils::FileSystem::ListFilesRecursive( Common::Constants::Path::ASSETS_PATH );
+        for ( const OpenableAsset& asset : CollectOpenableAssets( assetFiles, m_SubjectEditors.ClaimedExtensions(),
+                                                                  Common::Constants::Path::ASSETS_PATH ) )
         {
             const std::string path = asset.Path;
             commands.push_back( { "Open", asset.Label, [this, path]
@@ -5139,6 +5238,39 @@ namespace Desert::Editor
                                            "that is a defect in the palette, not in the request.",
                                            path );
                                   } } );
+        }
+
+        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Derived from the
+        // SAME content enumeration as the "Open" entries above (every folder that holds content, each ancestor
+        // up to the assets root included), not from a second walk of the disk: that one call sees a mounted
+        // .dpak as well as loose files, and the ContentScanners gate holds every content walk to it. A folder
+        // with no file anywhere beneath it is therefore not offered, which is the packaged project's truth
+        // too. The label is the path under the assets root.
+        {
+            const std::filesystem::path assetsRoot =
+                 std::filesystem::path( Common::Constants::Path::ASSETS_PATH ).lexically_normal();
+            std::set<std::string> folders;
+            for ( const std::filesystem::path& file : assetFiles )
+            {
+                std::error_code             ec;
+                const std::filesystem::path rel =
+                     std::filesystem::relative( file, Common::Constants::Path::ASSETS_PATH, ec );
+                if ( ec || rel.empty() || *rel.begin() == std::filesystem::path( ".." ) )
+                    continue; // not under the assets root (the enumeration's contract, but not trusted blind)
+                for ( std::filesystem::path dir = rel.parent_path(); !dir.empty(); dir = dir.parent_path() )
+                    folders.insert( dir.generic_string() );
+            }
+            for ( const std::string& label : folders )
+            {
+                const std::string folder = ( assetsRoot / label ).generic_string();
+                // clang-tidy 18 reports every palette lambda that captures a std::string by copy (the "Open",
+                // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
+                // closure's implicit copy, which std::function needs; nothing in the body throws.
+                // NOLINTBEGIN(bugprone-exception-escape)
+                commands.push_back(
+                     { "Browse", label, [this, folder] { return ShowFolderInBrowser( folder ); } } );
+                // NOLINTEND(bugprone-exception-escape)
+            }
         }
 
         // THE LEVELS, which every other kind of document could already be opened by name from here and a

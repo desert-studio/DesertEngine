@@ -298,6 +298,8 @@ namespace Desert::Editor
         // m_OpenDocuments, and REFUSES past the six renderer slots with the census printed by name — a seventh
         // consumer would otherwise be handed slot 0 to share, which fails silently and days later.
         void ServiceSubjectOpenRequests();
+        // The one navigation `run Browse <folder>` and a field's "Show in browser" share.
+        Common::BoolResultStr ShowFolderInBrowser( const std::string& folder );
         // Destroys every document the user asked to close, behind ONE device-idle wait. This is what returns
         // the document's Scene, SceneRenderer and renderer slot.
         //

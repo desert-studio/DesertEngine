@@ -418,18 +418,18 @@ namespace Desert::Editor
         }
     }
 
-    void FileExplorerPanel::NavigateToPath( const std::string& path )
+    bool FileExplorerPanel::NavigateToPath( const std::string& path )
     {
         if ( auto it = m_Directories.find( path ); it != m_Directories.end() )
         {
             ChangeDirectory( it->second.get() );
-            return;
+            return true;
         }
 
         // Not loaded yet (e.g. a favorite from a previous session): expand the tree from the project
         // root down to `path`, matching one segment at a time.
         if ( !m_BaseProjectDir )
-            return;
+            return false;
         const std::filesystem::path base = m_BaseProjectDir->AssetPath;
         std::error_code             ec;
         const std::filesystem::path rel = std::filesystem::relative( path, base, ec );
@@ -437,7 +437,7 @@ namespace Desert::Editor
         // ELEMENTS rather than the native string: path::native() is std::wstring on Windows, so a
         // narrow ".." literal does not even overload-resolve there.
         if ( ec || rel.empty() || *rel.begin() == std::filesystem::path( ".." ) )
-            return; // not under the project
+            return false; // not under the project
 
         DirectoryInformation* cur = m_BaseProjectDir;
         if ( !cur->Opened )
@@ -454,12 +454,13 @@ namespace Desert::Editor
                     break;
                 }
             if ( !next )
-                return; // path no longer exists
+                return false; // path no longer exists
             if ( !next->Opened )
                 ProcessDirectory( next->AssetPath, next->Parent, true );
             cur = next;
         }
         ChangeDirectory( cur );
+        return true;
     }
 
     void FileExplorerPanel::GoBack()
@@ -468,7 +469,7 @@ namespace Desert::Editor
             return;
         --m_NavPos;
         m_NavigatingHistory = true;
-        NavigateToPath( m_NavHistory[m_NavPos] );
+        (void)NavigateToPath( m_NavHistory[m_NavPos] );
         m_NavigatingHistory = false;
     }
 
@@ -478,7 +479,7 @@ namespace Desert::Editor
             return;
         ++m_NavPos;
         m_NavigatingHistory = true;
-        NavigateToPath( m_NavHistory[m_NavPos] );
+        (void)NavigateToPath( m_NavHistory[m_NavPos] );
         m_NavigatingHistory = false;
     }
 

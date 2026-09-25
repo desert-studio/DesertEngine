@@ -24,6 +24,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
+#include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 
 #include <Common/Core/Units.hpp>
@@ -554,6 +555,13 @@ namespace Desert::Editor
         // An unmet EditCondition disables it for the same reason — the value cannot apply yet.
         ImGui::BeginDisabled( field.Meta.ReadOnly || !conditionMet );
         ImGui::PushItemWidth( -1 );
+
+        // AN ASSET FIELD IS ONE ITEM, however its branch below draws it (a combo, a slot and a Clear button,
+        // a picker with a thumbnail): the group is what DrawAssetFieldOpen hangs "Open" / "Show in browser"
+        // on after the switch, once, instead of in each of the branches.
+        const bool assetField = field.Type == FieldType::AssetHandle;
+        if ( assetField )
+            ImGui::BeginGroup();
 
         switch ( field.Type )
         {
@@ -1366,6 +1374,12 @@ namespace Desert::Editor
             default:
                 ImGui::TextDisabled( "(unsupported)" );
                 break;
+        }
+
+        if ( assetField )
+        {
+            ImGui::EndGroup();
+            DrawAssetFieldOpen( *static_cast<const uint64_t*>( p ) );
         }
 
         // Record an undo command on edit commit. WHEN that happens is decided by PropertyUndoActionFor,

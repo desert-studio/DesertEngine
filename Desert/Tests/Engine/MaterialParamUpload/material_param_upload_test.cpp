@@ -130,9 +130,6 @@ namespace
         RecordingBackend() : MaterialBackend( nullptr )
         {
         }
-        void InitializeDefaults() override
-        {
-        }
         void ApplyUniformBuffer( Graphic::MaterialProperty* ) override
         {
             ++UniformApplies;

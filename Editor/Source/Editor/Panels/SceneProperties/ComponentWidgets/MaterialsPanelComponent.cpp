@@ -10,7 +10,8 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 
-#include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
+#include <Editor/Core/AssetOpen.hpp>
+#include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
@@ -414,28 +415,6 @@ namespace Desert::Editor
         host.Invalidate();
     }
 
-    void MaterialComponentWidget::OpenMaterialEditor( const Assets::SurfaceMaterialAsset& asset ) const
-    {
-        if ( !m_AssetManager )
-            return;
-
-        const std::string path = asset.GetMetadata().Filepath.generic_string();
-        switch ( RequestMaterialDocument( &const_cast<Assets::AssetManager&>( *m_AssetManager ), path ) )
-        {
-            case MaterialDocumentRequest::Requested:
-                break;
-            case MaterialDocumentRequest::Failed:
-                break; // already reported, with the path, by the opener
-            case MaterialDocumentRequest::NotAMaterialPath:
-                // A slot resolved to a material asset whose file is not on disk (deleted under the editor,
-                // or an in-memory asset that was never written). Silence here would read as a dead button.
-                LOG_ERROR( "[MaterialEditor] the material in this slot has no `.demat` on disk ('{}') — "
-                           "no window was opened. Save it first, or reassign the slot.",
-                           path );
-                break;
-        }
-    }
-
     MaterialComponentWidget::SlotSwatch
     MaterialComponentWidget::BuildSlotSwatch( const Assets::SurfaceMaterialAsset& asset,
                                               const Assets::MaterialData*         parentData )
@@ -627,6 +606,7 @@ namespace Desert::Editor
                                        : std::string( "None" );
         if ( Utils::ImGuiUtilities::AssetSlot( "slot", name.c_str(), asset == nullptr ) )
             action = SlotAction::Pick;
+        DrawAssetFieldOpen( asset != nullptr ? static_cast<uint64_t>( asset->GetMetadata().Handle ) : 0 );
         acceptDrop();
 
         // A strip of flat icon actions, UE's row of small buttons under the asset field. Text buttons
@@ -814,15 +794,13 @@ namespace Desert::Editor
                     }
                     case SlotAction::OpenEditor:
                     {
-                        // Routed by PATH through the shared opener rather than by queueing the handle here.
-                        // The handle is in hand and the request only carries a handle, so this looks like the
-                        // longer way round — but the opener is also what guarantees the asset is LOADED and
-                        // registered with the material service before a window binds to it, and a slot can
-                        // legitimately hold a handle whose asset was only ever a record (a scene that named a
-                        // material nothing has drawn yet). Re-deriving those three steps here is precisely the
-                        // two-implementations-of-one-quantity shape this engine keeps paying for.
+                        // By HANDLE, through the route every asset field takes (Editor/Core/AssetOpen.hpp): the
+                        // Material Editor's registration loads the asset and registers it with the material
+                        // service before the window binds to it, so a slot whose material was only ever a record
+                        // (a scene that names a material nothing has drawn yet) opens the same as a loaded one.
                         if ( asset )
-                            OpenMaterialEditor( *asset );
+                            Core::AssetFieldRequests::Request( asset->GetMetadata().Handle,
+                                                               Core::AssetFieldAction::Open );
                         break;
                     }
                     case SlotAction::MakeExplicit:
