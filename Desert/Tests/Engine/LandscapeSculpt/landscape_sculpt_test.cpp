@@ -2,6 +2,8 @@
 // what one step writes, what it leaves alone, that seam copies agree, and that the stroke's record undoes it
 // byte for byte. Plus the census of the editor's controls table (every panel widget is a palette command).
 
+#include <Engine/ECS/System/LandscapeTileImage.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
 
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
@@ -12,6 +14,10 @@
 
 #include <array>
 #include <cmath>
+#include <cstring>
+#include <memory>
+#include <string>
+#include <unordered_map>
 #include <map>
 #include <set>
 #include <utility>
@@ -1313,4 +1319,98 @@ TEST( LandscapeSculpt, ErosionOnTheEditorsCapturedFieldLeavesNoStepAtTheBrushRim
     EXPECT_LE( rimDrop, erosion.Threshold ) << "largest neighbour-step change anywhere: " << steepestChange
                                             << "; profile through the centre: " << profile;
     EXPECT_LT( field.Heights[centre], before[centre] ) << "the stroke erodes";
+}
+
+// ---- L8-leak: sculpting rewrites the tile's heightmap, it does not mint a material per stroke ----------------
+
+namespace
+{
+    // Stands in for Graphic::Image2D: RefreshLandscapeTileImage is the engine's code, only the device is not.
+    struct FakeTileImage
+    {
+        std::vector<unsigned char> Texels;
+        int                        Writes = 0;
+
+        Common::BoolResultStr SetData( std::vector<unsigned char> texels )
+        {
+            Texels = std::move( texels );
+            ++Writes;
+            return Common::MakeSuccess( true );
+        }
+    };
+
+    std::vector<unsigned char> HeightmapBytes( const LandscapeTileData& tile, const LandscapeTileNeighbours& n )
+    {
+        const std::vector<uint16_t> samples = LandscapeBorderedSamples( tile, n );
+        std::vector<unsigned char>  bytes( samples.size() * sizeof( uint16_t ) );
+        std::memcpy( bytes.data(), samples.data(), bytes.size() );
+        return bytes;
+    }
+} // namespace
+
+// The chain LandscapeECSSystem -> TerrainRenderer, on the editor's inputs: every frame of a sculpt drag dirties
+// the tile, its heightmap is refreshed, and the renderer keys its materials by TerrainTextureKey over that
+// heightmap's address. Before L8-leak each upload was a new image, so the key - and the renderer's material
+// map - grew by one per stroke frame and was never cleared.
+TEST( LandscapeSculpt, StrokeFramesRewriteTheHeightmapAndAddNoTerrainMaterial )
+{
+    using Desert::ECS::LandscapeTileImageUpdate;
+    using Desert::ECS::RefreshLandscapeTileImage;
+
+    World                    w( Flat );
+    const LandscapeTileData& tile = w.Tiles.at( { 0, 0 } );
+    LandscapeTileNeighbours  neighbours;
+    neighbours.East  = &w.Tiles.at( { 1, 0 } );
+    neighbours.North = &w.Tiles.at( { 0, 1 } );
+
+    std::shared_ptr<FakeTileImage> image;
+    uint32_t                       width  = 0u;
+    uint32_t                       height = 0u;
+    // Every image ever made stays alive, so a freed address cannot be reused and hide a new key.
+    std::vector<std::shared_ptr<FakeTileImage>> made;
+    // TerrainRenderer::m_Materials, by its own key.
+    std::unordered_map<std::string, int> materials;
+
+    const auto frame = [&]( bool dirty ) -> LandscapeTileImageUpdate
+    {
+        auto update = RefreshLandscapeTileImage(
+             image, width, height, tile.SamplesX(), tile.SamplesZ(), dirty,
+             [&] { return HeightmapBytes( tile, neighbours ); },
+             [&]( std::vector<unsigned char> texels )
+             {
+                 auto created    = std::make_shared<FakeTileImage>();
+                 created->Texels = std::move( texels );
+                 made.push_back( created );
+                 return created;
+             } );
+        EXPECT_TRUE( update.IsSuccess() );
+        materials.try_emplace( Desert::Graphic::System::TerrainTextureKey( Desert::Graphic::MaterialOverrides{},
+                                                                           image.get(), nullptr ),
+                               0 );
+        return update.IsSuccess() ? update.GetValue() : LandscapeTileImageUpdate::Kept;
+    };
+
+    EXPECT_EQ( frame( true ), LandscapeTileImageUpdate::Created );
+    ASSERT_EQ( materials.size(), 1u );
+
+    constexpr int  kStrokeFrames = 12;
+    const auto     b             = Brush();
+    const uint16_t before        = tile.Sample( 15u, 15u );
+    for ( int i = 0; i < kStrokeFrames; ++i )
+    {
+        LandscapeHeightStroke stroke( w.Root, w.Lookup(), w.Bounds() );
+        ASSERT_TRUE( stroke.ApplySculpt( Weights( w, b, { 1500.0f, 1500.0f } ), b, { false, 0.1f } ).IsSuccess() );
+        EXPECT_EQ( frame( true ), LandscapeTileImageUpdate::Rewritten ) << "stroke frame " << i;
+    }
+    ASSERT_GT( tile.Sample( 15u, 15u ), before ) << "the strokes must have raised the tile";
+
+    EXPECT_EQ( materials.size(), 1u ) << "terrain materials after " << kStrokeFrames << " stroke frames";
+    EXPECT_EQ( made.size(), 1u );
+    EXPECT_EQ( image->Writes, kStrokeFrames );
+    // Rewritten in place still means fresh: the image holds the tile's CURRENT samples.
+    EXPECT_EQ( image->Texels, HeightmapBytes( tile, neighbours ) );
+
+    // A clean frame writes nothing.
+    EXPECT_EQ( frame( false ), LandscapeTileImageUpdate::Kept );
+    EXPECT_EQ( image->Writes, kStrokeFrames );
 }
