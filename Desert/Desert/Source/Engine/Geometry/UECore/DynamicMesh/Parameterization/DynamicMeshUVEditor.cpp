@@ -26,8 +26,8 @@ namespace Desert::Geometry
                 eid = VtxEdge;
                 break;
             }
-            const FIndex2i  ev   = Mesh.GetEdgeV( eid );
-            FVector3d       edge = Normalized( Mesh.GetVertex( ev.A == VertexID ? ev.B : ev.A ) - v );
+            const FIndex2i  ev    = Mesh.GetEdgeV( eid );
+            FVector3d       edge  = Normalized( Mesh.GetVertex( ev.A == VertexID ? ev.B : ev.A ) - v );
             const FVector3d other = normal.Cross( edge );
             edge                  = other.Cross( normal );
             return FFrame3d( v, edge, other, normal );
@@ -39,8 +39,9 @@ namespace Desert::Geometry
         UVOverlay->ClearElements( Triangles );
     }
 
-    void FDynamicMeshUVEditor::TransformUVElements( const TArray<int32>& ElementIDs,
-                                                    const std::function<FVector2f( const FVector2f& )>& TransformFunc )
+    void
+    FDynamicMeshUVEditor::TransformUVElements( const TArray<int32>&                                ElementIDs,
+                                               const std::function<FVector2f( const FVector2f& )>& TransformFunc )
     {
         for ( const int32 elemid : ElementIDs )
         {
@@ -52,8 +53,8 @@ namespace Desert::Geometry
     bool FDynamicMeshUVEditor::EstimateGeodesicCenterFrameVertex( const FDynamicMesh3& Mesh, FFrame3d& FrameOut,
                                                                   int32& VertexIDOut, bool bAlignToUnitAxes )
     {
-        VertexIDOut      = *Mesh.VertexIndicesItr().begin();
-        FVector3d Normal = FMeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
+        VertexIDOut                     = *Mesh.VertexIndicesItr().begin();
+        FVector3d                Normal = FMeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
         const FMeshBoundaryLoops LoopsCalc( &Mesh, true );
         if ( LoopsCalc.GetLoopCount() == 0 )
         {

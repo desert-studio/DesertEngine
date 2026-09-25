@@ -20,12 +20,12 @@ namespace Desert::Geometry
     {
     public:
         FDynamicMeshUVEditor( FDynamicMesh3* MeshIn, FDynamicMeshUVOverlay* UVOverlayIn )
-            : Mesh( MeshIn ), UVOverlay( UVOverlayIn )
+             : Mesh( MeshIn ), UVOverlay( UVOverlayIn )
         {
         }
 
         void ResetUVs( const TArray<int32>& Triangles );
-        void TransformUVElements( const TArray<int32>& ElementIDs,
+        void TransformUVElements( const TArray<int32>&                                ElementIDs,
                                   const std::function<FVector2f( const FVector2f& )>& TransformFunc );
 
         /** Frame at the vertex farthest (Dijkstra) from the longest boundary loop; false without a boundary. */

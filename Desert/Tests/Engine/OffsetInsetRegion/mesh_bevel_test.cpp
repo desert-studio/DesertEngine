@@ -596,7 +596,8 @@ namespace
             uvs.GetTriElements( t, a, b, c );
             for ( const FVector2f& uv : { a, b, c } )
                 EXPECT_TRUE( std::isfinite( uv.X ) && std::isfinite( uv.Y ) ) << "new triangle " << t;
-            const double area = 0.5 * std::abs( double( b.X - a.X ) * ( c.Y - a.Y ) - double( b.Y - a.Y ) * ( c.X - a.X ) );
+            const double area =
+                 0.5 * std::abs( double( b.X - a.X ) * ( c.Y - a.Y ) - double( b.Y - a.Y ) * ( c.X - a.X ) );
             EXPECT_GT( area, 1e-6 ) << "new triangle " << t;
             for ( int j = 0; j < 3; ++j )
                 EXPECT_EQ( oldElements.count( uvs.GetTriangle( t )[j] ), 0u ) << "new triangle " << t;

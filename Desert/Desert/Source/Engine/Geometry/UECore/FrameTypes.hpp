@@ -19,7 +19,10 @@ namespace Desert::Geometry
         RealType X = 0, Y = 0, Z = 0, W = 1;
 
         TQuaternion() = default;
-        TQuaternion( RealType XIn, RealType YIn, RealType ZIn, RealType WIn ) : X( XIn ), Y( YIn ), Z( ZIn ), W( WIn ) {}
+        TQuaternion( RealType XIn, RealType YIn, RealType ZIn, RealType WIn )
+             : X( XIn ), Y( YIn ), Z( ZIn ), W( WIn )
+        {
+        }
         TQuaternion( const TVector<RealType>& From, const TVector<RealType>& To )
         {
             SetFromTo( From, To );
@@ -97,8 +100,8 @@ namespace Desert::Geometry
                           const TVector<RealType>& AxisZIn )
         {
             const TVector<RealType> Cols[3] = { AxisXIn, AxisYIn, AxisZIn };
-            auto M = [&Cols]( int R, int C ) { return Cols[C][R]; };
-            const RealType trace = M( 0, 0 ) + M( 1, 1 ) + M( 2, 2 );
+            auto                    M       = [&Cols]( int R, int C ) { return Cols[C][R]; };
+            const RealType          trace   = M( 0, 0 ) + M( 1, 1 ) + M( 2, 2 );
             if ( trace > 0 )
             {
                 RealType root = std::sqrt( trace + 1 );
@@ -136,10 +139,9 @@ namespace Desert::Geometry
     template <typename RealType>
     TQuaternion<RealType> operator*( const TQuaternion<RealType>& A, const TQuaternion<RealType>& B )
     {
-        return TQuaternion<RealType>( A.W * B.X + A.X * B.W + A.Y * B.Z - A.Z * B.Y,
-                                      A.W * B.Y + A.Y * B.W + A.Z * B.X - A.X * B.Z,
-                                      A.W * B.Z + A.Z * B.W + A.X * B.Y - A.Y * B.X,
-                                      A.W * B.W - A.X * B.X - A.Y * B.Y - A.Z * B.Z );
+        return TQuaternion<RealType>(
+             A.W * B.X + A.X * B.W + A.Y * B.Z - A.Z * B.Y, A.W * B.Y + A.Y * B.W + A.Z * B.X - A.X * B.Z,
+             A.W * B.Z + A.Z * B.W + A.X * B.Y - A.Y * B.X, A.W * B.W - A.X * B.X - A.Y * B.Y - A.Z * B.Z );
     }
 
     template <typename RealType>
@@ -155,7 +157,7 @@ namespace Desert::Geometry
         }
         TFrame3( const TVector<RealType>& OriginIn, const TVector<RealType>& XIn, const TVector<RealType>& YIn,
                  const TVector<RealType>& ZIn )
-            : Origin( OriginIn )
+             : Origin( OriginIn )
         {
             Rotation.SetFromAxes( XIn, YIn, ZIn );
         }
@@ -198,12 +200,13 @@ namespace Desert::Geometry
             RelRotation.SetAxisAngleR( AroundVector, std::atan2( From.Cross( To ).Dot( N ), From.Dot( To ) ) );
             Rotate( RelRotation );
         }
-        void ConstrainedAlignPerpAxes( int PerpAxis1, int PerpAxis2, int NormalAxis, const TVector<RealType>& UpAxis,
-                                       const TVector<RealType>& FallbackAxis, RealType UpDotTolerance )
+        void ConstrainedAlignPerpAxes( int PerpAxis1, int PerpAxis2, int NormalAxis,
+                                       const TVector<RealType>& UpAxis, const TVector<RealType>& FallbackAxis,
+                                       RealType UpDotTolerance )
         {
             const TVector<RealType>  NormalVec = GetAxis( NormalAxis );
             const TVector<RealType>& TargetAxis =
-                ( std::abs( NormalVec.Dot( UpAxis ) ) > UpDotTolerance ) ? FallbackAxis : UpAxis;
+                 ( std::abs( NormalVec.Dot( UpAxis ) ) > UpDotTolerance ) ? FallbackAxis : UpAxis;
             const RealType DotA    = GetAxis( PerpAxis1 ).Dot( TargetAxis );
             const RealType DotB    = GetAxis( PerpAxis2 ).Dot( TargetAxis );
             const int      UseAxis = ( std::abs( DotA ) > std::abs( DotB ) ) ? 0 : 1;

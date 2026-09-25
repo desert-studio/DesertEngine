@@ -1,7 +1,7 @@
-// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshLocalParam.h (ELocalParamTypes,
-// ComputeToMaxDistance from a centre vertex, HasUV, GetUV, ProcessQueueUntilTermination, ComputeLocalUV,
-// PropagateUV, UpdateUVExpmap/Upwind/Planar, UpdateNeighboursSparse), adapted: nodes addressed by index in a
-// TArray (see MeshDijkstra.hpp), the 2x2 rotation written out (no FMatrix2d), external normals and the
+// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshLocalParam.h
+// (ELocalParamTypes, ComputeToMaxDistance from a centre vertex, HasUV, GetUV, ProcessQueueUntilTermination,
+// ComputeLocalUV, PropagateUV, UpdateUVExpmap/Upwind/Planar, UpdateNeighboursSparse), adapted: nodes addressed by
+// index in a TArray (see MeshDijkstra.hpp), the 2x2 rotation written out (no FMatrix2d), external normals and the
 // three-seed / TransformUV / GetAllComputedUVs entry points are not ported. Normals: the mesh's vertex normals
 // when it has them, else FMeshNormals::ComputeVertexNormal, as UE's GetNormal for FDynamicMesh3.
 #pragma once
@@ -33,10 +33,10 @@ namespace Desert::Geometry
         void ComputeToMaxDistance( int32 CenterPointVtxID, const FFrame3d& CenterPointFrame,
                                    double ComputeToMaxDistanceIn )
         {
-            SeedFrame          = CenterPointFrame;
-            MaxGraphDistance   = 0.0;
-            FGraphNode& Center = AllocatedNodes[GetNodeIndex( CenterPointVtxID, true )];
-            Center.UV          = FVector2d::Zero();
+            SeedFrame            = CenterPointFrame;
+            MaxGraphDistance     = 0.0;
+            FGraphNode& Center   = AllocatedNodes[GetNodeIndex( CenterPointVtxID, true )];
+            Center.UV            = FVector2d::Zero();
             Center.GraphDistance = 0;
             Center.bFrozen       = true;
             Queue.Insert( CenterPointVtxID, 0 );
@@ -51,8 +51,8 @@ namespace Desert::Geometry
         {
             const int32* Found = IDToNodeIndexMap.Find( PointID );
             return ( Found != nullptr && AllocatedNodes[*Found].bFrozen )
-                       ? AllocatedNodes[*Found].UV
-                       : FVector2d( TNumericLimits<double>::Max(), TNumericLimits<double>::Max() );
+                        ? AllocatedNodes[*Found].UV
+                        : FVector2d( TNumericLimits<double>::Max(), TNumericLimits<double>::Max() );
         }
 
     private:
@@ -94,23 +94,24 @@ namespace Desert::Geometry
             while ( Queue.GetCount() > 0 )
             {
                 const int32 NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
-                MaxGraphDistance = TMathUtil<double>::Max( AllocatedNodes[NodeIndex].GraphDistance, MaxGraphDistance );
+                MaxGraphDistance =
+                     TMathUtil<double>::Max( AllocatedNodes[NodeIndex].GraphDistance, MaxGraphDistance );
                 if ( MaxGraphDistance > MaxDistance )
                     return;
                 if ( AllocatedNodes[NodeIndex].ParentPointID >= 0 )
                 {
                     switch ( ParamMode )
                     {
-                    case ELocalParamTypes::ExponentialMap:
-                        UpdateUVExpmap( AllocatedNodes[NodeIndex] );
-                        break;
-                    case ELocalParamTypes::ExponentialMapUpwindAvg:
-                        UpdateUVExpmapUpwind( AllocatedNodes[NodeIndex] );
-                        break;
-                    case ELocalParamTypes::PlanarProjection:
-                        AllocatedNodes[NodeIndex].UV =
-                            ComputeLocalUV( SeedFrame, GetPosition( AllocatedNodes[NodeIndex].PointID ) );
-                        break;
+                        case ELocalParamTypes::ExponentialMap:
+                            UpdateUVExpmap( AllocatedNodes[NodeIndex] );
+                            break;
+                        case ELocalParamTypes::ExponentialMapUpwindAvg:
+                            UpdateUVExpmapUpwind( AllocatedNodes[NodeIndex] );
+                            break;
+                        case ELocalParamTypes::PlanarProjection:
+                            AllocatedNodes[NodeIndex].UV =
+                                 ComputeLocalUV( SeedFrame, GetPosition( AllocatedNodes[NodeIndex].PointID ) );
+                            break;
                     }
                 }
                 AllocatedNodes[NodeIndex].bFrozen = true;
@@ -157,7 +158,7 @@ namespace Desert::Geometry
                 const FFrame3d  NbrFrame = GetFrame( AllocatedNodes[*Found] );
                 const FVector2d NbrUV    = PropagateUV( NodePos, AllocatedNodes[*Found].UV, NbrFrame, SeedFrame );
                 const double    Weight =
-                    1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + TMathUtil<double>::ZeroTolerance );
+                     1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + TMathUtil<double>::ZeroTolerance );
                 AverageUV = AverageUV + NbrUV * Weight;
                 WeightSum += Weight;
             }
@@ -171,7 +172,7 @@ namespace Desert::Geometry
             if ( !bCreateIfMissing )
                 return -1;
             const int32 NewIndex = AllocatedNodes.Add(
-                FGraphNode{ PointSetID, -1, 0.0, FVector2d::Zero(), false, GetNormal( PointSetID ) } );
+                 FGraphNode{ PointSetID, -1, 0.0, FVector2d::Zero(), false, GetNormal( PointSetID ) } );
             IDToNodeIndexMap.Add( PointSetID, NewIndex );
             return NewIndex;
         }

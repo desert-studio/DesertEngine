@@ -11,7 +11,8 @@ namespace Desert::Geometry
     class FDynamicSubmesh3
     {
     public:
-        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const TArray<int32>& Triangles ) : BaseMesh( BaseMeshIn )
+        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const TArray<int32>& Triangles )
+             : BaseMesh( BaseMeshIn )
         {
             TMap<int32, int32> BaseToSubV;
             for ( const int32 BaseTID : Triangles )
