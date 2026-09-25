@@ -82,7 +82,8 @@ namespace Desert::Assets::Serialization
         // file (ANIM 4, T7e). Sequencer tracks and anim graphs name the clip, and a fresh GUID would orphan
         // them. The header is stamped here, at the writer, so the version it states is this build's.
         AnimationAssetData data = BuildAssetDataFromClip( clip );
-        data.Header = HeaderKeepingFileGuid( path, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
+        data.Header =
+             HeaderKeepingFileGuid( path, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
         const auto canonicalJson = Common::Content::CanonicalJsonTextOfWriterOutput( WriteAnimationJson( data ) );
         if ( !canonicalJson )
             return Common::MakeError<bool>( canonicalJson.GetError() );

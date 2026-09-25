@@ -1657,11 +1657,10 @@ namespace Desert::Migration
                 // nothing.
                 what << " " << report.SectionsWritten
                      << " section(s) now STATE the range, blend type and weight its values are read under;";
-
             }
             const Common::Content::AssetGuid guid = Common::Content::AssetGuid::Generate();
-            const auto raised = RaiseTextToHeader( *TextHeaderRaiseFor( path ), migrated ? migrated.GetValue() : source,
-                                                   guid );
+            const auto                       raised =
+                 RaiseTextToHeader( *TextHeaderRaiseFor( path ), migrated ? migrated.GetValue() : source, guid );
             if ( !raised || !raised.GetValue().has_value() )
             {
                 err << "FAIL   " << path.string() << " — the header raise "

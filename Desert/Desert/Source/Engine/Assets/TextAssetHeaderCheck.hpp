@@ -26,12 +26,12 @@ namespace Desert::Assets
     //
     // A FILE WITHOUT A HEADER IS REFUSED, NOT READ ANYWAY: it states no identity, and reading it would hand
     // it a handle nobody can reference again. The migration mints its GUID once, in the file. The old
-    // generation named its version in a top-level member (`FormatVersion` for most kinds); `absentMeans` is the version a file that
-    // left it out was (nullopt when leaving it out was never legal); `versionMember` names that member for the
-    // kinds that spelled it otherwise (a .anim said `Version`).
-    [[nodiscard]] inline Common::BoolResultStr RefuseTextWithoutHeader( const std::string& text, int current,
-                                                                        std::optional<int> absentMeans,
-                                                                        std::string_view versionMember = "FormatVersion" )
+    // generation named its version in a top-level member (`FormatVersion` for most kinds); `absentMeans` is the
+    // version a file that left it out was (nullopt when leaving it out was never legal); `versionMember` names
+    // that member for the kinds that spelled it otherwise (a .anim said `Version`).
+    [[nodiscard]] inline Common::BoolResultStr
+    RefuseTextWithoutHeader( const std::string& text, int current, std::optional<int> absentMeans,
+                             std::string_view versionMember = "FormatVersion" )
     {
         const auto tree = rfl::json::read<rfl::Generic>( text );
         if ( !tree )
