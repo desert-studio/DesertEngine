@@ -12,7 +12,7 @@ namespace Common::Content
     {
         // The header line is one short object; a first line longer than this is a file that is not headed,
         // and reading on would be reading the shader's body.
-        constexpr std::size_t kMaxHeaderLineBytes = 64 * 1024;
+        constexpr std::size_t kMaxHeaderLineBytes = std::size_t{ 64 } * 1024;
 
         static_assert( kShaderHeaderPrefix.size() <= ASSET_HEADER_SNIFF_BYTES,
                        "the format claims a file by its prefix, so the prefix must fit in the sniffed bytes" );
@@ -20,12 +20,12 @@ namespace Common::Content
         class ShaderCommentHeaderFormatImpl final : public IAssetHeaderFormat
         {
         public:
-            std::string_view Name() const override
+            [[nodiscard]] std::string_view Name() const override
             {
                 return "shader comment header";
             }
 
-            bool Recognises( std::span<const std::byte> leading ) const override
+            [[nodiscard]] bool Recognises( std::span<const std::byte> leading ) const override
             {
                 return leading.size() >= kShaderHeaderPrefix.size() &&
                        std::memcmp( leading.data(), kShaderHeaderPrefix.data(), kShaderHeaderPrefix.size() ) == 0;
@@ -72,8 +72,9 @@ namespace Common::Content
 
     ResultStr<TextAssetHeaderSerialized> ReadShaderHeader( std::string_view source )
     {
-        std::istringstream in{ std::string( source.substr( 0, std::min( source.size(), kMaxHeaderLineBytes + 2 ) ) ) };
-        auto               object = ReadShaderHeaderObject( in );
+        std::istringstream in{
+             std::string( source.substr( 0, std::min( source.size(), kMaxHeaderLineBytes + 2 ) ) ) };
+        auto object = ReadShaderHeaderObject( in );
         if ( !object )
             return MakeError<TextAssetHeaderSerialized>( object.GetError() );
         return ParseTextHeaderObject( object.GetValue() );

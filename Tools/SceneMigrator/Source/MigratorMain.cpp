@@ -1290,12 +1290,12 @@ namespace Desert::Migration
             Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() &&
-             shaders.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, shader or other text asset "
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, shader or other text "
+                   "asset "
                    "files found\n";
             return 2;
         }
@@ -1693,9 +1693,9 @@ namespace Desert::Migration
             if ( source.starts_with( CC::kShaderHeaderPrefix ) )
             {
                 const auto header = CC::ReadShaderHeader( source );
-                const int  stated = header ? Desert::Assets::StatedVersion( header.GetValue(),
-                                                                            Desert::Assets::kShaderSchemaTag )
-                                           : -1;
+                const int  stated =
+                     header ? Desert::Assets::StatedVersion( header.GetValue(), Desert::Assets::kShaderSchemaTag )
+                             : -1;
                 if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
                 {
                     err << "FAIL   " << path.string() << " — "
@@ -1706,15 +1706,16 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
-                out << "ok     " << path.string() << " — already at shader v" << Desert::Assets::kShaderSchemaVersion
-                    << "\n";
+                out << "ok     " << path.string() << " — already at shader v"
+                    << Desert::Assets::kShaderSchemaVersion << "\n";
                 continue;
             }
             const std::array<CC::SubsystemVersion, 1> versions = {
                  CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
             const CC::AssetGuid guid = CC::AssetGuid::Generate();
             const std::string   raised =
-                 CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) + source;
+                 CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) +
+                 source;
             const auto reread = CC::ReadShaderHeader( raised );
             if ( !reread || reread.GetValue().Guid != CC::AssetGuidToText( guid ) )
             {
@@ -1728,7 +1729,8 @@ namespace Desert::Migration
             ++changed;
             if ( check )
                 continue;
-            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised ); !written )
+            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised );
+                 !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
                 ++failed;

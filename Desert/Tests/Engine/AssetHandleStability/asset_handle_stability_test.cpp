@@ -1475,16 +1475,15 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
-#include <fstream>
 
 TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderIsRefusedByName )
 {
-    namespace CC       = Common::Content;
-    const auto     dir = std::filesystem::temp_directory_path() / "DesertShaderIdentityTest";
+    namespace CC   = Common::Content;
+    const auto dir = std::filesystem::temp_directory_path() / "DesertShaderIdentityTest";
     std::filesystem::create_directories( dir );
     const std::string body = "Shader \"Probe\"\n{\n}\n";
 
-    const CC::AssetGuid                        guid     = CC::AssetGuid::Generate();
+    const CC::AssetGuid                       guid     = CC::AssetGuid::Generate();
     const std::array<CC::SubsystemVersion, 1> versions = {
          CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
     const auto headed = dir / "Headed.shader";

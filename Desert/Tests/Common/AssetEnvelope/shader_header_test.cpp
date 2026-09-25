@@ -38,7 +38,8 @@ TEST( ShaderCommentHeader, TheLineRoundTripsByteForByteAndTheFileReadsAsAShaderW
     ASSERT_FALSE( !parsed ) << parsed.GetError();
     EXPECT_EQ( WriteShaderHeaderLine( parsed.GetValue() ), line );
 
-    const auto header = ReadAssetHeader( Write( "Headed.shader", line + kSource ), AssetHeaderReadContext{ kKnown } );
+    const auto header =
+         ReadAssetHeader( Write( "Headed.shader", line + kSource ), AssetHeaderReadContext{ kKnown } );
     ASSERT_FALSE( !header ) << header.GetError();
     EXPECT_EQ( header.GetValue().Kind, ContentKind::Shader );
     EXPECT_EQ( header.GetValue().Guid, guid );
@@ -59,7 +60,8 @@ TEST( ShaderCommentHeader, ACarriageReturnBeforeTheNewlineIsNotPartOfTheObject )
 
 TEST( ShaderCommentHeader, AHeaderlessShaderIsClaimedByNoFormatAndRefusedByTheReaderNamingThePrefix )
 {
-    const auto stated = ReadAssetHeaderIfStated( Write( "Bare.shader", kSource ), AssetHeaderReadContext{ kKnown } );
+    const auto stated =
+         ReadAssetHeaderIfStated( Write( "Bare.shader", kSource ), AssetHeaderReadContext{ kKnown } );
     ASSERT_FALSE( !stated ) << stated.GetError();
     EXPECT_FALSE( stated.GetValue().has_value() );
 

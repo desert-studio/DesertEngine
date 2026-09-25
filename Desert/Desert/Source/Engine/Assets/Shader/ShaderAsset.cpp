@@ -37,9 +37,10 @@ namespace Desert::Assets
         const std::string path   = m_Metadata.Filepath.string();
         const auto        header = Common::Content::ReadShaderHeader( m_ShaderContent );
         if ( !header )
-            return Common::MakeError( std::format( "shader '{}' ({}): this build reads SHDR {}, a first-line header "
-                                                   "with a GUID - run scripts/Dev/migrate.sh --write over it once",
-                                                   path, header.GetError(), kShaderSchemaVersion ) );
+            return Common::MakeError(
+                 std::format( "shader '{}' ({}): this build reads SHDR {}, a first-line header "
+                              "with a GUID - run scripts/Dev/migrate.sh --write over it once",
+                              path, header.GetError(), kShaderSchemaVersion ) );
         const std::array<Common::Content::SubsystemVersion, 1> subsystems = {
              Common::Content::SubsystemVersion{ kShaderSchemaTag, kShaderSchemaVersion } };
         if ( const auto checked = CheckStatedHeader( header.GetValue(), Common::Content::ContentKind::Shader,
