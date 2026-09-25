@@ -18,10 +18,10 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <format>
 #include <numbers>
+#include <vector>
 
 namespace Desert::Editor
 {
@@ -60,9 +60,8 @@ namespace Desert::Editor
             }
         }
 
-        constexpr std::array kLegendStates = { Map::CellState::Unstreamed, Map::CellState::Unloaded,
-                                               Map::CellState::Loading,    Map::CellState::Loaded,
-                                               Map::CellState::Resident,   Map::CellState::Failed };
+        // Below this the legend (five rows in Play) covers the cells; a smaller window scrolls instead.
+        constexpr float kMinMapPixels = 240.0f;
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
@@ -196,8 +195,8 @@ namespace Desert::Editor
     {
         const ImVec2 origin = ImGui::GetCursorScreenPos();
         ImVec2       avail  = ImGui::GetContentRegionAvail();
-        avail.x             = std::max( avail.x, 64.0f );
-        avail.y             = std::max( avail.y, 64.0f );
+        avail.x             = std::max( avail.x, kMinMapPixels );
+        avail.y             = std::max( avail.y, kMinMapPixels );
         const glm::dvec2 size( avail.x, avail.y );
         const float      cellSize = partition.Grids[0].CellSize;
         const float      range    = partition.Grids[0].LoadingRange;
@@ -224,9 +223,18 @@ namespace Desert::Editor
             sourcePos = camera->GetPosition();
 
         // ── view: focus, follow, wheel, drag ──
+        // The map grows with the window: a resize refits a view nobody has zoomed or dragged since the last
+        // fit. The scale stays uniform, so a cell stays square at every size.
+        if ( size != m_MapSize )
+        {
+            m_MapSize = size;
+            if ( m_Fitted )
+                m_FocusPending = true;
+        }
         if ( m_FocusPending )
         {
             m_FocusPending = false;
+            m_Fitted       = true;
             if ( streamer != nullptr && m_Follow && sourcePos )
                 m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
             else if ( const auto bounds = Map::PlanBounds( plan ) )
@@ -238,12 +246,14 @@ namespace Desert::Editor
         {
             Map::Zoom( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y }, io.MouseWheel );
             m_Follow = false;
+            m_Fitted = false;
         }
         if ( ImGui::IsItemActive() && ( ImGui::IsMouseDragging( ImGuiMouseButton_Right ) ||
                                         ImGui::IsMouseDragging( ImGuiMouseButton_Middle ) ) )
         {
             Map::Pan( m_View, { io.MouseDelta.x, io.MouseDelta.y } );
             m_Follow = false;
+            m_Fitted = false;
         }
 
         ImDrawList&  list = *ImGui::GetWindowDrawList();
@@ -273,12 +283,10 @@ namespace Desert::Editor
         }
 
         // ── cells, coarse levels first ──
-        std::array<std::size_t, kLegendStates.size()> stateCounts{};
         for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level ) )
         {
             const auto&          cell  = plan.Cells[index];
             const Map::CellState state = Map::StateOf( plan, residency, index );
-            stateCounts[static_cast<std::size_t>( state )]++;
             const glm::vec4 fill = Map::ColorOf( state );
             const ImVec2    a    = ToScreen( m_View, size, origin, { cell.Square.MinX, cell.Square.MinZ } );
             const ImVec2    b    = ToScreen( m_View, size, origin, { cell.Square.MaxX, cell.Square.MaxZ } );
@@ -321,18 +329,16 @@ namespace Desert::Editor
             list.AddCircleFilled( at, 5.0f, IM_COL32( 255, 220, 64, 255 ) );
         }
 
-        // ── legend: the states on screen ──
+        // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            ImVec2 row( origin.x + 8.0f, corner.y - 8.0f );
-            for ( std::size_t i = kLegendStates.size(); i-- > 0; )
+            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level );
+            const float                       h      = ImGui::GetTextLineHeight();
+            ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
+            for ( auto it = legend.rbegin(); it != legend.rend(); ++it )
             {
-                if ( stateCounts[i] == 0 )
-                    continue;
-                row.y -= ImGui::GetTextLineHeight() + 2.0f;
-                const float h = ImGui::GetTextLineHeight();
-                list.AddRectFilled( row, ImVec2( row.x + h, row.y + h ),
-                                    ToU32( Map::ColorOf( kLegendStates[i] ) ) );
-                const std::string text = std::format( "{} ({})", Map::NameOf( kLegendStates[i] ), stateCounts[i] );
+                row.y -= h + 2.0f;
+                list.AddRectFilled( row, ImVec2( row.x + h, row.y + h ), ToU32( Map::ColorOf( it->State ) ) );
+                const std::string text = std::format( "{} ({})", Map::NameOf( it->State ), it->Count );
                 list.AddText( ImVec2( row.x + h + 6.0f, row.y ), IM_COL32( 230, 230, 230, 255 ), text.c_str() );
             }
         }

@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <set>
 #include <vector>
 
@@ -233,6 +234,66 @@ TEST( WorldPartitionMap, EveryResidencyHasItsOwnColour )
     EXPECT_EQ( Map::ColorOf( Map::CellState::Loading ), glm::vec4( 1.0f, 1.0f, 0.0f, 0.25f ) );
     EXPECT_EQ( Map::ColorOf( Map::CellState::Loaded ), glm::vec4( 0.0f, 1.0f, 1.0f, 0.25f ) );
     EXPECT_NEAR( Map::RadiusPixels( Map::View{ glm::dvec2( 0.0 ), 0.02 }, 25600.0 ), 512.0, kEps );
+}
+
+// THE LEGEND ADDS UP. A Play frame showed 23 Resident + 33 Unloaded for a 64-cell partition: the legend counted
+// the cells on screen, and Follow keeps 100 m on screen. Whatever residency every cell is in, at every level
+// filter, the rows sum to the number of cells at that level, and each residency has a row of its own.
+TEST( WorldPartitionMap, TheLegendNamesEveryStateAndSumsToTheCellCount )
+{
+    const std::vector<EntityData> records = Strip();
+    const WorldPartitionPlan      plan    = PlanWorldPartition( records, Grid() );
+    ASSERT_FALSE( plan.Cells.empty() );
+
+    const auto sum = []( const std::vector<Map::LegendRow>& rows )
+    {
+        std::size_t total = 0;
+        for ( const Map::LegendRow& row : rows )
+            total += row.Count;
+        return total;
+    };
+    const auto cellsAt = [&plan]( int level )
+    {
+        std::size_t count = 0;
+        for ( const auto& cell : plan.Cells )
+            count += ( level < 0 || cell.Level == level ) ? 1u : 0u;
+        return count;
+    };
+
+    for ( const int level : { -1, 0, 1 } )
+    {
+        EXPECT_EQ( sum( Map::Legend( plan, nullptr, level ) ), cellsAt( level ) ) << "Edit, level " << level;
+
+        ResidencyState before; // before the first step: no units yet, every cell Unloaded
+        EXPECT_EQ( sum( Map::Legend( plan, &before, level ) ), cellsAt( level ) )
+             << "empty state, level " << level;
+
+        for ( const Residency residency : { Residency::Unloaded, Residency::Loading, Residency::Loaded,
+                                            Residency::Activated, Residency::Failed } )
+        {
+            ResidencyState state;
+            state.Units.resize( plan.AlwaysLoaded.size() + plan.Cells.size() );
+            for ( auto& unit : state.Units )
+                unit.State = residency;
+            const std::vector<Map::LegendRow> rows = Map::Legend( plan, &state, level );
+            EXPECT_EQ( sum( rows ), cellsAt( level ) )
+                 << "residency " << static_cast<int>( residency ) << ", level " << level;
+            if ( cellsAt( level ) == 0 )
+                continue;
+            const Map::CellState expected = Map::StateOf( plan, &state, 0 );
+            const auto           row      = std::ranges::find( rows, expected, &Map::LegendRow::State );
+            if ( row == rows.end() )
+            {
+                ADD_FAILURE() << "no legend row for " << Map::NameOf( expected );
+                continue;
+            }
+            EXPECT_EQ( row->Count, cellsAt( level ) ) << Map::NameOf( expected );
+        }
+    }
+
+    // Every state is named in Play even at zero, and Edit names its one state.
+    EXPECT_EQ( Map::LegendStates( true ).size(), 5u );
+    EXPECT_EQ( Map::LegendStates( false ).size(), 1u );
 }
 
 int main( int argc, char** argv )
