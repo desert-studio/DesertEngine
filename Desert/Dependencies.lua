@@ -166,16 +166,11 @@ Dependencies = {
     Common = {
         IncludeDir = {
             spdlog = baseDir .. "/spdlog/include",
-            yaml_cpp = baseDir .. "/yaml-cpp/include",
             glm = baseDir .. "/glm",
             GLFW = baseDir .. "/GLFW/include",
             optick = baseDir .. "/optick/src",
         },
-        Libraries = {
-            yaml_cpp = "yaml-cpp"
-        },
         Defines = {
-            "YAML_CPP_STATIC_DEFINE",
             -- Optick: keep these identical to BuildScripts/ThirdParty/Optick.lua so optick.h compiles the
             -- same way in every consumer (CPU profiling only).
             "USE_OPTICK=1",

@@ -355,7 +355,7 @@ jobs:
 
       - name: Run tests under sanitizers
         env:
-          # detect_container_overflow=0: the third-party libs (yaml-cpp, Jolt, Lua, reflect-cpp, ...) are
+          # detect_container_overflow=0: the third-party libs (Jolt, Lua, reflect-cpp, ...) are
           # built WITHOUT the sanitizer, so std::vector/string annotations are inconsistent across the ABI
           # boundary and ASan false-fires "container-overflow" in wrap_memcpy. Real OOB detection stays on.
           ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1:detect_container_overflow=0"

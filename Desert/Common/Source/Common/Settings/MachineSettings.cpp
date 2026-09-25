@@ -3,10 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
-#include <rflcpp/rfl/Generic.hpp>
 #include <rflcpp/rfl/enums.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -31,39 +28,37 @@ namespace Common::Settings
         std::string s_OnDisk;
 
         // Which top-level keys differ between two serializations of this file, by name. The key list is
-        // the UNION of what the two texts actually contain rather than rfl::fields<MachineSettings>(),
+        // the UNION of what the two texts actually contain rather than the fields MachineSettings declares,
         // because a key held by another build is a key of this file and this is the function that has to
         // be able to say one appeared or went away.
         std::vector<std::string> ChangedKeys( const std::string& before, const std::string& after )
         {
-            const auto lhs = rfl::json::read<rfl::Generic>( before );
-            const auto rhs = rfl::json::read<rfl::Generic>( after );
-            if ( !lhs.has_value() || !rhs.has_value() )
+            const auto lhs = Json::ObjectMembers( before );
+            const auto rhs = Json::ObjectMembers( after );
+            if ( !lhs || !rhs )
                 return {};
 
-            const auto lhsObject = lhs.value().to_object();
-            const auto rhsObject = rhs.value().to_object();
-            if ( !lhsObject.has_value() || !rhsObject.has_value() )
-                return {};
+            const auto valueOf = []( const auto& members, const std::string& key ) -> const std::string*
+            {
+                for ( const auto& [name, value] : members )
+                    if ( name == key )
+                        return &value;
+                return nullptr;
+            };
 
             std::vector<std::string> keys;
-            for ( const auto& [name, value] : lhsObject.value() )
+            for ( const auto& [name, value] : lhs.GetValue() )
                 keys.push_back( name );
-            for ( const auto& [name, value] : rhsObject.value() )
+            for ( const auto& [name, value] : rhs.GetValue() )
                 if ( std::find( keys.begin(), keys.end(), name ) == keys.end() )
                     keys.push_back( name );
 
             std::vector<std::string> differing;
             for ( const std::string& key : keys )
             {
-                const auto a = lhsObject.value().get( key );
-                const auto b = rhsObject.value().get( key );
-                if ( !a.has_value() || !b.has_value() )
-                {
-                    differing.push_back( key );
-                    continue;
-                }
-                if ( rfl::json::write( a.value() ) != rfl::json::write( b.value() ) )
+                const std::string* a = valueOf( lhs.GetValue(), key );
+                const std::string* b = valueOf( rhs.GetValue(), key );
+                if ( a == nullptr || b == nullptr || *a != *b )
                     differing.push_back( key );
             }
             return differing;
@@ -118,18 +113,18 @@ namespace Common::Settings
                 return std::nullopt;
             }
 
-            auto parsed = rfl::json::read<MachineSettings, rfl::DefaultIfMissing>( raw.GetValue() );
-            if ( !parsed.has_value() )
+            auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
+            if ( !parsed )
             {
                 LOG_WARN( "[Machine] {} is corrupt ({}); it is being replaced rather than merged, so any "
                           "key another build put in it is lost with it.",
-                          s_File.string(), parsed.error().what() );
+                          s_File.string(), parsed.GetError() );
                 return std::nullopt;
             }
 
-            MachineSettings fromDisk = parsed.value();
+            MachineSettings fromDisk = parsed.ExtractValue();
 
-            const std::string canonical        = rfl::json::write( fromDisk );
+            const std::string canonical        = Json::Write( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
@@ -175,21 +170,21 @@ namespace Common::Settings
             return;
         }
 
-        // DefaultIfMissing: a file written by a build with fewer fields keeps loading — a new field takes
-        // its in-struct default instead of failing the whole file.
-        auto parsed = rfl::json::read<MachineSettings, rfl::DefaultIfMissing>( raw.GetValue() );
-        if ( !parsed.has_value() )
+        // Read LENIENTLY, by the type's own DESERT_JSON_LENIENT mark: a file written by a build with fewer
+        // fields keeps loading — a new field takes its in-struct default instead of failing the whole file.
+        auto parsed = Json::Read<MachineSettings>( raw.GetValue() );
+        if ( !parsed )
         {
             LOG_WARN( "[Machine] {} is corrupt, using the default quality: {}", s_File.string(),
-                      parsed.error().what() );
+                      parsed.GetError() );
             return;
         }
 
-        Get() = parsed.value();
+        Get() = parsed.ExtractValue();
         // The canonical form of what the file holds, NOT the raw bytes: an older build's key order or
         // spacing is not a settings change, and a memo taken from the raw text would report the whole
         // struct as changed on the first save after an upgrade.
-        s_OnDisk = rfl::json::write( Get() );
+        s_OnDisk = Json::Write( Get() );
 
         // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what
         // was this machine actually rendering at" with, and `2` is not an answer. The names come from the
@@ -231,7 +226,7 @@ namespace Common::Settings
         else if ( std::filesystem::exists( s_File ) )
             s_OnDisk.clear();
 
-        const std::string json = rfl::json::write( Get() );
+        const std::string json = Json::Write( Get() );
         if ( json == s_OnDisk && std::filesystem::exists( s_File ) )
         {
             // The file already says exactly this. No write and no log line about one. The exists() is not
@@ -245,7 +240,7 @@ namespace Common::Settings
         std::error_code ec;
         std::filesystem::create_directories( s_File.parent_path(), ec );
 
-        const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( s_File, json );
+        const auto written = Json::WriteFileAtomic( s_File, Get() );
         if ( !written )
         {
             // The memo is deliberately NOT updated: the next save must try again rather than assume the

@@ -411,9 +411,20 @@ TEST( PakChunks, TheSchemeRoundTripsAndAnEmptyFileIsAProjectThatWasNeverDivided 
     EXPECT_EQ( parsed.GetValue().Chunks.front().Roots.size(), 2u );
     EXPECT_EQ( parsed.GetValue().AlwaysBase, scheme.AlwaysBase );
 
-    const auto empty = ParseChunkScheme( "   \n\t " );
-    ASSERT_TRUE( empty ) << empty.GetError();
-    EXPECT_TRUE( empty.GetValue().Chunks.empty() );
+    // Strict (lead decision, JS1a2): an empty text, a missing member and an unknown key are all refusals
+    // naming what is wrong, never a scheme quietly read as "undivided".
+    EXPECT_FALSE( ParseChunkScheme( "   \n\t " ).IsSuccess() );
+    const auto undivided = ParseChunkScheme( R"({"Chunks":[],"AlwaysBase":[]})" );
+    ASSERT_TRUE( undivided ) << undivided.GetError();
+    EXPECT_TRUE( undivided.GetValue().Chunks.empty() );
+
+    const auto noBase = ParseChunkScheme( R"({"Chunks":[]})" );
+    ASSERT_FALSE( noBase.IsSuccess() );
+    EXPECT_NE( noBase.GetError().find( "field 'AlwaysBase'" ), std::string::npos ) << noBase.GetError();
+
+    const auto typo = ParseChunkScheme( R"({"Chunks":[{"Name":"A","Roots":[],"Root":"x"}],"AlwaysBase":[]})" );
+    ASSERT_FALSE( typo.IsSuccess() );
+    EXPECT_NE( typo.GetError().find( "field 'Chunks.Root'" ), std::string::npos ) << typo.GetError();
 
     const auto rubbish = ParseChunkScheme( "{ this is not json" );
     EXPECT_FALSE( rubbish.IsSuccess() );
