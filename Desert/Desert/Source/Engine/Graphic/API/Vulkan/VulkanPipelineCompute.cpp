@@ -365,7 +365,8 @@ namespace Desert::Graphic::API::Vulkan
                                                        &m_ComputePipeline ) );
         }
 
-        VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.Shader->GetName(), m_ComputePipeline );
+        VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, m_Specification.Shader->GetName(),
+                                          m_ComputePipeline );
     }
 
     void VulkanPipelineCompute::Release()

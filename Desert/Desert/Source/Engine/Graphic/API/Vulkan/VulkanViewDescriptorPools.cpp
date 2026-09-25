@@ -102,7 +102,8 @@ namespace Desert::Graphic::API::Vulkan
         auto& chain = static_cast<ViewPoolChain&>( view.Acquire( ChainKey(), 0, factory ) );
 
         std::vector<VkDescriptorSet> sets( layouts.size(), VK_NULL_HANDLE );
-        const auto tryAllocate = [&layouts, &sets]( ViewPoolBlock& block, std::string& why ) {
+        const auto                   tryAllocate = [&layouts, &sets]( ViewPoolBlock& block, std::string& why )
+        {
             VkDescriptorSetAllocateInfo info{};
             info.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             info.descriptorPool     = block.Get();
@@ -117,15 +118,15 @@ namespace Desert::Graphic::API::Vulkan
             return PoolAllocation::Failed;
         };
         const std::string viewName( view.GetName() );
-        const auto        create = [&viewName]( const uint32_t ordinal, std::shared_ptr<ViewPoolBlock>& block ) {
-            return CreateBlock( viewName, ordinal, block );
-        };
+        const auto        create = [&viewName]( const uint32_t ordinal, std::shared_ptr<ViewPoolBlock>& block )
+        { return CreateBlock( viewName, ordinal, block ); };
 
         std::shared_ptr<ViewPoolBlock> from;
         auto                           allocated = chain.Chain.Allocate( create, tryAllocate, from );
         if ( !allocated.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "shader '{}', view '{}': {} descriptor set(s) not allocated -- {}",
-                                                     shaderName, viewName, layouts.size(), allocated.GetError() );
+            return Common::MakeFormattedError<bool>(
+                 "shader '{}', view '{}': {} descriptor set(s) not allocated -- {}", shaderName, viewName,
+                 layouts.size(), allocated.GetError() );
         out = std::make_unique<VulkanViewSets>( std::move( sets ), std::move( from ) );
         return Common::MakeSuccess( true );
     }
