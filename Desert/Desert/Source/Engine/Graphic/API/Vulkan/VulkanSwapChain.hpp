@@ -155,9 +155,9 @@ namespace Desert::Graphic::API::Vulkan
         // lost device walks. The project's NO_DISCARD discipline covers wrappers like these; these three
         // were simply missed, and nothing but the attribute would have said so.
         // OnResize without the log: the acquire path needs to know whether the rebuild happened.
-        [[nodiscard]] Common::ResultStr<bool>                   Rebuild( uint32_t width, uint32_t height );
-        [[nodiscard]] Common::ResultStr<Graphic::AcquireStatus> AcquireNextImage( VkSemaphore presentCompleteSemaphore,
-                                                                                  uint32_t*   imageIndex );
+        [[nodiscard]] Common::ResultStr<bool> Rebuild( uint32_t width, uint32_t height );
+        [[nodiscard]] Common::ResultStr<Graphic::AcquireStatus>
+        AcquireNextImage( VkSemaphore presentCompleteSemaphore, uint32_t* imageIndex );
         [[nodiscard]] Common::ResultStr<VkResult> CreateSwapChainRenderPass();
         [[nodiscard]] Common::ResultStr<VkResult> CreateSwapChainFramebuffers();
         [[nodiscard]] Common::ResultStr<VkResult>

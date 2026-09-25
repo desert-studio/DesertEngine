@@ -23,8 +23,8 @@
 namespace
 {
     using Desert::Engine::FrameManager;
-    using Desert::Graphic::AcquireStatus;
     using Desert::Graphic::AcquireForFrame;
+    using Desert::Graphic::AcquireStatus;
 
     constexpr uint32_t kImages = 3;
 
@@ -69,8 +69,8 @@ namespace
     {
         auto&          frames = FrameManager::GetInstance();
         const uint32_t slot   = frames.GetCurrentFrameIndex();
-        const auto     result = AcquireForFrame( [&] { return swapchain.Acquire( slot ); },
-                                                 [&] { return swapchain.Rebuild(); } );
+        const auto     result =
+             AcquireForFrame( [&] { return swapchain.Acquire( slot ); }, [&] { return swapchain.Rebuild(); } );
         ASSERT_TRUE( result.IsSuccess() ) << result.GetError();
         swapchain.Submit( frames.GetCurrentFrameIndex() );
         frames.NextFrame();

@@ -300,14 +300,15 @@ namespace Desert::Graphic::API::Vulkan
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<Graphic::AcquireStatus> VulkanSwapChain::AcquireNextImage( VkSemaphore presentCompleteSemaphore,
-                                                                                 uint32_t*   imageIndex )
+    Common::ResultStr<Graphic::AcquireStatus>
+    VulkanSwapChain::AcquireNextImage( VkSemaphore presentCompleteSemaphore, uint32_t* imageIndex )
     {
         // "vkAcquireNextImageKHR(): Semaphore must not have any pending operations" is what this line
         // produced after the device died — a message that reads as OUR synchronisation defect and is
         // nothing of the sort. The acquire simply must not be issued.
         if ( !Graphic::DeviceLost::AllowWork() )
-            return Common::MakeError<Graphic::AcquireStatus>( "the device is lost; refusing to acquire an image." );
+            return Common::MakeError<Graphic::AcquireStatus>(
+                 "the device is lost; refusing to acquire an image." );
 
         const auto vkLogicalDevice = m_LogicalDevice.lock();
         if ( !vkLogicalDevice ) DESERT_VERIFY( false );
@@ -315,9 +316,9 @@ namespace Desert::Graphic::API::Vulkan
         // SUBOPTIMAL IS AN IMAGE, NOT A FAILURE (see Engine/Graphic/SwapchainAcquire.hpp). It used to leave
         // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
         // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
-        const VkResult res = vkAcquireNextImageKHR( vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain,
-                                                    UINT64_MAX, presentCompleteSemaphore, VK_NULL_HANDLE,
-                                                    imageIndex );
+        const VkResult res =
+             vkAcquireNextImageKHR( vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX,
+                                    presentCompleteSemaphore, VK_NULL_HANDLE, imageIndex );
         switch ( res )
         {
             case VK_SUCCESS:
@@ -352,7 +353,8 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError<bool>( "the device is lost; refusing to rebuild the swapchain." );
 
         const auto device = m_LogicalDevice.lock();
-        if ( !device ) DESERT_VERIFY( false );
+        if ( !device )
+            DESERT_VERIFY( false );
 
         // Release waits for the device to go idle, so nothing still reads the images being destroyed.
         Release();
