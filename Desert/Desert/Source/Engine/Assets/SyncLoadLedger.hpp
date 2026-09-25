@@ -3,12 +3,16 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -274,6 +278,8 @@ namespace Desert::Assets
             double      AsyncMs   = 0.0;
             double      SlowestMs = 0.0;
             std::string SlowestPath;
+            /// The slowest in-frame loads by their OWN time, slowest first, at most `kInFrameRankCap`.
+            std::vector<std::pair<double, std::string>> SlowestInFrame;
         };
 
         inline Totals& Sums()
@@ -290,6 +296,14 @@ namespace Desert::Assets
         /// few enough to read. The suppressed count still goes out, because "16 loads" and "16 logged of
         /// 4000" are different facts.
         constexpr uint64_t kInFrameLogCap = 16;
+
+        /// How many in-frame loads `Report()` names, ranked by their own time.
+        ///
+        /// THE LOG CAP KEEPS THE FIRST SIXTEEN, THIS KEEPS THE WORST SIXTEEN. A frame that stalls on a
+        /// 300 ms bake after two hundred cheap texture reads would otherwise be reported as "the rest are
+        /// counted silently" — the one load worth opening would sit in the unnamed tail. Ranking costs a
+        /// bounded insert under a lock the load already takes, so it runs for every in-frame load.
+        constexpr std::size_t kInFrameRankCap = 16;
 
         inline std::atomic<uint64_t>& InFrameLogged()
         {
@@ -411,6 +425,20 @@ namespace Desert::Assets
                 SyncLoadDetail::Sums().SlowestMs   = selfMs;
                 SyncLoadDetail::Sums().SlowestPath = path;
             }
+            if ( inFrame )
+            {
+                auto& ranked = SyncLoadDetail::Sums().SlowestInFrame;
+                if ( ranked.size() < SyncLoadDetail::kInFrameRankCap || selfMs > ranked.back().first )
+                {
+                    const auto slot = std::upper_bound(
+                         ranked.begin(), ranked.end(), selfMs,
+                         []( const double ms, const std::pair<double, std::string>& entry )
+                         { return ms > entry.first; } );
+                    ranked.insert( slot, { selfMs, path } );
+                    if ( ranked.size() > SyncLoadDetail::kInFrameRankCap )
+                        ranked.pop_back();
+                }
+            }
         }
 
         if ( !inFrame )
@@ -429,9 +457,9 @@ namespace Desert::Assets
         }
         else if ( logged == SyncLoadDetail::kInFrameLogCap )
         {
-            LOG_WARN( "[SyncLoad] {} in-frame loads logged; the rest are counted silently and reported by "
-                      "SyncLoadLedger::Report().",
-                      SyncLoadDetail::kInFrameLogCap );
+            LOG_WARN( "[SyncLoad] {} in-frame loads logged; the rest are not logged one by one — "
+                      "SyncLoadLedger::Report() names the {} slowest of all of them by their own time.",
+                      SyncLoadDetail::kInFrameLogCap, SyncLoadDetail::kInFrameRankCap );
         }
     }
 
@@ -455,6 +483,19 @@ namespace Desert::Assets
         if ( inFrame == 0 )
         {
             text += loads == 0 ? " — nothing loaded at all yet" : " — every load so far happened at boot";
+        }
+        const auto& ranked = SyncLoadDetail::Sums().SlowestInFrame;
+        if ( !ranked.empty() )
+        {
+            text += "\n  slowest in-frame load(s) by their OWN time (" + std::to_string( ranked.size() ) +
+                    " of " + std::to_string( inFrame ) + "):";
+            for ( const auto& [ms, rankedPath] : ranked )
+                text += "\n    " + SyncLoadDetail::Ms( ms ) + " — '" + rankedPath + "'";
+            // The unnamed remainder is BOUNDED rather than merely counted: every one of them took no
+            // longer than the last named load, which is what decides whether they are worth chasing.
+            if ( inFrame > ranked.size() )
+                text += "\n    the other " + std::to_string( inFrame - ranked.size() ) +
+                        " took at most " + SyncLoadDetail::Ms( ranked.back().first ) + " each";
         }
         // NAMED WHETHER OR NOT IT IS ZERO, for the reason the in-frame line is: "none of this boot's
         // reading was asynchronous" is a fact about the model, and a line that appeared only once the
@@ -483,6 +524,7 @@ namespace Desert::Assets
         SyncLoadDetail::Sums().AsyncMs   = 0.0;
         SyncLoadDetail::Sums().SlowestMs = 0.0;
         SyncLoadDetail::Sums().SlowestPath.clear();
+        SyncLoadDetail::Sums().SlowestInFrame.clear();
         SyncLoadDetail::Depth()      = 0;
         SyncLoadDetail::AsyncDepth() = 0;
         SyncLoadDetail::OpenScope()  = nullptr;
