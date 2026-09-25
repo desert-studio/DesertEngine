@@ -70,6 +70,14 @@ TEST( BevelPrimitives, DistLine3Line3SkewLines )
     ExpectNear( Distance.Line2ClosestPoint, FVector3d( 3, 0, 5 ), "line 2 closest" );
     EXPECT_NEAR( Distance.Line1Parameter, 3.0, Tol );
     EXPECT_NEAR( Distance.Line2Parameter, -2.0, Tol );
+
+    // At 45 degrees the cross term of the solve matters: projections cross at (2, 0), 5 cm apart in Z.
+    FDistLine3Line3d Oblique( FLine3d( FVector3d( 0, 0, 0 ), FVector3d( 1, 0, 0 ) ),
+                              FLine3d( FVector3d( 3, 1, 5 ), Normalized( FVector3d( 1, 1, 0 ) ) ) );
+    EXPECT_NEAR( Oblique.Get(), 5.0, Tol );
+    ExpectNear( Oblique.Line1ClosestPoint, FVector3d( 2, 0, 0 ), "oblique line 1 closest" );
+    ExpectNear( Oblique.Line2ClosestPoint, FVector3d( 2, 0, 5 ), "oblique line 2 closest" );
+    EXPECT_NEAR( Oblique.Line2Parameter, -std::sqrt( 2.0 ), Tol );
 }
 
 TEST( BevelPrimitives, DistLine3Line3ParallelLines )
