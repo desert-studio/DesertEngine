@@ -641,7 +641,8 @@ namespace
     RetargetProject MakeRetargetProject( const char* name, bool withRig = true )
     {
         const fs::path  dir = MakeTempDir( name );
-        RetargetProject project{ dir / "Resources" / "Assets" / "Retargets", dir / "Cooked" / "Meshes" / "ForeignArm.skeleton",
+        RetargetProject project{ dir / "Resources" / "Assets" / "Retargets",
+                                 dir / "Cooked" / "Meshes" / "ForeignArm.skeleton",
                                  Common::Content::AssetGuid::Generate() };
         fs::create_directories( project.Retargets );
         fs::create_directories( project.Rig.parent_path() );
@@ -651,8 +652,8 @@ namespace
                  Common::Content::SubsystemVersion{ Desert::Assets::kSkeletonSchemaTag, 1 } };
             std::ofstream out( project.Rig, std::ios::binary );
             out << "{\"" << Common::Content::kTextHeaderMember << "\":"
-                << rfl::json::write(
-                        Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, project.RigGuid, versions ) )
+                << rfl::json::write( Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton,
+                                                                      project.RigGuid, versions ) )
                 << R"(,"Signature":1,"Bones":[]})";
         }
         return project;
@@ -670,7 +671,8 @@ namespace
              Common::Content::SubsystemVersion{ Desert::Assets::kRetargetSchemaTag, 2 } };
         std::ofstream out( file, std::ios::binary );
         out << "{\"" << Common::Content::kTextHeaderMember << "\":"
-            << rfl::json::write( Common::Content::MakeTextHeader( Common::Content::ContentKind::Retarget, guid, versions ) )
+            << rfl::json::write(
+                    Common::Content::MakeTextHeader( Common::Content::ContentKind::Retarget, guid, versions ) )
             << "," << kRetargetBody << "}";
     }
 

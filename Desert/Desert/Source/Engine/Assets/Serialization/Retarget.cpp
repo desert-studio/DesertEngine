@@ -367,9 +367,8 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( setup ) );
     }
 
-    RetargetAssetData BuildDataFromRetargetSetup( const std::string&         name,
-                                                  const AssetGuidRef& sourceSkeleton,
-                                                  const RetargetSetup&       setup )
+    RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, const AssetGuidRef& sourceSkeleton,
+                                                  const RetargetSetup& setup )
     {
         RetargetAssetData out;
         out.Name               = name;

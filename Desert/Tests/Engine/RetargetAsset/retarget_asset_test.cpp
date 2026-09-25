@@ -461,7 +461,8 @@ TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
     // THE GUID IN THE RETARGET IS THE RIG'S OWN, read out of the shipped `.skeleton`'s header, and not a
     // number minted beside it: a GUID nobody states resolves to nothing, which loads fine and does nothing.
     const File::RetargetAssetData data = ShippedRetarget();
-    const auto rigGuid = Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path );
+    const auto                    rigGuid =
+         Desert::Assets::ReadTextHeaderGuid( RepoRoot() + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path );
     ASSERT_FALSE( rigGuid.IsNull() ) << data.SourceSkeleton.Path << " states no header GUID";
     EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( rigGuid ) );
 }
@@ -479,7 +480,7 @@ TEST( RetargetAssetTest, AHeaderThatDoesNotStateTheRigAsItsDependencyIsRefused )
     {
         auto parsed = File::ParseRetarget( File::WriteRetarget( d ) );
         EXPECT_TRUE( parsed.IsSuccess() );
-        auto stamped                  = parsed.IsSuccess() ? parsed.ExtractValue() : d;
+        auto stamped                 = parsed.IsSuccess() ? parsed.ExtractValue() : d;
         stamped.Header->Dependencies = std::move( deps );
         return rfl::json::write( stamped );
     };
@@ -537,9 +538,9 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     // `"RTGT": 2` is the one thing a reader can trust before the payload's shape is known.
     // The payload is written in the v2 shape, the rig a bare string, so the refusal must come from the
     // stated version and not from the typed read failing on the object it now expects.
-    std::string       v2     = File::WriteRetarget( ShippedRetarget() );
-    const auto        rigAt  = v2.find( "\"SourceSkeleton\"" );
-    const auto        rigEnd = v2.find( '}', rigAt );
+    std::string v2     = File::WriteRetarget( ShippedRetarget() );
+    const auto  rigAt  = v2.find( "\"SourceSkeleton\"" );
+    const auto  rigEnd = v2.find( '}', rigAt );
     ASSERT_NE( rigAt, std::string::npos ) << v2;
     ASSERT_NE( rigEnd, std::string::npos ) << v2;
     v2.replace( rigAt, rigEnd + 1 - rigAt, "\"SourceSkeleton\": \"ForeignArm.skeleton\"" );
@@ -1081,8 +1082,9 @@ TEST( RetargetAssetTest, TheShippedRetargetNamesARigTheProjectHasAndTheWitnessSc
     ASSERT_TRUE( File::ValidateRetargetData( data ).IsSuccess() );
 
     // THE PATH IN THE FILE HAS TO NAME A FILE. The one join this project performs is
-    // `MESH_PATH_COOKED / SourceSkeleton.Path` (for the reader; the rig resolves by GUID); checking it here is what stops the corpus from shipping a
-    // retarget whose source rig is a typo, which loads perfectly and does nothing.
+    // `MESH_PATH_COOKED / SourceSkeleton.Path` (for the reader; the rig resolves by GUID); checking it here is
+    // what stops the corpus from shipping a retarget whose source rig is a typo, which loads perfectly and does
+    // nothing.
     const std::string rig = root + "Editor/Cooked/Meshes/" + data.SourceSkeleton.Path;
     EXPECT_FALSE( ReadFile( rig ).empty() )
          << "the shipped retarget names " << data.SourceSkeleton.Path << ", which is not in the cooked meshes";

@@ -425,13 +425,13 @@ namespace
     // other member is the engine's own row type, which RTGT 3 did not change.
     struct RetargetDataV2
     {
-        std::optional<Common::Content::TextAssetHeaderSerialized>       Header;
-        std::string                                                     Name;
-        std::string                                                     SourceSkeleton;
-        std::string                                                     SourcePelvisBone;
-        std::string                                                     TargetPelvisBone;
-        Desert::Assets::Serialization::RetargetPoseData                 SourceRetargetPose;
-        Desert::Assets::Serialization::RetargetPoseData                 TargetRetargetPose;
+        std::optional<Common::Content::TextAssetHeaderSerialized>          Header;
+        std::string                                                        Name;
+        std::string                                                        SourceSkeleton;
+        std::string                                                        SourcePelvisBone;
+        std::string                                                        TargetPelvisBone;
+        Desert::Assets::Serialization::RetargetPoseData                    SourceRetargetPose;
+        Desert::Assets::Serialization::RetargetPoseData                    TargetRetargetPose;
         std::vector<Desert::Assets::Serialization::RetargetChainData>      Chains;
         std::vector<Desert::Assets::Serialization::RetargetBoneRenameData> BoneRenames;
     };
@@ -447,23 +447,25 @@ namespace
     Common::ResultStr<std::optional<std::string>> RaiseRetargetV2ToV3( const std::filesystem::path& path,
                                                                        const std::string&           text )
     {
-        using Result    = std::optional<std::string>;
-        namespace File  = Desert::Assets::Serialization;
-        namespace Paths = Common::Constants::Path;
+        using Result      = std::optional<std::string>;
+        namespace File    = Desert::Assets::Serialization;
+        namespace Paths   = Common::Constants::Path;
         const auto parsed = rfl::json::read<RetargetDataV2>( text );
         const auto stated = [&]() -> int
         {
             if ( parsed )
                 return Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kRetargetSchemaTag );
             const auto current = rfl::json::read<File::RetargetAssetData>( text );
-            return current ? Desert::Assets::StatedVersion( current.value().Header, Desert::Assets::kRetargetSchemaTag )
+            return current ? Desert::Assets::StatedVersion( current.value().Header,
+                                                            Desert::Assets::kRetargetSchemaTag )
                            : 0;
         }();
         if ( stated == File::kRetargetVersion )
             return Common::MakeSuccess( Result{} );
         if ( !parsed || stated != 2 )
-            return Common::MakeError<Result>( "not a readable RTGT 2 retarget (states RTGT " + std::to_string( stated ) +
-                                              ")" + ( parsed ? "" : std::string( ": " ) + parsed.error().what() ) );
+            return Common::MakeError<Result>( "not a readable RTGT 2 retarget (states RTGT " +
+                                              std::to_string( stated ) + ")" +
+                                              ( parsed ? "" : std::string( ": " ) + parsed.error().what() ) );
         const RetargetDataV2& v2 = parsed.value();
 
         auto assetsRoot = Paths::RootForContentPath( Paths::ContentDir::Retarget, path );
@@ -477,9 +479,9 @@ namespace
                                               v2.SourceSkeleton + "'" );
         const std::filesystem::path meshesCooked =
              Paths::CONTENT_DIRS[static_cast<std::size_t>( Paths::ContentDir::MeshCooked )].Rel;
-        const std::filesystem::path rig =
-             ( assetsRoot->parent_path().parent_path() / Paths::COOKED_DIR_NAME / meshesCooked / v2.SourceSkeleton )
-                  .lexically_normal();
+        const std::filesystem::path rig = ( assetsRoot->parent_path().parent_path() / Paths::COOKED_DIR_NAME /
+                                            meshesCooked / v2.SourceSkeleton )
+                                               .lexically_normal();
         const Common::Content::AssetGuid rigGuid = Desert::Assets::ReadTextHeaderGuid( rig );
         if ( rigGuid.IsNull() )
             return Common::MakeError<Result>( "its source rig " + rig.generic_string() +
