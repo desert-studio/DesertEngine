@@ -109,8 +109,8 @@ namespace
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (container 1 -> 2, IsCloudLayout).
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",  ".decloudtype",
-                                                ".destrings",  ".detheme", ".skeleton" };
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
+                                                ".detheme",    ".derig",  ".retarget",    ".skeleton" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -233,12 +233,59 @@ namespace
         Failed,
     };
 
-    // THE CLOUD TYPE'S HEADER (format 3 -> 4, AF7v). A v3 `.decloudtype` states a top-level FormatVersion and
-    // no identity; v4 opens with the text asset header (Kind "CloudType", a GUID minted HERE, once, and the
-    // format under `CLTY`) and states its version nowhere else. Every other member keeps its order and bytes.
-    // A file that already has a header returns nullopt (nothing to raise); any version but 3 is refused.
-    Common::ResultStr<std::optional<std::string>> RaiseCloudTypeTextToV4( const std::string&                source,
-                                                                          const Common::Content::AssetGuid& guid )
+    // ONE STEP, MANY TEXT KINDS: "the file gains the text asset header". An old-generation text asset states
+    // a top-level version member and no identity; the raised one opens with the text asset header (its Kind, a
+    // GUID minted HERE, once, and the format under the kind's tag) and states its version nowhere else. Every
+    // other member keeps its order and bytes. Each kind is a row, not a copy of the step: T6b1 wrote it for
+    // the cloud type, T7b made it the table the next text kinds join.
+    struct TextHeaderRaise
+    {
+        const char*                  Extension;
+        Common::Content::ContentKind Kind;
+        uint32_t                     Tag;
+        int                          FromVersion;
+        uint32_t                     ToVersion;
+        // The member the old generation stated its version in; dropped by the raise.
+        const char* VersionMember;
+        // Whether a file that left the member out IS FromVersion (the string table and the theme said
+        // "absent means 1"), or states nothing the step may assume (the cloud type).
+        bool AbsentIsFrom;
+    };
+
+    constexpr std::array kTextHeaderRaises{
+         // .decloudtype 3 -> 4 (AF7v, T6b1).
+         TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
+                          Desert::Assets::kCloudTypeSchemaTag, 3, Desert::Assets::kCloudTypeSchemaVersion,
+                          "FormatVersion", false },
+         // .destrings 1 -> 2 (T7b).
+         TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
+                          Desert::Assets::kStringTableSchemaTag, 1, Desert::Assets::kStringTableSchemaVersion,
+                          "FormatVersion", true },
+         // .detheme 1 -> 2 (T7b).
+         TextHeaderRaise{ ".detheme", Common::Content::ContentKind::UITheme, Desert::Assets::kUIThemeSchemaTag, 1,
+                          Desert::Assets::kUIThemeSchemaVersion, "FormatVersion", true },
+         // .derig 1 -> 2 (T7c).
+         TextHeaderRaise{ ".derig", Common::Content::ContentKind::ControlRig, Desert::Assets::kControlRigSchemaTag,
+                          1, Desert::Assets::kControlRigSchemaVersion, "FormatVersion", true },
+         // .retarget 1 -> 2 (T7c).
+         TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
+                          1, Desert::Assets::kRetargetSchemaVersion, "FormatVersion", true },
+    };
+
+    const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
+    {
+        const std::string ext = path.extension().string();
+        for ( const TextHeaderRaise& row : kTextHeaderRaises )
+            if ( ext == row.Extension )
+                return &row;
+        return nullptr;
+    }
+
+    // A file that already has a header returns nullopt (nothing to raise); any version but the row's
+    // FromVersion is refused, the file untouched.
+    Common::ResultStr<std::optional<std::string>> RaiseTextToHeader( const TextHeaderRaise&            row,
+                                                                     const std::string&                source,
+                                                                     const Common::Content::AssetGuid& guid )
     {
         const auto tree = rfl::json::read<rfl::Generic>( source );
         if ( !tree || !tree.value().to_object() )
@@ -246,22 +293,29 @@ namespace
         const rfl::Generic::Object fields = tree.value().to_object().value();
         if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
             return Common::MakeSuccess( std::optional<std::string>{} );
-        const auto stated = fields.get( "FormatVersion" );
-        const auto version =
-             stated.has_value() ? stated.value().to_int() : rfl::Result<int>( rfl::Error( "absent" ) );
-        if ( !version || version.value() != 3 )
+        const auto stated  = fields.get( row.VersionMember );
+        const auto version = [&]() -> rfl::Result<int>
+        {
+            if ( stated.has_value() )
+                return stated.value().to_int();
+            if ( row.AbsentIsFrom )
+                return row.FromVersion;
+            return { rfl::Error( "absent" ) };
+        }();
+        if ( !version || version.value() != row.FromVersion )
             return Common::MakeError<std::optional<std::string>>(
-                 "cloud type format version " + ( version ? std::to_string( version.value() ) : "(unstated)" ) +
-                 " has no step to v" + std::to_string( Desert::Assets::kCloudTypeSchemaVersion ) +
-                 "; only a version-3 file is raised" );
-        const std::array<Common::Content::SubsystemVersion, 1> versions = { Common::Content::SubsystemVersion{
-             Desert::Assets::kCloudTypeSchemaTag, Desert::Assets::kCloudTypeSchemaVersion } };
-        const auto           header = rfl::json::read<rfl::Generic>( rfl::json::write(
-             Common::Content::MakeTextHeader( Common::Content::ContentKind::CloudType, guid, versions ) ) );
+                 std::string( Common::Content::KindName( row.Kind ) ) + " format version " +
+                 ( version ? std::to_string( version.value() ) : "(unstated)" ) + " has no step to v" +
+                 std::to_string( row.ToVersion ) + "; only a version-" + std::to_string( row.FromVersion ) +
+                 " file is raised" );
+        const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ row.Tag, row.ToVersion } };
+        const auto header = rfl::json::read<rfl::Generic>(
+             rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) ) );
         rfl::Generic::Object raised;
         raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
         for ( const auto& [key, value] : fields )
-            if ( key != "FormatVersion" )
+            if ( key != row.VersionMember )
                 raised[key] = value;
         return Common::MakeSuccess( std::optional<std::string>( rfl::json::write( rfl::Generic( raised ) ) ) );
     }
@@ -702,6 +756,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionMeshGuids << "->v"
                 << Desert::Migration::kSceneVersionTextureGuids << " (" << report.TextureGuids.Rewritten
                 << " texture/skybox reference(s) now state the .detex header GUID)";
+        if ( report.SpriteGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionTextureGuids << "->v"
+                << Desert::Migration::kSceneVersionSpriteGuids << " (" << report.SpriteGuids.Rewritten
+                << " UI sprite / splash reference(s) now state the .detex header GUID)";
         if ( report.TextHeaderRaised )
             out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
                 << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";
@@ -1640,11 +1698,11 @@ namespace Desert::Migration
 
         for ( const auto& path : texts )
         {
-            if ( path.extension() == ".decloudtype" )
+            if ( const TextHeaderRaise* row = TextHeaderRaiseFor( path ) )
             {
                 const std::string                source = ReadAll( path );
                 const Common::Content::AssetGuid guid   = Common::Content::AssetGuid::Generate();
-                const auto                       raised = RaiseCloudTypeTextToV4( source, guid );
+                const auto                       raised = RaiseTextToHeader( *row, source, guid );
                 if ( !raised )
                 {
                     err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
@@ -1653,9 +1711,9 @@ namespace Desert::Migration
                 }
                 if ( raised.GetValue().has_value() )
                 {
-                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — cloud type v3 -> v"
-                        << Desert::Assets::kCloudTypeSchemaVersion << ", GUID "
-                        << Common::Content::AssetGuidToText( guid ) << "\n";
+                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — "
+                        << Common::Content::KindName( row->Kind ) << " v" << row->FromVersion << " -> v"
+                        << row->ToVersion << ", GUID " << Common::Content::AssetGuidToText( guid ) << "\n";
                     ++changed;
                     if ( !check && !WriteText( path, *raised.GetValue(), err ) )
                         ++failed;

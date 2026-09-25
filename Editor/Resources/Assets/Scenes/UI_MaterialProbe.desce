@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "0c42ee850e95277f8d732c3c69595870",
         "Versions": {
-            "SCNE": 29,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -25,7 +25,10 @@
                 "Visible": true,
                 "RenderMode": 0,
                 "WorldScale": 400.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SafeArea": [0.0, 0.0, 0.0, 0.0]
             }
         },
@@ -60,7 +63,10 @@
                 "Opacity": 1.0,
                 "CornerRadius": 0.0,
                 "BackdropBlur": 0.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
@@ -163,7 +169,10 @@
                 "CornerRadius": 0.0,
                 "Material": "Materials/UI_RadialWipe.demat",
                 "BackdropBlur": 0.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Video": "",
                 "Circle": false,
@@ -217,7 +226,10 @@
                 "CornerRadius": 0.0,
                 "Material": "Materials/UI_RadialWipe.demat",
                 "BackdropBlur": 0.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Video": "",
                 "Circle": false,
@@ -270,7 +282,10 @@
                 "Opacity": 1.0,
                 "CornerRadius": 0.0,
                 "BackdropBlur": 0.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",
@@ -325,7 +340,10 @@
                 "CornerRadius": 0.0,
                 "Material": "Materials/CB_Orange.demat",
                 "BackdropBlur": 0.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Video": "",
                 "Circle": false,
@@ -581,7 +599,10 @@
         "LensFlareStreakAngle": 0.0,
         "LensFlareChromaShift": 0.15000000596046448,
         "Gravity": 981.0,
-        "SplashSprite": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
         "SplashDuration": 0.0,
         "SplashFade": 0.4000000059604645
     }

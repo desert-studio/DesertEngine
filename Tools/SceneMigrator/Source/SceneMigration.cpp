@@ -2086,9 +2086,10 @@ namespace Desert::Migration
             RaiseMeshGuids( entity.Components, tag, assetsRoot, report );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseMeshGuids( ( *entity.PrefabOverrides )[i].Components,
-                                tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, report );
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseMeshGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                assetsRoot, report );
         }
         return report;
     }
@@ -2100,7 +2101,7 @@ namespace Desert::Migration
             rfl::Generic::Object ref;
             ref["Guid"] = guid;
             ref["Path"] = key;
-            return rfl::Generic( std::move( ref ) );
+            return { std::move( ref ) };
         }
 
         // The header GUID a `.detex` states, refusing a missing file, another kind, or the null GUID.
@@ -2113,9 +2114,9 @@ namespace Desert::Migration
             std::string   prefix( 4096, '\0' );
             in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
             prefix.resize( static_cast<std::size_t>( in.gcount() ) );
-            const auto header = Common::Content::ReadEnvelopeHeader(
-                 std::span<const std::byte>( reinterpret_cast<const std::byte*>( prefix.data() ), prefix.size() ),
-                 Common::Content::AssetHeaderReadContext{ {}, true } );
+            const auto header =
+                 Common::Content::ReadEnvelopeHeader( std::as_bytes( std::span<const char>( prefix ) ),
+                                                      Common::Content::AssetHeaderReadContext{ {}, true } );
             if ( !header )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
                                                                            "': " + header.GetError() );
@@ -2138,22 +2139,22 @@ namespace Desert::Migration
             std::error_code ec;
             const auto      root = std::filesystem::absolute( assetsRoot, ec ).lexically_normal();
             const auto      rel  = file.lexically_normal().lexically_relative( root ).generic_string();
-            if ( rel.empty() || rel == "." || rel.rfind( "..", 0 ) == 0 )
+            if ( rel.empty() || rel == "." || rel.starts_with( ".." ) )
                 return Common::MakeFormattedError<std::string>( "{}", "'" + file.generic_string() +
                                                                            "' lies outside the assets root '" +
                                                                            root.generic_string() + "'" );
             return Common::MakeSuccess( "assets:" + rel );
         }
 
-        // A v28 skybox string -> the v29 reference object.
-        Common::ResultStr<rfl::Generic> SkyboxRefFor( const std::string&           value,
-                                                      const std::filesystem::path& assetsRoot )
+        // A stable key or path (a v28 skybox, a v29 sprite) -> the {Guid, Path} reference object.
+        Common::ResultStr<rfl::Generic> KeyToTextureRef( const std::string&           value,
+                                                         const std::filesystem::path& assetsRoot )
         {
             if ( value.empty() )
                 return Common::MakeSuccess( TextureRef( "", "" ) );
             std::error_code       ec;
             std::filesystem::path file;
-            if ( value.rfind( "assets:", 0 ) == 0 )
+            if ( value.starts_with( "assets:" ) )
                 file = std::filesystem::absolute( assetsRoot, ec ) / value.substr( 7 );
             else if ( std::filesystem::path( value ).is_absolute() )
                 file = value;
@@ -2211,7 +2212,7 @@ namespace Desert::Migration
                         else if ( const auto text = value.value().to_string(); !text.has_value() )
                             report.UnknownNames.push_back( site + " is " + Describe( value.value() ) +
                                                            ", not a skybox reference" );
-                        else if ( const auto ref = SkyboxRefFor( text.value(), assetsRoot ); !ref )
+                        else if ( const auto ref = KeyToTextureRef( text.value(), assetsRoot ); !ref )
                             report.UnknownNames.push_back( site + " = '" + text.value() + "' " + ref.GetError() );
                         else
                         {
@@ -2277,7 +2278,7 @@ namespace Desert::Migration
                     entry["Path"] = hit->second.second;
                     ++report.Rewritten;
                 }
-                raised.push_back( rfl::Generic( std::move( entry ) ) );
+                raised.emplace_back( std::move( entry ) );
                 changed = true;
             }
             if ( !changed )
@@ -2299,10 +2300,100 @@ namespace Desert::Migration
             RaiseTextureGuids( entity.Components, tag, assetsRoot, index, report );
             if ( !entity.PrefabOverrides )
                 continue;
-            for ( std::size_t i = 0; i < entity.PrefabOverrides->size(); ++i )
-                RaiseTextureGuids( ( *entity.PrefabOverrides )[i].Components,
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseTextureGuids( overrides[i].Components,
                                    tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index,
                                    report );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        // The v30 sprite slots, component by component; `Settings.SplashSprite` is raised beside them.
+        struct SpriteSlots
+        {
+            const char*                        Component;
+            std::initializer_list<const char*> Fields;
+        };
+        const SpriteSlots kSpriteSlots[] = {
+             { "UICanvas", { "Sprite" } },
+             { "UIPanel", { "Sprite" } },
+             { "UIImage", { "Sprite" } },
+             { "UIButton", { "Sprite", "HoverSprite", "PressedSprite" } },
+        };
+
+        // Raises the named string fields of one object to {Guid, Path}; true when any was rewritten.
+        bool RaiseSpriteFields( rfl::Generic::Object& fields, std::initializer_list<const char*> names,
+                                const std::string& site, const std::filesystem::path& assetsRoot,
+                                TextureGuidsMigrationReport& report )
+        {
+            bool changed = false;
+            for ( const char* name : names )
+            {
+                const auto value = fields.get( name );
+                if ( !value.has_value() || value.value().to_object().has_value() )
+                    continue; // absent, or already a reference object: raised by an earlier run
+                const std::string where = site + name;
+                const auto        text  = value.value().to_string();
+                if ( !text.has_value() )
+                {
+                    report.UnknownNames.push_back( where + " is " + Describe( value.value() ) +
+                                                   ", not a texture reference" );
+                    continue;
+                }
+                const auto ref = KeyToTextureRef( text.value(), assetsRoot );
+                if ( !ref )
+                {
+                    report.UnknownNames.push_back( where + " = '" + text.value() + "' " + ref.GetError() );
+                    continue;
+                }
+                if ( !text.value().empty() )
+                    ++report.Rewritten;
+                fields[name] = ref.GetValue();
+                changed      = true;
+            }
+            return changed;
+        }
+
+        void RaiseSpriteGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                               const std::filesystem::path& assetsRoot, TextureGuidsMigrationReport& report )
+        {
+            for ( const auto& slots : kSpriteSlots )
+            {
+                const auto payload = components.get( slots.Component );
+                if ( !payload.has_value() )
+                    continue;
+                auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                if ( RaiseSpriteFields( fields.value(), slots.Fields, tag + " > " + slots.Component + ".",
+                                        assetsRoot, report ) )
+                    components[slots.Component] = rfl::Generic( std::move( fields.value() ) );
+            }
+        }
+    } // namespace
+
+    TextureGuidsMigrationReport MigrateSpriteGuidsV29ToV30( std::optional<rfl::Generic>&     settings,
+                                                            std::vector<Assets::EntityData>& entities,
+                                                            const std::filesystem::path&     assetsRoot )
+    {
+        TextureGuidsMigrationReport report;
+        if ( settings.has_value() )
+            if ( auto fields = settings->to_object(); fields.has_value() )
+                if ( RaiseSpriteFields( fields.value(), { "SplashSprite" }, "Settings > ", assetsRoot, report ) )
+                    settings = rfl::Generic( std::move( fields.value() ) );
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseSpriteGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseSpriteGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                  assetsRoot, report );
         }
         return report;
     }
@@ -3898,6 +3989,24 @@ namespace Desert::Migration
                     report.Refused = "'" + name +
                                      "': " + std::to_string( report.TextureGuids.UnknownNames.size() ) +
                                      " texture reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Rewrites the UI sprite slots and SplashSprite; no step above writes them after SCNE 24.
+            if ( statedSceneVersion < kSceneVersionSpriteGuids )
+            {
+                report.SpriteGuidsRaised = true;
+                report.SpriteGuids       = MigrateSpriteGuidsV29ToV30( settingsRef, entities, assetsRoot );
+                if ( !report.SpriteGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.SpriteGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.SpriteGuids.UnknownNames.size() ) +
+                                     " sprite reference(s) cannot be raised to a header GUID: " + names +
                                      ". Nothing was written.";
                     return;
                 }

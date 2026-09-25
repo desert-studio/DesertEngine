@@ -42,6 +42,10 @@ project(test_name)
         defines { define }
     end
 
+    -- Common: StringTable stamps and reads the text asset header (StampTextHeader, AssetGuid).
+    -- Optick: Common's JobSystem registers its worker threads with the profiler.
+    links { "Common", "Optick" }
+
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

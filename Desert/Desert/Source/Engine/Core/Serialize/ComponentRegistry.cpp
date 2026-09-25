@@ -1225,6 +1225,7 @@ namespace Desert::Core::Serialize
                     // every entry; see MaterialTextureSer for why that pairing is worse than either half.
                     const auto                              resolver = MakeAssetResolver( assetManager );
                     std::vector<Assets::MaterialTextureSer> ts;
+                    ts.reserve( mc.Textures.size() );
                     for ( const auto& t : mc.Textures )
                         ts.push_back( { t.Name, resolver.ToGuid( t.TextureHandle, "TextureAsset" ),
                                         resolver.ToPath( t.TextureHandle, "TextureAsset" ) } );

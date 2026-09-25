@@ -3,7 +3,7 @@
         "Kind": "Prefab",
         "Guid": "37d52634d940d6c1be0f623515668528",
         "Versions": {
-            "SCNE": 29,
+            "SCNE": 30,
             "UNIT": 1
         },
         "Dependencies": []
@@ -39,7 +39,10 @@
                 "Opacity": 1.0,
                 "CornerRadius": 8.0,
                 "BackdropBlur": 0.0,
-                "Sprite": "",
+                "Sprite": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
                 "Material": "",
                 "Video": "",

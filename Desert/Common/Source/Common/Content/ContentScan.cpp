@@ -1,4 +1,5 @@
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -245,7 +246,11 @@ namespace Common::Content
         }
 
         // 2: mesh rows read since carry their header box; a version-1 cache is rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 2";
+        // 3: a row's identity and dependency edges are the header's GUIDs folded by HandleForGuid, and the
+        //    header is their only writer. A version-2 cache holds identities and edges a running editor
+        //    learned from loaded assets (path-derived numbers among them); reusing one would keep those rows
+        //    for as long as their files' size and stamp hold, so a version-2 cache is rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 3";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()
@@ -279,6 +284,19 @@ namespace Common::Content
                      KindName( file.Header->Kind ), entry.Kind );
             entry.Guid     = file.Header->Guid;
             entry.Versions = file.Header->Subsystems;
+            // THE ROW'S NUMBERS ARE THE HEADER'S GUIDS, FOLDED ONCE. The runtime keys a GUID asset by
+            // HandleForGuid( Guid ), and an edge names its target the same way, so a registry built from
+            // headers alone resolves every reference a loaded asset would make (UE builds FAssetData's
+            // dependencies from the package summary for the same reason: no load is needed to know them).
+            entry.Identity = static_cast<uint64_t>( HandleForGuid( file.Header->Guid ) );
+            for ( const AssetGuid& dependency : file.Header->Dependencies )
+            {
+                if ( !dependency.IsNull() )
+                    entry.Dependencies.push_back( static_cast<uint64_t>( HandleForGuid( dependency ) ) );
+            }
+            std::sort( entry.Dependencies.begin(), entry.Dependencies.end() );
+            entry.Dependencies.erase( std::unique( entry.Dependencies.begin(), entry.Dependencies.end() ),
+                                      entry.Dependencies.end() );
             std::sort( entry.Versions.begin(), entry.Versions.end(),
                        []( const SubsystemVersion& a, const SubsystemVersion& b ) { return a.Tag < b.Tag; } );
         }
@@ -343,12 +361,26 @@ namespace Common::Content
 
     ResultStr<RegistryCache> ParseRegistryCache( std::string_view text )
     {
-        if ( !text.starts_with( kCacheMagic ) )
-            return MakeFormattedError<RegistryCache>( "not a registry cache: it does not begin '{}'",
-                                                      kCacheMagic );
+        // The WHOLE first line, not a prefix: "...Cache 3" is a prefix of "...Cache 30".
+        const std::string_view magicLine = text.substr( 0, text.find( '\n' ) );
+        if ( magicLine != kCacheMagic )
+            return MakeFormattedError<RegistryCache>( "a registry cache of another form: its first line is '{}', "
+                                                      "this build writes '{}'",
+                                                      magicLine, kCacheMagic );
         const std::size_t registryAt = text.find( "\nDesertAssetRegistry " );
         if ( registryAt == std::string_view::npos )
             return MakeError<RegistryCache>( "the registry cache carries no registry" );
+        // The embedded registry must be the form this build WRITES. `AssetRegistry::Parse` also reads older
+        // forms (a committed file is migrated by reading it), but an older form inside a cache lacks columns
+        // the gather fills, and the cache would hand those rows back unread for as long as their files'
+        // size and stamp hold.
+        const std::string      currentLine = Utils::AssetRegistry().Serialize();
+        const std::string_view writtenLine = std::string_view( currentLine ).substr( 0, currentLine.find( '\n' ) );
+        const std::string_view embedded    = text.substr( registryAt + 1 );
+        const std::string_view embeddedLine = embedded.substr( 0, embedded.find( '\n' ) );
+        if ( embeddedLine != writtenLine )
+            return MakeFormattedError<RegistryCache>( "the registry cache embeds '{}', this build writes '{}'",
+                                                      embeddedLine, writtenLine );
 
         RegistryCache cache;
         std::size_t   at = text.find( '\n' ) + 1;
