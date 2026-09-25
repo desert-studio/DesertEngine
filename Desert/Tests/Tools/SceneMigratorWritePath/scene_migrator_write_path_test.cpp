@@ -725,9 +725,14 @@ TEST( SceneMigratorWritePath, AMatl2MaterialNamesItsCloudAssetsByHeaderGuidAndAS
     ASSERT_NE( empty, nullptr ) << "an authored empty slot was dropped instead of stated empty";
     EXPECT_TRUE( empty->Guid.empty() && empty->Path.empty() );
     EXPECT_FLOAT_EQ( m.GetFloat( "Coverage" ), 0.5f );
-    ASSERT_TRUE( m.Shader.has_value() ) << raised;
-    EXPECT_EQ( m.Shader.value().Guid, Common::Content::AssetGuidToText( root.ShaderGuid ) );
-    EXPECT_EQ( m.Shader.value().Path, kCloudShaderKey );
+    const auto& shaderRef = m.Shader;
+    if ( !shaderRef.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no shader\n" << raised;
+        return;
+    }
+    EXPECT_EQ( shaderRef->Guid, Common::Content::AssetGuidToText( root.ShaderGuid ) );
+    EXPECT_EQ( shaderRef->Path, kCloudShaderKey );
 
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a MATL 4 file";
@@ -803,20 +808,31 @@ TEST( SceneMigratorWritePath, AMatl3MaterialNamesItsShaderByHeaderGuidAndASecond
     const std::string raised = ReadRaw( file );
     const auto        parsed = Desert::Assets::ParseMaterialJson( file.string(), raised );
     ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << raised;
-    const auto&       m      = parsed.GetValue();
-    const std::string shader = Common::Content::AssetGuidToText( root.ShaderGuid );
-    ASSERT_TRUE( m.Shader.has_value() ) << raised;
-    EXPECT_EQ( m.Shader.value().Guid, shader );
-    EXPECT_EQ( m.Shader.value().Path, kCloudShaderKey );
+    const auto&       m         = parsed.GetValue();
+    const std::string shader    = Common::Content::AssetGuidToText( root.ShaderGuid );
+    const auto&       shaderRef = m.Shader;
+    if ( !shaderRef.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no shader\n" << raised;
+        return;
+    }
+    EXPECT_EQ( shaderRef->Guid, shader );
+    EXPECT_EQ( shaderRef->Path, kCloudShaderKey );
     EXPECT_EQ( raised.find( "ShaderName" ), std::string::npos ) << raised;
     EXPECT_EQ( raised.find( "ShaderRefs" ), std::string::npos ) << raised;
     const auto* medium = CloudSlot( m, "Medium" );
     ASSERT_NE( medium, nullptr ) << raised;
     EXPECT_EQ( medium->Guid, shader );
     EXPECT_EQ( medium->Path, kCloudShaderKey );
-    EXPECT_EQ( m.Header.value().Dependencies,
+    const auto& header = m.Header;
+    if ( !header.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no header\n" << raised;
+        return;
+    }
+    EXPECT_EQ( header->Dependencies,
                ( std::vector<std::string>{ shader, Common::Content::AssetGuidToText( root.TypeGuid ) } ) );
-    EXPECT_EQ( Common::Content::TextHeaderVersion( m.Header.value(), Desert::Assets::kMaterialSchemaTag ),
+    EXPECT_EQ( Common::Content::TextHeaderVersion( *header, Desert::Assets::kMaterialSchemaTag ),
                Desert::Assets::kMaterialSchemaVersion );
 
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
