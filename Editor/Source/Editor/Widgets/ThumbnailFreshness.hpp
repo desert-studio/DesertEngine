@@ -71,6 +71,26 @@ namespace Desert::Editor::ThumbnailFreshness
         return seen.Recorded == seen.Current ? Verdict::Show : Verdict::Capture;
     }
 
+    /// What a reader puts on the card. A different question from Judge's, and the difference is the owner's
+    /// complaint (2026-09-25: "a flat colour until everything has loaded").
+    enum class Picture
+    {
+        CachedPng,  ///< decode and draw the PNG on disk — fresh, or outdated while its replacement is made
+        Placeholder ///< no picture of this asset exists at all; the albedo swatch is the true statement
+    };
+
+    /**
+     * @brief Draw ANY picture of the asset rather than none. Judge decides whether to capture; this decides
+     * what to show meanwhile, and an outdated sphere is closer to the asset than a flat swatch of its albedo:
+     * a picture recorded before TH1 (no .src), or one whose source was edited, stays on screen until the
+     * service's new capture overwrites it (ThumbnailCache::Get re-decodes the rewritten file). The swatch
+     * is left for the one state in which there is no picture to show.
+     */
+    [[nodiscard]] constexpr Picture Choose( const Observation& seen ) noexcept
+    {
+        return seen.PngExists ? Picture::CachedPng : Picture::Placeholder;
+    }
+
     /// Where the source hash of a PNG is recorded: beside it, so wiping the bucket wipes both.
     [[nodiscard]] inline std::filesystem::path RecordPath( const std::filesystem::path& png )
     {

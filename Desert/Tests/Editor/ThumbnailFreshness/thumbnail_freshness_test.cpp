@@ -150,6 +150,41 @@ TEST( ThumbnailFreshness, AnUnreadableSourceKeepsTheExistingPicture )
     EXPECT_EQ( Verdict( png, dir.Root / "gone.demat" ), ThumbnailFreshness::Verdict::Show );
 }
 
+// THE OWNER'S COMPLAINT (2026-09-25): "a flat colour, not a sphere, until everything has loaded". While
+// a capture is owed, the reader must still draw the picture on disk; the swatch is for "no picture at all".
+TEST( ThumbnailFreshness, AnOutdatedPictureIsDrawnWhileItsReplacementIsCaptured )
+{
+    TempDir        dir;
+    const fs::path source = dir.Root / "M.demat";
+    const fs::path png    = dir.Root / "M.png";
+    WriteFile( source, "before" );
+    WriteFile( png, "png-bytes" ); // no record: a v9 picture from before TH1
+    const auto seen = ThumbnailFreshness::Observe( png, source );
+    EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Capture );
+    EXPECT_EQ( ThumbnailFreshness::Choose( seen ), ThumbnailFreshness::Picture::CachedPng );
+
+    Capture( png, source );
+    WriteFile( source, "after" ); // edited: the record no longer matches
+    const auto edited = ThumbnailFreshness::Observe( png, source );
+    EXPECT_EQ( ThumbnailFreshness::Judge( edited ), ThumbnailFreshness::Verdict::Capture );
+    EXPECT_EQ( ThumbnailFreshness::Choose( edited ), ThumbnailFreshness::Picture::CachedPng );
+}
+
+TEST( ThumbnailFreshness, ThePlaceholderIsOnlyForNoPictureAtAll )
+{
+    for ( const bool exists : { false, true } )
+        for ( const std::optional<uint64_t> recorded : { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 } } )
+            for ( const std::optional<uint64_t> current :
+                  { std::optional<uint64_t>{}, std::optional<uint64_t>{ 1 }, std::optional<uint64_t>{ 2 } } )
+            {
+                const ThumbnailFreshness::Observation seen{ exists, recorded, current };
+                EXPECT_EQ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::Placeholder, !exists );
+                // Every state is drawn as something AND, if it is a placeholder, a capture is owed.
+                if ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::Placeholder )
+                    EXPECT_EQ( ThumbnailFreshness::Judge( seen ), ThumbnailFreshness::Verdict::Capture );
+            }
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

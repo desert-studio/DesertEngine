@@ -55,11 +55,21 @@ namespace Desert::Editor
 
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
+        std::error_code stampEc;
+        const auto      stamp = std::filesystem::last_write_time( sourcePath, stampEc );
         if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
-            return it->second; // may be null (decode previously failed)
+        {
+            const auto seen = m_Stamps.find( sourcePath );
+            if ( stampEc || ( seen != m_Stamps.end() && seen->second == stamp ) )
+                return it->second; // may be null (decode previously failed)
+            m_Cache.erase( it ); // the file was rewritten since it was decoded
+        }
 
         if ( m_Cache.size() >= kMaxEntries )
+        {
             m_Cache.clear(); // simple bound; thumbnails re-decode lazily
+            m_Stamps.clear();
+        }
 
         std::shared_ptr<Graphic::Image2D> result;
 
@@ -179,17 +189,23 @@ namespace Desert::Editor
             stbi_image_free( pixels );
 
         m_Cache[sourcePath] = result; // cache success or failure (null)
+        if ( !stampEc )
+            m_Stamps[sourcePath] = stamp;
+        else
+            m_Stamps.erase( sourcePath );
         return result;
     }
 
     void ThumbnailCache::Invalidate( const std::string& sourcePath )
     {
         m_Cache.erase( sourcePath );
+        m_Stamps.erase( sourcePath );
     }
 
     void ThumbnailCache::Clear()
     {
         m_Cache.clear();
+        m_Stamps.clear();
     }
 
     std::unordered_set<ThumbnailCache*>& ThumbnailCache::Live()
