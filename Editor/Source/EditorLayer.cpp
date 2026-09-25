@@ -8011,7 +8011,7 @@ namespace Desert::Editor
             auto& d     = e.AddComponent<ECS::PointLightComponent>().Data;
             d.Color     = color;
             d.Intensity = intensity;
-            d.Radius    = Common::Units::Metres( 12.0f );
+            d.Radius                                              = Common::Units::Metres( 12.0f );
             e.GetComponent<ECS::TransformComponent>().Translation = pos * Common::Units::UnitsPerMetre;
         };
         pointLight( "FillWarm", { 4.0f, 3.0f, 3.0f }, { 1.0f, 0.85f, 0.6f }, 5.0f );
