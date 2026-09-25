@@ -49,7 +49,7 @@ namespace Desert::Geometry
     public:
         /** False (with nothing factored) when a pivot is not finite or not above a relative floor. */
         [[nodiscard]] bool Factorize( const FSparseMatrixD& Matrix );
-        void Solve( const std::vector<double>& B, std::vector<double>& X ) const;
+        void               Solve( const std::vector<double>& B, std::vector<double>& X ) const;
 
     private:
         std::vector<int32>  Perm;      // new index -> old index
