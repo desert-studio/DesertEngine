@@ -43,14 +43,15 @@ TEST( ViewMemory, MainViewBytesPerPixelIsPinned )
 {
     // 96 scene targets + 108 post stack + 20.5 half/quarter chains and fog + 9 clouds + 48 SSR + 48 GI.
     EXPECT_NEAR( ViewBytesPerPixel( kSceneViewProfile, kW, kH ), 329.49, 0.01 );
-    // Four 2048 cascades (RGBA32F + D24S8) and the 512 RSM.
-    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 350224384u );
+    // Four 2048 cascades (R32F + D24S8, 128 MiB) and the 512 RSM (14 MiB).
+    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).FixedBytes, 148897792u );
 }
 
 TEST( ViewMemory, PreviewViewBytesPerPixelIsPinned )
 {
     EXPECT_NEAR( ViewBytesPerPixel( kPreviewViewProfile, kW, kH ), 233.49, 0.01 );
-    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 20971520u );
+    // One 1024 cascade (R32F + D24S8).
+    EXPECT_EQ( SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).FixedBytes, 8388608u );
 }
 
 TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
@@ -58,8 +59,8 @@ TEST( ViewMemory, PreviewIsSmallerThanMainByTheMeasuredAmount )
     const uint64_t main    = SumViewTargets( ViewTargetCensus( kSceneViewProfile, kW, kH ) ).Total();
     const uint64_t preview = SumViewTargets( ViewTargetCensus( kPreviewViewProfile, kW, kH ) ).Total();
     ASSERT_GT( main, preview );
-    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (320 MiB - 20 MiB) of cascades + the 14 MiB RSM.
-    EXPECT_EQ( main - preview, 528318464u ) << "main " << main << " preview " << preview;
+    // 96 B/px (SSR 48, GI 48) over 1920x1080 + (128 MiB - 8 MiB) of cascades + the 14 MiB RSM.
+    EXPECT_EQ( main - preview, 339574784u ) << "main " << main << " preview " << preview;
 }
 
 TEST( ViewMemory, ShadowRowsAgreeWithTheShadowBudgetSpelling )
