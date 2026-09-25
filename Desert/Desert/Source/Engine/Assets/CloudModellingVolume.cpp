@@ -882,16 +882,18 @@ namespace Desert::Assets
         envelope.Asset.Kind       = CC::ContentKind::CloudModellingVolume;
         envelope.Asset.Guid       = data.Guid.IsNull() ? CC::AssetGuid::Generate() : data.Guid;
         envelope.Asset.Subsystems = { { kCloudModellingSubsystemTag, kCloudModellingContainerVersion } };
-        const auto* first         = reinterpret_cast<const std::byte*>( payload.data() );
-        envelope.Sections.push_back(
-             { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, { first, first + payload.size() } } );
+        const std::span<const std::byte> payloadBytes = std::as_bytes( std::span( payload ) );
+        envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                       std::vector<std::byte>( payloadBytes.begin(), payloadBytes.end() ) } );
 
         auto file = CC::WriteAssetEnvelope( envelope );
         if ( !file )
             return Common::MakeFormattedError<std::vector<unsigned char>>( "cannot wrap modelling volume: {}",
                                                                            file.GetError() );
-        const auto* begin = reinterpret_cast<const unsigned char*>( file.GetValue().data() );
-        return Common::MakeSuccess( std::vector<unsigned char>( begin, begin + file.GetValue().size() ) );
+        const std::vector<std::byte>& wrapped = file.GetValue();
+        std::vector<unsigned char>    out( wrapped.size() );
+        std::memcpy( out.data(), wrapped.data(), wrapped.size() );
+        return Common::MakeSuccess( std::move( out ) );
     }
 
     Common::ResultStr<CloudModellingVolumeData>
@@ -909,9 +911,8 @@ namespace Desert::Assets
                  ReadU32( file.data() + 4 ), kCloudModellingContainerVersion );
 
         const CC::SubsystemVersion kKnown[] = { { kCloudModellingSubsystemTag, kCloudModellingContainerVersion } };
-        auto                       envelope = CC::ReadAssetEnvelope(
-             std::span<const std::byte>( reinterpret_cast<const std::byte*>( file.data() ), file.size() ),
-             CC::AssetHeaderReadContext{ kKnown } );
+        auto                       envelope =
+             CC::ReadAssetEnvelope( std::as_bytes( std::span( file ) ), CC::AssetHeaderReadContext{ kKnown } );
         if ( !envelope )
             return Common::MakeFormattedError<CloudModellingVolumeData>(
                  "not a cloud modelling volume envelope: {}", envelope.GetError() );
@@ -930,9 +931,9 @@ namespace Desert::Assets
                  "the envelope has no {} section",
                  CC::FourCCToString( static_cast<uint32_t>( CC::EnvelopeSection::Payload ) ) );
 
-        const auto* bytes = reinterpret_cast<const unsigned char*>( section->Bytes.data() );
-        auto        decoded =
-             DecodeCloudModellingPayload( std::vector<unsigned char>( bytes, bytes + section->Bytes.size() ) );
+        std::vector<unsigned char> payload( section->Bytes.size() );
+        std::memcpy( payload.data(), section->Bytes.data(), section->Bytes.size() );
+        auto decoded = DecodeCloudModellingPayload( payload );
         if ( !decoded )
             return decoded;
         CloudModellingVolumeData data = decoded.ExtractValue();

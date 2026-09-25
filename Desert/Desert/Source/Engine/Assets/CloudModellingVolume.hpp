@@ -540,7 +540,7 @@ namespace Desert::Assets
      * the single hardest class of defect to trace back.
      */
     Common::ResultStr<CloudModellingVolumeData>
-    DecodeCloudModellingPayload( const std::vector<unsigned char>& payload );
+    DecodeCloudModellingPayload( const std::vector<unsigned char>& bytes );
 
     /**
      * @brief Serialises a volume into its AF1 binary envelope (kind CloudModellingVolume, the volume's GUID,

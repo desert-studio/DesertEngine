@@ -177,16 +177,18 @@ namespace Desert::Assets
         envelope.Asset.Kind       = CC::ContentKind::CloudNoiseVolume;
         envelope.Asset.Guid       = data.Guid.IsNull() ? CC::AssetGuid::Generate() : data.Guid;
         envelope.Asset.Subsystems = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion } };
-        const auto* first         = reinterpret_cast<const std::byte*>( payload.data() );
-        envelope.Sections.push_back(
-             { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, { first, first + payload.size() } } );
+        const std::span<const std::byte> payloadBytes = std::as_bytes( std::span( payload ) );
+        envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                       std::vector<std::byte>( payloadBytes.begin(), payloadBytes.end() ) } );
 
         auto file = CC::WriteAssetEnvelope( envelope );
         if ( !file )
             return Common::MakeFormattedError<std::vector<unsigned char>>( "cannot wrap noise volume: {}",
                                                                            file.GetError() );
-        const auto* begin = reinterpret_cast<const unsigned char*>( file.GetValue().data() );
-        return Common::MakeSuccess( std::vector<unsigned char>( begin, begin + file.GetValue().size() ) );
+        const std::vector<std::byte>& wrapped = file.GetValue();
+        std::vector<unsigned char>    out( wrapped.size() );
+        std::memcpy( out.data(), wrapped.data(), wrapped.size() );
+        return Common::MakeSuccess( std::move( out ) );
     }
 
     Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoiseVolume( const std::vector<unsigned char>& file )
@@ -202,9 +204,8 @@ namespace Desert::Assets
                  ReadU32( file.data() + 4 ), kCloudNoiseContainerVersion );
 
         const CC::SubsystemVersion kKnown[] = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion } };
-        auto                       envelope = CC::ReadAssetEnvelope(
-             std::span<const std::byte>( reinterpret_cast<const std::byte*>( file.data() ), file.size() ),
-             CC::AssetHeaderReadContext{ kKnown } );
+        auto                       envelope =
+             CC::ReadAssetEnvelope( std::as_bytes( std::span( file ) ), CC::AssetHeaderReadContext{ kKnown } );
         if ( !envelope )
             return Common::MakeFormattedError<CloudNoiseVolumeData>( "not a cloud noise volume envelope: {}",
                                                                      envelope.GetError() );
@@ -223,9 +224,9 @@ namespace Desert::Assets
                  "the envelope has no {} section",
                  CC::FourCCToString( static_cast<uint32_t>( CC::EnvelopeSection::Payload ) ) );
 
-        auto decoded = DecodeCloudNoisePayload( std::vector<unsigned char>(
-             reinterpret_cast<const unsigned char*>( section->Bytes.data() ),
-             reinterpret_cast<const unsigned char*>( section->Bytes.data() ) + section->Bytes.size() ) );
+        std::vector<unsigned char> payload( section->Bytes.size() );
+        std::memcpy( payload.data(), section->Bytes.data(), section->Bytes.size() );
+        auto decoded = DecodeCloudNoisePayload( payload );
         if ( !decoded )
             return decoded;
         CloudNoiseVolumeData data = decoded.ExtractValue();

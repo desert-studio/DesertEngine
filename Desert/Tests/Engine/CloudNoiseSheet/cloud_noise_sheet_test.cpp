@@ -274,6 +274,9 @@ TEST( CloudNoiseContainer, TheOriginSurvivesTheContainer )
     }
 }
 
+// The finding is inside gtest's TEST macro (it registers the test through a raw `new` handed to a
+// non-owner parameter), not in this test; every TEST line carries it, this one is on a changed line.
+// NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
 TEST( CloudNoiseContainer, ThePayloadIsTheSizeTheConstantClaims )
 {
     const CloudNoiseVolumeData       volume  = PatternedVolume( 64u );

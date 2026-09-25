@@ -452,8 +452,13 @@ TEST( RetargetAssetTest, ARetargetWrittenAndReadBackIsTheSameRetargetByValue )
     // THE PAIR BY ITSELF, because `operator==` on the whole struct would still pass if both halves were
     // dropped the same way on both sides. And the header states the rig as its one Dependency.
     EXPECT_EQ( reread.GetValue().SourceSkeleton, original.SourceSkeleton );
-    ASSERT_TRUE( reread.GetValue().Header.has_value() );
-    EXPECT_EQ( reread.GetValue().Header->Dependencies, std::vector<std::string>{ original.SourceSkeleton.Guid } );
+    const auto& header = reread.GetValue().Header;
+    if ( !header )
+    {
+        ADD_FAILURE() << "the reread retarget has no header";
+        return;
+    }
+    EXPECT_EQ( header->Dependencies, std::vector<std::string>{ original.SourceSkeleton.Guid } );
 }
 
 TEST( RetargetAssetTest, TheSourceRigIsNamedByTheGuidItsSkeletonStates )
@@ -476,7 +481,7 @@ TEST( RetargetAssetTest, AHeaderThatDoesNotStateTheRigAsItsDependencyIsRefused )
     const std::string             dep  = "\"Dependencies\"";
     ASSERT_NE( text.find( dep ), std::string::npos ) << text;
 
-    auto withDependencies = []( File::RetargetAssetData d, std::vector<std::string> deps )
+    auto withDependencies = []( const File::RetargetAssetData& d, std::vector<std::string> deps )
     {
         auto parsed = File::ParseRetarget( File::WriteRetarget( d ) );
         EXPECT_TRUE( parsed.IsSuccess() );
@@ -543,7 +548,7 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     const auto  rigEnd = v2.find( '}', rigAt );
     ASSERT_NE( rigAt, std::string::npos ) << v2;
     ASSERT_NE( rigEnd, std::string::npos ) << v2;
-    v2.replace( rigAt, rigEnd + 1 - rigAt, "\"SourceSkeleton\": \"ForeignArm.skeleton\"" );
+    v2.replace( rigAt, rigEnd + 1 - rigAt, R"("SourceSkeleton": "ForeignArm.skeleton")" );
     const auto statedAt = v2.find( stated );
     ASSERT_NE( statedAt, std::string::npos ) << v2;
     v2.replace( statedAt, stated.size(), "\"RTGT\": 2" );

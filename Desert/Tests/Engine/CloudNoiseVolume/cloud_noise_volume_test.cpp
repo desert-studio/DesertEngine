@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <span>
 #include <string>
 #include <vector>
@@ -225,9 +226,8 @@ TEST( CloudNoiseContainer, TheEnvelopeStatesKindGuidAndTheContainerVersionUnderD
 
     namespace CC                        = Common::Content;
     const CC::SubsystemVersion kKnown[] = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion } };
-    const auto                 header   = CC::ReadEnvelopeHeader(
-         std::span( reinterpret_cast<const std::byte*>( first.GetValue().data() ), first.GetValue().size() ),
-         CC::AssetHeaderReadContext{ kKnown } );
+    const auto                 header   = CC::ReadEnvelopeHeader( std::as_bytes( std::span( first.GetValue() ) ),
+                                                                  CC::AssetHeaderReadContext{ kKnown } );
     ASSERT_TRUE( header ) << header.GetError();
     EXPECT_EQ( header.GetValue().Asset.Kind, CC::ContentKind::CloudNoiseVolume );
     EXPECT_FALSE( header.GetValue().Asset.Guid.IsNull() );
@@ -332,14 +332,15 @@ TEST( CloudNoiseContainer, AFutureContainerVersionIsRefusedByNumberRatherThanMis
     envelope.Asset.Kind       = CC::ContentKind::CloudNoiseVolume;
     envelope.Asset.Guid       = CC::AssetGuid::Generate();
     envelope.Asset.Subsystems = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion + 7u } };
-    const auto* first         = reinterpret_cast<const std::byte*>( payload.data() );
-    envelope.Sections.push_back(
-         { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, { first, first + payload.size() } } );
+    const std::span<const std::byte> payloadBytes = std::as_bytes( std::span( payload ) );
+    envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                   std::vector<std::byte>( payloadBytes.begin(), payloadBytes.end() ) } );
     const auto file = CC::WriteAssetEnvelope( envelope );
     ASSERT_TRUE( file ) << file.GetError();
-    const auto* begin = reinterpret_cast<const unsigned char*>( file.GetValue().data() );
+    std::vector<unsigned char> bytes( file.GetValue().size() );
+    std::memcpy( bytes.data(), file.GetValue().data(), file.GetValue().size() );
 
-    auto decoded = DecodeCloudNoiseVolume( std::vector<unsigned char>( begin, begin + file.GetValue().size() ) );
+    auto decoded = DecodeCloudNoiseVolume( bytes );
     EXPECT_FALSE( decoded );
     EXPECT_NE( decoded.GetError().find( std::to_string( kCloudNoiseContainerVersion + 7u ) ), std::string::npos )
          << decoded.GetError();

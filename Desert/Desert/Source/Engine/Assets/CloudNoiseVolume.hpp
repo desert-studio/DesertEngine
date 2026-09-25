@@ -211,7 +211,7 @@ namespace Desert::Assets
      * channel order. A silent fallback here would be a sky that renders from whatever bytes happened to be
      * in the file, which is the single hardest class of defect to trace back.
      */
-    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoisePayload( const std::vector<unsigned char>& payload );
+    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoisePayload( const std::vector<unsigned char>& bytes );
 
     /**
      * @brief Serialises a volume into its AF1 binary envelope (kind CloudNoiseVolume, the volume's GUID,

@@ -493,22 +493,23 @@ TEST( SceneMigratorWritePath, ACloudNoiseVolumeIsWrappedInTheEnvelopeOnceAndASec
         volume.Voxels[i] = static_cast<unsigned char>( ( i * 31u ) & 0xFFu );
     const std::vector<unsigned char> payload = Desert::Assets::EncodeCloudNoisePayload( volume );
 
-    const fs::path dir    = MakeTempDir( "T7gCloudNoiseMigration" );
-    const fs::path v2File = dir / "BareV2.dcnv";
-    const fs::path v1File = dir / "BareV1.dcnv";
-    std::string    v2 =
+    const fs::path    dir    = MakeTempDir( "T7gCloudNoiseMigration" );
+    const fs::path    v2File = dir / "BareV2.dcnv";
+    const fs::path    v1File = dir / "BareV1.dcnv";
+    const std::string v2 =
          std::string( "DCNV" ) + std::string( "\x02\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
     // Version 1 is version 2 without the origin word at payload offset 52.
-    std::string v1 = std::string( "DCNV" ) + std::string( "\x01\0\0\0", 4 ) +
-                     std::string( payload.begin(), payload.begin() + 52 ) +
-                     std::string( payload.begin() + 56, payload.end() );
+    const std::string v1 = std::string( "DCNV" ) + std::string( "\x01\0\0\0", 4 ) +
+                           std::string( payload.begin(), payload.begin() + 52 ) +
+                           std::string( payload.begin() + 56, payload.end() );
     for ( const auto& [file, bytes] : { std::pair{ v2File, v2 }, std::pair{ v1File, v1 } } )
     {
         std::ofstream out( file, std::ios::binary );
         out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
     }
 
-    std::string report, errors;
+    std::string report;
+    std::string errors;
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
     std::vector<std::string> raised;
     for ( const auto& file : { v2File, v1File } )
@@ -556,7 +557,8 @@ TEST( SceneMigratorWritePath, ASculptedCloudVolumeIsWrappedInTheEnvelopeOnceAndA
         out.write( v2.data(), static_cast<std::streamsize>( v2.size() ) );
     }
 
-    std::string report, errors;
+    std::string report;
+    std::string errors;
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
     const std::string raised = ReadRaw( v2File );
     const auto        decoded =
@@ -790,6 +792,11 @@ namespace
         if ( !parsed.IsSuccess() )
             return {};
         const auto& data = parsed.GetValue();
+        if ( !data.Header )
+        {
+            ADD_FAILURE() << "the raised retarget has no header\n" << raised;
+            return {};
+        }
         EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( project.RigGuid ) );
         EXPECT_EQ( data.SourceSkeleton.Path, "ForeignArm.skeleton" );
         EXPECT_EQ( data.Header->Dependencies, std::vector<std::string>{ data.SourceSkeleton.Guid } );
