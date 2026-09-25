@@ -163,14 +163,14 @@ TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
 // "One archive" survives only as a choice the file states (WriteDefaultChunkScheme).
 TEST( PackagedContent, APackageWithoutAChunkSchemeIsRefusedByPathAndWritesNoArchive )
 {
-    EnvironmentGuard guard;
+    const EnvironmentGuard guard;
 
     const fs::path base = fs::temp_directory_path() / "desert_pkg_noscheme";
     fs::remove_all( base );
     const fs::path proj = base / "proj";
 
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -921,7 +921,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
 // so a message naming the scheme proves the scheme was the FIRST thing asked.
 TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWritesNothing )
 {
-    EnvironmentGuard guard;
+    const EnvironmentGuard guard;
 
     const fs::path base = fs::temp_directory_path() / "desert_pkg_scheme_first";
     fs::remove_all( base );
@@ -936,7 +936,7 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     fs::copy_file( realFont, proj / "Resources" / "Fonts" / "Roboto-Regular.ttf" );
 
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
