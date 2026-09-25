@@ -20,6 +20,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/MeshBoundaryLoops.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/Selections/MeshConnectedComponents.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/Operations/EmbedSurfacePath.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/GroupEdgeInserter.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/Operations/SimpleHoleFiller.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/MeshNormals.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMeshEditor.cpp",

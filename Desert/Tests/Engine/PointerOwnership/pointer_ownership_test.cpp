@@ -546,13 +546,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   nullptr the same frame its tile stops being hovered.
     //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's FMeshSurfacePath::Mesh, HostOutlivesUs
     //   like the other P12 operation objects -- the path is built over the caller's mesh and embedded in-place.
-    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
-    //   P12g +1 Raw): 435 / 350 / 139 / 42 = 966.
-    EXPECT_EQ( CountOf( Form::Raw ), 435 );
+    //   P12h (FGroupEdgeInserter port) adds +8 Raw, all CallScoped argument packs in GroupEdgeInserter.hpp:
+    //   FEdgeLoopInsertionParams::Mesh/Topology/SortedInputLengths, FGroupEdgeInsertionParams::Mesh/Topology,
+    //   FGroupEdgeInserterOptionalOutputParams::NewEidsOut/ChangedTidsOut/ProblemGroupEdgeIDsOut (UE's parameter
+    //   structs). Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1
+    //   Raw, P12g +1 Raw, P12h +8 Raw): 443 / 350 / 139 / 42 = 974.
+    EXPECT_EQ( CountOf( Form::Raw ), 443 );
     EXPECT_EQ( CountOf( Form::Shared ), 350 );
     EXPECT_EQ( CountOf( Form::Unique ), 139 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 966 )
+    EXPECT_EQ( (int)Members().size(), 974 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
