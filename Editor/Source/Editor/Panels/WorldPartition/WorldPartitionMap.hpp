@@ -53,21 +53,22 @@ namespace Desert::Editor::WorldPartitionMap
     // A drag of @p screenDelta pixels: the world follows the cursor.
     void Pan( View& view, glm::dvec2 screenDelta );
     // Centres @p box and fits it with UE's margin. A degenerate box keeps the scale.
-    void Focus( View& view, glm::dvec2 screenSize, const Core::Rules::CellBounds& box );
+    void Focus( View& view, glm::dvec2 screenSize, const ::Desert::Core::Rules::CellBounds& box );
     // UE's follow-player view in Play: the source at the centre, kFollowExtentCm on the shorter side.
     [[nodiscard]] View Follow( glm::dvec2 screenSize, glm::dvec2 sourceXZ );
 
     // The bounds of every cell of @p plan; nullopt for a plan without cells.
-    [[nodiscard]] std::optional<Core::Rules::CellBounds> PlanBounds( const Core::Rules::WorldPartitionPlan& plan );
+    [[nodiscard]] std::optional<::Desert::Core::Rules::CellBounds>
+    PlanBounds( const ::Desert::Core::Rules::WorldPartitionPlan& plan );
 
     // Cells of @p plan whose square meets the panel, in PAINT order: coarser levels first, so a finer cell is
     // drawn over the coarse one that contains it. @p level < 0 shows every level.
-    [[nodiscard]] std::vector<std::size_t> VisibleCells( const Core::Rules::WorldPartitionPlan& plan,
+    [[nodiscard]] std::vector<std::size_t> VisibleCells( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                                                          const View& view, glm::dvec2 screenSize, int level );
 
     // The finest cell of @p plan under @p world (the one painted on top); nullopt over empty ground.
-    [[nodiscard]] std::optional<std::size_t> CellAt( const Core::Rules::WorldPartitionPlan& plan, glm::dvec2 world,
-                                                     int level );
+    [[nodiscard]] std::optional<std::size_t> CellAt( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                                     glm::dvec2 world, int level );
 
     // The finest grid level whose cell is at least @p minPixels wide on screen: the background grid's lines.
     [[nodiscard]] int GridLineLevel( const View& view, float cellSize, double minPixels );
@@ -87,8 +88,8 @@ namespace Desert::Editor::WorldPartitionMap
 
     // A cell's state from @p residency (the streamer's), or Unstreamed without one. A unit is a cell after the
     // plan's always-loaded composites (WorldPartitionResidencyRules.hpp, UNITS).
-    [[nodiscard]] CellState StateOf( const Core::Rules::WorldPartitionPlan& plan,
-                                     const Core::Rules::ResidencyState* residency, std::size_t cell );
+    [[nodiscard]] CellState StateOf( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
+                                     const ::Desert::Core::Rules::ResidencyState* residency, std::size_t cell );
 
     // RGBA in 0..1 — UE's streaming status colour with its 2D tile opacity.
     [[nodiscard]] glm::vec4   ColorOf( CellState state );
