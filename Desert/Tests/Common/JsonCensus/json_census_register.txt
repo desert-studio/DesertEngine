@@ -50,6 +50,8 @@ Desert/Tests/Editor/PackagedContent/packaged_content_test.cpp | JS1d: test fixtu
 Desert/Tests/Editor/PreferenceOwnership/preference_ownership_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Editor/SceneSaveOutcome/scene_save_outcome_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Editor/TextureImport/texture_import_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Editor/ThumbnailFreshness/thumbnail_freshness_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
+Desert/Tests/Editor/ThumbnailSweep/thumbnail_sweep_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/AnimationClipCorpus/animation_clip_corpus_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/AnimationClipFormat/animation_clip_format_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/AssetHandleInverse/asset_handle_inverse_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
