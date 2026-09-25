@@ -1084,3 +1084,131 @@ TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
         }
     }
 }
+
+namespace
+{
+    // Convex solid around the origin: every triangle faces away from it.
+    void ExpectAllTrianglesOutward( const FDynamicMesh3& mesh )
+    {
+        for ( const int t : mesh.TriangleIndicesItr() )
+            EXPECT_GT( mesh.GetTriNormal( t ).Dot( Normalized( mesh.GetTriCentroid( t ) ) ), 0.0 ) << "triangle " << t;
+    }
+
+    // Top face chamfered on its four edges by d: the cube cut by x+z, -x+z, y+z, -y+z <= 100 - d. Four prisms of
+    // d^2/2 x 100, whose corner overlaps (integral of (d - w)^2 over w in [0, d]) are counted twice.
+    double TopFaceChamferVolume( double d )
+    {
+        return 1.0e6 - 4.0 * ( 50.0 * d * d ) + 4.0 * ( d * d * d / 3.0 );
+    }
+} // namespace
+
+// The top face's four edges with the sides in one group: one closed loop, no corners (AppendLoopQuads_Multi).
+TEST( MeshBevel, MultiSegmentTopLoopKeepsTheChamferVolume )
+{
+    for ( const int n : { 1, 2 } )
+    {
+        for ( const int N : { 2, 3 } )
+        {
+            SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + ", " +
+                          std::to_string( N ) + " subdivisions" );
+            FDynamicMesh3 mesh = TangentCube( n );
+            for ( const int t : mesh.TriangleIndicesItr() )
+                mesh.SetTriangleGroup( t, t / ( 2 * n * n ) == 4 ? 1 : 2 );
+            const FGroupTopology topology( &mesh, true );
+            FMeshBevelProbe      bevel;
+            bevel.InsetDistance   = 5.0;
+            bevel.NumSubdivisions = N;
+            ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+            ASSERT_EQ( bevel.Loops.Num(), 1 );
+            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+            ExpectClosedSolid( mesh, TopFaceChamferVolume( 5.0 ) );
+            ExpectNewTriangleNormals( mesh, bevel, false );
+            ExpectAllTrianglesOutward( mesh );
+            EXPECT_EQ( Groups( mesh ).size(), 3u );
+            ExpectEvenStripColumns( mesh, bevel.Loops[0].StripQuadPatch, N );
+        }
+    }
+}
+
+// The top face's four edges with every side its own group: four edges whose corners each join two bevelled edges
+// and one untouched vertical edge (a two-wedge junction).
+TEST( MeshBevel, MultiSegmentTopFourEdgesKeepTheChamferVolume )
+{
+    for ( const int n : { 1, 2 } )
+    {
+        const FDynamicMesh3  base = TangentCube( n );
+        const FGroupTopology baseTopology( &base, true );
+        TArray<int32>        groupEdges;
+        for ( const int side : { 1, 2, 3, 4 } )
+            groupEdges.Add( GroupEdgeBetween( baseTopology, 5, side ) );
+        const double chamfer = ChamferVolume( base, groupEdges );
+        EXPECT_NEAR( chamfer, TopFaceChamferVolume( 5.0 ), 1e-6 * chamfer );
+        for ( const int N : { 2, 3 } )
+        {
+            SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + ", " +
+                          std::to_string( N ) + " subdivisions" );
+            FDynamicMesh3        mesh = base;
+            const FGroupTopology topology( &mesh, true );
+            FMeshBevelProbe      bevel;
+            bevel.InsetDistance   = 5.0;
+            bevel.NumSubdivisions = N;
+            ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) )
+                 << bevel.FailureReason;
+            ASSERT_EQ( bevel.Edges.Num(), 4 );
+            ASSERT_EQ( bevel.Vertices.Num(), 4 );
+            for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+            {
+                EXPECT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::JunctionVertex ) << "vertex " << v.VertexID;
+                EXPECT_EQ( v.Wedges.Num(), 2 ) << "vertex " << v.VertexID;
+            }
+            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+            ExpectClosedSolid( mesh, TopFaceChamferVolume( 5.0 ) );
+            ExpectNewTriangleNormals( mesh, bevel );
+            ExpectAllTrianglesOutward( mesh );
+            for ( const FMeshBevel::FBevelEdge& edge : bevel.Edges )
+                ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
+        }
+    }
+}
+
+// Four quadrant groups on a flat top face: the centre joins four bevelled edges (a valence-4 grid junction), the
+// outer ends are terminators. Coplanar edges: the bevel re-meshes the face without changing the solid.
+TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
+{
+    for ( const int N : { 1, 2, 3 } )
+    {
+        SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+        FDynamicMesh3 mesh = TangentCube( 2 );
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const FVector3d c = mesh.GetTriCentroid( t );
+            if ( c.Z > 49.0 )
+                mesh.SetTriangleGroup( t, 7 + ( c.X > 0.0 ? 1 : 0 ) + ( c.Y > 0.0 ? 2 : 0 ) );
+        }
+        const FGroupTopology topology( &mesh, true );
+        const TArray<int32>  groupEdges = { GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
+                                            GroupEdgeBetween( topology, 10, 9 ), GroupEdgeBetween( topology, 9, 7 ) };
+        FMeshBevelProbe      bevel;
+        bevel.InsetDistance   = 5.0;
+        bevel.NumSubdivisions = N;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) ) << bevel.FailureReason;
+        int junctions = 0;
+        for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+        {
+            if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex )
+                continue;
+            ++junctions;
+            EXPECT_EQ( v.Wedges.Num(), 4 ) << "vertex " << v.VertexID;
+            EXPECT_NEAR( Distance( mesh.GetVertex( v.VertexID ), FVector3d( 0, 0, 50 ) ), 0.0, 1e-9 );
+        }
+        EXPECT_EQ( junctions, 1 );
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+        ExpectClosedSolid( mesh, 1.0e6 );
+        // the centre polygon: an (N + 1) x (N + 1) quad grid
+        for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+            if ( v.VertexType == FMeshBevel::EBevelVertexType::JunctionVertex )
+                EXPECT_EQ( v.NewTriangles.Num(), 2 * ( N + 1 ) * ( N + 1 ) );
+        ExpectNewTriangleNormals( mesh, bevel );
+        ExpectAllTrianglesOutward( mesh );
+    }
+}
