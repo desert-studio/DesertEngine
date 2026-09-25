@@ -646,7 +646,7 @@ TEST( SceneMigratorWritePath, AnAnimGraphGainsAHeaderGuidOnceAndASecondRunChange
     const std::string raised = ReadRaw( file );
     EXPECT_NE( raised.find( "Locomotion" ), std::string::npos ) << "the payload was lost: " << raised;
     const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
-    const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
     ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
     EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
     EXPECT_FALSE( header.GetValue().Guid.IsNull() );

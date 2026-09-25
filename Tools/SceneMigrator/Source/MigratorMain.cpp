@@ -272,8 +272,9 @@ namespace
          TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
                           1, Desert::Assets::kRetargetSchemaVersion, "FormatVersion", true },
          // .danimgraph 0 -> 1 (T7d): generation 0 stated no version member at all.
-         TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph, Desert::Assets::kAnimGraphSchemaTag,
-                          0, Desert::Assets::kAnimGraphSchemaVersion, nullptr, true },
+         TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph,
+                          Desert::Assets::kAnimGraphSchemaTag, 0, Desert::Assets::kAnimGraphSchemaVersion, nullptr,
+                          true },
     };
 
     const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
@@ -298,8 +299,8 @@ namespace
         if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
             return Common::MakeSuccess( std::optional<std::string>{} );
         const std::string member  = row.VersionMember != nullptr ? row.VersionMember : "";
-        const auto        stated  = row.VersionMember != nullptr ? fields.get( member ) : rfl::Result<rfl::Generic>(
-                                                                                     rfl::Error( "unstated" ) );
+        const auto        stated  = row.VersionMember != nullptr ? fields.get( member )
+                                                                 : rfl::Result<rfl::Generic>( rfl::Error( "unstated" ) );
         const auto version = [&]() -> rfl::Result<int>
         {
             if ( stated.has_value() )

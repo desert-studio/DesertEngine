@@ -20,7 +20,8 @@ namespace Desert::Animation::Graph
         std::span<const Common::Content::SubsystemVersion> AnimGraphTextSubsystems()
         {
             static const std::array<Common::Content::SubsystemVersion, 1> versions = {
-                 Common::Content::SubsystemVersion{ Assets::kAnimGraphSchemaTag, Assets::kAnimGraphSchemaVersion } };
+                 Common::Content::SubsystemVersion{ Assets::kAnimGraphSchemaTag,
+                                                    Assets::kAnimGraphSchemaVersion } };
             return versions;
         }
     } // namespace
@@ -43,9 +44,9 @@ namespace Desert::Animation::Graph
         if ( !parsed )
             return Common::MakeError<AnimGraph>( std::format( "bad .danimgraph: {}", parsed.error().what() ) );
 
-        if ( auto header = Assets::CheckStatedHeader( parsed.value().Header, Common::Content::ContentKind::AnimGraph,
-                                                      Assets::kAnimGraphSchemaTag, kAnimGraphVersion,
-                                                      AnimGraphTextSubsystems() );
+        if ( auto header = Assets::CheckStatedHeader(
+                  parsed.value().Header, Common::Content::ContentKind::AnimGraph, Assets::kAnimGraphSchemaTag,
+                  kAnimGraphVersion, AnimGraphTextSubsystems() );
              !header )
             return Common::MakeError<AnimGraph>( std::format( "anim graph {}", header.GetError() ) );
         return Common::MakeSuccess( parsed.value() );
