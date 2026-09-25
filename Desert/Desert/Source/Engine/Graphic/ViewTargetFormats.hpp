@@ -60,6 +60,6 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kRSMDepth    = kGBufferDepth;
 
     // MeshRenderer::SetupShadowPass, one of each per cascade.
-    inline constexpr ImageFormat kShadowColor = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kShadowColor = ImageFormat::R32F;
     inline constexpr ImageFormat kShadowDepth = ImageFormat::DEPTH24STENCIL8;
 } // namespace Desert::Graphic::ViewTargetFormats

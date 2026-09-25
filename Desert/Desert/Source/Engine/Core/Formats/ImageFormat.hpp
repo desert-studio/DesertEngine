@@ -81,6 +81,10 @@ namespace Desert::Core::Formats
         /// APPENDED, not grouped with the other uncompressed formats: a cooked texture stores its format
         /// as this enumerator's number (TextureBinary.cpp), so an insertion would renumber every BC file.
         R16_UNORM,
+        /// `VK_FORMAT_R32_SFLOAT`. One 32-bit float channel: the shadow cascades' colour map, which only
+        /// ever carries depth in .r (Shadow.shader). Full float, not half: half precision would band a
+        /// normalised depth across a 150 m cascade. APPENDED for the same renumbering reason as R16_UNORM.
+        R32F,
 
         // Not a format. Every real format goes ABOVE this line, and the count below is derived from it,
         // so there is no number for anyone to remember to bump — which is the whole reason it exists.
@@ -173,6 +177,8 @@ namespace Desert::Core::Formats
                 return { 1, 1, 4 };
             case ImageFormat::R16_UNORM:
                 return { 1, 1, 2 }; // one channel, 16 bits
+            case ImageFormat::R32F:
+                return { 1, 1, 4 }; // one channel, 32-bit float
             // THREE OF THE FOUR BLOCK FORMATS ARE SIXTEEN BYTES AND ONE IS EIGHT, which is why the
             // number is a column of this table and not a constant beside it. The comment here used to
             // say "both BC formats in this engine are the same shape"; BC4 made that sentence false,
@@ -230,6 +236,7 @@ namespace Desert::Core::Formats
             case ImageFormat::DEPTH32F:
                 return 1;
             case ImageFormat::R16_UNORM:
+            case ImageFormat::R32F:
                 return 1;
             case ImageFormat::BC6H_UFLOAT:
                 return 3; // radiance; the format has no alpha at all
@@ -307,6 +314,7 @@ namespace Desert::Core::Formats
             case ImageFormat::RGBA32F:
             case ImageFormat::BGRA8F:
             case ImageFormat::R16_UNORM:
+            case ImageFormat::R32F:
             case ImageFormat::BC7_UNORM:
             case ImageFormat::BC6H_UFLOAT:
             case ImageFormat::BC4_UNORM:
