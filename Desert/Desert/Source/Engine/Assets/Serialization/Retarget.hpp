@@ -52,9 +52,10 @@
  *   the exact shape this file was written to end. `Tests/Engine/RetargetPipeline`'s own helper says so in
  *   as many words ("this rig has the SAME signature as its source").
  *
- *   The path is RELATIVE TO THE COOKED MESHES ROOT, joined in `RetargetAsset::ResolveDependencies` and
- *   nowhere else — the shape `.decloudtype` uses for its noise volume, against the root a `.skeleton`
- *   actually lives under (`AssetPreloader` scans skeletons from `MESH_PATH_COOKED` and from nowhere
+ *   SINCE RTGT 3 THE RIG IS NAMED BY ITS HEADER GUID, with the path kept beside it for the reader. The
+ *   path is RELATIVE TO THE COOKED MESHES ROOT and was, before RTGT 3, joined in
+ *   `RetargetAsset::ResolveDependencies` — the shape `.decloudtype` uses for its noise volume, against the root a
+ * `.skeleton` actually lives under (`AssetPreloader` scans skeletons from `MESH_PATH_COOKED` and from nowhere
  *   else). Relative, so the library is the same library on another machine.
  *
  *   THE TARGET RIG IS THE ENTITY'S OWN, AND IS NOT NAMED HERE. A second statement of it would be a
@@ -96,6 +97,7 @@
  */
 
 #include <Engine/Animation/Retarget/Retargeter.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -136,6 +138,10 @@ namespace Desert::Assets::Serialization
      *   2 - the text asset header (T7c): Kind "Retarget", the GUID that IS the retarget's identity and its
      *       handle (RetargetAsset's constructor), and this number under `RTGT`; the top-level FormatVersion
      *       is gone. A version-1 file is refused by name; Tools/SceneMigrator mints its GUID.
+     *   3 - the source rig by `{Guid, Path}` (T7f): the rig's header GUID is its identity, the path relative
+     *       to the cooked meshes root is kept for the reader; that GUID is also the header's one Dependency,
+     *       so the registry sees the edge without parsing the payload. A version-2 file (a bare path) is
+     *       refused by name; Tools/SceneMigrator reads the GUID out of the named `.skeleton`.
      *
      * See the file note for why this is its own sequence and not `Core::kSceneVersion`. An unknown value
      * is refused in BOTH directions rather than read as if it meant what it means here, and there is no
@@ -247,10 +253,11 @@ namespace Desert::Assets::Serialization
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               Name;
 
-        /// The `.skeleton` the CLIPS are authored on, RELATIVE to the cooked meshes root (e.g.
-        /// "IKProbe.skeleton"). Resolved by `RetargetAsset::ResolveDependencies`, which performs the one
-        /// join. See the file note for why this is not a signature.
-        std::string SourceSkeleton;
+        /// The `.skeleton` the CLIPS are authored on. Resolved by GUID in `RetargetAsset::ResolveDependencies`;
+        /// its GUID is the header's one Dependency (WriteRetarget states it, ParseRetarget refuses a
+        /// disagreement). The path is RELATIVE to the cooked meshes root (e.g. "IKProbe.skeleton") and is
+        /// what a reader and every warning name. See the file note for why this is not a signature.
+        AssetGuidRef SourceSkeleton;
 
         std::string SourcePelvisBone;
         std::string TargetPelvisBone;
@@ -272,8 +279,8 @@ namespace Desert::Assets::Serialization
      * @brief Rejects a retarget the loader cannot honour, naming the row that is wrong.
      *
      * Pure, so a retarget editor can refuse to save for the same reason the loader refuses to read, rather
-     * than the two disagreeing about what is legal. Refuses: an empty, absolute or escaping source-rig
-     * path; an empty pelvis name
+     * than the two disagreeing about what is legal. Refuses: a source rig without a well-formed GUID; an
+     * empty, absolute or escaping source-rig path; an empty pelvis name
      * on either side; a non-finite number anywhere; a non-normalisable rotation offset; an offset or
      * rename row with an empty bone name; two offsets on one bone; two renames claiming one target bone; a
      * chain with an empty name or an empty bone name; and two chains with the same name.
@@ -331,7 +338,7 @@ namespace Desert::Assets::Serialization
     /// The exact mirror of `BuildRetargetSetup`, and it lives beside it for `BuildDataFromControlRig`'s
     /// reason: a format whose two directions are not testable together is a format whose round trip is an
     /// assumption.
-    NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string& name,
-                                                             const std::string& sourceSkeleton,
+    NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string&  name,
+                                                             const AssetGuidRef& sourceSkeleton,
                                                              const Animation::Retarget::RetargetSetup& setup );
 } // namespace Desert::Assets::Serialization

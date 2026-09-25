@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "59d5498d416ef27c231dc0088472e148",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "SkinProbe_Hover",
     "TickRate": {
         "Numerator": 24000,

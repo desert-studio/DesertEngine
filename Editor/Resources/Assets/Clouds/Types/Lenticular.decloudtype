@@ -3,7 +3,7 @@
         "Kind": "CloudType",
         "Guid": "e6f14c7dc0603759cc564e8e5d57ec27",
         "Versions": {
-            "CLTY": 4
+            "CLTY": 5
         },
         "Dependencies": []
     },

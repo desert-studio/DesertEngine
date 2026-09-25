@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "9f1f5562746c64eacbd3442582a08f04",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "A6Curve_Linear",
     "TickRate": {
         "Numerator": 24000,

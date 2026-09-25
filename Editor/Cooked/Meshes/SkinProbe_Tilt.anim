@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "fa1cf740b592cc5c9a28c8ebc30a85bd",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "SkinProbe_Tilt",
     "TickRate": {
         "Numerator": 24000,

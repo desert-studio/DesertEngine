@@ -42,6 +42,23 @@ project(test_name)
         -- ENGINE'S own writer, gate-checked by the ENGINE'S own loader gate — so a suite that compiles
         -- the loop has to bring that pair with it, for the same reason it brings the reflection table.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+        -- THE RETARGET WRITER AND GATE, since T7f: the RTGT 2 -> 3 step writes through the engine's own
+        -- WriteRetarget and gates with its own ParseRetarget. Retarget.cpp builds a RetargetPose, whose
+        -- Apply reads the bind pose of a Skeleton, so the three come with it; all pure, no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        -- THE CLOUD NOISE VOLUME DECODER, since T7g: the DCNV 1/2 -> 3 step wraps the payload in the AF1
+        -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure
+        -- bytes in, bytes out; no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
+        -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
+        -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
+        -- THE CLOUD TYPE WRITER AND GATE, since T7h: the CLTY 4 -> 5 step writes through the engine's own
+        -- WriteCloudType and gates with its own ParseCloudType; pure, no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
     }
 
     -- Reflection.gen.cpp is emitted by DesertHeaderTool as a prebuild step of `Desert`.

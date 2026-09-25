@@ -100,17 +100,16 @@ namespace Desert::Assets
     {
         m_NoiseVolume = AssetHandle::Null();
 
-        const std::string relative = m_Data.NoiseVolume.value_or( std::string{} );
-        if ( relative.empty() )
+        if ( !m_Data.NoiseVolume )
             return; // the documented "use the built-in default volume"
 
-        // RELATIVE TO THE ASSETS ROOT, joined here and nowhere else. The file stores
-        // "Clouds/CloudNoise_FineWisp.dcnv" so that the library is the same library on another machine;
-        // the AssetManager indexes volumes under their full project-rooted path, so exactly one join has
-        // to happen and this is it.
-        const Common::Filepath full = ( Common::Constants::Path::ASSETS_PATH / relative ).lexically_normal();
-
-        if ( const auto volume = manager.FindByPath<CloudNoiseVolumeAsset>( full ) )
+        // BY GUID, the volume's identity (CloudNoiseVolumeAsset adopts HandleForGuid of its envelope GUID): a
+        // volume renamed or moved on disk still resolves. The path is only named in the error.
+        const auto guid = Common::Content::AssetGuidFromText( m_Data.NoiseVolume->Guid );
+        if ( const auto volume =
+                  guid ? manager.FindByHandle<CloudNoiseVolumeAsset>( AssetHandle(
+                              static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) )
+                       : Asset<CloudNoiseVolumeAsset>{} )
         {
             m_NoiseVolume = volume->GetMetadata().Handle;
             return;
@@ -118,9 +117,9 @@ namespace Desert::Assets
 
         // NOT a silent fall-through to the default: the type names a volume, the volume is not there, and
         // the sky that comes out will be the default one wearing this type's name. §1.4.
-        LOG_ERROR( "[Clouds] Cloud type '{}' names noise volume '{}' ({}), which is not loaded. The layer "
+        LOG_ERROR( "[Clouds] Cloud type '{}' names noise volume {} ('{}'), which is not loaded. The layer "
                    "will use the built-in default volume and its edge will not be the authored one.",
-                   m_Metadata.Filepath.string(), relative, full.string() );
+                   m_Metadata.Filepath.string(), m_Data.NoiseVolume->Guid, m_Data.NoiseVolume->Path );
     }
 
     Common::BoolResultStr CloudTypeAsset::Unload()
