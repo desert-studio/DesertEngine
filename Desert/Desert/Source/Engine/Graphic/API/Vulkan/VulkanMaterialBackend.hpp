@@ -91,7 +91,7 @@ namespace Desert::Graphic::API::Vulkan
         std::unordered_set<uint32_t> m_SwallowReported;
 
         // Success path: remember what @p binding was just given in these sets this frame.
-        void NoteDescriptorWrite( IViewDescriptorSetCopy& sets, uint32_t binding, uint64_t handle );
+        static void NoteDescriptorWrite( IViewDescriptorSetCopy& sets, uint32_t binding, uint64_t handle );
         // Early-return path: if @p binding was written this frame with a DIFFERENT resource, say so
         // (once), naming the shader and both handles. @p what names the descriptor kind for the log.
         void ReportSwallowedRebind( const IViewDescriptorSetCopy& sets, uint32_t binding, uint64_t handle,

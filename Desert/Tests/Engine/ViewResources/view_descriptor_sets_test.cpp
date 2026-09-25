@@ -56,11 +56,10 @@ namespace
                                                   // maker above makes only FakeSets
         }
 
-        FakeSets* Active( uint32_t frame ) const
+        [[nodiscard]] FakeSets* Active( uint32_t frame ) const
         {
-            return static_cast<FakeSets*>(
-                 Sets.FindActive( frame ) ); // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast):
-                                             // the maker above makes only FakeSets
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the maker above makes only FakeSets
+            return static_cast<FakeSets*>( Sets.FindActive( frame ) );
         }
 
         // An image write, as ApplyTexture2D does it: into the active view's set, and recorded as a seed.
@@ -85,13 +84,13 @@ TEST( ViewDescriptorSets, TwoViewsHaveTheirOwnSetsAndAWriteInOneIsNotSeenByTheOt
 
     FakeSets* inViewport = nullptr;
     {
-        ActiveViewScope active( viewport );
+        const ActiveViewScope active( viewport );
         inViewport                 = material.Resolve( 0 );
         inViewport->Descriptors[0] = 11; // the viewport's uniform-buffer copy
     }
     FakeSets* inPreview = nullptr;
     {
-        ActiveViewScope active( preview );
+        const ActiveViewScope active( preview );
         inPreview = material.Resolve( 0 );
         ASSERT_NE( inPreview, nullptr );
         EXPECT_NE( inPreview, inViewport ) << "two views were handed the same descriptor sets";
@@ -105,9 +104,9 @@ TEST( ViewDescriptorSets, TwoViewsHaveTheirOwnSetsAndAWriteInOneIsNotSeenByTheOt
 // A set is made on first use in a view, once per frame in flight, and never again while it lives.
 TEST( ViewDescriptorSets, SetsAreMadeLazilyOncePerViewAndFrame )
 {
-    FakeMaterial    material;
-    ViewResources   view( "Viewport" );
-    ActiveViewScope active( view );
+    FakeMaterial          material;
+    ViewResources         view( "Viewport" );
+    const ActiveViewScope active( view );
     EXPECT_EQ( material.Active( 0 ), nullptr ) << "a set existed before the view bound the material";
     (void)material.Resolve( 0 );
     (void)material.Resolve( 0 );
@@ -123,12 +122,12 @@ TEST( ViewDescriptorSets, AViewOpenedAfterAnImageWriteStartsWithThatImage )
     FakeMaterial  material;
     ViewResources viewport( "Viewport" );
     {
-        ActiveViewScope active( viewport );
+        const ActiveViewScope active( viewport );
         material.WriteImage( 0, 2, 777 );
     }
-    ViewResources   preview( "Preview opened later" );
-    ActiveViewScope active( preview );
-    FakeSets*       sets = material.Resolve( 0 );
+    ViewResources         preview( "Preview opened later" );
+    const ActiveViewScope active( preview );
+    FakeSets*             sets = material.Resolve( 0 );
     ASSERT_NE( sets, nullptr );
     EXPECT_EQ( sets->Descriptors[2], 777u ) << "the later view binds the fallback instead of the material's image";
     EXPECT_EQ( sets->Descriptors[1], kFallback ) << "a binding with no seed must still get its fallback";
@@ -141,12 +140,12 @@ TEST( ViewDescriptorSets, SetsLeaveWithTheViewAndWithTheMaterial )
     {
         auto material = std::make_unique<FakeMaterial>();
         {
-            ActiveViewScope active( viewport );
+            const ActiveViewScope active( viewport );
             (void)material->Resolve( 0 );
         }
         {
-            ViewResources   preview( "Preview" );
-            ActiveViewScope active( preview );
+            ViewResources         preview( "Preview" );
+            const ActiveViewScope active( preview );
             (void)material->Resolve( 0 );
             EXPECT_EQ( preview.CopyCount(), 1u );
         }

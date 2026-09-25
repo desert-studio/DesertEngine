@@ -308,7 +308,7 @@ namespace Desert::Graphic::API::Vulkan
             }
             // Destroying the pool frees every set still in it. A free of this pool's sets queued on a
             // frame the ring has not come round to yet would then name dead handles: drop it with the pool.
-            const VkDescriptorPool pool = it->DescriptorPool;
+            auto* const pool = it->DescriptorPool;
             vkDestroyDescriptorPool( device, pool, nullptr );
             auto next = static_cast<std::size_t>( m_DescriptorPoolDeletionQueue.erase( it ) -
                                                   m_DescriptorPoolDeletionQueue.begin() );

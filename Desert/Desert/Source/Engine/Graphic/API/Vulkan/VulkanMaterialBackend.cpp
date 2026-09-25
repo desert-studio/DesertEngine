@@ -330,8 +330,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return;
 
-        auto           descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
-        const uint64_t handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
+        auto       descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
+        const auto handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
 
         // See ApplyUniformBuffer. For textures this is the "second terrain keeps the first
         // one's splat" path — the reason TerrainRenderer keys one material per texture set.
@@ -381,8 +381,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return;
 
-        auto           descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
-        const uint64_t handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
+        auto       descriptorImageInfo = vulkanImage->GetDescriptorImageInfo();
+        const auto handle              = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
 
         // See ApplyUniformBuffer.
         if ( sets->FlushedFrame == absoluteFrame )
@@ -488,7 +488,8 @@ namespace Desert::Graphic::API::Vulkan
             // UNIFORM BUFFERS
             for ( const auto& [binding, size] : descriptorSet.UniformBuffers )
             {
-                VkDescriptorBufferInfo info = { .buffer = m_DummyBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
+                const VkDescriptorBufferInfo info = {
+                     .buffer = m_DummyBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
                 bufferInfos.push_back( info );
                 writes.push_back( DescriptorSetBuilder::GetUniformWDS( this, frame, setIndex, binding, 1,
                                                                        &bufferInfos.back() ) );
@@ -497,7 +498,8 @@ namespace Desert::Graphic::API::Vulkan
             // STORAGE BUFFERS
             for ( const auto& [binding, size] : descriptorSet.StorageBuffers )
             {
-                VkDescriptorBufferInfo info = { .buffer = m_DummyBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
+                const VkDescriptorBufferInfo info = {
+                     .buffer = m_DummyBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
                 bufferInfos.push_back( info );
                 writes.push_back( DescriptorSetBuilder::GetStorageWDS( this, frame, setIndex, binding, 1,
                                                                        &bufferInfos.back() ) );
