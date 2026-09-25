@@ -41,6 +41,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <filesystem>
@@ -113,10 +114,7 @@ namespace
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
     {
-        for ( ContentKind k : kinds )
-            if ( k == kind )
-                return true;
-        return false;
+        return std::ranges::any_of( kinds, [kind]( const ContentKind k ) { return k == kind; } );
     }
 
     std::optional<std::string_view> PathOnlyReason( ContentKind kind )
@@ -171,7 +169,7 @@ namespace
     std::vector<char> SyntheticMesh( bool skinned, const AssetGuid& guid )
     {
         Common::Content::MeshBinaryFileHeader header{};
-        std::memcpy( header.Magic, Common::Content::kMeshBinaryMagic, sizeof( header.Magic ) );
+        std::copy_n( Common::Content::kMeshBinaryMagic, sizeof( header.Magic ), header.Magic );
         header.ByteOrder = Common::Content::kMeshBinaryByteOrderTag;
         header.Version   = Common::Content::kMeshBinaryVersion;
         constexpr std::size_t kTableEnd =
@@ -314,9 +312,8 @@ namespace
             return outcome;
         }
         // What the referrer wrote: the GUID beside the path where its format has one, the path alone otherwise.
-        const AssetGuid written = Contains( kGuidReferrers, kind ) && original.GetValue().Guid
-                                       ? *original.GetValue().Guid
-                                       : AssetGuid{};
+        const std::optional<AssetGuid>& stated = original.GetValue().Guid;
+        const AssetGuid written = Contains( kGuidReferrers, kind ) ? stated.value_or( AssetGuid{} ) : AssetGuid{};
 
         fs::create_directories( after.parent_path() );
         fs::rename( before, after );
@@ -355,8 +352,8 @@ namespace
 
 TEST( AssetResolveByGuidCensus, EveryKindSurvivesAMoveOrIsANamedRegisterRow )
 {
-    ProjectRootGuard guard;
-    const fs::path   project = fs::temp_directory_path() / "AF10a_ResolveByGuid";
+    const ProjectRootGuard guard;
+    const fs::path         project = fs::temp_directory_path() / "AF10a_ResolveByGuid";
     fs::remove_all( project );
     fs::create_directories( project );
     Common::Constants::Path::SetProjectRoot( fs::canonical( project ), "Resources/Assets" );
