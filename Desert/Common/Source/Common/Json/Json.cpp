@@ -1,5 +1,6 @@
 #include "Json.hpp"
 
+#include <ranges>
 #include <rflcpp/rfl/Generic.hpp>
 
 #include <string>
@@ -89,8 +90,8 @@ namespace Common::Json
                 if ( rest.starts_with( kMany ) && rest.find( " errors:\n" ) != std::string_view::npos )
                 {
                     const auto items = SplitItems( rest.substr( rest.find( '\n' ) + 1 ) );
-                    for ( auto item = items.rbegin(); item != items.rend(); ++item )
-                        stack.push_back( Pending{ *item, path } );
+                    for ( const auto& item : items | std::views::reverse )
+                        stack.push_back( Pending{ item, path } );
                     continue;
                 }
 
