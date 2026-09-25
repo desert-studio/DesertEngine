@@ -19,9 +19,11 @@ namespace Desert::Assets
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset
     // slot names its asset by header GUID + a path locator (MaterialAssetRef), the cloud slots in a list of
-    // their own, and each GUID is a header Dependency too.
+    // their own, and each GUID is a header Dependency too. v4 (T7k): the shader is named by its header GUID
+    // + a path locator (`Shader`, was `ShaderName`), and the cloud Medium joins CloudAssets (was ShaderRefs,
+    // by path); both are header Dependencies.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 3;
+    inline constexpr uint32_t kMaterialSchemaVersion = 4;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as

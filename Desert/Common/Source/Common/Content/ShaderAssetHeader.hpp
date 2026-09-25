@@ -30,5 +30,11 @@ namespace Common::Content
     // The parsed header of a shader's whole source text.
     ResultStr<TextAssetHeaderSerialized> ReadShaderHeader( std::string_view source );
 
+    // The name the DSL declares - `X` of the first `Shader "X"` line, the first line past the header comment
+    // and blank or `//` lines. The runtime names a shader by its file STEM (VulkanShader, ShaderService), and a
+    // material resolves its shader GUID to that stem; ShaderAsset refuses a file whose declared name differs,
+    // so the two can never name different shaders. Refuses a source with no such line, naming what it found.
+    ResultStr<std::string> ReadShaderDeclaredName( std::string_view source );
+
     const IAssetHeaderFormat& ShaderCommentHeaderFormat();
 } // namespace Common::Content

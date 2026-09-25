@@ -73,8 +73,12 @@ namespace Desert::Assets
         }
 
         // THE shader this material draws with, and the one place that question is answered. The data holds
-        // what the FILE says (a name, or nothing); this is what that statement resolves to, set by
-        // ResolveDependencies and by every load. A material that states no shader draws with the standard
+        // what the FILE says (a shader GUID, or nothing); this is the name that GUID resolves to - the
+        // ShaderAsset's file stem, which ShaderAsset guarantees equals its DSL name - set by
+        // ResolveDependencies. Load alone leaves a stated shader unresolved (empty): the lookup needs the
+        // manager, and every load path pairs the two (EnsureLoaded, AssetManager, AssetHotReload). EMPTY after
+        // a resolve means the GUID names no loaded shader, logged as an error naming the material and the
+        // GUID; the material then draws nothing. A material that states no shader draws with the standard
         // surface, kDefaultShaderName. An INSTANCE states none either, and this answers the default for it
         // too: its shader lives on the parent, which callers resolve through the parent chain.
         virtual std::string GetShaderName() const override
@@ -89,20 +93,21 @@ namespace Desert::Assets
             return m_ShaderName != kDefaultShaderName && m_ShaderName != "SkinnedMeshPBR";
         }
 
-        // Re-derives the shader from Data(). Every load runs it, so a caller only needs it after changing
-        // Data().ShaderName in memory (the Material Editor's shader picker, Apply and Discard) — without it
-        // GetShaderName would keep answering the shader the data no longer names.
+        // Resolves Data().Shader's GUID to the ShaderAsset registered under HandleForGuid of it. The loads
+        // run through the manager call it; so must a caller that changes Data().Shader in memory (the
+        // Material Editor's shader picker, Apply and Discard) — without it GetShaderName would keep
+        // answering the shader the data no longer names.
         void ResolveDependencies( AssetManager& manager ) override;
 
-        // What an absent or empty ShaderName resolves to, for a caller comparing two MaterialData values
-        // that belong to no asset (the editor's on-disk snapshot). The asset itself answers GetShaderName.
+        // What an absent Shader resolves to.
         static constexpr std::string_view kDefaultShaderName = "StaticMeshPBR";
 
-        [[nodiscard]] static std::string ShaderNameOf( const MaterialData& data )
-        {
-            return ( data.ShaderName && !data.ShaderName->empty() ) ? *data.ShaderName
-                                                                    : std::string( kDefaultShaderName );
-        }
+        // States in @p data the shader an editor action names BY NAME (a picker row, a graph, a component's
+        // default): the loaded ShaderAsset whose file stem is @p name, by its header GUID and stable path.
+        // kDefaultShaderName states none (the standard surface is said by absence). A name no loaded shader
+        // has, or a shader file with no header GUID, is refused by name and @p data is left untouched.
+        static Common::BoolResultStr StateShaderByName( MaterialData& data, const AssetManager& manager,
+                                                        std::string_view name );
 
         virtual Common::UUID GetMaterialUUID() const override
         {
@@ -114,9 +119,9 @@ namespace Desert::Assets
         // one — asset-database identity that survives renames as well as restarts.
         void AdoptStableHandle();
 
-        // The by-name resolution both ResolveDependencies and every load branch run: a load must leave the
-        // name right on its own, because hot reload re-reads a material with Load() and no resolve pass.
-        void ResolveShader();
+        // Every load branch runs it with no manager (a stated shader stays unresolved until
+        // ResolveDependencies), ResolveDependencies with one.
+        void ResolveShader( const AssetManager* manager );
 
         bool         m_ReadyForUse  = false;
         Common::UUID m_MaterialUUID = Common::UUID::Null();

@@ -39,6 +39,7 @@
 #include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
@@ -807,7 +808,6 @@ namespace Desert::Editor
                 working->Data().Params.clear();
                 working->Data().Textures.clear();
                 working->Data().CloudAssets.clear();
-                working->Data().ShaderRefs.clear();
                 PublishToRuntime( *working, /*isInstance=*/true );
             }
             if ( ImGui::IsItemHovered() )
@@ -950,14 +950,22 @@ namespace Desert::Editor
                 {
                     // Params always belong to a shader's schema — a switch clears them; the
                     // schema editor reseeds defaults on the next draw.
-                    asset.Data().ShaderName = name;
-                    asset.Data().Params.clear();
-                    asset.Data().Textures.clear();
-                    asset.Data().CloudAssets.clear();
-                    asset.Data().ShaderRefs.clear();
-                    if ( m_AssetManager )
+                    // By GUID (MATL 4): the picked shader's header GUID and stable path, resolved back to the
+                    // name GetShaderName answers.
+                    if ( m_AssetManager == nullptr )
+                        LOG_ERROR( "[MaterialEditor] cannot state shader '{}': no asset manager", name );
+                    else if ( const auto stated =
+                                   Assets::SurfaceMaterialAsset::StateShaderByName( asset.Data(), *m_AssetManager, name );
+                              !stated )
+                        LOG_ERROR( "[MaterialEditor] cannot state shader: {}", stated.GetError() );
+                    else
+                    {
+                        asset.Data().Params.clear();
+                        asset.Data().Textures.clear();
+                        asset.Data().CloudAssets.clear();
                         asset.ResolveDependencies( *m_AssetManager );
-                    shaderChanged = true;
+                        shaderChanged = true;
+                    }
                 }
                 if ( selected )
                     ImGui::SetItemDefaultFocus();
@@ -1549,9 +1557,8 @@ namespace Desert::Editor
         bool       changed  = false;
         const bool isType   = p.AssetKind == "CloudTypeAsset";
         const bool isLayout = p.AssetKind == "CloudLayoutAsset";
-        // Each kind in its own list (MATL 3): cloud assets by GUID, shaders by path.
-        const uint64_t handle =
-             p.AssetKind == "ShaderAsset" ? data.GetShaderRef( p.Name ) : data.GetCloudAsset( p.Name );
+        // Every cloud slot, the Medium shader included (MATL 4), names its asset by header GUID.
+        const uint64_t handle = data.GetCloudAsset( p.Name );
 
         // ---- THE AUTHORED MEDIUM ---------------------------------------------------------------------
         //
@@ -1580,7 +1587,7 @@ namespace Desert::Editor
             {
                 if ( ImGui::Selectable( "Engine default", handle == 0 ) && handle != 0 )
                 {
-                    data.SetShaderRef( p.Name, {} );
+                    data.SetCloudAsset( p.Name, {}, {} );
                     changed = true;
                 }
                 if ( m_AssetManager )
@@ -1615,8 +1622,9 @@ namespace Desert::Editor
                         const auto label    = name;
                         if ( ImGui::Selectable( label.c_str(), selected ) )
                         {
-                            data.SetShaderRef(
-                                 p.Name, Common::AssetHandle::StableKeyForPath( shader->GetMetadata().Filepath ) );
+                            const auto& file = shader->GetMetadata().Filepath;
+                            data.SetCloudAsset( p.Name, Assets::ReadShaderHeaderGuid( file ),
+                                                Common::AssetHandle::StableKeyForPath( file ) );
                             changed = true;
                         }
                         if ( selected )
@@ -2195,7 +2203,7 @@ namespace Desert::Editor
         if ( !drawn || own.Domain != ::Desert::Core::Formats::ShaderDomain::Volume )
             return &own;
 
-        const uint64_t mediumHandle = drawn->Data().GetShaderRef( Graphic::kCloudMediumSlotName );
+        const uint64_t mediumHandle = drawn->Data().GetCloudAsset( Graphic::kCloudMediumSlotName );
         const auto*    mediumSchema = mediumHandle != 0 && shaderService
                                            ? shaderService->MediumSchemaOf( Assets::AssetHandle( mediumHandle ) )
                                            : nullptr;

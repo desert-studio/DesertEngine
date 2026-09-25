@@ -99,9 +99,10 @@ namespace Desert::Assets
     } // namespace Detail
 
     // `json` as a material, or a refusal naming `source`: no header (a file from before the header), a schema
-    // generation other than this build's (v1: a MaterialId beside the GUID; v2: slots by path-derived number -
-    // Tools/SceneMigrator raises both), unreadable, a malformed header or one naming another kind, a Parent or
-    // a slot GUID that is malformed or not among the header's Dependencies, or a slot with a path and no GUID.
+    // generation other than this build's (v1: a MaterialId beside the GUID; v2: slots by path-derived number;
+    // v3: the shader by name - Tools/SceneMigrator raises all three), unreadable, a malformed header or one
+    // naming another kind, a Parent, Shader or slot GUID that is malformed or not among the header's
+    // Dependencies, a Shader stated with no GUID, or a slot with a path and no GUID.
     [[nodiscard]] inline Common::ResultStr<MaterialData> ParseMaterialJson( std::string_view   source,
                                                                             const std::string& json )
     {
@@ -115,7 +116,7 @@ namespace Desert::Assets
                  "[Material] '" + std::string( source ) + "' states material schema v" + std::to_string( stated ) +
                  " and this engine reads v" + std::to_string( kMaterialSchemaVersion ) +
                  " only (v0 = no header, v1 = a MaterialId beside the GUID, v2 = texture and cloud slots by "
-                 "path-derived number: run Tools/SceneMigrator over it once)" );
+                 "path-derived number, v3 = the shader by name: run Tools/SceneMigrator over it once)" );
         };
         // No header at all is schema v0: refused here, by name, before anything reads the header.
         if ( !probe.value().Header.has_value() )
@@ -155,6 +156,17 @@ namespace Desert::Assets
             if ( std::find( deps.begin(), deps.end(), parent.GetValue() ) == deps.end() )
                 return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) + "': Parent '" +
                                                         parentText + "' is not among the header's Dependencies" );
+        }
+        // A stated Shader is never an empty slot: the default surface is said by stating none.
+        if ( material.Shader.has_value() )
+        {
+            if ( material.Shader->Guid.empty() )
+                return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
+                                                        "': Shader states no GUID (path '" + material.Shader->Path +
+                                                        "'); leave Shader out for the standard surface" );
+            const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path };
+            if ( const auto ok = Detail::CheckStatedRef( source, "shader", shaderRef, deps ); !ok )
+                return Common::MakeError<MaterialData>( ok.GetError() );
         }
         for ( const auto& ref : material.Textures )
             if ( const auto ok = Detail::CheckStatedRef( source, "texture", ref, deps ); !ok )

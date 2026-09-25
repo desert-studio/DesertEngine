@@ -504,9 +504,15 @@ namespace Desert::Editor
             return Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         }
 
-        // ShaderName is the ONLY thing that makes this material the graph's; a material left over from an
-        // earlier compile keeps whatever shader it had, so set it every time.
-        asset->Data().ShaderName = m_Doc.Name;
+        // Shader is the ONLY thing that makes this material the graph's; a material left over from an
+        // earlier compile keeps whatever shader it had, so state it every time (by GUID, MATL 4).
+        if ( const auto stated =
+                  Assets::SurfaceMaterialAsset::StateShaderByName( asset->Data(), *m_AssetManager, m_Doc.Name );
+             !stated )
+        {
+            LOG_ERROR( "[NodeGraph] preview material '{}': {}", path.string(), stated.GetError() );
+            return Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        }
         asset->ResolveDependencies( *m_AssetManager );
         // Stamped in memory, so the GUID a first write mints is the one every later write states.
         asset->Data() = Assets::StampMaterialHeader( std::move( asset->Data() ) );

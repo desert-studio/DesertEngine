@@ -42,16 +42,16 @@ namespace Desert::Editor::MaterialEdit
     // same values authored in a different order are the same material, and comparing the vectors
     // positionally would report a document as permanently unapplied after a Discard.
     //
-    // The shader is compared through SurfaceMaterialAsset::ShaderNameOf() rather than the optional, so an absent
-    // name and an explicit "StaticMeshPBR" compare EQUAL. They are the same shader; a material that was saved
-    // before the field existed must not read as differing from the one the editor just wrote.
+    // The shader is compared by its GUID, so a stale path locator beside the same GUID is not an authored
+    // difference. The standard surface is only ever stated by absence (StateShaderByName), so an absent
+    // shader and a stated one are different materials.
     [[nodiscard]] inline bool AuthoredValuesEqual( const Assets::MaterialData& a, const Assets::MaterialData& b )
     {
-        if ( Assets::SurfaceMaterialAsset::ShaderNameOf( a ) != Assets::SurfaceMaterialAsset::ShaderNameOf( b ) )
+        if ( a.ShaderGuid() != b.ShaderGuid() )
             return false;
 
         if ( a.Params.size() != b.Params.size() || a.Textures.size() != b.Textures.size() ||
-             a.CloudAssets.size() != b.CloudAssets.size() || a.ShaderRefs.size() != b.ShaderRefs.size() )
+             a.CloudAssets.size() != b.CloudAssets.size() )
             return false;
 
         // Sizes agree and MaterialData::SetParam/SetTexture never store a name twice, so "every entry of a
@@ -72,9 +72,6 @@ namespace Desert::Editor::MaterialEdit
         for ( const auto& cloud : a.CloudAssets )
             if ( b.GetCloudAsset( cloud.Name ) != a.GetCloudAsset( cloud.Name ) )
                 return false;
-        for ( const auto& shader : a.ShaderRefs )
-            if ( b.GetShaderRef( shader.Name ) != a.GetShaderRef( shader.Name ) )
-                return false;
 
         return true;
     }
@@ -84,11 +81,10 @@ namespace Desert::Editor::MaterialEdit
     // so the two directions cannot drift into carrying different fields.
     inline void CopyAuthoredValues( Assets::MaterialData& destination, const Assets::MaterialData& source )
     {
-        destination.ShaderName = source.ShaderName;
-        destination.Params     = source.Params;
+        destination.Shader      = source.Shader;
+        destination.Params      = source.Params;
         destination.Textures    = source.Textures;
         destination.CloudAssets = source.CloudAssets;
-        destination.ShaderRefs  = source.ShaderRefs;
     }
 
     // THE TWO "DIRTY"S, AND THEY ARE NOT ONE FLAG.

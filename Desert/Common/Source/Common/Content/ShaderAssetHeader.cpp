@@ -80,6 +80,38 @@ namespace Common::Content
         return ParseTextHeaderObject( object.GetValue() );
     }
 
+    ResultStr<std::string> ReadShaderDeclaredName( std::string_view source )
+    {
+        constexpr std::string_view keyword = "Shader";
+        std::size_t                begin   = 0;
+        while ( begin < source.size() )
+        {
+            const std::size_t end  = std::min( source.find( '\n', begin ), source.size() );
+            std::string_view  line = source.substr( begin, end - begin );
+            begin                  = end + 1;
+            const std::size_t first = line.find_first_not_of( " \t\r" );
+            if ( first == std::string_view::npos )
+                continue;
+            line = line.substr( first );
+            if ( line.starts_with( "//" ) )
+                continue;
+            const auto refuse = [&line]()
+            {
+                return MakeError<std::string>( "the first DSL line is '" + std::string( line ) +
+                                               "', not 'Shader \"<name>\"'" );
+            };
+            if ( !line.starts_with( keyword ) )
+                return refuse();
+            const std::size_t open  = line.find_first_not_of( " \t", keyword.size() );
+            const std::size_t close = open == std::string_view::npos ? open : line.find( '"', open + 1 );
+            if ( open == keyword.size() || open == std::string_view::npos || line[open] != '"' ||
+                 close == std::string_view::npos || close == open + 1 )
+                return refuse();
+            return MakeSuccess( std::string( line.substr( open + 1, close - open - 1 ) ) );
+        }
+        return MakeError<std::string>( "no 'Shader \"<name>\"' line: the source holds only comments" );
+    }
+
     const IAssetHeaderFormat& ShaderCommentHeaderFormat()
     {
         static const ShaderCommentHeaderFormatImpl format;

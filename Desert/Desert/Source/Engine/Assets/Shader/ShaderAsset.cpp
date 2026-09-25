@@ -48,6 +48,17 @@ namespace Desert::Assets
              !checked )
             return Common::MakeError( std::format( "shader '{}': {}", path, checked.GetError() ) );
 
+        // The runtime names this shader by its file stem, and a material's shader GUID resolves to that stem
+        // (SurfaceMaterialAsset::ResolveDependencies). A DSL name that differs would make the file say one
+        // name and the engine bind another, so it is refused here rather than resolved either way.
+        const auto declared = Common::Content::ReadShaderDeclaredName( m_ShaderContent );
+        if ( !declared )
+            return Common::MakeError( std::format( "shader '{}': {}", path, declared.GetError() ) );
+        if ( const std::string stem = m_Metadata.Filepath.stem().string(); declared.GetValue() != stem )
+            return Common::MakeError( std::format( "shader '{}' declares Shader \"{}\" but its file is named '{}': "
+                                                   "rename one so they agree",
+                                                   path, declared.GetValue(), stem ) );
+
         m_ReadyForUse = true;
         return BOOLSUCCESS;
     }
