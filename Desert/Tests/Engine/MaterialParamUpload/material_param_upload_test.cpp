@@ -22,7 +22,6 @@
 #include <Engine/Graphic/Materials/MaterialBackend.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
-#include <Engine/ShaderResources/BufferCopyLayout.hpp>
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 #include <gtest/gtest.h>
@@ -30,7 +29,6 @@
 #include <cstring>
 #include <memory>
 #include <optional>
-#include <set>
 #include <vector>
 
 using namespace Desert;
@@ -360,30 +358,6 @@ TEST_F( MaterialParamUpload, DestroyingTheBufferTakesItsCopiesBackFromEveryView 
     }
     EXPECT_EQ( a.CopyCount(), 0u );
     EXPECT_EQ( b.CopyCount(), 0u );
-}
-
-// The storage-buffer layout (still per renderer slot until RT2d), asserted rather than trusted.
-TEST( BufferCopyLayout, DistinctPairsNeverShareACopy )
-{
-    std::set<uint32_t> seen;
-    for ( uint32_t f = 0; f < kFramesInFlight; ++f )
-    {
-        for ( uint32_t s = 0; s < kSlots; ++s )
-        {
-            const uint32_t idx = BufferCopyIndex( f, s, kSlots );
-            EXPECT_LT( idx, BufferCopyCount( kFramesInFlight, kSlots ) );
-            EXPECT_TRUE( seen.insert( idx ).second ) << "frame " << f << " slot " << s << " collides";
-        }
-    }
-    EXPECT_EQ( seen.size(), BufferCopyCount( kFramesInFlight, kSlots ) );
-}
-
-TEST( BufferCopyLayout, OutOfRangeSlotFoldsOntoZeroAndInRangeDoesNot )
-{
-    EXPECT_EQ( BufferCopyIndex( 2, kSlots, kSlots ), BufferCopyIndex( 2, 0, kSlots ) );
-    EXPECT_EQ( BufferCopyIndex( 2, kSlots + 7, kSlots ), BufferCopyIndex( 2, 0, kSlots ) );
-    for ( uint32_t s = 1; s < kSlots; ++s )
-        EXPECT_NE( BufferCopyIndex( 2, s, kSlots ), BufferCopyIndex( 2, 0, kSlots ) );
 }
 
 int main( int argc, char** argv )

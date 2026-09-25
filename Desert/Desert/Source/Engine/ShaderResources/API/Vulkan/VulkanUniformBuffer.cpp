@@ -1,54 +1,9 @@
 #include "VulkanUniformBuffer.hpp"
 
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
-
 #include <Engine/Core/EngineContext.hpp>
 
 namespace Desert::ShaderResources::API::Vulkan
 {
-    namespace
-    {
-        Desert::Graphic::API::Vulkan::VulkanAllocator* Allocator()
-        {
-            return SP_CAST( Desert::Graphic::API::Vulkan::VulkanContext,
-                            EngineContext::GetInstance().GetRendererContext() )
-                 ->GetVulkanAllocator()
-                 .get();
-        }
-
-        // One view's copy for one frame in flight. Owns its buffer from the moment it is allocated, so a
-        // copy that fails to map is released by the same destructor as one a view drops.
-        class UniformCopy final : public IBlockCopy
-        {
-        public:
-            UniformCopy( VkBuffer buffer, VmaAllocation allocation, VkDeviceSize size )
-                 : Buffer( buffer ), Allocation( allocation ), Size( size )
-            {
-            }
-
-            ~UniformCopy() override
-            {
-                // Unmap BEFORE the buffer is queued for destruction; RT_DestroyBuffer defers the release,
-                // which is what makes dropping a copy legal at any point of a frame.
-                Mapping.Unmap();
-                Allocator()->RT_DestroyBuffer( Buffer, Allocation );
-            }
-
-            UniformCopy( const UniformCopy& )            = delete;
-            UniformCopy& operator=( const UniformCopy& ) = delete;
-
-            Common::BoolResultStr Write( const void* data, uint32_t size, uint32_t offset ) override
-            {
-                return Mapping.Write( data, size, offset );
-            }
-
-            VkBuffer                      Buffer;
-            VmaAllocation                 Allocation;
-            VkDeviceSize                  Size;
-            Desert::Graphic::MappedMemory Mapping; // persistent for the copy's life; CPU_TO_GPU stays mappable
-        };
-    } // namespace
-
     VulkanUniformBuffer::VulkanUniformBuffer( const ShaderLayout::UniformBuffer& uniform )
          : UniformBuffer( uniform ), m_Block( uniform.Size )
     {
@@ -76,37 +31,13 @@ namespace Desert::ShaderResources::API::Vulkan
     Common::BoolResultStr VulkanUniformBuffer::MakeCopy( std::string_view viewName, uint32_t frameIndex,
                                                          std::unique_ptr<IBlockCopy>& out ) const
     {
-        VkBufferCreateInfo bufferInfo = {};
-        bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.usage              = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-        bufferInfo.size               = m_UniformModel.Size;
-
-        auto*    allocator = Allocator();
-        VkBuffer buffer    = VK_NULL_HANDLE;
-
-        const auto allocatedBuffer = allocator->RT_AllocateBuffer(
-             std::format( "{}-UniformBuffer-{}-Frame{}", m_UniformModel.Name, viewName, frameIndex ), bufferInfo,
-             VMA_MEMORY_USAGE_CPU_TO_GPU, buffer );
-
-        // REFUSED, NOT SKIPPED. The eager loop this replaced once answered a failed allocation with a
-        // bare `continue`, leaving a VK_NULL_HANDLE copy and a zeroed VkDescriptorBufferInfo that was
-        // then written into a set — undefined behaviour in the driver, visible only as one frame in
-        // flight rendering wrong. A copy that did not allocate never reaches a view now.
-        if ( !allocatedBuffer.IsSuccess() )
+        std::unique_ptr<MappedBufferCopy> copy;
+        const auto                        made = MakeMappedBufferCopy(
+             std::format( "{}-UniformBuffer-{}-Frame{}", m_UniformModel.Name, viewName, frameIndex ),
+             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_UniformModel.Size, copy );
+        if ( !made.IsSuccess() )
             return Common::MakeFormattedError<bool>( "uniform buffer '{}' copy for view '{}', frame {}: {}",
-                                                     m_UniformModel.Name, viewName, frameIndex,
-                                                     allocatedBuffer.GetError() );
-
-        auto copy     = std::make_unique<UniformCopy>( buffer, allocatedBuffer.GetValue(), m_UniformModel.Size );
-        copy->Mapping = allocator->MapMemory( copy->Allocation );
-
-        // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE: every write to it
-        // would refuse for its whole life. Refused here, and the copy's destructor gives the buffer back.
-        if ( !copy->Mapping.IsMapped() )
-            return Common::MakeFormattedError<bool>( "uniform buffer '{}' copy for view '{}', frame {}: {}",
-                                                     m_UniformModel.Name, viewName, frameIndex,
-                                                     copy->Mapping.GetRefusal() );
-
+                                                     m_UniformModel.Name, viewName, frameIndex, made.GetError() );
         out = std::move( copy );
         return BOOLSUCCESS;
     }
@@ -162,12 +93,8 @@ namespace Desert::ShaderResources::API::Vulkan
         if ( !resolved.IsSuccess() )
             return resolved;
 
-        // Only MakeCopy creates copies under this block's key, and it only creates UniformCopy.
-        const auto* uniform = static_cast<const UniformCopy*>( copy );
-        out.Info.buffer     = uniform->Buffer;
-        out.Info.offset     = 0;
-        out.Info.range      = uniform->Size;
-        out.CopyId          = uniform->GetId();
+        // Only MakeCopy creates copies under this block's key, and it only creates MappedBufferCopy.
+        out = static_cast<const MappedBufferCopy*>( copy )->Binding();
         return BOOLSUCCESS;
     }
 } // namespace Desert::ShaderResources::API::Vulkan

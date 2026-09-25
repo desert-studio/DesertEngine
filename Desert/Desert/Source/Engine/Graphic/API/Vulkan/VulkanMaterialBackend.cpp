@@ -279,7 +279,7 @@ namespace Desert::Graphic::API::Vulkan
             return;
 
         const uint32_t                                                     binding = vulkanBuffer->GetBinding();
-        ShaderResources::API::Vulkan::VulkanUniformBuffer::ViewCopyBinding copy;
+        ShaderResources::API::Vulkan::ViewCopyBinding                      copy;
         const auto resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )
         {
@@ -318,39 +318,56 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanMaterialBackend::ApplyStorageBuffer( MaterialProperty* prop )
     {
+        // Called on EVERY Apply, dirty or not, for the reason ApplyUniformBuffer gives: a per-frame storage
+        // buffer's copies are per view and made lazily, so a clean property can still own a set pointing at
+        // a copy that was dropped (its view closed, or the buffer grew).
         auto storageProp = static_cast<StorageBufferProperty*>( prop );
-        if ( !storageProp || !storageProp->IsDirty() )
+        if ( !storageProp )
             return;
 
-        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        const uint32_t frameIndex    = EngineContext::GetInstance().GetCurrentFrameIndex();
         const uint64_t absoluteFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-        const uint32_t setIndex = 0; // Simplified
+        const uint32_t slot          = EngineContext::GetInstance().GetActiveRendererSlot();
+        const uint32_t setIndex      = 0; // Simplified
 
-        if ( auto bufferInfo = storageProp->GetStorageBuffer() )
+        auto vulkanBuffer =
+             sp_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer>( storageProp->GetStorageBuffer() );
+        if ( !vulkanBuffer || frameIndex >= m_BoundCopies.size() || slot >= m_BoundCopies[frameIndex].size() )
+            return;
+
+        const uint32_t                                binding = vulkanBuffer->GetBinding();
+        ShaderResources::API::Vulkan::ViewCopyBinding copy;
+        const auto                                    resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
+        if ( !resolved.IsSuccess() )
         {
-            if ( auto vulkanBuffer = sp_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer>( bufferInfo ) )
-            {
-                auto& descriptorBufferInfo = vulkanBuffer->GetDescriptorBufferInfo( frameIndex );
-                const uint64_t handle               = reinterpret_cast<uint64_t>( descriptorBufferInfo.buffer );
-
-                // See ApplyUniformBuffer. This is the exact path that swallowed the particle system:
-                // one shared billboard material, N emitters, and every SetBuffer after the first draw
-                // of the frame landed here and vanished.
-                if ( m_DescriptorSetsUpdateFrame[frameIndex][EngineContext::GetInstance().GetActiveRendererSlot()]
-                                                [setIndex] == absoluteFrame )
-                {
-                    ReportSwallowedRebind( frameIndex, vulkanBuffer->GetBinding(), handle, "storage buffer" );
-                    return;
-                }
-
-                auto wds = DescriptorSetBuilder::GetStorageWDS( this, frameIndex, 0, vulkanBuffer->GetBinding(),
-                                                                1U, &descriptorBufferInfo );
-
-                UpdateDescriptorSets( { wds } );
-                NoteDescriptorWrite( frameIndex, vulkanBuffer->GetBinding(), handle );
-                storageProp->MarkClean();
-            }
+            if ( m_BindRefusalReported.insert( binding ).second )
+                LOG_ERROR( "[MaterialBackend] '{}' binding {}: no storage-buffer copy to bind -- {}",
+                           m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<no shader>" ), binding,
+                           resolved.GetError() );
+            return;
         }
+
+        auto& record = m_BoundCopies[frameIndex][slot];
+        if ( !record.NeedsWrite( binding, copy.CopyId, storageProp->IsDirty() ) )
+            return;
+
+        const uint64_t handle = reinterpret_cast<uint64_t>( copy.Info.buffer );
+
+        // See ApplyUniformBuffer. This is the exact path that swallowed the particle system: one shared
+        // billboard material, N emitters, and every SetBuffer after the first draw of the frame landed here
+        // and vanished. The record is NOT updated, so the next frame rewrites it.
+        if ( m_DescriptorSetsUpdateFrame[frameIndex][slot][setIndex] == absoluteFrame )
+        {
+            ReportSwallowedRebind( frameIndex, binding, handle, "storage buffer" );
+            return;
+        }
+
+        auto wds = DescriptorSetBuilder::GetStorageWDS( this, frameIndex, 0, binding, 1U, &copy.Info );
+
+        UpdateDescriptorSets( { wds } );
+        NoteDescriptorWrite( frameIndex, binding, handle );
+        record.NoteWritten( binding, copy.CopyId );
+        storageProp->MarkClean();
     }
 
     void VulkanMaterialBackend::ApplyTexture2D( MaterialProperty* prop )

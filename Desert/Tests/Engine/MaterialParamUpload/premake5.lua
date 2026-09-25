@@ -4,7 +4,7 @@
 -- Same recipe as Tests/Engine/DescriptorFallbacks and Tests/Engine/GpuTimestampLayout: the units under
 -- test hold no VkDevice, so they need no GPU. UniformBufferProperty and FieldProperty are header-only,
 -- ShaderResources::UniformBuffer is abstract (the test derives a recording buffer from it, on the
--- production ViewCopiedBlock), and BufferCopyLayout.hpp is pure integer arithmetic. FrameManager and EngineContext are plain counter
+-- production ViewCopiedBlock). FrameManager and EngineContext are plain counter
 -- singletons the test drives by hand to simulate the (frame x slot) matrix.
 --
 -- Only ViewResources.cpp is compiled in; every other unit is a header. Writing the descriptors themselves does need a device

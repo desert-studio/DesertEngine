@@ -17,7 +17,7 @@ namespace Desert::ShaderResources
 {
     /**
      * @brief One view's copy of a CPU-written block for one frame in flight — a mapped VkBuffer in
-     * VulkanUniformBuffer, plain bytes in Tests/Engine/MaterialParamUpload.
+     * VulkanUniformBuffer and VulkanStorageBuffer, plain bytes in Tests/Engine/MaterialParamUpload.
      *
      * THE ID IS WHAT A DESCRIPTOR SET REMEMBERS, NOT THE VkBuffer. A set written for a copy that was later
      * dropped (its view closed) must be rewritten before the next bind, and the only way to know is to
@@ -98,6 +98,23 @@ namespace Desert::ShaderResources
         {
             Graphic::ViewResourceRegistry::Forget( m_Key );
             m_Contents.assign( size, 0 );
+        }
+
+        // Grows the block to `newSize` bytes (a storage buffer a write outgrew). Every copy is dropped —
+        // each view re-makes its own at the new size on its next write or bind — but the CPU image KEEPS
+        // its contents, so a view whose new copy is made later still starts from what was written before
+        // the growth rather than from zeroes. A block never shrinks here: shrinking is Reset.
+        void Grow( const uint32_t newSize )
+        {
+            Graphic::ViewResourceRegistry::Forget( m_Key );
+            if ( newSize > m_Contents.size() )
+                m_Contents.resize( newSize, 0 );
+        }
+
+        // The CPU image new copies are seeded from: the bytes of every write so far, whichever view made it.
+        [[nodiscard]] const uint8_t* GetContents() const noexcept
+        {
+            return m_Contents.data();
         }
 
         // The active view's copy for `frameIndex`, created and seeded on first use.

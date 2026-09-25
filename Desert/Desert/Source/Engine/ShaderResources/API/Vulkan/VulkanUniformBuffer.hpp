@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/ShaderResources/UniformBuffer.hpp>
-#include <Engine/ShaderResources/ViewCopiedBlock.hpp>
+#include <Engine/ShaderResources/API/Vulkan/VulkanMappedBufferCopy.hpp>
 #include <Common/Core/Memory/Buffer.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -19,15 +19,9 @@ namespace Desert::ShaderResources::API::Vulkan
 
         NO_DISCARD virtual Common::BoolResultStr EnsureMapped() override;
 
-        // What a descriptor write for (@p frameIndex x ACTIVE VIEW) needs: the buffer, and the id of the
-        // copy it belongs to, which the material backend compares with what the set was last written with
-        // (ViewCopiedBlock.hpp, DescriptorCopyRecord). The view is resolved here rather than passed in for
-        // the reason the slot used to be: every caller wants the copy of the view that is recording.
-        struct ViewCopyBinding
-        {
-            VkDescriptorBufferInfo Info{};
-            uint64_t               CopyId = 0;
-        };
+        // The descriptor for (@p frameIndex x ACTIVE VIEW): the buffer, and the id of the copy it belongs to
+        // (ViewCopyBinding). The view is resolved here rather than passed in: every caller wants the copy
+        // of the view that is recording.
         NO_DISCARD Common::BoolResultStr BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out );
 
         virtual const void* GetData() const override
