@@ -510,6 +510,11 @@ namespace Desert::Graphic::System
         // a transmittance field written for a sky that has since been switched off.
         bool m_SkyOcclusionValid = false;
 
+        // Whether a frame has reached the sky-occlusion decision with a complete field since this renderer
+        // was created. Until it has, m_SkyOcclusionValid means "not yet", not "no", and the environment
+        // bake is told to wait rather than bake a panorama the next frame would render stale.
+        bool m_SkyOcclusionDecided = false;
+
         // BORROWED, not owned: Runtime::CloudNoiseService owns every noise volume and shares one upload
         // across all views. A raw pointer says that plainly, where a shared_ptr here would suggest this
         // renderer has a say in the image's lifetime and would keep an unloaded volume alive on the device.

@@ -995,7 +995,14 @@ namespace Desert::Graphic::System
             return bake;
 
         if ( !BuildFieldPayload( bake.Params ) )
+        {
+            // WAITING IS NOT FAILING. A read still on a worker or the first modelling bake still running
+            // will complete; a refused resource will not, and that layer bakes as sky alone.
+            bake.InputsPending = m_NoiseWaiting || m_LayoutWaiting || m_ModellingBake.valid();
             return bake;
+        }
+
+        bake.InputsPending = m_Data.SkyOcclusionVolume && !m_SkyOcclusionDecided;
 
         // Slot A, on the same terms the two in-frame passes build it on. A hero cloud is part of the
         // field, so it lights the world through the environment for the same reason it shades the ground.
@@ -1777,6 +1784,9 @@ namespace Desert::Graphic::System
         CloudGpuPayload payload{};
         if ( !BuildFieldPayload( payload ) )
             return;
+
+        // From here on this frame decides the sky-occlusion volume, whichever way it goes.
+        m_SkyOcclusionDecided = true;
 
         const auto traceParams = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
 

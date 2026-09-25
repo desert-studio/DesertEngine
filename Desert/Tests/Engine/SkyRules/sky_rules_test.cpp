@@ -50,6 +50,7 @@ using Desert::Graphic::PlanetRadiusToWorldUnits;
 using Desert::Graphic::ResolveSkyMode;
 using Desert::Graphic::SelectPrimarySky;
 using Desert::Graphic::ShouldRebakeSkyEnvironment;
+using Desert::Graphic::SkyEnvironmentBakeWaitsForClouds;
 using Desert::Graphic::SkyEnvironmentBakeCost;
 using Desert::Graphic::SkyEnvironmentRebakeMayRun;
 using Desert::Graphic::SkyGpuPayload;
@@ -905,4 +906,52 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ONE BAKE WHEN THE INPUTS ARE READY. Startup used to bake the sky alone, then with clouds, then with the
+// sky-occlusion volume: three bakes where the last had every answer. The rule waits while the layer's
+// inputs are pending and never while they are complete or absent.
+TEST( SkyEnvironmentBakeWaitsForClouds, WaitsOnlyWhileTheCloudInputsArePending )
+{
+    EXPECT_TRUE( SkyEnvironmentBakeWaitsForClouds( false, true ) );
+    EXPECT_FALSE( SkyEnvironmentBakeWaitsForClouds( false, false ) );
+}
+
+TEST( SkyEnvironmentBakeWaitsForClouds, TheBakeButtonNeverWaits )
+{
+    EXPECT_FALSE( SkyEnvironmentBakeWaitsForClouds( true, true ) );
+    EXPECT_FALSE( SkyEnvironmentBakeWaitsForClouds( true, false ) );
+}
+
+// THE STARTUP SEQUENCE, replayed through the rule and the rebake trigger together: pending frames bake
+// nothing, the first frame with every input bakes exactly once, and later identical frames bake nothing.
+TEST( SkyEnvironmentBakeWaitsForClouds, StartupBakesExactlyOnceWhenInputsLand )
+{
+    const glm::vec3 sun( 0.0f, 1.0f, 0.0f );
+    bool            hasEnvironment = false;
+    uint64_t        bakedCloud     = 0;
+    uint64_t        bakedSky       = 0;
+    int             bakes          = 0;
+
+    struct Frame
+    {
+        bool     Pending;
+        uint64_t Cloud;
+    };
+    // Noise on a worker, modelling bake in flight, sky occlusion undecided, then ready for good.
+    const Frame frames[] = { { true, 0 }, { true, 0 }, { true, 11 }, { false, 12 }, { false, 12 }, { false, 12 } };
+    for ( const Frame& f : frames )
+    {
+        if ( SkyEnvironmentBakeWaitsForClouds( false, f.Pending ) )
+            continue;
+        if ( !ShouldRebakeSkyEnvironment( sun, sun, 5.0f, true, hasEnvironment, false, bakedCloud, f.Cloud,
+                                          bakedSky, 7 ) )
+            continue;
+        ++bakes;
+        hasEnvironment = true;
+        bakedCloud     = f.Cloud;
+        bakedSky       = 7;
+    }
+    EXPECT_EQ( bakes, 1 );
+    EXPECT_EQ( bakedCloud, 12u );
 }
