@@ -238,7 +238,8 @@ namespace Desert::Editor
     // unknown handle is refused by number where the request is answered.
     static void OpenMaterialEditorFor( const ::Desert::Assets::AssetHandle& handle )
     {
-        ::Desert::Editor::Core::AssetFieldRequests::Request( handle, ::Desert::Editor::Core::AssetFieldAction::Open );
+        ::Desert::Editor::Core::AssetFieldRequests::Request( handle,
+                                                             ::Desert::Editor::Core::AssetFieldAction::Open );
     }
 
     // The landscape's MATERIAL row. What it is NOT, because it replaced exactly that: a shader combo and a

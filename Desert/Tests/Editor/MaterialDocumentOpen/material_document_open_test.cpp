@@ -28,19 +28,20 @@ namespace
                                   Assets::AssetTypeID::CloudModellingVolume, Assets::AssetTypeID::CloudLayout } )
         {
             editors.Register( AssetSubjectType( static_cast<uint32_t>( type ) ),
-                              SubjectEditorRegistry::Registration{
-                                   "T", "", []( const SubjectId& ) { return std::unique_ptr<ISubjectDocument>(); },
-                                   []( const SubjectId& ) { return true; } } );
+                              SubjectEditorRegistry::Registration{ "T", "", []( const SubjectId& )
+                                                                   { return std::unique_ptr<ISubjectDocument>(); },
+                                                                   []( const SubjectId& ) { return true; } } );
         }
         return editors;
     }
 
     // What EditorLayer::ServiceSubjectOpenRequests does with a field's request — the drain, on the pure route.
-    std::vector<SubjectId> DrainFieldRequests( const Assets::AssetManager& manager,
+    std::vector<SubjectId> DrainFieldRequests( const Assets::AssetManager&  manager,
                                                const SubjectEditorRegistry& editors )
     {
         for ( const auto& request : Editor::Core::AssetFieldRequests::Drain() )
-            (void)Editor::Core::RequestOpenAsset( manager.FindMetadataByHandle( request.Handle ), request.Handle, editors );
+            (void)Editor::Core::RequestOpenAsset( manager.FindMetadataByHandle( request.Handle ), request.Handle,
+                                                  editors );
         return Editor::Core::SubjectOpenRequests::Drain();
     }
 
@@ -80,12 +81,13 @@ TEST( MaterialDocumentOpen, AFieldAndABrowserDoubleClickReachTheSameSubject )
         ADD_FAILURE() << "the browser route made no record";
         return;
     }
-    Editor::Core::AssetFieldRequests::Request( record->GetMetadata().Handle, Editor::Core::AssetFieldAction::Open );
+    Editor::Core::AssetFieldRequests::Request( record->GetMetadata().Handle,
+                                               Editor::Core::AssetFieldAction::Open );
     const auto field = DrainFieldRequests( manager, editors );
     ASSERT_EQ( field.size(), 1U );
     EXPECT_EQ( field.front(), browser.front() );
-    EXPECT_EQ( field.front(),
-               AssetSubject( record->GetMetadata().Handle, static_cast<uint32_t>( Assets::AssetTypeID::Material ) ) );
+    EXPECT_EQ( field.front(), AssetSubject( record->GetMetadata().Handle,
+                                            static_cast<uint32_t>( Assets::AssetTypeID::Material ) ) );
 }
 
 TEST( MaterialDocumentOpen, EveryRegisteredTypeOpensFromAFieldAsItsOwnSubject )
@@ -120,7 +122,7 @@ TEST( MaterialDocumentOpen, ARecordIsLoadedByTheEditorsOwnPreparationNotByTheRou
 
     // A record only — what a scene's material slot names before anything has drawn it.
     auto record = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::Medium,
-                                                                    Common::Filepath( tmp.File ), false );
+                                                                     Common::Filepath( tmp.File ), false );
     if ( !record )
     {
         ADD_FAILURE() << "no record";

@@ -182,7 +182,8 @@ TEST( AssetOpenRegister, MatchesTheAssetEditorsEditorLayerRegisters )
     ASSERT_FALSE( layer.empty() ) << "Editor/Source/EditorLayer.cpp not found from the working directory";
 
     std::set<std::string> registered;
-    const std::regex      registration( R"(AssetSubjectType\(\s*static_cast<uint32_t>\(\s*Assets::AssetTypeID::(\w+)\s*\)\s*\))" );
+    const std::regex      registration(
+         R"(AssetSubjectType\(\s*static_cast<uint32_t>\(\s*Assets::AssetTypeID::(\w+)\s*\)\s*\))" );
     for ( auto it = std::sregex_iterator( layer.begin(), layer.end(), registration ); it != std::sregex_iterator();
           ++it )
         registered.insert( ( *it )[1].str() );

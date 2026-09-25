@@ -915,10 +915,11 @@ namespace Desert::Editor
                                // THE LOAD LIVES HERE, not in the routes that ask: a handle from a Details
                                // field may name a material that is only a record, and every route ends here.
                                const Assets::AssetHandle handle( subject.Owner );
-                               auto ready = m_AssetManager ? EnsureMaterialLoaded( *m_AssetManager, handle )
-                                                           : Common::MakeFormattedError<
-                                                                  Assets::Asset<Assets::SurfaceMaterialAsset>>(
-                                                                  "no asset manager" );
+                               auto                      ready =
+                                    m_AssetManager
+                                                              ? EnsureMaterialLoaded( *m_AssetManager, handle )
+                                                              : Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
+                                                "no asset manager" );
                                if ( !ready.IsSuccess() )
                                {
                                    LOG_ERROR( "[MaterialEditor] {} — no window opened.", ready.GetError() );
@@ -1136,20 +1137,21 @@ namespace Desert::Editor
         // AND WHICH EXTENSIONS EACH ONE ANSWERS FOR. Taken from the format's own constant, never spelled
         // again here: the palette ENUMERATES the project's openable files against this list, so a literal
         // that drifted from the resolver's would produce a list of entries the resolver then refuses.
-        m_SubjectEditors.RegisterPathOpener( { std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) },
-                                             [this]( const std::string& path )
-                                             {
-                                                 switch ( RequestMaterialDocument( m_AssetManager.get(), path, m_SubjectEditors ) )
-                                                 {
-                                                     case MaterialDocumentRequest::NotAMaterialPath:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
-                                                     case MaterialDocumentRequest::Failed:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
-                                                     case MaterialDocumentRequest::Requested:
-                                                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
-                                                 }
-                                                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
-                                             } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) },
+             [this]( const std::string& path )
+             {
+                 switch ( RequestMaterialDocument( m_AssetManager.get(), path, m_SubjectEditors ) )
+                 {
+                     case MaterialDocumentRequest::NotAMaterialPath:
+                         return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+                     case MaterialDocumentRequest::Failed:
+                         return SubjectEditorRegistry::PathOpenOutcome::Failed;
+                     case MaterialDocumentRequest::Requested:
+                         return SubjectEditorRegistry::PathOpenOutcome::Requested;
+                 }
+                 return SubjectEditorRegistry::PathOpenOutcome::NotMine;
+             } );
         m_SubjectEditors.RegisterPathOpener( { std::string( Assets::kCloudNoiseVolumeExtension ),
                                                std::string( Assets::kCloudTypeExtension ),
                                                std::string( Assets::kCloudModellingVolumeExtension ),
@@ -2155,8 +2157,8 @@ namespace Desert::Editor
         // The queue is a file-static inbox drained by ServiceSubjectOpenRequests, so "is anything queued"
         // is asked of the queue itself rather than of a copy this layer keeps — a copy would be a second
         // answer, and the two would disagree on exactly the frame an open was handled halfway.
-        quiescence.Set( Control::PendingWork::AssetOpens, Core::SubjectOpenRequests::HasPending() ||
-                                                           Core::AssetFieldRequests::HasPending() );
+        quiescence.Set( Control::PendingWork::AssetOpens,
+                        Core::SubjectOpenRequests::HasPending() || Core::AssetFieldRequests::HasPending() );
         quiescence.Set( Control::PendingWork::OpenRefusal, m_OpenRefusalPending );
         // Asked of the request itself, for SubjectOpenRequests' reason above. It stays pending for one
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
@@ -4300,20 +4302,21 @@ namespace Desert::Editor
             if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
             {
                 const Common::UUID owner = *primary;
-                commands.push_back( { "Entity", "Open the selected entity's material", [this, owner]
-                                      {
-                                          auto ref = m_MainScene ? m_MainScene->FindEntityByID( owner ) : std::nullopt;
-                                          if ( !ref )
-                                              return Common::MakeFormattedError<bool>( "the selection is gone" );
-                                          ECS::Entity entity = ref->get(); // HostOf takes a mutable entity; the handle copy is cheap
-                                          const auto  host = MaterialComponentWidget::HostOf( entity );
-                                          if ( host.Slots == nullptr || host.Slots->empty() )
-                                              return Common::MakeFormattedError<bool>(
-                                                   "the selected entity has no material slot" );
-                                          Core::AssetFieldRequests::Request( host.Slots->front(),
-                                                                             Core::AssetFieldAction::Open );
-                                          return PaletteCommandDone();
-                                      } } );
+                commands.push_back(
+                     { "Entity", "Open the selected entity's material", [this, owner]
+                       {
+                           auto ref = m_MainScene ? m_MainScene->FindEntityByID( owner ) : std::nullopt;
+                           if ( !ref )
+                               return Common::MakeFormattedError<bool>( "the selection is gone" );
+                           ECS::Entity entity =
+                                ref->get(); // HostOf takes a mutable entity; the handle copy is cheap
+                           const auto host = MaterialComponentWidget::HostOf( entity );
+                           if ( host.Slots == nullptr || host.Slots->empty() )
+                               return Common::MakeFormattedError<bool>(
+                                    "the selected entity has no material slot" );
+                           Core::AssetFieldRequests::Request( host.Slots->front(), Core::AssetFieldAction::Open );
+                           return PaletteCommandDone();
+                       } } );
             }
         }
         // SELECT EVERY PROP THAT MATCHES THIS ONE — UE's "Select > Matching", and the step without which

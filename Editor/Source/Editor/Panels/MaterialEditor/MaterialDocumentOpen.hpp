@@ -82,8 +82,9 @@ namespace Desert::Editor
 
         auto asset = assetManager->FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
-            asset = assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath,
-                                                                            /*loadAfterCreate=*/false );
+            asset =
+                 assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath,
+                                                                          /*loadAfterCreate=*/false );
         if ( !asset )
         {
             LOG_ERROR( "[Assets] '{}' could not be opened as a material — no Material Editor window was "
@@ -93,7 +94,8 @@ namespace Desert::Editor
         }
 
         const auto handle = asset->GetMetadata().Handle;
-        const auto opened = Core::RequestOpenAsset( assetManager->FindMetadataByHandle( handle ), handle, editors );
+        const auto opened =
+             Core::RequestOpenAsset( assetManager->FindMetadataByHandle( handle ), handle, editors );
         if ( !opened.IsSuccess() )
         {
             LOG_ERROR( "[Assets] '{}': {}", assetPath, opened.GetError() );

@@ -77,10 +77,9 @@ namespace Desert::Editor::Core
 
         const auto type = static_cast<uint32_t>( found->AssetType );
         if ( const char* refusal = AssetOpenRefusal( found->AssetType ); refusal != nullptr )
-            return Common::MakeFormattedError<SubjectId>( "asset {:016x} ('{}') is a {} (AssetTypeID {}): {}",
-                                                          static_cast<uint64_t>( requested ),
-                                                          found->Filepath.generic_string(),
-                                                          Assets::AssetTypeName( found->AssetType ), type, refusal );
+            return Common::MakeFormattedError<SubjectId>(
+                 "asset {:016x} ('{}') is a {} (AssetTypeID {}): {}", static_cast<uint64_t>( requested ),
+                 found->Filepath.generic_string(), Assets::AssetTypeName( found->AssetType ), type, refusal );
 
         // The register says it opens; an editor missing here is a wiring defect, not a property of the type.
         if ( !editors.HasEditorFor( AssetSubjectType( type ) ) )
@@ -109,8 +108,8 @@ namespace Desert::Editor::Core
     // THE FOLDER "SHOW IN BROWSER" NAVIGATES TO. The asset's own directory, as the metadata records it — the
     // same folder a `run Browse <folder>` names, so both arrive through the one navigation EditorLayer owns.
     // A record with no file behind it (an in-memory asset nobody saved) has no folder, and says so by number.
-    [[nodiscard]] inline Common::ResultStr<std::filesystem::path> AssetFolderFor( const Assets::AssetMetadata* found,
-                                                                                const Assets::AssetHandle& requested )
+    [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
+    AssetFolderFor( const Assets::AssetMetadata* found, const Assets::AssetHandle& requested )
     {
         if ( found == nullptr )
             return Common::MakeFormattedError<std::filesystem::path>(
