@@ -1091,7 +1091,8 @@ namespace
     void ExpectAllTrianglesOutward( const FDynamicMesh3& mesh )
     {
         for ( const int t : mesh.TriangleIndicesItr() )
-            EXPECT_GT( mesh.GetTriNormal( t ).Dot( Normalized( mesh.GetTriCentroid( t ) ) ), 0.0 ) << "triangle " << t;
+            EXPECT_GT( mesh.GetTriNormal( t ).Dot( Normalized( mesh.GetTriCentroid( t ) ) ), 0.0 )
+                 << "triangle " << t;
     }
 
     // Top face chamfered on its four edges by d: the cube cut by x+z, -x+z, y+z, -y+z <= 100 - d. Four prisms of
@@ -1186,9 +1187,10 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
                 mesh.SetTriangleGroup( t, 7 + ( c.X > 0.0 ? 1 : 0 ) + ( c.Y > 0.0 ? 2 : 0 ) );
         }
         const FGroupTopology topology( &mesh, true );
-        const TArray<int32>  groupEdges = { GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
-                                            GroupEdgeBetween( topology, 10, 9 ), GroupEdgeBetween( topology, 9, 7 ) };
-        FMeshBevelProbe      bevel;
+        const TArray<int32> groupEdges = { GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
+                                           GroupEdgeBetween( topology, 10, 9 ),
+                                           GroupEdgeBetween( topology, 9, 7 ) };
+        FMeshBevelProbe     bevel;
         bevel.InsetDistance   = 5.0;
         bevel.NumSubdivisions = N;
         ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) ) << bevel.FailureReason;
