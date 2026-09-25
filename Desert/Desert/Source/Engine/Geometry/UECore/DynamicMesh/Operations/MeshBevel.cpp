@@ -1081,15 +1081,10 @@ namespace Desert::Geometry
         // Each span is fully disconnected into edge pairs by now; join each pair with a quad.
         for ( int32 k = 0; k < NumEdges; ++k )
         {
+            // UE falls back to MeshEdgePairs here for a single-edge span; FixUpUnlinkedBevelEdges has already
+            // written those partners into NewMeshEdges (or refused), so the fallback is not ported.
             const int32 EdgeID0 = Edge.MeshEdges[k];
-            int32       EdgeID1 = Edge.NewMeshEdges[k];
-            // A single-edge span only gets its partner when the junction vertex is unlinked; .NewMeshEdges is not
-            // updated then, but MeshEdgePairs is.
-            if ( EdgeID0 == EdgeID1 )
-            {
-                if ( const int32* FoundEdgeID1 = MeshEdgePairs.Find( EdgeID0 ) )
-                    EdgeID1 = *FoundEdgeID1;
-            }
+            const int32 EdgeID1 = Edge.NewMeshEdges[k];
             FIndex2i QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
             if ( EdgeID0 == EdgeID1 || !Mesh.IsEdge( EdgeID1 ) )
             {
