@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -21,29 +22,42 @@ namespace Desert::Assets
     // d75c29df), so an identity adopted at load would be a second handle for one asset. One function for
     // every text kind, because each kind that grew its own copy of this read is one more place for the
     // VFS-first order to be forgotten.
-    [[nodiscard]] inline Common::Content::AssetGuid ReadTextHeaderGuid( const Common::Filepath& filepath )
+    [[nodiscard]] inline std::string ReadTextForIdentity( const Common::Filepath& filepath )
     {
-        std::string text;
         if ( const auto packed =
                   Common::Utils::VFS::Exists( filepath ) ? Common::Utils::VFS::ReadFile( filepath ) : std::nullopt;
              packed.has_value() )
-            text = packed.value();
-        else if ( const auto read = Common::Utils::FileSystem::ReadFileContentIfExists( filepath ); read )
-        {
+            return packed.value();
+        if ( const auto read = Common::Utils::FileSystem::ReadFileContentIfExists( filepath ); read )
             if ( const auto& content = read.GetValue(); content.has_value() )
-                text = content.value();
-        }
-        std::istringstream in( text );
-        const auto         object = Common::Content::ReadTextHeaderObject( in );
-        if ( !object )
-            return {};
-        const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+                return content.value();
+        return {};
+    }
+
+    [[nodiscard]] inline Common::Content::AssetGuid
+    GuidOfHeader( const Common::ResultStr<Common::Content::TextAssetHeaderSerialized>& header )
+    {
         if ( !header )
             return {};
         const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
         if ( !guid )
             return {};
         return guid.GetValue();
+    }
+
+    [[nodiscard]] inline Common::Content::AssetGuid ReadTextHeaderGuid( const Common::Filepath& filepath )
+    {
+        std::istringstream in( ReadTextForIdentity( filepath ) );
+        const auto         object = Common::Content::ReadTextHeaderObject( in );
+        if ( !object )
+            return {};
+        return GuidOfHeader( Common::Content::ParseTextHeaderObject( object.GetValue() ) );
+    }
+
+    // The same for a .shader, whose header is its first line's comment (ShaderAssetHeader.hpp).
+    [[nodiscard]] inline Common::Content::AssetGuid ReadShaderHeaderGuid( const Common::Filepath& filepath )
+    {
+        return GuidOfHeader( Common::Content::ReadShaderHeader( ReadTextForIdentity( filepath ) ) );
     }
 
     // THE HEADER A REWRITE OF `target` STATES: the GUID the file already there states, minted only for a new

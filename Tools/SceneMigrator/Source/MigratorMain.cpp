@@ -57,6 +57,7 @@
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
@@ -108,6 +109,7 @@ namespace
     // does. Its step is gated on its own number and is content-detected the same way: a file with no
     // version field is generation 0, never "already current".
     constexpr const char* kClipExtension = ".anim";
+    constexpr const char* kShaderExtension = ".shader";
 
     // THE OTHER TEXT ASSETS ARE COLLECTED FOR THEIR LAYOUT ONLY (AF6e). Their content has no step in this
     // tool - each is versioned by its own loader - but their text is written by the canonical writer, so a
@@ -160,7 +162,8 @@ namespace
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
-                  std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models )
+                  std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
+                  std::vector<std::filesystem::path>& shaders )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -189,6 +192,8 @@ namespace
                     noises.push_back( entry.path() );
                 else if ( IsCloudModellingVolume( entry.path() ) )
                     models.push_back( entry.path() );
+                else if ( entry.path().extension() == kShaderExtension )
+                    shaders.push_back( entry.path() );
             }
             return;
         }
@@ -211,6 +216,8 @@ namespace
             noises.push_back( root );
         else if ( IsCloudModellingVolume( root ) )
             models.push_back( root );
+        else if ( root.extension() == kShaderExtension )
+            shaders.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -1278,15 +1285,17 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> layouts;
         std::vector<std::filesystem::path> noises;
         std::vector<std::filesystem::path> models;
+        std::vector<std::filesystem::path> shaders;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() && models.empty() &&
+             shaders.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume or other text asset "
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, shader or other text asset "
                    "files found\n";
             return 2;
         }
@@ -1660,6 +1669,66 @@ namespace Desert::Migration
             if ( const auto written =
                       Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
                  !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
+        // THE SHADERS (SHDR 0 -> 1, T7j). Generation 0 stated nothing; the raised file opens with the comment
+        // header line (ShaderAssetHeader.hpp) and a GUID minted HERE, once, and every source byte after it is
+        // kept. The header is read back through the loader's own reader before a byte is written. A headed file
+        // is left byte for byte once its header is checked; one stating another SHDR is refused by name.
+        for ( const auto& path : shaders )
+        {
+            namespace CC             = Common::Content;
+            const std::string source = ReadAll( path );
+            if ( source.empty() )
+            {
+                err << "FAIL   " << path.string() << " — unreadable or empty\n";
+                ++failed;
+                continue;
+            }
+            if ( source.starts_with( CC::kShaderHeaderPrefix ) )
+            {
+                const auto header = CC::ReadShaderHeader( source );
+                const int  stated = header ? Desert::Assets::StatedVersion( header.GetValue(),
+                                                                            Desert::Assets::kShaderSchemaTag )
+                                           : -1;
+                if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
+                {
+                    err << "FAIL   " << path.string() << " — "
+                        << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool writes SHDR " +
+                                           std::to_string( Desert::Assets::kShaderSchemaVersion )
+                                    : header.GetError() )
+                        << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — already at shader v" << Desert::Assets::kShaderSchemaVersion
+                    << "\n";
+                continue;
+            }
+            const std::array<CC::SubsystemVersion, 1> versions = {
+                 CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+            const CC::AssetGuid guid = CC::AssetGuid::Generate();
+            const std::string   raised =
+                 CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) + source;
+            const auto reread = CC::ReadShaderHeader( raised );
+            if ( !reread || reread.GetValue().Guid != CC::AssetGuidToText( guid ) )
+            {
+                err << "FAIL   " << path.string() << " — the stamped header does not read back: "
+                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — shader v0 -> v"
+                << Desert::Assets::kShaderSchemaVersion << ", GUID " << CC::AssetGuidToText( guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised ); !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
                 ++failed;

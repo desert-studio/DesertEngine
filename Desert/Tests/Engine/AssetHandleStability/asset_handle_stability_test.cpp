@@ -1469,3 +1469,39 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
     ExpectHeaderGuidIdentity<Desert::Assets::RetargetAsset>( file, Common::Content::ContentKind::Retarget );
     std::filesystem::remove_all( file.parent_path() );
 }
+
+// T7j: a shader's handle is the GUID its first-line comment header states, and a headerless (SHDR 0) shader is
+// refused by name at load.
+#include <Common/Content/ShaderAssetHeader.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
+
+#include <fstream>
+
+TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderIsRefusedByName )
+{
+    namespace CC       = Common::Content;
+    const auto     dir = std::filesystem::temp_directory_path() / "DesertShaderIdentityTest";
+    std::filesystem::create_directories( dir );
+    const std::string body = "Shader \"Probe\"\n{\n}\n";
+
+    const CC::AssetGuid                        guid     = CC::AssetGuid::Generate();
+    const std::array<CC::SubsystemVersion, 1> versions = {
+         CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+    const auto headed = dir / "Headed.shader";
+    std::ofstream( headed, std::ios::binary )
+         << CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) << body;
+    Desert::Assets::ShaderAsset asset( Desert::Assets::AssetPriority::Medium, headed );
+    EXPECT_TRUE( asset.GetMetadata().Handle ==
+                 Common::UUID( static_cast<uint64_t>( CC::HandleForGuid( guid ) ) ) );
+    const auto loaded = asset.LoadFromFile();
+    ASSERT_FALSE( !loaded ) << loaded.GetError();
+
+    const auto bare = dir / "Bare.shader";
+    std::ofstream( bare, std::ios::binary ) << body;
+    Desert::Assets::ShaderAsset old( Desert::Assets::AssetPriority::Medium, bare );
+    const auto                  refused = old.LoadFromFile();
+    ASSERT_TRUE( !refused );
+    EXPECT_NE( refused.GetError().find( "Bare.shader" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SHDR 1" ), std::string::npos ) << refused.GetError();
+    EXPECT_FALSE( old.IsReadyForUse() );
+}

@@ -54,6 +54,10 @@ namespace Desert::Assets
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
     inline constexpr uint32_t kAnimationSchemaVersion = 4;
+    // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
+    // stated nothing - that generation is 0, and a file of it is refused by name.
+    inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );
+    inline constexpr uint32_t kShaderSchemaVersion = 1;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.
