@@ -57,7 +57,7 @@ namespace Desert::Graphic::API::Vulkan
         // SUBOPTIMAL IS AN IMAGE; ONLY OUT_OF_DATE IS A REBUILD (Engine/Graphic/SwapchainAcquire.hpp). The
         // rebuild keeps `currentIndex` current (FrameManager::AdoptSwapchainImageCount), so the fence reset
         // above, the semaphore acquired on here and the submit's wait all name the same frame slot.
-        const VkSemaphore presentComplete = m_FrameSemaphores[currentIndex].PresentComplete;
+        auto* const       presentComplete = m_FrameSemaphores[currentIndex].PresentComplete;
         const auto        acquired        = Graphic::AcquireForFrame(
              [&] { return m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex ); },
              [&] { return m_SwapChain->Rebuild( m_SwapChain->GetWidth(), m_SwapChain->GetHeight() ); } );

@@ -358,7 +358,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // Release waits for the device to go idle, so nothing still reads the images being destroyed.
         Release();
-        const auto recreated = CreateSwapChain( device, &width, &height );
+        auto recreated = CreateSwapChain( device, &width, &height );
         if ( !recreated.IsSuccess() )
             return recreated;
 
