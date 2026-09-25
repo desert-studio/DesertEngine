@@ -34,7 +34,7 @@ namespace
 {
     constexpr float  kCell  = 1000.0f;
     constexpr float  kRange = 1500.0f;
-    const glm::dvec2 kScreen{ 800.0, 600.0 };
+    const glm::dvec2 kScreenSize{ 800.0, 600.0 };
     constexpr double kEps = 1e-6;
 
     WorldPartitionSerialized Grid()
@@ -60,7 +60,8 @@ namespace
         for ( int column = 0; column < 12; ++column )
             for ( int row = 0; row < 3; ++row )
                 records.push_back( Record( 1000 + static_cast<std::uint64_t>( column * 10 + row ),
-                                           { ( column + 0.5f ) * kCell, 0.0f, ( row + 0.5f ) * kCell } ) );
+                                           { ( static_cast<float>( column ) + 0.5f ) * kCell, 0.0f,
+                                             ( static_cast<float>( row ) + 0.5f ) * kCell } ) );
         return records;
     }
 
@@ -98,29 +99,30 @@ namespace
 TEST( WorldPartitionMap, TheOriginIsTheCentreXIsRightZIsDown )
 {
     const Map::View view{ glm::dvec2( 0.0 ), 0.1 };
-    ExpectNear( Map::WorldToScreen( view, kScreen, { 0.0, 0.0 } ), { 400.0, 300.0 } );
-    ExpectNear( Map::WorldToScreen( view, kScreen, { 1000.0, 0.0 } ), { 500.0, 300.0 } );
-    ExpectNear( Map::WorldToScreen( view, kScreen, { 0.0, 1000.0 } ), { 400.0, 400.0 } );
+    ExpectNear( Map::WorldToScreen( view, kScreenSize, { 0.0, 0.0 } ), { 400.0, 300.0 } );
+    ExpectNear( Map::WorldToScreen( view, kScreenSize, { 1000.0, 0.0 } ), { 500.0, 300.0 } );
+    ExpectNear( Map::WorldToScreen( view, kScreenSize, { 0.0, 1000.0 } ), { 400.0, 400.0 } );
 
     const Map::View  moved{ glm::dvec2( -250.0, 730.0 ), 0.037 };
     const glm::dvec2 world{ 12345.0, -678.0 };
-    ExpectNear( Map::ScreenToWorld( moved, kScreen, Map::WorldToScreen( moved, kScreen, world ) ), world, 1e-6 );
+    ExpectNear( Map::ScreenToWorld( moved, kScreenSize, Map::WorldToScreen( moved, kScreenSize, world ) ), world,
+                1e-6 );
 }
 
 TEST( WorldPartitionMap, AWheelNotchKeepsTheWorldUnderTheCursor )
 {
     Map::View        view{ glm::dvec2( 300.0, -200.0 ), 0.05 };
     const glm::dvec2 mouse{ 610.0, 140.0 };
-    const glm::dvec2 before = Map::ScreenToWorld( view, kScreen, mouse );
-    Map::Zoom( view, kScreen, mouse, 1.0f );
+    const glm::dvec2 before = Map::ScreenToWorld( view, kScreenSize, mouse );
+    Map::Zoom( view, kScreenSize, mouse, 1.0f );
     EXPECT_GT( view.Scale, 0.05 );
-    ExpectNear( Map::ScreenToWorld( view, kScreen, mouse ), before, 1e-6 );
-    Map::Zoom( view, kScreen, mouse, -3.0f );
+    ExpectNear( Map::ScreenToWorld( view, kScreenSize, mouse ), before, 1e-6 );
+    Map::Zoom( view, kScreenSize, mouse, -3.0f );
     EXPECT_LT( view.Scale, 0.05 );
-    ExpectNear( Map::ScreenToWorld( view, kScreen, mouse ), before, 1e-6 );
+    ExpectNear( Map::ScreenToWorld( view, kScreenSize, mouse ), before, 1e-6 );
 
     for ( int notch = 0; notch < 400; ++notch )
-        Map::Zoom( view, kScreen, mouse, 8.0f );
+        Map::Zoom( view, kScreenSize, mouse, 8.0f );
     EXPECT_DOUBLE_EQ( view.Scale, Map::kMaxScale );
 }
 
@@ -128,22 +130,22 @@ TEST( WorldPartitionMap, ADragMovesTheWorldWithTheCursor )
 {
     Map::View        view{ glm::dvec2( 0.0 ), 0.2 };
     const glm::dvec2 grabbed{ 100.0, 100.0 };
-    const glm::dvec2 world = Map::ScreenToWorld( view, kScreen, grabbed );
+    const glm::dvec2 world = Map::ScreenToWorld( view, kScreenSize, grabbed );
     Map::Pan( view, { 35.0, -12.0 } );
-    ExpectNear( Map::WorldToScreen( view, kScreen, world ), grabbed + glm::dvec2( 35.0, -12.0 ) );
+    ExpectNear( Map::WorldToScreen( view, kScreenSize, world ), grabbed + glm::dvec2( 35.0, -12.0 ) );
 }
 
 TEST( WorldPartitionMap, FocusAndFollowCentreWhatTheyShow )
 {
     Map::View        view;
     const CellBounds box{ 1000.0f, -2000.0f, 5000.0f, 0.0f }; // 4000 x 2000 cm around (3000, -1000)
-    Map::Focus( view, kScreen, box );
-    ExpectNear( Map::WorldToScreen( view, kScreen, { 3000.0, -1000.0 } ), kScreen * 0.5 );
+    Map::Focus( view, kScreenSize, box );
+    ExpectNear( Map::WorldToScreen( view, kScreenSize, { 3000.0, -1000.0 } ), kScreenSize * 0.5 );
     // Width is the tighter side: 800 px over 4000 cm at 85 %.
     EXPECT_NEAR( view.Scale, 800.0 / 4000.0 * Map::kFocusFill, kEps );
 
-    const Map::View follow = Map::Follow( kScreen, { -4200.0, 900.0 } );
-    ExpectNear( Map::WorldToScreen( follow, kScreen, { -4200.0, 900.0 } ), kScreen * 0.5 );
+    const Map::View follow = Map::Follow( kScreenSize, { -4200.0, 900.0 } );
+    ExpectNear( Map::WorldToScreen( follow, kScreenSize, { -4200.0, 900.0 } ), kScreenSize * 0.5 );
     EXPECT_NEAR( follow.Scale, 300.0 / Map::kFollowExtentCm, kEps );
 }
 
@@ -153,18 +155,22 @@ TEST( WorldPartitionMap, OnlyCellsOnScreenArePaintedCoarseFirst )
     ASSERT_EQ( plan.Cells.size(), 36u );
 
     // 1 px per 10 cm around (1500, 1500): 8000 x 6000 cm, so columns 0..5 and all rows.
-    Map::View  view{ glm::dvec2( -1500.0, -1500.0 ), 0.1 };
-    const auto visible = Map::VisibleCells( plan, view, kScreen, -1 );
+    const Map::View view{ glm::dvec2( -1500.0, -1500.0 ), 0.1 };
+    const auto      visible = Map::VisibleCells( plan, view, kScreenSize, -1 );
     for ( const std::size_t cell : visible )
         EXPECT_LE( plan.Cells[cell].Cell.X, 5 ) << "an off-screen cell was kept";
     EXPECT_EQ( visible.size(), 6u * 3u );
 
     for ( std::size_t i = 1; i < visible.size(); ++i )
         EXPECT_GE( plan.Cells[visible[i - 1]].Level, plan.Cells[visible[i]].Level );
-    EXPECT_TRUE( Map::VisibleCells( plan, view, kScreen, 3 ).empty() );
+    EXPECT_TRUE( Map::VisibleCells( plan, view, kScreenSize, 3 ).empty() );
 
     const auto under = Map::CellAt( plan, { 2500.0, 1500.0 }, -1 );
-    ASSERT_TRUE( under.has_value() );
+    if ( !under.has_value() )
+    {
+        ADD_FAILURE() << "no cell under (2500, 1500)";
+        return;
+    }
     EXPECT_EQ( *under, CellIndex( plan, 0, 2, 1 ) );
     EXPECT_FALSE( Map::CellAt( plan, { -5000.0, 1500.0 }, -1 ).has_value() );
 }

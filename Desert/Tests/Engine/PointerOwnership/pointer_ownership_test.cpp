@@ -553,13 +553,16 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   L8g (landscape weights on the GPU) adds +1 Raw and +1 Shared, the heightmap's pair again:
     //   TerrainBatch.hpp's LandscapeWeightDraw::Weightmap (raw, frame-scoped, with a row) and its owner,
     //   LandscapeECSSystem::TileGpu::Weightmap (shared).
+    //   WP20b (World Partition panel) adds +1 Raw and +1 Shared, the panel pair every IPanel has:
+    //   WorldPartitionPanel::m_Assets (raw, HostOutlivesUs, with a row -- EditorLayer's AssetManager) and
+    //   WorldPartitionPanel::m_Scene (shared, the scene the panel is bound to, rebound by SetScene).
     //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
-    //   P12g +1 Raw, P12h +8 Raw, L8g +1 Raw +1 Shared): 444 / 351 / 139 / 42 = 976.
-    EXPECT_EQ( CountOf( Form::Raw ), 444 );
-    EXPECT_EQ( CountOf( Form::Shared ), 351 );
+    //   P12g +1 Raw, P12h +8 Raw, L8g +1 Raw +1 Shared, WP20b +1 Raw +1 Shared): 445 / 352 / 139 / 42 = 978.
+    EXPECT_EQ( CountOf( Form::Raw ), 445 );
+    EXPECT_EQ( CountOf( Form::Shared ), 352 );
     EXPECT_EQ( CountOf( Form::Unique ), 139 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 976 )
+    EXPECT_EQ( (int)Members().size(), 978 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
@@ -818,7 +821,8 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // -> 350 with P12: ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, the same immutable
     // EditMesh held by the tool and by its committed snapshot - see TheScanFindsTheCensusedPopulation.
     // -> 351 with L8g: LandscapeECSSystem::TileGpu::Weightmap, the tile's weight image beside its heightmap.
-    EXPECT_EQ( CountOf( Form::Shared ), 351 );
+    // -> 352 with WP20b: WorldPartitionPanel::m_Scene, the bound scene every panel co-holds with EditorLayer.
+    EXPECT_EQ( CountOf( Form::Shared ), 352 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 

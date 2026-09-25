@@ -7450,9 +7450,8 @@ namespace Desert::Editor
         // every panel behind a closed submenu as ungrouped. Measured — the first capture of this menu showed
         // ten panels under "NOT YET GROUPED" that are grouped. The census has to be readable without opening
         // anything, so it is stated once here and the drawing below refers to it.
-        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections", "Details",
-                                                           "Scene Settings", "Scene Validation",
-                                                           "World Partition" };
+        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections",      "Details",
+                                                           "Scene Settings", "Scene Validation", "World Partition" };
         static constexpr const char* kContentGroup[]   = { "Assets", "Asset References", "Shader Library" };
         static constexpr const char* kOutputGroup[]    = { "Logs", "Lua Console", "History" };
         static constexpr const char* kViewportGroup[]  = { "Scene###scene" };

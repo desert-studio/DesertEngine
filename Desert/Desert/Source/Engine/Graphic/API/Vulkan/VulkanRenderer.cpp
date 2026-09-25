@@ -150,7 +150,7 @@ namespace Desert::Graphic::API::Vulkan
 
     bool VulkanRendererAPI::IsRecording()
     {
-        if ( m_CurrentCommandBuffer && !Graphic::DeviceLost::AllowWork() )
+        if ( m_CurrentCommandBuffer != VK_NULL_HANDLE && !Graphic::DeviceLost::AllowWork() )
             m_CurrentCommandBuffer = nullptr;
         return m_CurrentCommandBuffer != nullptr;
     }
@@ -464,7 +464,7 @@ namespace Desert::Graphic::API::Vulkan
                                            IndexBuffer* indexBuffer, uint32_t indexCount, uint32_t firstIndex,
                                            const MaterialExecutor* materialExecutor )
     {
-        if ( !IsRecording() || !vertexBuffer || !indexBuffer || indexCount == 0 )
+        if ( !IsRecording() || vertexBuffer == nullptr || indexBuffer == nullptr || indexCount == 0 )
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         if ( !BindGraphicsPipeline( pipeline ) )
@@ -603,7 +603,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::DispatchComputeCull( const ComputePipeline* pipeline, uint32_t groupCountX,
                                                  uint32_t groupCountY, uint32_t groupCountZ )
     {
-        if ( !IsRecording() || !pipeline )
+        if ( !IsRecording() || pipeline == nullptr )
             return;
 
         const_cast<VulkanPipelineCompute*>( static_cast<const VulkanPipelineCompute*>( pipeline ) )
@@ -623,7 +623,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRendererAPI::DispatchComputeInFrame( const ComputePipeline* pipeline, uint32_t groupCountX,
                                                     uint32_t groupCountY, uint32_t groupCountZ )
     {
-        if ( !IsRecording() || !pipeline )
+        if ( !IsRecording() || pipeline == nullptr )
             return;
 
         // Records bind + a fresh ring descriptor set + dispatch (no layout transitions, no submit).
@@ -719,7 +719,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
     {
-        if ( !IsRecording() || !src || !dst )
+        if ( !IsRecording() || src == nullptr || dst == nullptr )
             return;
         // Same extent required (a multisampled target depth vs the single-sample G-buffer would be an
         // illegal copy — skip rather than fault; the grid just stays non-occluded under MSAA until a proper

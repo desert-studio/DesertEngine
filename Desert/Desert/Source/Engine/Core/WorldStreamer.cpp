@@ -101,8 +101,11 @@ namespace Desert::Core
             return Common::MakeSuccess( Result() );
 
         streamer->m_Executor = begun.ExtractValue();
-        // A streaming begin is what a WorldPartition block produces; its absence returned above.
-        streamer->m_Partition  = snapshot->WorldPartition.value();
+        // A streaming begin is what a WorldPartition block produces; a begin without one is a broken invariant.
+        if ( !snapshot->WorldPartition.has_value() )
+            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                              "': streaming began but the snapshot states no WorldPartition" );
+        streamer->m_Partition  = *snapshot->WorldPartition;
         streamer->m_LastSource = source;
         streamer->m_Snapshot   = snapshot;
         streamer->m_Loader     = std::make_unique<WorldCellLoader>(

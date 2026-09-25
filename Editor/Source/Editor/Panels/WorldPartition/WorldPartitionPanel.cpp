@@ -120,7 +120,7 @@ namespace Desert::Editor
     void WorldPartitionPanel::OnUIRender()
     {
         const ::Desert::Core::WorldStreamer* streamer = ( m_Streamer && m_Scene ) ? m_Streamer() : nullptr;
-        if ( streamer && !streamer->Streams( *m_Scene ) )
+        if ( streamer != nullptr && !streamer->Streams( *m_Scene ) )
             streamer = nullptr; // it streams another scene view's world, not the one this panel follows
         const bool playing = streamer != nullptr;
         if ( playing != m_WasPlaying )
@@ -170,7 +170,7 @@ namespace Desert::Editor
             partition = &m_EditPartition;
         }
 
-        if ( !plan || partition->Grids.empty() )
+        if ( plan == nullptr || partition->Grids.empty() )
         {
             ImGui::TextDisabled( "%s",
                                  playing ? "The streamed partition states no grid." : m_EditPlanStatus.c_str() );
@@ -211,12 +211,15 @@ namespace Desert::Editor
         // Where the streaming source is: the streamer's last one in Play, the scene's camera in Edit.
         std::optional<glm::vec3> sourcePos;
         float                    rangeScale = 1.0f;
-        if ( streamer && streamer->LastSource() )
+        if ( streamer != nullptr )
         {
-            sourcePos  = streamer->LastSource()->Position;
-            rangeScale = streamer->LastSource()->RangeScale;
+            if ( const auto& last = streamer->LastSource() )
+            {
+                sourcePos  = last->Position;
+                rangeScale = last->RangeScale;
+            }
         }
-        std::shared_ptr<::Desert::Core::Camera> camera = m_Scene ? m_Scene->GetActiveCamera() : nullptr;
+        const std::shared_ptr<::Desert::Core::Camera> camera = m_Scene ? m_Scene->GetActiveCamera() : nullptr;
         if ( !sourcePos && camera )
             sourcePos = camera->GetPosition();
 
@@ -224,12 +227,12 @@ namespace Desert::Editor
         if ( m_FocusPending )
         {
             m_FocusPending = false;
-            if ( streamer && m_Follow && sourcePos )
+            if ( streamer != nullptr && m_Follow && sourcePos )
                 m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
             else if ( const auto bounds = Map::PlanBounds( plan ) )
                 Map::Focus( m_View, size, *bounds );
         }
-        if ( streamer && m_Follow && sourcePos )
+        if ( streamer != nullptr && m_Follow && sourcePos )
             m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
         if ( hovered && io.MouseWheel != 0.0f )
         {
@@ -297,8 +300,8 @@ namespace Desert::Editor
         {
             const ImVec2 at     = ToScreen( m_View, size, origin, { sourcePos->x, sourcePos->z } );
             const double loadCm = static_cast<double>( range ) * static_cast<double>( rangeScale );
-            const float  margin = streamer ? streamer->Settings().UnloadMargin
-                                           : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
+            const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
+                                                      : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
             const ImU32  ring   = IM_COL32( 255, 255, 255, 200 );
             list.AddCircle( at, static_cast<float>( Map::RadiusPixels( m_View, loadCm ) ), ring, 96, 1.5f );
             DashedCircle( list, at, static_cast<float>( Map::RadiusPixels( m_View, loadCm * ( 1.0 + margin ) ) ),
