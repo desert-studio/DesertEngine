@@ -112,6 +112,8 @@
 #include "Editor/Panels/NodeGraph/ShaderGraphDocumentOpen.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialEditorPanel.hpp"
 #include "Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp"
+#include "Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp"
+#include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Panels/Animation/AnimGraphPanel.hpp"
 #include "Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp"
 #include "Editor/Panels/Particles/ParticleEditorPanel.hpp"
@@ -908,9 +910,28 @@ namespace Desert::Editor
         m_SubjectEditors.Register(
              AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Material ) ),
              Registration{ "Material", ICON_MDI_PALETTE_SWATCH,
-                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument> {
-                               return std::make_unique<Editor::MaterialEditorPanel>(
-                                    Assets::AssetHandle( subject.Owner ), m_AssetManager );
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               // THE LOAD LIVES HERE, not in the routes that ask: a handle from a Details
+                               // field may name a material that is only a record, and every route ends here.
+                               const Assets::AssetHandle handle( subject.Owner );
+                               auto ready = m_AssetManager ? EnsureMaterialLoaded( *m_AssetManager, handle )
+                                                           : Common::MakeFormattedError<
+                                                                  Assets::Asset<Assets::SurfaceMaterialAsset>>(
+                                                                  "no asset manager" );
+                               if ( !ready.IsSuccess() )
+                               {
+                                   LOG_ERROR( "[MaterialEditor] {} — no window opened.", ready.GetError() );
+                                   return nullptr;
+                               }
+                               // The window draws through the per-slot route, which resolves through the
+                               // material service; registered LAZILY (the shell only), the first Get builds it.
+                               if ( auto* materialService = Runtime::ResourceRegistry::GetMaterialService() )
+                               {
+                                   if ( !materialService->Get( handle ) )
+                                       materialService->RegisterAsset( ready.GetValue() );
+                               }
+                               return std::make_unique<Editor::MaterialEditorPanel>( handle, m_AssetManager );
                            },
                            [this]( const SubjectId& subject )
                            {
@@ -1118,7 +1139,7 @@ namespace Desert::Editor
         m_SubjectEditors.RegisterPathOpener( { std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) },
                                              [this]( const std::string& path )
                                              {
-                                                 switch ( RequestMaterialDocument( m_AssetManager.get(), path ) )
+                                                 switch ( RequestMaterialDocument( m_AssetManager.get(), path, m_SubjectEditors ) )
                                                  {
                                                      case MaterialDocumentRequest::NotAMaterialPath:
                                                          return SubjectEditorRegistry::PathOpenOutcome::NotMine;
@@ -2134,7 +2155,8 @@ namespace Desert::Editor
         // The queue is a file-static inbox drained by ServiceSubjectOpenRequests, so "is anything queued"
         // is asked of the queue itself rather than of a copy this layer keeps — a copy would be a second
         // answer, and the two would disagree on exactly the frame an open was handled halfway.
-        quiescence.Set( Control::PendingWork::AssetOpens, Core::SubjectOpenRequests::HasPending() );
+        quiescence.Set( Control::PendingWork::AssetOpens, Core::SubjectOpenRequests::HasPending() ||
+                                                           Core::AssetFieldRequests::HasPending() );
         quiescence.Set( Control::PendingWork::OpenRefusal, m_OpenRefusalPending );
         // Asked of the request itself, for SubjectOpenRequests' reason above. It stays pending for one
         // frame AFTER it is performed, because the frame that performs a nudge is not the frame that
@@ -3116,8 +3138,38 @@ namespace Desert::Editor
         return name + " \xc2\xb7 " + what;
     }
 
+    Common::BoolResultStr EditorLayer::ShowFolderInBrowser( const std::string& folder )
+    {
+        if ( m_FileExplorerPanel == nullptr )
+            return Common::MakeFormattedError<bool>(
+                 "the Assets browser does not exist in this session; '{}' cannot be shown", folder );
+        Core::PanelRequests::Open( "Assets" );
+        if ( !m_FileExplorerPanel->NavigateToPath( folder ) )
+            return Common::MakeFormattedError<bool>( "'{}' is not a folder the Assets browser can reach", folder );
+        return PaletteCommandDone();
+    }
+
     void EditorLayer::ServiceSubjectOpenRequests()
     {
+        // ASSET FIELDS FIRST: an "Open" from Details becomes a subject request below, in this same frame.
+        for ( const Core::AssetFieldRequest& request : Core::AssetFieldRequests::Drain() )
+        {
+            const Assets::AssetMetadata* found =
+                 m_AssetManager ? m_AssetManager->FindMetadataByHandle( request.Handle ) : nullptr;
+            if ( request.Action == Core::AssetFieldAction::Open )
+            {
+                if ( auto opened = Core::RequestOpenAsset( found, request.Handle, m_SubjectEditors );
+                     !opened.IsSuccess() )
+                    LOG_WARN( "[Editor] Open: {} — no window opened.", opened.GetError() );
+                continue;
+            }
+            auto folder = Core::AssetFolderFor( found, request.Handle );
+            auto shown  = folder.IsSuccess() ? ShowFolderInBrowser( folder.GetValue().generic_string() )
+                                             : Common::MakeFormattedError<bool>( "{}", folder.GetError() );
+            if ( !shown.IsSuccess() )
+                LOG_WARN( "[Editor] Show in browser: {}", shown.GetError() );
+        }
+
         for ( const SubjectId& subject : Core::SubjectOpenRequests::Drain() )
         {
             // OPEN-OR-FOCUS, keyed by the subject, asked of the one owner of open documents. It does NOT
@@ -4248,6 +4300,28 @@ namespace Desert::Editor
         // selection the fold then refuses for a reason nobody can see.
         if ( m_MainScene )
         {
+            // The material pencil's request, made from the palette: macOS gives the control channel no
+            // synthetic click, and this is the same AssetFieldRequests entry the pencil and the field menu use.
+            if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
+            {
+                const Common::UUID owner = *primary;
+                commands.push_back( { "Entity", "Open the selected entity's material", [this, owner]
+                                      {
+                                          auto ref = m_MainScene ? m_MainScene->FindEntityByID( owner ) : std::nullopt;
+                                          if ( !ref )
+                                              return Common::MakeFormattedError<bool>( "the selection is gone" );
+                                          const auto host = MaterialComponentWidget::HostOf( ref->get() );
+                                          if ( host.Slots == nullptr || host.Slots->empty() )
+                                              return Common::MakeFormattedError<bool>(
+                                                   "the selected entity has no material slot" );
+                                          Core::AssetFieldRequests::Request( host.Slots->front(),
+                                                                             Core::AssetFieldAction::Open );
+                                          return PaletteCommandDone();
+                                      } } );
+            }
+        }
+        if ( m_MainScene )
+        {
             if ( const auto& primary = Core::SelectionManager::GetSelected(); primary.has_value() )
             {
                 const Common::UUID seed = *primary;
@@ -5144,19 +5218,8 @@ namespace Desert::Editor
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
                 // NOLINTNEXTLINE(bugprone-exception-escape)
-                commands.push_back( { "Browse", label, [this, folder]
-                                      {
-                                          if ( m_FileExplorerPanel == nullptr )
-                                              return Common::MakeFormattedError<bool>(
-                                                   "the Assets browser does not exist in this session; '{}' "
-                                                   "cannot be shown",
-                                                   folder );
-                                          Core::PanelRequests::Open( "Assets" );
-                                          if ( !m_FileExplorerPanel->NavigateToPath( folder ) )
-                                              return Common::MakeFormattedError<bool>(
-                                                   "'{}' is not a folder the Assets browser can reach", folder );
-                                          return PaletteCommandDone();
-                                      } } );
+                commands.push_back(
+                     { "Browse", label, [this, folder] { return ShowFolderInBrowser( folder ); } } );
             }
         }
 

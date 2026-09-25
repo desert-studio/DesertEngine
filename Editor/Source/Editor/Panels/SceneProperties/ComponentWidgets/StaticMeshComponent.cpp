@@ -1,4 +1,5 @@
 #include "StaticMeshComponent.hpp"
+#include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <ImGui/imgui.h>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -89,6 +90,7 @@ namespace Desert::Editor
             {
                 ImGui::OpenPopup( "mesh_selector" );
             }
+            DrawAssetFieldOpen( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
 
             if ( ImGui::BeginPopup( "mesh_selector" ) )
             {

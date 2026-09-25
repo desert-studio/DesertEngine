@@ -9,6 +9,8 @@
 #include <Engine/Assets/AssetMetadata.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <vector>
 
 namespace Desert::Editor::Core
 {
@@ -62,4 +64,80 @@ namespace Desert::Editor::Core
             SubjectOpenRequests::Request( subject.GetValue() );
         return subject;
     }
+    // THE FOLDER "SHOW IN BROWSER" NAVIGATES TO. The asset's own directory, as the metadata records it — the
+    // same folder a `run Browse <folder>` names, so both arrive through the one navigation EditorLayer owns.
+    // A record with no file behind it (an in-memory asset nobody saved) has no folder, and says so by number.
+    [[nodiscard]] inline Common::ResultStr<std::filesystem::path> AssetFolderFor( const Assets::AssetMetadata* found,
+                                                                                const Assets::AssetHandle& requested )
+    {
+        if ( found == nullptr )
+            return Common::MakeFormattedError<std::filesystem::path>(
+                 "asset {:016x} is not known to the asset manager — there is no folder to show",
+                 static_cast<uint64_t>( requested ) );
+        const std::filesystem::path folder = found->Filepath.parent_path();
+        if ( folder.empty() )
+            return Common::MakeFormattedError<std::filesystem::path>(
+                 "asset {:016x} (AssetTypeID {}) has no file on disk — there is no folder to show",
+                 static_cast<uint64_t>( requested ), static_cast<uint32_t>( found->AssetType ) );
+        return Common::MakeSuccess( folder );
+    }
+
+    // WHAT AN ASSET FIELD ASKED FOR. Details widgets hold a handle and nothing else: not the editor registry,
+    // not the Assets browser, not the asset manager in a mutable form. So a field's "Open" / "Show in browser"
+    // is QUEUED here and answered by EditorLayer, which owns all three, through RequestOpenAsset and the same
+    // folder navigation `run Browse` uses — one route per action, whichever widget the click came from (a
+    // reflected field, the Skybox picker, a mesh slot, the material pencil, a palette command).
+    enum class AssetFieldAction : uint8_t
+    {
+        Open,
+        ShowInBrowser,
+    };
+
+    struct AssetFieldRequest
+    {
+        Assets::AssetHandle Handle;
+        AssetFieldAction    Action = AssetFieldAction::Open;
+
+        [[nodiscard]] bool operator==( const AssetFieldRequest& other ) const
+        {
+            return Handle == other.Handle && Action == other.Action;
+        }
+    };
+
+    class AssetFieldRequests
+    {
+    public:
+        // The same collapse as SubjectOpenRequests: a double-click that also lands on the context menu's
+        // item in one frame is one request.
+        static void Request( const Assets::AssetHandle& handle, AssetFieldAction action )
+        {
+            const AssetFieldRequest request{ handle, action };
+            auto&                   pending = Pending();
+            for ( const auto& queued : pending )
+            {
+                if ( queued == request )
+                    return;
+            }
+            pending.push_back( request );
+        }
+
+        [[nodiscard]] static bool HasPending()
+        {
+            return !Pending().empty();
+        }
+
+        static std::vector<AssetFieldRequest> Drain()
+        {
+            std::vector<AssetFieldRequest> drained;
+            drained.swap( Pending() );
+            return drained;
+        }
+
+    private:
+        static std::vector<AssetFieldRequest>& Pending()
+        {
+            static std::vector<AssetFieldRequest> s_Pending;
+            return s_Pending;
+        }
+    };
 } // namespace Desert::Editor::Core

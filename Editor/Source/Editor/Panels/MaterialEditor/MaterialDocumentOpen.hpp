@@ -1,11 +1,9 @@
 #pragma once
 
-#include <Editor/Core/SubjectOpenRequest.hpp>
+#include <Editor/Core/AssetOpen.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -40,8 +38,33 @@ namespace Desert::Editor
         Requested,        // queued; the window appears on the next frame
     };
 
-    inline MaterialDocumentRequest RequestMaterialDocument( Assets::AssetManager* assetManager,
-                                                            const std::string&    assetPath )
+    // WHAT THE MATERIAL EDITOR NEEDS BEFORE IT BINDS: the asset LOADED. Called by the editor's registration
+    // factory (EditorLayer.cpp), so every route that reaches the window — a browser double-click, a Details
+    // pencil, a field's "Open", a palette command — opens a material whose asset was only a record as well
+    // as a loaded one; before AV1c only the by-PATH route loaded, and a by-handle open bound an empty asset.
+    [[nodiscard]] inline Common::ResultStr<Assets::Asset<Assets::SurfaceMaterialAsset>>
+    EnsureMaterialLoaded( Assets::AssetManager& assetManager, const Assets::AssetHandle& handle )
+    {
+        auto asset = assetManager.FindByHandle<Assets::SurfaceMaterialAsset>( handle );
+        if ( !asset )
+            return Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
+                 "material {:016x} is not in the asset database", static_cast<uint64_t>( handle ) );
+        if ( !asset->IsReadyForUse() )
+        {
+            const auto loaded = asset->Load();
+            if ( !loaded.IsSuccess() )
+                return Common::MakeFormattedError<Assets::Asset<Assets::SurfaceMaterialAsset>>(
+                     "material {:016x} ('{}') did not load: {}", static_cast<uint64_t>( handle ),
+                     asset->GetMetadata().Filepath.generic_string(), loaded.GetError() );
+        }
+        return Common::MakeSuccess( asset );
+    }
+
+    // A `.demat` PATH (browser double-click, --open-panel, the palette's Open) to the by-handle route. Only the
+    // record is made here; loading is EnsureMaterialLoaded's, in the registration factory.
+    inline MaterialDocumentRequest RequestMaterialDocument( Assets::AssetManager*        assetManager,
+                                                            const std::string&           assetPath,
+                                                            const SubjectEditorRegistry& editors )
     {
         if ( !assetManager )
             return MaterialDocumentRequest::NotAMaterialPath;
@@ -59,15 +82,8 @@ namespace Desert::Editor
 
         auto asset = assetManager->FindByPath<Assets::SurfaceMaterialAsset>( assetPath );
         if ( !asset )
-        {
-            // First time anything asked for this file: the same create-if-missing the material thumbnail row
-            // does, and the component deserializer on a cold start.
-            asset =
-                 assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath );
-            if ( asset && !asset->IsReadyForUse() )
-                asset->Load();
-        }
-
+            asset = assetManager->CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::High, assetPath,
+                                                                            /*loadAfterCreate=*/false );
         if ( !asset )
         {
             LOG_ERROR( "[Assets] '{}' could not be opened as a material — no Material Editor window was "
@@ -76,18 +92,13 @@ namespace Desert::Editor
             return MaterialDocumentRequest::Failed;
         }
 
-        // The window draws the material through the per-slot route, which resolves through the material
-        // service. Registered LAZILY (the shell only): this runs at boot as well as from a click, and the
-        // runtime material binds textures, which needs shaders that may not be loaded yet. The first Get
-        // builds it.
-        if ( auto* materialService = Runtime::ResourceRegistry::GetMaterialService() )
+        const auto handle = asset->GetMetadata().Handle;
+        const auto opened = Core::RequestOpenAsset( assetManager->FindMetadataByHandle( handle ), handle, editors );
+        if ( !opened.IsSuccess() )
         {
-            if ( !materialService->Get( asset->GetMetadata().Handle ) )
-                materialService->RegisterAsset( asset );
+            LOG_ERROR( "[Assets] '{}': {}", assetPath, opened.GetError() );
+            return MaterialDocumentRequest::Failed;
         }
-
-        Core::SubjectOpenRequests::Request(
-             AssetSubject( asset->GetMetadata().Handle, static_cast<uint32_t>( Assets::AssetTypeID::Material ) ) );
         return MaterialDocumentRequest::Requested;
     }
 } // namespace Desert::Editor
