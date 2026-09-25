@@ -81,6 +81,29 @@ case "$JOBS" in
         ;;
 esac
 
+# ONE TIDY AT A TIME ON A DEVELOPER MACHINE, AND AT MOST FOUR JOBS. On 2026-09-25 23:11 several agents
+# ran this gate at once, each with -j10: 21 clang-tidy processes held 6.4 GB beside 18 clang and an
+# editor, the 16 GB machine ran out, and WindowServer's watchdog killed the session twice. The build
+# hook already serialises `make`; tidy was the uncounted twin. CI runners are single-tenant and keep
+# the full CPU count.
+if [ -z "${CI:-}" ]; then
+    [ "$JOBS" -gt 4 ] && JOBS=4
+    TIDY_LOCK="${TMPDIR:-/tmp}/desert-clang-tidy.lock"
+    waited=0
+    until mkdir "$TIDY_LOCK" 2>/dev/null; do
+        holder=$(cat "$TIDY_LOCK/pid" 2>/dev/null)
+        if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+            rm -rf "$TIDY_LOCK"   # the holder died without releasing it
+            continue
+        fi
+        [ $((waited % 60)) -eq 0 ] && echo "clang-tidy: another CheckTidy.sh (pid ${holder:-?}) is running; waiting (${waited}s)" >&2
+        sleep 10
+        waited=$((waited + 10))
+    done
+    echo $$ > "$TIDY_LOCK/pid"
+    trap 'rm -rf "$TIDY_LOCK"' EXIT
+fi
+
 # THE EXIT CODE IS THE VERDICT, AND IT COMES FROM .clang-tidy's `WarningsAsErrors: '*'`.
 # clang-tidy exits 0 with findings unless warnings are errors, and run-clang-tidy and
 # clang-tidy-diff.py both report the maximum child exit code — so without that setting this gate
@@ -320,7 +343,7 @@ done
 # keeps the interpolation. The augmented database lives in a scratch directory and the checked-in
 # workflow keeps reading compile_commands.json unchanged.
 HDRDB=$(mktemp -d "${TMPDIR:-/tmp}/tidy-hdrdb.XXXXXX")
-trap 'rm -rf "$HDRDB"' EXIT
+trap 'rm -rf "$HDRDB"; [ -n "${TIDY_LOCK:-}" ] && rm -rf "$TIDY_LOCK"' EXIT
 if ! CHANGED_FILES="$CHANGED" OUT_DB="$HDRDB/compile_commands.json" python3 -c '
 import json, os, re, shlex
 db = json.load(open("compile_commands.json"))

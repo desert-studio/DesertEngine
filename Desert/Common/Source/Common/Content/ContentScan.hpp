@@ -48,6 +48,9 @@ namespace Common::Content
         // claims the file and the header is malformed — never folded into "states none".
         std::optional<AssetHeader> Header;
         std::string                HeaderError;
+        // For a redirector only: the stable key it was written for (AssetRedirector::OldKey), which
+        // RegistryRowFor holds equal to the key it was found at. Empty for every other file.
+        std::string RedirectedFrom;
         // A cooked mesh's box as its 64-byte header states it (MeshBinaryHeader.hpp); std::nullopt for every
         // other kind and for a mesh file whose header this host cannot read (the loader names that one).
         std::optional<MeshHeaderBounds> MeshBounds;

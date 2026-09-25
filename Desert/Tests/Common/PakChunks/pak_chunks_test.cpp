@@ -180,7 +180,9 @@ namespace
     // committed `.detex` files again.
     // `WorldCell`/`WorldIndex` (AF2) are a partitioned world's cook output, written beside the scene only by a
     // cook and carried into a package by the packager's own world cook (PackagedContent reaches them).
-    constexpr const char* kCookOnlyKinds[]   = { "WorldCell", "WorldIndex" };
+    // `Redirector` (AF10b) is left behind by a move and removed by fix-up; it is never committed, and it has
+    // no extension of its own to be sampled by.
+    constexpr const char* kCookOnlyKinds[]   = { "WorldCell", "WorldIndex", "Redirector" };
     constexpr std::size_t kCookOnlyKindCount = sizeof( kCookOnlyKinds ) / sizeof( kCookOnlyKinds[0] );
 
     bool IsCookOnlyKind( const std::string& kind )

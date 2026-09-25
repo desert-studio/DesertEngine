@@ -53,7 +53,7 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
-#include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
+#include <Editor/Core/AssetOpen.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
@@ -238,37 +238,14 @@ namespace Desert::Editor
         return asset->GetMetadata().Handle;
     }
 
-    // Opens the Material Editor window on the landscape's material — the same seam, and the same three
-    // outcomes, the mesh slot editor's Edit button uses. After M2 this is the only place a material's
-    // parameters and textures are edited, the landscape's included.
-    static void OpenMaterialEditorFor( const ::Desert::Assets::AssetHandle& handle,
-                                       ::Desert::Assets::AssetManager* assetMgr, const char* tag )
+    // Opens the Material Editor window on the landscape's (or the cloud's) material by HANDLE — the route every
+    // asset field in Details takes (Editor/Core/AssetOpen.hpp). Loading the material is the Material Editor
+    // registration's job, so a handle whose asset is only a record opens as well as a loaded one, and an
+    // unknown handle is refused by number where the request is answered.
+    static void OpenMaterialEditorFor( const ::Desert::Assets::AssetHandle& handle )
     {
-        if ( !assetMgr )
-            return;
-        auto asset = assetMgr->FindByHandle<::Desert::Assets::SurfaceMaterialAsset>(
-             ::Common::UUID( static_cast<uint64_t>( handle ) ) );
-        if ( !asset )
-        {
-            LOG_ERROR( "{} the material in this slot (handle {}) is not in the asset database — no "
-                       "window was opened.",
-                       tag, static_cast<uint64_t>( handle ) );
-            return;
-        }
-
-        const std::string path = asset->GetMetadata().Filepath.generic_string();
-        switch ( ::Desert::Editor::RequestMaterialDocument( assetMgr, path ) )
-        {
-            case ::Desert::Editor::MaterialDocumentRequest::Requested:
-            case ::Desert::Editor::MaterialDocumentRequest::Failed: // already reported, with the path
-                break;
-            case ::Desert::Editor::MaterialDocumentRequest::NotAMaterialPath:
-                // The slot resolves to an asset whose file is not on disk. Silence would read as a dead button.
-                LOG_ERROR( "{} this slot's material has no `.demat` on disk ('{}') — no window was "
-                           "opened. Save it first, or reassign the slot.",
-                           tag, path );
-                break;
-        }
+        ::Desert::Editor::Core::AssetFieldRequests::Request( handle,
+                                                             ::Desert::Editor::Core::AssetFieldAction::Open );
     }
 
     // The landscape's MATERIAL row. What it is NOT, because it replaced exactly that: a shader combo and a
@@ -372,7 +349,7 @@ namespace Desert::Editor
                 if ( static_cast<uint64_t>( created ) != 0 )
                 {
                     landscape.Material = created;
-                    OpenMaterialEditorFor( created, assetMgr, "[Landscape]" );
+                    OpenMaterialEditorFor( created );
                 }
             }
         }
@@ -380,7 +357,7 @@ namespace Desert::Editor
         {
             const float half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
             if ( ImGui::Button( "Edit", ImVec2( half, 0.0f ) ) )
-                OpenMaterialEditorFor( landscape.Material, assetMgr, "[Landscape]" );
+                OpenMaterialEditorFor( landscape.Material );
             ImGui::SameLine();
             if ( ImGui::Button( "Clear", ImVec2( half, 0.0f ) ) )
                 landscape.Material = ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
@@ -816,7 +793,7 @@ namespace Desert::Editor
                 if ( static_cast<uint64_t>( created ) != 0 )
                 {
                     cloud.Material = created;
-                    OpenMaterialEditorFor( created, assetMgr, "[Clouds]" );
+                    OpenMaterialEditorFor( created );
                 }
             }
         }
@@ -832,7 +809,7 @@ namespace Desert::Editor
                                   ImGui::GetStyle().ItemSpacing.x * static_cast<float>( buttons - 1 ) ) /
                                 static_cast<float>( buttons );
             if ( ImGui::Button( "Edit", ImVec2( width, 0.0f ) ) )
-                OpenMaterialEditorFor( cloud.Material, assetMgr, "[Clouds]" );
+                OpenMaterialEditorFor( cloud.Material );
             if ( allowPanelJumps )
             {
                 ImGui::SameLine();

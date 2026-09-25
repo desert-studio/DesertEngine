@@ -58,10 +58,6 @@ namespace Desert::Editor
         void RenderMaterialProperties( ECS::Entity& entity, const MaterialHost& host,
                                        const std::string& overriddenByShader );
 
-        // Asks for a Material Editor window on @p asset — the one place Details answers "what IS this
-        // material", and it answers it by handing the question to the window that owns it.
-        void OpenMaterialEditor( const Assets::SurfaceMaterialAsset& asset ) const;
-
         // Creates a child material-instance asset (.demat with a Parent GUID) next to the other
         // materials and registers its shell (lazy — instances have no runtime Material of their own).
         Assets::AssetHandle CreateAndRegisterMaterialInstance( const Assets::SurfaceMaterialAsset& parent );
