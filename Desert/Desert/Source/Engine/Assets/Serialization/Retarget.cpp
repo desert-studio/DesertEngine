@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 
@@ -114,7 +115,7 @@ namespace Desert::Assets::Serialization
         // THE SOURCE RIG IS THE ONE FACT THIS FILE CANNOT DO WITHOUT. A retarget naming no source rig is
         // a retarget that can only ever be the identity — a feature that runs, reports success and does
         // nothing, which is the shape this whole format exists to end.
-        if ( data.SourceSkeleton.empty() )
+        if ( data.SourceSkeleton.Path.empty() )
         {
             return Common::MakeFormattedError<bool>(
                  "retarget '{}' names no source rig. A retarget is a statement about two rigs and the "
@@ -142,7 +143,7 @@ namespace Desert::Assets::Serialization
             // A `.retarget` is a file that TRAVELS between machines, so "absolute" has to mean one
             // thing in it regardless of who opens it. Both rooted shapes are refused everywhere: a
             // leading separator, and a `X:` drive prefix.
-            const std::string& rig      = data.SourceSkeleton;
+            const std::string& rig      = data.SourceSkeleton.Path;
             const bool         rooted   = !rig.empty() && ( rig.front() == '/' || rig.front() == '\\' );
             const bool         lettered = rig.size() >= 2 && rig[1] == ':' &&
                                   ( ( rig[0] >= 'A' && rig[0] <= 'Z' ) || ( rig[0] >= 'a' && rig[0] <= 'z' ) );
@@ -151,8 +152,17 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>(
                      "retarget '{}': source rig '{}' must be relative to the cooked meshes root and must "
                      "not escape it",
-                     data.Name, data.SourceSkeleton );
+                     data.Name, data.SourceSkeleton.Path );
             }
+        }
+
+        // THE GUID RESOLVES, the path only names: a rig reference without one is a bare path again (RTGT 2).
+        if ( const auto guid = Common::Content::AssetGuidFromText( data.SourceSkeleton.Guid );
+             !guid || guid.GetValue().IsNull() )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "retarget '{}': source rig '{}' states no well-formed GUID ('{}'); run Tools/SceneMigrator",
+                 data.Name, data.SourceSkeleton.Path, data.SourceSkeleton.Guid );
         }
 
         if ( data.SourcePelvisBone.empty() || data.TargetPelvisBone.empty() )
@@ -235,6 +245,27 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<RetargetAssetData>( "retarget {}", headed.GetError() );
         }
 
+        // A VERSION-2 FILE NAMES ITS RIG BY A BARE PATH, a shape the typed read below cannot take, so its
+        // refusal would be a JSON type error that names no version. The stated version is read from the
+        // header alone first, and the refusal names it and the migrator.
+        {
+            std::istringstream in( text );
+            if ( const auto object = Common::Content::ReadTextHeaderObject( in ); object )
+            {
+                if ( const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() ); header )
+                {
+                    if ( const int stated = Assets::StatedVersion( header.GetValue(), Assets::kRetargetSchemaTag );
+                         stated != kRetargetVersion )
+                    {
+                        return Common::MakeFormattedError<RetargetAssetData>(
+                             "retarget format version {} (RTGT) was written by a different build; this one reads "
+                             "version {}; run Tools/SceneMigrator",
+                             stated, kRetargetVersion );
+                    }
+                }
+            }
+        }
+
         const auto parsed = rfl::json::read<RetargetAssetData>( text );
         if ( !parsed )
         {
@@ -256,6 +287,22 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<RetargetAssetData>( "{}", valid.GetError() );
         }
 
+        if ( !data.Header )
+        {
+            return Common::MakeFormattedError<RetargetAssetData>(
+                 "retarget '{}': the header was checked but is absent", data.Name );
+        }
+
+        // ONE REFERENCE, TWO STATEMENTS OF IT: the header's Dependencies must be exactly the source rig's
+        // GUID, or the registry's edge and the resolver's rig disagree and neither side would notice.
+        if ( data.Header->Dependencies != std::vector<std::string>{ data.SourceSkeleton.Guid } )
+        {
+            return Common::MakeFormattedError<RetargetAssetData>(
+                 "retarget '{}': the header's Dependencies ({} entries) do not state exactly the source rig's "
+                 "GUID {}",
+                 data.Name, data.Header->Dependencies.size(), data.SourceSkeleton.Guid );
+        }
+
         return Common::MakeSuccess( std::move( data ) );
     }
 
@@ -264,6 +311,7 @@ namespace Desert::Assets::Serialization
         RetargetAssetData out = data;
         out.Header            = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::Retarget,
                                                          RetargetTextSubsystems() );
+        out.Header->Dependencies = { data.SourceSkeleton.Guid };
         return rfl::json::write( out, YYJSON_WRITE_PRETTY );
     }
 
@@ -325,7 +373,7 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( setup ) );
     }
 
-    RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, const std::string& sourceSkeleton,
+    RetargetAssetData BuildDataFromRetargetSetup( const std::string& name, const AssetGuidRef& sourceSkeleton,
                                                   const RetargetSetup& setup )
     {
         RetargetAssetData out;

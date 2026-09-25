@@ -1,6 +1,6 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/InsetMeshRegion.h and
-// Private/Operations/InsetMeshRegion.cpp:26-378; PolyEditingEdgeUtil.cpp:11-107 (inset lines and their solve).
+// Private/Operations/InsetMeshRegion.cpp:26-378 (the inset lines and their solve live in PolyEditingEdgeUtil.hpp).
 // Adapted: the interior solve (ConstrainedMeshDeformer + AABB reprojection, run when the region has interior
 // vertices or Softness > 0) is not ported - such a region is REFUSED with a named reason before the mesh is
 // touched, and Softness / AreaCorrection / bReproject / bSolveRegionInteriors are therefore absent; bowties are

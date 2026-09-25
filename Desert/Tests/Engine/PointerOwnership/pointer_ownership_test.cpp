@@ -567,15 +567,17 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   two set per lifetime: 446 / 351 / 143 / 42 = 982.
     //   WP20b +1 Raw +1 Shared: WorldPartitionPanel::m_Assets (row in the register) and the panel's m_Scene:
     //   447 / 352 / 143 / 42 = 984.
+    //   P13d +5 Raw: the ported ExpMap's FDynamicMeshUVEditor::Mesh/UVOverlay, FDynamicSubmesh3::BaseMesh,
+    //   TMeshDijkstra::PointSet, TMeshLocalParam::PointSet (rows in the register): 452 / 352 / 143 / 42 = 989.
     //   RT2e +2 Shared +1 Unique: DescriptorPoolChain::m_Pools and VulkanViewSets::m_Pool (a view's
     //   descriptor pool, co-held by the chain and by every set allocated from it, so the sets' deferred free
     //   is queued before the pool's destruction), and ViewDescriptorSets::HandOver::m_Copy (the made sets,
-    //   held for the one call that moves them into a view): 447 / 354 / 144 / 42 = 987.
-    EXPECT_EQ( CountOf( Form::Raw ), 447 );
+    //   held for the one call that moves them into a view): 452 / 354 / 144 / 42 = 992.
+    EXPECT_EQ( CountOf( Form::Raw ), 452 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
     EXPECT_EQ( CountOf( Form::Unique ), 144 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 987 )
+    EXPECT_EQ( (int)Members().size(), 992 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

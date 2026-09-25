@@ -16,7 +16,12 @@
 #include <MigratorMain.hpp>
 #include <SceneMigration.hpp>
 
+#include <Engine/Assets/CloudTypeData.hpp>
+#include <Engine/Assets/CloudModellingVolume.hpp>
+#include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -25,6 +30,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -84,6 +90,15 @@ namespace
     {
         return "scene v" + std::to_string( from ) + "->v" + std::to_string( to );
     }
+
+    // A full, valid cloud-type shape (CLTY 3, 4 and 5 share it): the migrator reads the body through the
+    // engine's typed CloudTypeData, so a fixture with a partial Shape would be refused as unreadable.
+    constexpr const char* kCloudTypeShapeV4 =
+         R"("Shape":{"BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,)"
+         R"("Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,)"
+         R"(0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,)"
+         R"("AnvilThicknessKm":0.0,"AnvilStrength":0.0,"DetailCharacter":0.6,"DetailFactor":1.0,)"
+         R"("DensityFactor":1.0,"ExtinctionFactor":1.0,"PlacementScale":1.0,"PlacementAnisotropy":1.0})";
 } // namespace
 
 // THE ERROR PATH. The temp path is blocked, so the atomic write must refuse; the run exits non-zero,
@@ -341,7 +356,7 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
     const fs::path file = dir / "Stratus.decloudtype";
     {
         std::ofstream out( file, std::ios::binary );
-        out << R"({"FormatVersion":3,"DisplayName":"Stratus","Shape":{"BaseAltitudeKm":0.3}})";
+        out << R"({"FormatVersion":3,"DisplayName":"Stratus",)" << kCloudTypeShapeV4 << "}";
     }
     const fs::path stale = dir / "Old.decloudtype";
     {
@@ -364,7 +379,8 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
     EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::CloudType );
     EXPECT_FALSE( header.GetValue().Guid.IsNull() );
     ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
-    EXPECT_EQ( header.GetValue().Subsystems[0].Version, 4u );
+    // Chained in one run: CLTY 3 -> 4 (the header) and 4 -> 5 (a type naming no volume only moves its version).
+    EXPECT_EQ( header.GetValue().Subsystems[0].Version, Desert::Assets::kCloudTypeSchemaVersion );
     EXPECT_NE( raised.find( "Stratus" ), std::string::npos ) << raised;
 
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
@@ -416,7 +432,7 @@ namespace
             raisedTexts.push_back( raised );
             EXPECT_EQ( raised.find( "FormatVersion" ), std::string::npos ) << raised;
             EXPECT_NE( raised.find( file.stem().string() ), std::string::npos )
-                 << "the payload was lost: " << raised;
+                 << "the payload was lost (a uint64 above INT64_MAX?): " << raised;
             const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
             ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
             EXPECT_EQ( header.GetValue().Kind, kind );
@@ -477,6 +493,110 @@ TEST( SceneMigratorWritePath, ACloudLayoutIsWrappedInTheEnvelopeOnceAndASecondRu
     fs::remove_all( dir );
 }
 
+// THE CLOUD NOISE VOLUME PASS (T7g, bare container 1 / 2 -> DCNV 3). A bare "DCNV" file is wrapped in the
+// AF1 binary envelope with a fresh GUID; the engine decoder reads the voxels and recipe back unchanged; a
+// version-1 file (no origin word) comes back Generated; a second run leaves both files byte-identical.
+TEST( SceneMigratorWritePath, ACloudNoiseVolumeIsWrappedInTheEnvelopeOnceAndASecondRunChangesNothing )
+{
+    Desert::Assets::CloudNoiseVolumeData volume; // the default recipe at its default resolution: a legal volume
+    volume.Voxels.resize( static_cast<size_t>( volume.VoxelCount() ) * 4u );
+    for ( size_t i = 0; i < volume.Voxels.size(); ++i )
+        volume.Voxels[i] = static_cast<unsigned char>( ( i * 31u ) & 0xFFu );
+    const std::vector<unsigned char> payload = Desert::Assets::EncodeCloudNoisePayload( volume );
+
+    const fs::path    dir    = MakeTempDir( "T7gCloudNoiseMigration" );
+    const fs::path    v2File = dir / "BareV2.dcnv";
+    const fs::path    v1File = dir / "BareV1.dcnv";
+    const std::string v2 =
+         std::string( "DCNV" ) + std::string( "\x02\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
+    // Version 1 is version 2 without the origin word at payload offset 52.
+    const std::string v1 = std::string( "DCNV" ) + std::string( "\x01\0\0\0", 4 ) +
+                           std::string( payload.begin(), payload.begin() + 52 ) +
+                           std::string( payload.begin() + 56, payload.end() );
+    for ( const auto& [file, bytes] : { std::pair{ v2File, v2 }, std::pair{ v1File, v1 } } )
+    {
+        std::ofstream out( file, std::ios::binary );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+    }
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    std::vector<std::string> raised;
+    for ( const auto& file : { v2File, v1File } )
+    {
+        raised.push_back( ReadRaw( file ) );
+        const auto decoded = Desert::Assets::DecodeCloudNoiseVolume(
+             std::vector<unsigned char>( raised.back().begin(), raised.back().end() ) );
+        ASSERT_TRUE( decoded ) << file << ": " << decoded.GetError() << "\n" << report << errors;
+        EXPECT_FALSE( decoded.GetValue().Guid.IsNull() );
+        EXPECT_EQ( decoded.GetValue().Origin, Desert::Assets::CloudNoiseVolumeOrigin::Generated );
+        EXPECT_EQ( decoded.GetValue().Params.Seed, volume.Params.Seed );
+        EXPECT_EQ( decoded.GetValue().Voxels, volume.Voxels );
+    }
+    const auto raisedV1 = Desert::Assets::DecodeCloudNoiseVolume(
+         std::vector<unsigned char>( raised[1].begin(), raised[1].end() ) );
+    ASSERT_TRUE( raisedV1 ) << raisedV1.GetError();
+    EXPECT_EQ( Desert::Assets::EncodeCloudNoisePayload( raisedV1.GetValue() ), payload )
+         << "the version-1 raise must produce exactly the version-2 payload";
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( v2File ), raised[0] ) << "a second run changed a v3 volume (a second GUID?)";
+    EXPECT_EQ( ReadRaw( v1File ), raised[1] ) << "a second run changed a v3 volume (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}
+
+// THE SCULPTED CLOUD VOLUME PASS (T7g, bare DCMV 2 -> DCMV 3). A bare "DCMV" version-2 file is wrapped in the
+// AF1 binary envelope with a fresh GUID; the engine decoder reads the recipe and voxels back unchanged; a
+// second run leaves the file byte-identical. A bare version 1 has no reader anywhere, so it is refused by name.
+TEST( SceneMigratorWritePath, ASculptedCloudVolumeIsWrappedInTheEnvelopeOnceAndASecondRunChangesNothing )
+{
+    Desert::Assets::CloudModellingVolumeData volume; // one default lump: the smallest legal recipe
+    volume.Recipe.Blobs.resize( 1 );
+    volume.Voxels.resize( Desert::Assets::kCloudModellingVoxelBytes );
+    for ( size_t i = 0; i < volume.Voxels.size(); ++i )
+        volume.Voxels[i] = static_cast<unsigned char>( ( i * 37u ) & 0xFFu );
+    const std::vector<unsigned char> payload = Desert::Assets::EncodeCloudModellingPayload( volume );
+
+    const fs::path dir    = MakeTempDir( "T7gCloudModellingMigration" );
+    const fs::path v2File = dir / "BareV2.dcmv";
+    {
+        const std::string v2 = std::string( "DCMV" ) + std::string( "\x02\0\0\0", 4 ) +
+                               std::string( payload.begin(), payload.end() );
+        std::ofstream out( v2File, std::ios::binary );
+        out.write( v2.data(), static_cast<std::streamsize>( v2.size() ) );
+    }
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
+    const std::string raised = ReadRaw( v2File );
+    const auto        decoded =
+         Desert::Assets::DecodeCloudModellingVolume( std::vector<unsigned char>( raised.begin(), raised.end() ) );
+    ASSERT_TRUE( decoded ) << decoded.GetError() << "\n" << report << errors;
+    EXPECT_FALSE( decoded.GetValue().Guid.IsNull() );
+    EXPECT_EQ( decoded.GetValue().Recipe.Blobs.size(), 1u );
+    EXPECT_EQ( decoded.GetValue().Voxels, volume.Voxels );
+    EXPECT_EQ( Desert::Assets::EncodeCloudModellingPayload( decoded.GetValue() ), payload )
+         << "the raise must carry the version-2 payload through byte for byte";
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( v2File ), raised ) << "a second run changed a v3 volume (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+
+    const fs::path v1File = dir / "BareV1.dcmv";
+    {
+        const std::string v1 = std::string( "DCMV" ) + std::string( "\x01\0\0\0", 4 ) +
+                               std::string( payload.begin(), payload.end() );
+        std::ofstream out( v1File, std::ios::binary );
+        out.write( v1.data(), static_cast<std::streamsize>( v1.size() ) );
+    }
+    EXPECT_NE( RunTool( { v1File.string() }, report, errors ), 0 ) << report;
+    EXPECT_NE( errors.find( "a bare 'DCMV' container version 1" ), std::string::npos ) << errors;
+    fs::remove_all( dir );
+}
+
 // MATL 2 -> 3 (T6c3). A v2 `.demat` names its cloud type and layout by the PATH-DERIVED number
 // (AssetHandle::FromKey of "assets:<relative>"); the raise finds that number among the files under the
 // content root and states the GUID from the file's own header, with the path as a locator. Fixtures made by
@@ -497,7 +617,7 @@ namespace
         fs::create_directories( root.Dir / "Materials" );
         {
             std::ofstream out( root.Dir / "Clouds" / "Stratus.decloudtype", std::ios::binary );
-            out << R"({"FormatVersion":3,"DisplayName":"Stratus","Shape":{"BaseAltitudeKm":0.3}})";
+            out << R"({"FormatVersion":3,"DisplayName":"Stratus",)" << kCloudTypeShapeV4 << "}";
         }
         {
             std::string v1 = std::string( "DCLY" ) + std::string( "\x01\0\0\0", 4 );
@@ -623,10 +743,132 @@ TEST( SceneMigratorWritePath, AControlRigGainsAHeaderGuidOnceAndASecondRunChange
                               R"("Name":"R","Controls":[],"Drives":[])" );
 }
 
-TEST( SceneMigratorWritePath, ARetargetGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+// THE RETARGET PASSES (T7c 1 -> 2, T7f 2 -> 3). RTGT 3 names the source rig by the GUID its `.skeleton`
+// states, so the step needs the project layout the engine resolves the rig in: `<project>/Resources/Assets/
+// Retargets` beside `<project>/Cooked/Meshes`. The two steps chain in one run, so a v1 file lands at 3.
+namespace
 {
-    ExpectTextKindRaisedOnce( ".retarget", Common::Content::ContentKind::Retarget,
-                              R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton")" );
+    struct RetargetProject
+    {
+        fs::path                   Retargets;
+        fs::path                   Rig;
+        Common::Content::AssetGuid RigGuid;
+    };
+
+    RetargetProject MakeRetargetProject( const char* name, bool withRig = true )
+    {
+        const fs::path  dir = MakeTempDir( name );
+        RetargetProject project{ dir / "Resources" / "Assets" / "Retargets",
+                                 dir / "Cooked" / "Meshes" / "ForeignArm.skeleton",
+                                 Common::Content::AssetGuid::Generate() };
+        fs::create_directories( project.Retargets );
+        fs::create_directories( project.Rig.parent_path() );
+        if ( withRig )
+        {
+            const std::array<Common::Content::SubsystemVersion, 1> versions = {
+                 Common::Content::SubsystemVersion{ Desert::Assets::kSkeletonSchemaTag, 1 } };
+            std::ofstream out( project.Rig, std::ios::binary );
+            out << "{\"" << Common::Content::kTextHeaderMember << "\":"
+                << rfl::json::write( Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton,
+                                                                      project.RigGuid, versions ) )
+                << R"(,"Signature":1,"Bones":[]})";
+        }
+        return project;
+    }
+
+    // Everything a retarget states besides its version and its rig, valid for ParseRetarget.
+    constexpr const char* kRetargetBody =
+         R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton","SourcePelvisBone":"Hip","TargetPelvisBone":"Hip",)"
+         R"("SourceRetargetPose":{"BoneOffsets":[],"PelvisOffset":[0,0,0]},)"
+         R"("TargetRetargetPose":{"BoneOffsets":[],"PelvisOffset":[0,0,0]},"Chains":[],"BoneRenames":[])";
+
+    void WriteRetargetV2( const fs::path& file, const Common::Content::AssetGuid& guid )
+    {
+        const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Desert::Assets::kRetargetSchemaTag, 2 } };
+        std::ofstream out( file, std::ios::binary );
+        out << "{\"" << Common::Content::kTextHeaderMember << "\":"
+            << rfl::json::write(
+                    Common::Content::MakeTextHeader( Common::Content::ContentKind::Retarget, guid, versions ) )
+            << "," << kRetargetBody << "}";
+    }
+
+    // The raised file read by the ENGINE'S loader, the rig by {Guid, Path}, the header's one Dependency the
+    // rig; then a second run and a check change nothing. Returns the header GUID the file states.
+    std::string ExpectRetargetAtV3( const RetargetProject& project, const fs::path& file )
+    {
+        const std::string raised = ReadRaw( file );
+        const auto        parsed = Desert::Assets::Serialization::ParseRetarget( raised );
+        EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() ) << "\n" << raised;
+        if ( !parsed.IsSuccess() )
+            return {};
+        const auto& data = parsed.GetValue();
+        if ( !data.Header )
+        {
+            ADD_FAILURE() << "the raised retarget has no header\n" << raised;
+            return {};
+        }
+        EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( project.RigGuid ) );
+        EXPECT_EQ( data.SourceSkeleton.Path, "ForeignArm.skeleton" );
+        EXPECT_EQ( data.Header->Dependencies, std::vector<std::string>{ data.SourceSkeleton.Guid } );
+        EXPECT_EQ( Desert::Assets::StatedVersion( data.Header, Desert::Assets::kRetargetSchemaTag ), 3 );
+
+        std::string report;
+        std::string errors;
+        EXPECT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 0 ) << errors;
+        EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed an RTGT 3 file";
+        EXPECT_EQ( RunTool( { "--check", project.Retargets.string() }, report, errors ), 0 ) << report << errors;
+        return data.Header->Guid;
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, ARetargetV1GainsAHeaderGuidAndItsRigsGuidInOneRun )
+{
+    const RetargetProject project = MakeRetargetProject( "T7fRetargetV1" );
+    const fs::path        file    = project.Retargets / "Arm.retarget";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"FormatVersion":1,)" << kRetargetBody << "}";
+    }
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( report.find( "RTGT 2 -> 3" ), std::string::npos ) << report;
+    const std::string guid = ExpectRetargetAtV3( project, file );
+    EXPECT_FALSE( guid.empty() );
+    EXPECT_NE( guid, Common::Content::AssetGuidToText( project.RigGuid ) ) << "the retarget took the rig's GUID";
+    fs::remove_all( project.Retargets.parent_path().parent_path().parent_path() );
+}
+
+TEST( SceneMigratorWritePath, ARetargetV2NamesItsRigByGuidAndKeepsItsOwn )
+{
+    const RetargetProject            project = MakeRetargetProject( "T7fRetargetV2" );
+    const fs::path                   file    = project.Retargets / "Arm.retarget";
+    const Common::Content::AssetGuid own     = Common::Content::AssetGuid::Generate();
+    WriteRetargetV2( file, own );
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_EQ( ExpectRetargetAtV3( project, file ), Common::Content::AssetGuidToText( own ) )
+         << "the raise minted a second identity for the retarget";
+    fs::remove_all( project.Retargets.parent_path().parent_path().parent_path() );
+}
+
+TEST( SceneMigratorWritePath, ARetargetV2WhoseRigIsMissingIsRefusedByNameAndUntouched )
+{
+    const RetargetProject project = MakeRetargetProject( "T7fRetargetNoRig", false );
+    const fs::path        file    = project.Retargets / "Arm.retarget";
+    WriteRetargetV2( file, Common::Content::AssetGuid::Generate() );
+    const std::string before = ReadRaw( file );
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 1 ) << report;
+    EXPECT_NE( errors.find( "Arm.retarget" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "ForeignArm.skeleton" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( file ), before ) << "a refused retarget was rewritten";
+    fs::remove_all( project.Retargets.parent_path().parent_path().parent_path() );
 }
 
 // THE ANIM GRAPH PASS (T7d, 0 -> 1): generation 0 stated no version member at all, so every headerless file
@@ -644,7 +886,8 @@ TEST( SceneMigratorWritePath, AnAnimGraphGainsAHeaderGuidOnceAndASecondRunChange
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
 
     const std::string raised = ReadRaw( file );
-    EXPECT_NE( raised.find( "Locomotion" ), std::string::npos ) << "the payload was lost: " << raised;
+    EXPECT_NE( raised.find( "Locomotion" ), std::string::npos )
+         << "the payload was lost (a uint64 above INT64_MAX?): " << raised;
     const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
     const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
     ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
@@ -657,4 +900,197 @@ TEST( SceneMigratorWritePath, AnAnimGraphGainsAHeaderGuidOnceAndASecondRunChange
     EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v1 file (a second GUID?)";
     EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
     fs::remove_all( dir );
+}
+
+// THE SKELETON PASS (T7e, 0 -> 1): generation 0 stated no version member at all, so every headerless file is
+// raised; a second run changes nothing.
+TEST( SceneMigratorWritePath, ASkeletonGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    const fs::path dir  = MakeTempDir( "T7eRaiseSkeleton" );
+    const fs::path file = dir / "Rig.skeleton";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Signature":9748021389765177955,"Bones":[]})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "\"Signature\": 9748021389765177955" ), std::string::npos )
+         << "the payload was lost (a uint64 above INT64_MAX?): " << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::Skeleton );
+    EXPECT_FALSE( header.GetValue().Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Subsystems[0].Version, 1u );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v1 file (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}
+
+// A ROW WITH A VERSION MEMBER KEEPS A uint64 ABOVE INT64_MAX (T7e2): the member is cut out of the source text
+// and the header spliced in, never a round trip through rfl::Generic, which reads every integer as int64 and
+// wrote a clip's SkeletonSignature back negative. The theme stands in for any row that states its version; the
+// nested member of the same name proves only the TOP-LEVEL one is cut.
+TEST( SceneMigratorWritePath, ARowWithAVersionMemberKeepsAUint64AboveInt64Max )
+{
+    const fs::path dir  = MakeTempDir( "T7e2RaiseUint64" );
+    const fs::path file = dir / "Big.detheme";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Nested":{"FormatVersion":5},"FormatVersion":1,"Signature":9748021389765177955})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "\"Signature\": 9748021389765177955" ), std::string::npos )
+         << "the payload was lost (a uint64 above INT64_MAX): " << raised;
+    EXPECT_NE( raised.find( "\"FormatVersion\": 5" ), std::string::npos ) << "a nested member was cut: " << raised;
+    EXPECT_EQ( raised.find( "\"FormatVersion\": 1" ), std::string::npos ) << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::UITheme );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised file";
+    fs::remove_all( dir );
+}
+
+// A .anim at generation 3 (T7e, ANIM 3 -> 4): `Version` is cut, the header spliced in, and the clip's
+// SkeletonSignature above INT64_MAX keeps its digits - the rig a clip names by it is matched byte for byte.
+TEST( SceneMigratorWritePath, AGenerationThreeClipIsRaisedToAHeaderKeepingItsSkeletonSignature )
+{
+    const fs::path dir  = MakeTempDir( "T7e3RaiseClip" );
+    const fs::path file = dir / "Big.anim";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Version":3,"Name":"Big","TickRate":{"Denominator":1,"Numerator":24000},)"
+               R"("DisplayRate":{"Denominator":1,"Numerator":30},"DurationTicks":24000,)"
+               R"("SkeletonSignature":9748021389765177955,"Channels":[],"Notifies":[],)"
+               R"("Sections":[{"Blend":0,"EndTick":24000,"Name":"Whole clip","StartTick":0,"Tracks":[],"Weight":[]}]})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "\"SkeletonSignature\": 9748021389765177955" ), std::string::npos )
+         << "the clip's rig signature was lost (a uint64 above INT64_MAX): " << raised;
+    EXPECT_EQ( raised.find( "\"Version\"" ), std::string::npos ) << "the old version member survived: " << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::Animation );
+    EXPECT_NE( raised.find( "\"ANIM\": 4" ), std::string::npos ) << raised;
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a raised clip";
+    fs::remove_all( dir );
+}
+
+// THE CLOUD TYPE PASS (T7h, CLTY 4 -> 5): the noise volume a type names is looked up relative to the assets
+// root its Clouds/Types folder lies under, and named by {Guid, Path}, the GUID the `.dcnv` envelope states and
+// the header's one Dependency. A type that names none only moves its version.
+namespace
+{
+
+    void WriteCloudTypeV4( const fs::path& file, const Common::Content::AssetGuid& guid, const char* noise )
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Header":{"Kind":"CloudType","Guid":")" << Common::Content::AssetGuidToText( guid )
+            << R"(","Versions":{"CLTY":4},"Dependencies":[]},)";
+        if ( noise != nullptr )
+            out << R"("NoiseVolume":")" << noise << R"(",)";
+        out << kCloudTypeShapeV4 << "}";
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, ACloudTypeV4NamesItsNoiseVolumeByTheVolumesEnvelopeGuid )
+{
+    const fs::path assets = MakeTempDir( "T7hCloudTypeV4" ) / "Resources" / "Assets";
+    const fs::path types  = assets / "Clouds" / "Types";
+    fs::create_directories( types );
+
+    Desert::Assets::CloudNoiseVolumeData volume; // the default recipe: a legal volume
+    volume.Guid        = Common::Content::AssetGuid::Generate();
+    const auto encoded = Desert::Assets::EncodeCloudNoiseVolume( volume );
+    if ( !encoded )
+    {
+        ADD_FAILURE() << encoded.GetError();
+        return;
+    }
+    {
+        std::ofstream     out( assets / "Clouds" / "Fine.dcnv", std::ios::binary );
+        const std::string bytes( encoded.GetValue().begin(), encoded.GetValue().end() );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
+    }
+    const Common::Content::AssetGuid own = Common::Content::AssetGuid::Generate();
+    WriteCloudTypeV4( types / "Wisp.decloudtype", own, "Clouds/Fine.dcnv" );
+    WriteCloudTypeV4( types / "Plain.decloudtype", Common::Content::AssetGuid::Generate(), nullptr );
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { types.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( report.find( "CLTY 4 -> 5" ), std::string::npos ) << report;
+
+    const auto wisp = Desert::Assets::ParseCloudType( ReadRaw( types / "Wisp.decloudtype" ) );
+    if ( !wisp )
+    {
+        ADD_FAILURE() << wisp.GetError();
+        return;
+    }
+    const Desert::Assets::CloudTypeData& wispType = wisp.GetValue();
+    if ( !wispType.Header )
+    {
+        ADD_FAILURE() << "the migrated type states no header";
+        return;
+    }
+    const std::string volumeGuid = Common::Content::AssetGuidToText( volume.Guid );
+    EXPECT_EQ( wispType.Header->Guid, Common::Content::AssetGuidToText( own ) ) << "a second identity";
+    EXPECT_EQ( wispType.NoiseVolume, ( Desert::Assets::AssetGuidRef{ volumeGuid, "Clouds/Fine.dcnv" } ) );
+    EXPECT_EQ( wispType.Header->Dependencies, std::vector<std::string>{ volumeGuid } );
+
+    const auto plain = Desert::Assets::ParseCloudType( ReadRaw( types / "Plain.decloudtype" ) );
+    if ( !plain )
+    {
+        ADD_FAILURE() << plain.GetError();
+        return;
+    }
+    const Desert::Assets::CloudTypeData& plainType = plain.GetValue();
+    if ( !plainType.Header )
+    {
+        ADD_FAILURE() << "the migrated type states no header";
+        return;
+    }
+    EXPECT_FALSE( plainType.NoiseVolume.has_value() );
+    EXPECT_TRUE( plainType.Header->Dependencies.empty() );
+
+    const std::string raised = ReadRaw( types / "Wisp.decloudtype" );
+    EXPECT_EQ( RunTool( { types.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( types / "Wisp.decloudtype" ), raised ) << "a second run changed a CLTY 5 file";
+    fs::remove_all( assets.parent_path().parent_path() );
+}
+
+TEST( SceneMigratorWritePath, ACloudTypeV4WhoseNoiseVolumeIsMissingIsRefusedByNameAndUntouched )
+{
+    const fs::path types = MakeTempDir( "T7hCloudTypeNoVolume" ) / "Resources" / "Assets" / "Clouds" / "Types";
+    fs::create_directories( types );
+    WriteCloudTypeV4( types / "Wisp.decloudtype", Common::Content::AssetGuid::Generate(), "Clouds/Gone.dcnv" );
+    const std::string before = ReadRaw( types / "Wisp.decloudtype" );
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { types.string() }, report, errors ), 1 ) << report;
+    EXPECT_NE( errors.find( "Wisp.decloudtype" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "Gone.dcnv" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( types / "Wisp.decloudtype" ), before ) << "a refused cloud type was rewritten";
+    fs::remove_all( types.parent_path().parent_path().parent_path().parent_path() );
 }

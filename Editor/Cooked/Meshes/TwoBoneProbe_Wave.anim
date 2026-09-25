@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "709ca2d39bf08be7c141dc0d70756acc",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "TwoBoneProbe_Wave",
     "TickRate": {
         "Numerator": 24000,

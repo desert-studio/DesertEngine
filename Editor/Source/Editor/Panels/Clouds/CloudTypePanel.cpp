@@ -443,7 +443,7 @@ namespace Desert::Editor
     {
         Utils::ImGuiUtilities::SectionHeader( "Noise volume" );
 
-        const std::string current = m_Data.NoiseVolume.value_or( std::string{} );
+        const std::string current = m_Data.NoiseVolume ? m_Data.NoiseVolume->Path : std::string{};
         const std::string preview = current.empty() ? "Default (built-in volume)" : current;
 
         ImGui::SetNextItemWidth( -1.0f );
@@ -456,9 +456,16 @@ namespace Desert::Editor
             {
                 for ( const auto& [handle, volume] : m_Assets->FindAllByType<Assets::CloudNoiseVolumeAsset>() )
                 {
+                    // The GUID the volume's envelope states is what the file resolves by; a volume with
+                    // none (a bare container the load refuses) cannot be named and is not offered.
+                    const Common::Content::AssetGuid guid =
+                         Assets::CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( volume->GetMetadata().Filepath );
+                    if ( guid.IsNull() )
+                        continue;
                     const std::string relative = RelativeToAssets( volume->GetMetadata().Filepath );
                     if ( ImGui::Selectable( relative.c_str(), relative == current ) )
-                        m_Data.NoiseVolume = relative;
+                        m_Data.NoiseVolume =
+                             Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid ), relative };
                 }
             }
             ImGui::EndCombo();

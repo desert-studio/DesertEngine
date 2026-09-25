@@ -5,6 +5,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
 
+#include <span>
 #include <sstream>
 #include <string>
 
@@ -43,5 +44,18 @@ namespace Desert::Assets
         if ( !guid )
             return {};
         return guid.GetValue();
+    }
+
+    // THE HEADER A REWRITE OF `target` STATES: the GUID the file already there states, minted only for a new
+    // file. A re-import replaces the bytes, not the identity every reference names (UE keeps a package's GUID
+    // on reimport), so a cook that overwrites a path reads its GUID first.
+    [[nodiscard]] inline Common::Content::TextAssetHeaderSerialized
+    HeaderKeepingFileGuid( const Common::Filepath& target, Common::Content::ContentKind kind,
+                           std::span<const Common::Content::SubsystemVersion> subsystems )
+    {
+        Common::Content::AssetGuid guid = ReadTextHeaderGuid( target );
+        if ( guid.IsNull() )
+            guid = Common::Content::AssetGuid::Generate();
+        return Common::Content::MakeTextHeader( kind, guid, subsystems );
     }
 } // namespace Desert::Assets

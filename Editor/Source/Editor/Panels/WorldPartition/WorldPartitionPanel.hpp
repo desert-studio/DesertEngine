@@ -49,6 +49,12 @@ namespace Desert::Editor
 
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<::Desert::Core::Scene>& scene ) override;
+        // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
+        // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
+        [[nodiscard]] glm::vec2 GetDefaultSize() const override
+        {
+            return { 640.0f, 720.0f };
+        }
 
     private:
         // The Edit plan of m_Scene, rebuilt from its serialised form; the reason when there is none.
@@ -70,6 +76,8 @@ namespace Desert::Editor
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size
+        bool                    m_Fitted       = false; // the view is the last fit: a resize refits it
+        glm::dvec2              m_MapSize{ 0.0 };       // the canvas size the view was last drawn at
         bool                    m_Follow       = true; // Play: keep the streaming source centred (UE's default)
         int                     m_Level        = -1;   // -1 shows every level
         bool                    m_WasPlaying   = false;
