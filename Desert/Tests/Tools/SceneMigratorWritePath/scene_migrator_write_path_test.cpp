@@ -550,17 +550,17 @@ TEST( SceneMigratorWritePath, ASculptedCloudVolumeIsWrappedInTheEnvelopeOnceAndA
     const fs::path dir    = MakeTempDir( "T7gCloudModellingMigration" );
     const fs::path v2File = dir / "BareV2.dcmv";
     {
-        const std::string v2 =
-             std::string( "DCMV" ) + std::string( "\x02\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
+        const std::string v2 = std::string( "DCMV" ) + std::string( "\x02\0\0\0", 4 ) +
+                               std::string( payload.begin(), payload.end() );
         std::ofstream out( v2File, std::ios::binary );
         out.write( v2.data(), static_cast<std::streamsize>( v2.size() ) );
     }
 
     std::string report, errors;
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
-    const std::string raised  = ReadRaw( v2File );
-    const auto        decoded = Desert::Assets::DecodeCloudModellingVolume(
-         std::vector<unsigned char>( raised.begin(), raised.end() ) );
+    const std::string raised = ReadRaw( v2File );
+    const auto        decoded =
+         Desert::Assets::DecodeCloudModellingVolume( std::vector<unsigned char>( raised.begin(), raised.end() ) );
     ASSERT_TRUE( decoded ) << decoded.GetError() << "\n" << report << errors;
     EXPECT_FALSE( decoded.GetValue().Guid.IsNull() );
     EXPECT_EQ( decoded.GetValue().Recipe.Blobs.size(), 1u );
@@ -574,8 +574,8 @@ TEST( SceneMigratorWritePath, ASculptedCloudVolumeIsWrappedInTheEnvelopeOnceAndA
 
     const fs::path v1File = dir / "BareV1.dcmv";
     {
-        const std::string v1 =
-             std::string( "DCMV" ) + std::string( "\x01\0\0\0", 4 ) + std::string( payload.begin(), payload.end() );
+        const std::string v1 = std::string( "DCMV" ) + std::string( "\x01\0\0\0", 4 ) +
+                               std::string( payload.begin(), payload.end() );
         std::ofstream out( v1File, std::ios::binary );
         out.write( v1.data(), static_cast<std::streamsize>( v1.size() ) );
     }

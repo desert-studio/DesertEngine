@@ -1191,7 +1191,8 @@ namespace Desert::Migration
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume or other text asset files found\n";
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume or other text asset "
+                   "files found\n";
             return 2;
         }
 
@@ -1503,9 +1504,9 @@ namespace Desert::Migration
             namespace CC                        = Common::Content;
             const CC::SubsystemVersion kKnown[] = { { Desert::Assets::kCloudModellingSubsystemTag,
                                                       Desert::Assets::kCloudModellingContainerVersion } };
-            const std::string bytes   = ReadAll( path );
-            const auto*       first   = reinterpret_cast<const std::byte*>( bytes.data() );
-            constexpr size_t  kPrefix = sizeof( Desert::Assets::kCloudModellingMagic ) + 4u;
+            const std::string          bytes    = ReadAll( path );
+            const auto*                first    = reinterpret_cast<const std::byte*>( bytes.data() );
+            constexpr size_t           kPrefix  = sizeof( Desert::Assets::kCloudModellingMagic ) + 4u;
             if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudModellingMagic,
                                                         sizeof( Desert::Assets::kCloudModellingMagic ) ) != 0 )
             {
