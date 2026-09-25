@@ -86,9 +86,6 @@ namespace
         {
         }
 
-        void InitializeDefaults() override
-        {
-        }
         void ApplyUniformBuffer( MaterialProperty* ) override
         {
         }
@@ -132,13 +129,13 @@ namespace
         }
     }
 
-    // Long enough to outlast the dirty window (frames-in-flight x renderer slots), so a failure cannot be
+    // Long enough to outlast the dirty window (frames in flight x open views), so a failure cannot be
     // "it just had not caught up yet".
     constexpr int kFramesPerVisit = 40;
 } // namespace
 
 // A -> B -> A. The protocol the defect was measured with, at the link that lost it.
-TEST( EnvironmentSlotMemory, ReturningToASceneRestoresThatScenesEnvironment )
+TEST( EnvironmentViewMemory, ReturningToASceneRestoresThatScenesEnvironment )
 {
     EnsureEngineSingletons();
 
@@ -167,7 +164,7 @@ TEST( EnvironmentSlotMemory, ReturningToASceneRestoresThatScenesEnvironment )
 // The same statement without the "A -> B -> A" shape: the slot is a function of the CURRENT scene alone.
 // Stronger than the sequence above, because it forbids the defect in every interleaving rather than in
 // the one that was noticed.
-TEST( EnvironmentSlotMemory, TheSlotIsAFunctionOfTheCurrentSceneAlone )
+TEST( EnvironmentViewMemory, TheSlotIsAFunctionOfTheCurrentSceneAlone )
 {
     EnsureEngineSingletons();
 
@@ -196,7 +193,7 @@ TEST( EnvironmentSlotMemory, TheSlotIsAFunctionOfTheCurrentSceneAlone )
 
 // §1.4: an empty answer must be DISTINGUISHABLE from no answer. A cleared slot has to reach the backend,
 // or the descriptor is never rewritten and the clearing is a no-op with a clean conscience.
-TEST( EnvironmentSlotMemory, ClearingASlotIssuesADescriptorWrite )
+TEST( EnvironmentViewMemory, ClearingASlotIssuesADescriptorWrite )
 {
     EnsureEngineSingletons();
 
@@ -294,7 +291,7 @@ namespace
     }
 } // namespace
 
-TEST( EnvironmentSlotMemory, TheForwardApplierStatesAbsence )
+TEST( EnvironmentViewMemory, TheForwardApplierStatesAbsence )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -313,7 +310,7 @@ TEST( EnvironmentSlotMemory, TheForwardApplierStatesAbsence )
     EXPECT_NE( body.find( "SetTexture( prefiltered )" ), std::string::npos );
 }
 
-TEST( EnvironmentSlotMemory, TheDeferredCompositeStatesAbsence )
+TEST( EnvironmentViewMemory, TheDeferredCompositeStatesAbsence )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -335,7 +332,7 @@ TEST( EnvironmentSlotMemory, TheDeferredCompositeStatesAbsence )
 // The slot property itself, read as text: the guard that was removed must not come back wearing a
 // different spelling. The behavioural tests above would catch it, and this says WHY in the place a
 // reader of the diff will be standing.
-TEST( EnvironmentSlotMemory, TheCubeSlotWritesEvenWhenItHasNothing )
+TEST( EnvironmentViewMemory, TheCubeSlotWritesEvenWhenItHasNothing )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );

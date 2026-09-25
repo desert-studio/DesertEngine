@@ -192,7 +192,15 @@ namespace Desert::Graphic::API::Vulkan
         if ( descriptorPool == VK_NULL_HANDLE )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-        m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex } );
+        m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex, {} } );
+    }
+
+    void VulkanAllocator::RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets )
+    {
+        if ( pool == VK_NULL_HANDLE || sets.empty() )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_DescriptorPoolDeletionQueue.push_back( { pool, frameIndex, std::move( sets ) } );
     }
 
     MappedMemory VulkanAllocator::MapMemory( VmaAllocation allocation )
@@ -325,14 +333,40 @@ namespace Desert::Graphic::API::Vulkan
 
         for ( auto it = m_DescriptorPoolDeletionQueue.begin(); it != m_DescriptorPoolDeletionQueue.end(); )
         {
-            if ( takeFrame( it->FrameIndex ) )
+            if ( !takeFrame( it->FrameIndex ) )
             {
-                vkDestroyDescriptorPool( device, it->DescriptorPool, nullptr );
+                ++it;
+                continue;
+            }
+            if ( !it->Sets.empty() )
+            {
+                vkFreeDescriptorSets( device, it->DescriptorPool, static_cast<uint32_t>( it->Sets.size() ),
+                                      it->Sets.data() );
                 it = m_DescriptorPoolDeletionQueue.erase( it );
                 ++destroyed;
+                continue;
             }
-            else
-                ++it;
+            // Destroying the pool frees every set still in it. A free of this pool's sets queued on a
+            // frame the ring has not come round to yet would then name dead handles: drop it with the pool.
+            auto* const pool = it->DescriptorPool;
+            vkDestroyDescriptorPool( device, pool, nullptr );
+            auto next = static_cast<std::size_t>( m_DescriptorPoolDeletionQueue.erase( it ) -
+                                                  m_DescriptorPoolDeletionQueue.begin() );
+            ++destroyed;
+            for ( std::size_t pending = 0; pending < m_DescriptorPoolDeletionQueue.size(); )
+            {
+                const auto& entry = m_DescriptorPoolDeletionQueue[pending];
+                if ( entry.DescriptorPool == pool && !entry.Sets.empty() )
+                {
+                    m_DescriptorPoolDeletionQueue.erase( m_DescriptorPoolDeletionQueue.begin() +
+                                                         static_cast<std::ptrdiff_t>( pending ) );
+                    if ( pending < next )
+                        --next;
+                }
+                else
+                    ++pending;
+            }
+            it = m_DescriptorPoolDeletionQueue.begin() + static_cast<std::ptrdiff_t>( next );
         }
 
         return destroyed;

@@ -51,6 +51,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         VkDescriptorPool DescriptorPool;
         uint32_t         FrameIndex;
+        // Empty: destroy the pool. Non-empty: free these sets back into it and keep the pool. One queue
+        // for both, because a pool destroyed first frees its sets implicitly and the drain has to know.
+        std::vector<VkDescriptorSet> Sets;
     };
 
     class VulkanAllocator
@@ -94,6 +97,9 @@ namespace Desert::Graphic::API::Vulkan
         // them exactly as a buffer does: a material or a view destroyed mid-session may still have its sets
         // in a command buffer the GPU has not finished.
         void RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool );
+        // Frees @p sets back into @p pool once the frame that may still bind them has finished. The pool
+        // must have been created with VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
+        void RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets );
 
         /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();

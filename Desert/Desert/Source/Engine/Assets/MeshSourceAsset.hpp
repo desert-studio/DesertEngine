@@ -12,8 +12,8 @@
 //   Meta     display name + bounds of the source positions (cm) — what the registry and a thumbnail read
 //            without the body; it replaces the Reserved/flag bounds of the DESTMESH render header
 //   IMPT     MeshImportInfo: provenance (stable key and content hash of the imported file) + import settings
-//   SRCE     MeshSourceData: the EditMeshSer (our FMeshDescription), the material slots, and for a skinned
-//            mesh its skin (bone names + per-vertex influences)
+//   SRCE     MeshSourceData: the source models, one EditMeshSer (our FMeshDescription) per authored LOD, the
+//            material slots they share, and for a skinned mesh its skin (bone names + per-vertex influences)
 //
 // Sections are written and read in exactly that order (META, IMPT, SRCE), nothing else: the order is part
 // of the format so a read-then-write reproduces the file byte for byte, and a file assembled any other way
@@ -113,11 +113,24 @@ namespace Desert::Assets
         bool                           operator==( const MeshSkin& ) const = default;
     };
 
+    // One LOD's editable source (UE FStaticMeshSourceModel, StaticMesh.h:657 - one per LOD, each owning its own
+    // FMeshDescription). Model 0 is LOD0; a model k >= 1 is an AUTHORED LOD (the file's "<name>_LOD<k>"
+    // sibling), which the builder folds into the render LOD chain instead of simplifying LOD0.
+    struct MeshSourceModel
+    {
+        Geometry::EditMeshSer Mesh;
+        bool                  operator==( const MeshSourceModel& ) const = default;
+    };
+
     struct MeshSourceData
     {
-        Geometry::EditMeshSer         Mesh;
+        // LOD0 first, never empty. Every model's MaterialIds index the ONE slot table below (UE StaticMaterials
+        // are shared by all LODs).
+        std::vector<MeshSourceModel>  Models;
         std::vector<MeshMaterialSlot> MaterialSlots;
-        std::optional<MeshSkin>       Skin; // present exactly when the asset is a SkinnedMesh
+        // Present exactly when the asset is a SkinnedMesh; its influences name LOD0's vertices, and a skinned
+        // source has exactly one model (per-LOD skins arrive with the skinned builder, AF4f).
+        std::optional<MeshSkin>       Skin;
         bool                          operator==( const MeshSourceData& ) const = default;
     };
 
@@ -133,7 +146,7 @@ namespace Desert::Assets
 
     // The header's dependency list: every non-null slot material, first occurrence order, no repeats.
     std::vector<Common::Content::AssetGuid> MeshSourceDependencies( const MeshSourceData& source );
-    // Bounds of the source positions, cm; nullopt for a mesh with no vertices.
+    // Bounds of the source positions, cm; nullopt for a mesh with no vertices. The asset's Meta bounds are LOD0's.
     std::optional<Common::Content::EnvelopeBounds> MeshSourceBounds( const Geometry::EditMeshSer& mesh );
 
     // Refuse anything that is not a well-formed asset: a kind other than the two mesh kinds, a skin that

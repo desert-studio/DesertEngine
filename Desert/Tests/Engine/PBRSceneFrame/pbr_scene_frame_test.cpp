@@ -5,7 +5,7 @@
 // name — the shadow cascades and the IBL environment — were written by the static path only, so a
 // skinned mesh was the one class of geometry in the engine that received neither. Nothing crashed and no
 // validation layer said anything, because an unwritten descriptor here is not undefined memory: the
-// backend seeds every binding first (VulkanMaterialBackend::InitializeWithFallbacks), so `ShadowUB` kept
+// backend seeds every binding first (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept
 // the zero-filled dummy buffer — `u_ShadowParams.y == 0`, cascades silently OFF — while the environment
 // trio kept its fallback images, which sample black, so the split-sum ambient was zero and a skinned
 // surface was lit by the sun and the anti-black floor alone no matter what the sky was doing.
