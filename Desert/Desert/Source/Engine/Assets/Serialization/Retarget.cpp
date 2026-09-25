@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 
@@ -244,6 +245,27 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<RetargetAssetData>( "retarget {}", headed.GetError() );
         }
 
+        // A VERSION-2 FILE NAMES ITS RIG BY A BARE PATH, a shape the typed read below cannot take, so its
+        // refusal would be a JSON type error that names no version. The stated version is read from the
+        // header alone first, and the refusal names it and the migrator.
+        {
+            std::istringstream in( text );
+            if ( const auto object = Common::Content::ReadTextHeaderObject( in ); object )
+            {
+                if ( const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() ); header )
+                {
+                    if ( const int stated = Assets::StatedVersion( header.GetValue(), Assets::kRetargetSchemaTag );
+                         stated != kRetargetVersion )
+                    {
+                        return Common::MakeFormattedError<RetargetAssetData>(
+                             "retarget format version {} (RTGT) was written by a different build; this one reads "
+                             "version {}; run Tools/SceneMigrator",
+                             stated, kRetargetVersion );
+                    }
+                }
+            }
+        }
+
         const auto parsed = rfl::json::read<RetargetAssetData>( text );
         if ( !parsed )
         {
@@ -346,7 +368,7 @@ namespace Desert::Assets::Serialization
     }
 
     RetargetAssetData BuildDataFromRetargetSetup( const std::string&         name,
-                                                  const RetargetSkeletonRef& sourceSkeleton,
+                                                  const AssetGuidRef& sourceSkeleton,
                                                   const RetargetSetup&       setup )
     {
         RetargetAssetData out;

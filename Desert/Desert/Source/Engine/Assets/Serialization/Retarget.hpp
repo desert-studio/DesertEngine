@@ -97,6 +97,7 @@
  */
 
 #include <Engine/Animation/Retarget/Retargeter.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -239,20 +240,6 @@ namespace Desert::Assets::Serialization
     };
 
     /**
-     * @brief The source rig as a retarget names it: the `.skeleton`'s header GUID, which IS its identity
-     * (SkeletonAsset adopts HandleForGuid of it), and its path RELATIVE to the cooked meshes root (e.g.
-     * "IKProbe.skeleton"). The GUID resolves; the path is what a reader of the file and a warning name.
-     * A rig renamed on disk still resolves, which a path alone could not.
-     */
-    struct RetargetSkeletonRef
-    {
-        std::string Guid;
-        std::string Path;
-
-        [[nodiscard]] bool operator==( const RetargetSkeletonRef& ) const = default;
-    };
-
-    /**
      * @brief One retarget on disk — the pair, and everything authored about it.
      *
      * `SourceSkeleton` IS THE SOURCE HALF OF THE PAIR and the field this format exists for; see the file
@@ -268,8 +255,9 @@ namespace Desert::Assets::Serialization
 
         /// The `.skeleton` the CLIPS are authored on. Resolved by GUID in `RetargetAsset::ResolveDependencies`;
         /// its GUID is the header's one Dependency (WriteRetarget states it, ParseRetarget refuses a
-        /// disagreement). See the file note for why this is not a signature.
-        RetargetSkeletonRef SourceSkeleton;
+        /// disagreement). The path is RELATIVE to the cooked meshes root (e.g. "IKProbe.skeleton") and is
+        /// what a reader and every warning name. See the file note for why this is not a signature.
+        AssetGuidRef SourceSkeleton;
 
         std::string SourcePelvisBone;
         std::string TargetPelvisBone;
@@ -350,7 +338,7 @@ namespace Desert::Assets::Serialization
     /// The exact mirror of `BuildRetargetSetup`, and it lives beside it for `BuildDataFromControlRig`'s
     /// reason: a format whose two directions are not testable together is a format whose round trip is an
     /// assumption.
-    NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string&         name,
-                                                             const RetargetSkeletonRef& sourceSkeleton,
+    NO_DISCARD RetargetAssetData BuildDataFromRetargetSetup( const std::string&  name,
+                                                             const AssetGuidRef& sourceSkeleton,
                                                              const Animation::Retarget::RetargetSetup& setup );
 } // namespace Desert::Assets::Serialization

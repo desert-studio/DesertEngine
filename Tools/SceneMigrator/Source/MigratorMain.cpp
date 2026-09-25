@@ -45,6 +45,8 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
 #include "LegacyMaterialIds.hpp"
@@ -344,9 +346,10 @@ namespace
          // .derig 1 -> 2 (T7c).
          TextHeaderRaise{ ".derig", Common::Content::ContentKind::ControlRig, Desert::Assets::kControlRigSchemaTag,
                           1, Desert::Assets::kControlRigSchemaVersion, "FormatVersion", true },
-         // .retarget 1 -> 2 (T7c).
+         // .retarget 1 -> 2 (T7c). The literal 2 and not kRetargetSchemaVersion: RTGT 3 (T7f) names the rig by
+         // GUID, which this splice cannot state, so a v1 file lands at 2 and RaiseRetargetV2ToV3 takes it on.
          TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
-                          1, Desert::Assets::kRetargetSchemaVersion, "FormatVersion", true },
+                          1, 2, "FormatVersion", true },
          // .danimgraph 0 -> 1 (T7d): generation 0 stated no version member at all.
          TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph,
                           Desert::Assets::kAnimGraphSchemaTag, 0, Desert::Assets::kAnimGraphSchemaVersion, nullptr,
@@ -416,6 +419,87 @@ namespace
             body = std::move( *cut );
         }
         return Common::MakeSuccess( std::optional<std::string>( PrependHeaderMember( body, headerText ) ) );
+    }
+
+    // RTGT 2 AS IT WAS WRITTEN, frozen here: the rig a bare path relative to the cooked meshes root. Every
+    // other member is the engine's own row type, which RTGT 3 did not change.
+    struct RetargetDataV2
+    {
+        std::optional<Common::Content::TextAssetHeaderSerialized>       Header;
+        std::string                                                     Name;
+        std::string                                                     SourceSkeleton;
+        std::string                                                     SourcePelvisBone;
+        std::string                                                     TargetPelvisBone;
+        Desert::Assets::Serialization::RetargetPoseData                 SourceRetargetPose;
+        Desert::Assets::Serialization::RetargetPoseData                 TargetRetargetPose;
+        std::vector<Desert::Assets::Serialization::RetargetChainData>      Chains;
+        std::vector<Desert::Assets::Serialization::RetargetBoneRenameData> BoneRenames;
+    };
+
+    // .retarget RTGT 2 -> 3 (T7f): the source rig named by {Guid, Path}, the GUID read out of the named
+    // `.skeleton`'s own header. nullopt when the text already states 3; any other version, or a rig that is
+    // not there or states no GUID, is refused by name and the caller leaves the file untouched.
+    //
+    // THE RIG IS LOOKED UP WHERE THE ENGINE LOOKS: the project's Cooked/Meshes, beside the assets root
+    // (`<project>/Resources/Assets`) this retarget lies under - the mesh step's reading of the same layout.
+    // The text written is the engine's own WriteRetarget (header GUID kept, Dependencies stated) and it
+    // must pass the engine's own ParseRetarget before the caller writes a byte.
+    Common::ResultStr<std::optional<std::string>> RaiseRetargetV2ToV3( const std::filesystem::path& path,
+                                                                       const std::string&           text )
+    {
+        using Result    = std::optional<std::string>;
+        namespace File  = Desert::Assets::Serialization;
+        namespace Paths = Common::Constants::Path;
+        const auto parsed = rfl::json::read<RetargetDataV2>( text );
+        const auto stated = [&]() -> int
+        {
+            if ( parsed )
+                return Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kRetargetSchemaTag );
+            const auto current = rfl::json::read<File::RetargetAssetData>( text );
+            return current ? Desert::Assets::StatedVersion( current.value().Header, Desert::Assets::kRetargetSchemaTag )
+                           : 0;
+        }();
+        if ( stated == File::kRetargetVersion )
+            return Common::MakeSuccess( Result{} );
+        if ( !parsed || stated != 2 )
+            return Common::MakeError<Result>( "not a readable RTGT 2 retarget (states RTGT " + std::to_string( stated ) +
+                                              ")" + ( parsed ? "" : std::string( ": " ) + parsed.error().what() ) );
+        const RetargetDataV2& v2 = parsed.value();
+
+        auto assetsRoot = Paths::RootForContentPath( Paths::ContentDir::Retarget, path );
+        if ( assetsRoot && assetsRoot->filename().empty() )
+            assetsRoot = assetsRoot->parent_path();
+        const std::filesystem::path sandbox( Paths::SANDBOX_ASSETS_ROOT );
+        if ( !assetsRoot || assetsRoot->filename() != sandbox.filename() ||
+             assetsRoot->parent_path().filename() != sandbox.parent_path().filename() )
+            return Common::MakeError<Result>( "lies under no <project>/" + sandbox.generic_string() +
+                                              "/Retargets folder, so there is no Cooked/Meshes holding its rig '" +
+                                              v2.SourceSkeleton + "'" );
+        const std::filesystem::path meshesCooked =
+             Paths::CONTENT_DIRS[static_cast<std::size_t>( Paths::ContentDir::MeshCooked )].Rel;
+        const std::filesystem::path rig =
+             ( assetsRoot->parent_path().parent_path() / Paths::COOKED_DIR_NAME / meshesCooked / v2.SourceSkeleton )
+                  .lexically_normal();
+        const Common::Content::AssetGuid rigGuid = Desert::Assets::ReadTextHeaderGuid( rig );
+        if ( rigGuid.IsNull() )
+            return Common::MakeError<Result>( "its source rig " + rig.generic_string() +
+                                              " is missing or states no header GUID; raise the rig first" );
+
+        File::RetargetAssetData v3;
+        v3.Header             = v2.Header;
+        v3.Name               = v2.Name;
+        v3.SourceSkeleton     = { Common::Content::AssetGuidToText( rigGuid ), v2.SourceSkeleton };
+        v3.SourcePelvisBone   = v2.SourcePelvisBone;
+        v3.TargetPelvisBone   = v2.TargetPelvisBone;
+        v3.SourceRetargetPose = v2.SourceRetargetPose;
+        v3.TargetRetargetPose = v2.TargetRetargetPose;
+        v3.Chains             = v2.Chains;
+        v3.BoneRenames        = v2.BoneRenames;
+        std::string written   = File::WriteRetarget( v3 );
+        if ( auto loadable = File::ParseRetarget( written ); !loadable )
+            return Common::MakeError<Result>( "the raised text does not pass the engine's own ParseRetarget: " +
+                                              loadable.GetError() );
+        return Common::MakeSuccess( Result( std::move( written ) ) );
     }
 
     Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
@@ -1832,22 +1916,44 @@ namespace Desert::Migration
         {
             if ( const TextHeaderRaise* row = TextHeaderRaiseFor( path ) )
             {
-                const std::string                source = ReadAll( path );
+                std::string                      text   = ReadAll( path );
                 const Common::Content::AssetGuid guid   = Common::Content::AssetGuid::Generate();
-                const auto                       raised = RaiseTextToHeader( *row, source, guid );
+                const auto                       raised = RaiseTextToHeader( *row, text, guid );
                 if ( !raised )
                 {
                     err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
+                std::ostringstream steps;
                 if ( raised.GetValue().has_value() )
                 {
-                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — "
-                        << Common::Content::KindName( row->Kind ) << " v" << row->FromVersion << " -> v"
-                        << row->ToVersion << ", GUID " << Common::Content::AssetGuidToText( guid ) << "\n";
+                    steps << Common::Content::KindName( row->Kind ) << " v" << row->FromVersion << " -> v"
+                          << row->ToVersion << ", GUID " << Common::Content::AssetGuidToText( guid );
+                    text = *raised.GetValue();
+                }
+                // Chained in the same run, so a v1 retarget lands at RTGT 3 and never waits on disk at 2.
+                if ( row->Kind == Common::Content::ContentKind::Retarget )
+                {
+                    const auto rigged = RaiseRetargetV2ToV3( path, text );
+                    if ( !rigged )
+                    {
+                        err << "FAIL   " << path.string() << " — RTGT 2 -> 3: " << rigged.GetError()
+                            << " (original untouched)\n";
+                        ++failed;
+                        continue;
+                    }
+                    if ( rigged.GetValue().has_value() )
+                    {
+                        steps << ( steps.tellp() > 0 ? "; " : "" ) << "RTGT 2 -> 3, source rig by GUID";
+                        text = *rigged.GetValue();
+                    }
+                }
+                if ( steps.tellp() > 0 )
+                {
+                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — " << steps.str() << "\n";
                     ++changed;
-                    if ( !check && !WriteText( path, *raised.GetValue(), err ) )
+                    if ( !check && !WriteText( path, text, err ) )
                         ++failed;
                     continue;
                 }

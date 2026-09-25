@@ -42,6 +42,13 @@ project(test_name)
         -- ENGINE'S own writer, gate-checked by the ENGINE'S own loader gate — so a suite that compiles
         -- the loop has to bring that pair with it, for the same reason it brings the reflection table.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
+        -- THE RETARGET WRITER AND GATE, since T7f: the RTGT 2 -> 3 step writes through the engine's own
+        -- WriteRetarget and gates with its own ParseRetarget. Retarget.cpp builds a RetargetPose, whose
+        -- Apply reads the bind pose of a Skeleton, so the three come with it; all pure, no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
 
     -- Reflection.gen.cpp is emitted by DesertHeaderTool as a prebuild step of `Desert`.

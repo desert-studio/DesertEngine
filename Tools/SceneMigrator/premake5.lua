@@ -58,6 +58,13 @@ project "SceneMigrator"
         -- dependency on the asset system or on anything with a GPU in it.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
+        -- THE RETARGET WRITER AND GATE, since T7f: the RTGT 2 -> 3 step writes through the engine's own
+        -- WriteRetarget and gates with its own ParseRetarget. Retarget.cpp builds a RetargetPose, whose
+        -- Apply reads the bind pose of a Skeleton, so the three come with it; all pure, no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
     }
 
     dependson { "Desert" }

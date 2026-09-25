@@ -17,6 +17,8 @@
 #include <SceneMigration.hpp>
 
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/Serialization/Retarget.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -25,6 +27,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -623,10 +626,125 @@ TEST( SceneMigratorWritePath, AControlRigGainsAHeaderGuidOnceAndASecondRunChange
                               R"("Name":"R","Controls":[],"Drives":[])" );
 }
 
-TEST( SceneMigratorWritePath, ARetargetGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+// THE RETARGET PASSES (T7c 1 -> 2, T7f 2 -> 3). RTGT 3 names the source rig by the GUID its `.skeleton`
+// states, so the step needs the project layout the engine resolves the rig in: `<project>/Resources/Assets/
+// Retargets` beside `<project>/Cooked/Meshes`. The two steps chain in one run, so a v1 file lands at 3.
+namespace
 {
-    ExpectTextKindRaisedOnce( ".retarget", Common::Content::ContentKind::Retarget,
-                              R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton")" );
+    struct RetargetProject
+    {
+        fs::path                   Retargets;
+        fs::path                   Rig;
+        Common::Content::AssetGuid RigGuid;
+    };
+
+    RetargetProject MakeRetargetProject( const char* name, bool withRig = true )
+    {
+        const fs::path  dir = MakeTempDir( name );
+        RetargetProject project{ dir / "Resources" / "Assets" / "Retargets", dir / "Cooked" / "Meshes" / "ForeignArm.skeleton",
+                                 Common::Content::AssetGuid::Generate() };
+        fs::create_directories( project.Retargets );
+        fs::create_directories( project.Rig.parent_path() );
+        if ( withRig )
+        {
+            const std::array<Common::Content::SubsystemVersion, 1> versions = {
+                 Common::Content::SubsystemVersion{ Desert::Assets::kSkeletonSchemaTag, 1 } };
+            std::ofstream out( project.Rig, std::ios::binary );
+            out << "{\"" << Common::Content::kTextHeaderMember << "\":"
+                << rfl::json::write(
+                        Common::Content::MakeTextHeader( Common::Content::ContentKind::Skeleton, project.RigGuid, versions ) )
+                << R"(,"Signature":1,"Bones":[]})";
+        }
+        return project;
+    }
+
+    // Everything a retarget states besides its version and its rig, valid for ParseRetarget.
+    constexpr const char* kRetargetBody =
+         R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton","SourcePelvisBone":"Hip","TargetPelvisBone":"Hip",)"
+         R"("SourceRetargetPose":{"BoneOffsets":[],"PelvisOffset":[0,0,0]},)"
+         R"("TargetRetargetPose":{"BoneOffsets":[],"PelvisOffset":[0,0,0]},"Chains":[],"BoneRenames":[])";
+
+    void WriteRetargetV2( const fs::path& file, const Common::Content::AssetGuid& guid )
+    {
+        const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ Desert::Assets::kRetargetSchemaTag, 2 } };
+        std::ofstream out( file, std::ios::binary );
+        out << "{\"" << Common::Content::kTextHeaderMember << "\":"
+            << rfl::json::write( Common::Content::MakeTextHeader( Common::Content::ContentKind::Retarget, guid, versions ) )
+            << "," << kRetargetBody << "}";
+    }
+
+    // The raised file read by the ENGINE'S loader, the rig by {Guid, Path}, the header's one Dependency the
+    // rig; then a second run and a check change nothing. Returns the header GUID the file states.
+    std::string ExpectRetargetAtV3( const RetargetProject& project, const fs::path& file )
+    {
+        const std::string raised = ReadRaw( file );
+        const auto        parsed = Desert::Assets::Serialization::ParseRetarget( raised );
+        EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() ) << "\n" << raised;
+        if ( !parsed.IsSuccess() )
+            return {};
+        const auto& data = parsed.GetValue();
+        EXPECT_EQ( data.SourceSkeleton.Guid, Common::Content::AssetGuidToText( project.RigGuid ) );
+        EXPECT_EQ( data.SourceSkeleton.Path, "ForeignArm.skeleton" );
+        EXPECT_EQ( data.Header->Dependencies, std::vector<std::string>{ data.SourceSkeleton.Guid } );
+        EXPECT_EQ( Desert::Assets::StatedVersion( data.Header, Desert::Assets::kRetargetSchemaTag ), 3 );
+
+        std::string report;
+        std::string errors;
+        EXPECT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 0 ) << errors;
+        EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed an RTGT 3 file";
+        EXPECT_EQ( RunTool( { "--check", project.Retargets.string() }, report, errors ), 0 ) << report << errors;
+        return data.Header->Guid;
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, ARetargetV1GainsAHeaderGuidAndItsRigsGuidInOneRun )
+{
+    const RetargetProject project = MakeRetargetProject( "T7fRetargetV1" );
+    const fs::path        file    = project.Retargets / "Arm.retarget";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"FormatVersion":1,)" << kRetargetBody << "}";
+    }
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( report.find( "RTGT 2 -> 3" ), std::string::npos ) << report;
+    const std::string guid = ExpectRetargetAtV3( project, file );
+    EXPECT_FALSE( guid.empty() );
+    EXPECT_NE( guid, Common::Content::AssetGuidToText( project.RigGuid ) ) << "the retarget took the rig's GUID";
+    fs::remove_all( project.Retargets.parent_path().parent_path().parent_path() );
+}
+
+TEST( SceneMigratorWritePath, ARetargetV2NamesItsRigByGuidAndKeepsItsOwn )
+{
+    const RetargetProject            project = MakeRetargetProject( "T7fRetargetV2" );
+    const fs::path                   file    = project.Retargets / "Arm.retarget";
+    const Common::Content::AssetGuid own     = Common::Content::AssetGuid::Generate();
+    WriteRetargetV2( file, own );
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_EQ( ExpectRetargetAtV3( project, file ), Common::Content::AssetGuidToText( own ) )
+         << "the raise minted a second identity for the retarget";
+    fs::remove_all( project.Retargets.parent_path().parent_path().parent_path() );
+}
+
+TEST( SceneMigratorWritePath, ARetargetV2WhoseRigIsMissingIsRefusedByNameAndUntouched )
+{
+    const RetargetProject project = MakeRetargetProject( "T7fRetargetNoRig", false );
+    const fs::path        file    = project.Retargets / "Arm.retarget";
+    WriteRetargetV2( file, Common::Content::AssetGuid::Generate() );
+    const std::string before = ReadRaw( file );
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { project.Retargets.string() }, report, errors ), 1 ) << report;
+    EXPECT_NE( errors.find( "Arm.retarget" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "ForeignArm.skeleton" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( file ), before ) << "a refused retarget was rewritten";
+    fs::remove_all( project.Retargets.parent_path().parent_path().parent_path() );
 }
 
 // THE ANIM GRAPH PASS (T7d, 0 -> 1): generation 0 stated no version member at all, so every headerless file
