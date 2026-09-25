@@ -1405,6 +1405,14 @@ TEST( AssetHandleStability, AControlRigHandleIsHandleForGuidOfItsHeader )
     std::filesystem::remove_all( file.parent_path() );
 }
 
+TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
+{
+    const auto file =
+         CopyCorpusFile( "Editor/Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", "T7dAnimGraphHandle" );
+    ExpectHeaderGuidIdentity<Desert::Assets::AnimGraphAsset>( file, Common::Content::ContentKind::AnimGraph );
+    std::filesystem::remove_all( file.parent_path() );
+}
+
 TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 {
     const auto file =

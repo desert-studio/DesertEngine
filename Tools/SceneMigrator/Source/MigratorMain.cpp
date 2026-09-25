@@ -245,7 +245,8 @@ namespace
         uint32_t                     Tag;
         int                          FromVersion;
         uint32_t                     ToVersion;
-        // The member the old generation stated its version in; dropped by the raise.
+        // The member the old generation stated its version in; dropped by the raise. nullptr when the old
+        // generation stated no version at all (the anim graph): every headerless file of it IS FromVersion.
         const char* VersionMember;
         // Whether a file that left the member out IS FromVersion (the string table and the theme said
         // "absent means 1"), or states nothing the step may assume (the cloud type).
@@ -270,6 +271,10 @@ namespace
          // .retarget 1 -> 2 (T7c).
          TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
                           1, Desert::Assets::kRetargetSchemaVersion, "FormatVersion", true },
+         // .danimgraph 0 -> 1 (T7d): generation 0 stated no version member at all.
+         TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph,
+                          Desert::Assets::kAnimGraphSchemaTag, 0, Desert::Assets::kAnimGraphSchemaVersion, nullptr,
+                          true },
     };
 
     const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
@@ -293,7 +298,9 @@ namespace
         const rfl::Generic::Object fields = tree.value().to_object().value();
         if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
             return Common::MakeSuccess( std::optional<std::string>{} );
-        const auto stated  = fields.get( row.VersionMember );
+        const std::string member  = row.VersionMember != nullptr ? row.VersionMember : "";
+        const auto        stated  = row.VersionMember != nullptr ? fields.get( member )
+                                                                 : rfl::Result<rfl::Generic>( rfl::Error( "unstated" ) );
         const auto version = [&]() -> rfl::Result<int>
         {
             if ( stated.has_value() )
@@ -315,7 +322,7 @@ namespace
         rfl::Generic::Object raised;
         raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
         for ( const auto& [key, value] : fields )
-            if ( key != row.VersionMember )
+            if ( row.VersionMember == nullptr || key != member )
                 raised[key] = value;
         return Common::MakeSuccess( std::optional<std::string>( rfl::json::write( rfl::Generic( raised ) ) ) );
     }
@@ -466,9 +473,21 @@ namespace
                 return false;
             }
 
+            // THE STEP WROTE GENERATION 0 (no header, as a v21 scene's graphs were); the file gains its header
+            // here, ONCE PER PATH, so graphs shared by bytes above still share one GUID (T7d, ANGR 0 -> 1).
+            const auto raised = RaiseTextToHeader( *TextHeaderRaiseFor( graphPath ), graph.Json,
+                                                   Common::Content::AssetGuid::Generate() );
+            if ( !raised || !raised.GetValue().has_value() )
+            {
+                err << "FAIL   " << graphPath.string() << " — the anim graph could not be given its header"
+                    << ( raised ? std::string() : ": " + raised.GetError() ) << "; " << source.string()
+                    << " is left at its old version\n";
+                return false;
+            }
             std::error_code ec;
             std::filesystem::create_directories( graphPath.parent_path(), ec );
-            if ( !WriteText( graphPath, graph.Json, err ) )
+            // value_or, not *: the has_value() above sits behind the Result, where clang-tidy cannot see it.
+            if ( !WriteText( graphPath, raised.GetValue().value_or( std::string() ), err ) )
             {
                 err << "FAIL   " << graphPath.string() << " — the anim graph could not be written; "
                     << source.string() << " is left at its old version\n";

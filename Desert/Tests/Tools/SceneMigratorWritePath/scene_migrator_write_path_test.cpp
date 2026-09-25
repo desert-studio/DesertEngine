@@ -628,3 +628,33 @@ TEST( SceneMigratorWritePath, ARetargetGainsAHeaderGuidOnceAndASecondRunChangesN
     ExpectTextKindRaisedOnce( ".retarget", Common::Content::ContentKind::Retarget,
                               R"("Name":"X","SourceSkeleton":"ForeignArm.skeleton")" );
 }
+
+// THE ANIM GRAPH PASS (T7d, 0 -> 1): generation 0 stated no version member at all, so every headerless file
+// is raised; a second run changes nothing.
+TEST( SceneMigratorWritePath, AnAnimGraphGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    const fs::path dir  = MakeTempDir( "T7dRaiseAnimGraph" );
+    const fs::path file = dir / "Locomotion.danimgraph";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Name":"Locomotion","Entry":"Idle","Parameters":[],"States":[]})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "Locomotion" ), std::string::npos ) << "the payload was lost: " << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
+    EXPECT_FALSE( header.GetValue().Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Subsystems[0].Version, 1u );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v1 file (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}

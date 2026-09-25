@@ -1,4 +1,5 @@
 #include <Engine/Assets/AnimGraphAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -13,6 +14,14 @@ namespace Desert::Assets
          : AssetBase( priority, filepath, AssetTypeID::AnimGraph )
     {
         m_DisplayName = m_Metadata.Filepath.stem().string();
+
+        // THE GRAPH'S IDENTITY IS ITS HEADER GUID (ANGR 1, T7d), adopted HERE for ControlRigAsset's reason:
+        // the asset manager keys its handle lookup at creation. A file with no readable header keeps the
+        // path-derived handle - the load refuses it by name, so none is ever READY under it.
+        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( m_Metadata.Filepath );
+        if ( !guid.IsNull() )
+            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
+                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
     Common::BoolResultStr AnimGraphAsset::LoadFromFile()

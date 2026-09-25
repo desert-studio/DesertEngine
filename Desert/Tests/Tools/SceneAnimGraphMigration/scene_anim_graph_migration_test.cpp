@@ -87,7 +87,8 @@ namespace
         state.Clip = clip;
         graph.States.push_back( state );
         graph.Entry = "Idle";
-        return Desert::Animation::Graph::Serialize( graph );
+        // A scene blob as a v20 build wrote it: generation 0, no header (ANGR 1 is T7d's).
+        return rfl::json::write( graph );
     }
 
     const rfl::Generic::Object& AnimationOf( const Desert::Assets::EntityData& entity )
@@ -117,12 +118,17 @@ TEST( SceneAnimGraphMigration, ABlobBecomesAFileAndTheEntityNamesIt )
     ASSERT_EQ( report.Graphs.size(), 1u );
     EXPECT_EQ( report.Graphs[0].RelativePath, "AnimGraphs/Locomotion.danimgraph" );
 
-    // The bytes are the graph, readable by the engine's own parser and not by a second one written here.
-    const auto reparsed = Desert::Animation::Graph::Deserialize( report.Graphs[0].Json );
-    ASSERT_TRUE( reparsed.IsSuccess() ) << reparsed.GetError();
-    EXPECT_EQ( reparsed.GetValue().Name, "Locomotion" );
-    ASSERT_EQ( reparsed.GetValue().States.size(), 1u );
-    EXPECT_EQ( reparsed.GetValue().States[0].Clip, "Walk" );
+    // The bytes are the graph as generation 0 wrote it (no header: the tool mints one per written file, T7d),
+    // and the engine refuses them until it has, naming the migrator.
+    const auto refused = Desert::Animation::Graph::Deserialize( report.Graphs[0].Json );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
+    const auto reparsed = rfl::json::read<Desert::Animation::Graph::AnimGraph>( report.Graphs[0].Json );
+    ASSERT_TRUE( reparsed ) << reparsed.error().what();
+    EXPECT_FALSE( reparsed.value().Header.has_value() );
+    EXPECT_EQ( reparsed.value().Name, "Locomotion" );
+    ASSERT_EQ( reparsed.value().States.size(), 1u );
+    EXPECT_EQ( reparsed.value().States[0].Clip, "Walk" );
 
     const auto& animation = AnimationOf( entities[0] );
     EXPECT_FALSE( animation.get( "GraphJson" ).has_value() ) << "the blob key survived the step";

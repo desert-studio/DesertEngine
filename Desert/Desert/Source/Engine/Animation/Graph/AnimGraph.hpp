@@ -1,6 +1,9 @@
 #pragma once
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/ResultStr.hpp>
+
+#include <optional>
 
 #include <string>
 #include <string_view>
@@ -86,6 +89,11 @@ namespace Desert::Animation::Graph
 
     struct AnimGraph
     {
+        /// The text asset header (T7d, ANGR 1), FIRST so the registry reads it without parsing the rest:
+        /// Kind "AnimGraph", the GUID that IS the graph's identity and its handle (AnimGraphAsset's
+        /// constructor), and the format under `ANGR`. Carried on the graph so an editor save keeps the GUID
+        /// it was loaded with; absent only on a graph never written - Serialize mints it then.
+        std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string            Name = "AnimGraph";
         std::string            Entry; // entry state name (defaults to the first state if empty)
         std::vector<Parameter> Parameters;
@@ -97,7 +105,9 @@ namespace Desert::Animation::Graph
     /// binding's — are the same sentence to the same reader, and two copies of a message drift.
     [[nodiscard]] std::string DeclaredParameterList( const AnimGraph& graph );
 
-    // JSON round-trip (reflect-cpp). Serialize never fails; Deserialize returns an error string on bad JSON.
+    // JSON round-trip (reflect-cpp). Serialize never fails and stamps the header (the GUID kept, or minted for
+    // a new graph). Deserialize refuses a file with no header (generation 0, before T7d) by name, pointing at
+    // Tools/SceneMigrator, and a header of another kind or version; otherwise an error string on bad JSON.
     std::string                  Serialize( const AnimGraph& graph );
     Common::ResultStr<AnimGraph> Deserialize( const std::string& json );
 

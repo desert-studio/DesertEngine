@@ -41,6 +41,7 @@
 // property tree it was handed, so it is the only one that needs the serializer here. It still writes
 // nothing itself: it returns the JSON text in the report and MigratorMain owns the atomic write, which
 // is what keeps this function pure and testable (contract Section 4.4).
+#include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
@@ -2618,7 +2619,17 @@ namespace Desert::Migration
                 continue;
             }
 
-            auto parsed = Animation::Graph::Deserialize( *json );
+            // GENERATION 0, READ AS IT WAS: a scene blob never carried the header (ANGR 1, T7d), so the engine's
+            // Deserialize - which refuses a headerless graph - is not this step's reader. The struct is.
+            auto parsed = [&]() -> Common::ResultStr<Animation::Graph::AnimGraph>
+            {
+                auto read = rfl::json::read<Animation::Graph::AnimGraph, rfl::DefaultIfMissing>( *json );
+                if ( !read )
+                    return Common::MakeError<Animation::Graph::AnimGraph>( read.error().what() );
+                Animation::Graph::AnimGraph body = read.value();
+                body.Header.reset();
+                return Common::MakeSuccess( std::move( body ) );
+            }();
             if ( !parsed )
             {
                 // LEFT IN PLACE. A blob that will not parse is a state machine somebody authored and this
@@ -2655,7 +2666,8 @@ namespace Desert::Migration
             // writing the canonical form means two entities whose graphs differ only in key order or in a
             // field one build omitted produce the SAME bytes, which is what lets the caller collapse them
             // onto one file instead of discovering a spurious conflict.
-            report.Graphs.push_back( AnimGraphFile{ relative, Animation::Graph::Serialize( graph ) } );
+            // Written as generation 0 (no header); MigratorMain mints the header once per written path.
+            report.Graphs.push_back( AnimGraphFile{ relative, rfl::json::write( graph ) } );
             entity.Components["Animation"] = rfl::Generic( withoutBlob( relative ) );
             report.Entities += 1;
         }
