@@ -854,7 +854,11 @@ TEST( CloudTypeLibrary, OnlyTheTypesThatNeedTheirOwnNoiseNameOne )
     // documented "use the built-in default", and a library where all nine named a volume would be a
     // library that had turned a meaningful choice into boilerplate.
     const CloudTypeData cirrus = LoadShipped( kCloudTypeCirrus );
-    ASSERT_TRUE( cirrus.NoiseVolume.has_value() ) << "the one type whose edge is its identity names no volume";
+    if ( !cirrus.NoiseVolume || !cirrus.Header )
+    {
+        ADD_FAILURE() << "the one type whose edge is its identity names no volume (or states no header)";
+        return;
+    }
     EXPECT_EQ( cirrus.NoiseVolume->Path, "Clouds/CloudNoise_FineWisp.dcnv" );
     // BY GUID since CLTY 5 (T7h): the volume's envelope GUID resolves it, and the header states it again as
     // its one Dependency - the registry's edge and the resolver's volume are one reference.
@@ -1662,20 +1666,35 @@ TEST( CloudTypeFormat, ANoiseVolumeIsNamedByGuidAndStatedAsTheOneDependency )
         ADD_FAILURE() << parsed.GetError();
         return;
     }
-    EXPECT_EQ( parsed.GetValue().NoiseVolume, data.NoiseVolume );
-    EXPECT_EQ( parsed.GetValue().Header->Dependencies,
-               std::vector<std::string>{ "0123456789abcdef0123456789abcdef" } );
+    const CloudTypeData& parsedType = parsed.GetValue();
+    if ( !parsedType.Header )
+    {
+        ADD_FAILURE() << "the parsed type states no header";
+        return;
+    }
+    EXPECT_EQ( parsedType.NoiseVolume, data.NoiseVolume );
+    EXPECT_EQ( parsedType.Header->Dependencies, std::vector<std::string>{ "0123456789abcdef0123456789abcdef" } );
 
     // The dependency dropped from the header: one reference stated once is refused, by name.
     CloudTypeData unstated = parsed.GetValue();
+    if ( !unstated.Header )
+    {
+        ADD_FAILURE() << "the copied type states no header";
+        return;
+    }
     unstated.Header->Dependencies.clear();
-    std::string text    = rfl::json::write( unstated );
-    auto        refused = ParseCloudType( text );
+    const std::string text    = rfl::json::write( unstated );
+    auto              refused = ParseCloudType( text );
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "Dependencies" ), std::string::npos ) << refused.GetError();
 
     // A reference without a GUID is a bare path again.
     CloudTypeData bare = parsed.GetValue();
+    if ( !bare.NoiseVolume || !bare.Header )
+    {
+        ADD_FAILURE() << "the copied type names no volume or states no header";
+        return;
+    }
     bare.NoiseVolume->Guid.clear();
     bare.Header->Dependencies = { "" };
     auto noGuid               = ParseCloudType( rfl::json::write( bare ) );

@@ -1007,7 +1007,7 @@ namespace
         std::ofstream out( file, std::ios::binary );
         out << R"({"Header":{"Kind":"CloudType","Guid":")" << Common::Content::AssetGuidToText( guid )
             << R"(","Versions":{"CLTY":4},"Dependencies":[]},)";
-        if ( noise )
+        if ( noise != nullptr )
             out << R"("NoiseVolume":")" << noise << R"(",)";
         out << kCloudTypeShapeV4 << "}";
     }
@@ -1028,9 +1028,9 @@ TEST( SceneMigratorWritePath, ACloudTypeV4NamesItsNoiseVolumeByTheVolumesEnvelop
         return;
     }
     {
-        std::ofstream out( assets / "Clouds" / "Fine.dcnv", std::ios::binary );
-        out.write( reinterpret_cast<const char*>( encoded.GetValue().data() ),
-                   static_cast<std::streamsize>( encoded.GetValue().size() ) );
+        std::ofstream     out( assets / "Clouds" / "Fine.dcnv", std::ios::binary );
+        const std::string bytes( encoded.GetValue().begin(), encoded.GetValue().end() );
+        out.write( bytes.data(), static_cast<std::streamsize>( bytes.size() ) );
     }
     const Common::Content::AssetGuid own = Common::Content::AssetGuid::Generate();
     WriteCloudTypeV4( types / "Wisp.decloudtype", own, "Clouds/Fine.dcnv" );
@@ -1047,10 +1047,16 @@ TEST( SceneMigratorWritePath, ACloudTypeV4NamesItsNoiseVolumeByTheVolumesEnvelop
         ADD_FAILURE() << wisp.GetError();
         return;
     }
+    const Desert::Assets::CloudTypeData& wispType = wisp.GetValue();
+    if ( !wispType.Header )
+    {
+        ADD_FAILURE() << "the migrated type states no header";
+        return;
+    }
     const std::string volumeGuid = Common::Content::AssetGuidToText( volume.Guid );
-    EXPECT_EQ( wisp.GetValue().Header->Guid, Common::Content::AssetGuidToText( own ) ) << "a second identity";
-    EXPECT_EQ( wisp.GetValue().NoiseVolume, ( Desert::Assets::AssetGuidRef{ volumeGuid, "Clouds/Fine.dcnv" } ) );
-    EXPECT_EQ( wisp.GetValue().Header->Dependencies, std::vector<std::string>{ volumeGuid } );
+    EXPECT_EQ( wispType.Header->Guid, Common::Content::AssetGuidToText( own ) ) << "a second identity";
+    EXPECT_EQ( wispType.NoiseVolume, ( Desert::Assets::AssetGuidRef{ volumeGuid, "Clouds/Fine.dcnv" } ) );
+    EXPECT_EQ( wispType.Header->Dependencies, std::vector<std::string>{ volumeGuid } );
 
     const auto plain = Desert::Assets::ParseCloudType( ReadRaw( types / "Plain.decloudtype" ) );
     if ( !plain )
@@ -1058,8 +1064,14 @@ TEST( SceneMigratorWritePath, ACloudTypeV4NamesItsNoiseVolumeByTheVolumesEnvelop
         ADD_FAILURE() << plain.GetError();
         return;
     }
-    EXPECT_FALSE( plain.GetValue().NoiseVolume.has_value() );
-    EXPECT_TRUE( plain.GetValue().Header->Dependencies.empty() );
+    const Desert::Assets::CloudTypeData& plainType = plain.GetValue();
+    if ( !plainType.Header )
+    {
+        ADD_FAILURE() << "the migrated type states no header";
+        return;
+    }
+    EXPECT_FALSE( plainType.NoiseVolume.has_value() );
+    EXPECT_TRUE( plainType.Header->Dependencies.empty() );
 
     const std::string raised = ReadRaw( types / "Wisp.decloudtype" );
     EXPECT_EQ( RunTool( { types.string() }, report, errors ), 0 ) << errors;

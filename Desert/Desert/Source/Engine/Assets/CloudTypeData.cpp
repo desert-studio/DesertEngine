@@ -209,6 +209,10 @@ namespace Desert::Assets
             return Common::MakeFormattedError<CloudTypeData>( "{}", parsed.error().what() );
 
         CloudTypeData data = parsed.value();
+        // CheckStatedHeader above refused an absent header; the typed read is a second read of the text,
+        // so its Header is checked again rather than assumed.
+        if ( !data.Header )
+            return Common::MakeFormattedError<CloudTypeData>( "the typed read states no Header" );
 
         // THE GUID RESOLVES, the path only names: a volume reference without one is a bare path again (v4).
         std::vector<std::string> dependencies;

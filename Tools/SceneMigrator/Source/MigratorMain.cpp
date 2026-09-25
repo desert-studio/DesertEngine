@@ -49,11 +49,9 @@
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
-#include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
-#include <Engine/Assets/CloudNoiseVolume.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
@@ -616,7 +614,7 @@ namespace
         versions["CLTY"] = rfl::Generic( static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) );
         rfl::Generic::Array dependencyTexts;
         for ( const auto& guid : dependencies )
-            dependencyTexts.push_back( rfl::Generic( guid ) );
+            dependencyTexts.emplace_back( guid );
         headerDoc["Versions"]     = rfl::Generic( versions );
         headerDoc["Dependencies"] = rfl::Generic( dependencyTexts );
         doc["Header"]             = rfl::Generic( headerDoc );
