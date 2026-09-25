@@ -1827,7 +1827,6 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     Common::Utils::VFS::Unmount();
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
-    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
     const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
     EXPECT_EQ( again.TexturesCooked, 0u ) << "an unchanged source was cooked again";

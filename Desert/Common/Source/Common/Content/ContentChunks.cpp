@@ -93,7 +93,8 @@ namespace Common::Content
         if ( !Utils::FileSystem::Exists( path ) )
             return MakeFormattedError<ChunkScheme>(
                  "no chunk scheme at {} — packaging needs the project to state how its content is divided. "
-                 "Create the default one-archive scheme (Build Settings: \"Create default ContentChunks.json\", or the "
+                 "Create the default one-archive scheme (Build Settings: \"Create default ContentChunks.json\", "
+                 "or the "
                  "palette command Build > Create Default ContentChunks.json) and edit it to add chunks",
                  path.string() );
         const auto text = Utils::FileSystem::ReadFileContent( path );
@@ -111,7 +112,8 @@ namespace Common::Content
         if ( Utils::FileSystem::Exists( path ) )
             return MakeFormattedError<bool>( "{} already exists; the default scheme never replaces one",
                                              path.string() );
-        const auto written = Utils::FileSystem::WriteContentToFileAtomic( path, WriteChunkScheme( ChunkScheme{} ) );
+        const auto written =
+             Utils::FileSystem::WriteContentToFileAtomic( path, WriteChunkScheme( ChunkScheme{} ) );
         if ( !written )
             return MakeFormattedError<bool>( "could not write the default chunk scheme to {}: {}", path.string(),
                                              written.GetError() );
