@@ -275,6 +275,9 @@ namespace
          TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph,
                           Desert::Assets::kAnimGraphSchemaTag, 0, Desert::Assets::kAnimGraphSchemaVersion, nullptr,
                           true },
+         // .skeleton 0 -> 1 (T7e): generation 0 stated no version member at all.
+         TextHeaderRaise{ ".skeleton", Common::Content::ContentKind::Skeleton, Desert::Assets::kSkeletonSchemaTag,
+                          0, Desert::Assets::kSkeletonSchemaVersion, nullptr, true },
     };
 
     const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
@@ -317,8 +320,20 @@ namespace
                  " file is raised" );
         const std::array<Common::Content::SubsystemVersion, 1> versions = {
              Common::Content::SubsystemVersion{ row.Tag, row.ToVersion } };
-        const auto header = rfl::json::read<rfl::Generic>(
-             rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) ) );
+        const std::string headerText =
+             rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) );
+        // NO MEMBER TO DROP: THE HEADER IS SPLICED INTO THE SOURCE TEXT, every other byte kept. A round trip
+        // through rfl::Generic reads an integer as int64, so a skeleton's uint64 Signature above INT64_MAX
+        // came back negative (T7e) - a rig no mesh would match again.
+        if ( row.VersionMember == nullptr )
+        {
+            const std::size_t open  = source.find( '{' );
+            const bool        empty = fields.size() == 0;
+            return Common::MakeSuccess( std::optional<std::string>(
+                 source.substr( 0, open + 1 ) + "\"" + std::string( Common::Content::kTextHeaderMember ) +
+                 "\":" + headerText + ( empty ? "" : "," ) + source.substr( open + 1 ) ) );
+        }
+        const auto           header = rfl::json::read<rfl::Generic>( headerText );
         rfl::Generic::Object raised;
         raised[std::string( Common::Content::kTextHeaderMember )] = header.value();
         for ( const auto& [key, value] : fields )

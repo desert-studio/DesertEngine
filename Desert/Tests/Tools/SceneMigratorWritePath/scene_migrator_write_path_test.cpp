@@ -416,7 +416,7 @@ namespace
             raisedTexts.push_back( raised );
             EXPECT_EQ( raised.find( "FormatVersion" ), std::string::npos ) << raised;
             EXPECT_NE( raised.find( file.stem().string() ), std::string::npos )
-                 << "the payload was lost: " << raised;
+                 << "the payload was lost (a uint64 above INT64_MAX?): " << raised;
             const auto header = Common::Content::ReadAssetHeader( file, recordOnly );
             ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
             EXPECT_EQ( header.GetValue().Kind, kind );
@@ -644,11 +644,43 @@ TEST( SceneMigratorWritePath, AnAnimGraphGainsAHeaderGuidOnceAndASecondRunChange
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
 
     const std::string raised = ReadRaw( file );
-    EXPECT_NE( raised.find( "Locomotion" ), std::string::npos ) << "the payload was lost: " << raised;
+    EXPECT_NE( raised.find( "Locomotion" ), std::string::npos )
+         << "the payload was lost (a uint64 above INT64_MAX?): " << raised;
     const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
     const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
     ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
     EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::AnimGraph );
+    EXPECT_FALSE( header.GetValue().Guid.IsNull() );
+    ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
+    EXPECT_EQ( header.GetValue().Subsystems[0].Version, 1u );
+
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a v1 file (a second GUID?)";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << report << errors;
+    fs::remove_all( dir );
+}
+
+// THE SKELETON PASS (T7e, 0 -> 1): generation 0 stated no version member at all, so every headerless file is
+// raised; a second run changes nothing.
+TEST( SceneMigratorWritePath, ASkeletonGainsAHeaderGuidOnceAndASecondRunChangesNothing )
+{
+    const fs::path dir  = MakeTempDir( "T7eRaiseSkeleton" );
+    const fs::path file = dir / "Rig.skeleton";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Signature":9748021389765177955,"Bones":[]})";
+    }
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+
+    const std::string raised = ReadRaw( file );
+    EXPECT_NE( raised.find( "\"Signature\": 9748021389765177955" ), std::string::npos )
+         << "the payload was lost (a uint64 above INT64_MAX?): " << raised;
+    const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+    const auto                                    header = Common::Content::ReadAssetHeader( file, recordOnly );
+    ASSERT_TRUE( header ) << header.GetError() << "\n" << raised;
+    EXPECT_EQ( header.GetValue().Kind, Common::Content::ContentKind::Skeleton );
     EXPECT_FALSE( header.GetValue().Guid.IsNull() );
     ASSERT_EQ( header.GetValue().Subsystems.size(), 1u );
     EXPECT_EQ( header.GetValue().Subsystems[0].Version, 1u );

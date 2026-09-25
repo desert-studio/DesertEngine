@@ -44,6 +44,10 @@ namespace Desert::Assets
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
     inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
+    // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
+    // version at all - that generation is 0, and a file of it is refused by name.
+    inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
+    inline constexpr uint32_t kSkeletonSchemaVersion = 1;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.
