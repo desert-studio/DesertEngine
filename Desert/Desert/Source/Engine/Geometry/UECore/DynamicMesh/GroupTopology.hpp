@@ -2,7 +2,7 @@
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry; FGroupEdge::Span is FEdgeSpan from
 // MeshRegionBoundaryLoops.hpp; RebuildTopology returns the region-loop failure by name. Not ported: the
 // extra-corner hook (ShouldAddExtraCornerAtVert, RebuildTopologyWithSpecificExtraCorners), the FMeshTriEdgeID
-// overloads, and the frame/bounds/arc-length helpers (GetGroupFrame, GetSelectionFrame, GetSelectionBounds,
+// overloads, and the frame/bounds helpers (GetGroupFrame, GetSelectionFrame, GetSelectionBounds,
 // GetEdgeMidpoint) - no Modeling code reads them yet; they arrive with the gizmo port that does.
 #pragma once
 
@@ -113,6 +113,8 @@ namespace Desert::Geometry
         void               FindEdgeNbrGroups( int GroupEdgeID, TArray<int>& GroupsOut ) const;
         void               FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) const;
         bool               IsBoundaryEdge( int32 GroupEdgeID ) const;
+        /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
+        double GetEdgeArcLength( int32 GroupEdgeID, TArray<double>* PerVertexLengthsOut = nullptr ) const;
         bool               IsSimpleGroupEdge( int32 GroupEdgeID ) const;
         bool               IsIsolatedLoop( int32 GroupEdgeID ) const;
         void               FindCornerNbrGroups( int CornerID, TArray<int>& GroupsOut ) const;
