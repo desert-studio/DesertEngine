@@ -61,6 +61,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 #include <vector>
@@ -1503,4 +1504,76 @@ TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderI
     EXPECT_NE( refused.GetError().find( "Bare.shader" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "SHDR 1" ), std::string::npos ) << refused.GetError();
     EXPECT_FALSE( old.IsReadyForUse() );
+}
+
+// T7j step 2: the shader graph's Compile overwrites <Name>.shader through ShaderSourceKeepingFileGuid. A
+// recompile keeps the GUID (and so the handle every material names), a first compile mints one, and what it
+// writes is a shader ShaderAsset loads rather than refuses.
+TEST( ShaderAssetIdentity, AGraphRecompileKeepsTheShadersGuidAndAFirstCompileMintsOne )
+{
+    namespace CC   = Common::Content;
+    const auto dir = std::filesystem::temp_directory_path() / "DesertShaderRecompileTest";
+    std::filesystem::remove_all( dir );
+    std::filesystem::create_directories( dir );
+    const std::string body = "Shader \"Probe\"\n{\n}\n";
+
+    const auto target = dir / "Graphed.shader";
+    const auto first  = Desert::Assets::ShaderSourceKeepingFileGuid( target, body );
+    const auto minted = CC::ReadShaderHeader( first );
+    ASSERT_FALSE( !minted ) << minted.GetError();
+    std::ofstream( target, std::ios::binary ) << first;
+    Desert::Assets::ShaderAsset firstAsset( Desert::Assets::AssetPriority::Medium, target );
+    const auto                  firstLoad = firstAsset.LoadFromFile();
+    ASSERT_FALSE( !firstLoad ) << firstLoad.GetError();
+
+    const auto second = Desert::Assets::ShaderSourceKeepingFileGuid( target, body + "// edited\n" );
+    const auto kept   = CC::ReadShaderHeader( second );
+    ASSERT_FALSE( !kept ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue().Guid, minted.GetValue().Guid );
+    std::ofstream( target, std::ios::binary | std::ios::trunc ) << second;
+    Desert::Assets::ShaderAsset secondAsset( Desert::Assets::AssetPriority::Medium, target );
+    EXPECT_TRUE( secondAsset.GetMetadata().Handle == firstAsset.GetMetadata().Handle );
+    const auto secondLoad = secondAsset.LoadFromFile();
+    ASSERT_FALSE( !secondLoad ) << secondLoad.GetError();
+
+    const auto other =
+         CC::ReadShaderHeader( Desert::Assets::ShaderSourceKeepingFileGuid( dir / "New.shader", body ) );
+    ASSERT_FALSE( !other ) << other.GetError();
+    EXPECT_NE( other.GetValue().Guid, minted.GetValue().Guid );
+    std::filesystem::remove_all( dir );
+}
+
+// Every committed graph's .shader is already stamped, and recompiling it over itself keeps that GUID.
+TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
+{
+    namespace CC = Common::Content;
+    std::filesystem::path graphShaders;
+    for ( auto at = std::filesystem::current_path(); !at.empty(); at = at.parent_path() )
+    {
+        if ( std::filesystem::is_directory( at / "Editor/Resources/Shaders/Programs/Graph" ) )
+        {
+            graphShaders = at / "Editor/Resources/Shaders/Programs/Graph";
+            break;
+        }
+        if ( at == at.parent_path() )
+            break;
+    }
+    ASSERT_FALSE( graphShaders.empty() ) << "no Editor/Resources/Shaders/Programs/Graph above "
+                                         << std::filesystem::current_path();
+    int seen = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        ++seen;
+        std::ifstream     in( entry.path(), std::ios::binary );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        const auto        stated = CC::ReadShaderHeader( text );
+        ASSERT_FALSE( !stated ) << entry.path() << ": " << stated.GetError();
+        const auto rewritten = CC::ReadShaderHeader(
+             Desert::Assets::ShaderSourceKeepingFileGuid( entry.path(), "Shader \"X\" {}\n" ) );
+        ASSERT_FALSE( !rewritten ) << rewritten.GetError();
+        EXPECT_EQ( rewritten.GetValue().Guid, stated.GetValue().Guid ) << entry.path();
+    }
+    EXPECT_GE( seen, 5 );
 }

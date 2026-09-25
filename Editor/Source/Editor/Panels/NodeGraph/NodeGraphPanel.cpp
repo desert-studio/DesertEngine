@@ -9,6 +9,7 @@
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -436,8 +437,10 @@ namespace Desert::Editor
         std::error_code ec;
         std::filesystem::create_directories( path.parent_path(), ec );
         // A compile that produced correct source and could not store it is still a failed compile: the
-        // status line below promises "hot reload applies it", and hot reload reads this file.
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, source.GetValue() );
+        // status line below promises "hot reload applies it", and hot reload reads this file. The file states
+        // the GUID it already had, so a recompile keeps the shader's handle (ShaderSourceKeepingFileGuid).
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
+                  path, Assets::ShaderSourceKeepingFileGuid( path, source.GetValue() ) );
              !written )
         {
             m_Status        = "Compiled, but NOT written: " + written.GetError();

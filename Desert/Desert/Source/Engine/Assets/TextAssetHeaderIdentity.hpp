@@ -5,10 +5,13 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
+#include <array>
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 // The constructor half of a text asset's identity: the GUID its header states, read WITHOUT loading it.
 namespace Desert::Assets
@@ -71,5 +74,22 @@ namespace Desert::Assets
         if ( guid.IsNull() )
             guid = Common::Content::AssetGuid::Generate();
         return Common::Content::MakeTextHeader( kind, guid, subsystems );
+    }
+
+    // THE .shader A REWRITE OF `target` WRITES: the header line HeaderKeepingFileGuid would state for a
+    // shader, then `source`. A shader graph's Compile overwrites its .shader on every edit; minting a GUID
+    // each time would give every recompile a new handle, and a material naming the old one would lose its
+    // shader. So the GUID is read from the file already there, and minted only for a first compile.
+    [[nodiscard]] inline std::string ShaderSourceKeepingFileGuid( const Common::Filepath& target,
+                                                                  std::string_view        source )
+    {
+        Common::Content::AssetGuid guid = ReadShaderHeaderGuid( target );
+        if ( guid.IsNull() )
+            guid = Common::Content::AssetGuid::Generate();
+        const std::array<Common::Content::SubsystemVersion, 1> versions = {
+             Common::Content::SubsystemVersion{ kShaderSchemaTag, kShaderSchemaVersion } };
+        return Common::Content::WriteShaderHeaderLine(
+                    Common::Content::MakeTextHeader( Common::Content::ContentKind::Shader, guid, versions ) ) +
+               std::string( source );
     }
 } // namespace Desert::Assets
