@@ -14,9 +14,9 @@ namespace Desert::ShaderResources
         // RendererAPI and VulkanUniformBuffer for Create(). A test that wants a device-free buffer to
         // drive UniformBufferProperty had to link that whole chain for a member-wise copy. Create() stays
         // where it is — the backend choice genuinely belongs to the .cpp.
-        // The ledger row — see Engine/Graphic/ResourceLedger.hpp. ONE UniformBuffer object is
-        // frames-in-flight x renderer-slots VkBuffers on the Vulkan backend (BufferCopyLayout.hpp), so this
-        // row stands for eighteen device allocations in the shipped configuration.
+        // The ledger row — see Engine/Graphic/ResourceLedger.hpp. ONE UniformBuffer object is one VkBuffer
+        // per (view x frame in flight) that wrote or bound it on the Vulkan backend (ViewCopiedBlock.hpp), so
+        // this row stands for a number of device allocations that grows with the open views.
         explicit UniformBuffer( const ShaderLayout::UniformBuffer& uniform )
              : m_UniformModel( uniform ),
                m_Accounting( Graphic::ResourceOwnership::Take( Graphic::ResourceKind::UniformBuffer ) )

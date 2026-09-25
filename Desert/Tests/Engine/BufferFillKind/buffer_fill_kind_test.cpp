@@ -20,20 +20,27 @@
 //      about which buffers they are looking at.
 //
 // No GPU: BufferFillKind.hpp is a pure enum relation, UniformBufferProperty and FieldProperty are
-// header-only, and ShaderResources::UniformBuffer is abstract, so the buffer here records into a
-// std::vector. EngineContext and FrameManager are plain counter singletons.
+// header-only, and ShaderResources::UniformBuffer is abstract, so the buffer here records into byte
+// copies through the production ViewCopiedBlock. EngineContext and FrameManager are plain counter
+// singletons.
+//
+// The storage-buffer half (StorageBufferViews) asserts the per-view rule VulkanStorageBuffer runs for a
+// per-frame SSBO: the growth decision (ClassifyBufferWrite) and the per-view copies (ViewCopiedBlock),
+// driven in the same order its SetData drives them.
 
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
-#include <Engine/ShaderResources/BufferCopyLayout.hpp>
+#include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 #include <Engine/ShaderResources/BufferFillKind.hpp>
+#include <Engine/ShaderResources/BufferGrowth.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <gtest/gtest.h>
 
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <vector>
 
 using namespace Desert;
@@ -42,12 +49,59 @@ using namespace Desert::ShaderResources;
 namespace
 {
     constexpr uint32_t kFramesInFlight = 3; // what the editor's swapchain actually runs
-    constexpr uint32_t kSlots          = Engine::kMaxRendererSlots;
 
     // Two mat4s and a vec4 — the shape of CameraUB, which is the block the defect destroyed.
     constexpr uint32_t kMat4  = 16 * sizeof( float );
     constexpr uint32_t kVec4  = 4 * sizeof( float );
     constexpr uint32_t kBytes = kMat4 * 2 + kVec4;
+
+    // One view's copy for one frame, as plain bytes. Starts NOT zero, so seeding must overwrite it.
+    class BytesCopy final : public IBlockCopy
+    {
+    public:
+        explicit BytesCopy( uint32_t size ) : Bytes( size, std::byte{ 0xCD } )
+        {
+        }
+
+        Common::BoolResultStr Write( const void* data, uint32_t size, uint32_t offset ) override
+        {
+            if ( static_cast<size_t>( offset ) + size > Bytes.size() )
+                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit {}", size, offset,
+                                                         Bytes.size() );
+            if ( size != 0 )
+                std::memcpy( Bytes.data() + offset, data, size );
+            return Common::MakeSuccess( true );
+        }
+
+        std::vector<std::byte> Bytes;
+    };
+
+    uint32_t CurrentFrame()
+    {
+        return Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+    }
+
+    // Makes copies at the block's size AT THE TIME OF THE CALL, as the Vulkan buffers do (a grown storage
+    // buffer's new copies are the new size).
+    ViewCopiedBlock::CopyMaker BytesMaker( const ViewCopiedBlock& block )
+    {
+        return [&block]( std::string_view, uint32_t, std::unique_ptr<IBlockCopy>& out )
+        {
+            out = std::make_unique<BytesCopy>( block.GetSize() );
+            return Common::MakeSuccess( true );
+        };
+    }
+
+    // Bytes `view` holds for `frame`, or nullopt when it has no copy.
+    std::optional<std::vector<std::byte>> CopyOf( const ViewCopiedBlock& block, const Graphic::ViewResources& view,
+                                                  uint32_t frame )
+    {
+        const auto* copy = view.Find( block.GetKey(), frame );
+        if ( copy == nullptr )
+            return std::nullopt;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return static_cast<const BytesCopy*>( copy )->Bytes;
+    }
 
     // Records both the bytes AND the number of writes. The write COUNT is what makes "refused" testable
     // without depending on the contents of uninitialised memory: a flush that is refused issues zero
@@ -56,8 +110,7 @@ namespace
     {
     public:
         explicit RecordingUniformBuffer( const ShaderLayout::UniformBuffer& model )
-             : UniformBuffer( model ), m_Copies( BufferCopyCount( kFramesInFlight, kSlots ),
-                                                 std::vector<std::byte>( model.Size, std::byte{ 0 } ) )
+             : UniformBuffer( model ), m_Block( model.Size )
         {
         }
 
@@ -65,12 +118,7 @@ namespace
         Common::BoolResultStr SetData( const void* data, uint32_t size, uint32_t offset ) override
         {
             ++m_Writes;
-            auto& copy = m_Copies[CurrentCopy()];
-            if ( static_cast<size_t>( offset ) + size > copy.size() )
-                return Common::MakeFormattedError<bool>( "{} byte(s) at offset {} do not fit {}", size, offset,
-                                                         copy.size() );
-            std::memcpy( copy.data() + offset, data, size );
-            return Common::MakeSuccess( true );
+            return m_Block.Write( data, size, offset, CurrentFrame(), BytesMaker( m_Block ) );
         }
 
         Common::BoolResultStr EnsureMapped() override
@@ -79,12 +127,18 @@ namespace
         }
         const void* GetData() const override
         {
-            return m_Copies[CurrentCopy()].data();
+            return m_Block.GetContents();
         }
 
-        const std::vector<std::byte>& Copy( uint32_t frame, uint32_t slot ) const
+        // What the frame context (the view every write outside an ActiveViewScope lands in) holds.
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( uint32_t frame ) const
         {
-            return m_Copies[BufferCopyIndex( frame, slot, kSlots )];
+            return CopyOf( m_Block, Graphic::ViewResourceRegistry::FrameContext(), frame );
+        }
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view,
+                                                                  uint32_t                      frame ) const
+        {
+            return CopyOf( m_Block, view, frame );
         }
 
         uint32_t Writes() const
@@ -96,15 +150,61 @@ namespace
             m_Writes = 0;
         }
 
-        static uint32_t CurrentCopy()
+    private:
+        ViewCopiedBlock m_Block;
+        uint32_t        m_Writes = 0;
+    };
+
+    // A per-frame storage buffer on the production pieces, in the order VulkanStorageBuffer::SetData runs
+    // them: classify the write, grow the block when told to, write through the active view's copy.
+    class RecordingStorageBuffer final : public StorageBuffer
+    {
+    public:
+        explicit RecordingStorageBuffer( uint32_t size ) : m_Block( size )
         {
-            return BufferCopyIndex( Engine::FrameManager::GetInstance().GetCurrentFrameIndex(),
-                                    EngineContext::GetInstance().GetActiveRendererSlot(), kSlots );
+        }
+
+        Common::BoolResultStr SetData( const void* data, uint32_t size, uint32_t offset ) override
+        {
+            switch ( ClassifyBufferWrite( GetSize(), size, offset, Persistence::PerFrame ) )
+            {
+                case BufferWriteVerdict::Fits:
+                    break;
+                case BufferWriteVerdict::Grow:
+                    m_Block.Grow( RequiredBufferSize( size, offset ) );
+                    break;
+                case BufferWriteVerdict::RefuseWouldDestroyPersistentState:
+                case BufferWriteVerdict::RefuseWouldNotFitAnyBuffer:
+                    return Common::MakeError<bool>( "refused" );
+            }
+            return m_Block.Write( data, size, offset, CurrentFrame(), BytesMaker( m_Block ) );
+        }
+        Common::BoolResultStr EnsureMapped() override
+        {
+            IBlockCopy* copy = nullptr;
+            return m_Block.Resolve( CurrentFrame(), BytesMaker( m_Block ), copy );
+        }
+        [[nodiscard]] uint32_t GetBinding() const override
+        {
+            return 0;
+        }
+        [[nodiscard]] uint32_t GetSize() const override
+        {
+            return m_Block.GetSize();
+        }
+        [[nodiscard]] const void* GetData() const override
+        {
+            return m_Block.GetContents();
+        }
+
+        [[nodiscard]] std::optional<std::vector<std::byte>> Copy( const Graphic::ViewResources& view,
+                                                                  uint32_t                      frame ) const
+        {
+            return CopyOf( m_Block, view, frame );
         }
 
     private:
-        std::vector<std::vector<std::byte>> m_Copies;
-        uint32_t                            m_Writes = 0;
+        ViewCopiedBlock m_Block;
     };
 
     // The engine-filled shape: three fields, written whole by the renderer, never through FieldProperty.
@@ -150,7 +250,7 @@ namespace
         {
             EngineContext::CreateInstance();
             Engine::FrameManager::CreateInstance().Initialize( kFramesInFlight );
-            EngineContext::GetInstance().SetActiveRendererSlot( 0 );
+            Graphic::ViewResourceRegistry::FrameContext().Clear();
         }
     };
 } // namespace
@@ -218,14 +318,14 @@ TEST_F( BufferFill, FlushingTheFieldsOfAWholeFilledBufferWritesNothing )
 
     const auto camera = CameraPayload();
     prop.SetRawData( camera.data(), camera.size() );
-    ASSERT_EQ( buffer->Copy( 0, 0 ), camera ) << "the whole-block write itself did not land";
+    ASSERT_EQ( buffer->Copy( 0 ), camera ) << "the whole-block write itself did not land";
 
     buffer->ResetWrites();
     prop.UpdateFields(); // the call that emptied the frame
 
     EXPECT_EQ( buffer->Writes(), 0u )
          << "a whole-filled buffer accepted a field flush; those field bytes are uninitialised heap";
-    EXPECT_EQ( buffer->Copy( 0, 0 ), camera ) << "the camera matrices were overwritten";
+    EXPECT_EQ( buffer->Copy( 0 ), camera ) << "the camera matrices were overwritten";
     EXPECT_EQ( prop.GetFillKind(), FillKind::Whole ) << "the refused flush moved the buffer's route";
 }
 
@@ -285,14 +385,14 @@ TEST_F( BufferFill, AFieldFilledBufferRefusesAWholeBlockWrite )
 
     std::vector<std::byte> authored( kVec4 );
     std::memcpy( authored.data(), tint, kVec4 );
-    ASSERT_EQ( buffer->Copy( 0, 0 ), authored );
+    ASSERT_EQ( buffer->Copy( 0 ), authored );
 
     const std::vector<std::byte> intruder( kVec4, std::byte{ 0x7F } );
     buffer->ResetWrites();
     prop.SetRawData( intruder.data(), intruder.size() );
 
     EXPECT_EQ( buffer->Writes(), 0u ) << "a whole-block write was accepted over authored parameters";
-    EXPECT_EQ( buffer->Copy( 0, 0 ), authored );
+    EXPECT_EQ( buffer->Copy( 0 ), authored );
     EXPECT_EQ( prop.GetFillKind(), FillKind::Fields );
 }
 
@@ -401,29 +501,125 @@ TEST( StorageBufferFields, HasNoneAndTheReferenceOutlivesTheCall )
          << "GetFields() handed back something that lives on the caller's stack";
 }
 
-// Whole-block writes stay repeatable — the renderer restates the camera every frame and every slot, and
-// a guard that only let the first one through would be a far worse bug than the one it replaced.
-TEST_F( BufferFill, TheClaimedRouteRemainsUsableEveryFrameAndEverySlot )
+// Whole-block writes stay repeatable — the renderer restates the camera every frame and in every view,
+// and a guard that only let the first one through would be a far worse bug than the one it replaced.
+TEST_F( BufferFill, TheClaimedRouteRemainsUsableEveryFrameAndEveryView )
 {
     auto                           buffer = std::make_shared<RecordingUniformBuffer>( CameraModel() );
     Graphic::UniformBufferProperty prop( buffer );
 
+    Graphic::ViewResources viewport( "viewport" );
+    Graphic::ViewResources preview( "preview" );
+
     const auto camera = CameraPayload();
-    for ( uint32_t slot = 0; slot < kSlots; ++slot )
+    for ( Graphic::ViewResources* view : { &viewport, &preview } )
     {
-        EngineContext::GetInstance().SetActiveRendererSlot( slot );
+        const Graphic::ActiveViewScope scope( *view );
         for ( uint32_t f = 0; f < kFramesInFlight; ++f )
         {
             prop.SetRawData( camera.data(), camera.size() );
             Engine::FrameManager::GetInstance().NextFrame();
         }
     }
-    EngineContext::GetInstance().SetActiveRendererSlot( 0 );
 
-    for ( uint32_t slot = 0; slot < kSlots; ++slot )
+    for ( const Graphic::ViewResources* view : { &viewport, &preview } )
         for ( uint32_t f = 0; f < kFramesInFlight; ++f )
-            EXPECT_EQ( buffer->Copy( f, slot ), camera )
-                 << "frame " << f << " slot " << slot << " never received the camera";
+            EXPECT_EQ( buffer->Copy( *view, f ), camera )
+                 << "view '" << view->GetName() << "' frame " << f << " never received the camera";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// A per-frame storage buffer is per VIEW (RT2d): the skinning pose or the per-object array one view
+// writes must never land in the copy another view's draws read.
+// ---------------------------------------------------------------------------------------------------
+
+namespace
+{
+    std::vector<std::byte> Bytes( std::initializer_list<uint8_t> values )
+    {
+        std::vector<std::byte> out;
+        for ( const uint8_t v : values )
+            out.push_back( std::byte{ v } );
+        return out;
+    }
+} // namespace
+
+TEST_F( BufferFill, TwoViewsHoldTwoStorageCopiesAndOnesWriteIsInvisibleToTheOther )
+{
+    RecordingStorageBuffer buffer( 4 );
+    Graphic::ViewResources viewport( "viewport" );
+    Graphic::ViewResources preview( "preview" );
+
+    const auto poseA = Bytes( { 1, 2, 3, 4 } );
+    const auto poseB = Bytes( { 9, 8, 7, 6 } );
+    {
+        const Graphic::ActiveViewScope scope( viewport );
+        ASSERT_TRUE( buffer.SetData( poseA.data(), 4, 0 ).IsSuccess() );
+    }
+    {
+        const Graphic::ActiveViewScope scope( preview );
+        ASSERT_TRUE( buffer.SetData( poseB.data(), 4, 0 ).IsSuccess() );
+    }
+
+    const uint32_t frame        = CurrentFrame();
+    const auto     viewportCopy = buffer.Copy( viewport, frame );
+    const auto     previewCopy  = buffer.Copy( preview, frame );
+    if ( !viewportCopy || !previewCopy )
+    {
+        ADD_FAILURE() << "a view's write made no copy (viewport: " << viewportCopy.has_value()
+                      << ", preview: " << previewCopy.has_value() << ")";
+        return;
+    }
+    EXPECT_EQ( *viewportCopy, poseA ) << "the preview's write reached the viewport's copy";
+    EXPECT_EQ( *previewCopy, poseB );
+    EXPECT_EQ( viewport.CopyCount(), 1u ) << "one buffer, one frame: exactly one copy per view";
+    EXPECT_EQ( preview.CopyCount(), 1u );
+}
+
+// Growth drops every view's copy (they are the old size) but not what was written: a view that binds the
+// grown buffer later starts from the last contents, not from zeroes — and never from another view's
+// stale copy at the old size.
+TEST_F( BufferFill, AGrownStorageBufferReseedsEveryViewAtTheNewSizeFromTheLastContents )
+{
+    RecordingStorageBuffer buffer( 2 );
+    Graphic::ViewResources viewport( "viewport" );
+    Graphic::ViewResources preview( "preview" );
+
+    const auto head = Bytes( { 5, 6 } );
+    {
+        const Graphic::ActiveViewScope scope( preview );
+        ASSERT_TRUE( buffer.SetData( head.data(), 2, 0 ).IsSuccess() );
+    }
+    ASSERT_EQ( preview.CopyCount(), 1u );
+
+    const auto tail = Bytes( { 7, 8 } );
+    {
+        const Graphic::ActiveViewScope scope( viewport );
+        ASSERT_TRUE( buffer.SetData( tail.data(), 2, 2 ).IsSuccess() ); // outgrows 2 bytes
+    }
+    EXPECT_EQ( buffer.GetSize(), 4u );
+    EXPECT_EQ( preview.CopyCount(), 0u ) << "the preview kept a copy at the old size";
+
+    const uint32_t frame        = CurrentFrame();
+    const auto     viewportCopy = buffer.Copy( viewport, frame );
+    if ( !viewportCopy )
+    {
+        ADD_FAILURE() << "the viewport's write made no copy";
+        return;
+    }
+    EXPECT_EQ( *viewportCopy, Bytes( { 5, 6, 7, 8 } ) );
+    {
+        const Graphic::ActiveViewScope scope( preview );
+        ASSERT_TRUE( buffer.EnsureMapped().IsSuccess() ); // what a bind does: resolve the view's copy
+    }
+    const auto previewCopy = buffer.Copy( preview, frame );
+    if ( !previewCopy )
+    {
+        ADD_FAILURE() << "binding the preview made no copy";
+        return;
+    }
+    EXPECT_EQ( *previewCopy, Bytes( { 5, 6, 7, 8 } ) )
+         << "the preview's re-made copy did not start from the contents written before the growth";
 }
 
 int main( int argc, char** argv )

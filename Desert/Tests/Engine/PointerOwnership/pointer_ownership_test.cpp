@@ -555,11 +555,18 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   LandscapeECSSystem::TileGpu::Weightmap (shared).
     //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
     //   P12g +1 Raw, P12h +8 Raw, L8g +1 Raw +1 Shared): 444 / 351 / 139 / 42 = 976.
-    EXPECT_EQ( CountOf( Form::Raw ), 444 );
+    //   RT2b +2 Raw +1 Unique: ViewResources' live list and ActiveViewScope::m_Previous (rows in the
+    //   register), and the copy map's unique_ptr<IViewResourceCopy>: 446 / 351 / 140 / 42 = 979.
+    //   RT2c +1 Unique: ViewCopiedBlock::HandOver's unique_ptr<IBlockCopy>, the made-and-seeded copy held
+    //   for the one call that moves it into a view: 446 / 351 / 141 / 42 = 980.
+    //   RT2d +2 Unique: VulkanStorageBuffer's m_PerView (the per-view copies of a per-frame SSBO) and
+    //   m_Shared (the one buffer of a persistent SSBO) - each owned by the buffer alone, exactly one of the
+    //   two set per lifetime: 446 / 351 / 143 / 42 = 982.
+    EXPECT_EQ( CountOf( Form::Raw ), 446 );
     EXPECT_EQ( CountOf( Form::Shared ), 351 );
-    EXPECT_EQ( CountOf( Form::Unique ), 139 );
+    EXPECT_EQ( CountOf( Form::Unique ), 143 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 976 )
+    EXPECT_EQ( (int)Members().size(), 982 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }
