@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
+#include <Editor/Widgets/ThumbnailFreshness.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -215,11 +216,8 @@ namespace Desert::Editor
         // differently cannot each hold their own entry (see Invalidate).
         std::unordered_set<std::string>         m_Queued;  // asset identities currently queued or in flight
         std::unordered_set<std::string>         m_Failed;  // gave up: do not retry every frame
-        std::string                             m_InFlight;      // identity of the asset being captured
-        std::string                             m_InFlightPng;   // its target PNG, checked on completion
-        // The target's modification time BEFORE the capture started, absent when there was no file. The
-        // completion test compares against it rather than asking whether the file exists — see Tick().
-        std::optional<std::filesystem::file_time_type> m_InFlightPngBefore;
+        // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
+        ThumbnailFreshness::Capture                    m_Capture;
         int                                            m_InFlightTicks = 0;
         int                                            m_IdleTicks     = 0; // consecutive frames with no work
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
@@ -256,7 +254,5 @@ namespace Desert::Editor
         std::string                        m_PaintInFlightIdentity;
         std::string                        m_PaintInFlightSource;
         int                                m_Painted = 0; ///< reported with m_Captured when the queue drains
-
-        static std::optional<std::filesystem::file_time_type> PngStamp( const std::string& png );
     };
 } // namespace Desert::Editor
