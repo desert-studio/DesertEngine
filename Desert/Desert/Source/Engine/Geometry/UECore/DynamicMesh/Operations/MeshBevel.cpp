@@ -1,10 +1,12 @@
 // Ported from UE 5.8
-// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:75-131, 669-1172,
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:75-131, 669-1788,
 // adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the progress-cancel checks are gone
 // (UECore has no FProgressCancel), and every UE path that leaves a vertex Unknown records why.
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
 
+#include "Engine/Geometry/UECore/Distance/DistLine3Line3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
@@ -808,6 +810,153 @@ namespace Desert::Geometry
                         }
                     }
                 }
+            }
+        }
+    }
+
+    void FMeshBevel::DisplaceVertices( FDynamicMesh3& Mesh )
+    {
+        // Inset every beveled edge into its faces the way FInsetMeshRegion does: an 'inset line' per mesh edge,
+        // each vertex at the nearest points of its pair of lines (their intersection when the face is planar).
+        // Open spans keep their line sets, because the corner vertices combine the end lines of several spans.
+        struct FEdgePathInsetLines
+        {
+            TArray<FLine3d> InsetLines0;
+            TArray<FLine3d> InsetLines1;
+        };
+        TArray<FEdgePathInsetLines> AllInsetLines;
+        AllInsetLines.SetNum( Edges.Num() );
+
+        for ( int32 k = 0; k < Edges.Num(); ++k )
+        {
+            FBevelEdge& Edge = Edges[k];
+            ComputeInsetLineSegmentsFromEdges( Mesh, Edge.MeshEdges, InsetDistance, AllInsetLines[k].InsetLines0 );
+            SolveInsetVertexPositionsFromInsetLines( Mesh, AllInsetLines[k].InsetLines0, Edge.MeshVertices,
+                                                     Edge.NewPositions0, false );
+            ComputeInsetLineSegmentsFromEdges( Mesh, Edge.NewMeshEdges, InsetDistance,
+                                               AllInsetLines[k].InsetLines1 );
+            SolveInsetVertexPositionsFromInsetLines( Mesh, AllInsetLines[k].InsetLines1, Edge.NewMeshVertices,
+                                                     Edge.NewPositions1, false );
+        }
+
+        for ( FBevelLoop& Loop : Loops )
+        {
+            TArray<FLine3d> InsetLines;
+            ComputeInsetLineSegmentsFromEdges( Mesh, Loop.MeshEdges, InsetDistance, InsetLines );
+            SolveInsetVertexPositionsFromInsetLines( Mesh, InsetLines, Loop.MeshVertices, Loop.NewPositions0,
+                                                     true );
+            ComputeInsetLineSegmentsFromEdges( Mesh, Loop.NewMeshEdges, InsetDistance, InsetLines );
+            SolveInsetVertexPositionsFromInsetLines( Mesh, InsetLines, Loop.NewMeshVertices, Loop.NewPositions1,
+                                                     true );
+        }
+
+        // Corners: each wedge vertex solves against the end inset lines of the bevel edges leaving it.
+        for ( FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.VertexType == EBevelVertexType::Unknown )
+                continue;
+            for ( FOneRingWedge& Wedge : Vertex.Wedges )
+            {
+                const FVector3d CurPos = Mesh.GetVertex( Wedge.WedgeVertex );
+
+                TArray<FLine3d> SolveLines;
+                for ( const int32 j : Vertex.IncomingBevelEdgeIndices )
+                {
+                    if ( Edges[j].MeshVertices[0] == Wedge.WedgeVertex )
+                        SolveLines.Add( AllInsetLines[j].InsetLines0[0] );
+                    else if ( Edges[j].MeshVertices.Last() == Wedge.WedgeVertex )
+                        SolveLines.Add( AllInsetLines[j].InsetLines0.Last() );
+                    else if ( Edges[j].NewMeshVertices[0] == Wedge.WedgeVertex )
+                        SolveLines.Add( AllInsetLines[j].InsetLines1[0] );
+                    else if ( Edges[j].NewMeshVertices.Last() == Wedge.WedgeVertex )
+                        SolveLines.Add( AllInsetLines[j].InsetLines1.Last() );
+                }
+
+                const std::string Where = "bevel vertex " + std::to_string( Vertex.VertexID ) + ", wedge vertex " +
+                                          std::to_string( Wedge.WedgeVertex );
+                // BoundaryVertex never gets here: its wedges are not built (UE's bIsSimpleBoundary is dead).
+                if ( Vertex.VertexType == EBevelVertexType::TerminatorVertex )
+                {
+                    // UE silently leaves the vertex in place here (its ensure is commented out as "hit in Lyra").
+                    if ( SolveLines.Num() != 1 )
+                    {
+                        Refuse( Where + ": terminator wedge touches " + std::to_string( SolveLines.Num() ) +
+                                " bevel edge ends, expected 1" );
+                        continue;
+                    }
+                    // Nearest point on the inset line can drift off the face the terminating edge runs into, so
+                    // slide along the wedge mesh edge best aligned with that inset direction instead (UE's own
+                    // stop-gap for "which topology edge should this vertex slide along").
+                    const FVector3d InsetLinePosition = SolveLines[0].NearestPoint( CurPos );
+                    Wedge.NewPosition                 = InsetLinePosition;
+                    const FVector3d BaseInsetDir      = Normalized( InsetLinePosition - CurPos );
+                    double          MaxDot            = -1;
+                    FLine3d         MaxDotEdgeLine;
+                    Mesh.EnumerateVertexVertices( Wedge.WedgeVertex,
+                                                  [&]( int32 othervid )
+                                                  {
+                                                      const FLine3d EdgeLine = FLine3d::FromPoints(
+                                                           CurPos, Mesh.GetVertex( othervid ) );
+                                                      const double DirDot = EdgeLine.Direction.Dot( BaseInsetDir );
+                                                      if ( DirDot > MaxDot )
+                                                      {
+                                                          MaxDot         = DirDot;
+                                                          MaxDotEdgeLine = EdgeLine;
+                                                      }
+                                                  } );
+                    if ( MaxDot > -1 )
+                    {
+                        FDistLine3Line3d LineIntersection( SolveLines[0], MaxDotEdgeLine );
+                        LineIntersection.Get();
+                        Wedge.NewPosition = LineIntersection.Line2ClosestPoint;
+                    }
+                    Wedge.bHaveNewPosition = true;
+                }
+                else
+                {
+                    if ( SolveLines.Num() < 2 )
+                    {
+                        Refuse( Where + ": junction wedge touches " + std::to_string( SolveLines.Num() ) +
+                                " bevel edge ends, expected 2" );
+                        continue;
+                    }
+                    Wedge.NewPosition =
+                         SolveInsetVertexPositionFromLinePair( CurPos, SolveLines[0], SolveLines[1] );
+                    Wedge.bHaveNewPosition = true;
+                }
+            }
+        }
+
+        // Bake. A span's end vertices belong to the corner solve above unless the end is a mesh boundary.
+        auto SetDisplacedPositions = [&Mesh]( const TArray<int32>&     VerticesIn,
+                                              const TArray<FVector3d>& PositionsIn, int32 InsetStart,
+                                              int32 InsetEnd )
+        {
+            const int32 NumVertices = VerticesIn.Num();
+            if ( PositionsIn.Num() != NumVertices )
+                return;
+            const int32 Stop = NumVertices - InsetEnd;
+            for ( int32 k = InsetStart; k < Stop; ++k )
+                Mesh.SetVertex( VerticesIn[k], PositionsIn[k] );
+        };
+        for ( const FBevelEdge& Edge : Edges )
+        {
+            const int32 InsetStart = Edge.bEndpointBoundaryFlag[0] ? 0 : 1;
+            const int32 InsetEnd   = Edge.bEndpointBoundaryFlag[1] ? 0 : 1;
+            SetDisplacedPositions( Edge.MeshVertices, Edge.NewPositions0, InsetStart, InsetEnd );
+            SetDisplacedPositions( Edge.NewMeshVertices, Edge.NewPositions1, InsetStart, InsetEnd );
+        }
+        for ( const FBevelLoop& Loop : Loops )
+        {
+            SetDisplacedPositions( Loop.MeshVertices, Loop.NewPositions0, 0, 0 );
+            SetDisplacedPositions( Loop.NewMeshVertices, Loop.NewPositions1, 0, 0 );
+        }
+        for ( const FBevelVertex& Vertex : Vertices )
+        {
+            for ( const FOneRingWedge& Wedge : Vertex.Wedges )
+            {
+                if ( Wedge.bHaveNewPosition )
+                    Mesh.SetVertex( Wedge.WedgeVertex, Wedge.NewPosition );
             }
         }
     }

@@ -1,7 +1,9 @@
 // FMeshBevel (ported from UE MeshBevel.cpp) on a welded cube with one polygroup per face: the topology build must
 // classify each corner the way UE does (one edge -> two terminators whose end cap joins the perpendicular face,
 // B:1061; all twelve edges -> eight junctions of three wedges), and the unlink phase must open every beveled edge
-// into two boundary edges without moving anything.
+// into two boundary edges without moving anything. Displacement then insets every unlinked vertex InsetDistance
+// into its own face. The subdivided cube (each face 2x2 quads) gives spans of two mesh edges, whose middle vertex
+// is split by the span interior unlink (ReconcileTriangleSets) before the terminator and junction unlinks.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
 
@@ -12,6 +14,8 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
 using namespace Desert;
@@ -30,8 +34,9 @@ namespace
         return v;
     }
 
-    // region_operation_test.cpp's TangentCube: faces +X, -X, +Y, -Y, +Z, -Z, face f is polygroup f + 1.
-    FDynamicMesh3 TangentCube()
+    // region_operation_test.cpp's TangentCube: faces +X, -X, +Y, -Y, +Z, -Z, face f is polygroup f + 1; each face
+    // is an n x n grid of quads.
+    FDynamicMesh3 TangentCube( int n = 1 )
     {
         const float     half = 50.0f;
         const glm::vec3 X( 1, 0, 0 );
@@ -46,14 +51,24 @@ namespace
         std::vector<Index>  indices;
         for ( const Face& face : faces )
         {
-            const glm::vec3 c    = face.N * half;
-            const auto      base = static_cast<uint32_t>( vertices.size() );
-            vertices.push_back( MakeVertex( c - face.U * half - face.V * half, face.N, face.U, { 0, 0 } ) );
-            vertices.push_back( MakeVertex( c + face.U * half - face.V * half, face.N, face.U, { 1, 0 } ) );
-            vertices.push_back( MakeVertex( c + face.U * half + face.V * half, face.N, face.U, { 1, 1 } ) );
-            vertices.push_back( MakeVertex( c - face.U * half + face.V * half, face.N, face.U, { 0, 1 } ) );
-            indices.push_back( { base, base + 1, base + 2 } );
-            indices.push_back( { base, base + 2, base + 3 } );
+            const glm::vec3 c = face.N * half;
+            for ( int i = 0; i < n; ++i )
+            {
+                for ( int j = 0; j < n; ++j )
+                {
+                    const auto  base = static_cast<uint32_t>( vertices.size() );
+                    const float u0   = -half + 2.0f * half * static_cast<float>( i ) / static_cast<float>( n );
+                    const float u1   = -half + 2.0f * half * static_cast<float>( i + 1 ) / static_cast<float>( n );
+                    const float v0   = -half + 2.0f * half * static_cast<float>( j ) / static_cast<float>( n );
+                    const float v1   = -half + 2.0f * half * static_cast<float>( j + 1 ) / static_cast<float>( n );
+                    vertices.push_back( MakeVertex( c + face.U * u0 + face.V * v0, face.N, face.U, { 0, 0 } ) );
+                    vertices.push_back( MakeVertex( c + face.U * u1 + face.V * v0, face.N, face.U, { 1, 0 } ) );
+                    vertices.push_back( MakeVertex( c + face.U * u1 + face.V * v1, face.N, face.U, { 1, 1 } ) );
+                    vertices.push_back( MakeVertex( c + face.U * u0 + face.V * v1, face.N, face.U, { 0, 1 } ) );
+                    indices.push_back( { base, base + 1, base + 2 } );
+                    indices.push_back( { base, base + 2, base + 3 } );
+                }
+            }
         }
         RenderMeshData render;
         Submesh        s{};
@@ -70,7 +85,28 @@ namespace
         FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
         mesh.EnableTriangleGroups();
         for ( const int t : mesh.TriangleIndicesItr() )
-            mesh.SetTriangleGroup( t, 1 + t / 2 );
+            mesh.SetTriangleGroup( t, 1 + t / ( 2 * n * n ) );
+        return mesh;
+    }
+
+    // The same cube with the triangles re-appended even cells first, then odd ones. An edge's first triangle (the
+    // side the one-ring split calls Set0) then alternates between the two faces along some spans, which the welded
+    // import (face by face) never produces.
+    FDynamicMesh3 InterleavedTangentCube( int n )
+    {
+        const FDynamicMesh3 source = TangentCube( n );
+        FDynamicMesh3       mesh;
+        mesh.EnableTriangleGroups();
+        for ( const int v : source.VertexIndicesItr() )
+            EXPECT_EQ( mesh.AppendVertex( source.GetVertex( v ) ), v );
+        for ( const int parity : { 0, 1 } )
+        {
+            for ( const int t : source.TriangleIndicesItr() )
+            {
+                if ( ( t / 2 ) % 2 == parity )
+                    EXPECT_GE( mesh.AppendTriangle( source.GetTriangle( t ), source.GetTriangleGroup( t ) ), 0 );
+            }
+        }
         return mesh;
     }
 
@@ -86,6 +122,7 @@ namespace
     class FMeshBevelProbe : public FMeshBevel
     {
     public:
+        using FMeshBevel::DisplaceVertices;
         using FMeshBevel::Edges;
         using FMeshBevel::FixUpUnlinkedBevelEdges;
         using FMeshBevel::MeshEdgePairs;
@@ -103,6 +140,62 @@ namespace
             FixUpUnlinkedBevelEdges( mesh );
         }
     };
+
+    int CountBoundaryEdges( const FDynamicMesh3& mesh )
+    {
+        int boundary = 0;
+        for ( const int e : mesh.BoundaryEdgeIndicesItr() )
+        {
+            (void)e;
+            ++boundary;
+        }
+        return boundary;
+    }
+
+    // Face f of TangentCube: normal axis f / 2, sign + for even f.
+    int FaceAxis( int group )
+    {
+        return ( group - 1 ) / 2;
+    }
+    double FaceSign( int group )
+    {
+        return ( ( group - 1 ) % 2 == 0 ) ? 1.0 : -1.0;
+    }
+
+    // With every edge beveled, each vertex belongs to one face island; it keeps its coordinate on the face axis
+    // and is pulled InsetDistance in from every cube edge it sat on: an in-face coordinate of +-50 becomes +-(50 -
+    // W).
+    void ExpectEveryVertexInsetIntoItsFace( const FDynamicMesh3& mesh, const std::map<int, FVector3d>& before,
+                                            double w )
+    {
+        for ( const int v : mesh.VertexIndicesItr() )
+        {
+            std::set<int> groups;
+            for ( const int t : mesh.VtxTrianglesItr( v ) )
+                groups.insert( mesh.GetTriangleGroup( t ) );
+            ASSERT_EQ( groups.size(), 1u ) << "vertex " << v << " is not on a single face island";
+            const int       group = *groups.begin();
+            const FVector3d orig  = before.at( v );
+            const FVector3d p     = mesh.GetVertex( v );
+            for ( int a = 0; a < 3; ++a )
+            {
+                double expected = orig[a];
+                if ( a == FaceAxis( group ) )
+                    expected = 50.0 * FaceSign( group );
+                else if ( std::abs( orig[a] ) == 50.0 )
+                    expected = std::copysign( 50.0 - w, orig[a] );
+                EXPECT_NEAR( p[a], expected, 1e-9 ) << "vertex " << v << " group " << group << " axis " << a;
+            }
+        }
+    }
+
+    std::map<int, FVector3d> Positions( const FDynamicMesh3& mesh )
+    {
+        std::map<int, FVector3d> positions;
+        for ( const int v : mesh.VertexIndicesItr() )
+            positions[v] = mesh.GetVertex( v );
+        return positions;
+    }
 
     // Unlink only re-indexes: every vertex still sits on one of the cube's corners.
     void ExpectPositionsAreCubeCorners( const FDynamicMesh3& mesh )
@@ -313,4 +406,132 @@ TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
     ExpectPairsSymmetric( bevel );
     ExpectPositionsAreCubeCorners( mesh );
     EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
+}
+
+TEST( MeshBevel, DisplaceAllTwelveEdgesInsetsEveryCornerIntoItsFace )
+{
+    FDynamicMesh3  mesh = TangentCube();
+    FGroupTopology topology( &mesh, true );
+
+    FMeshBevelProbe bevel;
+    bevel.InsetDistance = 5.0;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+    bevel.Unlink( mesh );
+    const std::map<int, FVector3d> before = Positions( mesh );
+    bevel.DisplaceVertices( mesh );
+    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+    ExpectEveryVertexInsetIntoItsFace( mesh, before, 5.0 );
+    for ( const FMeshBevel::FBevelVertex& vertex : bevel.Vertices )
+    {
+        for ( const FMeshBevel::FOneRingWedge& wedge : vertex.Wedges )
+            EXPECT_TRUE( wedge.bHaveNewPosition ) << "wedge vertex " << wedge.WedgeVertex;
+    }
+}
+
+// n = 3 gives two interior vertices per span; interleaved, the one-ring split picks opposite faces as Set0 at
+// consecutive span vertices, and ReconcileTriangleSets must turn them back to one side.
+TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
+{
+    for ( const auto& [n, bInterleaved] : { std::pair{ 2, false }, std::pair{ 3, false }, std::pair{ 3, true } } )
+    {
+        SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" +
+                      ( bInterleaved ? ", interleaved" : "" ) );
+        FDynamicMesh3 mesh = bInterleaved ? InterleavedTangentCube( n ) : TangentCube( n );
+        ASSERT_EQ( mesh.VertexCount(), 6 * n * n + 2 );
+        FGroupTopology topology( &mesh, true );
+
+        FMeshBevelProbe bevel;
+        bevel.InsetDistance = 7.0;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+        ASSERT_EQ( bevel.Edges.Num(), 12 );
+        int flippedSpans = 0;
+        for ( const FMeshBevel::FBevelEdge& e : bevel.Edges )
+        {
+            ASSERT_EQ( e.MeshEdges.Num(), n ) << "bevel edge " << e.EdgeIndex;
+            std::set<int> firstSides;
+            for ( const int32 me : e.MeshEdges )
+                firstSides.insert( mesh.GetTriangleGroup( mesh.GetEdgeT( me ).A ) );
+            flippedSpans += firstSides.size() > 1 ? 1 : 0;
+        }
+        if ( bInterleaved )
+            EXPECT_GT( flippedSpans, 0 ) << "the fixture no longer exercises ReconcileTriangleSets";
+        bevel.Unlink( mesh );
+        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+        // six islands of (n+1)^2 vertices, each bounded by 4n edges: corners split in three, span interiors in two
+        EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) );
+        EXPECT_EQ( CountBoundaryEdges( mesh ), 24 * n );
+        EXPECT_EQ( bevel.MeshEdgePairs.Num(), 24 * n );
+        ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
+        ExpectPairsSymmetric( bevel );
+        EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
+
+        const std::map<int, FVector3d> before = Positions( mesh );
+        bevel.DisplaceVertices( mesh );
+        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+        ExpectEveryVertexInsetIntoItsFace( mesh, before, 7.0 );
+    }
+}
+
+TEST( MeshBevel, SubdividedCubeOneEdgeTerminatorsSlideOntoTheirOwnFace )
+{
+    FDynamicMesh3  mesh = TangentCube( 2 );
+    FGroupTopology topology( &mesh, true );
+    const int      edge = GroupEdgeBetween( topology, 1, 3 );
+    ASSERT_GE( edge, 0 );
+
+    FMeshBevelProbe bevel;
+    bevel.InsetDistance = 5.0;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
+    bevel.Unlink( mesh );
+    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+    // the span middle splits once, each terminator once; the hole is the two span pairs plus both cap-face pairs
+    EXPECT_EQ( mesh.VertexCount(), 29 );
+    EXPECT_EQ( CountBoundaryEdges( mesh ), 8 );
+
+    const std::map<int, FVector3d> before = Positions( mesh );
+    bevel.DisplaceVertices( mesh );
+    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+
+    // The beveled edge is x = y = 50 (faces +X, group 1, and +Y, group 3). Every vertex on it moves 5 into the one
+    // of those faces it still touches; everything else stays.
+    std::map<double, int> movedIntoX;
+    std::map<double, int> movedIntoY;
+    for ( const int v : mesh.VertexIndicesItr() )
+    {
+        const FVector3d orig = before.at( v );
+        const FVector3d p    = mesh.GetVertex( v );
+        if ( !( orig.X == 50.0 && orig.Y == 50.0 ) )
+        {
+            for ( int a = 0; a < 3; ++a )
+                EXPECT_DOUBLE_EQ( p[a], orig[a] )
+                     << "vertex " << v << " is off the beveled edge and must not move";
+            continue;
+        }
+        bool touchesX = false;
+        bool touchesY = false;
+        for ( const int t : mesh.VtxTrianglesItr( v ) )
+        {
+            touchesX = touchesX || mesh.GetTriangleGroup( t ) == 1;
+            touchesY = touchesY || mesh.GetTriangleGroup( t ) == 3;
+        }
+        ASSERT_NE( touchesX, touchesY ) << "vertex " << v << " must touch exactly one of the two beveled faces";
+        EXPECT_DOUBLE_EQ( p.Z, orig.Z ) << "vertex " << v;
+        if ( touchesX )
+        {
+            EXPECT_DOUBLE_EQ( p.X, 50.0 ) << "vertex " << v;
+            EXPECT_NEAR( p.Y, 45.0, 1e-9 ) << "vertex " << v;
+            ++movedIntoX[orig.Z];
+        }
+        else
+        {
+            EXPECT_NEAR( p.X, 45.0, 1e-9 ) << "vertex " << v;
+            EXPECT_DOUBLE_EQ( p.Y, 50.0 ) << "vertex " << v;
+            ++movedIntoY[orig.Z];
+        }
+    }
+    const std::map<double, int> onePerHeight{ { -50.0, 1 }, { 0.0, 1 }, { 50.0, 1 } };
+    EXPECT_EQ( movedIntoX, onePerHeight );
+    EXPECT_EQ( movedIntoY, onePerHeight );
 }

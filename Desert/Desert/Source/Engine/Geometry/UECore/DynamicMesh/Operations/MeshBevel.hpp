@@ -1,6 +1,7 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/MeshBevel.h:26-378 and
-// Private/Operations/MeshBevel.cpp:75-131,669-1602 (setup, topology build and unlink of the chamfer bevel),
+// Private/Operations/MeshBevel.cpp:75-131,669-1788 (setup, topology build, unlink and displacement of the chamfer
+// bevel),
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a
 // named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED
 // with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
@@ -30,6 +31,9 @@ namespace Desert::Geometry
     public:
         /** Why initialization refused the input; empty on success. */
         std::string FailureReason;
+
+        /** Distance (cm) each beveled edge is inset into its two adjacent faces. */
+        double InsetDistance = 5.0;
 
         /** Initialize the bevel with all edges of the given GroupTopology. */
         bool InitializeFromGroupTopology( const FDynamicMesh3& Mesh, const FGroupTopology& Topology );
@@ -128,6 +132,10 @@ namespace Desert::Geometry
         void UnlinkJunctionVertex( FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         void UnlinkTerminatorVertex( FDynamicMesh3& Mesh, FBevelVertex& BevelVertex );
         void FixUpUnlinkedBevelEdges( const FDynamicMesh3& Mesh );
+
+        /** Move the unlinked vertices InsetDistance into the adjacent faces (UE's Distance argument only fed its
+         *  unused MeanValueCentroid fallback, so it is gone). */
+        void DisplaceVertices( FDynamicMesh3& Mesh );
 
     private:
         void InitVertexSet( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
