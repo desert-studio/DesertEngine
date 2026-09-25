@@ -58,9 +58,9 @@ namespace Desert::Geometry
 
         /**
          * Bevel the initialized edges in place (UE Apply, B:576): unlink, displace, mesh, then the primary normals
-         * and material IDs of NewTriangles. Returns false with FailureReason (the mesh is then partially edited)
-         * as soon as a phase refuses. UV layers are NOT computed: the new triangles' UV overlay triangles stay
-         * unset until ComputeUVs (B:3776-3812) is ported by task P13d. Only the one-segment chamfer is ported:
+         * normals, primary UVs (one ExpMap island per region, as UE: other UV layers stay unset) and material
+         * IDs of NewTriangles. Returns false with FailureReason (the mesh is then partially edited) as soon as a
+         * phase refuses. Only the one-segment chamfer is ported:
          * UE's NumSubdivisions / round profile (CreateBevelMeshing_Multi) is task P13e.
          */
         bool Apply( FDynamicMesh3& Mesh );
@@ -172,6 +172,8 @@ namespace Desert::Geometry
 
         /** Per-vertex normals within each new vertex polygon and each strip; no-op without attributes. */
         void ComputeNormals( FDynamicMesh3& Mesh );
+        /** ExpMap primary UVs per strip, then per vertex polygon; no-op without a UV layer. */
+        void ComputeUVs( FDynamicMesh3& Mesh );
         /** MaterialID of NewTriangles per MaterialIDMode; no-op without a MaterialID attribute. */
         void ComputeMaterialIDs( FDynamicMesh3& Mesh );
 

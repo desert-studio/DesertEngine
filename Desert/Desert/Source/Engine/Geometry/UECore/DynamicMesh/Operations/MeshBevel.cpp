@@ -1,6 +1,6 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:47-131, 576-2082,
-// 3740-3774, 3814-3969, adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the
+// 3740-3812, 3814-3969, adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the
 // progress-cancel checks are gone (UECore has no FProgressCancel), and every UE path that leaves a vertex Unknown
 // records why. ComputeMaterialIDs fixes three UE slips, see there.
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
@@ -11,10 +11,12 @@
 #include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingUVUtil.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
 #include <algorithm>
+#include <string>
 
 namespace Desert::Geometry
 {
@@ -1244,10 +1246,40 @@ namespace Desert::Geometry
             QuadsToTris( Mesh, Loop.StripQuads, NewTriangles, false );
 
         ComputeNormals( Mesh );
-        // UE's ComputeUVs (B:3776-3812: an ExpMap parameterization per bevel region) is task P13d; until then the
-        // UV overlays of NewTriangles stay unset, as the header documents.
+        ComputeUVs( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
         ComputeMaterialIDs( Mesh );
         return true;
+    }
+
+    // UE ignores the ExpMap result; a region it could not parameterize is a refusal here.
+    void FMeshBevel::ComputeUVs( FDynamicMesh3& Mesh )
+    {
+        if ( !Mesh.HasAttributes() || Mesh.Attributes()->NumUVLayers() == 0 )
+            return;
+        FDynamicMeshUVOverlay* UVOverlay = Mesh.Attributes()->PrimaryUV();
+
+        auto SetUVsOnTriRegion = [this, &Mesh, UVOverlay]( const TArray<int32>& Triangles )
+        {
+            if ( Triangles.Num() > 0 && !ComputeArbitraryTrianglePatchUVs( Mesh, *UVOverlay, Triangles ) )
+                Refuse( "ComputeUVs: the ExpMap failed on a bevel region of " + std::to_string( Triangles.Num() ) +
+                        " triangles starting at triangle " + std::to_string( Triangles[0] ) );
+        };
+        TArray<int32> TriList;
+        for ( const FBevelEdge& Edge : Edges )
+        {
+            QuadsToTris( Mesh, Edge.StripQuads, TriList, true );
+            SetUVsOnTriRegion( TriList );
+        }
+        for ( const FBevelLoop& Loop : Loops )
+        {
+            QuadsToTris( Mesh, Loop.StripQuads, TriList, true );
+            SetUVsOnTriRegion( TriList );
+        }
+        // vertices last: until the edges have UVs, the vertex polygons have no neighbour UV islands to scale by
+        for ( const FBevelVertex& Vertex : Vertices )
+            SetUVsOnTriRegion( Vertex.NewTriangles );
     }
 
     void FMeshBevel::ComputeNormals( FDynamicMesh3& Mesh )

@@ -572,9 +572,42 @@ namespace
         EXPECT_NEAR( SignedVolume( mesh ), expectedVolume, 1e-6 * expectedVolume );
     }
 
+    // ComputeUVs: every new triangle has primary UVs that are finite and not degenerate, from elements no old
+    // triangle uses (a new island per region); the other UV layers stay unset, as UE.
+    void ExpectNewTriangleUVs( const FDynamicMesh3& mesh, const FMeshBevel& bevel )
+    {
+        if ( mesh.Attributes()->NumUVLayers() == 0 )
+            return;
+        const FDynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
+        const std::set<int>          newTris( bevel.NewTriangles.begin(), bevel.NewTriangles.end() );
+        std::set<int>                oldElements;
+        for ( const int t : mesh.TriangleIndicesItr() )
+            if ( newTris.count( t ) == 0 && uvs.IsSetTriangle( t ) )
+                for ( int j = 0; j < 3; ++j )
+                    oldElements.insert( uvs.GetTriangle( t )[j] );
+        for ( const int t : bevel.NewTriangles )
+        {
+            if ( !uvs.IsSetTriangle( t ) )
+            {
+                ADD_FAILURE() << "new triangle " << t << " has no primary UVs";
+                continue;
+            }
+            FVector2f a, b, c;
+            uvs.GetTriElements( t, a, b, c );
+            for ( const FVector2f& uv : { a, b, c } )
+                EXPECT_TRUE( std::isfinite( uv.X ) && std::isfinite( uv.Y ) ) << "new triangle " << t;
+            const double area = 0.5 * std::abs( double( b.X - a.X ) * ( c.Y - a.Y ) - double( b.Y - a.Y ) * ( c.X - a.X ) );
+            EXPECT_GT( area, 1e-6 ) << "new triangle " << t;
+            for ( int j = 0; j < 3; ++j )
+                EXPECT_EQ( oldElements.count( uvs.GetTriangle( t )[j] ), 0u ) << "new triangle " << t;
+            for ( int layer = 1; layer < mesh.Attributes()->NumUVLayers(); ++layer )
+                EXPECT_FALSE( mesh.Attributes()->GetUVLayer( layer )->IsSetTriangle( t ) ) << "new triangle " << t;
+        }
+    }
+
     // Every new triangle of a flat region carries its own geometric normal at each corner; a loop strip wrapping
     // a corner is ONE region with per-vertex normals, so there the normal only has to be unit and outward. No
-    // normal element is shared by two polygroups; the UV overlays stay unset (ComputeUVs is task P13d).
+    // normal element is shared by two polygroups.
     void ExpectNewTriangleNormals( const FDynamicMesh3& mesh, const FMeshBevel& bevel, bool bFlatRegions = true )
     {
         if ( !mesh.HasAttributes() )
@@ -595,9 +628,8 @@ namespace
                 else
                     EXPECT_GT( cosine, 0.8 ) << "new triangle " << t;
             }
-            for ( int layer = 0; layer < mesh.Attributes()->NumUVLayers(); ++layer )
-                EXPECT_FALSE( mesh.Attributes()->GetUVLayer( layer )->IsSetTriangle( t ) ) << "new triangle " << t;
         }
+        ExpectNewTriangleUVs( mesh, bevel );
         std::map<int, int> elementGroup;
         for ( const int t : mesh.TriangleIndicesItr() )
         {
