@@ -248,7 +248,12 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     MeshSourceAsset slot            = MakeQuad( false );
     slot.Source.Mesh.MaterialIds[1] = 4;
     EXPECT_FALSE( EncodeMeshSourceAsset( slot ).IsSuccess() );
-    MeshSourceAsset torn                         = MakeQuad( false );
+    MeshSourceAsset torn = MakeQuad( false );
+    if ( !torn.Source.Mesh.Colors.has_value() )
+    {
+        ADD_FAILURE() << "the quad fixture lost its colour overlay";
+        return;
+    }
     torn.Source.Mesh.Colors.value().Triangles[3] = 0; // half-unset triangle
     EXPECT_FALSE( EncodeMeshSourceAsset( torn ).IsSuccess() );
     MeshSourceAsset scale              = MakeQuad( false );
@@ -257,7 +262,12 @@ TEST( MeshSourceAsset, MalformedSourceIsRefusedOnEncode )
     MeshSourceAsset anonymous = MakeQuad( false );
     anonymous.Import.SourceFile.clear();
     EXPECT_FALSE( EncodeMeshSourceAsset( anonymous ).IsSuccess() );
-    MeshSourceAsset weight                        = MakeQuad( true );
+    MeshSourceAsset weight = MakeQuad( true );
+    if ( !weight.Source.Skin.has_value() )
+    {
+        ADD_FAILURE() << "the skinned quad fixture lost its skin";
+        return;
+    }
     weight.Source.Skin.value().Influences[0].Bone = 2;
     EXPECT_FALSE( EncodeMeshSourceAsset( weight ).IsSuccess() );
 }

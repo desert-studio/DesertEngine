@@ -199,7 +199,9 @@ namespace Desert::Assets
             const auto elements = static_cast<int64_t>( o.Values.size() / components );
             for ( size_t t = 0; t < triangleCount; ++t )
             {
-                const int  a = o.Triangles[t * 3], b = o.Triangles[t * 3 + 1], c = o.Triangles[t * 3 + 2];
+                const int  a     = o.Triangles[t * 3];
+                const int  b     = o.Triangles[t * 3 + 1];
+                const int  c     = o.Triangles[t * 3 + 2];
                 const bool unset = a == -1 && b == -1 && c == -1;
                 if ( unset )
                     continue;
