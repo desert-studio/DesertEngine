@@ -18,6 +18,15 @@ namespace Desert::Editor::CookPaths
     // under content (e.g. a character pack in Resources/Assets/Collections/<pack>/) map relative to Assets/
     // (then Resources/) instead — otherwise the relative path escapes Cooked/Meshes with "../" and the cooked
     // outputs land outside the tree the preloader scans, so the asset is silently never discovered.
+    // A STATIC MESH'S ASSET LIVES BESIDE ITS SOURCE (UE: the package next to the content), not under Cooked/:
+    // Assets/Meshes/Props/base.fbx -> Assets/Meshes/Props/base.stmesh, the MeshSourceAsset envelope (AF4d).
+    inline std::filesystem::path MeshAsset( const std::filesystem::path& source )
+    {
+        std::filesystem::path result = source;
+        result.replace_extension( ".stmesh" );
+        return result;
+    }
+
     inline std::filesystem::path CookedMesh( const std::filesystem::path& source, const std::string& ext )
     {
         namespace fs = std::filesystem;

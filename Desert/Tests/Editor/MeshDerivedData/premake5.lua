@@ -26,6 +26,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
         "%{wks.location}/Editor/Source/Editor/Import/MeshDeriver.cpp",
         "%{wks.location}/Editor/Source/Editor/Import/LODFold.cpp",
+        "%{wks.location}/Editor/Source/Editor/Import/ImportedMeshAsset.cpp",
     }
 
     includedirs {
