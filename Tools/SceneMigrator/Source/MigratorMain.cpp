@@ -485,7 +485,8 @@ namespace
             }
             std::error_code ec;
             std::filesystem::create_directories( graphPath.parent_path(), ec );
-            if ( !WriteText( graphPath, *raised.GetValue(), err ) )
+            // value_or, not *: the has_value() above sits behind the Result, where clang-tidy cannot see it.
+            if ( !WriteText( graphPath, raised.GetValue().value_or( std::string() ), err ) )
             {
                 err << "FAIL   " << graphPath.string() << " — the anim graph could not be written; "
                     << source.string() << " is left at its old version\n";
