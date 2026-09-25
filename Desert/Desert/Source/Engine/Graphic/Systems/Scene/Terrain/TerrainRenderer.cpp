@@ -63,7 +63,8 @@ namespace Desert::Graphic::System
             TerrainInstance instance;
             instance.Params         = glm::vec4( static_cast<float>( l.QuadsPerTile ) * l.SpacingCm, lod.Center,
                                                  256.0f * l.ZScale, std::floor( lod.Center ) );
-            instance.Params2        = glm::vec4( 1.0f / std::max( 0.01f, kLandscapeLodBlendRange ), 0.0f, 0.0f,
+            instance.Params2        = glm::vec4( 1.0f / std::max( 0.01f, kLandscapeLodBlendRange ),
+                                                 static_cast<float>( t.Weights.LayerCount ), 0.0f,
                                                  static_cast<float>( l.NeighbourMask ) );
             instance.LayerModes     = glm::vec4( t.LayerModes, 0.0f );
             instance.LandscapeFrame = glm::vec4( l.OriginX, l.BaseY, l.OriginZ, l.SpacingCm );
@@ -72,6 +73,8 @@ namespace Desert::Graphic::System
                             static_cast<float>( l.QuadsPerTile ), l.ZScale );
             instance.LodEdges   = lod.Edges;
             instance.LodCorners = lod.Corners;
+            instance.LayerColors     = t.Weights.Colors;
+            instance.LayerAlphaBlend = t.Weights.AlphaBlend;
             return instance;
         }
 
@@ -241,8 +244,8 @@ namespace Desert::Graphic::System
 
         for ( const auto& t : m_Queue )
         {
-            const auto [it, inserted] =
-                 groupIndex.try_emplace( TerrainTextureKey( t.Overrides, t.Heightmap ), m_FrameGroups.size() );
+            const auto [it, inserted] = groupIndex.try_emplace(
+                 TerrainTextureKey( t.Overrides, t.Heightmap, t.Weights.Weightmap ), m_FrameGroups.size() );
             ProgramMaterials& materials = m_Materials[it->first];
             if ( inserted )
             {
@@ -276,6 +279,8 @@ namespace Desert::Graphic::System
                 }
                 surface->SetTexture( "u_Heightmap", t.Heightmap );
                 materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap );
+                if ( t.Weights.Weightmap != nullptr )
+                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap );
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
             DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();

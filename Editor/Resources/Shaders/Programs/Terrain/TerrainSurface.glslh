@@ -42,6 +42,13 @@
         Uniform(3) sampler2D u_RockTex;
         Uniform(4) sampler2D u_SnowTex;
 
+        // The tile's painted weight layers, one per RGBA8 channel (LandscapeECSSystem's copy of the tile's
+        // LandscapeWeightLayer weights, one texel per sample, no neighbour ring). Read only when the row says
+        // the tile has layers (Params2.y > 0); otherwise the binding holds the backend's white fallback.
+        Uniform(10) sampler2D u_Weightmap;
+
+        #include <Common/LandscapeWeights.glslh>
+
         // Triplanar sample: project onto the three world planes and blend by the (squared) normal so steep faces
         // don't stretch. scale = tiles per world unit.
         vec3 Triplanar( sampler2D tex, vec3 wpos, vec3 n, float scale )
@@ -130,6 +137,21 @@
             albedo      = mix( albedo, grassT, clamp( wGrass, 0.0, 1.0 ) );
             albedo      = mix( albedo, rockT, clamp( wRock, 0.0, 1.0 ) );
             albedo      = mix( albedo, snowT, clamp( wSnow, 0.0, 1.0 ) );
+
+            // Painted layers over the rule ground. g = this pixel's sample coordinate within the tile (the
+            // same global-sample frame the vertex stage places the tile by), and the texel centre of sample
+            // i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh interpolates them.
+            if ( u_T.Params2.y > 0.5 )
+            {
+                vec2 g  = ( v_WorldPos.xz - u_T.LandscapeFrame.xz ) / u_T.LandscapeFrame.w - u_T.LandscapeTile.xy;
+                vec2 uv = ( g + 0.5 ) / vec2( textureSize( u_Weightmap, 0 ) );
+                LandscapeWeightBlendResult painted =
+                     LandscapeWeightBlend( texture( u_Weightmap, uv ), u_T.LayerColors[0], u_T.LayerColors[1],
+                                           u_T.LayerColors[2], u_T.LayerColors[3], u_T.LayerAlphaBlend, albedo );
+                albedo = painted.Albedo;
+                // Snow is the one glossy layer; paint that covers it must not keep its shine.
+                wSnow *= painted.RuleShare;
+            }
 
             TerrainSurface s;
             s.N      = N;

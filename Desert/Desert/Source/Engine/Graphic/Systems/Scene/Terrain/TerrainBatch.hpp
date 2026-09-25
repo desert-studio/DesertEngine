@@ -5,12 +5,18 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
+
+namespace Desert::Graphic
+{
+    class Image2D;
+}
 
 namespace Desert::Graphic::System
 {
@@ -42,8 +48,9 @@ namespace Desert::Graphic::System
         // x = tile extent (cm), y = the tile's continuous LOD (LandscapeLodFromScreenSize), z = height range
         // (cm), w = the LOD whose grid the tile is drawn with (floor of y; the vertex count is that grid's).
         glm::vec4 Params{ 0.0f };
-        // x = 1 / LOD blend range (UE's InvLODBlendRange), y/z = std430 padding, w = the tile's
-        // LandscapeNeighbourMask (which sides have their ring row in the heightmap).
+        // x = 1 / LOD blend range (UE's InvLODBlendRange), y = the tile's weight layer count (0 = no weightmap
+        // bound; the surface keeps its rule albedo), z = std430 padding, w = the tile's LandscapeNeighbourMask
+        // (which sides have their ring row in the heightmap).
         glm::vec4 Params2{ 0.0f };
         // x = grass, y = rock, z = snow (ECS::LandscapeLayerMode: 0=Auto, 1=Off). w is std430 padding: a
         // vec3 here would still occupy 16 bytes and a glm::vec3 member would occupy 12, which is how a
@@ -58,17 +65,37 @@ namespace Desert::Graphic::System
         glm::vec4 LodEdges{ 0.0f };
         // ...and on each corner: the max of the four tiles sharing it, at (-x,-z), (+x,-z), (-x,+z), (+x,+z).
         glm::vec4 LodCorners{ 0.0f };
+        // The colour each weightmap channel paints (rgb) and whether that channel is a layer at all (a = 1;
+        // a = 0 ignores the channel). See LandscapeWeightDraw.
+        std::array<glm::vec4, 4> LayerColors{};
+        // Per channel: 1 = the layer is NoWeightBlend (UE LB_AlphaBlend), laid over the weight blend.
+        glm::vec4 LayerAlphaBlend{ 0.0f };
     };
 
-    static_assert( sizeof( TerrainInstance ) == 7 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay seven 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+    static_assert( sizeof( TerrainInstance ) == 12 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay twelve 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
                    "reads these offsets" );
     static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, LayerModes ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
                         offsetof( TerrainInstance, LandscapeTile ) == 64 &&
                         offsetof( TerrainInstance, LodEdges ) == 80 &&
-                        offsetof( TerrainInstance, LodCorners ) == 96,
+                        offsetof( TerrainInstance, LodCorners ) == 96 &&
+                        offsetof( TerrainInstance, LayerColors ) == 112 &&
+                        offsetof( TerrainInstance, LayerAlphaBlend ) == 176,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
+
+    // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
+    // apart from LandscapeTileDraw: that one feeds the LOD/seam keys, and painting must not touch them.
+    // The weightmap is LandscapeECSSystem's RGBA8 copy of the tile's layer weights (one channel per layer,
+    // LandscapeWeightmap.hpp), updated in place per stroke so its address - part of TerrainTextureKey -
+    // stays put. LayerCount 0 means no weightmap: the tile keeps its rule albedo.
+    struct LandscapeWeightDraw
+    {
+        Image2D*                 Weightmap  = nullptr;
+        uint32_t                 LayerCount = 0;
+        std::array<glm::vec4, 4> Colors{};
+        glm::vec4                AlphaBlend{ 0.0f };
+    };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first
     // GLOBAL sample, not the tile's own origin: a vertex on a shared edge is then the same integer sample
@@ -208,18 +235,21 @@ namespace Desert::Graphic::System
     // The texture half of a terrain material's identity. Two terrains may share one material only if
     // they bind the same textures: the sorted texture-override handles plus the address of the landscape
     // tile's heightmap (runtime-owned, no asset handle — same spelling MeshRenderer uses for the font
-    // atlas). Every landscape tile is therefore its own material.
+    // atlas), and of its weightmap when it has one. Every landscape tile is therefore its own material.
     // Sorted, because two terrains naming the same textures in a different order are the same texture
     // set and must share one material rather than allocate two.
-    inline std::string TerrainTextureKey( const MaterialOverrides& overrides, const void* heightmap )
+    inline std::string TerrainTextureKey( const MaterialOverrides& overrides, const void* heightmap,
+                                          const void* weightmap )
     {
         std::vector<std::string> parts;
-        parts.reserve( overrides.Textures.size() + 1 );
+        parts.reserve( overrides.Textures.size() + 2 );
         for ( const auto& [name, handle] : overrides.Textures )
             if ( handle != 0 )
                 parts.push_back( name + "=" + std::to_string( handle ) );
         if ( heightmap != nullptr )
             parts.push_back( "u_Heightmap=@" + std::to_string( reinterpret_cast<uintptr_t>( heightmap ) ) );
+        if ( weightmap != nullptr )
+            parts.push_back( "u_Weightmap=@" + std::to_string( reinterpret_cast<uintptr_t>( weightmap ) ) );
         std::sort( parts.begin(), parts.end() );
 
         std::string key;
