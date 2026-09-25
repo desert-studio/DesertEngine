@@ -13,11 +13,14 @@
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
 #include "Engine/Geometry/UECore/FrameTypes.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingUVUtil.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <string>
 
 namespace Desert::Geometry
@@ -1571,6 +1574,70 @@ namespace Desert::Geometry
                     " quads do not form a quad grid" );
     }
 
+    namespace
+    {
+        double Dot2( const FVector2d& A, const FVector2d& B )
+        {
+            return A.X * B.X + A.Y * B.Y;
+        }
+        double Length2( const FVector2d& V )
+        {
+            return std::sqrt( Dot2( V, V ) );
+        }
+        FVector2d Normalized2( const FVector2d& V )
+        {
+            const double Length = Length2( V );
+            return Length > FMathd::ZeroTolerance ? V * ( 1.0 / Length ) : FVector2d( 0.0, 0.0 );
+        }
+        // VectorUtil::VectorTanHalfAngle: tan of half the angle between two unit vectors
+        double TanHalfAngle( const FVector2d& A, const FVector2d& B )
+        {
+            const double CosAngle = Dot2( A, B );
+            return std::sqrt(
+                 std::clamp( ( 1.0 - CosAngle ) / ( 1.0 + CosAngle ), 0.0, std::numeric_limits<double>::max() ) );
+        }
+
+        // UE B:2931-2968: per border vertex k, the offset of UVPosition in k's frame (X along the border's central
+        // difference, Y = PerpCW(X)) and its polygon mean-value weight (Floater), the weights normalized to sum 1.
+        TArray<FVector3d> MeanValueFrameWeights( const FVector2d&         UVPosition,
+                                                 const TArray<FVector2d>& BorderPolygon )
+        {
+            const int32       NumLoopVerts = BorderPolygon.Num();
+            TArray<FVector3d> Weights;
+            Weights.Reserve( NumLoopVerts );
+            double WeightSum = 0.0;
+            for ( int32 k = 0; k < NumLoopVerts; ++k )
+            {
+                const FVector2d BoundaryUVPosition = BorderPolygon[k];
+                const FVector2d Prev               = BorderPolygon[( k - 1 + NumLoopVerts ) % NumLoopVerts];
+                const FVector2d Next               = BorderPolygon[( k + 1 ) % NumLoopVerts];
+                const FVector2d BoundaryFrameX     = Normalized2( Next - Prev );
+                const FVector2d BoundaryFrameY( BoundaryFrameX.Y, -BoundaryFrameX.X );
+                const FVector2d DeltaUV = UVPosition - BoundaryUVPosition;
+                const double    Dist    = Length2( DeltaUV );
+                double          Weight  = 1.0;
+                if ( Dist > FMathd::ZeroTolerance )
+                {
+                    const FVector2d DeltaP = Normalized2( BoundaryUVPosition - UVPosition );
+                    const double    T1     = TanHalfAngle( Normalized2( Prev - UVPosition ), DeltaP );
+                    const double    T2     = TanHalfAngle( Normalized2( Next - UVPosition ), DeltaP );
+                    Weight                 = ( T1 + T2 ) / Dist;
+                }
+                Weights.Add(
+                     FVector3d( Dot2( BoundaryFrameX, DeltaUV ), Dot2( BoundaryFrameY, DeltaUV ), Weight ) );
+                WeightSum += Weight;
+            }
+            for ( FVector3d& Weight : Weights )
+                Weight.Z /= WeightSum;
+            return Weights;
+        }
+    } // namespace
+
+    bool FMeshBevel::HasRoundProfile() const
+    {
+        return std::abs( RoundWeight ) > FMathf::ZeroTolerance;
+    }
+
     void FMeshBevel::AppendJunctionVertexPolygon_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex )
     {
         // UnlinkJunctionVertex() split the junction vertex into one vertex per wedge, ordered so the wedge
@@ -1721,10 +1788,12 @@ namespace Desert::Geometry
         FMeshBoundaryLoops BoundaryLoops( &Tess, true );
         TArray<int32>      VertexMap;
         VertexMap.Init( -1, Tess.MaxVertexID() );
-        bool bMapped = false;
+        bool          bMapped = false;
+        TArray<int32> BoundaryLoopVerts;
         for ( int32 k = 0; k < BoundaryLoops.GetLoopCount() && !bMapped; ++k )
         {
-            TArray<int32> LoopVerts = BoundaryLoops.Loops[k].Vertices;
+            TArray<int32>& LoopVerts = BoundaryLoopVerts;
+            LoopVerts                = BoundaryLoops.Loops[k].Vertices;
             if ( LoopVerts.Num() != NV )
                 continue;
             auto IndexOf = [&LoopVerts]( int32 VertexID )
@@ -1753,6 +1822,40 @@ namespace Desert::Geometry
                     std::to_string( NV ) + " vertices matching its corners" );
             return;
         }
+        // 5+ corners, round: the patch flattened conformally (UE B:2840-2853) gives each interior vertex its
+        // offsets in the border frames and its mean-value coordinates (B:2905-2968). Only the round profile reads
+        // them, so a flat bevel does not run (or depend on) the spectral solve UE always runs.
+        const bool        bMeanValuePatch = NCorners >= 5 && HasRoundProfile();
+        TArray<FVector2d> PatchUVs;
+        if ( bMeanValuePatch )
+        {
+            Tess.EnableAttributes();
+            FDynamicMeshUVOverlay* UVOverlay = Tess.Attributes()->PrimaryUV();
+            FDynamicMeshUVEditor   UVEditor( &Tess, UVOverlay );
+            TArray<int32>          AllTriangles;
+            for ( const int32 TriangleID : Tess.TriangleIndicesItr() )
+                AllTriangles.Add( TriangleID );
+            TArray<int32> TessToUV;
+            bool          bIdentityMap = false;
+            UVEditor.SetToPerVertexUVs( TessToUV, bIdentityMap );
+            if ( !UVEditor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles, true, true ) ||
+                 !UVEditor.ScaleUVAreaTo3DArea( AllTriangles, true ) )
+            {
+                Refuse( Where + ": the spectral conformal flattening of its " + std::to_string( NCorners ) +
+                        "-gon round patch failed" );
+                return;
+            }
+            PatchUVs.Init( FVector2d( 0.0, 0.0 ), Tess.MaxVertexID() );
+            for ( const int32 VertexID : Tess.VertexIndicesItr() )
+            {
+                const FVector2f UV = UVOverlay->GetElement( TessToUV[VertexID] );
+                PatchUVs[VertexID] = FVector2d( UV.X, UV.Y );
+            }
+        }
+        TArray<FVector2d> BorderPolygon;
+        for ( const int32 VertexID : BoundaryLoopVerts )
+            BorderPolygon.Add( PatchUVs.IsEmpty() ? FVector2d( 0.0, 0.0 ) : PatchUVs[VertexID] );
+
         // a triangle keeps its three corners and its interior vertices' barycentrics for the round profile
         if ( NCorners == 3 )
             Vertex.InteriorBorderLoop = PolygonCornerVIDs;
@@ -1761,13 +1864,21 @@ namespace Desert::Geometry
             if ( VertexMap[VertexID] != -1 )
                 continue;
             VertexMap[VertexID] = Mesh.AppendVertex( Tess.GetVertex( VertexID ) );
-            if ( NCorners == 3 )
+            if ( NCorners == 3 || bMeanValuePatch )
             {
                 FBevelVertex_InteriorVertex InteriorVertex;
                 InteriorVertex.VertexID = VertexMap[VertexID];
-                InteriorVertex.BorderFrameWeight.Add( Barycentrics[VertexID] );
+                if ( NCorners == 3 )
+                    InteriorVertex.BorderFrameWeight.Add( Barycentrics[VertexID] );
+                else
+                    InteriorVertex.BorderFrameWeight = MeanValueFrameWeights( PatchUVs[VertexID], BorderPolygon );
                 Vertex.InteriorVertices.Add( InteriorVertex );
             }
+        }
+        if ( bMeanValuePatch )
+        {
+            for ( const int32 VertexID : BoundaryLoopVerts )
+                Vertex.InteriorBorderLoop.Add( VertexMap[VertexID] );
         }
         // PolygonVertices is always constructed in reversed orientation, so patch will be flipped otherwise
         Tess.ReverseOrientation();
@@ -1891,7 +2002,7 @@ namespace Desert::Geometry
     {
         // The round profile's arcs are tangent to the faces on either side of the strip: take those normals now,
         // while each unlinked side vertex still touches only its own faces.
-        const bool bRound = std::abs( RoundWeight ) > FMathf::ZeroTolerance;
+        const bool bRound = HasRoundProfile();
         if ( bRound )
         {
             auto FillNormals = [&Mesh]( const TArray<int32>& MeshVertices, const TArray<int32>& NewMeshVertices,
@@ -1990,23 +2101,6 @@ namespace Desert::Geometry
         return Curve;
     }
 
-    void FMeshBevel::RefuseUnportedRoundJunctions()
-    {
-        if ( NumSubdivisions <= 0 || std::abs( RoundWeight ) <= FMathf::ZeroTolerance )
-            return;
-        for ( const FBevelVertex& Vertex : Vertices )
-        {
-            const int32 NumWedges = Vertex.Wedges.Num();
-            if ( Vertex.VertexType != EBevelVertexType::JunctionVertex || NumWedges <= 4 )
-                continue;
-            Refuse( "junction vertex " + std::to_string( Vertex.VertexID ) + " joins " +
-                    std::to_string( NumWedges ) + " bevelled edges: the round profile (RoundWeight " +
-                    std::to_string( RoundWeight ) + ") is ported for 3- and 4-edge junctions only; " +
-                    "valence 5 or more needs UE's mean-value-coordinate patch" );
-            return;
-        }
-    }
-
     void FMeshBevel::ApplyProfileShape_Round( FDynamicMesh3& Mesh )
     {
         // Each strip column (a vertex pair split by the unlink, joined by the subdivided column) is bent onto the
@@ -2070,8 +2164,11 @@ namespace Desert::Geometry
             }
         }
 
-        // Edges likewise, keeping each column's curve by its end-vertex pair for the junction patches.
+        // Edges likewise, keeping each column's curve by its end-vertex pair for the junction patches, and summing
+        // the surface normal at every column vertex (UE's DeformNormals, B:3377-3518) for the 5+-sided patches.
         TMap<FIndex2i, FArcSplineCurve> BorderCurves;
+        TArray<FVector3d>               DeformNormals;
+        DeformNormals.Init( FVector3d::Zero(), Mesh.MaxVertexID() );
         for ( FBevelEdge& Edge : Edges )
         {
             const FQuadGridPatch& Patch  = Edge.StripQuadPatch;
@@ -2121,10 +2218,19 @@ namespace Desert::Geometry
                 const FVector3d NormalB = ProjectToPlane(
                      Side.bSwapped ? Edge.NormalsA[Side.Index] : Edge.NormalsB[Side.Index], SectionPlaneNormal );
                 const FArcSplineCurve Curve = MakeArcSplineCurve( PosA, NormalA, PosB, NormalB );
+                DeformNormals[A] += NormalA;
+                DeformNormals[B] += NormalB;
                 BorderCurves.Add( FIndex2i( A, B ), Curve );
                 BendColumn( ColVerts, Curve );
+                // the bent column's normals within its own strip
+                for ( int32 k = 1; k < ColVerts.Num() - 1; ++k )
+                    DeformNormals[ColVerts[k]] += FMeshNormals::ComputeVertexNormal(
+                         Mesh, ColVerts[k], [&Mesh, &Edge]( int32 TriangleID )
+                         { return Mesh.GetTriangleGroup( TriangleID ) == Edge.NewGroupID; }, true, true );
             }
         }
+        for ( FVector3d& Normal : DeformNormals )
+            Normalize( Normal );
 
         // a border curve keyed (P, Q) or, reversed, (Q, P)
         auto BorderCurve = [&BorderCurves]( int32 P, int32 Q, bool& bReversed ) -> const FArcSplineCurve*
@@ -2139,7 +2245,7 @@ namespace Desert::Geometry
             return Found;
         };
 
-        // Junction patches (RefuseUnportedRoundJunctions admitted only 3- and 4-sided polygons).
+        // Junction patches: 3 corners (PN triangle), 4 (blended curves), 5+ (mean-value blend of border frames).
         for ( const FBevelVertex& Vertex : Vertices )
         {
             if ( Vertex.InteriorVertices.IsEmpty() )
@@ -2190,10 +2296,55 @@ namespace Desert::Geometry
                 }
                 continue;
             }
-            if ( Vertex.InteriorBorderLoop.Num() != 4 )
+            const int32 LoopN = Vertex.InteriorBorderLoop.Num();
+            if ( LoopN >= 5 )
             {
-                Refuse( Where + ": the round profile has no patch for its " +
-                        std::to_string( Vertex.InteriorBorderLoop.Num() ) + "-corner polygon" );
+                // UE B:3697-3735: rebuild the vertex from its flattened offset in every border vertex's frame (X
+                // along the border, Y = N x X across the rounded surface) and blend those by its mean-value
+                // weights. Smooth inside, not tangent-continuous with the border (UE's own caveat).
+                for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
+                {
+                    if ( InteriorVtx.BorderFrameWeight.Num() != LoopN )
+                    {
+                        Refuse( Where + ": interior vertex " + std::to_string( InteriorVtx.VertexID ) + " has " +
+                                std::to_string( InteriorVtx.BorderFrameWeight.Num() ) +
+                                " border frame weights for a border loop of " + std::to_string( LoopN ) );
+                        return;
+                    }
+                    FVector3d BlendedPos = FVector3d::Zero();
+                    double    WeightSum  = 0.0;
+                    for ( int32 k = 0; k < LoopN; ++k )
+                    {
+                        const int32     BorderVID = Vertex.InteriorBorderLoop[k];
+                        const FVector3d BorderFrameX =
+                             Normalized( Mesh.GetVertex( Vertex.InteriorBorderLoop[( k + 1 ) % LoopN] ) -
+                                         Mesh.GetVertex( Vertex.InteriorBorderLoop[( k - 1 + LoopN ) % LoopN] ) );
+                        FVector3d BorderFrameN = DeformNormals[BorderVID];
+                        if ( RoundWeight < 0 )
+                        {
+                            // FQuaterniond(BorderFrameX, -45, true) * N, as Rodrigues' rotation
+                            const double Angle = -0.78539816339744830962;
+                            BorderFrameN =
+                                 BorderFrameN * std::cos( Angle ) +
+                                 BorderFrameX.Cross( BorderFrameN ) * std::sin( Angle ) +
+                                 BorderFrameX * ( BorderFrameX.Dot( BorderFrameN ) * ( 1.0 - std::cos( Angle ) ) );
+                        }
+                        const FVector3d BorderFrameY     = BorderFrameN.Cross( BorderFrameX );
+                        const FVector3d FrameDeltaWeight = InteriorVtx.BorderFrameWeight[k];
+                        const FVector3d ReconstructedPos = Mesh.GetVertex( BorderVID ) +
+                                                           FrameDeltaWeight.X * BorderFrameX +
+                                                           FrameDeltaWeight.Y * BorderFrameY;
+                        BlendedPos += FrameDeltaWeight.Z * ReconstructedPos;
+                        WeightSum += FrameDeltaWeight.Z;
+                    }
+                    Mesh.SetVertex( InteriorVtx.VertexID, BlendedPos * ( 1.0 / WeightSum ) );
+                }
+                continue;
+            }
+            if ( LoopN != 4 )
+            {
+                Refuse( Where + ": the round profile has no patch for its " + std::to_string( LoopN ) +
+                        "-corner polygon" );
                 return;
             }
             // 4-sided: blend the two "X" border curves along the two "Y" ones.
@@ -2233,9 +2384,6 @@ namespace Desert::Geometry
     bool FMeshBevel::Apply( FDynamicMesh3& Mesh )
     {
         // UE's FixBowties is RefuseBowties at initialization; each phase below may Refuse.
-        RefuseUnportedRoundJunctions();
-        if ( !FailureReason.empty() )
-            return false;
         UnlinkEdges( Mesh );
         if ( !FailureReason.empty() )
             return false;

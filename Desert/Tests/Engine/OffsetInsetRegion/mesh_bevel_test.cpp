@@ -14,6 +14,7 @@
 
 #include <array>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <set>
@@ -1463,9 +1464,148 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
     }
 }
 
-// Valence 5 (five sectors meeting on a flat face) has no ported round patch: refused by name before the mesh is
-// touched. The same input with RoundWeight 0 still bevels.
-TEST( MeshBevel, RoundRefusesValenceFiveJunctionByName )
+namespace
+{
+    // Regular n-gonal pyramid: base radius 50 at z = -25, apex at z = 50 (the origin is inside); lateral face i is
+    // polygroup 1 + i, the base (a fan around its centre) n + 1.
+    FDynamicMesh3 Pyramid( int n )
+    {
+        const glm::vec3        apex( 0.0f, 0.0f, 50.0f );
+        std::vector<glm::vec3> ring;
+        for ( int i = 0; i < n; ++i )
+        {
+            const double angle = 2.0 * kPi * i / n;
+            ring.emplace_back( 50.0f * static_cast<float>( std::cos( angle ) ),
+                               50.0f * static_cast<float>( std::sin( angle ) ), -25.0f );
+        }
+        std::vector<Vertex> vertices;
+        std::vector<Index>  indices;
+        auto                triangle = [&]( const glm::vec3& a, const glm::vec3& b, const glm::vec3& c )
+        {
+            const glm::vec3 normal = glm::normalize( glm::cross( b - a, c - a ) );
+            const glm::vec3 t      = glm::normalize( b - a );
+            const auto      first  = static_cast<uint32_t>( vertices.size() );
+            vertices.push_back( MakeVertex( a, normal, t, { 0, 0 } ) );
+            vertices.push_back( MakeVertex( b, normal, t, { 1, 0 } ) );
+            vertices.push_back( MakeVertex( c, normal, t, { 0, 1 } ) );
+            indices.push_back( { first, first + 1, first + 2 } );
+        };
+        for ( int i = 0; i < n; ++i )
+            triangle( ring[i], ring[( i + 1 ) % n], apex );
+        const glm::vec3 centre( 0.0f, 0.0f, -25.0f );
+        for ( int i = 0; i < n; ++i )
+            triangle( centre, ring[( i + 1 ) % n], ring[i] );
+        RenderMeshData render;
+        Submesh        s{};
+        s.Name          = "MaterialID 0";
+        s.VertexCount   = static_cast<uint32_t>( vertices.size() );
+        s.IndexCount    = static_cast<uint32_t>( indices.size() * 3 );
+        s.Transform     = glm::mat4( 1.0f );
+        render.Vertices = vertices;
+        render.Indices  = indices;
+        render.Submeshes.push_back( s );
+        render.SubmeshMaterialIds.push_back( 0 );
+        auto imported = DynamicMeshFromRenderMesh( render );
+        EXPECT_TRUE( imported.IsSuccess() ) << ( imported.IsSuccess() ? "" : imported.GetError() );
+        FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+        mesh.EnableTriangleGroups();
+        for ( const int t : mesh.TriangleIndicesItr() )
+            mesh.SetTriangleGroup( t, t < n ? 1 + t : n + 1 );
+        return mesh;
+    }
+} // namespace
+
+// The apex of a regular 5- and 6-sided pyramid, all lateral edges round: a 5+-sided junction, UE's mean-value
+// patch. Every lateral dihedral is theta, so the arc tangent to two neighbouring faces at their inset lines
+// (d = 5 from the edge) is centred rho = d tan(theta / 2) from both, and the point C on the axis at rho from every
+// face has each wedge vertex as its foot: the patch border runs on curves around C (corners exactly at rho). The
+// patch is closed, n-fold symmetric (its centre on the axis), every interior vertex moves away from C relative to
+// the flat patch, and stays within the border's radial range around C. The solid lies between the chamfer and the
+// pyramid and grows with N; RoundWeight under the tolerance is the flat profile bit for bit.
+TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
+{
+    for ( const int n : { 5, 6 } )
+    {
+        SCOPED_TRACE( std::to_string( n ) + "-sided pyramid" );
+        const FDynamicMesh3  base = Pyramid( n );
+        const FGroupTopology topology( &base, true );
+        TArray<int32>        lateral;
+        for ( int i = 0; i < n; ++i )
+            lateral.Add( GroupEdgeBetween( topology, 1 + i, 1 + ( i + 1 ) % n ) );
+        const double original = SignedVolume( base );
+        const double chamfer  = ChamferVolume( base, lateral );
+        // outward normals of two neighbouring lateral faces (edge midpoints at angles pi/n and 3 pi/n)
+        const double H = 75.0, a = 50.0 * std::cos( kPi / n );
+        auto         faceNormal = [&]( double angle )
+        { return Normalized( FVector3d( H * std::cos( angle ), H * std::sin( angle ), a ) ); };
+        const double    theta = kPi - std::acos( faceNormal( kPi / n ).Dot( faceNormal( 3.0 * kPi / n ) ) );
+        const double    rho   = 5.0 * std::tan( theta / 2.0 );
+        const FVector3d centre( 0.0, 0.0, 50.0 - rho * std::sqrt( H * H + a * a ) / a );
+        double          previous = chamfer;
+        for ( const int N : { 1, 2, 3, 5 } )
+        {
+            SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
+            FRoundRun run{ base }, flat{ base }, tiny{ base };
+            RunRound( run, lateral, N, 1.0 );
+            RunRound( flat, lateral, N, 0.0 );
+            RunRound( tiny, lateral, N, 1e-9 );
+            ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+            ASSERT_TRUE( flat.bApplied && tiny.bApplied ) << flat.Bevel.FailureReason;
+            ExpectSameVertices( flat.Mesh, tiny.Mesh );
+            EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
+            EXPECT_TRUE( run.Mesh.CheckValidity() );
+            const FMeshBevel::FBevelVertex* apex = nullptr;
+            for ( const FMeshBevel::FBevelVertex& v : run.Bevel.Vertices )
+            {
+                if ( v.VertexType == FMeshBevel::EBevelVertexType::JunctionVertex )
+                    apex = &v;
+            }
+            ASSERT_NE( apex, nullptr );
+            ASSERT_EQ( apex->Wedges.Num(), n );
+            ASSERT_EQ( apex->InteriorBorderLoop.Num(), n * ( N + 1 ) );
+            ASSERT_FALSE( apex->InteriorVertices.IsEmpty() );
+            for ( const FMeshBevel::FOneRingWedge& w : apex->Wedges )
+                EXPECT_NEAR( Distance( run.Mesh.GetVertex( w.WedgeVertex ), centre ), rho, 1e-6 );
+            double borderLow = std::numeric_limits<double>::max(), borderHigh = 0.0;
+            for ( const int b : apex->InteriorBorderLoop )
+            {
+                const double r = Distance( run.Mesh.GetVertex( b ), centre );
+                borderLow      = std::min( borderLow, r );
+                borderHigh     = std::max( borderHigh, r );
+            }
+            double onAxis = std::numeric_limits<double>::max(), low = std::numeric_limits<double>::max(),
+                   high = 0.0;
+            for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : apex->InteriorVertices )
+            {
+                const FVector3d p = run.Mesh.GetVertex( iv.VertexID );
+                const double    r = Distance( p, centre );
+                EXPECT_GT( r, Distance( flat.Mesh.GetVertex( iv.VertexID ), centre ) + 1e-3 )
+                     << "vertex " << iv.VertexID;
+                EXPECT_GT( p.Z, centre.Z ) << "vertex " << iv.VertexID;
+                onAxis = std::min( onAxis, std::hypot( p.X, p.Y ) );
+                low    = std::min( low, r );
+                high   = std::max( high, r );
+            }
+            std::cout << "n " << n << " N " << N << " rho " << rho << " border [" << borderLow / rho << ", "
+                      << borderHigh / rho << "] patch [" << low / rho << ", " << high / rho << "] axis " << onAxis
+                      << "\n";
+            // float UVs from an iterative spectral solve: symmetric to ~1e-2 cm
+            EXPECT_LT( onAxis, 2e-2 );
+            // MEASURED, not derived (P13g3): UE's MVC blend overshoots its border (n 5: 1.18-1.20 rho, n 6: 1.22)
+            EXPECT_GE( low, borderLow );
+            EXPECT_LE( high, 1.25 * rho );
+            const double volume = SignedVolume( run.Mesh );
+            EXPECT_GT( volume, chamfer );
+            EXPECT_LT( volume, original );
+            EXPECT_GT( volume, previous );
+            previous = volume;
+            ExpectAllTrianglesOutward( run.Mesh );
+        }
+    }
+}
+
+// Five sectors meeting on a flat face: the round 5-sided patch across a 180-degree "dihedral" stays in the face.
+TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
 {
     FDynamicMesh3 fan = TangentCube( 2 );
     for ( const int t : fan.TriangleIndicesItr() )
@@ -1483,18 +1623,20 @@ TEST( MeshBevel, RoundRefusesValenceFiveJunctionByName )
         groupEdges.Add( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
     FRoundRun run{ fan };
     RunRound( run, groupEdges, 2, 1.0 );
-    bool bHasFive = false;
+    ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+    int patches = 0;
     for ( const FMeshBevel::FBevelVertex& v : run.Bevel.Vertices )
-        bHasFive =
-             bHasFive || ( v.VertexType == FMeshBevel::EBevelVertexType::JunctionVertex && v.Wedges.Num() == 5 );
-    ASSERT_TRUE( bHasFive );
-    EXPECT_FALSE( run.bApplied );
-    EXPECT_NE( run.Bevel.FailureReason.find( "joins 5 bevelled edges" ), std::string::npos )
-         << run.Bevel.FailureReason;
-    EXPECT_EQ( run.Mesh.VertexCount(), fan.VertexCount() );
-    FRoundRun flat{ fan };
-    RunRound( flat, groupEdges, 2, 0.0 );
-    EXPECT_TRUE( flat.bApplied ) << flat.Bevel.FailureReason;
+    {
+        if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex || v.Wedges.Num() != 5 )
+            continue;
+        ++patches;
+        ASSERT_FALSE( v.InteriorVertices.IsEmpty() );
+        for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : v.InteriorVertices )
+            EXPECT_NEAR( run.Mesh.GetVertex( iv.VertexID ).Z, 50.0, 1e-6 ) << "vertex " << iv.VertexID;
+    }
+    EXPECT_EQ( patches, 1 );
+    EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
+    EXPECT_TRUE( run.Mesh.CheckValidity() );
 }
 
 // RoundWeight 0 (the default) is the flat profile bit for bit: an explicit 0 and a value under the tolerance give
