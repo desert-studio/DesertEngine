@@ -11,9 +11,9 @@ namespace Desert::ShaderResources
     {
     public:
         // The ledger row — see Engine/Graphic/ResourceLedger.hpp and the note on UniformBuffer. A
-        // non-persistent storage buffer is frames x slots VkBuffers; a persistent one is a single device
-        // buffer, and this row does not distinguish them, which is why the ledger counts OBJECTS and
-        // reports bytes only where somebody knew them.
+        // non-persistent storage buffer is one VkBuffer per (view x frame in flight) that used it; a persistent
+        // one is a single device buffer, and this row does not distinguish them, which is why the ledger counts
+        // OBJECTS and reports bytes only where somebody knew them.
         StorageBuffer() : m_Accounting( Graphic::ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer ) )
         {
         }
@@ -45,8 +45,8 @@ namespace Desert::ShaderResources
         // histogram) can create one directly — the reflection-driven path in ShaderResourcesManager
         // hardcodes a 36-byte size and is only suitable for shader-declared buffers.
         //
-        // persistent=false (default): PER-FRAME-in-flight — one buffer copy per frame, so the CPU can write
-        // next frame's data while the GPU reads the current one (right for per-frame CPU uploads like the
+        // persistent=false (default): PER-FRAME-in-flight — one buffer copy per (view x frame), so the CPU can
+        // write next frame's data while the GPU reads the current one (right for per-frame CPU uploads like the
         // histogram / instance transforms). persistent=true: ONE device buffer shared by every frame, so GPU
         // state written by a compute pass SURVIVES across frames (right for GPU particle simulation). A
         // persistent buffer is still host-mappable for CPU init/reset.

@@ -141,16 +141,31 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        // Storage buffers (read-write; e.g. a luminance histogram). The descriptor buffer info lives in
-        // the buffer object (stable across this call), so we can point the write straight at it.
-        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        // Storage buffers (read-write; e.g. a luminance histogram): the active view's copy for this frame
+        // (or the one shared buffer when persistent). The infos must outlive UpdateDescriptorSet, so they
+        // are reserved up front like the image infos above. A buffer with no copy to bind drops the
+        // dispatch: a compute set left pointing at whatever the ring slot held before is a silent wrong
+        // result, not a fallback.
+        const uint32_t                      frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        std::vector<VkDescriptorBufferInfo> bufferInfos;
+        bufferInfos.reserve( m_BoundStorageBuffers.size() );
         for ( const auto& [binding, buffer] : m_BoundStorageBuffers )
         {
             auto* vkBuffer = dynamic_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer*>( buffer );
             if ( !vkBuffer )
                 continue;
-            writes.push_back( DescriptorSetBuilder::GetStorageWDS( m_VulkanMaterialBackend.get(), 0, 0, binding,
-                                                                  1, &vkBuffer->GetDescriptorBufferInfo( frameIndex ) ) );
+            ShaderResources::API::Vulkan::ViewCopyBinding copy;
+            const auto                                    bound = vkBuffer->BindActiveCopy( frameIndex, copy );
+            if ( !bound.IsSuccess() )
+            {
+                LOG_ERROR( "ComputePipeline '{}': storage buffer at binding {} has no copy to bind; dispatch "
+                           "skipped -- {}",
+                           m_Specification.DebugName, binding, bound.GetError() );
+                return;
+            }
+            bufferInfos.push_back( copy.Info );
+            writes.push_back( DescriptorSetBuilder::GetStorageWDS( m_VulkanMaterialBackend.get(), 0, 0, binding, 1,
+                                                                   &bufferInfos.back() ) );
         }
 
         // Retarget every write at the supplied set, then update it in one shot.

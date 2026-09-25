@@ -3,9 +3,10 @@
 -- Same recipe as Tests/Engine/MaterialParamUpload, and for the same reason: nothing under test holds a
 -- VkDevice. ShaderResources::BufferFillKind.hpp is pure integer/enum arithmetic, UniformBufferProperty
 -- and FieldProperty are header-only, and ShaderResources::UniformBuffer is abstract, so the test derives
--- a recording buffer from it. EngineContext and FrameManager are plain counter singletons.
+-- a recording buffer from it, on the production ViewCopiedBlock. EngineContext and FrameManager are
+-- plain counter singletons.
 --
--- Nothing is compiled in: every unit is a header.
+-- Only ViewResources.cpp is compiled in (the per-view copy register, GPU-free); every other unit is a header.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
@@ -20,6 +21,7 @@ project(test_name)
 
     files {
         test_files,
+        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/ViewResources.cpp",
     }
 
     includedirs {

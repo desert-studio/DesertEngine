@@ -103,6 +103,7 @@
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
+#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -350,11 +351,11 @@ namespace Desert::Editor
         return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
     }
 
-    // THE DOCUMENT WELL'S OWN WINDOW (layout option B.1). A permanent occupant of the document dock node,
-    // for two reasons that are both structural rather than decorative: an empty dock node is not drawn at
-    // all, so without it the reserved area would be invisible for exactly as long as it was empty; and it is
-    // the only stable window name in that node, which is how DrawDocumentWell recovers the node's runtime id
-    // in a session that did not build the layout.
+    // THE DOCUMENT WELL'S OWN WINDOW (layout option B.1). The occupant of the document dock node while it is
+    // open, for two reasons that are both structural rather than decorative: an empty dock node is not drawn
+    // at all, so without it the reserved area would be invisible whenever no document is open; and it is the
+    // only stable window name in that node, which is how DrawDocumentWell recovers the node's runtime id in a
+    // session that did not build the layout.
     static constexpr const char* kDocumentWellWindow =
          ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE "  Documents###documentwell";
 
@@ -740,6 +741,9 @@ namespace Desert::Editor
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Enable Multi-Viewport / Platform Windows
 
+        // Before the first frame, which is when ImGui reads imgui.ini.
+        RegisterDocumentWellLayoutHandler();
+
         // Setup ImGui style
         ThemeManager::SetDarkTheme();
 
@@ -846,6 +850,10 @@ namespace Desert::Editor
         m_Panels.Add<Editor::ModelingPanel>( m_MainScene );
         m_Panels.Add<Editor::LandscapePanel>( m_MainScene );
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
+        // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
+        // the getter each frame, because Stop and a streaming error destroy it from this side.
+        m_Panels.Add<Editor::WorldPartitionPanel>( m_MainScene, m_AssetManager.get(),
+                                                   [this] { return m_WorldStreamer.get(); } );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
         m_Panels.Add<Editor::HistoryPanel>();
@@ -2519,6 +2527,7 @@ namespace Desert::Editor
             snapshot.Documents.push_back( std::move( entry ) );
         }
 
+        snapshot.DocumentWellOpen = m_DocumentWell.IsWindowOpen();
         for ( const ClosedDocument& closed : m_DocumentWell.RecentlyClosed() )
         {
             Control::ClosedDocumentSnapshot entry;
@@ -3198,8 +3207,8 @@ namespace Desert::Editor
                           subject.ToString() );
             }
 
-            m_DocumentWell.Touch( subject );
-            m_FocusPanel      = name; // brings the new window forward in the document well
+            m_DocumentWell.Opened( subject ); // also brings a closed well back
+            m_FocusPanel      = name;         // brings the new window forward in the document well
             m_FocusedDocument = subject;
             LOG_INFO( "[Editor] Opened a '{}' document '{}' ({} open, {}/{} renderer slots in use, {} "
                       "committed).",
@@ -3401,7 +3410,7 @@ namespace Desert::Editor
         if ( !document )
             return;
 
-        m_DocumentWell.Touch( subject );
+        m_DocumentWell.Opened( subject ); // asked for by name: a closed well comes back to show it
         m_FocusedDocument = subject;
         m_FocusPanel      = document->GetName(); // brings it forward in whatever dock it lives
     }
@@ -3748,6 +3757,7 @@ namespace Desert::Editor
                 // layout and be invisible on screen the whole time no document was open. It is also where
                 // every document reads its dock id from at runtime — see DrawDocumentWell.
                 ::ImGui::DockBuilderDockWindow( kDocumentWellWindow, documents );
+                m_DocumentWell.ShowWindow(); // the default layout has the well open
 
                 ::ImGui::DockBuilderFinish( dockspace_id );
             }
@@ -4057,6 +4067,18 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+
+        // The well's window, reachable without a mouse: Window > Documents and its x.
+        commands.push_back( { "Document", "Show the Documents window", [this]
+                              {
+                                  m_DocumentWell.ShowWindow();
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Document", "Close the Documents window", [this]
+                              {
+                                  m_DocumentWell.CloseWindow();
+                                  return PaletteCommandDone();
+                              } } );
 
         // Reopening one that was closed. The list the empty well shows, reachable without a mouse — and
         // it is the same Core::SubjectOpenRequests the Selectable there uses, so a reopen is refused by the
@@ -5531,16 +5553,57 @@ namespace Desert::Editor
             Editor::ToastManager::Push( chosen.GetError(), Editor::ToastLevel::Error );
     }
 
+    void EditorLayer::RegisterDocumentWellLayoutHandler()
+    {
+        // "[DocumentWell][Window]\nOpen=0|1" in imgui.ini and in every saved layout. ReadInit runs before
+        // each load, so a layout without the entry (the default, or one saved earlier) means open.
+        ImGuiSettingsHandler handler;
+        handler.TypeName   = "DocumentWell";
+        handler.TypeHash   = ImHashStr( handler.TypeName );
+        handler.UserData   = this;
+        handler.ReadInitFn = []( ImGuiContext*, ImGuiSettingsHandler* self )
+        {
+            auto* layer = static_cast<EditorLayer*>( self->UserData );
+            layer->m_DocumentWell.ShowWindow();
+            layer->m_DocumentWellOpenInLayout = true;
+        };
+        handler.ReadOpenFn = []( ImGuiContext*, ImGuiSettingsHandler* self, const char* ) -> void*
+        { return self->UserData; };
+        handler.ReadLineFn = []( ImGuiContext*, ImGuiSettingsHandler* self, void*, const char* line )
+        {
+            auto* layer = static_cast<EditorLayer*>( self->UserData );
+            if ( std::string_view( line ).empty() )
+                return;
+            if ( !layer->m_DocumentWell.ReadLayoutLine( line ) )
+                LOG_WARN( "[Editor] The layout's [DocumentWell] entry has an unknown line '{}'; the Documents "
+                          "window keeps its current state ({}).",
+                          line, layer->m_DocumentWell.LayoutLine() );
+            layer->m_DocumentWellOpenInLayout = layer->m_DocumentWell.IsWindowOpen();
+        };
+        handler.WriteAllFn = []( ImGuiContext*, ImGuiSettingsHandler* self, ImGuiTextBuffer* out )
+        {
+            auto*                  layer = static_cast<EditorLayer*>( self->UserData );
+            const std::string_view line  = layer->m_DocumentWell.LayoutLine();
+            out->appendf( "[DocumentWell][Window]\n%.*s\n\n", static_cast<int>( line.size() ), line.data() );
+            layer->m_DocumentWellOpenInLayout = layer->m_DocumentWell.IsWindowOpen();
+        };
+        ::ImGui::AddSettingsHandler( &handler );
+    }
+
     void EditorLayer::DrawDocumentWell()
     {
         namespace ImGui = ::ImGui;
 
-        // No p_open: THE AREA DOES NOT CLOSE AND DOES NOT COLLAPSE WHEN IT EMPTIES. The alternative was
-        // drawn and rejected — a node that appears and disappears gives the viewport its width back and
-        // takes it away again, resizing the level view under the user's cursor, and a layout that moves on
-        // its own is what people report as "the editor lost my panel". The splitter is draggable: a session
-        // that wants the pixels can take them, deliberately and once.
-        ImGui::Begin( kDocumentWellWindow, nullptr, ImGuiWindowFlags_NoCollapse );
+        // CLOSED BY THE USER, NEVER BY ITSELF. The x hides the window and its neighbours take the area; it
+        // does not collapse when it merely empties, because a node that appears and disappears resizes the
+        // level view under the user's cursor. The window's state is a layout line, so a change marks the
+        // layout for saving.
+        if ( m_DocumentWell.IsWindowOpen() != m_DocumentWellOpenInLayout )
+            ImGui::MarkIniSettingsDirty();
+        if ( !m_DocumentWell.IsWindowOpen() )
+            return;
+
+        ImGui::Begin( kDocumentWellWindow, &m_DocumentWell.WindowOpenFlag(), ImGuiWindowFlags_NoCollapse );
 
         // READ BACK, not remembered. The id is only known at DockBuilder time in the ONE session that built
         // the layout; every later session loads it from imgui.ini and a captured value would be 0 — which is
@@ -7445,8 +7508,8 @@ namespace Desert::Editor
         // every panel behind a closed submenu as ungrouped. Measured — the first capture of this menu showed
         // ten panels under "NOT YET GROUPED" that are grouped. The census has to be readable without opening
         // anything, so it is stated once here and the drawing below refers to it.
-        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections", "Details",
-                                                           "Scene Settings", "Scene Validation" };
+        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections",      "Details",
+                                                           "Scene Settings", "Scene Validation", "World Partition" };
         static constexpr const char* kContentGroup[]   = { "Assets", "Asset References", "Shader Library" };
         static constexpr const char* kOutputGroup[]    = { "Logs", "Lua Console", "History" };
         static constexpr const char* kViewportGroup[]  = { "Scene###scene" };
@@ -8034,6 +8097,11 @@ namespace Desert::Editor
 
         if ( !ImGui::BeginMenu( "Window" ) )
             return;
+
+        // The well's own window, the way back after its x. Unticking it here is the same close.
+        ImGui::MenuItem( ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE "  Documents", nullptr,
+                         &m_DocumentWell.WindowOpenFlag() );
+        ImGui::Separator();
 
         // A SECOND MENU, BECAUSE THESE ARE A SECOND KIND OF THING. The View menu ticks tools on and off;
         // this one lists what is open and lets you go to it or close it. Putting documents back among the

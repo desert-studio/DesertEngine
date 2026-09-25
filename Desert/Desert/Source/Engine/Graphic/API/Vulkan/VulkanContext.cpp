@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <string_view>
@@ -221,6 +222,11 @@ namespace Desert::Graphic::API::Vulkan
             // The deferred-deletion queue is drained BEFORE the allocator is destroyed, for the obvious
             // reason: vmaDestroyAllocator takes the allocations with it without ever touching the VkBuffer
             // and VkImage handles built on them.
+            // The frame context outlives every view (it is a process static), so its copies are handed to
+            // the queue here, where the drain below still collects them; left to static destruction they
+            // would be released into an allocator that no longer exists.
+            ViewResourceRegistry::FrameContext().Clear();
+
             const std::size_t drained = m_VulkanAllocator->DrainDeletionQueue();
             if ( drained > 0 )
             {

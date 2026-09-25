@@ -1,188 +1,101 @@
 #include "VulkanUniformBuffer.hpp"
 
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
-
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/ShaderResources/BufferCopyLayout.hpp>
 
 namespace Desert::ShaderResources::API::Vulkan
 {
-
     VulkanUniformBuffer::VulkanUniformBuffer( const ShaderLayout::UniformBuffer& uniform )
-         : UniformBuffer( uniform )
+         : UniformBuffer( uniform ), m_Block( uniform.Size )
     {
         // A constructor has no channel, so the answer is KEPT rather than logged and forgotten: every
         // SetData and EnsureMapped afterwards hands the caller this refusal, with its original reason.
-        // Logged once as well, here, because this is where the numbers are and because a buffer that
-        // never built is worth a line even if nothing writes to it this session.
         m_Built = RT_Invalidate();
         if ( !m_Built.IsSuccess() )
             LOG_ERROR( "[UniformBuffer] '{}' was not built: {}", m_UniformModel.Name, m_Built.GetError() );
     }
 
-    VulkanUniformBuffer::~VulkanUniformBuffer()
-    {
-        Release();
-    }
-
-    uint32_t VulkanUniformBuffer::CopyIndex( uint32_t frameIndex )
-    {
-        return BufferCopyIndex( frameIndex, EngineContext::GetInstance().GetActiveRendererSlot(),
-                                EngineContext::kMaxRendererSlots );
-    }
-
-    void VulkanUniformBuffer::Release()
-    {
-        if ( m_Buffers.empty() )
-            return;
-
-        auto allocator = SP_CAST( Desert::Graphic::API::Vulkan::VulkanContext,
-                                  EngineContext::GetInstance().GetRendererContext() )
-                              ->GetVulkanAllocator()
-                              .get();
-
-        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_Buffers.size() ); ++i )
-        {
-            // Unmap BEFORE the buffer is queued for destruction, exactly as before — the mapping's own
-            // destructor does it now, so an early return cannot skip it.
-            if ( i < m_Mappings.size() )
-                m_Mappings[i].Unmap();
-            if ( m_MemoryAllocs[i] )
-            {
-                allocator->RT_DestroyBuffer( m_Buffers[i], m_MemoryAllocs[i] );
-                m_Buffers[i]      = VK_NULL_HANDLE;
-                m_MemoryAllocs[i] = nullptr;
-            }
-        }
-
-        m_Buffers.clear();
-        m_MemoryAllocs.clear();
-        m_DescriptorInfos.clear();
-        m_Mappings.clear();
-    }
-
     Common::BoolResultStr VulkanUniformBuffer::RT_Invalidate()
     {
-        Release();
+        // No eager "frames x renderer slots" matrix any more: a copy exists only for a (view, frame in
+        // flight) that actually wrote or bound this buffer. What is left to decide up front is whether a
+        // copy could be made at all — Vulkan refuses a zero-sized buffer, and saying so here keeps the
+        // meaning m_Built always had.
+        if ( m_UniformModel.Size == 0 )
+            return Common::MakeFormattedError<bool>( "uniform buffer '{}' declares a zero-byte block",
+                                                     m_UniformModel.Name );
 
-        // One copy per (frame in flight x renderer slot). The frame dimension keeps a buffer the GPU is
-        // still reading from being overwritten; the SLOT dimension keeps a second view from overwriting
-        // the first one's camera, lights and shadow state inside the same frame — that is the whole point
-        // of this change. A uniform block is a few hundred bytes to a few KB, so the extra copies cost
-        // kilobytes per material.
-        const uint32_t framesInFlight = EngineContext::GetInstance().GetMaxFramesInFlight();
-        const uint32_t copies         = BufferCopyCount( framesInFlight, EngineContext::kMaxRendererSlots );
+        m_Block.Reset( m_UniformModel.Size );
+        return BOOLSUCCESS;
+    }
 
-        m_Buffers.resize( copies, VK_NULL_HANDLE );
-        m_MemoryAllocs.resize( copies, nullptr );
-        m_DescriptorInfos.resize( copies );
-        m_Mappings.resize( copies );
+    Common::BoolResultStr VulkanUniformBuffer::MakeCopy( std::string_view viewName, uint32_t frameIndex,
+                                                         std::unique_ptr<IBlockCopy>& out ) const
+    {
+        std::unique_ptr<MappedBufferCopy> copy;
+        const auto                        made = MakeMappedBufferCopy(
+             std::format( "{}-UniformBuffer-{}-Frame{}", m_UniformModel.Name, viewName, frameIndex ),
+             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, m_UniformModel.Size, copy );
+        if ( !made.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "uniform buffer '{}' copy for view '{}', frame {}: {}",
+                                                     m_UniformModel.Name, viewName, frameIndex, made.GetError() );
+        out = std::move( copy );
+        return BOOLSUCCESS;
+    }
 
-        auto vulkanContext = SP_CAST( Desert::Graphic::API::Vulkan::VulkanContext,
-                                      EngineContext::GetInstance().GetRendererContext() );
+    Common::BoolResultStr VulkanUniformBuffer::ActiveCopy( uint32_t frameIndex, IBlockCopy*& out )
+    {
+        // THE CAUSE, NOT THE CONSEQUENCE: a buffer that failed to build answers with the constructor's
+        // own reason.
+        if ( !m_Built.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "uniform buffer '{}' was never built: {}",
+                                                     m_UniformModel.Name, m_Built.GetError() );
 
-        for ( uint32_t i = 0; i < copies; ++i )
-        {
-            VkBufferCreateInfo bufferInfo = {};
-            bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            bufferInfo.usage              = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-            bufferInfo.size               = m_UniformModel.Size;
-
-            const auto allocatedBuffer = vulkanContext->GetVulkanAllocator()->RT_AllocateBuffer(
-                 std::format( "{}-UniformBuffer-Frame{}-Slot{}", m_UniformModel.Name,
-                              i / EngineContext::kMaxRendererSlots, i % EngineContext::kMaxRendererSlots ),
-                 bufferInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, m_Buffers[i] );
-
-            // REFUSED, NOT SKIPPED. This was `continue`, which left m_Buffers[i] as VK_NULL_HANDLE and
-            // m_DescriptorInfos[i] zeroed while the function went on to report the buffer built. The
-            // descriptor is then written into a set and handed to the driver, and the only symptom is
-            // that one frame in flight — one in two, or one in six with the slot dimension — renders
-            // wrong. Release() below puts the object back to empty so that a half-built buffer is not a
-            // state anything else can observe.
-            if ( !allocatedBuffer.IsSuccess() )
-            {
-                Release();
-                return Common::MakeFormattedError<bool>( "uniform buffer '{}' copy {} of {}: {}",
-                                                         m_UniformModel.Name, i, copies,
-                                                         allocatedBuffer.GetError() );
-            }
-            m_MemoryAllocs[i] = allocatedBuffer.GetValue();
-
-            m_DescriptorInfos[i].buffer = m_Buffers[i];
-            m_DescriptorInfos[i].offset = 0;
-            m_DescriptorInfos[i].range  = m_UniformModel.Size;
-
-            // Persistently mapped for the lifetime of this buffer (CPU_TO_GPU stays mappable); the
-            // actual unmap happens in Release(), through the mapping's own destructor.
-            m_Mappings[i] = vulkanContext->GetVulkanAllocator()->MapMemory( m_MemoryAllocs[i] );
-
-            // A COPY THAT DID NOT MAP IS THE SAME FAILURE AS ONE THAT DID NOT ALLOCATE, and it used to
-            // be a log line while the object still claimed to be built. Every write to this copy would
-            // refuse for the lifetime of the buffer — MappedMemory sees to that — so "built" was simply
-            // untrue for one frame in flight.
-            const auto cleared = m_Mappings[i].Fill( 0, m_UniformModel.Size );
-            if ( !cleared.IsSuccess() )
-            {
-                const std::string reason = cleared.GetError();
-                Release();
-                return Common::MakeFormattedError<bool>( "uniform buffer '{}' copy {} of {}: {}",
-                                                         m_UniformModel.Name, i, copies, reason );
-            }
-        }
-
+        const auto resolved = m_Block.Resolve(
+             frameIndex, [this]( std::string_view view, uint32_t frame, std::unique_ptr<IBlockCopy>& made )
+             { return MakeCopy( view, frame, made ); }, out );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "uniform buffer '{}': {}", m_UniformModel.Name,
+                                                     resolved.GetError() );
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanUniformBuffer::SetData( const void* data, uint32_t size, uint32_t offset )
     {
-        // THE CAUSE, NOT THE CONSEQUENCE. A buffer that failed to build has no copies at all, so the
-        // index check below would answer "there is no copy 0", which is true and tells the reader
-        // nothing. The constructor's own reason is what they need.
         if ( !m_Built.IsSuccess() )
             return Common::MakeFormattedError<bool>( "uniform buffer '{}' was never built: {}",
                                                      m_UniformModel.Name, m_Built.GetError() );
 
-        const uint32_t index = CopyIndex( EngineContext::GetInstance().GetCurrentFrameIndex() );
-
-        if ( index >= m_Mappings.size() )
-            return Common::MakeFormattedError<bool>( "uniform buffer '{}' has no copy {} to write ({} exist)",
-                                                     m_UniformModel.Name, index, m_Mappings.size() );
-
-        const auto wrote = m_Mappings[index].Write( data, size, offset );
+        // NO LOG ON THIS PATH: it runs per frame per material; the caller receives the refusal and
+        // decides once, where it knows what the write was for.
+        const auto wrote =
+             m_Block.Write( data, size, offset, EngineContext::GetInstance().GetCurrentFrameIndex(),
+                            [this]( std::string_view view, uint32_t frame, std::unique_ptr<IBlockCopy>& made )
+                            { return MakeCopy( view, frame, made ); } );
         if ( !wrote.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "uniform buffer '{}' copy {}: {}", m_UniformModel.Name, index,
+            return Common::MakeFormattedError<bool>( "uniform buffer '{}': {}", m_UniformModel.Name,
                                                      wrote.GetError() );
-
-        // NO LOG ON THIS PATH ANY MORE, and that is the change rather than an omission. The log line
-        // that stood here ran per frame per material and had to guard itself against burying itself; the
-        // caller now receives the refusal and decides once, where it knows what the write was for.
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanUniformBuffer::EnsureMapped()
     {
-        if ( !m_Built.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "uniform buffer '{}' was never built: {}",
-                                                     m_UniformModel.Name, m_Built.GetError() );
-
-        const uint32_t index = CopyIndex( EngineContext::GetInstance().GetCurrentFrameIndex() );
-
-        if ( index >= m_Mappings.size() )
-            return Common::MakeFormattedError<bool>( "uniform buffer '{}' has no copy {} ({} exist)",
-                                                     m_UniformModel.Name, index, m_Mappings.size() );
-
-        // THE RETRY THAT STOOD HERE IS GONE, AND THE REASON IS THE FIX ABOVE. It re-mapped a copy whose
-        // map had failed, because RT_Invalidate used to tolerate exactly that state — a buffer that was
-        // "built" with one copy unmapped. It cannot be now: RT_Invalidate is all or nothing, so a built
-        // buffer has every copy mapped and this question has one answer. Keeping the retry would be a
-        // second path to a state that no longer exists, which is the "two paths, one untested" shape §4
-        // of the contract is about.
-        if ( !m_Mappings[index].IsMapped() )
-            return Common::MakeFormattedError<bool>(
-                 "uniform buffer '{}' copy {} reports itself unmapped although the buffer was built: {}",
-                 m_UniformModel.Name, index, m_Mappings[index].GetRefusal() );
-
-        return BOOLSUCCESS;
+        // "Can a write land now?" — which, with lazy copies, means "does the active view have a mapped
+        // copy for this frame, or can one be made". MakeCopy refuses an unmapped copy, so a copy that
+        // exists is mapped; there is no second state to check for.
+        IBlockCopy* copy = nullptr;
+        return ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
     }
 
+    Common::BoolResultStr VulkanUniformBuffer::BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out )
+    {
+        IBlockCopy* copy     = nullptr;
+        auto        resolved = ActiveCopy( frameIndex, copy );
+        if ( !resolved.IsSuccess() )
+            return resolved;
+
+        // Only MakeCopy creates copies under this block's key, and it only creates MappedBufferCopy.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        out = static_cast<const MappedBufferCopy*>( copy )->Binding();
+        return BOOLSUCCESS;
+    }
 } // namespace Desert::ShaderResources::API::Vulkan

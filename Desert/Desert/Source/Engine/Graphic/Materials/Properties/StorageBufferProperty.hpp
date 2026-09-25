@@ -13,13 +13,15 @@ namespace Desert::Graphic
         {
         }
 
+        // The backend is asked EVERY time, not only while dirty: a clean buffer can still be owed a
+        // descriptor write when the view's copy was re-made (ViewCopiedBlock.hpp, DescriptorCopyRecord).
+        // The backend decides; the dirty window is consumed exactly as before.
         void Apply( MaterialBackend* backend ) override
         {
-            if ( IsDirty() )
-            {
-                backend->ApplyStorageBuffer( this );
+            const bool dirty = IsDirty();
+            backend->ApplyStorageBuffer( this );
+            if ( dirty )
                 MarkClean();
-            }
         }
 
         void SetRawData( const void* data, uint32_t size )

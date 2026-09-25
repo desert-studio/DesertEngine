@@ -54,27 +54,17 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        const auto acquire = m_SwapChain->AcquireNextImage( m_FrameSemaphores[currentIndex].PresentComplete, &m_ImageIndex );
-        if ( !acquire )
-        {
-            // A LOST DEVICE IS NOT A RESIZE, and telling them apart is the whole fix. Recreating the
-            // swapchain here is right for VK_ERROR_OUT_OF_DATE_KHR and catastrophic for device loss: the
-            // rebuild is what reached vkCreateSwapchainKHR, got VK_ERROR_DEVICE_LOST from it, and aborted
-            // inside VK_CHECK_RESULT with everything unsaved. AcquireNextImage latches on the way out, so
-            // this question is already answered by the time it returns.
-            if ( Graphic::DeviceLost::IsLost() )
-                return;
-
-            // Most commonly VK_ERROR_OUT_OF_DATE_KHR after a window resize — recreate the swapchain (it
-            // re-queries the surface extent) and re-acquire from the fresh swapchain.
-            m_SwapChain->OnResize( m_SwapChain->GetWidth(), m_SwapChain->GetHeight() );
-            if ( Graphic::DeviceLost::IsLost() )
-                return;
-            const auto reacquire =
-                 m_SwapChain->AcquireNextImage( m_FrameSemaphores[currentIndex].PresentComplete, &m_ImageIndex );
-            if ( !reacquire )
-                LOG_ERROR( "[AcquireNextImage] Error after swapchain recreate: {}", reacquire.GetError() );
-        }
+        // SUBOPTIMAL IS AN IMAGE; ONLY OUT_OF_DATE IS A REBUILD (Engine/Graphic/SwapchainAcquire.hpp). The
+        // rebuild keeps `currentIndex` current (FrameManager::AdoptSwapchainImageCount), so the fence reset
+        // above, the semaphore acquired on here and the submit's wait all name the same frame slot.
+        auto* const       presentComplete = m_FrameSemaphores[currentIndex].PresentComplete;
+        const auto        acquired        = Graphic::AcquireForFrame(
+             [&] { return m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex ); },
+             [&] { return m_SwapChain->Rebuild( m_SwapChain->GetWidth(), m_SwapChain->GetHeight() ); } );
+        // A LOST DEVICE IS NOT A RESIZE: AcquireNextImage and Rebuild both refuse on a lost device and the
+        // latch already carries the explanation, so only a failure of another kind is worth a line here.
+        if ( !acquired.IsSuccess() && !Graphic::DeviceLost::IsLost() )
+            LOG_ERROR( "[AcquireNextImage] {}", acquired.GetError() );
     }
 
     void VulkanQueue::Submit()

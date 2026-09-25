@@ -308,8 +308,67 @@ for f in $PLATFORM_FOREIGN; do
     EXCLUDE_PATHSPEC="$EXCLUDE_PATHSPEC :(exclude)${f#$ROOT/}"
 done
 
+# A CHANGED HEADER IS ANALYSED WITH THE FLAGS OF A UNIT THAT INCLUDES IT, not whatever interpolation
+# finds nearest. The interpolation measured right for CookedJsonWrite.hpp (above) is a similarity guess
+# over file names, and in a directory whose sources are ALSO compiled by engine-free suites it guesses
+# one of those: Editor/Core/DocumentWell.hpp borrowed AssetReferences.cpp's command from an engine-free
+# test project, whose include paths lack Desert/Desert/Source, and IPanel.hpp's
+# `#include <Engine/Assets/Common.hpp>` came back as a clang-diagnostic-error — a "finding" about a
+# path the real build resolves. So each changed header gets its own entry, copied from a database unit
+# whose source #includes it and resolves that include to this very file through its own -I list or its
+# own directory; a production unit is preferred over a test one. A header nothing includes directly
+# keeps the interpolation. The augmented database lives in a scratch directory and the checked-in
+# workflow keeps reading compile_commands.json unchanged.
+HDRDB=$(mktemp -d "${TMPDIR:-/tmp}/tidy-hdrdb.XXXXXX")
+trap 'rm -rf "$HDRDB"' EXIT
+if ! CHANGED_FILES="$CHANGED" OUT_DB="$HDRDB/compile_commands.json" python3 -c '
+import json, os, re, shlex
+db = json.load(open("compile_commands.json"))
+names = {e["file"] for e in db}
+headers = [f for f in os.environ["CHANGED_FILES"].split()
+           if f.endswith((".hpp", ".h")) and f not in names and os.path.isfile(f)]
+extra = []
+if headers:
+    inc = re.compile(r"^\s*#\s*include\s*[<\"]([^>\"]+)[>\"]", re.M)
+    base = {os.path.basename(h) for h in headers}
+    texts = {}
+    for f in names:
+        try:
+            t = open(f, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        spelled = [s for s in inc.findall(t) if os.path.basename(s) in base]
+        if spelled:
+            texts[f] = spelled
+    for h in headers:
+        best = None
+        for e in db:
+            spelled = texts.get(e["file"])
+            if not spelled:
+                continue
+            args = shlex.split(e["command"])
+            dirs = [os.path.dirname(e["file"])]
+            dirs += [a[2:] for a in args if a.startswith("-I") and len(a) > 2]
+            dirs += [args[i + 1] for i, a in enumerate(args[:-1]) if a in ("-I", "-isystem", "-iquote")]
+            full = [os.path.normpath(os.path.join(e["directory"], d, s)) for d in dirs for s in spelled]
+            if h not in full:
+                continue
+            rank = 1 if "-DGTEST" in args else 0
+            if best is None or rank < best[0]:
+                best = (rank, e)
+        if best:
+            e = best[1]
+            extra.append({"directory": e["directory"], "file": h,
+                          "command": e["command"].replace(e["file"], h)})
+json.dump(db + extra, open(os.environ["OUT_DB"], "w"))
+print(f"headers given the flags of a unit that includes them: {len(extra)} of {len(headers)}")
+'; then
+    echo "clang-tidy: could not derive header commands from compile_commands.json. Gate did not run." >&2
+    exit 2
+fi
+
 OUT=$(git diff -U0 "$BASE" -- '*.cpp' '*.hpp' '*.mm' '*.h' $EXCLUDE_PATHSPEC \
-      | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$ROOT" -j "$JOBS" \
+      | python3 -W ignore "$DIFFPY" -clang-tidy-binary "$TIDY" -p1 -path "$HDRDB" -j "$JOBS" \
                 -quiet ${EXTRA[@]+"${EXTRA[@]}"} 2>&1)
 RC=$?
 printf '%s\n' "$OUT"
