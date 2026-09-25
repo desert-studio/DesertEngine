@@ -44,10 +44,11 @@ namespace Desert::Editor::MaterialAdoption
         if ( !read )
             return Common::MakeFormattedError<std::optional<Common::Content::AssetGuid>>(
                  "material '{}' could not be read: {}", path.string(), read.GetError() );
-        if ( !read.GetValue().has_value() )
+        const auto& content = read.GetValue();
+        if ( !content.has_value() )
             return Common::MakeSuccess( std::optional<Common::Content::AssetGuid>{} );
 
-        std::istringstream in( read.GetValue().value() );
+        std::istringstream in( content.value() );
         const auto         object = Common::Content::ReadTextHeaderObject( in );
         if ( !object )
             return Common::MakeFormattedError<std::optional<Common::Content::AssetGuid>>(
@@ -76,11 +77,12 @@ namespace Desert::Editor::MaterialAdoption
             const auto existing = ReadExistingMaterialGuid( MaterialAssetPath( sourcePath, material.Name ) );
             if ( !existing )
                 return Common::MakeError<bool>( existing.GetError() );
-            if ( !existing.GetValue().has_value() || existing.GetValue().value() == material.Guid )
+            const auto& existingGuid = existing.GetValue();
+            if ( !existingGuid.has_value() || existingGuid.value() == material.Guid )
                 continue;
 
             const Common::Content::AssetGuid derived = material.Guid;
-            material.Guid                            = existing.GetValue().value();
+            material.Guid                            = existingGuid.value();
             if ( result.Mesh )
                 for ( auto& submesh : result.Mesh->Submeshes )
                     if ( submesh.MaterialGuid == derived )

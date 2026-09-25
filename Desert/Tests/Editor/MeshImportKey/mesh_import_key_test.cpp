@@ -240,8 +240,8 @@ namespace
 
 TEST( MeshImportKey, AnExistingMaterialFileGivesTheSubmeshItsGuid )
 {
-    ProjectRootGuard guard;
-    TempProject      project;
+    const ProjectRootGuard guard;
+    const TempProject      project;
 
     const auto      source       = MeshSource( "Props/crate.fbx" );
     const AssetGuid modelDerived = { 0x1111, 0x2222 };
@@ -254,12 +254,14 @@ TEST( MeshImportKey, AnExistingMaterialFileGivesTheSubmeshItsGuid )
     ASSERT_TRUE( adopted ) << adopted.GetError();
 
     EXPECT_EQ( result.Materials[0].Guid, onDisk ) << "the material that exists keeps the GUID its file states";
-    EXPECT_EQ( result.Mesh->Submeshes[0].MaterialGuid, onDisk )
+    ASSERT_TRUE( result.Mesh.has_value() );
+    const auto& submeshes = result.Mesh.value().Submeshes;
+    EXPECT_EQ( submeshes[0].MaterialGuid, onDisk )
          << "the submesh still names the derived GUID, which no .demat states: its dependency dangles";
-    EXPECT_EQ( result.Mesh->Submeshes[2].MaterialGuid, onDisk ) << "EVERY submesh of the material is re-pointed";
+    EXPECT_EQ( submeshes[2].MaterialGuid, onDisk ) << "EVERY submesh of the material is re-pointed";
     // A material with no file yet is written under the derived GUID, so the derived GUID is the right name.
     EXPECT_EQ( result.Materials[1].Guid, trimDerived );
-    EXPECT_EQ( result.Mesh->Submeshes[1].MaterialGuid, trimDerived );
+    EXPECT_EQ( submeshes[1].MaterialGuid, trimDerived );
 }
 
 TEST( MeshImportKey, AMaterialFileWithNoReadableGuidRefusesTheImportByName )
