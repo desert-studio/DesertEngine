@@ -35,7 +35,7 @@ namespace
         int                       Rebuilds = 0;
         std::string               Violation;
 
-        Desert::Common::ResultStr<AcquireStatus> Acquire( const uint32_t slot )
+        Common::ResultStr<AcquireStatus> Acquire( const uint32_t slot )
         {
             if ( SemaphoreSignalled[slot] )
                 Violation = "vkAcquireNextImageKHR(): Semaphore must not be currently signaled";
@@ -44,15 +44,15 @@ namespace
                 Answers.pop_front();
             if ( Desert::Graphic::SignalsSemaphore( answer ) )
                 SemaphoreSignalled[slot] = true;
-            return Desert::Common::MakeSuccess( answer );
+            return Common::MakeSuccess( answer );
         }
 
-        Desert::Common::ResultStr<bool> Rebuild()
+        Common::ResultStr<bool> Rebuild()
         {
             ++Rebuilds;
             if ( !FrameManager::GetInstance().AdoptSwapchainImageCount( kImages ) )
-                return Desert::Common::MakeError<bool>( "image count changed" );
-            return Desert::Common::MakeSuccess( true );
+                return Common::MakeError<bool>( "image count changed" );
+            return Common::MakeSuccess( true );
         }
 
         void Submit( const uint32_t slot )
@@ -137,4 +137,12 @@ TEST_F( SwapchainAcquire, OutOfDateTwiceInARowIsANamedFailure )
          AcquireForFrame( [&] { return swapchain.Acquire( 0 ); }, [&] { return swapchain.Rebuild(); } );
     ASSERT_FALSE( result.IsSuccess() );
     EXPECT_NE( result.GetError().find( "out of date again" ), std::string::npos );
+}
+
+int main( int argc, char** argv )
+{
+    // The engine creates this singleton at startup; GetInstance on an uncreated one dereferences null.
+    Desert::Engine::FrameManager::CreateInstance();
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }
