@@ -14,9 +14,9 @@ namespace Desert::Geometry::PolygonTriangulation
     {
         PlaneNormalOut          = TVector<T>::Zero();
         PlanePointOut           = TVector<T>::Zero();
-        const int32 NumVertices = VertexPositions.Num();
+        const int32_t NumVertices = VertexPositions.Num();
         // Newell's method: the sum over edges gives twice the projected area on each axis plane.
-        for ( int32 VertexNumberI = NumVertices - 1, VertexNumberJ = 0; VertexNumberJ < NumVertices;
+        for ( int32_t VertexNumberI = NumVertices - 1, VertexNumberJ = 0; VertexNumberJ < NumVertices;
               VertexNumberI = VertexNumberJ++ )
         {
             const TVector<T>& PositionI = VertexPositions[VertexNumberI];
@@ -67,7 +67,7 @@ namespace Desert::Geometry::PolygonTriangulation
 
         OutTriangles.Reset();
 
-        const int32 PolygonVertexCount = VertexPositions.Num();
+        const int32_t PolygonVertexCount = VertexPositions.Num();
         if ( PolygonVertexCount < 3 )
         {
             return;
@@ -84,11 +84,11 @@ namespace Desert::Geometry::PolygonTriangulation
         ComputePolygonPlane( VertexPositions, PolygonNormal, PolygonCentroid );
 
         // A doubly-linked ring over the vertex numbers; clipping an ear unlinks its tip.
-        TArray<int32> PrevVertexNumbers;
-        TArray<int32> NextVertexNumbers;
+        TArray<int32_t> PrevVertexNumbers;
+        TArray<int32_t> NextVertexNumbers;
         PrevVertexNumbers.SetNumUninitialized( PolygonVertexCount, EAllowShrinking::No );
         NextVertexNumbers.SetNumUninitialized( PolygonVertexCount, EAllowShrinking::No );
-        for ( int32 VertexNumber = 0; VertexNumber < PolygonVertexCount; ++VertexNumber )
+        for ( int32_t VertexNumber = 0; VertexNumber < PolygonVertexCount; ++VertexNumber )
         {
             PrevVertexNumbers[VertexNumber] = VertexNumber - 1;
             NextVertexNumbers[VertexNumber] = VertexNumber + 1;
@@ -96,9 +96,9 @@ namespace Desert::Geometry::PolygonTriangulation
         PrevVertexNumbers[0]                      = PolygonVertexCount - 1;
         NextVertexNumbers[PolygonVertexCount - 1] = 0;
 
-        int32 EarVertexNumber = 0;
-        int32 EarTestCount    = 0;
-        for ( int32 RemainingVertexCount = PolygonVertexCount; RemainingVertexCount >= 3; )
+        int32_t EarVertexNumber = 0;
+        int32_t EarTestCount    = 0;
+        for ( int32_t RemainingVertexCount = PolygonVertexCount; RemainingVertexCount >= 3; )
         {
             bool bIsEar = true;
 
@@ -113,7 +113,7 @@ namespace Desert::Geometry::PolygonTriangulation
                 if ( !Local3::IsTriangleFlipped( PolygonNormal, PrevVertexPosition, EarVertexPosition,
                                                  NextVertexPosition ) )
                 {
-                    int32 TestVertexNumber = NextVertexNumbers[NextVertexNumbers[EarVertexNumber]];
+                    int32_t TestVertexNumber = NextVertexNumbers[NextVertexNumbers[EarVertexNumber]];
                     do
                     {
                         const TVector<T>& TestVertexPosition = VertexPositions[TestVertexNumber];
@@ -135,9 +135,9 @@ namespace Desert::Geometry::PolygonTriangulation
             if ( bIsEar )
             {
                 {
-                    const int32 A = PrevVertexNumbers[EarVertexNumber];
-                    const int32 B = EarVertexNumber;
-                    const int32 C = NextVertexNumbers[EarVertexNumber];
+                    const int32_t A = PrevVertexNumbers[EarVertexNumber];
+                    const int32_t B = EarVertexNumber;
+                    const int32_t C = NextVertexNumbers[EarVertexNumber];
                     OutTriangles.Add( bOrientAsHoleFill ? FIndex3i( A, C, B ) : FIndex3i( A, B, C ) );
                 }
                 NextVertexNumbers[PrevVertexNumbers[EarVertexNumber]] = NextVertexNumbers[EarVertexNumber];

@@ -74,7 +74,7 @@ namespace Desert::Geometry
          * Construct a FMeshTriEdgeID for the given TriangleID and Edge Index in range
          * @param EdgeIndexIn index in range 0,1,2
          */
-        FMeshTriEdgeID( int32 TriangleIDIn, int32 EdgeIndexIn )
+        FMeshTriEdgeID( int32_t TriangleIDIn, int32_t EdgeIndexIn )
         {
             UE_CHECK_SLOW( EdgeIndexIn >= 0 && EdgeIndexIn <= 2 );
             UE_CHECK_SLOW( TriangleIDIn >= 0 && TriangleIDIn < ( 1 << 30 ) );
@@ -83,9 +83,9 @@ namespace Desert::Geometry
         }
 
         /**
-         * Decode an encoded FMeshTriEdgeID from a packed uint32 created by the Encoded() function
+         * Decode an encoded FMeshTriEdgeID from a packed uint32_t created by the Encoded() function
          */
-        explicit FMeshTriEdgeID( uint32 EncodedEdgeKey )
+        explicit FMeshTriEdgeID( uint32_t EncodedEdgeKey )
         {
             TriangleID   = EncodedEdgeKey & 0x8FFFFFFF;
             TriEdgeIndex = ( EncodedEdgeKey & 0xC0000000 ) >> 30;
@@ -94,7 +94,7 @@ namespace Desert::Geometry
         /**
          * @return the (TriangleID, TriEdgeIndex) values packed into a 32 bit integer
          */
-        uint32 Encoded() const
+        uint32_t Encoded() const
         {
             return ( TriEdgeIndex << 30 ) | TriangleID;
         }
@@ -119,7 +119,7 @@ namespace Desert::Geometry
     struct FMeshTriOrderedEdgeID
     {
         /** The index of the mesh Triangle */
-        int32 TriangleID;
+        int32_t TriangleID;
         /** The 0/1/2 index of the first vertex in the triangles tuple of vertices */
         unsigned VertIndexA : 2;
         /** The 0/1/2 index of the second vertex in the triangles tuple of vertices */
@@ -132,7 +132,7 @@ namespace Desert::Geometry
             VertIndexB = 0;
         }
 
-        FMeshTriOrderedEdgeID( int32 TriangleIDIn, int32 VertexIndexA, int32 VertexIndexB )
+        FMeshTriOrderedEdgeID( int32_t TriangleIDIn, int32_t VertexIndexA, int32_t VertexIndexB )
         {
             UE_CHECK_SLOW( VertexIndexA >= 0 && VertexIndexA <= 2 );
             UE_CHECK_SLOW( VertexIndexB >= 0 && VertexIndexB <= 2 );

@@ -25,37 +25,37 @@ namespace Desert::Geometry
     {
     protected:
         /** This value is used to indicate Null in internal pointers */
-        static constexpr int32 NullValue = -1;
+        static constexpr int32_t NullValue = -1;
 
         /** size of initial linear-memory portion of lists */
-        static constexpr int32 BLOCKSIZE = 8;
+        static constexpr int32_t BLOCKSIZE = 8;
         /** offset from start of linear-memory portion of list that contains pointer to head of variable-length
          * linked list */
-        static constexpr int32 BLOCK_LIST_OFFSET = BLOCKSIZE + 1;
+        static constexpr int32_t BLOCK_LIST_OFFSET = BLOCKSIZE + 1;
 
         /** mapping from list index to offset into ListBlocks that contains list data */
-        TDynamicVector<int32> ListHeads{};
+        TDynamicVector<int32_t> ListHeads{};
 
         /**
          * flat buffer used to store per-list linear-memory blocks.
          * blocks are BLOCKSIZE+2 long, elements are [CurrentCount, item0...itemN, LinkedListPtr]
          */
-        TDynamicVector<int32> ListBlocks{};
+        TDynamicVector<int32_t> ListBlocks{};
 
         /** list of free blocks as indices/offsets into ListBlocks */
-        TDynamicVector<int32> FreeBlocks{};
+        TDynamicVector<int32_t> FreeBlocks{};
 
         /** number of allocated lists */
-        int32 AllocatedCount{ 0 };
+        int32_t AllocatedCount{ 0 };
 
         /**
          * flat buffer used to store linked-list "spill" elements
          * each element is [value, next_ptr]
          */
-        TDynamicVector<int32> LinkedListElements{};
+        TDynamicVector<int32_t> LinkedListElements{};
 
         /** index of first free element in LinkedListElements */
-        int32 FreeHeadIndex{ NullValue };
+        int32_t FreeHeadIndex{ NullValue };
 
     public:
         /**
@@ -69,12 +69,12 @@ namespace Desert::Geometry
         /**
          * set new number of lists
          */
-        void Resize( int32 NewSize );
+        void Resize( int32_t NewSize );
 
         /**
          * resize to a new number of lists and pre-allocate an initial empty block for each list.
          */
-        void ResizeAndAllocateBlocks( int32 NewSize );
+        void ResizeAndAllocateBlocks( int32_t NewSize );
 
         /**
          * Reset to initial state
@@ -93,50 +93,50 @@ namespace Desert::Geometry
          * Clearing any lists at or after MaxListIndex and compact the ListBlocks and LinkedListElements so there
          * are no free blocks or free linked list elements
          */
-        void Compact( int32 MaxListIndex );
+        void Compact( int32_t MaxListIndex );
 
         /**
          * @return true if a list has been allocated at the given ListIndex
          */
-        bool IsAllocated( int32 ListIndex ) const
+        bool IsAllocated( int32_t ListIndex ) const
         {
-            return ( ListIndex >= 0 && ListIndex < (int32)ListHeads.GetLength() &&
+            return ( ListIndex >= 0 && ListIndex < (int32_t)ListHeads.GetLength() &&
                      ListHeads[ListIndex] != NullValue );
         }
 
         /**
          * Create a list at the given ListIndex
          */
-        void AllocateAt( int32 ListIndex );
+        void AllocateAt( int32_t ListIndex );
 
         /**
          * Insert Value into list at ListIndex
          */
-        void Insert( int32 ListIndex, int32 Value );
+        void Insert( int32_t ListIndex, int32_t Value );
 
         /**
          * remove Value from the list at ListIndex
          * @return false if Value was not in this list
          */
-        bool Remove( int32 ListIndex, int32 Value );
+        bool Remove( int32_t ListIndex, int32_t Value );
 
         /**
          * Move list at FromIndex to ToIndex
          */
-        void Move( int32 FromIndex, int32 ToIndex );
+        void Move( int32_t FromIndex, int32_t ToIndex );
 
         /**
          * Remove all elements from the list at ListIndex
          */
-        void Clear( int32 ListIndex );
+        void Clear( int32_t ListIndex );
 
         /**
          * @return the size of the list at ListIndex
          */
-        inline int32 GetCount( int32 ListIndex ) const
+        inline int32_t GetCount( int32_t ListIndex ) const
         {
             UE_CHECK_SLOW( ListIndex >= 0 );
-            int32 block_ptr = ListHeads[ListIndex];
+            int32_t block_ptr = ListHeads[ListIndex];
             return ( block_ptr == NullValue ) ? 0 : ListBlocks[block_ptr];
         }
 
@@ -144,10 +144,10 @@ namespace Desert::Geometry
          * @return the first item in the list at ListIndex
          * @warning does not check for zero-size-list!
          */
-        inline int32 First( int32 ListIndex ) const
+        inline int32_t First( int32_t ListIndex ) const
         {
             UE_CHECK_SLOW( ListIndex >= 0 );
-            int32 block_ptr = ListHeads[ListIndex];
+            int32_t block_ptr = ListHeads[ListIndex];
             return ListBlocks[block_ptr + 1];
         }
 
@@ -155,25 +155,26 @@ namespace Desert::Geometry
          * Search for the given Value in list at ListIndex
          * @return true if found
          */
-        bool Contains( int32 ListIndex, int32 Value ) const;
+        bool Contains( int32_t ListIndex, int32_t Value ) const;
 
         /**
          * Search the list at ListIndex for a value where PredicateFunc(value) returns true
          * @return the found value, or the InvalidValue argument if not found
          */
         template <typename IntToBoolFunc>
-        inline int32 Find( int32 ListIndex, const IntToBoolFunc& PredicateFunc, int32 InvalidValue = -1 ) const
+        inline int32_t Find( int32_t ListIndex, const IntToBoolFunc& PredicateFunc,
+                             int32_t InvalidValue = -1 ) const
         {
-            int32 block_ptr = ListHeads[ListIndex];
+            int32_t block_ptr = ListHeads[ListIndex];
             if ( block_ptr != NullValue )
             {
-                int32 N = ListBlocks[block_ptr];
+                int32_t N = ListBlocks[block_ptr];
                 if ( N < BLOCKSIZE )
                 {
-                    int32 iEnd = block_ptr + N;
-                    for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                    int32_t iEnd = block_ptr + N;
+                    for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                     {
-                        int32 Value = ListBlocks[i];
+                        int32_t Value = ListBlocks[i];
                         if ( PredicateFunc( Value ) )
                         {
                             return Value;
@@ -183,19 +184,19 @@ namespace Desert::Geometry
                 else
                 {
                     // we spilled to linked list, have to iterate through it as well
-                    int32 iEnd = block_ptr + BLOCKSIZE;
-                    for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                    int32_t iEnd = block_ptr + BLOCKSIZE;
+                    for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                     {
-                        int32 Value = ListBlocks[i];
+                        int32_t Value = ListBlocks[i];
                         if ( PredicateFunc( Value ) )
                         {
                             return Value;
                         }
                     }
-                    int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                    int32_t cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                     while ( cur_ptr != NullValue )
                     {
-                        int32 Value = LinkedListElements[cur_ptr];
+                        int32_t Value = LinkedListElements[cur_ptr];
                         if ( PredicateFunc( Value ) )
                         {
                             return Value;
@@ -213,18 +214,18 @@ namespace Desert::Geometry
          * @return true if the value was found and replaced
          */
         template <typename IntToBoolFunc>
-        inline bool Replace( int32 ListIndex, const IntToBoolFunc& PredicateFunc, int32 NewValue )
+        inline bool Replace( int32_t ListIndex, const IntToBoolFunc& PredicateFunc, int32_t NewValue )
         {
-            int32 block_ptr = ListHeads[ListIndex];
+            int32_t block_ptr = ListHeads[ListIndex];
             if ( block_ptr != NullValue )
             {
-                int32 N = ListBlocks[block_ptr];
+                int32_t N = ListBlocks[block_ptr];
                 if ( N < BLOCKSIZE )
                 {
-                    int32 iEnd = block_ptr + N;
-                    for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                    int32_t iEnd = block_ptr + N;
+                    for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                     {
-                        int32 Value = ListBlocks[i];
+                        int32_t Value = ListBlocks[i];
                         if ( PredicateFunc( Value ) )
                         {
                             ListBlocks[i] = NewValue;
@@ -235,20 +236,20 @@ namespace Desert::Geometry
                 else
                 {
                     // we spilled to linked list, have to iterate through it as well
-                    int32 iEnd = block_ptr + BLOCKSIZE;
-                    for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                    int32_t iEnd = block_ptr + BLOCKSIZE;
+                    for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                     {
-                        int32 Value = ListBlocks[i];
+                        int32_t Value = ListBlocks[i];
                         if ( PredicateFunc( Value ) )
                         {
                             ListBlocks[i] = NewValue;
                             return true;
                         }
                     }
-                    int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                    int32_t cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                     while ( cur_ptr != NullValue )
                     {
-                        int32 Value = LinkedListElements[cur_ptr];
+                        int32_t Value = LinkedListElements[cur_ptr];
                         if ( PredicateFunc( Value ) )
                         {
                             LinkedListElements[cur_ptr] = NewValue;
@@ -265,16 +266,16 @@ namespace Desert::Geometry
          * Call ApplyFunc on each element of the list at ListIndex
          */
         template <typename IntToVoidFunc>
-        inline void Enumerate( int32 ListIndex, const IntToVoidFunc& ApplyFunc ) const
+        inline void Enumerate( int32_t ListIndex, const IntToVoidFunc& ApplyFunc ) const
         {
-            int32 block_ptr = ListHeads[ListIndex];
+            int32_t block_ptr = ListHeads[ListIndex];
             if ( block_ptr != NullValue )
             {
-                int32 N = ListBlocks[block_ptr];
+                int32_t N = ListBlocks[block_ptr];
                 if ( N < BLOCKSIZE )
                 {
-                    int32 iEnd = block_ptr + N;
-                    for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                    int32_t iEnd = block_ptr + N;
+                    for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                     {
                         ApplyFunc( ListBlocks[i] );
                     }
@@ -282,12 +283,12 @@ namespace Desert::Geometry
                 else
                 {
                     // we spilled to linked list, have to iterate through it as well
-                    int32 iEnd = block_ptr + BLOCKSIZE;
-                    for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                    int32_t iEnd = block_ptr + BLOCKSIZE;
+                    for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                     {
                         ApplyFunc( ListBlocks[i] );
                     }
-                    int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                    int32_t cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                     while ( cur_ptr != NullValue )
                     {
                         ApplyFunc( LinkedListElements[cur_ptr] );
@@ -303,13 +304,13 @@ namespace Desert::Geometry
          * @param Other the list to append
          * @param ElementOffset amount to shift all appended elements
          */
-        void AppendWithElementOffset( const FSmallListSet& Other, int32 ElementOffset );
+        void AppendWithElementOffset( const FSmallListSet& Other, int32_t ElementOffset );
 
         /**
          * Call ApplyFunc on each element of the list at ListIndex, until ApplyFunc returns false
          * @return true if all elements were processed and ApplyFunc never returned false
          */
-        bool EnumerateEarlyOut( int32 ListIndex, TFunctionRef<bool( int32 )> ApplyFunc ) const;
+        bool EnumerateEarlyOut( int32_t ListIndex, std::function<bool( int32_t )> ApplyFunc ) const;
 
         friend bool operator==( const FSmallListSet& Lhs, const FSmallListSet& Rhs )
         {
@@ -318,7 +319,7 @@ namespace Desert::Geometry
                 return false;
             }
 
-            for ( int32 ListIndex = 0, ListNum = Lhs.Size(); ListIndex < ListNum; ++ListIndex )
+            for ( int32_t ListIndex = 0, ListNum = Lhs.Size(); ListIndex < ListNum; ++ListIndex )
             {
                 if ( Lhs.GetCount( ListIndex ) != Rhs.GetCount( ListIndex ) )
                 {
@@ -410,7 +411,7 @@ namespace Desert::Geometry
                 }
             }
 
-            BaseValueIterator( const FSmallListSet* ListSetIn, int32 ListIndex, bool is_end )
+            BaseValueIterator( const FSmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
             {
                 this->ListSet   = ListSetIn;
                 this->ListIndex = ListIndex;
@@ -446,13 +447,13 @@ namespace Desert::Geometry
             }
 
             const FSmallListSet* ListSet;
-            int32                ListIndex;
-            int32                block_ptr;
-            int32                N;
-            int32                iEnd;
-            int32                iCur;
-            int32                cur_ptr;
-            int32                cur_value;
+            int32_t              ListIndex;
+            int32_t              block_ptr;
+            int32_t              N;
+            int32_t              iEnd;
+            int32_t              iCur;
+            int32_t              cur_ptr;
+            int32_t              cur_value;
             friend class FSmallListSet;
         };
 
@@ -466,7 +467,7 @@ namespace Desert::Geometry
             {
             }
 
-            inline int32 operator*() const
+            inline int32_t operator*() const
             {
                 return cur_value;
             }
@@ -478,7 +479,7 @@ namespace Desert::Geometry
             }
 
         protected:
-            ValueIterator( const FSmallListSet* ListSetIn, int32 ListIndex, bool is_end )
+            ValueIterator( const FSmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
                  : BaseValueIterator( ListSetIn, ListIndex, is_end )
             {
             }
@@ -489,7 +490,7 @@ namespace Desert::Geometry
         /**
          * @return iterator for start of list at ListIndex
          */
-        inline ValueIterator BeginValues( int32 ListIndex ) const
+        inline ValueIterator BeginValues( int32_t ListIndex ) const
         {
             return ValueIterator( this, ListIndex, false );
         }
@@ -497,7 +498,7 @@ namespace Desert::Geometry
         /**
          * @return iterator for end of list at ListIndex
          */
-        inline ValueIterator EndValues( int32 ListIndex ) const
+        inline ValueIterator EndValues( int32_t ListIndex ) const
         {
             return ValueIterator( this, ListIndex, true );
         }
@@ -510,11 +511,11 @@ namespace Desert::Geometry
         {
         public:
             const FSmallListSet* ListSet;
-            int32                ListIndex;
+            int32_t              ListIndex;
             ValueEnumerable()
             {
             }
-            ValueEnumerable( const FSmallListSet* ListSetIn, int32 ListIndex )
+            ValueEnumerable( const FSmallListSet* ListSetIn, int32_t ListIndex )
             {
                 this->ListSet   = ListSetIn;
                 this->ListIndex = ListIndex;
@@ -532,7 +533,7 @@ namespace Desert::Geometry
         /**
          * @return a value enumerable for the given ListIndex
          */
-        inline ValueEnumerable Values( int32 ListIndex ) const
+        inline ValueEnumerable Values( int32_t ListIndex ) const
         {
             return ValueEnumerable( this, ListIndex );
         }
@@ -553,10 +554,10 @@ namespace Desert::Geometry
         public:
             MappedValueIterator() : BaseValueIterator()
             {
-                MapFunc = []( int32 value ) { return value; };
+                MapFunc = []( int32_t value ) { return value; };
             }
 
-            inline int32 operator*() const
+            inline int32_t operator*() const
             {
                 return MapFunc( cur_value );
             }
@@ -568,22 +569,22 @@ namespace Desert::Geometry
             }
 
         protected:
-            MappedValueIterator( const FSmallListSet* ListSetIn, int32 ListIndex, bool is_end,
-                                 TFunction<int32( int32 )> MapFuncIn )
+            MappedValueIterator( const FSmallListSet* ListSetIn, int32_t ListIndex, bool is_end,
+                                 std::function<int32_t( int32_t )> MapFuncIn )
                  : BaseValueIterator( ListSetIn, ListIndex, is_end )
             {
                 MapFunc = MapFuncIn;
             }
 
-            TFunction<int32( int32 )> MapFunc;
+            std::function<int32_t( int32_t )> MapFunc;
             friend class FSmallListSet;
         };
 
         /**
          * @return iterator for start of list at ListIndex, with given value mapping function
          */
-        inline MappedValueIterator BeginMappedValues( int32                            ListIndex,
-                                                      const TFunction<int32( int32 )>& MapFunc ) const
+        inline MappedValueIterator BeginMappedValues( int32_t                                  ListIndex,
+                                                      const std::function<int32_t( int32_t )>& MapFunc ) const
         {
             return MappedValueIterator( this, ListIndex, false, MapFunc );
         }
@@ -591,8 +592,8 @@ namespace Desert::Geometry
         /**
          * @return iterator for end of list at ListIndex, with given value mapping function
          */
-        inline MappedValueIterator EndMappedValues( int32                            ListIndex,
-                                                    const TFunction<int32( int32 )>& MapFunc ) const
+        inline MappedValueIterator EndMappedValues( int32_t                                  ListIndex,
+                                                    const std::function<int32_t( int32_t )>& MapFunc ) const
         {
             return MappedValueIterator( this, ListIndex, true, MapFunc );
         }
@@ -605,17 +606,17 @@ namespace Desert::Geometry
         {
         public:
             const FSmallListSet*      ListSet;
-            int32                     ListIndex;
-            TFunction<int32( int32 )> MapFunc;
+            int32_t                           ListIndex;
+            std::function<int32_t( int32_t )> MapFunc;
             MappedValueEnumerable()
             {
             }
-            MappedValueEnumerable( const FSmallListSet* ListSetIn, int32 ListIndex,
-                                   TFunction<int32( int32 )> MapFunc )
+            MappedValueEnumerable( const FSmallListSet* ListSetIn, int32_t ListIndex,
+                                   std::function<int32_t( int32_t )> MapFunc )
             {
                 this->ListSet   = ListSetIn;
                 this->ListIndex = ListIndex;
-                this->MapFunc   = MoveTemp( MapFunc );
+                this->MapFunc   = std::move( MapFunc );
             }
             typename FSmallListSet::MappedValueIterator begin() const
             {
@@ -630,27 +631,28 @@ namespace Desert::Geometry
         /**
          * @return a value enumerable for the given ListIndex, with the given value mapping function
          */
-        inline MappedValueEnumerable MappedValues( int32 ListIndex, TFunction<int32( int32 )> MapFunc ) const
+        inline MappedValueEnumerable MappedValues( int32_t                           ListIndex,
+                                                   std::function<int32_t( int32_t )> MapFunc ) const
         {
             return MappedValueEnumerable( this, ListIndex, MapFunc );
         }
 
     protected:
         // grab a block from the free list, or allocate a new one
-        int32 AllocateBlock();
+        int32_t AllocateBlock();
 
         // push a link-node onto the free list
-        inline void AddFreeLink( int32 ptr )
+        inline void AddFreeLink( int32_t ptr )
         {
             LinkedListElements[ptr + 1] = FreeHeadIndex;
             FreeHeadIndex               = ptr;
         }
 
         // remove val from the linked-list attached to block_ptr
-        bool RemoveFromLinkedList( int32 block_ptr, int32 val );
+        bool RemoveFromLinkedList( int32_t block_ptr, int32_t val );
 
     public:
-        SIZE_T GetByteCount() const
+        size_t GetByteCount() const
         {
             return ListHeads.GetByteCount() + FreeBlocks.GetByteCount() + ListBlocks.GetByteCount() +
                    LinkedListElements.GetByteCount();

@@ -18,9 +18,9 @@ namespace Desert::Geometry
     /** A selection of group-topology elements: groups (faces), corners and group edges, by their topology IDs. */
     struct FGroupTopologySelection
     {
-        TSet<int32> SelectedGroupIDs;
-        TSet<int32> SelectedCornerIDs;
-        TSet<int32> SelectedEdgeIDs;
+        TSet<int32_t> SelectedGroupIDs;
+        TSet<int32_t> SelectedCornerIDs;
+        TSet<int32_t> SelectedEdgeIDs;
 
         void Clear()
         {
@@ -58,7 +58,7 @@ namespace Desert::Geometry
 
         virtual int GetGroupID( int TriangleID ) const
         {
-            return FMath::Max( 0, Mesh->GetTriangleGroup( TriangleID ) );
+            return std::max( 0, Mesh->GetTriangleGroup( TriangleID ) );
         }
 
         /** A corner is a mesh vertex where three or more group edges meet (a mesh-border edge counts as one). */
@@ -103,7 +103,7 @@ namespace Desert::Geometry
         TArray<FGroupEdge> Edges;
 
         int                GetCornerVertexID( int CornerID ) const;
-        int32              GetCornerIDFromVertexID( int32 VertexID ) const;
+        int32_t            GetCornerIDFromVertexID( int32_t VertexID ) const;
         const FGroup*      FindGroupByID( int GroupID ) const;
         const TArray<int>& GetGroupTriangles( int GroupID ) const;
         const TArray<int>& GetGroupNbrGroups( int GroupID ) const;
@@ -112,32 +112,32 @@ namespace Desert::Geometry
         const TArray<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
         void               FindEdgeNbrGroups( int GroupEdgeID, TArray<int>& GroupsOut ) const;
         void               FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) const;
-        bool               IsBoundaryEdge( int32 GroupEdgeID ) const;
+        bool               IsBoundaryEdge( int32_t GroupEdgeID ) const;
         /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
-        double GetEdgeArcLength( int32 GroupEdgeID, TArray<double>* PerVertexLengthsOut = nullptr ) const;
-        bool               IsSimpleGroupEdge( int32 GroupEdgeID ) const;
-        bool               IsIsolatedLoop( int32 GroupEdgeID ) const;
+        double GetEdgeArcLength( int32_t GroupEdgeID, TArray<double>* PerVertexLengthsOut = nullptr ) const;
+        bool   IsSimpleGroupEdge( int32_t GroupEdgeID ) const;
+        bool   IsIsolatedLoop( int32_t GroupEdgeID ) const;
         void               FindCornerNbrGroups( int CornerID, TArray<int>& GroupsOut ) const;
-        void ForCornerNbrEdges( int CornerID, TFunctionRef<bool( int32 EdgeID )> ReturnTrueToContinue ) const;
+        void ForCornerNbrEdges( int CornerID, std::function<bool( int32_t EdgeID )> ReturnTrueToContinue ) const;
         void FindCornerNbrEdges( int CornerID, TArray<int>& EdgesOut ) const;
         void FindCornerNbrCorners( int CornerID, TArray<int>& CornersOut ) const;
         void FindVertexNbrGroups( int VertexID, TArray<int>& GroupsOut ) const;
         void CollectGroupVertices( int GroupID, TSet<int>& Vertices ) const;
         void CollectGroupBoundaryVertices( int GroupID, TSet<int>& Vertices ) const;
-        void GetSelectedTriangles( const FGroupTopologySelection& Selection, TArray<int32>& Triangles ) const;
+        void GetSelectedTriangles( const FGroupTopologySelection& Selection, TArray<int32_t>& Triangles ) const;
 
     protected:
         const FDynamicMesh3* Mesh = nullptr;
         TArray<int>          GroupIDToGroupIndexMap; // fast lookup of the index in Groups, given a GroupID
         TArray<int>          EmptyArray;
-        TMap<int32, int32>   VertexIDToCornerIDMap;
+        TMap<int32_t, int32_t> VertexIDToCornerIDMap;
         std::string          FailureReason;
 
         bool     ShouldVertBeCorner( int VertexID ) const;
-        bool     GenerateBoundaryAndGroupEdges( FGroup& Group, TMap<int32, int32>& GroupEdgeMinEidToGroupEdgeID,
-                                                TArray<bool>& VertCheckedForCorner );
+        bool GenerateBoundaryAndGroupEdges( FGroup& Group, TMap<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
+                                            TArray<bool>& VertCheckedForCorner );
         FIndex2i MakeEdgeGroupsPair( int MeshEdgeID ) const;
-        void     GetAllVertexGroups( int32 VertexID, TArray<int32>& GroupsOut ) const;
+        void     GetAllVertexGroups( int32_t VertexID, TArray<int32_t>& GroupsOut ) const;
     };
 
     /** Every triangle is its own group: corners are all vertices, group edges are all mesh edges. */

@@ -13,35 +13,36 @@ namespace Desert::Geometry
 {
     /** The two edges of TriangleID that touch VertexID, as (edge ending at it, edge starting at it) in triangle
      *  order; (InvalidID, InvalidID) when VertexID is not a corner of the triangle. */
-    FIndex2i FindVertexEdgesInTriangle( const FDynamicMesh3& Mesh, int32 TriangleID, int32 VertexID );
+    FIndex2i FindVertexEdgesInTriangle( const FDynamicMesh3& Mesh, int32_t TriangleID, int32_t VertexID );
 
     /** The edge shared by two triangles, or InvalidID when they are not adjacent. */
-    int32 FindSharedEdgeInTriangles( const FDynamicMesh3& Mesh, int32 Triangle0, int32 Triangle1 );
+    int32_t FindSharedEdgeInTriangles( const FDynamicMesh3& Mesh, int32_t Triangle0, int32_t Triangle1 );
 
     /** Split the triangle fan of boundary vertex VertexID into the two sides of interior edge SplitEdgeID. */
-    bool SplitBoundaryVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32 VertexID, int32 SplitEdgeID,
-                                                  TArray<int32>& TriangleSet0, TArray<int32>& TriangleSet1 );
+    bool SplitBoundaryVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32_t VertexID, int32_t SplitEdgeID,
+                                                  TArray<int32_t>& TriangleSet0, TArray<int32_t>& TriangleSet1 );
 
     /** Split the closed one-ring of interior vertex VertexID into the two sides of the path SplitEdgeID0 ->
      *  VertexID -> SplitEdgeID1. Which side lands in Set0 is arbitrary (UE: callers reconcile it). */
-    bool SplitInteriorVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32 VertexID, int32 SplitEdgeID0,
-                                                  int32 SplitEdgeID1, TArray<int32>& TriangleSet0,
-                                                  TArray<int32>& TriangleSet1 );
+    bool SplitInteriorVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32_t VertexID,
+                                                  int32_t SplitEdgeID0, int32_t SplitEdgeID1,
+                                                  TArray<int32_t>& TriangleSet0, TArray<int32_t>& TriangleSet1 );
 
     /** Next triangle around VertexID from FromTriangleID, not going back to PrevTriangleID, allowed by
      *  TrisConnectedTest(Tri0, Tri1, SharedEdge). Returns (TriangleID, SharedEdgeID, edge index in From). */
     template <typename TrisConnectedPredicate>
-    FIndex3i FindNextAdjacentTriangleAroundVtx( const FDynamicMesh3* Mesh, int32 VertexID, int32 FromTriangleID,
-                                                int32 PrevTriangleID, TrisConnectedPredicate TrisConnectedTest )
+    FIndex3i FindNextAdjacentTriangleAroundVtx( const FDynamicMesh3* Mesh, int32_t VertexID,
+                                                int32_t FromTriangleID, int32_t PrevTriangleID,
+                                                TrisConnectedPredicate TrisConnectedTest )
     {
         const FIndex3i TriEdges = Mesh->GetTriEdges( FromTriangleID );
         FIndex3i       TriNbrTris;
-        for ( int32 j = 0; j < 3; ++j )
+        for ( int32_t j = 0; j < 3; ++j )
         {
             const FIndex2i EdgeT = Mesh->GetEdgeT( TriEdges[j] );
             TriNbrTris[j]        = ( EdgeT.A == FromTriangleID ) ? EdgeT.B : EdgeT.A;
         }
-        for ( int32 j = 0; j < 3; ++j )
+        for ( int32_t j = 0; j < 3; ++j )
         {
             if ( TriNbrTris[j] != PrevTriangleID && Mesh->IsTriangle( TriNbrTris[j] ) )
             {

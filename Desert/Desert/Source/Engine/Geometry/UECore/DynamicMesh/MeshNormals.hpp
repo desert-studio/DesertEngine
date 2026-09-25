@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshNormals.h:1-259, adapted: UE Core
-// via UECore.hpp, namespace Desert::Geometry, TFunctionRef is the UECore.hpp std::function alias.
+// via UECore.hpp, namespace Desert::Geometry, TFunctionRef is std::function.
 
 #pragma once
 
@@ -49,7 +49,7 @@ namespace Desert::Geometry
          */
         TArray<FVector3d>&& MoveNormals()
         {
-            return MoveTemp( Normals );
+            return std::move( Normals );
         }
 
         FVector3d& operator[]( int i )
@@ -144,7 +144,7 @@ namespace Desert::Geometry
          * Apply rounds of explicit uniform-weighted normal smoothing to the VertexNormals attribute of the given
          * Mesh.
          */
-        static void SmoothVertexNormals( FDynamicMesh3& Mesh, int32 SmoothingRounds, double SmoothingAlpha );
+        static void SmoothVertexNormals( FDynamicMesh3& Mesh, int32_t SmoothingRounds, double SmoothingAlpha );
 
         /**
          * Compute per-vertex normals for the vertices of a set of triangles of a Mesh
@@ -152,7 +152,7 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @param bInvert if true, normals are flipped
          */
-        static void QuickComputeVertexNormalsForTriangles( FDynamicMesh3& Mesh, const TArray<int32>& Triangles,
+        static void QuickComputeVertexNormalsForTriangles( FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
                                                            bool bWeightByArea = true, bool bWeightByAngle = true,
                                                            bool bInvert = false );
 
@@ -174,8 +174,8 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @return the vertex normal at vertex VertIdx of Mesh.
          */
-        static FVector3d ComputeVertexNormal( const FDynamicMesh3& Mesh, int32 VertIdx,
-                                              TFunctionRef<bool( int32 )> TriangleFilterFunc,
+        static FVector3d ComputeVertexNormal( const FDynamicMesh3& Mesh, int32_t VertIdx,
+                                              std::function<bool( int32_t )> TriangleFilterFunc,
                                               bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
@@ -222,7 +222,7 @@ namespace Desert::Geometry
          * normals.
          */
         static void InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormalOverlay* NormalOverlay,
-                                                               const TArray<int32>&       Triangles );
+                                                               const TArray<int32_t>&     Triangles );
 
         /**
          * Compute overlay normals for the given mesh
@@ -235,13 +235,13 @@ namespace Desert::Geometry
         /**
          * Compute overlay normals for the given mesh, for the given set of triangles
          */
-        static bool RecomputeOverlayTriNormals( FDynamicMesh3& Mesh, const TArray<int32>& Triangles,
+        static bool RecomputeOverlayTriNormals( FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
                                                 bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
          * Compute overlay normals for the given mesh, for the given set of element IDs
          */
-        static bool RecomputeOverlayElementNormals( FDynamicMesh3& Mesh, const TArray<int32>& ElementIDs,
+        static bool RecomputeOverlayElementNormals( FDynamicMesh3& Mesh, const TArray<int32_t>& ElementIDs,
                                                     bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**

@@ -179,7 +179,7 @@ int FDynamicMesh3::AppendTriangle( const FIndex3i& tv, int gid )
     if ( bHasGroups )
     {
         TriangleGroups->InsertAt( gid, tid );
-        GroupIDCounter = FMath::Max( GroupIDCounter, gid + 1 );
+        GroupIDCounter = std::max( GroupIDCounter, gid + 1 );
     }
 
     // increment ref counts and update/create edges
@@ -239,7 +239,7 @@ EMeshResult FDynamicMesh3::InsertTriangle( int tid, const FIndex3i& tv, int gid,
     if ( HasTriangleGroups() )
     {
         TriangleGroups->InsertAt( gid, tid );
-        GroupIDCounter = FMath::Max( GroupIDCounter, gid + 1 );
+        GroupIDCounter = std::max( GroupIDCounter, gid + 1 );
     }
 
     // increment ref counts and update/create edges
@@ -258,10 +258,10 @@ EMeshResult FDynamicMesh3::InsertTriangle( int tid, const FIndex3i& tv, int gid,
     return EMeshResult::Ok;
 }
 
-int32 FDynamicMesh3::RemoveUnusedVertices()
+int32_t FDynamicMesh3::RemoveUnusedVertices()
 {
-    int32 NumRemoved = 0;
-    for ( int32 VID = 0; VID < MaxVertexID(); ++VID )
+    int32_t NumRemoved = 0;
+    for ( int32_t VID = 0; VID < MaxVertexID(); ++VID )
     {
         // If vertex exists but is not referenced by any triangles
         if ( VertexRefCounts.GetRefCount( VID ) == 1 )
@@ -286,7 +286,7 @@ int32 FDynamicMesh3::RemoveUnusedVertices()
 
 bool FDynamicMesh3::HasUnusedVertices() const
 {
-    for ( int32 VID = 0; VID < MaxVertexID(); ++VID )
+    for ( int32_t VID = 0; VID < MaxVertexID(); ++VID )
     {
         // If vertex exists but is not referenced by any triangles
         if ( VertexRefCounts.GetRefCount( VID ) == 1 )
@@ -1494,11 +1494,11 @@ EMeshResult FDynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse
             //  possible that ob already exists as a boundary edge, and we need to instead weld the triangle
             //  incident to oa to that edge. This situation is only permitted by CanCollapseEdgeInternal if
             //  bAllowHoleCollapse is true and eid is a boundary edge.
-            int32 ExistingEdge = InvalidID;
+            int32_t ExistingEdge = InvalidID;
             if ( Options.bAllowHoleCollapse && IsBoundaryEdge( eid ) &&
                  ( ExistingEdge = FindEdge( o, b ) ) != InvalidID )
             {
-                int32 WeldedTriangle = GetEdgeT( eid ).A;
+                int32_t WeldedTriangle = GetEdgeT( eid ).A;
                 if ( ReplaceTriangleEdge( WeldedTriangle, eid, ExistingEdge ) == -1 ||
                      ReplaceEdgeTriangle( ExistingEdge, InvalidID, WeldedTriangle ) == -1 )
                 {
@@ -1851,7 +1851,7 @@ EMeshResult FDynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpola
         }
     }
 
-    auto ApplyInterpolation = [this, InterpolationT]( int32 KeepVid, int32 RemoveVid )
+    auto ApplyInterpolation = [this, InterpolationT]( int32_t KeepVid, int32_t RemoveVid )
     {
         SetVertex( KeepVid, Lerp( GetVertex( KeepVid ), GetVertex( RemoveVid ), InterpolationT ) );
         if ( HasVertexUVs() )
@@ -2087,12 +2087,12 @@ EMeshResult FDynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double In
     }
 
     // See if we can resolve this as an edge weld
-    for ( int32 KeepAdjacentEid : VertexEdgeLists.Values( KeepVid ) )
+    for ( int32_t KeepAdjacentEid : VertexEdgeLists.Values( KeepVid ) )
     {
-        int32 KeepAdjacentVid = GetOtherEdgeVertex( KeepAdjacentEid, KeepVid );
+        int32_t KeepAdjacentVid = GetOtherEdgeVertex( KeepAdjacentEid, KeepVid );
 
         // See if the adjacent vert is also adjacent to DiscardVid
-        for ( int32 DiscardAdjacentEid : VertexEdgeLists.Values( DiscardVid ) )
+        for ( int32_t DiscardAdjacentEid : VertexEdgeLists.Values( DiscardVid ) )
         {
             if ( GetOtherEdgeVertex( DiscardAdjacentEid, DiscardVid ) == KeepAdjacentVid )
             {

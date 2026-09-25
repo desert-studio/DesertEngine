@@ -1,6 +1,6 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Polygroups/PolygroupSet.h:1-161, adapted: UE
-// Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; FName layer lookup by
+// Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; std::string layer lookup by
 // std::string.
 #pragma once
 
@@ -22,7 +22,7 @@ namespace Desert::Geometry
         /** If true, layer is the default FDynamicMesh3 triangle groups layer */
         bool bIsDefaultLayer = true;
         /** If bIsDefaultLayer is false, this is the index of the AttributeSet Polygroup Layer */
-        int32 LayerIndex = -1;
+        int32_t LayerIndex = -1;
 
         /** Construct a FPolygroupLayer for the default layer */
         static FPolygroupLayer Default()
@@ -30,7 +30,7 @@ namespace Desert::Geometry
             return FPolygroupLayer{ true, -1 };
         }
         /** Construct a FPolygroupLayer for an extended layer */
-        static FPolygroupLayer Layer( int32 Index )
+        static FPolygroupLayer Layer( int32_t Index )
         {
             return FPolygroupLayer{ false, Index };
         }
@@ -70,8 +70,8 @@ namespace Desert::Geometry
     {
         const FDynamicMesh3*                  Mesh            = nullptr;
         const FDynamicMeshPolygroupAttribute* PolygroupAttrib = nullptr;
-        int32                                 GroupLayerIndex = -1;
-        int32                                 MaxGroupID      = 0; // Note: all group IDs are less than MaxGroupID
+        int32_t                               GroupLayerIndex = -1;
+        int32_t                               MaxGroupID      = 0; // Note: all group IDs are less than MaxGroupID
 
         /** Initialize a PolygroupSet for the given Mesh, and standard triangle group layer */
         explicit FPolygroupSet( const FDynamicMesh3* MeshIn );
@@ -85,11 +85,11 @@ namespace Desert::Geometry
 
         /** Initialize a PolygroupSet for given Mesh and specific Polygroup attribute layer, found by index. If not
          * valid, fall back to standard triangle group layer. */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, int32 PolygroupLayerIndex );
+        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, int32_t PolygroupLayerIndex );
 
         /** Initialize a PolygroupSet for given Mesh and specific Polygroup attribute layer, found by name. If not
          * valid, fall back to standard triangle group layer. */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, FName AttribName );
+        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, std::string AttribName );
 
         /** Initialize a PolygroupSet by copying an existing PolygroupSet */
         explicit FPolygroupSet( const FPolygroupSet* CopyIn );
@@ -108,7 +108,7 @@ namespace Desert::Geometry
 
         /** @return index of current PolygroupAttribute into Mesh AttributeSet, or -1 if this information does not
          * exist */
-        int32 GetPolygroupIndex() const
+        int32_t GetPolygroupIndex() const
         {
             return GroupLayerIndex;
         }
@@ -116,7 +116,7 @@ namespace Desert::Geometry
         /**
          * @return PolygroupID for a TriangleID
          */
-        int32 GetGroup( int32 TriangleID ) const
+        int32_t GetGroup( int32_t TriangleID ) const
         {
             return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
                                        : Mesh->GetTriangleGroup( TriangleID );
@@ -125,7 +125,7 @@ namespace Desert::Geometry
         /**
          * @return PolygroupID for a TriangleID
          */
-        int32 GetTriangleGroup( int32 TriangleID ) const
+        int32_t GetTriangleGroup( int32_t TriangleID ) const
         {
             return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
                                        : Mesh->GetTriangleGroup( TriangleID );
@@ -134,7 +134,7 @@ namespace Desert::Geometry
         /**
          * Set the PolygroupID for a TriangleID
          */
-        void SetGroup( int32 TriangleID, int32 NewGroupID, FDynamicMesh3& WritableMesh )
+        void SetGroup( int32_t TriangleID, int32_t NewGroupID, FDynamicMesh3& WritableMesh )
         {
             UE_CHECK_SLOW( &WritableMesh == this->Mesh ); // require the same mesh
             if ( WritableMesh.IsTriangle( TriangleID ) )
@@ -151,7 +151,7 @@ namespace Desert::Geometry
                     WritableMesh.SetTriangleGroup( TriangleID, NewGroupID );
                 }
             }
-            MaxGroupID = FMath::Max( MaxGroupID, NewGroupID + 1 );
+            MaxGroupID = std::max( MaxGroupID, NewGroupID + 1 );
         }
 
         /**
@@ -162,7 +162,7 @@ namespace Desert::Geometry
         /**
          * Allocate a new unused PolygroupID by incrementing the MaxGroupID member
          */
-        int32 AllocateNewGroupID()
+        int32_t AllocateNewGroupID()
         {
             return MaxGroupID++;
         }

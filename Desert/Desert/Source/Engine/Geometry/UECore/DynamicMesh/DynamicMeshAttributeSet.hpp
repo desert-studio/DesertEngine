@@ -26,10 +26,10 @@ namespace Desert::Geometry
     /** Standard Color overlay type - 4-element float (rbga) */
     typedef TDynamicMeshVectorOverlay<float, 4, FVector4f> FDynamicMeshColorOverlay;
     /** Standard per-triangle integer material ID */
-    typedef TDynamicMeshScalarTriangleAttribute<int32> FDynamicMeshMaterialAttribute;
+    typedef TDynamicMeshScalarTriangleAttribute<int32_t> FDynamicMeshMaterialAttribute;
 
     /** Per-triangle integer polygroup ID */
-    typedef TDynamicMeshScalarTriangleAttribute<int32> FDynamicMeshPolygroupAttribute;
+    typedef TDynamicMeshScalarTriangleAttribute<int32_t> FDynamicMeshPolygroupAttribute;
 
     /**
      * FDynamicMeshAttributeSet manages a set of extended attributes for a FDynamicMesh3.
@@ -45,7 +45,7 @@ namespace Desert::Geometry
     public:
         FDynamicMeshAttributeSet( FDynamicMesh3* Mesh );
 
-        FDynamicMeshAttributeSet( FDynamicMesh3* Mesh, int32 NumUVLayers, int32 NumNormalLayers );
+        FDynamicMeshAttributeSet( FDynamicMesh3* Mesh, int32_t NumUVLayers, int32_t NumNormalLayers );
 
         virtual ~FDynamicMeshAttributeSet() override;
 
@@ -116,7 +116,7 @@ namespace Desert::Geometry
         virtual bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
 
         /** @return true if the given vertex is a seam intersection vertex in any overlay */
-        virtual bool IsSeamIntersectionVertex( int32 VertexID ) const;
+        virtual bool IsSeamIntersectionVertex( int32_t VertexID ) const;
 
         /** @return true if the given edge is a material ID boundary */
         virtual bool IsMaterialBoundaryEdge( int EdgeID ) const;
@@ -250,10 +250,10 @@ namespace Desert::Geometry
         //
 
         /** @return number of Polygroup layers */
-        virtual int32 NumPolygroupLayers() const;
+        virtual int32_t NumPolygroupLayers() const;
 
         /** Set the number of Polygroup layers */
-        virtual void SetNumPolygroupLayers( int32 Num );
+        virtual void SetNumPolygroupLayers( int32_t Num );
 
         /** @return the Polygroup layer at the given Index */
         FDynamicMeshPolygroupAttribute* GetPolygroupLayer( int Index );
@@ -288,7 +288,7 @@ namespace Desert::Geometry
         // Generic attributes
         //
 
-        void AttachAttribute( FName AttribName, FDynamicMeshAttributeBase* Attribute )
+        void AttachAttribute( std::string AttribName, FDynamicMeshAttributeBase* Attribute )
         {
             if ( GenericAttributes.Contains( AttribName ) )
             {
@@ -298,7 +298,7 @@ namespace Desert::Geometry
             RegisterExternalAttribute( Attribute );
         }
 
-        void RemoveAttribute( FName AttribName )
+        void RemoveAttribute( std::string AttribName )
         {
             if ( GenericAttributes.Contains( AttribName ) )
             {
@@ -307,12 +307,12 @@ namespace Desert::Geometry
             }
         }
 
-        FDynamicMeshAttributeBase* GetAttachedAttribute( FName AttribName )
+        FDynamicMeshAttributeBase* GetAttachedAttribute( std::string AttribName )
         {
             return GenericAttributes.Contains( AttribName ) ? GenericAttributes[AttribName].get() : nullptr;
         }
 
-        const FDynamicMeshAttributeBase* GetAttachedAttribute( FName AttribName ) const
+        const FDynamicMeshAttributeBase* GetAttachedAttribute( std::string AttribName ) const
         {
             const std::unique_ptr<FDynamicMeshAttributeBase>* Found = GenericAttributes.Find( AttribName );
             return Found ? Found->get() : nullptr;
@@ -323,12 +323,12 @@ namespace Desert::Geometry
             return GenericAttributes.Num();
         }
 
-        bool HasAttachedAttribute( FName AttribName ) const
+        bool HasAttachedAttribute( std::string AttribName ) const
         {
             return GenericAttributes.Contains( AttribName );
         }
 
-        SIZE_T GetByteCount() const;
+        size_t GetByteCount() const;
 
     protected:
         /** Parent mesh of this attribute set */
@@ -342,7 +342,7 @@ namespace Desert::Geometry
 
         std::vector<std::unique_ptr<FDynamicMeshPolygroupAttribute>> PolygroupLayers;
 
-        using GenericAttributesMap = TMap<FName, std::unique_ptr<FDynamicMeshAttributeBase>>;
+        using GenericAttributesMap = TMap<std::string, std::unique_ptr<FDynamicMeshAttributeBase>>;
         GenericAttributesMap GenericAttributes;
 
     protected:

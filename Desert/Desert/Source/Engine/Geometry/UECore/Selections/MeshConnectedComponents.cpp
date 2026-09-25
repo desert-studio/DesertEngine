@@ -7,8 +7,8 @@ using namespace Desert::Geometry;
 
 namespace
 {
-    // The ActiveSet stays a uint8 array, as in UE; these name its states.
-    enum class EProcessingState : uint8
+    // The ActiveSet stays a uint8_t array, as in UE; these name its states.
+    enum class EProcessingState : uint8_t
     {
         Unprocessed = 0,
         InQueue     = 1,
@@ -18,39 +18,40 @@ namespace
 } // namespace
 
 void FMeshConnectedComponents::FindTrianglesConnectedToSeeds(
-     const TArray<int>& SeedTriangles, TFunction<bool( int32, int32 )> TrisConnectedPredicate )
+     const TArray<int>& SeedTriangles, std::function<bool( int32_t, int32_t )> TrisConnectedPredicate )
 {
     // initial active set contains all valid triangles
-    TArray<uint8> ActiveSet;
-    const int32   NumTriangles = Mesh->MaxTriangleID();
-    ActiveSet.Init( static_cast<uint8>( EProcessingState::Invalid ), NumTriangles );
-    for ( int32 Tid = 0; Tid < NumTriangles; ++Tid )
+    TArray<uint8_t> ActiveSet;
+    const int32_t   NumTriangles = Mesh->MaxTriangleID();
+    ActiveSet.Init( static_cast<uint8_t>( EProcessingState::Invalid ), NumTriangles );
+    for ( int32_t Tid = 0; Tid < NumTriangles; ++Tid )
     {
         if ( Mesh->IsTriangle( Tid ) )
         {
-            ActiveSet[Tid] = static_cast<uint8>( EProcessingState::Unprocessed );
+            ActiveSet[Tid] = static_cast<uint8_t>( EProcessingState::Unprocessed );
         }
     }
 
     FindTriComponents( SeedTriangles, ActiveSet, TrisConnectedPredicate );
 }
 
-void FMeshConnectedComponents::FindTriComponents( const TArray<int32>& SeedList, TArray<uint8>& ActiveSet,
-                                                  const TFunction<bool( int32, int32 )>& TrisConnectedPredicate )
+void FMeshConnectedComponents::FindTriComponents(
+     const TArray<int32_t>& SeedList, TArray<uint8_t>& ActiveSet,
+     const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate )
 {
     Components.Empty();
 
-    TArray<int32> ComponentQueue;
+    TArray<int32_t> ComponentQueue;
     ComponentQueue.Reserve( 256 );
 
     // keep finding valid seed triangles and growing connected components until we are done
-    for ( int32 SeedTri : SeedList )
+    for ( int32_t SeedTri : SeedList )
     {
         if ( ActiveSet.IsValidIndex( SeedTri ) &&
-             ActiveSet[SeedTri] != static_cast<uint8>( EProcessingState::Invalid ) )
+             ActiveSet[SeedTri] != static_cast<uint8_t>( EProcessingState::Invalid ) )
         {
             ComponentQueue.Add( SeedTri );
-            ActiveSet[SeedTri] = static_cast<uint8>( EProcessingState::InQueue );
+            ActiveSet[SeedTri] = static_cast<uint8_t>( EProcessingState::InQueue );
 
             FComponent Component;
             if ( TrisConnectedPredicate )
@@ -69,14 +70,14 @@ void FMeshConnectedComponents::FindTriComponents( const TArray<int32>& SeedList,
     }
 }
 
-void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<int32>& ComponentQueue,
-                                                 TArray<uint8>& ActiveSet )
+void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<int32_t>& ComponentQueue,
+                                                 TArray<uint8_t>& ActiveSet )
 {
     while ( ComponentQueue.Num() > 0 )
     {
-        const int32 CurTriangle = ComponentQueue.Pop( EAllowShrinking::No );
+        const int32_t CurTriangle = ComponentQueue.Pop( EAllowShrinking::No );
 
-        ActiveSet[CurTriangle] = static_cast<uint8>( EProcessingState::Done );
+        ActiveSet[CurTriangle] = static_cast<uint8_t>( EProcessingState::Done );
         Component.Indices.Add( CurTriangle );
 
         const FIndex3i TriNbrTris = Mesh->GetTriNeighbourTris( CurTriangle );
@@ -84,24 +85,24 @@ void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<i
         {
             const int NbrTri = TriNbrTris[j];
             if ( NbrTri != FDynamicMesh3::InvalidID &&
-                 ActiveSet[NbrTri] == static_cast<uint8>( EProcessingState::Unprocessed ) )
+                 ActiveSet[NbrTri] == static_cast<uint8_t>( EProcessingState::Unprocessed ) )
             {
                 ComponentQueue.Add( NbrTri );
-                ActiveSet[NbrTri] = static_cast<uint8>( EProcessingState::InQueue );
+                ActiveSet[NbrTri] = static_cast<uint8_t>( EProcessingState::InQueue );
             }
         }
     }
 }
 
-void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<int32>& ComponentQueue,
-                                                 TArray<uint8>&                         ActiveSet,
-                                                 const TFunction<bool( int32, int32 )>& TriConnectedPredicate )
+void FMeshConnectedComponents::FindTriComponent(
+     FComponent& Component, TArray<int32_t>& ComponentQueue, TArray<uint8_t>& ActiveSet,
+     const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate )
 {
     while ( ComponentQueue.Num() > 0 )
     {
-        const int32 CurTriangle = ComponentQueue.Pop( EAllowShrinking::No );
+        const int32_t CurTriangle = ComponentQueue.Pop( EAllowShrinking::No );
 
-        ActiveSet[CurTriangle] = static_cast<uint8>( EProcessingState::Done );
+        ActiveSet[CurTriangle] = static_cast<uint8_t>( EProcessingState::Done );
         Component.Indices.Add( CurTriangle );
 
         const FIndex3i TriNbrTris = Mesh->GetTriNeighbourTris( CurTriangle );
@@ -109,20 +110,20 @@ void FMeshConnectedComponents::FindTriComponent( FComponent& Component, TArray<i
         {
             const int NbrTri = TriNbrTris[j];
             if ( NbrTri != FDynamicMesh3::InvalidID &&
-                 ActiveSet[NbrTri] == static_cast<uint8>( EProcessingState::Unprocessed ) &&
+                 ActiveSet[NbrTri] == static_cast<uint8_t>( EProcessingState::Unprocessed ) &&
                  TriConnectedPredicate( CurTriangle, NbrTri ) )
             {
                 ComponentQueue.Add( NbrTri );
-                ActiveSet[NbrTri] = static_cast<uint8>( EProcessingState::InQueue );
+                ActiveSet[NbrTri] = static_cast<uint8_t>( EProcessingState::InQueue );
             }
         }
     }
 }
 
-void FMeshConnectedComponents::RemoveFromActiveSet( const FComponent& Component, TArray<uint8>& ActiveSet )
+void FMeshConnectedComponents::RemoveFromActiveSet( const FComponent& Component, TArray<uint8_t>& ActiveSet )
 {
-    for ( int32 Tid : Component.Indices )
+    for ( int32_t Tid : Component.Indices )
     {
-        ActiveSet[Tid] = static_cast<uint8>( EProcessingState::Invalid );
+        ActiveSet[Tid] = static_cast<uint8_t>( EProcessingState::Invalid );
     }
 }

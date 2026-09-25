@@ -22,12 +22,12 @@ namespace Desert::Geometry
     class FRefCountVector
     {
     public:
-        static constexpr unsigned short INVALID_REF_COUNT = MAX_uint16;
+        static constexpr unsigned short INVALID_REF_COUNT = std::numeric_limits<uint16_t>::max();
 
         FRefCountVector()                         = default;
         FRefCountVector( const FRefCountVector& ) = default;
         FRefCountVector( FRefCountVector&& From )
-             : RefCounts( MoveTemp( From.RefCounts ) ), FreeIndices( MoveTemp( From.FreeIndices ) ),
+             : RefCounts( std::move( From.RefCounts ) ), FreeIndices( std::move( From.FreeIndices ) ),
                UsedCount( From.UsedCount )
         {
             From.UsedCount = 0;
@@ -35,8 +35,8 @@ namespace Desert::Geometry
         FRefCountVector& operator=( const FRefCountVector& ) = default;
         FRefCountVector& operator=( FRefCountVector&& From )
         {
-            RefCounts      = MoveTemp( From.RefCounts );
-            FreeIndices    = MoveTemp( From.FreeIndices );
+            RefCounts      = std::move( From.RefCounts );
+            FreeIndices    = std::move( From.FreeIndices );
             UsedCount      = From.UsedCount;
             From.UsedCount = 0;
             return *this;
@@ -271,25 +271,25 @@ namespace Desert::Geometry
             UsedCount = 0;
 
             // Lambda for updating ref count for a given index. This is passed to the external iterate function.
-            const auto UpdateRefCount = [this, &AllocateRefCount, &IncrementRefCount]( int32 Index )
+            const auto UpdateRefCount = [this, &AllocateRefCount, &IncrementRefCount]( int32_t Index )
             {
                 unsigned short& RefCount = RefCounts[Index];
                 if ( RefCount == INVALID_REF_COUNT )
                 {
                     // Increase used counter and call external function to initialize value.
                     ++UsedCount;
-                    Forward<AllocateRefCountFunc>( AllocateRefCount )( RefCount );
+                    std::forward<AllocateRefCountFunc>( AllocateRefCount )( RefCount );
                 }
                 else
                 {
                     // Call external function to initialize value.
-                    Forward<IncrementRefCountFunc>( IncrementRefCount )( RefCount );
+                    std::forward<IncrementRefCountFunc>( IncrementRefCount )( RefCount );
                 }
             };
 
             // Call external function that iterates over all external pieces of data, which will in turn call the
             // lambda to update ref counts.
-            Forward<IterateFunc>( Iterate )( UpdateRefCount );
+            std::forward<IterateFunc>( Iterate )( UpdateRefCount );
 
             // Add unused elements to free list.
             const unsigned int FreeIndicesNum = Num - UsedCount;
@@ -338,7 +338,7 @@ namespace Desert::Geometry
         }
 
         // initialize and set all refcounts to given value
-        void InitDense( int Size, uint16 RefCountValue = 1 )
+        void InitDense( int Size, uint16_t RefCountValue = 1 )
         {
             FreeIndices.Clear();
             RefCounts.Clear();
@@ -484,10 +484,10 @@ namespace Desert::Geometry
         class MappedEnumerable
         {
         public:
-            TFunction<ToType( int )> MapFunc;
+            std::function<ToType( int )> MapFunc;
             IndexEnumerable          enumerable;
 
-            MappedEnumerable( const IndexEnumerable& enumerable, TFunction<ToType( int )> MapFunc )
+            MappedEnumerable( const IndexEnumerable& enumerable, std::function<ToType( int )> MapFunc )
             {
                 this->enumerable = enumerable;
                 this->MapFunc    = MapFunc;
@@ -509,7 +509,7 @@ namespace Desert::Geometry
          * eg usage: for (FVector3d v : mapped_indices(fn_that_looks_up_mesh_vtx_from_id)) { ... }
          */
         template <typename ToType>
-        inline MappedEnumerable<ToType> MappedIndices( TFunction<ToType( int )> MapFunc ) const
+        inline MappedEnumerable<ToType> MappedIndices( std::function<ToType( int )> MapFunc ) const
         {
             return MappedEnumerable<ToType>( Indices(), MapFunc );
         }
@@ -520,9 +520,9 @@ namespace Desert::Geometry
         class FilteredEnumerable
         {
         public:
-            TFunction<bool( int )> FilterFunc;
+            std::function<bool( int )> FilterFunc;
             IndexEnumerable        enumerable;
-            FilteredEnumerable( const IndexEnumerable& enumerable, TFunction<bool( int )> FilterFuncIn )
+            FilteredEnumerable( const IndexEnumerable& enumerable, std::function<bool( int )> FilterFuncIn )
             {
                 this->enumerable = enumerable;
                 this->FilterFunc = FilterFuncIn;
@@ -539,12 +539,12 @@ namespace Desert::Geometry
             }
         };
 
-        inline FilteredEnumerable FilteredIndices( TFunction<bool( int )> FilterFunc ) const
+        inline FilteredEnumerable FilteredIndices( std::function<bool( int )> FilterFunc ) const
         {
             return FilteredEnumerable( Indices(), FilterFunc );
         }
 
-        SIZE_T GetByteCount() const
+        size_t GetByteCount() const
         {
             return RefCounts.GetByteCount() + FreeIndices.GetByteCount();
         }
@@ -556,7 +556,7 @@ namespace Desert::Geometry
                 return false;
             }
 
-            const size_t Num = FMath::Max( Lhs.GetMaxIndex(), Rhs.GetMaxIndex() );
+            const size_t Num = std::max( Lhs.GetMaxIndex(), Rhs.GetMaxIndex() );
             for ( size_t Idx = 0; Idx < Num; ++Idx )
             {
                 const bool LhsIsValid = Lhs.IsValid( Idx );

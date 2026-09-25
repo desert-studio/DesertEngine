@@ -1,9 +1,9 @@
 // UE Core shim for the ported GeometryCore (FDynamicMesh3 and its containers).
-// Not a port of a single UE file: it re-expresses, over std and glm, exactly the subset of UE Core
-// (Runtime/Core: Containers/Array.h, ArrayView.h, Set.h, Map.h, Templates/Function.h,
-// Templates/UnrealTemplate.h, Math/NumericLimits.h, Math/UnrealMathUtility.h, Math/Vector.h,
-// Math/Vector2D.h, Misc/AssertionMacros.h) that the ported sources call, under the UE names, so the
-// ported algorithm bodies stay line-for-line comparable with UE. Grow it only when a port needs it.
+// Not a port of a single UE file: it re-expresses, over std and glm, the subset of UE Core
+// (Runtime/Core: Containers/Array.h, ArrayView.h, Set.h, Map.h, Math/Vector.h, Math/Vector2D.h,
+// Misc/AssertionMacros.h) that the ported sources still call under UE names. It is being retired step by
+// step (GC1: the integer aliases, FName, TFunction, FMath, MoveTemp and TNumericLimits are gone -- the sources
+// spell std directly); do not grow it.
 #pragma once
 
 #include <glm/vec2.hpp>
@@ -51,115 +51,33 @@ namespace Desert::Geometry
         return bCondition;
     }
 
-    using int8   = std::int8_t;
-    using int16  = std::int16_t;
-    using int32  = std::int32_t;
-    using int64  = std::int64_t;
-    using uint8  = std::uint8_t;
-    using uint16 = std::uint16_t;
-    using uint32 = std::uint32_t;
-    using uint64 = std::uint64_t;
-    using SIZE_T = std::size_t;
+    inline constexpr int32_t INDEX_NONE = -1;
 
-    inline constexpr int32  INDEX_NONE = -1;
-    inline constexpr uint16 MAX_uint16 = std::numeric_limits<uint16>::max();
-    inline constexpr uint32 MAX_uint32 = std::numeric_limits<uint32>::max();
-
-    enum class EAllowShrinking : uint8
+    enum class EAllowShrinking : uint8_t
     {
         No,
         Yes
     };
 
-    template <typename T>
-    constexpr std::remove_reference_t<T>&& MoveTemp( T&& Value ) noexcept
-    {
-        return std::move( Value );
-    }
-
-    template <typename T>
-    constexpr T&& Forward( std::remove_reference_t<T>& Value ) noexcept
-    {
-        return std::forward<T>( Value );
-    }
-
-    template <typename T>
-    inline void Swap( T& A, T& B )
-    {
-        std::swap( A, B );
-    }
-
     // Templates/MemoryOps.h: element-wise equality of two runs.
     template <typename T>
-    bool CompareItems( const T* A, const T* B, SIZE_T Count )
+    bool CompareItems( const T* A, const T* B, size_t Count )
     {
         return std::equal( A, A + Count, B );
     }
 
-    template <typename Signature>
-    using TFunction = std::function<Signature>;
-    // UE's TFunctionRef is non-owning; std::function owns a copy. Same call semantics, and the
-    // ported code only ever passes it down a call chain, never stores it.
-    template <typename Signature>
-    using TFunctionRef = std::function<Signature>;
-
     // UE's ParallelFor (Async/ParallelFor.h), serial: UECore links no task system. Every ported caller writes
     // disjoint outputs per index or accumulates through std::atomic, so running the body in index order gives
     // the same results UE's threaded run does (float accumulation order aside).
-    inline void ParallelFor( int32 Num, const std::function<void( int32 )>& Body, bool bForceSingleThread = false )
+    inline void ParallelFor( int32_t Num, const std::function<void( int32_t )>& Body,
+                             bool bForceSingleThread = false )
     {
         (void)bForceSingleThread;
-        for ( int32 Index = 0; Index < Num; ++Index )
+        for ( int32_t Index = 0; Index < Num; ++Index )
             Body( Index );
     }
 
-    template <typename T>
-    struct TNumericLimits
-    {
-        static constexpr T Min()
-        {
-            return std::numeric_limits<T>::min();
-        }
-        static constexpr T Max()
-        {
-            return std::numeric_limits<T>::max();
-        }
-        static constexpr T Lowest()
-        {
-            return std::numeric_limits<T>::lowest();
-        }
-    };
-
-    struct FMath
-    {
-        template <typename T>
-        static constexpr T Min( const T A, const T B )
-        {
-            return ( A <= B ) ? A : B;
-        }
-        template <typename T>
-        static constexpr T Max( const T A, const T B )
-        {
-            return ( A >= B ) ? A : B;
-        }
-        template <typename T>
-        static constexpr T Clamp( const T X, const T Lo, const T Hi )
-        {
-            return ( X < Lo ) ? Lo : ( X < Hi ? X : Hi );
-        }
-        template <typename T>
-        static constexpr T Abs( const T A )
-        {
-            return ( A < T( 0 ) ) ? -A : A;
-        }
-        template <typename T>
-        static T Sqrt( const T A )
-        {
-            return std::sqrt( A );
-        }
-    };
-
-    // TArray over std::vector: UE's names on top, index type int32 as in UE.
+    // TArray over std::vector: UE's names on top, index type int32_t as in UE.
     template <typename T>
     class TArray
     {
@@ -171,15 +89,15 @@ namespace Desert::Geometry
         {
         }
 
-        int32 Num() const
+        int32_t Num() const
         {
-            return static_cast<int32>( Data.size() );
+            return static_cast<int32_t>( Data.size() );
         }
         bool IsEmpty() const
         {
             return Data.empty();
         }
-        bool IsValidIndex( int32 Index ) const
+        bool IsValidIndex( int32_t Index ) const
         {
             return Index >= 0 && Index < Num();
         }
@@ -192,48 +110,48 @@ namespace Desert::Geometry
             return Data.data();
         }
 
-        void SetNumZeroed( int32 NewNum, EAllowShrinking = EAllowShrinking::Yes )
+        void SetNumZeroed( int32_t NewNum, EAllowShrinking = EAllowShrinking::Yes )
         {
             // Constructs rather than assigns so element types that cannot be copied (std::atomic) still zero.
             Data = std::vector<T>( static_cast<size_t>( NewNum ) );
         }
 
         // std::vector's reference type, so TArray<bool> (a bit-vector underneath) indexes too.
-        typename std::vector<T>::reference operator[]( int32 Index )
+        typename std::vector<T>::reference operator[]( int32_t Index )
         {
             UE_CHECK_SLOW( IsValidIndex( Index ) );
             return Data[static_cast<size_t>( Index )];
         }
-        typename std::vector<T>::const_reference operator[]( int32 Index ) const
+        typename std::vector<T>::const_reference operator[]( int32_t Index ) const
         {
             UE_CHECK_SLOW( IsValidIndex( Index ) );
             return Data[static_cast<size_t>( Index )];
         }
 
-        int32 Add( const T& Item )
+        int32_t Add( const T& Item )
         {
             Data.push_back( Item );
             return Num() - 1;
         }
-        int32 Add( T&& Item )
+        int32_t Add( T&& Item )
         {
             Data.push_back( std::move( Item ) );
             return Num() - 1;
         }
         template <typename... Args>
-        int32 Emplace( Args&&... InArgs )
+        int32_t Emplace( Args&&... InArgs )
         {
             Data.emplace_back( std::forward<Args>( InArgs )... );
             return Num() - 1;
         }
-        int32 AddUnique( const T& Item )
+        int32_t AddUnique( const T& Item )
         {
-            const int32 Found = Find( Item );
+            const int32_t Found = Find( Item );
             return Found != INDEX_NONE ? Found : Add( Item );
         }
-        int32 AddUninitialized( int32 Count = 1 )
+        int32_t AddUninitialized( int32_t Count = 1 )
         {
-            const int32 First = Num();
+            const int32_t First = Num();
             Data.resize( Data.size() + static_cast<size_t>( Count ) );
             return First;
         }
@@ -241,60 +159,60 @@ namespace Desert::Geometry
         {
             Data.insert( Data.end(), Other.Data.begin(), Other.Data.end() );
         }
-        void Insert( const T& Item, int32 Index )
+        void Insert( const T& Item, int32_t Index )
         {
             Data.insert( Data.begin() + Index, Item );
         }
 
-        void SetNum( int32 NewNum, EAllowShrinking = EAllowShrinking::Yes )
+        void SetNum( int32_t NewNum, EAllowShrinking = EAllowShrinking::Yes )
         {
             Data.resize( static_cast<size_t>( NewNum ) );
         }
-        void SetNumUninitialized( int32 NewNum, EAllowShrinking = EAllowShrinking::Yes )
+        void SetNumUninitialized( int32_t NewNum, EAllowShrinking = EAllowShrinking::Yes )
         {
             Data.resize( static_cast<size_t>( NewNum ) );
         }
-        void Init( const T& Value, int32 Count )
+        void Init( const T& Value, int32_t Count )
         {
             Data.assign( static_cast<size_t>( Count ), Value );
         }
-        void Reserve( int32 Count )
+        void Reserve( int32_t Count )
         {
             Data.reserve( static_cast<size_t>( Count ) );
         }
-        void Empty( int32 Slack = 0 )
+        void Empty( int32_t Slack = 0 )
         {
             std::vector<T>().swap( Data );
             Data.reserve( static_cast<size_t>( Slack ) );
         }
-        void Reset( int32 NewSize = 0 )
+        void Reset( int32_t NewSize = 0 )
         {
             Data.clear();
             Data.reserve( static_cast<size_t>( NewSize ) );
         }
 
-        void RemoveAt( int32 Index, int32 Count = 1, EAllowShrinking = EAllowShrinking::Yes )
+        void RemoveAt( int32_t Index, int32_t Count = 1, EAllowShrinking = EAllowShrinking::Yes )
         {
             UE_CHECK_SLOW( Index >= 0 && Count >= 0 && Index + Count <= Num() );
             Data.erase( Data.begin() + Index, Data.begin() + Index + Count );
         }
         // Order is not kept: the tail fills the hole, as in UE.
-        void RemoveAtSwap( int32 Index, int32 Count = 1, EAllowShrinking = EAllowShrinking::Yes )
+        void RemoveAtSwap( int32_t Index, int32_t Count = 1, EAllowShrinking = EAllowShrinking::Yes )
         {
             UE_CHECK_SLOW( Index >= 0 && Count >= 0 && Index + Count <= Num() );
-            for ( int32 k = 0; k < Count; ++k )
+            for ( int32_t k = 0; k < Count; ++k )
             {
-                const int32 Last = Num() - 1;
+                const int32_t Last = Num() - 1;
                 if ( Index + k != Last )
                     Data[static_cast<size_t>( Index + k )] = std::move( Data[static_cast<size_t>( Last )] );
                 Data.pop_back();
             }
         }
-        int32 Remove( const T& Item )
+        int32_t Remove( const T& Item )
         {
             const size_t Before = Data.size();
             Data.erase( std::remove( Data.begin(), Data.end(), Item ), Data.end() );
-            return static_cast<int32>( Before - Data.size() );
+            return static_cast<int32_t>( Before - Data.size() );
         }
         T Pop( EAllowShrinking = EAllowShrinking::Yes )
         {
@@ -303,11 +221,11 @@ namespace Desert::Geometry
             return Result;
         }
 
-        T& Last( int32 IndexFromEnd = 0 )
+        T& Last( int32_t IndexFromEnd = 0 )
         {
             return Data[Data.size() - 1 - static_cast<size_t>( IndexFromEnd )];
         }
-        const T& Last( int32 IndexFromEnd = 0 ) const
+        const T& Last( int32_t IndexFromEnd = 0 ) const
         {
             return Data[Data.size() - 1 - static_cast<size_t>( IndexFromEnd )];
         }
@@ -317,9 +235,9 @@ namespace Desert::Geometry
             Data.push_back( Item );
         }
         // Removes the first occurrence, filling the hole with the last element (order not preserved).
-        int32 RemoveSingleSwap( const T& Item )
+        int32_t RemoveSingleSwap( const T& Item )
         {
-            const int32 Index = Find( Item );
+            const int32_t Index = Find( Item );
             if ( Index == INDEX_NONE )
             {
                 return 0;
@@ -327,10 +245,10 @@ namespace Desert::Geometry
             RemoveAtSwap( Index );
             return 1;
         }
-        int32 Find( const T& Item ) const
+        int32_t Find( const T& Item ) const
         {
             const auto It = std::find( Data.begin(), Data.end(), Item );
-            return It == Data.end() ? INDEX_NONE : static_cast<int32>( It - Data.begin() );
+            return It == Data.end() ? INDEX_NONE : static_cast<int32_t>( It - Data.begin() );
         }
         bool Contains( const T& Item ) const
         {
@@ -372,19 +290,19 @@ namespace Desert::Geometry
              : View( Array.GetData(), static_cast<size_t>( Array.Num() ) )
         {
         }
-        TArrayView( T* InData, int32 InNum ) : View( InData, static_cast<size_t>( InNum ) )
+        TArrayView( T* InData, int32_t InNum ) : View( InData, static_cast<size_t>( InNum ) )
         {
         }
 
-        int32 Num() const
+        int32_t Num() const
         {
-            return static_cast<int32>( View.size() );
+            return static_cast<int32_t>( View.size() );
         }
         T* GetData() const
         {
             return View.data();
         }
-        T& operator[]( int32 Index ) const
+        T& operator[]( int32_t Index ) const
         {
             return View[static_cast<size_t>( Index )];
         }
@@ -438,13 +356,13 @@ namespace Desert::Geometry
         {
             return Data.count( Item ) != 0;
         }
-        int32 Remove( const T& Item )
+        int32_t Remove( const T& Item )
         {
-            return static_cast<int32>( Data.erase( Item ) );
+            return static_cast<int32_t>( Data.erase( Item ) );
         }
-        int32 Num() const
+        int32_t Num() const
         {
-            return static_cast<int32>( Data.size() );
+            return static_cast<int32_t>( Data.size() );
         }
         void Empty()
         {
@@ -455,7 +373,7 @@ namespace Desert::Geometry
         {
             Empty();
         }
-        void Reserve( int32 Count )
+        void Reserve( int32_t Count )
         {
             Data.reserve( static_cast<size_t>( Count ) );
         }
@@ -498,19 +416,19 @@ namespace Desert::Geometry
         {
             return Data.count( Key ) != 0;
         }
-        int32 Remove( const K& Key )
+        int32_t Remove( const K& Key )
         {
-            return static_cast<int32>( Data.erase( Key ) );
+            return static_cast<int32_t>( Data.erase( Key ) );
         }
-        int32 Num() const
+        int32_t Num() const
         {
-            return static_cast<int32>( Data.size() );
+            return static_cast<int32_t>( Data.size() );
         }
         void Empty()
         {
             Data.clear();
         }
-        void Reserve( int32 Count )
+        void Reserve( int32_t Count )
         {
             Data.reserve( static_cast<size_t>( Count ) );
         }
@@ -830,9 +748,6 @@ namespace Desert::Geometry
             return !( *this == O );
         }
     };
-
-    // UE's FName is an interned, case-insensitive name; attribute names here are plain strings.
-    using FName = std::string;
 
     using FVector2f = TVector2<float>;
     using FVector2d = TVector2<double>;

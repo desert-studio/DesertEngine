@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/DynamicMeshTriangleAttribute.h:1-692,
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; undo/redo change
-// objects, FArchive serialization and the FName label attribute not ported.
+// objects, FArchive serialization and the std::string label attribute not ported.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
@@ -169,7 +169,7 @@ namespace Desert::Geometry
 
         virtual bool Append( const TDynamicAttributeBase& Source, const FDynamicMesh3::FAppendInfo& Info ) override
         {
-            int32 NewMaxID = Info.NumTriangle + Info.TriangleOffset;
+            int32_t NewMaxID = Info.NumTriangle + Info.TriangleOffset;
             if ( NewMaxID * AttribDimension > AttribValues.Num() )
             {
                 AttribValues.SetNum( NewMaxID * AttribDimension );
@@ -177,7 +177,7 @@ namespace Desert::Geometry
 
             AttribValueType BufferData[AttribDimension];
             int             BufferSize = sizeof( BufferData );
-            for ( int32 Idx = 0; Idx < Info.NumTriangle; ++Idx )
+            for ( int32_t Idx = 0; Idx < Info.NumTriangle; ++Idx )
             {
                 if ( !UE_ENSURE( Source.CopyOut( Idx, BufferData, BufferSize ) ) )
                 {
@@ -190,7 +190,7 @@ namespace Desert::Geometry
 
         virtual void AppendDefaulted( const FDynamicMesh3::FAppendInfo& Info ) override
         {
-            int32 NewMaxID = Info.NumTriangle + Info.TriangleOffset;
+            int32_t NewMaxID = Info.NumTriangle + Info.TriangleOffset;
             AttribValues.SetMinimumSize( NewMaxID * AttribDimension, GetDefaultAttributeValue() );
         }
 
@@ -414,7 +414,7 @@ namespace Desert::Geometry
 
                 while ( ItTid != ItTidEnd && ItTidOther != ItTidEndOther )
                 {
-                    for ( int32 i = 0; i < AttribDimension; ++i )
+                    for ( int32_t i = 0; i < AttribDimension; ++i )
                     {
                         const AttribValueType AttribValue = AttribValues[*ItTid * AttribDimension + i];
                         const AttribValueType AttribValueOther =
@@ -468,7 +468,7 @@ namespace Desert::Geometry
             return true;
         }
 
-        virtual SIZE_T GetByteCount() const
+        virtual size_t GetByteCount() const
         {
             return AttribValues.GetByteCount();
         }

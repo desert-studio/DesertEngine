@@ -16,12 +16,12 @@ namespace Desert::Geometry
 {
     namespace
     {
-        FFrame3d GetVertexFrame( const FDynamicMesh3& Mesh, int32 VertexID, const FVector3d& UseNormal )
+        FFrame3d GetVertexFrame( const FDynamicMesh3& Mesh, int32_t VertexID, const FVector3d& UseNormal )
         {
             const FVector3d v      = Mesh.GetVertex( VertexID );
             const FVector3d normal = Normalized( UseNormal );
-            int32           eid    = FDynamicMesh3::InvalidID;
-            for ( const int32 VtxEdge : Mesh.VtxEdgesItr( VertexID ) )
+            int32_t         eid    = FDynamicMesh3::InvalidID;
+            for ( const int32_t VtxEdge : Mesh.VtxEdgesItr( VertexID ) )
             {
                 eid = VtxEdge;
                 break;
@@ -34,16 +34,16 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    void FDynamicMeshUVEditor::ResetUVs( const TArray<int32>& Triangles )
+    void FDynamicMeshUVEditor::ResetUVs( const TArray<int32_t>& Triangles )
     {
         UVOverlay->ClearElements( Triangles );
     }
 
     void
-    FDynamicMeshUVEditor::TransformUVElements( const TArray<int32>&                                ElementIDs,
+    FDynamicMeshUVEditor::TransformUVElements( const TArray<int32_t>&                              ElementIDs,
                                                const std::function<FVector2f( const FVector2f& )>& TransformFunc )
     {
-        for ( const int32 elemid : ElementIDs )
+        for ( const int32_t elemid : ElementIDs )
         {
             if ( UVOverlay->IsElement( elemid ) )
                 UVOverlay->SetElement( elemid, TransformFunc( UVOverlay->GetElement( elemid ) ) );
@@ -51,7 +51,7 @@ namespace Desert::Geometry
     }
 
     bool FDynamicMeshUVEditor::EstimateGeodesicCenterFrameVertex( const FDynamicMesh3& Mesh, FFrame3d& FrameOut,
-                                                                  int32& VertexIDOut, bool bAlignToUnitAxes )
+                                                                  int32_t& VertexIDOut, bool bAlignToUnitAxes )
     {
         VertexIDOut                     = *Mesh.VertexIndicesItr().begin();
         FVector3d                Normal = FMeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
@@ -69,11 +69,11 @@ namespace Desert::Geometry
         }
         using FDijkstra = TMeshDijkstra<FDynamicMesh3>;
         TArray<FDijkstra::FSeedPoint> SeedPoints;
-        for ( const int32 vid : Loop->Vertices )
+        for ( const int32_t vid : Loop->Vertices )
             SeedPoints.Add( FDijkstra::FSeedPoint{ vid, vid, 0.0 } );
         FDijkstra Dijkstra( &Mesh );
-        Dijkstra.ComputeToMaxDistance( SeedPoints, TNumericLimits<float>::Max() );
-        const int32 MaxDistVID = Dijkstra.GetMaxGraphDistancePointID();
+        Dijkstra.ComputeToMaxDistance( SeedPoints, std::numeric_limits<float>::max() );
+        const int32_t MaxDistVID = Dijkstra.GetMaxGraphDistancePointID();
         if ( !Mesh.IsVertex( MaxDistVID ) )
         {
             FrameOut = GetVertexFrame( Mesh, VertexIDOut, Normal );
@@ -87,7 +87,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool FDynamicMeshUVEditor::SetTriangleUVsFromExpMap( const TArray<int32>& Triangles, FUVEditResult* Result )
+    bool FDynamicMeshUVEditor::SetTriangleUVsFromExpMap( const TArray<int32_t>& Triangles, FUVEditResult* Result )
     {
         if ( UVOverlay == nullptr || Triangles.Num() == 0 )
             return false;
@@ -99,20 +99,20 @@ namespace Desert::Geometry
             return false;
 
         FFrame3d   SeedFrame;
-        int32      FrameVertexID = FDynamicMesh3::InvalidID;
+        int32_t    FrameVertexID = FDynamicMesh3::InvalidID;
         const bool bFrameOK      = EstimateGeodesicCenterFrameVertex( Submesh, SeedFrame, FrameVertexID, true );
         if ( !Submesh.IsVertex( FrameVertexID ) )
             return false;
 
         TMeshLocalParam<FDynamicMesh3> Param( &Submesh );
         Param.ParamMode = ELocalParamTypes::ExponentialMapUpwindAvg;
-        Param.ComputeToMaxDistance( FrameVertexID, SeedFrame, TNumericLimits<float>::Max() );
+        Param.ComputeToMaxDistance( FrameVertexID, SeedFrame, std::numeric_limits<float>::max() );
 
-        TArray<int32> VtxElementIDs;
-        TArray<int32> NewElementIDs;
+        TArray<int32_t> VtxElementIDs;
+        TArray<int32_t> NewElementIDs;
         VtxElementIDs.Init( FDynamicMesh3::InvalidID, Submesh.MaxVertexID() );
-        const double MaxFloat = TNumericLimits<float>::Max();
-        for ( const int32 vid : Submesh.VertexIndicesItr() )
+        const double MaxFloat = std::numeric_limits<float>::max();
+        for ( const int32_t vid : Submesh.VertexIndicesItr() )
         {
             if ( !Param.HasUV( vid ) )
                 continue;
@@ -123,8 +123,8 @@ namespace Desert::Geometry
             NewElementIDs.Add( VtxElementIDs[vid] );
         }
 
-        int32 NumFailed = SubmeshCalc.GetFailedTriangles().Num();
-        for ( const int32 tid : Submesh.TriangleIndicesItr() )
+        int32_t NumFailed = SubmeshCalc.GetFailedTriangles().Num();
+        for ( const int32_t tid : Submesh.TriangleIndicesItr() )
         {
             const FIndex3i SubTri = Submesh.GetTriangle( tid );
             const FIndex3i UVTri( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B], VtxElementIDs[SubTri.C] );
@@ -137,7 +137,7 @@ namespace Desert::Geometry
             UVOverlay->SetTriangle( SubmeshCalc.MapTriangleToBaseMesh( tid ), UVTri );
         }
         if ( Result != nullptr )
-            Result->NewUVElements = MoveTemp( NewElementIDs );
+            Result->NewUVElements = std::move( NewElementIDs );
         // a fallback frame is always a failure (the quality would be very bad), as is any triangle left unset
         return bFrameOK && NumFailed == 0;
     }

@@ -33,23 +33,23 @@ namespace Desert::Geometry
         {
         }
 
-        int32 Num() const
+        int32_t Num() const
         {
             return Components.Num();
         }
-        const FComponent& GetComponent( int32 Index ) const
+        const FComponent& GetComponent( int32_t Index ) const
         {
             return Components[Index];
         }
-        FComponent& GetComponent( int32 Index )
+        FComponent& GetComponent( int32_t Index )
         {
             return Components[Index];
         }
-        const FComponent& operator[]( int32 Index ) const
+        const FComponent& operator[]( int32_t Index ) const
         {
             return Components[Index];
         }
-        FComponent& operator[]( int32 Index )
+        FComponent& operator[]( int32_t Index )
         {
             return Components[Index];
         }
@@ -59,15 +59,17 @@ namespace Desert::Geometry
          * a live triangle starts nothing. TrisConnectedPredicate(t0, t1), when set, must also hold for t1 to be
          * reached from its neighbour t0.
          */
-        void FindTrianglesConnectedToSeeds( const TArray<int>&              SeedTriangles,
-                                            TFunction<bool( int32, int32 )> TrisConnectedPredicate = nullptr );
+        void
+        FindTrianglesConnectedToSeeds( const TArray<int>&                      SeedTriangles,
+                                       std::function<bool( int32_t, int32_t )> TrisConnectedPredicate = nullptr );
 
     protected:
-        void FindTriComponents( const TArray<int32>& SeedList, TArray<uint8>& ActiveSet,
-                                const TFunction<bool( int32, int32 )>& TrisConnectedPredicate );
-        void FindTriComponent( FComponent& Component, TArray<int32>& ComponentQueue, TArray<uint8>& ActiveSet );
-        void FindTriComponent( FComponent& Component, TArray<int32>& ComponentQueue, TArray<uint8>& ActiveSet,
-                               const TFunction<bool( int32, int32 )>& TriConnectedPredicate );
-        static void RemoveFromActiveSet( const FComponent& Component, TArray<uint8>& ActiveSet );
+        void FindTriComponents( const TArray<int32_t>& SeedList, TArray<uint8_t>& ActiveSet,
+                                const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate );
+        void FindTriComponent( FComponent& Component, TArray<int32_t>& ComponentQueue,
+                               TArray<uint8_t>& ActiveSet );
+        void FindTriComponent( FComponent& Component, TArray<int32_t>& ComponentQueue, TArray<uint8_t>& ActiveSet,
+                               const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate );
+        static void RemoveFromActiveSet( const FComponent& Component, TArray<uint8_t>& ActiveSet );
     };
 } // namespace Desert::Geometry

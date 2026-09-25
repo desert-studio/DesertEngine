@@ -16,7 +16,7 @@ namespace Desert::Geometry
     namespace
     {
         template <typename FuncType>
-        bool StitchLoopsInternal( FDynamicMeshEditor& Editor, int32 NumQuads, FuncType&& GetQuadVidsForIndex,
+        bool StitchLoopsInternal( FDynamicMeshEditor& Editor, int32_t NumQuads, FuncType&& GetQuadVidsForIndex,
                                   FDynamicMeshEditResult& ResultOut )
         {
             ResultOut.NewQuads.Reserve( NumQuads );
@@ -24,7 +24,7 @@ namespace Desert::Geometry
             bool bFailed = false;
             for ( int i = 0; i < NumQuads; ++i )
             {
-                int32 a, b, c, d;
+                int32_t a, b, c, d;
                 GetQuadVidsForIndex( i, a, b, c, d );
                 int NewGroupID = Editor.Mesh->AllocateTriangleGroup();
                 ResultOut.NewGroups.Add( NewGroupID );
@@ -69,7 +69,7 @@ namespace Desert::Geometry
             return false;
         return StitchLoopsInternal(
              *this, N,
-             [N, &Loop1, &Loop2]( int32 Index, int32& VertA, int32& VertB, int32& VertC, int32& VertD )
+             [N, &Loop1, &Loop2]( int32_t Index, int32_t& VertA, int32_t& VertB, int32_t& VertC, int32_t& VertD )
              {
                  VertA = Loop1[Index];
                  VertB = Loop1[( Index + 1 ) % N];
@@ -88,8 +88,8 @@ namespace Desert::Geometry
             return false;
         return StitchLoopsInternal(
              *this, N,
-             [this, N, &TriVidPairs, &VertexLoop]( int32 Index, int32& VertA, int32& VertB, int32& VertC,
-                                                   int32& VertD )
+             [this, N, &TriVidPairs, &VertexLoop]( int32_t Index, int32_t& VertA, int32_t& VertB, int32_t& VertC,
+                                                   int32_t& VertD )
              {
                  FIndex3i TriVids1 = Mesh->GetTriangle( TriVidPairs[Index].first );
                  VertA             = TriVids1[TriVidPairs[Index].second.first];
@@ -107,17 +107,17 @@ namespace Desert::Geometry
     {
         if ( !UE_ENSURE( EdgeLoop.Num() == VidLoop.Num() ) )
             return false;
-        for ( int32 QuadIndex = 0; QuadIndex < EdgeLoop.Num(); ++QuadIndex )
+        for ( int32_t QuadIndex = 0; QuadIndex < EdgeLoop.Num(); ++QuadIndex )
         {
-            int32    Tid       = Mesh.GetEdgeT( EdgeLoop[QuadIndex] ).A;
-            int32    FirstVid  = VidLoop[QuadIndex];
-            int32    SecondVid = VidLoop[( QuadIndex + 1 ) % VidLoop.Num()];
+            int32_t  Tid       = Mesh.GetEdgeT( EdgeLoop[QuadIndex] ).A;
+            int32_t  FirstVid  = VidLoop[QuadIndex];
+            int32_t  SecondVid = VidLoop[( QuadIndex + 1 ) % VidLoop.Num()];
             FIndex3i TriVids   = Mesh.GetTriangle( Tid );
-            int8     SubIdx1   = (int8)IndexUtil::FindTriIndex( FirstVid, TriVids );
-            int8     SubIdx2   = (int8)IndexUtil::FindTriIndex( SecondVid, TriVids );
+            int8_t   SubIdx1   = (int8_t)IndexUtil::FindTriIndex( FirstVid, TriVids );
+            int8_t   SubIdx2   = (int8_t)IndexUtil::FindTriIndex( SecondVid, TriVids );
             if ( !( SubIdx1 >= 0 && SubIdx2 >= 0 ) )
                 return false;
-            TriVertPairsOut.Add( FTriVidPair( Tid, std::pair<int8, int8>( SubIdx1, SubIdx2 ) ) );
+            TriVertPairsOut.Add( FTriVidPair( Tid, std::pair<int8_t, int8_t>( SubIdx1, SubIdx2 ) ) );
         }
         return true;
     }
@@ -278,7 +278,7 @@ namespace Desert::Geometry
                 else if ( bHandleBoundaryVertices )
                 {
                     // A mesh-border vertex: the duplicate becomes the "old" one, the original stays inner.
-                    int32 NewVertID = Mesh->AppendVertex( *Mesh, VertID );
+                    int32_t NewVertID = Mesh->AppendVertex( *Mesh, VertID );
                     OldVidsToNewVids.Add( VertID, NewVertID );
                     LoopPair.OuterVertices[vi]                                  = NewVertID;
                     LoopPair.OuterEdges[vi]                                     = FDynamicMesh3::InvalidID;
@@ -343,7 +343,7 @@ namespace Desert::Geometry
     {
         FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
         TSet<int>                  TriangleSet( Triangles );
-        auto           TrianglePredicate = [&]( int32 TriangleID ) { return TriangleSet.Contains( TriangleID ); };
+        auto TrianglePredicate = [&]( int32_t TriangleID ) { return TriangleSet.Contains( TriangleID ); };
         TMap<int, int> Vertices;
         for ( int tid : Triangles )
         {

@@ -15,48 +15,48 @@ namespace Desert::Geometry
 {
     namespace
     {
-        // TPointHashGrid3<int32, double> with FScaleGridIndexer3 at the origin.
+        // TPointHashGrid3<int32_t, double> with FScaleGridIndexer3 at the origin.
         class FPointHashGrid3
         {
         public:
             explicit FPointHashGrid3( double CellSize ) : CellSize( CellSize )
             {
             }
-            void InsertPointUnsafe( int32 Value, const FVector3d& Pos )
+            void InsertPointUnsafe( int32_t Value, const FVector3d& Pos )
             {
                 Hash[ToGrid( Pos )].Add( Value );
             }
             template <typename DistanceSqFn>
             void FindPointsInBall( const FVector3d& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
-                                   TArray<int32>& ResultsOut ) const
+                                   TArray<int32_t>& ResultsOut ) const
             {
                 const FVector3d Lo( QueryPoint.X - Radius, QueryPoint.Y - Radius, QueryPoint.Z - Radius );
                 const FVector3d Hi( QueryPoint.X + Radius, QueryPoint.Y + Radius, QueryPoint.Z + Radius );
                 const auto      MinIdx = ToGrid( Lo ), MaxIdx = ToGrid( Hi );
                 const double    RadiusSquared = Radius * Radius;
-                for ( int64 zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
-                    for ( int64 yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
-                        for ( int64 xi = MinIdx[0]; xi <= MaxIdx[0]; xi++ )
+                for ( int64_t zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
+                    for ( int64_t yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
+                        for ( int64_t xi = MinIdx[0]; xi <= MaxIdx[0]; xi++ )
                         {
                             const auto It = Hash.find( { xi, yi, zi } );
                             if ( It == Hash.end() )
                                 continue;
-                            for ( int32 Value : It->second )
+                            for ( int32_t Value : It->second )
                                 if ( DistanceSqFunc( Value ) < RadiusSquared )
                                     ResultsOut.Add( Value );
                         }
             }
 
         private:
-            using Key = std::array<int64, 3>;
+            using Key = std::array<int64_t, 3>;
             Key ToGrid( const FVector3d& P ) const
             {
-                return { static_cast<int64>( std::floor( P.X / CellSize ) ),
-                         static_cast<int64>( std::floor( P.Y / CellSize ) ),
-                         static_cast<int64>( std::floor( P.Z / CellSize ) ) };
+                return { static_cast<int64_t>( std::floor( P.X / CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.Y / CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.Z / CellSize ) ) };
             }
             double                       CellSize;
-            std::map<Key, TArray<int32>> Hash;
+            std::map<Key, TArray<int32_t>> Hash;
         };
 
     } // namespace
@@ -70,9 +70,9 @@ namespace Desert::Geometry
 
         // hash table of the boundary edge midpoints
         TArray<FVector3d> BoundaryMidPoints;
-        TArray<int32>     ToMidPt;
+        TArray<int32_t>   ToMidPt;
         ToMidPt.Init( -1, Mesh->MaxEdgeID() );
-        for ( int32 EID : Mesh->BoundaryEdgeIndicesItr() )
+        for ( int32_t EID : Mesh->BoundaryEdgeIndicesItr() )
             ToMidPt[EID] = BoundaryMidPoints.Add( Mesh->GetEdgePoint( EID, 0.5 ) );
         InitialNumBoundaryEdges = BoundaryMidPoints.Num();
 
@@ -86,15 +86,15 @@ namespace Desert::Geometry
             hashN = 512;
 
         const FAxisAlignedBox3d Bounds   = Mesh->GetBounds();
-        const double            MaxDim   = FMath::Max( Bounds.Max.X - Bounds.Min.X,
-                                                       FMath::Max( Bounds.Max.Y - Bounds.Min.Y, Bounds.Max.Z - Bounds.Min.Z ) );
-        const double            CellSize = FMath::Max( FMathd::ZeroTolerance, MaxDim / (double)hashN );
+        const double            MaxDim   = std::max( Bounds.Max.X - Bounds.Min.X,
+                                                     std::max( Bounds.Max.Y - Bounds.Min.Y, Bounds.Max.Z - Bounds.Min.Z ) );
+        const double            CellSize = std::max( FMathd::ZeroTolerance, MaxDim / (double)hashN );
         FPointHashGrid3         MidpointsHash( CellSize );
-        UseMergeSearchTol = FMath::Min( CellSize, UseMergeSearchTol );
+        UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
         FVector3d     A, B, C, D;
         TArray<int>   equivBuffer;
-        TArray<int32> SearchMatches;
+        TArray<int32_t> SearchMatches;
 
         // Edge equivalence sets: every other boundary edge with the same midpoint, narrowed to those with the same
         // endpoints.
@@ -106,7 +106,7 @@ namespace Desert::Geometry
             const FVector3d midpt = BoundaryMidPoints[ToMidPt[eid]];
             SearchMatches.Reset();
             MidpointsHash.FindPointsInBall(
-                 midpt, UseMergeSearchTol, [&]( const int32& PtIdx )
+                 midpt, UseMergeSearchTol, [&]( const int32_t& PtIdx )
                  { return DistSq( midpt, BoundaryMidPoints[ToMidPt[PtIdx]] ); }, SearchMatches );
             // inserted after the query, so only edges with earlier IDs are found
             MidpointsHash.InsertPointUnsafe( eid, midpt );
@@ -118,7 +118,7 @@ namespace Desert::Geometry
             equivBuffer.Reset();
             for ( int i = 0; i < N; ++i )
             {
-                const int32 MatchEID = SearchMatches[i];
+                const int32_t MatchEID = SearchMatches[i];
                 Mesh->GetEdgeV( MatchEID, C, D );
                 if ( IsSameEdge( A, B, C, D ) )
                 {

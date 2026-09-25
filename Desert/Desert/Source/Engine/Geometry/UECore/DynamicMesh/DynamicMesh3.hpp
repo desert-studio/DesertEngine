@@ -34,7 +34,7 @@ namespace Desert::Geometry
 
     class FCompactMaps;
 
-    enum class EMeshComponents : uint8
+    enum class EMeshComponents : uint8_t
     {
         None          = 0,
         VertexNormals = 1,
@@ -104,7 +104,7 @@ namespace Desert::Geometry
 
     public:
         // Inline-allocator array types optionally used for mesh queries, to reduce heap allocations
-        using FLocalIntArray  = TArray<int32>;
+        using FLocalIntArray  = TArray<int32_t>;
         using FLocalBoolArray = TArray<bool>;
 
         struct FEdge
@@ -185,7 +185,7 @@ namespace Desert::Geometry
 
             /** The change stamp is incremented when modifications occur, if `bIsEnabled` is set. It's guarded by
              * `Mutex`. */
-            uint32 Value = 1;
+            uint32_t Value = 1;
 
             /** Updates the change stamp in an thread-safe, transactionally-safe way. Does nothing if `bIsEnabled`
              * is not set. */
@@ -201,7 +201,7 @@ namespace Desert::Geometry
 
             /** Overwrites the change stamp in an thread-safe, transactionally-safe way. Does nothing if
              * `bIsEnabled` is not set. */
-            void Set( uint32 NewValue )
+            void Set( uint32_t NewValue )
             {
                 if ( bIsEnabled )
                 {
@@ -213,9 +213,9 @@ namespace Desert::Geometry
 
             /** Returns the current change value in a thread-safe, transactionally-safe way. Returns 1 if
              * `bIsEnabled` is not set. */
-            uint32 GetValue() const
+            uint32_t GetValue() const
             {
-                uint32 Result = 1;
+                uint32_t Result = 1;
 
                 if ( bIsEnabled )
                 {
@@ -262,14 +262,14 @@ namespace Desert::Geometry
         struct FAppendInfo
         {
             // Offsets for base mesh element IDs
-            int32 VertexOffset = 0, TriangleOffset = 0, EdgeOffset = 0, GroupOffset = 0;
+            int32_t VertexOffset = 0, TriangleOffset = 0, EdgeOffset = 0, GroupOffset = 0;
 
             // Offsets for the first 3 normal overlay layers (i.e., typically normal, tangent, bitangent)
-            int32 NormalOverlayOffsets[3]{ 0, 0, 0 };
+            int32_t NormalOverlayOffsets[3]{ 0, 0, 0 };
 
             // The number appended of each element type -- including 'invalid' slots, i.e. the amount by which
             // MaxID increased
-            int32 NumVertex = 0, NumTriangle = 0, NumEdge = 0;
+            int32_t NumVertex = 0, NumTriangle = 0, NumEdge = 0;
         };
 
         /**
@@ -470,7 +470,7 @@ namespace Desert::Geometry
          * Returns the current ShapeChangeStamp. This is incremented any time a mesh vertex position is changed
          * _or_ the mesh topology is modified. Change stamps are disabled by default.
          */
-        inline uint32 GetShapeChangeStamp() const
+        inline uint32_t GetShapeChangeStamp() const
         {
             UE_ENSURE_MSGF( ChangeStampShape.bIsEnabled, "Shape change tracking is not enabled on this mesh. Use "
                                                          "SetShapeChangeStampEnabled() to enable." );
@@ -481,7 +481,7 @@ namespace Desert::Geometry
          * Returns the current TopologyChangeStamp. This is incremented when the mesh topology is modified.
          * Change stamps are disabled by default.
          */
-        inline uint32 GetTopologyChangeStamp() const
+        inline uint32_t GetTopologyChangeStamp() const
         {
             UE_ENSURE_MSGF( ChangeStampTopology.bIsEnabled,
                             "Topology change tracking is not enabled on this mesh. Use "
@@ -491,7 +491,7 @@ namespace Desert::Geometry
 
         /** ChangeStamp is a combination of the Shape and Topology ChangeStamps. If neither flag is enabled, this
          * value will never change. */
-        inline uint64 GetChangeStamp() const
+        inline uint64_t GetChangeStamp() const
         {
             return ChangeStampShape.GetValue() + ChangeStampTopology.GetValue();
         }
@@ -573,10 +573,10 @@ namespace Desert::Geometry
 
         /** Call VertexFunc for each one-ring vertex neighbour of a vertex. Currently this is more efficient than
          * VtxVerticesItr() due to overhead in the Values() enumerable */
-        void EnumerateVertexVertices( int32 VertexID, TFunctionRef<void( int32 )> VertexFunc ) const
+        void EnumerateVertexVertices( int32_t VertexID, std::function<void( int32_t )> VertexFunc ) const
         {
             UE_CHECK_SLOW( VertexRefCounts.IsValid( VertexID ) );
-            VertexEdgeLists.Enumerate( VertexID, [this, &VertexFunc, VertexID]( int32 eid )
+            VertexEdgeLists.Enumerate( VertexID, [this, &VertexFunc, VertexID]( int32_t eid )
                                        { VertexFunc( GetOtherEdgeVertex( eid, VertexID ) ); } );
         }
 
@@ -590,7 +590,7 @@ namespace Desert::Geometry
 
         /** Call EdgeFunc for each one-ring edge of a vertex. Currently this is more efficient than VtxEdgesItr()
          * due to overhead in the Values() enumerable */
-        void EnumerateVertexEdges( int32 VertexID, TFunctionRef<void( int32 )> EdgeFunc ) const
+        void EnumerateVertexEdges( int32_t VertexID, std::function<void( int32_t )> EdgeFunc ) const
         {
             UE_CHECK_SLOW( VertexRefCounts.IsValid( VertexID ) );
             VertexEdgeLists.Enumerate( VertexID, EdgeFunc );
@@ -607,14 +607,14 @@ namespace Desert::Geometry
 
         /** Call ApplyFunc for each one-ring triangle of a vertex. Currently this is significantly more efficient
          * than VtxTrianglesItr() in many use cases. */
-        void EnumerateVertexTriangles( int32 VertexID, TFunctionRef<void( int32 )> ApplyFunc ) const;
+        void EnumerateVertexTriangles( int32_t VertexID, std::function<void( int32_t )> ApplyFunc ) const;
 
         /** @return a single triangle connected to the given vertex, or INDEX_NONE if the vertex has no triangles
          */
-        int32 GetSingleVertexTriangle( int32 VID ) const;
+        int32_t GetSingleVertexTriangle( int32_t VID ) const;
 
         /** Call ApplyFunc for each triangle connected to an Edge (1 or 2 triangles) */
-        void EnumerateEdgeTriangles( int32 EdgeID, TFunctionRef<void( int32 )> ApplyFunc ) const;
+        void EnumerateEdgeTriangles( int32_t EdgeID, std::function<void( int32_t )> ApplyFunc ) const;
 
         //
         // Mesh Construction
@@ -778,8 +778,8 @@ namespace Desert::Geometry
         /**  Applies a given function to both TriEdgeIDs which each EdgeID in a given Triangle is associated with
          */
         void
-        EnumerateTriEdgeIDsFromTriID( const int                                             TriID,
-                                      const TFunctionRef<void( FMeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
+        EnumerateTriEdgeIDsFromTriID( const int                                              TriID,
+                                      const std::function<void( FMeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
         {
             FIndex3i TriEdges = GetTriEdges( TriID );
             for ( int TriEdgesIndex = 0; TriEdgesIndex <= 2; TriEdgesIndex++ )
@@ -855,7 +855,7 @@ namespace Desert::Geometry
         inline FMeshTriEdgeID GetTriEdgeIDFromEdgeID( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
-            int32    TriIndex = Edges[EdgeID].Tri.A;
+            int32_t  TriIndex = Edges[EdgeID].Tri.A;
             FIndex3i TriEdges = TriangleEdges[TriIndex];
             if ( TriEdges.A == EdgeID )
             {
@@ -868,8 +868,8 @@ namespace Desert::Geometry
 
         /** Applies a given function to both TriEdgeIDs which a given EdgeID is associated with*/
         void
-        EnumerateTriEdgeIDsFromEdgeID( const int32                                           EdgeID,
-                                       const TFunctionRef<void( FMeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
+        EnumerateTriEdgeIDsFromEdgeID( const int32_t                                          EdgeID,
+                                       const std::function<void( FMeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
         {
             const FMeshTriEdgeID FirstTriEdgeID = GetTriEdgeIDFromEdgeID(
                  EdgeID ); // function gets MeshTriEdgeID for edge included in EdgeTri.A only
@@ -998,7 +998,7 @@ namespace Desert::Geometry
             {
                 UE_CHECK_SLOW( IsTriangle( tid ) );
                 TriangleGroups.GetValue()[tid] = group_id;
-                GroupIDCounter                 = FMath::Max( GroupIDCounter, group_id + 1 );
+                GroupIDCounter                 = std::max( GroupIDCounter, group_id + 1 );
             }
         }
 
@@ -1151,11 +1151,11 @@ namespace Desert::Geometry
 
         /** Returns bounding box of all selected mesh vertices. Will use a chunked parallel implementation for
          * larger selections. */
-        FAxisAlignedBox3d GetBoundsForVertexSelection( TConstArrayView<int32> VertexIDs ) const;
+        FAxisAlignedBox3d GetBoundsForVertexSelection( TConstArrayView<int32_t> VertexIDs ) const;
 
         /** Returns bounding box of all selected mesh triangles. Will use a chunked parallel implementation for
          * larger selections. */
-        FAxisAlignedBox3d GetBoundsForTriangleSelection( TConstArrayView<int32> TriangleIDs ) const;
+        FAxisAlignedBox3d GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const;
 
         /** Calculate face normal of triangle */
         FVector3d GetTriNormal( int TriangleID ) const;
@@ -1284,7 +1284,7 @@ namespace Desert::Geometry
          * Remove unused vertices. Note: Does not compact the remaining vertices.
          * @return number of removed vertices
          */
-        int32 RemoveUnusedVertices();
+        int32_t RemoveUnusedVertices();
 
         /**
          * @return true if any vertices are unused (not in any triangles)
@@ -1581,7 +1581,7 @@ namespace Desert::Geometry
         }
 
     public:
-        SIZE_T GetByteCount() const;
+        size_t GetByteCount() const;
 
     public:
         /**
@@ -1685,7 +1685,7 @@ namespace Desert::Geometry
         {
             if ( a > b )
             {
-                Swap( a, b );
+                std::swap( a, b );
             }
             Edges[EdgeID].Vert[0] = a;
             Edges[EdgeID].Vert[1] = b;
@@ -1723,7 +1723,7 @@ namespace Desert::Geometry
 
         int FindTriangleEdge( int TriangleID, int vA, int vB ) const;
 
-        int32 FindEdgeInternal( int32 vA, int32 vB, bool& bIsBoundary ) const;
+        int32_t FindEdgeInternal( int32_t vA, int32_t vB, bool& bIsBoundary ) const;
 
         inline bool EdgeHasVertex( int EdgeID, int VertexID ) const
         {

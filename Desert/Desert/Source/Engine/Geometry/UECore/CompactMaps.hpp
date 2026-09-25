@@ -15,11 +15,11 @@ namespace Desert::Geometry
      */
     class FCompactMaps
     {
-        TArray<int32> VertMap;
-        TArray<int32> TriMap;
+        TArray<int32_t> VertMap;
+        TArray<int32_t> TriMap;
 
     public:
-        constexpr static int32 InvalidID = IndexConstants::InvalidID;
+        constexpr static int32_t InvalidID = IndexConstants::InvalidID;
 
         /**
          * Set up maps as identity maps.
@@ -27,7 +27,7 @@ namespace Desert::Geometry
          * @param NumVertMappings Vertex map will be created from 0 to NumVertMappings - 1
          * @param NumTriMappings Triangle map will be created from 0 to NumTriMappings - 1
          */
-        void SetIdentity( int32 NumVertMappings, int32 NumTriMappings )
+        void SetIdentity( int32_t NumVertMappings, int32_t NumTriMappings )
         {
             SetIdentityVertexMap( NumVertMappings );
             SetIdentityTriangleMap( NumTriMappings );
@@ -38,10 +38,10 @@ namespace Desert::Geometry
          *
          * @param NumVertMappings Vertex map will be created from 0 to NumVertMappings - 1
          */
-        void SetIdentityVertexMap( int32 NumVertMappings )
+        void SetIdentityVertexMap( int32_t NumVertMappings )
         {
             VertMap.SetNumUninitialized( NumVertMappings );
-            for ( int32 i = 0; i < NumVertMappings; ++i )
+            for ( int32_t i = 0; i < NumVertMappings; ++i )
             {
                 VertMap[i] = i;
             }
@@ -52,10 +52,10 @@ namespace Desert::Geometry
          *
          * @param NumTriMappings Vertex map will be created from 0 to NumTriMappings - 1
          */
-        void SetIdentityTriangleMap( int32 NumTriMappings )
+        void SetIdentityTriangleMap( int32_t NumTriMappings )
         {
             TriMap.SetNumUninitialized( NumTriMappings );
-            for ( int32 i = 0; i < NumTriMappings; ++i )
+            for ( int32_t i = 0; i < NumTriMappings; ++i )
             {
                 TriMap[i] = i;
             }
@@ -67,7 +67,7 @@ namespace Desert::Geometry
          * @param NumTriMappings Size of post-reset triangle map
          * @param bInitializeWithInvalidID If true, initializes maps with InvalidID
          */
-        void Reset( int32 NumVertMappings, int32 NumTriMappings, bool bInitializeWithInvalidID )
+        void Reset( int32_t NumVertMappings, int32_t NumTriMappings, bool bInitializeWithInvalidID )
         {
             ResetVertexMap( NumVertMappings, bInitializeWithInvalidID );
             ResetTriangleMap( NumTriMappings, bInitializeWithInvalidID );
@@ -78,12 +78,12 @@ namespace Desert::Geometry
          * @param NumVertMappings Size of post-reset vertex map
          * @param bInitializeWithInvalidID If true, initializes map with InvalidID
          */
-        void ResetVertexMap( int32 NumVertMappings, bool bInitializeWithInvalidID )
+        void ResetVertexMap( int32_t NumVertMappings, bool bInitializeWithInvalidID )
         {
             VertMap.SetNumUninitialized( NumVertMappings );
             if ( bInitializeWithInvalidID )
             {
-                for ( int32 i = 0; i < NumVertMappings; i++ )
+                for ( int32_t i = 0; i < NumVertMappings; i++ )
                 {
                     VertMap[i] = InvalidID;
                 }
@@ -95,12 +95,12 @@ namespace Desert::Geometry
          * @param NumTriMappings Size of post-reset triangle map
          * @param bInitializeWithInvalidID If true, initializes map with InvalidID
          */
-        void ResetTriangleMap( int32 NumTriMappings, bool bInitializeWithInvalidID )
+        void ResetTriangleMap( int32_t NumTriMappings, bool bInitializeWithInvalidID )
         {
             TriMap.SetNumUninitialized( NumTriMappings );
             if ( bInitializeWithInvalidID )
             {
-                for ( int32 i = 0; i < NumTriMappings; ++i )
+                for ( int32_t i = 0; i < NumTriMappings; ++i )
                 {
                     TriMap[i] = InvalidID;
                 }
@@ -127,33 +127,33 @@ namespace Desert::Geometry
         }
 
         /** Get number of vertex mappings */
-        int32 NumVertexMappings() const
+        int32_t NumVertexMappings() const
         {
             return VertMap.Num();
         }
 
         /** Get number of triangle mappings */
-        int32 NumTriangleMappings() const
+        int32_t NumTriangleMappings() const
         {
             return TriMap.Num();
         }
 
         /** Set mapping for a vertex */
-        void SetVertexMapping( int32 FromID, int32 ToID )
+        void SetVertexMapping( int32_t FromID, int32_t ToID )
         {
             UE_CHECK_SLOW( FromID >= ToID );
             VertMap[FromID] = ToID;
         }
 
         /** Set mapping for a triangle */
-        void SetTriangleMapping( int32 FromID, int32 ToID )
+        void SetTriangleMapping( int32_t FromID, int32_t ToID )
         {
             UE_CHECK_SLOW( FromID >= ToID );
             TriMap[FromID] = ToID;
         }
 
         /** Get mapping for a vertex */
-        int32 GetVertexMapping( int32 FromID ) const
+        int32_t GetVertexMapping( int32_t FromID ) const
         {
             return VertMap[FromID];
         }
@@ -165,7 +165,7 @@ namespace Desert::Geometry
         }
 
         /** Get mapping for a triangle */
-        int32 GetTriangleMapping( int32 FromID ) const
+        int32_t GetTriangleMapping( int32_t FromID ) const
         {
             return TriMap[FromID];
         }
@@ -173,14 +173,14 @@ namespace Desert::Geometry
         /** Check data for validity; for testing */
         bool Validate() const
         {
-            for ( int32 Idx = 0; Idx < VertMap.Num(); Idx++ )
+            for ( int32_t Idx = 0; Idx < VertMap.Num(); Idx++ )
             {
                 if ( VertMap[Idx] > Idx )
                 {
                     return false;
                 }
             }
-            for ( int32 Idx = 0; Idx < TriMap.Num(); Idx++ )
+            for ( int32_t Idx = 0; Idx < TriMap.Num(); Idx++ )
             {
                 if ( TriMap[Idx] > Idx )
                 {

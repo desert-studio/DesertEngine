@@ -199,7 +199,7 @@ namespace Desert::Geometry
             }
         }
 
-        SIZE_T GetAllocatedSize() const
+        size_t GetAllocatedSize() const
         {
             return ForwardMap.GetAllocatedSize() + ReverseMap.GetAllocatedSize();
         }

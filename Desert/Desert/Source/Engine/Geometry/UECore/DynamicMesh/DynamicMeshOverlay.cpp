@@ -81,8 +81,8 @@ EMeshResult TDynamicMeshOverlay<RealType, ElementSize>::InsertElement( int Eleme
 
 template <typename RealType, int ElementSize>
 void TDynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
-     TFunctionRef<bool( int ParentVertexIdx, int TriIDA, int TriIDB )> TrisCanShareVertexPredicate,
-     RealType                                                          InitElementValue )
+     std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )> TrisCanShareVertexPredicate,
+     RealType                                                           InitElementValue )
 {
     ClearElements(); // deletes all elements and initializes triangles to be 1:1 w/ parentmesh IDs
     FDynamicMesh3::FLocalIntArray  TrisActiveSubGroup, AppendedElements;
@@ -167,19 +167,19 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
 {
     ClearElements(); // deletes all elements and initializes triangles to be 1:1 w/ parentmesh IDs
     std::array<RealType, ElementSize> DefaultElement;
-    for ( int32 Idx = 0; Idx < ElementSize; ++Idx )
+    for ( int32_t Idx = 0; Idx < ElementSize; ++Idx )
     {
         DefaultElement[Idx] = InitElementValue;
     }
-    TArray<int32> VIDtoEID;
+    TArray<int32_t> VIDtoEID;
     bool          bNeedsRemap = !bExactMapIDs && !ParentMesh->IsCompactV();
     if ( bNeedsRemap )
     {
         VIDtoEID.SetNumUninitialized( ParentMesh->MaxVertexID() );
     }
-    for ( int32 VertexID : ParentMesh->VertexIndicesItr() )
+    for ( int32_t VertexID : ParentMesh->VertexIndicesItr() )
     {
-        int32 ElementID;
+        int32_t ElementID;
         if ( bExactMapIDs )
         {
             ElementID          = VertexID;
@@ -202,14 +202,14 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
         }
     }
 
-    for ( int32 TriangleID : ParentMesh->TriangleIndicesItr() )
+    for ( int32_t TriangleID : ParentMesh->TriangleIndicesItr() )
     {
         FIndex3i Tri   = ParentMesh->GetTriangle( TriangleID );
-        int32    Start = 3 * TriangleID;
-        for ( int32 SubIdx = 0; SubIdx < 3; ++SubIdx )
+        int32_t  Start = 3 * TriangleID;
+        for ( int32_t SubIdx = 0; SubIdx < 3; ++SubIdx )
         {
-            int32 VID = Tri[SubIdx];
-            int32 EID = bNeedsRemap ? VIDtoEID[VID] : VID;
+            int32_t VID = Tri[SubIdx];
+            int32_t EID = bNeedsRemap ? VIDtoEID[VID] : VID;
             ElementTriangles.InsertAt( EID, Start + SubIdx, FDynamicMesh3::InvalidID );
             ElementsRefCounts.Increment( EID );
         }
@@ -218,8 +218,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitE
 
 template <typename RealType, int ElementSize>
 void TDynamicMeshOverlay<RealType, ElementSize>::SplitVerticesWithPredicate(
-     TFunctionRef<bool( int ElementID, int TriID )>                     ShouldSplitOutVertex,
-     TFunctionRef<void( int ElementID, int TriID, RealType* FillVect )> GetNewElementValue )
+     std::function<bool( int ElementID, int TriID )>                     ShouldSplitOutVertex,
+     std::function<void( int ElementID, int TriID, RealType* FillVect )> GetNewElementValue )
 {
     for ( int TriID : ParentMesh->TriangleIndicesItr() )
     {
@@ -271,7 +271,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::MergeElement( int SourceElement
     int SourceParentID = ParentVertices[SourceElementID];
     int TargetParentID = ParentVertices[TargetElementID];
 
-    auto MergeElementForTriangle = [this, SourceElementID, TargetElementID]( int32 TriID )
+    auto MergeElementForTriangle = [this, SourceElementID, TargetElementID]( int32_t TriID )
     {
         int ElementTriStart = TriID * 3;
         for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
@@ -356,15 +356,15 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
     {
         // Bowties are typically rare, so we can test for bowties in parallel and only run the split on the
         // (hopefully) few needed cases
-        TArray<int32> BowtieVerts;
-        for ( int32 VertexID = 0; VertexID < ParentMesh->MaxVertexID(); ++VertexID )
+        TArray<int32_t> BowtieVerts;
+        for ( int32_t VertexID = 0; VertexID < ParentMesh->MaxVertexID(); ++VertexID )
         {
             if ( ParentMesh->IsVertex( VertexID ) && IsBowtieInOverlay( VertexID ) )
             {
                 BowtieVerts.Add( VertexID );
             }
         }
-        for ( int32 VertexID : BowtieVerts )
+        for ( int32_t VertexID : BowtieVerts )
         {
             SplitBowtiesAtVertex( VertexID );
         }
@@ -379,8 +379,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowties( bool bParallel )
 }
 
 template <typename RealType, int ElementSize>
-void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32          VertexID,
-                                                                       TArray<int32>* NewElementIDs )
+void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t          VertexID,
+                                                                       TArray<int32_t>* NewElementIDs )
 {
     // arrays for storing contiguous triangle groups from parentmesh
     FDynamicMesh3::FLocalIntArray  TrianglesOut, ContiguousGroupLengths;
@@ -398,9 +398,9 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32    
 
     UE_ENSURE( EMeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
                                                                          ContiguousGroupLengths, GroupIsLoop ) );
-    int32 NumTris = TrianglesOut.Num();
+    int32_t NumTris = TrianglesOut.Num();
 
-    auto ElementIDFromTriangle = [VertexID, this]( int32 TriID ) -> int32
+    auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
     {
         FIndex3i TriVIDs = ParentMesh->GetTriangle( TriID );
         FIndex3i TriEIDs = GetTriangle( TriID );
@@ -411,9 +411,9 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32    
     // Early out in the easy non-bowtie case of 1 element, 1 contiguous group
     if ( NumTris > 0 && ContiguousGroupLengths.Num() == 1 )
     {
-        int32 FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
+        int32_t FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
         bool  bSingleElement = true;
-        for ( int32 Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
+        for ( int32_t Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
         {
             if ( FirstElSeen != ElementIDFromTriangle( TrianglesOut[Idx] ) )
             {
@@ -428,7 +428,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32    
 
     ElementIDSeen.Reset();
     // per contiguous group of triangles around vertex in ParentMesh, find contiguous sub-groups in overlay
-    for ( int32 GroupIdx = 0, NumGroups = ContiguousGroupLengths.Num(), TriSubStart = 0; GroupIdx < NumGroups;
+    for ( int32_t GroupIdx = 0, NumGroups = ContiguousGroupLengths.Num(), TriSubStart = 0; GroupIdx < NumGroups;
           GroupIdx++ )
     {
         bool bIsLoop       = GroupIsLoop[GroupIdx];
@@ -478,7 +478,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32    
         if ( bIsLoop && MaxSubID > 0 && IsConnected( TriSubStart, TriSubStart + TriInGroupNum - 1 ) )
         {
             int LastGroupID = SubGroupID.Last();
-            for ( int32 Idx = SubGroupID.Num() - 1; Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
+            for ( int32_t Idx = SubGroupID.Num() - 1; Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
             {
                 SubGroupID[Idx] = 0;
             }
@@ -504,7 +504,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32    
                         ConnectedTris.Add( TrianglesOut[TriSubIdx] );
                     }
                 }
-                int32 NewElementID = SplitElement( ElementID, ConnectedTris );
+                int32_t NewElementID = SplitElement( ElementID, ConnectedTris );
                 if ( NewElementIDs )
                 {
                     NewElementIDs->Add( NewElementID );
@@ -899,18 +899,18 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamVertex( int vid, bool bBo
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamIntersectionVertex( int32 VertexID ) const
+bool TDynamicMeshOverlay<RealType, ElementSize>::IsSeamIntersectionVertex( int32_t VertexID ) const
 {
-    int32 SeamCount = 0;
-    for ( int32 EdgeID : ParentMesh->VtxEdgesItr( VertexID ) )
+    int32_t SeamCount = 0;
+    for ( int32_t EdgeID : ParentMesh->VtxEdgesItr( VertexID ) )
     {
-        SeamCount += int32( IsSeamEdge( EdgeID ) );
+        SeamCount += int32_t( IsSeamEdge( EdgeID ) );
     }
     return SeamCount == 1 || SeamCount > 2;
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32 VertexID ) const
+bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t VertexID ) const
 {
     // arrays for storing contiguous triangle groups from parentmesh
     FDynamicMesh3::FLocalIntArray  TrianglesOut, ContiguousGroupLengths;
@@ -928,9 +928,9 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32 Vertex
 
     UE_ENSURE( EMeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
                                                                          ContiguousGroupLengths, GroupIsLoop ) );
-    int32 NumTris = TrianglesOut.Num();
+    int32_t NumTris = TrianglesOut.Num();
 
-    auto ElementIDFromTriangle = [VertexID, this]( int32 TriID ) -> int32
+    auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
     {
         FIndex3i TriVIDs = ParentMesh->GetTriangle( TriID );
         FIndex3i TriEIDs = GetTriangle( TriID );
@@ -941,9 +941,9 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32 Vertex
     // Handle the easy case of 1 element, 1 contiguous group
     if ( NumTris > 0 && ContiguousGroupLengths.Num() == 1 )
     {
-        int32 FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
+        int32_t FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
         bool  bSingleElement = true;
-        for ( int32 Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
+        for ( int32_t Idx = 1; Idx < TrianglesOut.Num(); ++Idx )
         {
             if ( FirstElSeen != ElementIDFromTriangle( TrianglesOut[Idx] ) )
             {
@@ -959,7 +959,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32 Vertex
     // More complex case: Iterate through each contiguous group looking for a re-used element across groups
     ElementIDSeen.Reset();
     // per contiguous group of triangles around vertex in ParentMesh, find contiguous sub-groups in overlay
-    for ( int32 GroupIdx = 0, NumGroups = ContiguousGroupLengths.Num(), TriSubStart = 0; GroupIdx < NumGroups;
+    for ( int32_t GroupIdx = 0, NumGroups = ContiguousGroupLengths.Num(), TriSubStart = 0; GroupIdx < NumGroups;
           GroupIdx++ )
     {
         bool bIsLoop       = GroupIsLoop[GroupIdx];
@@ -1009,7 +1009,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32 Vertex
         if ( bIsLoop && MaxSubID > 0 && IsConnected( TriSubStart, TriSubStart + TriInGroupNum - 1 ) )
         {
             int LastGroupID = SubGroupID.Last();
-            for ( int32 Idx = SubGroupID.Num() - 1; Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
+            for ( int32_t Idx = SubGroupID.Num() - 1; Idx >= 0 && SubGroupID[Idx] == LastGroupID; Idx-- )
             {
                 SubGroupID[Idx] = 0;
             }
@@ -1076,8 +1076,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::GetVertexElements( int vid, TAr
 }
 
 template <typename RealType, int ElementSize>
-bool TDynamicMeshOverlay<RealType, ElementSize>::FindAnyElementIDAtVertex( int32  VertexID,
-                                                                           int32& OutElementID ) const
+bool TDynamicMeshOverlay<RealType, ElementSize>::FindAnyElementIDAtVertex( int32_t  VertexID,
+                                                                           int32_t& OutElementID ) const
 {
     OutElementID = IndexConstants::InvalidID;
     for ( int TID : ParentMesh->VtxTrianglesItr( VertexID ) )
@@ -1325,7 +1325,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const FDynamicMesh3
     int   orig_t0 = FlipInfo.Triangles.A;
     int   orig_t1 = FlipInfo.Triangles.B;
     bool  bT0Set = IsSetTriangle( orig_t0 ), bT1Set = IsSetTriangle( orig_t1 );
-    int32 NumSet = (int32)bT0Set + (int32)bT1Set;
+    int32_t NumSet = (int32_t)bT0Set + (int32_t)bT1Set;
     if ( NumSet == 0 )
     {
         return; // nothing to do on the overlay if both triangles are unset
@@ -1534,7 +1534,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     // Helper for detaching from elements further below. Technically, the freeing gets done for us if the
     // triangle unset call is the last detachment (which it should be as long as only elements on a removed
     // overlay edge are ones that are removed), but it is saner to have it.
-    auto DecrementAndFreeIfLast = [this]( int32 elem_id )
+    auto DecrementAndFreeIfLast = [this]( int32_t elem_id )
     {
         ElementsRefCounts.Decrement( elem_id );
         if ( ElementsRefCounts.GetRefCount( elem_id ) == 1 )
@@ -1778,18 +1778,18 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetElem
 
 template <typename RealType, int ElementSize, typename VectorType>
 bool TDynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVertexElements(
-     int VertexID, TFunctionRef<bool( int TriangleID, int ElementID, const VectorType& Value )> ProcessFunc,
+     int VertexID, std::function<bool( int TriangleID, int ElementID, const VectorType& Value )> ProcessFunc,
      bool bFindUniqueElements ) const
 {
     if ( this->ParentMesh->IsVertex( VertexID ) == false )
         return false;
 
-    TArray<int32> UniqueElements;
+    TArray<int32_t> UniqueElements;
 
-    int32 Count = 0;
+    int32_t Count = 0;
     for ( int tid : this->ParentMesh->VtxTrianglesItr( VertexID ) )
     {
-        int32 BaseElemIdx    = 3 * tid;
+        int32_t BaseElemIdx    = 3 * tid;
         bool  bIsSetTriangle = ( this->ElementTriangles[BaseElemIdx] >= 0 );
         if ( bIsSetTriangle )
         {
@@ -1797,10 +1797,10 @@ bool TDynamicMeshVectorOverlay<RealType, ElementSize, VectorType>::EnumerateVert
 
             for ( int j = 0; j < 3; ++j )
             {
-                int32 ElementIdx = this->ElementTriangles[BaseElemIdx + j];
+                int32_t ElementIdx = this->ElementTriangles[BaseElemIdx + j];
                 if ( this->ParentVertices[ElementIdx] == VertexID )
                 {
-                    int32 NumUnique = UniqueElements.Num();
+                    int32_t NumUnique = UniqueElements.Num();
                     if ( bFindUniqueElements == false || ( UniqueElements.AddUnique( ElementIdx ) == NumUnique ) )
                     {
                         bool bContinue = ProcessFunc( tid, ElementIdx, this->GetElement( ElementIdx ) );
@@ -1821,7 +1821,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
                                                                 EValidityCheckFailMode FailMode ) const
 {
     bool                    is_ok        = true;
-    TFunction<void( bool )> CheckOrFailF = [&]( bool b ) { is_ok = is_ok && b; };
+    std::function<void( bool )> CheckOrFailF = [&]( bool b ) { is_ok = is_ok && b; };
     if ( FailMode == EValidityCheckFailMode::Check )
     {
         CheckOrFailF = [&]( bool b )
@@ -1897,9 +1897,9 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool            
         CheckOrFailF( ValidCount == 3 || ValidCount == 0 ); // element tri should be fully set or fully unset
     }
     // verify that refcount list counts are same as actual reference counts
-    for ( int32 ElementID = 0; ElementID < RealRefCounts.Num(); ++ElementID )
+    for ( int32_t ElementID = 0; ElementID < RealRefCounts.Num(); ++ElementID )
     {
-        int32 CurRefCount = ElementsRefCounts.GetRefCount( ElementID );
+        int32_t CurRefCount = ElementsRefCounts.GetRefCount( ElementID );
         CheckOrFailF( ( RealRefCounts[ElementID] == 0 && CurRefCount == 0 ) ||
                       ( CurRefCount == RealRefCounts[ElementID] + 1 ) );
     }
@@ -1962,7 +1962,7 @@ bool TDynamicMeshOverlay<RealType, ElementSize>::IsSameAs( const TDynamicMeshOve
 
         while ( ItEid != ItEidEnd && ItEidOther != ItEidEndOther )
         {
-            for ( int32 i = 0; i < ElementSize; ++i )
+            for ( int32_t i = 0; i < ElementSize; ++i )
             {
                 if ( Elements[*ItEid * ElementSize + i] != Other.Elements[*ItEidOther * ElementSize + i] )
                 {
