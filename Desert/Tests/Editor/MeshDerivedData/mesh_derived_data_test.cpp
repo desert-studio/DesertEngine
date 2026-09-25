@@ -156,3 +156,9 @@ TEST( MeshDerivedData, SkinnedSourceIsRefusedByName )
     const auto built              = Editor::BuildMeshPlatformData( asset );
     EXPECT_FALSE( built.IsSuccess() );
 }
+
+int main( int argc, char** argv )
+{
+    ::testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
+}
