@@ -125,7 +125,8 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
         const FStats s = Measure( mesh, uvs );
         // a similarity keeps every angle, the square's 90-degree corners included (the boundary is free)
         EXPECT_LT( s.MaxAngleError, 1e-4 ) << "irregularity " << preserveIrregularity;
-        EXPECT_TRUE( s.Positive == 0 || s.Negative == 0 ) << s.Positive << " / " << s.Negative;
+        // UE's area term reverses every edge for its winding: a counter-clockwise (+Z) triangle maps clockwise
+        EXPECT_EQ( s.Negative, 2 * Cells * Cells ) << s.Positive << " / " << s.Negative;
         EXPECT_GT( s.MinAreaRatio, 0.99 );
     }
 }
@@ -143,9 +144,9 @@ TEST( SpectralConformalUV, SphericalCapInPlaceKeepsOrientationAndAngles )
     EXPECT_EQ( uvs.ElementCount(), elementsBefore );
     EXPECT_EQ( result.NewUVElements.Num(), elementsBefore );
     const FStats s = Measure( mesh, uvs );
-    EXPECT_TRUE( s.Positive == 0 || s.Negative == 0 ) << s.Positive << " / " << s.Negative;
-    EXPECT_GT( s.MinAreaRatio, 0.3 );
-    EXPECT_LT( s.MeanAngleError, 0.02 );
-    std::printf( "cap: mean %.5f max %.5f minArea %.3f +%d -%d\n", s.MeanAngleError, s.MaxAngleError,
-                 s.MinAreaRatio, s.Positive, s.Negative );
+    EXPECT_EQ( s.Negative, 2 * Cells * Cells ) << s.Positive << " / " << s.Negative;
+    // measured: mean 0.0058 rad, max 0.016, smallest normalized area ratio 0.946
+    EXPECT_GT( s.MinAreaRatio, 0.9 );
+    EXPECT_LT( s.MeanAngleError, 0.0075 );
+    EXPECT_LT( s.MaxAngleError, 0.02 );
 }
