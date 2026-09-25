@@ -1476,7 +1476,6 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
-
 TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderIsRefusedByName )
 {
     namespace CC   = Common::Content;
@@ -1558,8 +1557,8 @@ TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
         if ( at == at.parent_path() )
             break;
     }
-    ASSERT_FALSE( graphShaders.empty() ) << "no Editor/Resources/Shaders/Programs/Graph above "
-                                         << std::filesystem::current_path();
+    ASSERT_FALSE( graphShaders.empty() )
+         << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
     int seen = 0;
     for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
     {
