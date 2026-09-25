@@ -3,7 +3,8 @@
 // (GeometryCore/Private/DynamicMesh/DynamicMesh3_Queries.cpp:824-850, bFrameNormalY = false, with a normal),
 // adapted: GetVertexFrame is a local helper (UECore's FDynamicMesh3 has no FFrame3d); the submesh gets no vertex
 // normals (UE's QuickComputeVertexNormals), TMeshLocalParam computes the area-weighted normal per vertex instead;
-// a triangle the submesh cannot append counts as failed.
+// a triangle the submesh cannot append counts as failed. SetTriangleUVsFromFreeBoundarySpectralConformal is
+// DynamicMeshUVEditor.cpp:754-988 with Options.bUseSpectral fixed true (the other branch is not ported).
 #include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
@@ -11,6 +12,9 @@
 #include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
 #include "Engine/Geometry/UECore/Parameterization/MeshDijkstra.hpp"
 #include "Engine/Geometry/UECore/Parameterization/MeshLocalParam.hpp"
+#include "Engine/Geometry/UECore/Solvers/MeshUVSolver.hpp"
+
+#include <unordered_map>
 
 namespace Desert::Geometry
 {
@@ -31,6 +35,11 @@ namespace Desert::Geometry
             const FVector3d other = normal.Cross( edge );
             edge                  = other.Cross( normal );
             return { v, edge, other, normal };
+        }
+
+        FVector2f ToFloat( const FVector2d& UV )
+        {
+            return { static_cast<float>( UV.X ), static_cast<float>( UV.Y ) };
         }
     } // namespace
 
@@ -140,5 +149,89 @@ namespace Desert::Geometry
             Result->NewUVElements = std::move( NewElementIDs );
         // a fallback frame is always a failure (the quality would be very bad), as is any triangle left unset
         return bFrameOK && NumFailed == 0;
+    }
+
+    bool FDynamicMeshUVEditor::SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32>& Triangles,
+                                                                                bool bUseExistingUVTopology,
+                                                                                bool bPreserveIrregularity,
+                                                                                FUVEditResult* Result )
+    {
+        if ( UVOverlay == nullptr || Triangles.Num() == 0 )
+            return false;
+        if ( !bUseExistingUVTopology )
+            ResetUVs( Triangles );
+
+        FDynamicMesh3                    Submesh;
+        std::unordered_map<int32, int32> BaseToSubmeshV;
+        TArray<int32>                    SubmeshToBaseV;
+        TArray<int32>                    SubmeshToBaseT;
+        for ( const int32 tid : Triangles )
+        {
+            if ( bUseExistingUVTopology && !UVOverlay->IsSetTriangle( tid ) )
+                continue;
+            const FIndex3i Triangle =
+                 bUseExistingUVTopology ? UVOverlay->GetTriangle( tid ) : Mesh->GetTriangle( tid );
+            FIndex3i NewTriangle;
+            for ( int32 j = 0; j < 3; ++j )
+            {
+                const auto Found = BaseToSubmeshV.find( Triangle[j] );
+                if ( Found != BaseToSubmeshV.end() )
+                {
+                    NewTriangle[j] = Found->second;
+                    continue;
+                }
+                const FVector3d Position = Mesh->GetVertex(
+                     bUseExistingUVTopology ? UVOverlay->GetParentVertex( Triangle[j] ) : Triangle[j] );
+                NewTriangle[j] = Submesh.AppendVertex( Position );
+                SubmeshToBaseV.Add( Triangle[j] );
+                BaseToSubmeshV.emplace( Triangle[j], NewTriangle[j] );
+            }
+            if ( Submesh.AppendTriangle( NewTriangle ) < 0 )
+                return false; // the UV topology is not a manifold submesh: nothing to parameterize
+            SubmeshToBaseT.Add( tid );
+        }
+
+        const FMeshBoundaryLoops Loops( &Submesh, true );
+        const FEdgeLoop*         Longest = nullptr;
+        for ( const FEdgeLoop& Loop : Loops.Loops )
+        {
+            if ( Longest == nullptr || Loop.Vertices.Num() > Longest->Vertices.Num() )
+                Longest = &Loop;
+        }
+        if ( Longest == nullptr )
+            return false;
+        FSpectralConformalMeshUVSolver Solver( Submesh, bPreserveIrregularity );
+        for ( const int32 vid : Longest->Vertices )
+            Solver.AddBoundaryVertex( vid );
+        TArray<FVector2d> UVBuffer;
+        if ( !Solver.SolveUVs( UVBuffer ) )
+            return false;
+
+        if ( bUseExistingUVTopology )
+        {
+            for ( int32 k = 0; k < SubmeshToBaseV.Num(); ++k )
+                UVOverlay->SetElement( SubmeshToBaseV[k], ToFloat( UVBuffer[k] ) );
+            if ( Result != nullptr )
+                Result->NewUVElements = MoveTemp( SubmeshToBaseV );
+            return true;
+        }
+        TArray<int32> VtxElementIDs;
+        TArray<int32> NewElementIDs;
+        VtxElementIDs.Init( FDynamicMesh3::InvalidID, Submesh.MaxVertexID() );
+        for ( const int32 vid : Submesh.VertexIndicesItr() )
+        {
+            VtxElementIDs[vid] = UVOverlay->AppendElement( ToFloat( UVBuffer[vid] ) );
+            NewElementIDs.Add( VtxElementIDs[vid] );
+        }
+        for ( const int32 tid : Submesh.TriangleIndicesItr() )
+        {
+            const FIndex3i SubTri = Submesh.GetTriangle( tid );
+            UVOverlay->SetTriangle(
+                 SubmeshToBaseT[tid],
+                 FIndex3i( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B], VtxElementIDs[SubTri.C] ) );
+        }
+        if ( Result != nullptr )
+            Result->NewUVElements = MoveTemp( NewElementIDs );
+        return true;
     }
 } // namespace Desert::Geometry
