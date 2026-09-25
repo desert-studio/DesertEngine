@@ -173,7 +173,7 @@ TEST( ThumbnailSweep, AFreshPictureIsLeftAloneAndAStaleOneIsSweptAgain )
     WriteFile( asset, "{}" );
     const std::string png = ThumbnailKey::DiskPath( asset.generic_string() );
     WriteFile( png, "PNG" );
-    ASSERT_TRUE( ThumbnailFreshness::Record( png, *ThumbnailFreshness::ContentHash( asset ) ).IsSuccess() );
+    ASSERT_TRUE( ThumbnailFreshness::Record( png, ThumbnailFreshness::ContentHash( asset ).value_or( 0 ) ).IsSuccess() );
 
     EXPECT_FALSE( Mentions( ScanForMissingThumbnails( project.Assets(), 64 ), "Fresh.demat" ) )
          << "a material whose picture is already on disk and newer than it was queued anyway. A sweep "

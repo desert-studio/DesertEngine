@@ -52,7 +52,7 @@ namespace
         const auto hash = ThumbnailFreshness::ContentHash( source );
         ASSERT_TRUE( hash.has_value() );
         WriteFile( png, "png-bytes" );
-        ASSERT_TRUE( ThumbnailFreshness::Record( png, *hash ).IsSuccess() );
+        ASSERT_TRUE( ThumbnailFreshness::Record( png, hash.value_or( 0 ) ).IsSuccess() );
     }
 } // namespace
 
@@ -77,7 +77,7 @@ TEST( ThumbnailFreshness, SameBytesAreShown_WhateverTheClockSays )
 {
     // The owner's defect: every launch re-captured unchanged materials. A checkout, a pull or a launcher
     // update moves the source's modtime past the PNG's without touching its bytes.
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path source = dir.Root / "M_Red.demat";
     const fs::path png    = dir.Root / "assets_Materials_M_Red.png";
     WriteFile( source, "{ \"AlbedoColor\": [1, 0, 0, 1] }" );
@@ -93,7 +93,7 @@ TEST( ThumbnailFreshness, SameBytesAreShown_WhateverTheClockSays )
 
 TEST( ThumbnailFreshness, TheKeyIsTheBytes_NotThePath )
 {
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path a = dir.Root / "one" / "M.demat";
     const fs::path b = dir.Root / "two" / "M_moved.demat";
     fs::create_directories( a.parent_path() );
@@ -107,7 +107,7 @@ TEST( ThumbnailFreshness, TheKeyIsTheBytes_NotThePath )
 
 TEST( ThumbnailFreshness, AnEditIsCapturedExactlyOnce )
 {
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
     const fs::path png    = dir.Root / "M.png";
     WriteFile( source, "{ \"Roughness\": 0.5 }" );
@@ -127,7 +127,7 @@ TEST( ThumbnailFreshness, AnEditIsCapturedExactlyOnce )
 TEST( ThumbnailFreshness, APictureWithoutARecordIsCapturedOnce )
 {
     // A PNG from before TH1, or a writer that died between the PNG and the record.
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
     const fs::path png    = dir.Root / "M.png";
     WriteFile( source, "x" );
@@ -139,7 +139,7 @@ TEST( ThumbnailFreshness, APictureWithoutARecordIsCapturedOnce )
 
 TEST( ThumbnailFreshness, AMissingThumbnailIsScheduled )
 {
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
     WriteFile( source, "x" );
     EXPECT_EQ( Verdict( dir.Root / "absent.png", source ), ThumbnailFreshness::Verdict::Capture );
@@ -147,7 +147,7 @@ TEST( ThumbnailFreshness, AMissingThumbnailIsScheduled )
 
 TEST( ThumbnailFreshness, AnUnreadableSourceKeepsTheExistingPicture )
 {
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path png = dir.Root / "M.png";
     WriteFile( png, "png-bytes" );
     EXPECT_EQ( Verdict( png, dir.Root / "gone.demat" ), ThumbnailFreshness::Verdict::Show );
@@ -157,7 +157,7 @@ TEST( ThumbnailFreshness, AnUnreadableSourceKeepsTheExistingPicture )
 // a capture is owed, the reader must still draw the picture on disk; the swatch is for "no picture at all".
 TEST( ThumbnailFreshness, AnOutdatedPictureIsDrawnWhileItsReplacementIsCaptured )
 {
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
     const fs::path png    = dir.Root / "M.png";
     WriteFile( source, "before" );
