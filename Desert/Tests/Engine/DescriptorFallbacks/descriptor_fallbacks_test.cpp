@@ -9,7 +9,7 @@
 //
 // The device is what cannot be had on this machine, so what is tested is the part that does not need
 // one: the ENUMERATION the fallback pass drives itself off. If a binding shows up here with the right
-// kind, VulkanMaterialBackend::InitializeWithFallbacks writes it — that loop has no other input.
+// kind, VulkanMaterialBackend::WriteFallbacks writes it — that loop has no other input.
 
 #include <gtest/gtest.h>
 
