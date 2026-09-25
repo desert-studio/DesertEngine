@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "72decc348fd4f682314dcf1dc53b3e14",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "Foreign_Hips",
     "TickRate": {
         "Numerator": 24000,

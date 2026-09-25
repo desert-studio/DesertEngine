@@ -71,7 +71,7 @@ namespace Desert::Assets
         // whose rig is simply cold — and that is the only observation a person makes on a headless run.
         LOG_INFO( "[Animation] Retarget '{}' loaded: source rig '{}', {} chain(s), {} rename(s), "
                   "{}+{} retarget-pose offset(s).",
-                  m_DisplayName, m_Data.SourceSkeleton, m_Data.Chains.size(), m_Data.BoneRenames.size(),
+                  m_DisplayName, m_Data.SourceSkeleton.Path, m_Data.Chains.size(), m_Data.BoneRenames.size(),
                   m_Data.SourceRetargetPose.BoneOffsets.size(), m_Data.TargetRetargetPose.BoneOffsets.size() );
         return BOOLSUCCESS;
     }
@@ -81,25 +81,24 @@ namespace Desert::Assets
         m_SourceSkeleton.Handle = Common::AssetHandle::Null();
         m_SourceSkeleton.Cached.reset();
 
-        if ( m_Data.SourceSkeleton.empty() )
+        if ( m_Data.SourceSkeleton.Guid.empty() )
         {
             return;
         }
 
-        // RELATIVE TO THE COOKED MESHES ROOT, JOINED HERE AND NOWHERE ELSE — `CloudTypeAsset`'s shape, and
-        // against the root a `.skeleton` actually lives under: `AssetPreloader` scans skeletons from
-        // `MESH_PATH_COOKED` and from nowhere else, so a rig indexed anywhere else does not exist.
-        const Common::Filepath full =
-             ( Common::Constants::Path::MESH_PATH_COOKED / m_Data.SourceSkeleton ).lexically_normal();
-
-        auto skeleton = manager.FindByPath<SkeletonAsset>( full );
+        // BY GUID, the rig's identity (SkeletonAsset adopts HandleForGuid of its header GUID): a rig moved or
+        // renamed on disk still resolves. The path is only named in the warning.
+        const auto guid     = Common::Content::AssetGuidFromText( m_Data.SourceSkeleton.Guid );
+        auto       skeleton = guid ? manager.FindByHandle<SkeletonAsset>( Common::AssetHandle(
+                                    static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) )
+                                   : Asset<SkeletonAsset>{};
         if ( !skeleton )
         {
             // NOT a silent fall-through to "no retarget": the file names a rig, the rig is not there, and
             // the character that comes out will be the un-retargeted one wearing this retarget's name.
-            LOG_WARN( "RetargetAsset '{}': source rig '{}' ({}) is not a skeleton this project has "
+            LOG_WARN( "RetargetAsset '{}': source rig {} ('{}') is not a skeleton this project has "
                       "scanned. Characters naming this retarget play their clips on their own rig.",
-                      m_Metadata.Filepath.string(), m_Data.SourceSkeleton, full.string() );
+                      m_Metadata.Filepath.string(), m_Data.SourceSkeleton.Guid, m_Data.SourceSkeleton.Path );
             return;
         }
 
@@ -112,7 +111,7 @@ namespace Desert::Assets
         if ( const auto loaded = skeleton->EnsureLoaded( manager ); !loaded )
         {
             LOG_ERROR( "RetargetAsset '{}': source rig '{}' could not be read: {}", m_Metadata.Filepath.string(),
-                       full.string(), loaded.GetError() );
+                       m_Data.SourceSkeleton.Path, loaded.GetError() );
             return;
         }
 
@@ -149,7 +148,7 @@ namespace Desert::Assets
         }
 
         LOG_INFO( "[Animation] Retarget written: '{}', source rig '{}', {} chain(s), {} rename(s).",
-                  filepath.string(), data.SourceSkeleton, data.Chains.size(), data.BoneRenames.size() );
+                  filepath.string(), data.SourceSkeleton.Path, data.Chains.size(), data.BoneRenames.size() );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

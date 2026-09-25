@@ -47,6 +47,8 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Engine/Assets/Serialization/Skeleton.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -1410,6 +1412,53 @@ TEST( AssetHandleStability, AnAnimGraphHandleIsHandleForGuidOfItsHeader )
     const auto file =
          CopyCorpusFile( "Editor/Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", "T7dAnimGraphHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::AnimGraphAsset>( file, Common::Content::ContentKind::AnimGraph );
+    std::filesystem::remove_all( file.parent_path() );
+}
+
+// A SKELETON (T7e, SKEL 1): the handle is HandleForGuid of the migrated corpus file's header and the file
+// loads; a headerless file is refused by name, pointing at the migrator; a rewrite of a path (a re-import)
+// keeps the GUID of the file it replaces and mints one only for a new path.
+TEST( AssetHandleStability, ASkeletonHandleIsHandleForGuidOfItsHeader )
+{
+    const auto file = CopyCorpusFile( "Editor/Cooked/Meshes/IKProbe.skeleton", "T7eSkeletonHandle" );
+    ExpectHeaderGuidIdentity<Desert::Assets::SkeletonAsset>( file, Common::Content::ContentKind::Skeleton );
+    Desert::Assets::SkeletonAsset asset( Desert::Assets::AssetPriority{}, file );
+    const auto                    loaded = asset.Load();
+    EXPECT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
+    std::filesystem::remove_all( file.parent_path() );
+}
+
+TEST( AssetHandleStability, ASkeletonWithNoHeaderIsRefusedByNameAndPointsAtTheMigrator )
+{
+    namespace fs       = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "T7eSkeletonGen0";
+    fs::remove_all( dir );
+    fs::create_directories( dir );
+    const fs::path file = dir / "Old.skeleton";
+    {
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Signature":0,"Bones":[]})";
+    }
+    Desert::Assets::SkeletonAsset asset( Desert::Assets::AssetPriority{}, file );
+    const auto                    loaded = asset.Load();
+    ASSERT_FALSE( loaded.IsSuccess() );
+    EXPECT_NE( loaded.GetError().find( "format version 0" ), std::string::npos ) << loaded.GetError();
+    EXPECT_NE( loaded.GetError().find( "SceneMigrator" ), std::string::npos ) << loaded.GetError();
+    fs::remove_all( dir );
+}
+
+TEST( AssetHandleStability, ARewriteOfASkeletonKeepsTheGuidOfTheFileItReplaces )
+{
+    const auto file   = CopyCorpusFile( "Editor/Cooked/Meshes/IKProbe.skeleton", "T7eSkeletonReimport" );
+    const auto before = Desert::Assets::ReadTextHeaderGuid( file );
+    ASSERT_FALSE( before.IsNull() );
+    const auto kept = Desert::Assets::HeaderKeepingFileGuid(
+         file, Common::Content::ContentKind::Skeleton, Desert::Assets::Serialization::SkeletonTextSubsystems() );
+    EXPECT_EQ( kept.Guid, Common::Content::AssetGuidToText( before ) ) << "a re-import minted a second identity";
+    const auto fresh = Desert::Assets::HeaderKeepingFileGuid(
+         file.parent_path() / "New.skeleton", Common::Content::ContentKind::Skeleton,
+         Desert::Assets::Serialization::SkeletonTextSubsystems() );
+    EXPECT_NE( fresh.Guid, kept.Guid );
     std::filesystem::remove_all( file.parent_path() );
 }
 
