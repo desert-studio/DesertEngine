@@ -15,12 +15,13 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <numbers>
 
 namespace
 {
     namespace HS = Desert::Editor::HdrSphereThumbnail;
 
-    constexpr float kPi = 3.14159265358979323846f;
+    constexpr float kPi = std::numbers::pi_v<float>;
 
     // A map that says where it is: red rises with u around the horizon, green with v down from the
     // zenith. Width twice the height, as every equirectangular capture is, so a transposed read indexes a
@@ -59,9 +60,12 @@ namespace
 
     void ExpectWithinOne( const Rgb8& got, const std::array<unsigned char, 3>& want, const char* what )
     {
-        EXPECT_LE( std::abs( got.R - want[0] ), 1 ) << what << ": red " << got.R << " vs " << int( want[0] );
-        EXPECT_LE( std::abs( got.G - want[1] ), 1 ) << what << ": green " << got.G << " vs " << int( want[1] );
-        EXPECT_LE( std::abs( got.B - want[2] ), 1 ) << what << ": blue " << got.B << " vs " << int( want[2] );
+        EXPECT_LE( std::abs( got.R - want[0] ), 1 )
+             << what << ": red " << got.R << " vs " << static_cast<int>( want[0] );
+        EXPECT_LE( std::abs( got.G - want[1] ), 1 )
+             << what << ": green " << got.G << " vs " << static_cast<int>( want[1] );
+        EXPECT_LE( std::abs( got.B - want[2] ), 1 )
+             << what << ": blue " << got.B << " vs " << static_cast<int>( want[2] );
     }
 
     constexpr uint32_t kSide = 256;

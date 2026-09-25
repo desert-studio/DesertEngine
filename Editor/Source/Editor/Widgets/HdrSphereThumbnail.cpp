@@ -170,7 +170,9 @@ namespace Desert::Editor::HdrSphereThumbnail
                  "is no environment to put on the ball",
                  payload.size() );
 
-        int                                               width = 0, height = 0, channels = 0;
+        int width    = 0;
+        int height   = 0;
+        int channels = 0;
         const std::unique_ptr<float, void ( * )( void* )> pixels(
              stbi_loadf_from_memory( payload.data(), size, &width, &height, &channels, 3 ), stbi_image_free );
         if ( !pixels )
