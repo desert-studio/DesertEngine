@@ -689,8 +689,8 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            if ( const auto stated =
-                      ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName( data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+            if ( const auto stated = ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName(
+                      data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
                  !stated )
             {
                 LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );

@@ -1589,7 +1589,7 @@ namespace
     std::filesystem::path WriteHeadedShader( const std::filesystem::path& file, std::string_view declared,
                                              const Common::Content::AssetGuid& guid )
     {
-        namespace CC = Common::Content;
+        namespace CC                                       = Common::Content;
         const std::array<CC::SubsystemVersion, 1> versions = {
              CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
         std::filesystem::create_directories( file.parent_path() );

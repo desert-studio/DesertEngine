@@ -954,8 +954,8 @@ namespace Desert::Editor
                     // name GetShaderName answers.
                     if ( m_AssetManager == nullptr )
                         LOG_ERROR( "[MaterialEditor] cannot state shader '{}': no asset manager", name );
-                    else if ( const auto stated =
-                                   Assets::SurfaceMaterialAsset::StateShaderByName( asset.Data(), *m_AssetManager, name );
+                    else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShaderByName(
+                                   asset.Data(), *m_AssetManager, name );
                               !stated )
                         LOG_ERROR( "[MaterialEditor] cannot state shader: {}", stated.GetError() );
                     else

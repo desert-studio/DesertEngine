@@ -90,7 +90,7 @@ namespace Desert::Assets
         const auto                       shader = guid.IsNull()
                                                        ? nullptr
                                                        : manager->FindByHandle<ShaderAsset>( Common::AssetHandle(
-                                    static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+                                        static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
         if ( shader == nullptr )
         {
             LOG_ERROR( "Material '{}': shader {} ('{}') is not a shader this project has loaded; the material "
@@ -116,8 +116,8 @@ namespace Desert::Assets
                 continue;
             const Common::Content::AssetGuid guid = ReadShaderHeaderGuid( file );
             if ( guid.IsNull() )
-                return Common::MakeError( std::format( "shader '{}' ({}) states no header GUID to name it by",
-                                                       name, file.string() ) );
+                return Common::MakeError(
+                     std::format( "shader '{}' ({}) states no header GUID to name it by", name, file.string() ) );
             data.SetShader( guid, Common::AssetHandle::StableKeyForPath( file ) );
             return BOOLSUCCESS;
         }

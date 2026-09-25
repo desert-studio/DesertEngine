@@ -86,9 +86,9 @@ namespace Common::Content
         std::size_t                begin   = 0;
         while ( begin < source.size() )
         {
-            const std::size_t end  = std::min( source.find( '\n', begin ), source.size() );
-            std::string_view  line = source.substr( begin, end - begin );
-            begin                  = end + 1;
+            const std::size_t end   = std::min( source.find( '\n', begin ), source.size() );
+            std::string_view  line  = source.substr( begin, end - begin );
+            begin                   = end + 1;
             const std::size_t first = line.find_first_not_of( " \t\r" );
             if ( first == std::string_view::npos )
                 continue;

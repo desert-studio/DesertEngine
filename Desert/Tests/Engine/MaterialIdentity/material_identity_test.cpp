@@ -194,10 +194,9 @@ TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
 {
     const std::string head = R"({"Header":{"Kind":"Material","Guid":"3cac456286293463b516718906b23e28",)"
                              R"("Versions":{"MATL":4},"Dependencies":[)";
-    const std::string good =
-         head +
-         R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],"CloudAssets":[],)"
-         R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
+    const std::string good = head +
+                             R"("45d579b03cc0d0a8df2e4cb025d6bea5"]},"Params":[],"Textures":[],"CloudAssets":[],)"
+                             R"("Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})";
     const auto        parsed = Desert::Assets::ParseMaterialJson( "good", good );
     ASSERT_TRUE( parsed ) << parsed.GetError();
     EXPECT_EQ( Common::Content::AssetGuidToText( parsed.GetValue().ParentGuid() ),
@@ -205,8 +204,7 @@ TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
 
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "undeclared",
-         head +
-              R"(]},"Params":[],"Textures":[],"CloudAssets":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
+         head + R"(]},"Params":[],"Textures":[],"CloudAssets":[],"Parent":"45d579b03cc0d0a8df2e4cb025d6bea5"})" ) )
          << "a Parent missing from the header's Dependencies must be refused";
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson(
          "number",

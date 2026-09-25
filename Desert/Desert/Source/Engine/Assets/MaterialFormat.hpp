@@ -161,9 +161,9 @@ namespace Desert::Assets
         if ( material.Shader.has_value() )
         {
             if ( material.Shader->Guid.empty() )
-                return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
-                                                        "': Shader states no GUID (path '" + material.Shader->Path +
-                                                        "'); leave Shader out for the standard surface" );
+                return Common::MakeError<MaterialData>(
+                     "[Material] '" + std::string( source ) + "': Shader states no GUID (path '" +
+                     material.Shader->Path + "'); leave Shader out for the standard surface" );
             const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path };
             if ( const auto ok = Detail::CheckStatedRef( source, "shader", shaderRef, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );

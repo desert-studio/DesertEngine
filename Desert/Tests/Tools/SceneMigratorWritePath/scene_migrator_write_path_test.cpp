@@ -288,8 +288,8 @@ TEST( SceneMigratorWritePath, ACloudMaterialLandsBesideItsSceneAndNotUnderTheWor
         const std::array<CC::SubsystemVersion, 1> versions = {
              CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
         std::ofstream( programs / "CloudRaymarch.shader", std::ios::binary )
-             << CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, CC::AssetGuid::Generate(),
-                                                               versions ) )
+             << CC::WriteShaderHeaderLine(
+                     CC::MakeTextHeader( CC::ContentKind::Shader, CC::AssetGuid::Generate(), versions ) )
              << "Shader \"CloudRaymarch\"\n{\n}\n";
     }
 
@@ -632,7 +632,7 @@ namespace
 
     CloudRoot MakeCloudRoot( const char* name )
     {
-        CloudRoot root{ MakeTempDir( name ) / "Assets", {}, {}, {} };
+        CloudRoot      root{ MakeTempDir( name ) / "Assets", {}, {}, {} };
         const fs::path shaders = root.Dir.parent_path() / "Shaders" / "Programs" / "Clouds";
         fs::create_directories( shaders );
         {
@@ -776,8 +776,9 @@ namespace
     {
         const std::array<Common::Content::SubsystemVersion, 1> v3 = {
              Common::Content::SubsystemVersion{ Desert::Assets::kMaterialSchemaTag, 3 } };
-        auto header = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material,
-                                                       Desert::Migration::MigrationGuidForPath( file.filename() ), v3 );
+        auto header =
+             Common::Content::MakeTextHeader( Common::Content::ContentKind::Material,
+                                              Desert::Migration::MigrationGuidForPath( file.filename() ), v3 );
         const std::string type = Common::Content::AssetGuidToText( root.TypeGuid );
         header.Dependencies    = { type };
         std::ofstream out( file, std::ios::binary );

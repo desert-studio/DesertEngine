@@ -55,9 +55,10 @@ namespace Desert::Assets
         if ( !declared )
             return Common::MakeError( std::format( "shader '{}': {}", path, declared.GetError() ) );
         if ( const std::string stem = m_Metadata.Filepath.stem().string(); declared.GetValue() != stem )
-            return Common::MakeError( std::format( "shader '{}' declares Shader \"{}\" but its file is named '{}': "
-                                                   "rename one so they agree",
-                                                   path, declared.GetValue(), stem ) );
+            return Common::MakeError(
+                 std::format( "shader '{}' declares Shader \"{}\" but its file is named '{}': "
+                              "rename one so they agree",
+                              path, declared.GetValue(), stem ) );
 
         m_ReadyForUse = true;
         return BOOLSUCCESS;

@@ -687,8 +687,7 @@ namespace
     //
     // THE DOCUMENT IS EDITED, NOT RE-SERIALISED (as RaiseCloudTypeV4ToV5): every authored number keeps its
     // spelling. The engine's own ParseMaterialJson is the gate the result has to pass.
-    Common::ResultStr<std::string> RaiseMaterialV3ToV4( const std::filesystem::path&                path,
-                                                        const std::string&                          text,
+    Common::ResultStr<std::string> RaiseMaterialV3ToV4( const std::filesystem::path& path, const std::string& text,
                                                         const Desert::Migration::LegacyAssetRefMap& refs )
     {
         const std::string source = path.generic_string();
@@ -712,19 +711,21 @@ namespace
                                        : rfl::Result<std::string>( rfl::Error( "not an object" ) );
                 if ( !name )
                     return fail( "a ShaderRefs entry states no Name" );
-                const auto locator = slot.value().get( "Path" ).and_then( []( const rfl::Generic& g )
-                                                                          { return g.to_string(); } );
+                const auto locator =
+                     slot.value().get( "Path" ).and_then( []( const rfl::Generic& g ) { return g.to_string(); } );
                 rfl::Generic::Object cloud;
                 cloud["Name"] = rfl::Generic( name.value() );
                 cloud["Guid"] = rfl::Generic( std::string() );
                 cloud["Path"] = rfl::Generic( std::string() );
                 if ( locator && !locator.value().empty() )
                 {
-                    const auto found = refs.find( static_cast<uint64_t>( Common::AssetHandle::FromKey( locator.value() ) ) );
+                    const auto found =
+                         refs.find( static_cast<uint64_t>( Common::AssetHandle::FromKey( locator.value() ) ) );
                     if ( found == refs.end() || found->second.Kind != Desert::Migration::LegacyAssetKind::Shader ||
                          found->second.Guid.empty() )
-                        return fail( "its shader slot '" + name.value() + "' names '" + locator.value() +
-                                     "', which is no .shader with a header GUID under the content root's Shaders/" );
+                        return fail(
+                             "its shader slot '" + name.value() + "' names '" + locator.value() +
+                             "', which is no .shader with a header GUID under the content root's Shaders/" );
                     cloud["Guid"] = rfl::Generic( found->second.Guid );
                     cloud["Path"] = rfl::Generic( found->second.Path );
                 }
@@ -772,7 +773,8 @@ namespace
 
         // The Dependencies the engine derives from the raised references, read back through the typed shape so
         // their order is ReferencedGuidTexts' own (parent, shader, textures, cloud assets).
-        const auto typed = rfl::json::read<Desert::Assets::MaterialData>( rfl::json::write( rfl::Generic( raised ) ) );
+        const auto typed =
+             rfl::json::read<Desert::Assets::MaterialData>( rfl::json::write( rfl::Generic( raised ) ) );
         if ( !typed )
             return fail( "the raised material is not readable: " + std::string( typed.error().what() ) );
         const auto headerTree = raised.get( "Header" );
@@ -790,7 +792,8 @@ namespace
 
         std::string written = rfl::json::write( rfl::Generic( raised ) );
         if ( auto loadable = Desert::Assets::ParseMaterialJson( source, written ); !loadable )
-            return fail( "the raised text does not pass the engine's own ParseMaterialJson: " + loadable.GetError() );
+            return fail( "the raised text does not pass the engine's own ParseMaterialJson: " +
+                         loadable.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }
 
@@ -2095,7 +2098,8 @@ namespace Desert::Migration
                 text = raised.GetValue();
             }
 
-            // MATL 2 -> 4 (T6c3, T7k) is the LAST material step and every step before it reads the frozen v2 shape.
+            // MATL 2 -> 4 (T6c3, T7k) is the LAST material step and every step before it reads the frozen v2
+            // shape.
             auto parsed = rfl::json::read<Desert::Migration::MaterialDataV2>( text );
             if ( !parsed )
             {
