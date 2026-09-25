@@ -982,7 +982,9 @@ TEST( CloudProceduralCacheKey, TheSameInputsGiveTheSameKeyAndACopyIsTheSameInput
 {
     const glm::vec2                  origin( -24.0f, -24.0f );
     const CloudProceduralFieldParams params = MakePaintedParams();
-    const CloudProceduralFieldParams copy   = params;
+    // The copy IS the subject: a key that hashed an address or padding would differ between the two.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    const CloudProceduralFieldParams copy = params;
     EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ), CloudProceduralVolumeCacheKey( params, origin ) );
     EXPECT_EQ( CloudProceduralVolumeCacheKey( params, origin ), CloudProceduralVolumeCacheKey( copy, origin ) );
 
@@ -1079,9 +1081,9 @@ TEST( CloudProceduralCacheKey, ThePlacementIsKeyedOnlyWhenAPaintingIsBound )
 {
     // Unpainted, the bake never reads the placement, and CloudProceduralParamsEqual says "same" — so a key
     // that differed would miss on a sky whose bytes are identical.
-    const glm::vec2            origin( 0.0f, 0.0f );
-    CloudProceduralFieldParams unpainted = MakeParams();
-    CloudProceduralFieldParams moved     = unpainted;
+    const glm::vec2                  origin( 0.0f, 0.0f );
+    const CloudProceduralFieldParams unpainted = MakeParams();
+    CloudProceduralFieldParams       moved     = unpainted;
     moved.LayoutPlacement.RepeatsPerRegion += 3u;
     ASSERT_TRUE( Desert::Assets::CloudProceduralParamsEqual( unpainted, moved ) );
     EXPECT_EQ( CloudProceduralVolumeCacheKey( unpainted, origin ),
@@ -1090,7 +1092,7 @@ TEST( CloudProceduralCacheKey, ThePlacementIsKeyedOnlyWhenAPaintingIsBound )
 
 TEST( CloudProceduralCacheKey, TheDeriverVersionChangesTheKey )
 {
-    constexpr auto&                kCurrent = Desert::Assets::kCloudModellingDeriver;
+    constexpr const auto&          kCurrent = Desert::Assets::kCloudModellingDeriver;
     constexpr Common::DDC::Deriver kNextVersion{
          kCurrent.Bucket, kCurrent.Extension, { kCurrent.Version.Hi, kCurrent.Version.Lo + 1u } };
     const CloudProceduralFieldParams params = MakeParams();

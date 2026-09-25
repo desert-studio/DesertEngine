@@ -786,8 +786,12 @@ namespace Desert::Assets
         auto baked = BakeCloudProceduralVolume( params, regionOriginKm, onProgress );
         if ( !baked.IsSuccess() )
             return Common::MakeError<CloudProceduralCachedBake>( baked.GetError() );
-        result.Voxels = std::move( baked.GetValue() );
+        // A copy: Result hands out a const reference only (ResultWithCodes.hpp), so a move would be one in name.
+        result.Voxels = baked.GetValue();
 
+        // The DDC stores bytes as chars; viewing uint8_t voxels through char is the one aliasing the language
+        // permits, and a copy into a std::string would double an 8 MiB payload for nothing.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         const std::string_view bytes( reinterpret_cast<const char*>( result.Voxels.data() ),
                                       result.Voxels.size() );
         if ( auto put = Common::DDC::Put( kCloudModellingDeriver, result.Key, bytes ); !put.IsSuccess() )
