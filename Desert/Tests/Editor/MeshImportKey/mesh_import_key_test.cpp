@@ -27,8 +27,10 @@
 #include <Common/Core/Constants.hpp>
 
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/MaterialAdoption.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <set>
 #include <string>
 
@@ -72,7 +74,7 @@ namespace
 
 TEST( MeshImportKey, TwoSameNamedMeshesInDifferentFoldersDoNotShareAMaterialKey )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // The sabotage, written as the scenario rather than as a mutation of the code: two source files whose
@@ -102,7 +104,7 @@ TEST( MeshImportKey, TwoSameNamedMeshesInDifferentFoldersDoNotShareAMaterialKey 
 
 TEST( MeshImportKey, MaterialsWithinOneMeshStaySeparate )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // The companion: a key that answered "different" to everything above could be a counter, and a key
@@ -120,7 +122,7 @@ TEST( MeshImportKey, MaterialsWithinOneMeshStaySeparate )
 
 TEST( MeshImportKey, AMeshThatHasNotMovedKeepsItsKey )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // The other direction of the relation, and the reason no content in this repository had to be
@@ -163,7 +165,7 @@ TEST( MeshImportKey, AMeshThatHasNotMovedKeepsItsKey )
 
 TEST( MeshImportKey, ASourceOutsideTheMeshFolderKeepsItsPlaceInTheKey )
 {
-    ProjectRootGuard guard;
+    const ProjectRootGuard guard;
     OpenProject();
 
     // Mesh sources are not only found in Assets/Meshes — a character pack lands in
@@ -175,6 +177,119 @@ TEST( MeshImportKey, ASourceOutsideTheMeshFolderKeepsItsPlaceInTheKey )
     EXPECT_EQ( CookPaths::MeshRelativeId( packA ).generic_string(), "Collections/PackA/body" );
     EXPECT_NE( CookPaths::MaterialKey( packA, "Material", 0 ), CookPaths::MaterialKey( packB, "Material", 0 ) );
     EXPECT_NE( CookPaths::MaterialFolder( packA ), CookPaths::MaterialFolder( packB ) );
+}
+
+// AN EXISTING .demat IS ADOPTED, NOT SHADOWED (AF4a). The writer keeps a .demat that already exists, and the
+// repository's committed materials were lifted by a migrator under GUIDs of their own — so the GUID the
+// importer derives from the mesh's key is NOT the one the file states. The importer's cooked mesh used to
+// stamp the derived GUID into its submeshes anyway, and every dependency it declared named no registry row.
+// The ImportResult below has the importer's shape: each material under its derived GUID, each submesh naming
+// its material by that GUID; CreateAssetsFromImport runs exactly this adoption before it writes anything.
+namespace
+{
+    namespace Adoption = Desert::Editor::MaterialAdoption;
+    using Common::Content::AssetGuid;
+
+    void WriteText( const std::filesystem::path& path, const std::string& text )
+    {
+        std::filesystem::create_directories( path.parent_path() );
+        std::ofstream( path, std::ios::binary ) << text;
+    }
+
+    std::string MaterialFileStating( const AssetGuid& guid )
+    {
+        return R"({"Header":{"Kind":"Material","Guid":")" + Common::Content::AssetGuidToText( guid ) +
+               R"(","Versions":{},"Dependencies":[]},"Material":{}})";
+    }
+
+    class TempProject
+    {
+    public:
+        TempProject()
+             : m_Root( std::filesystem::temp_directory_path() /
+                       ( "MeshImportKey_" + std::to_string( ::testing::UnitTest::GetInstance()->random_seed() ) +
+                         "_" + ::testing::UnitTest::GetInstance()->current_test_info()->name() ) )
+        {
+            std::filesystem::remove_all( m_Root );
+            Common::Constants::Path::SetProjectRoot( m_Root, "Content" );
+        }
+        ~TempProject()
+        {
+            std::error_code ec;
+            std::filesystem::remove_all( m_Root, ec );
+        }
+
+    private:
+        std::filesystem::path m_Root;
+    };
+
+    Desert::Editor::ImportResult ImportedTwoMaterials( const AssetGuid& modelDerived,
+                                                       const AssetGuid& trimDerived )
+    {
+        Desert::Editor::ImportResult result;
+        result.Materials.push_back( { .Name = "model", .Data = {}, .Guid = modelDerived, .Textures = {} } );
+        result.Materials.push_back( { .Name = "trim", .Data = {}, .Guid = trimDerived, .Textures = {} } );
+        result.Mesh.emplace();
+        result.Mesh->Submeshes.resize( 3 );
+        result.Mesh->Submeshes[0].MaterialGuid = modelDerived;
+        result.Mesh->Submeshes[1].MaterialGuid = trimDerived;
+        result.Mesh->Submeshes[2].MaterialGuid = modelDerived;
+        return result;
+    }
+} // namespace
+
+TEST( MeshImportKey, AnExistingMaterialFileGivesTheSubmeshItsGuid )
+{
+    const ProjectRootGuard guard;
+    const TempProject      project;
+
+    const auto      source       = MeshSource( "Props/crate.fbx" );
+    const AssetGuid modelDerived = { 0x1111, 0x2222 };
+    const AssetGuid trimDerived  = { 0x3333, 0x4444 };
+    const AssetGuid onDisk       = { 0x0e9b8e4c00000000ull, 0x00000000abcdef01ull };
+    WriteText( Adoption::MaterialAssetPath( source, "model" ), MaterialFileStating( onDisk ) );
+
+    auto       result  = ImportedTwoMaterials( modelDerived, trimDerived );
+    const auto adopted = Adoption::AdoptExistingMaterials( result, source );
+    ASSERT_TRUE( adopted ) << adopted.GetError();
+
+    EXPECT_EQ( result.Materials[0].Guid, onDisk ) << "the material that exists keeps the GUID its file states";
+    if ( !result.Mesh.has_value() )
+    {
+        ADD_FAILURE() << "the import result lost its mesh";
+        return;
+    }
+    const auto& submeshes = result.Mesh.value().Submeshes;
+    EXPECT_EQ( submeshes[0].MaterialGuid, onDisk )
+         << "the submesh still names the derived GUID, which no .demat states: its dependency dangles";
+    EXPECT_EQ( submeshes[2].MaterialGuid, onDisk ) << "EVERY submesh of the material is re-pointed";
+    // A material with no file yet is written under the derived GUID, so the derived GUID is the right name.
+    EXPECT_EQ( result.Materials[1].Guid, trimDerived );
+    EXPECT_EQ( submeshes[1].MaterialGuid, trimDerived );
+}
+
+TEST( MeshImportKey, AMaterialFileWithNoReadableGuidRefusesTheImportByName )
+{
+    const ProjectRootGuard guard;
+    const TempProject      project;
+
+    const auto source = MeshSource( "Props/crate.fbx" );
+    const auto path   = Adoption::MaterialAssetPath( source, "model" );
+    WriteText( path, R"({"Material":{}})" );
+
+    auto       result  = ImportedTwoMaterials( { 1, 2 }, { 3, 4 } );
+    const auto adopted = Adoption::AdoptExistingMaterials( result, source );
+    ASSERT_FALSE( adopted ) << "a .demat whose GUID cannot be read must not leave the mesh naming a guess";
+    EXPECT_NE( adopted.GetError().find( path.filename().string() ), std::string::npos ) << adopted.GetError();
+}
+
+TEST( MeshImportKey, TheWriterAndTheAdoptionNameOneFile )
+{
+    const ProjectRootGuard guard;
+    OpenProject();
+    const auto source = MeshSource( "Props/crate.fbx" );
+    EXPECT_EQ( Adoption::MaterialAssetPath( source, "wood panel" ),
+               CookPaths::MaterialFolder( source ) / "wood_panel.demat" );
 }
 
 int main( int argc, char** argv )

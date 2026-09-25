@@ -1,3 +1,8 @@
+-- The acquire rule of the frame loop and the frame-slot bookkeeping a swapchain rebuild must not disturb.
+-- Engine/Graphic/SwapchainAcquire.hpp and Engine/Core/FrameManager.hpp carry no Vulkan type on purpose, so
+-- the sequence that killed the device on every editor launch can be replayed here with no device present.
+local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
+
 local test_name = path.getname(_SCRIPT_DIR)
 local test_files = os.matchfiles("*.cpp")
 
@@ -8,18 +13,14 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- CookPaths.hpp IS the subject and it is header-only, so the test compiles the importer's real
-    -- formula rather than a restatement of it. Nothing else from the importer is pulled in: the assimp
-    -- side of AssimpImporter.cpp would drag the whole parser into a unit test for a string.
+    -- Both subjects are header-only; libDesert (Vulkan, the renderer) is not needed to replay an acquire.
     files {
         test_files,
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",  -- <Editor/Import/CookPaths.hpp>
-        "%{wks.location}/Desert/Desert/Source", -- CookPaths forwards to <Engine/Assets/CookedTexturePath.hpp>
-        "%{wks.location}/Editor/Source/Editor/Import",
+        "%{wks.location}/Desert/Desert/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -42,17 +43,12 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    -- Common: the content-root constants CookPaths reads, and AssetHandle::FromKey, which is what turns
-    -- the key this suite is about into the id a .demat carries. Optick: Common's JobSystem registers its
+    -- Common: ResultStr's failed-unwrap report and the logger. Optick: Common's JobSystem registers its
     -- worker threads with the profiler.
     links { "Common", "Optick" }
-    -- MaterialAdoption reads the .demat through Common's FileSystem, whose macOS half is Objective-C.
+
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }
-    filter {}
-
-    filter "system:not windows"
-        links { "ReflectCpp" }
     filter {}
 
     filter "configurations:Debug"

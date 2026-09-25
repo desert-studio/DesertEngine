@@ -52,6 +52,9 @@ namespace Desert::ECS
     private:
         struct TileGpu
         {
+            // The R16 copy of the tile's samples plus the neighbour ring. Rewritten IN PLACE per edit and
+            // recreated only when the sample count changes (LandscapeTileImage.hpp): its address keys the
+            // tile's terrain material, so a new image per sculpt frame was a new material per frame (L8-leak).
             std::shared_ptr<Graphic::Image2D> Heightmap;
             uint32_t                          SamplesX = 0u;
             uint32_t                          SamplesZ = 0u;
