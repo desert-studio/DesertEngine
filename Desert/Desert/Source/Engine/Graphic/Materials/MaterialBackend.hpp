@@ -17,8 +17,6 @@ namespace Desert::Graphic
 
         virtual ~MaterialBackend() = default;
 
-        virtual void InitializeDefaults() = 0;
-
         virtual void ApplyUniformBuffer( MaterialProperty* prop ) = 0;
         virtual void ApplyStorageBuffer( MaterialProperty* prop ) = 0;
         virtual void ApplyTexture2D( MaterialProperty* prop )     = 0;

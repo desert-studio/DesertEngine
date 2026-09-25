@@ -182,6 +182,8 @@ TEST( AssetEnvelope, KindInHeaderEqualsKindByExtensionForEveryKind )
     std::map<std::string_view, std::vector<ContentKind>> byExtension;
     for ( std::size_t i = 0; i < kinds.size(); ++i )
     {
+        if ( kinds[i].StatedOnly() ) // a redirector has no extension of its own; AssetRedirector covers it
+            continue;
         ASSERT_FALSE( kinds[i].Extension.empty() ) << kinds[i].Name;
         byExtension[kinds[i].Extension].push_back( static_cast<ContentKind>( i ) );
     }
@@ -189,7 +191,9 @@ TEST( AssetEnvelope, KindInHeaderEqualsKindByExtensionForEveryKind )
     const fs::path dir = ScratchDir();
     for ( std::size_t i = 0; i < kinds.size(); ++i )
     {
-        const auto     kind = static_cast<ContentKind>( i );
+        const auto kind = static_cast<ContentKind>( i );
+        if ( kinds[i].StatedOnly() )
+            continue;
         const fs::path file = dir / ( std::string( "Asset" ) + std::string( kinds[i].Extension ) );
         ASSERT_TRUE( WriteAssetEnvelopeFile( file, SampleEnvelope( kind ) ) );
 
