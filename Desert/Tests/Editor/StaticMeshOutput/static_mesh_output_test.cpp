@@ -189,7 +189,8 @@ TEST_F( ScratchProject, TheWriteLeavesARegistryRowWithTheMeshBox )
     ASSERT_EQ( read.Source.MaterialSlots.size(), kSlots.size() );
     for ( std::size_t k = 0; k < kSlots.size(); ++k )
         EXPECT_EQ( read.Source.MaterialSlots[k].Material, kSlots[k] ) << "slot " << k;
-    std::set<int> ids( read.Source.Models[0].Mesh.MaterialIds.begin(), read.Source.Models[0].Mesh.MaterialIds.end() );
+    std::set<int> ids( read.Source.Models[0].Mesh.MaterialIds.begin(),
+                       read.Source.Models[0].Mesh.MaterialIds.end() );
     EXPECT_EQ( ids, ( std::set<int>{ 0, 1 } ) ) << "material ids must stay slot indices";
 
     const auto* row = Assets::ContentRegistry::Get().FindByKey( Common::AssetHandle::StableKeyForPath( path ) );
