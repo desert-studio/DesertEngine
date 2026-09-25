@@ -436,4 +436,14 @@ TEST( RegionOperation, InsertEdgeLoopRefusalsNameTheCause )
     EXPECT_TRUE( refused( edge, 1.0f, "outside (0, 1)" ) );
     EXPECT_TRUE( refused( Groups( cube, { kPlusZ } ), 0.5f, "Edge mode" ) );
     EXPECT_TRUE( refused( ElementSelection( ElementMode::Edge ), 0.5f, "Edge mode" ) );
+
+    // Two group edges picked: which loop to cut is ambiguous, so the operation refuses rather than choosing.
+    // Named, not iterated in place: Ids() is a span into the selection, and a range-for over a temporary's span
+    // reads freed memory (C++20 extends only the span's lifetime) - the first try of this test did exactly that.
+    const ElementSelection second = GroupEdgeBetween( cube, kPlusX, kPlusY );
+    ElementSelection       two    = edge;
+    for ( const int eid : second.Ids() )
+        ASSERT_TRUE( two.Add( cube, eid ).IsSuccess() ) << "edge " << eid;
+    ASSERT_GT( two.Size(), edge.Size() );
+    EXPECT_TRUE( refused( two, 0.5f, "spans group edges" ) );
 }
