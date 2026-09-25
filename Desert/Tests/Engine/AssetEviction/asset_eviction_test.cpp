@@ -185,7 +185,7 @@ namespace
         data.Signature = Desert::Animation::Skeleton::ComputeSignature( data.Bones );
 
         std::ofstream out( path, std::ios::binary | std::ios::trunc );
-        out << rfl::json::write( data );
+        out << Desert::Assets::Serialization::WriteSkeletonJson( data );
         return path.generic_string();
     }
 

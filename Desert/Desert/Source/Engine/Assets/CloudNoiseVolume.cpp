@@ -2,7 +2,9 @@
 
 #include <Engine/Assets/ContainerBytes.hpp>
 
+#include <algorithm>
 #include <cstring>
+#include <span>
 
 namespace Desert::Assets
 {
@@ -134,13 +136,11 @@ namespace Desert::Assets
         return Common::MakeSuccess( true );
     }
 
-    std::vector<unsigned char> EncodeCloudNoiseVolume( const CloudNoiseVolumeData& data )
+    std::vector<unsigned char> EncodeCloudNoisePayload( const CloudNoiseVolumeData& data )
     {
         std::vector<unsigned char> out;
         out.reserve( kCloudNoiseHeaderSize + data.Voxels.size() );
 
-        out.insert( out.end(), kCloudNoiseMagic, kCloudNoiseMagic + sizeof( kCloudNoiseMagic ) );
-        WriteU32( out, kCloudNoiseContainerVersion );
         WriteU32( out, data.GeneratorVersion );
         WriteU32( out, data.Params.Resolution );
         WriteU32( out, kFormatRgba8 );
@@ -159,10 +159,6 @@ namespace Desert::Assets
         WriteF32( out, data.Params.WispyPeriodHighFrequency );
         WriteF32( out, data.Params.BillowPeriodLowFrequency );
         WriteF32( out, data.Params.BillowPeriodHighFrequency );
-
-        // v2's one addition, and it sits AFTER the recipe rather than beside the versions so that every
-        // v1 offset above is still the offset it was — which is what lets the v1 reader below be four lines
-        // instead of a second parser.
         WriteU32( out, static_cast<uint32_t>( data.Origin ) );
 
         WriteU64( out, static_cast<uint64_t>( data.Voxels.size() ) );
@@ -172,41 +168,84 @@ namespace Desert::Assets
         return out;
     }
 
-    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoiseVolume( const std::vector<unsigned char>& bytes )
+    Common::ResultStr<std::vector<unsigned char>> EncodeCloudNoiseVolume( const CloudNoiseVolumeData& data )
     {
-        if ( bytes.size() < kCloudNoiseHeaderSizeV1 )
+        namespace CC                             = Common::Content;
+        const std::vector<unsigned char> payload = EncodeCloudNoisePayload( data );
+
+        CC::AssetEnvelope envelope;
+        envelope.Asset.Kind       = CC::ContentKind::CloudNoiseVolume;
+        envelope.Asset.Guid       = data.Guid.IsNull() ? CC::AssetGuid::Generate() : data.Guid;
+        envelope.Asset.Subsystems = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion } };
+        const std::span<const std::byte> payloadBytes = std::as_bytes( std::span( payload ) );
+        envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
+                                       std::vector<std::byte>( payloadBytes.begin(), payloadBytes.end() ) } );
+
+        auto file = CC::WriteAssetEnvelope( envelope );
+        if ( !file )
+            return Common::MakeFormattedError<std::vector<unsigned char>>( "cannot wrap noise volume: {}",
+                                                                           file.GetError() );
+        const std::vector<std::byte>& wrapped = file.GetValue();
+        std::vector<unsigned char>    out( wrapped.size() );
+        std::memcpy( out.data(), wrapped.data(), wrapped.size() );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoiseVolume( const std::vector<unsigned char>& file )
+    {
+        namespace CC = Common::Content;
+
+        // A BARE CONTAINER IS REFUSED BY NAME, never read: it has no GUID, so reading it would hand the
+        // volume a path-derived handle nothing else agrees with. The migrator wraps it once, in the file.
+        if ( file.size() >= 8u && std::memcmp( file.data(), kCloudNoiseMagic, sizeof( kCloudNoiseMagic ) ) == 0 )
             return Common::MakeFormattedError<CloudNoiseVolumeData>(
-                 "file is {} bytes, shorter than the {}-byte header", bytes.size(), kCloudNoiseHeaderSizeV1 );
+                 "a bare 'DCNV' container version {} (no asset envelope, no GUID); this build reads version {} "
+                 "inside the envelope - run Tools/SceneMigrator --write over the file",
+                 ReadU32( file.data() + 4 ), kCloudNoiseContainerVersion );
+
+        const CC::SubsystemVersion kKnown[] = { { kCloudNoiseSubsystemTag, kCloudNoiseContainerVersion } };
+        auto                       envelope =
+             CC::ReadAssetEnvelope( std::as_bytes( std::span( file ) ), CC::AssetHeaderReadContext{ kKnown } );
+        if ( !envelope )
+            return Common::MakeFormattedError<CloudNoiseVolumeData>( "not a cloud noise volume envelope: {}",
+                                                                     envelope.GetError() );
+        const CC::AssetEnvelope& e = envelope.GetValue();
+        if ( e.Asset.Kind != CC::ContentKind::CloudNoiseVolume )
+            return Common::MakeFormattedError<CloudNoiseVolumeData>(
+                 "the envelope's kind is {}, not CloudNoiseVolume", CC::KindName( e.Asset.Kind ) );
+        if ( e.Asset.Subsystems.size() != 1u || e.Asset.Subsystems[0].Tag != kCloudNoiseSubsystemTag )
+            return Common::MakeFormattedError<CloudNoiseVolumeData>(
+                 "the envelope states {} subsystem versions; a noise volume states exactly one, under 'DCNV'",
+                 e.Asset.Subsystems.size() );
+        const auto section = std::find_if( e.Sections.begin(), e.Sections.end(),
+                                           []( const auto& s ) { return s.Tag == CC::EnvelopeSection::Payload; } );
+        if ( section == e.Sections.end() )
+            return Common::MakeFormattedError<CloudNoiseVolumeData>(
+                 "the envelope has no {} section",
+                 CC::FourCCToString( static_cast<uint32_t>( CC::EnvelopeSection::Payload ) ) );
+
+        std::vector<unsigned char> payload( section->Bytes.size() );
+        std::memcpy( payload.data(), section->Bytes.data(), section->Bytes.size() );
+        auto decoded = DecodeCloudNoisePayload( payload );
+        if ( !decoded )
+            return decoded;
+        CloudNoiseVolumeData data = decoded.ExtractValue();
+        data.Guid                 = e.Asset.Guid;
+        return Common::MakeSuccess( std::move( data ) );
+    }
+
+    Common::ResultStr<CloudNoiseVolumeData> DecodeCloudNoisePayload( const std::vector<unsigned char>& bytes )
+    {
+        if ( bytes.size() < kCloudNoiseHeaderSize )
+            return Common::MakeFormattedError<CloudNoiseVolumeData>(
+                 "payload is {} bytes, shorter than the {}-byte header", bytes.size(), kCloudNoiseHeaderSize );
 
         const unsigned char* at = bytes.data();
 
-        if ( std::memcmp( at, kCloudNoiseMagic, sizeof( kCloudNoiseMagic ) ) != 0 )
-            return Common::MakeFormattedError<CloudNoiseVolumeData>(
-                 "not a cloud noise volume: magic is '{:02X}{:02X}{:02X}{:02X}', expected 'DCNV'", at[0], at[1],
-                 at[2], at[3] );
-
-        const uint32_t containerVersion = ReadU32( at + 4 );
-        if ( containerVersion != kCloudNoiseContainerVersion && containerVersion != 1u )
-            return Common::MakeFormattedError<CloudNoiseVolumeData>(
-                 "container version {} is neither the {} this build writes nor the 1 it migrates",
-                 containerVersion, kCloudNoiseContainerVersion );
-
-        // MIGRATION 1 -> 2, and it is the whole of it. v1 has no origin field and a header four bytes
-        // shorter; every offset before that field is unchanged, so the only thing that varies is where the
-        // payload starts and whether an origin is there to read. DELETE THIS BRANCH, and the v1 constant
-        // with it, once no .dcnv older than container v2 can still be handed to this build.
-        const bool   isV1       = containerVersion == 1u;
-        const size_t headerSize = isV1 ? kCloudNoiseHeaderSizeV1 : kCloudNoiseHeaderSize;
-
-        if ( bytes.size() < headerSize )
-            return Common::MakeFormattedError<CloudNoiseVolumeData>(
-                 "file is {} bytes, shorter than the {}-byte header a container version {} needs", bytes.size(),
-                 headerSize, containerVersion );
-
         CloudNoiseVolumeData data;
-        data.GeneratorVersion  = ReadU32( at + 8 );
-        data.Params.Resolution = ReadU32( at + 12 );
-        const uint32_t format  = ReadU32( at + 16 );
+        data.GeneratorVersion  = ReadU32( at + 0 );
+        data.Params.Resolution = ReadU32( at + 4 );
+        const uint32_t format  = ReadU32( at + 8 );
 
         if ( format != kFormatRgba8 )
             return Common::MakeFormattedError<CloudNoiseVolumeData>(
@@ -215,7 +254,7 @@ namespace Desert::Assets
 
         for ( uint32_t channel = 0; channel < 4u; ++channel )
         {
-            const uint32_t stored = ReadU32( at + 20u + static_cast<size_t>( channel ) * 4u );
+            const uint32_t stored = ReadU32( at + 12u + static_cast<size_t>( channel ) * 4u );
             if ( stored != channel )
                 return Common::MakeFormattedError<CloudNoiseVolumeData>(
                      "channel {} declares meaning {}, but this build reads volumes whose channels are in the "
@@ -223,34 +262,24 @@ namespace Desert::Assets
                      channel, stored );
         }
 
-        data.Params.Seed                      = ReadU32( at + 36 );
-        data.Params.CurlStrength              = ReadF32( at + 40 );
-        data.Params.WispyPeriodLowFrequency   = ReadF32( at + 44 );
-        data.Params.WispyPeriodHighFrequency  = ReadF32( at + 48 );
-        data.Params.BillowPeriodLowFrequency  = ReadF32( at + 52 );
-        data.Params.BillowPeriodHighFrequency = ReadF32( at + 56 );
+        data.Params.Seed                      = ReadU32( at + 28 );
+        data.Params.CurlStrength              = ReadF32( at + 32 );
+        data.Params.WispyPeriodLowFrequency   = ReadF32( at + 36 );
+        data.Params.WispyPeriodHighFrequency  = ReadF32( at + 40 );
+        data.Params.BillowPeriodLowFrequency  = ReadF32( at + 44 );
+        data.Params.BillowPeriodHighFrequency = ReadF32( at + 48 );
 
-        // A v1 file could only have come from the generator — importing did not exist when it was written —
-        // so this is a migration with nothing to guess, not a default standing in for missing information.
-        if ( isV1 )
-        {
-            data.Origin = CloudNoiseVolumeOrigin::Generated;
-        }
-        else
-        {
-            const uint32_t origin = ReadU32( at + 60 );
-            if ( origin != static_cast<uint32_t>( CloudNoiseVolumeOrigin::Generated ) &&
-                 origin != static_cast<uint32_t>( CloudNoiseVolumeOrigin::Imported ) )
-                return Common::MakeFormattedError<CloudNoiseVolumeData>(
-                     "origin {} is neither generated ({}) nor imported ({})", origin,
-                     static_cast<uint32_t>( CloudNoiseVolumeOrigin::Generated ),
-                     static_cast<uint32_t>( CloudNoiseVolumeOrigin::Imported ) );
-            data.Origin = static_cast<CloudNoiseVolumeOrigin>( origin );
-        }
+        const uint32_t origin = ReadU32( at + 52 );
+        if ( origin != static_cast<uint32_t>( CloudNoiseVolumeOrigin::Generated ) &&
+             origin != static_cast<uint32_t>( CloudNoiseVolumeOrigin::Imported ) )
+            return Common::MakeFormattedError<CloudNoiseVolumeData>(
+                 "origin {} is neither generated ({}) nor imported ({})", origin,
+                 static_cast<uint32_t>( CloudNoiseVolumeOrigin::Generated ),
+                 static_cast<uint32_t>( CloudNoiseVolumeOrigin::Imported ) );
+        data.Origin = static_cast<CloudNoiseVolumeOrigin>( origin );
 
-        const size_t   tail         = isV1 ? 60u : 64u;
-        const uint64_t payloadBytes = ReadU64( at + tail );
-        const uint32_t storedCrc    = ReadU32( at + tail + 8u );
+        const uint64_t payloadBytes = ReadU64( at + 56 );
+        const uint32_t storedCrc    = ReadU32( at + 64 );
 
         // The resolution and the payload length are two statements of one fact, and the whole class of
         // defects this programme keeps meeting is two statements of one fact that disagree. Checked here,
@@ -262,12 +291,12 @@ namespace Desert::Assets
                  "header says {} payload bytes but a {}^3 RGBA8 volume is {} bytes", payloadBytes,
                  data.Params.Resolution, expected );
 
-        if ( bytes.size() - headerSize != payloadBytes )
+        if ( bytes.size() - kCloudNoiseHeaderSize != payloadBytes )
             return Common::MakeFormattedError<CloudNoiseVolumeData>(
-                 "file is truncated: {} payload bytes present, {} declared", bytes.size() - headerSize,
+                 "payload is truncated: {} voxel bytes present, {} declared", bytes.size() - kCloudNoiseHeaderSize,
                  payloadBytes );
 
-        data.Voxels.assign( bytes.begin() + static_cast<std::ptrdiff_t>( headerSize ), bytes.end() );
+        data.Voxels.assign( bytes.begin() + static_cast<std::ptrdiff_t>( kCloudNoiseHeaderSize ), bytes.end() );
 
         const uint32_t actualCrc = Crc32( data.Voxels.data(), data.Voxels.size() );
         if ( actualCrc != storedCrc )

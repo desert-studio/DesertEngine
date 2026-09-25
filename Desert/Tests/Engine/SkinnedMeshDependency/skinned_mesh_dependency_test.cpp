@@ -152,7 +152,7 @@ namespace
         std::string WriteSkeleton( const char* stem = "SkinProbe" ) const
         {
             const auto path = m_Dir / ( std::string( stem ) + ".skeleton" );
-            WriteText( path, rfl::json::write( ProbeSkeletonData() ) );
+            WriteText( path, Desert::Assets::Serialization::WriteSkeletonJson( ProbeSkeletonData() ) );
             return path.generic_string();
         }
 

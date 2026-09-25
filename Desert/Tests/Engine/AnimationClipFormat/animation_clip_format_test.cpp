@@ -72,9 +72,10 @@ TEST( AnimationClipFormat, AssetFieldCensus )
     // on, and a length in ticks.
     // A28 (generation 3): `Sections` — a clip now states the range, blend type and weight its values are
     // read under, which is report 05 §938's "from day one".
+    // T7e (generation 4): `Version` moves into the text asset `Header`, beside the clip's GUID.
     EXPECT_EQ( FieldNames<Ser::AnimationAssetData>(),
-               ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Name", "Notifies",
-                                           "Sections", "SkeletonSignature", "TickRate", "Version" } ) );
+               ( std::vector<std::string>{ "Channels", "DisplayRate", "DurationTicks", "Header", "Name",
+                                           "Notifies", "Sections", "SkeletonSignature", "TickRate" } ) );
     EXPECT_EQ( FieldNames<Ser::NotifyData>(), ( std::vector<std::string>{ "Name", "Tick" } ) );
     EXPECT_EQ( FieldNames<Ser::FrameRateData>(), ( std::vector<std::string>{ "Denominator", "Numerator" } ) );
     EXPECT_EQ( FieldNames<Ser::SectionData>(),
@@ -85,7 +86,8 @@ TEST( AnimationClipFormat, AssetFieldCensus )
 
 TEST( AnimationClipFormat, SkeletonFieldCensus )
 {
-    EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(), ( std::vector<std::string>{ "Bones", "Signature" } ) );
+    EXPECT_EQ( FieldNames<Ser::SkeletonAssetData>(),
+               ( std::vector<std::string>{ "Bones", "Header", "Signature" } ) );
     // BoneInfo is written to .skeleton verbatim; it carried the same redundant index.
     EXPECT_EQ( FieldNames<Desert::Animation::BoneInfo>(),
                ( std::vector<std::string>{ "LocalBindTransform", "Name", "OffsetMatrix", "ParentBoneID" } ) );
@@ -105,7 +107,6 @@ static_assert( !std::is_trivially_default_constructible_v<Ser::KeyScale> );
 TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
 {
     Ser::AnimationAssetData data;
-    data.Version = Desert::Assets::Serialization::kAnimationVersion;
 
     data.Name = "Walk";
 
@@ -130,7 +131,6 @@ TEST( AnimationClipFormat, ChannelOrderIsPreservedAndBoundByName )
 TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
 {
     Ser::AnimationAssetData data;
-    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Broken";
     data.Channels = { Channel( "hips" ), Channel( "" ) };
 
@@ -142,7 +142,6 @@ TEST( AnimationClipFormat, AnUnnamedChannelIsRefusedByName )
 TEST( AnimationClipFormat, TwoChannelsForOneBoneAreRefused )
 {
     Ser::AnimationAssetData data;
-    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Doubled";
     data.Channels = { Channel( "hips" ), Channel( "hips" ) };
 
@@ -154,9 +153,7 @@ TEST( AnimationClipFormat, TwoChannelsForOneBoneAreRefused )
 TEST( AnimationClipFormat, NotifiesComeOutSortedByTick )
 {
     Ser::AnimationAssetData data;
-    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Notified";
-    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Notifies = { { "late", 21600 }, { "early", 2400 }, { "middle", 12000 } };
 
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
@@ -182,39 +179,34 @@ TEST( AnimationClipFormat, AGenerationZeroClipIsRefusedAndNamesTheTool )
                                R"("Rotations":[],"Scales":[]}])"
                                R"(,"Notifies":[]})";
 
-    const auto read = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( legacy );
-    ASSERT_TRUE( read.has_value() ) << "a v0 file must still PARSE — it is refused on its generation, not "
-                                       "on its shape, because the migrator has to be able to read it too";
-    EXPECT_EQ( read.value().Version, 0 ) << "a missing version field is generation 0, never 'current'";
-
-    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( read.value() );
-    ASSERT_FALSE( built ) << "a v0 clip was accepted; every one of its keys would sit on tick 0";
-    EXPECT_NE( built.GetError().find( "SceneMigrator" ), std::string::npos ) << built.GetError();
-    EXPECT_NE( built.GetError().find( "generation 0" ), std::string::npos ) << built.GetError();
+    const auto read = Desert::Assets::Serialization::ReadAnimationJson( legacy );
+    ASSERT_FALSE( read ) << "a v0 clip was accepted; every one of its keys would sit on tick 0";
+    EXPECT_NE( read.GetError().find( "SceneMigrator" ), std::string::npos ) << read.GetError();
+    EXPECT_NE( read.GetError().find( "version 0" ), std::string::npos ) << read.GetError();
 }
 
 TEST( AnimationClipFormat, AClipFromANewerGenerationIsRefusedToo )
 {
     Ser::AnimationAssetData data;
-    data.Version = Desert::Assets::Serialization::kAnimationVersion + 1;
-    data.Name    = "FromTheFuture";
+    data.Name   = "FromTheFuture";
+    data.Header = Common::Content::MakeTextHeader(
+         Common::Content::ContentKind::Animation, Common::Content::AssetGuid::Generate(),
+         std::array{ Common::Content::SubsystemVersion{ Desert::Assets::kAnimationSchemaTag,
+                                                        Desert::Assets::kAnimationSchemaVersion + 1 } } );
 
-    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data );
-    EXPECT_FALSE( built ) << "a file from a newer build may hold fields this one would drop on the next save";
+    const auto read = Desert::Assets::Serialization::ReadAnimationJson( rfl::json::write( data ) );
+    EXPECT_FALSE( read ) << "a file from a newer build may hold fields this one would drop on the next save";
 }
 
 TEST( AnimationClipFormat, AnInvalidRateIsRefusedRatherThanUsed )
 {
     Ser::AnimationAssetData data;
-    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "NoRate";
     data.TickRate = { 0, 1 };
     EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( data ) );
 
     Ser::AnimationAssetData display;
 
-    display.Version     = Desert::Assets::Serialization::kAnimationVersion;
-    display.Version     = Desert::Assets::Serialization::kAnimationVersion;
     display.Name        = "NoDisplay";
     display.DisplayRate = { 30, 0 };
     EXPECT_FALSE( Desert::Assets::Serialization::BuildClipFromAssetData( display ) );
@@ -279,7 +271,7 @@ TEST( AnimationClipFormat, TheMigrationRefusesToRunTwice )
     Desert::Assets::Serialization::AnimationMigrationReport second;
     const auto twice = Desert::Assets::Serialization::MigrateAnimationJson( once.GetValue(), second );
     EXPECT_FALSE( twice );
-    EXPECT_EQ( second.FromVersion, Desert::Assets::Serialization::kAnimationVersion );
+    EXPECT_EQ( second.FromVersion, Desert::Assets::Serialization::kAnimationLastVersionMember );
 }
 
 TEST( AnimationClipFormat, AMigratedRateOfZeroIsRefusedRatherThanDividedBy )
@@ -293,7 +285,6 @@ TEST( AnimationClipFormat, AMigratedRateOfZeroIsRefusedRatherThanDividedBy )
 TEST( AnimationClipFormat, ANewlyWrittenClipCarriesNoBoneIndex )
 {
     Ser::AnimationAssetData data;
-    data.Version  = Desert::Assets::Serialization::kAnimationVersion;
     data.Name     = "Fresh";
     data.Channels = { Channel( "hips" ) };
 
@@ -451,8 +442,9 @@ TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesT
     text << in.rdbuf();
     const auto parsed = rfl::json::read<Ser::AnimationAssetData>( text.str() );
     ASSERT_TRUE( parsed.has_value() );
-    EXPECT_EQ( parsed.value().Version, Ser::kAnimationVersion )
-         << "the authoring surface must not need a new generation; sections have been in 3 since A28";
+    EXPECT_EQ( Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kAnimationSchemaTag ),
+               Ser::kAnimationVersion )
+         << "the authoring surface must not need a new generation; sections have been in the format since A28";
 
     const auto rebuilt = Desert::Assets::Serialization::BuildClipFromAssetData( parsed.value() );
     ASSERT_TRUE( rebuilt ) << rebuilt.GetError();
@@ -557,7 +549,6 @@ namespace
     std::string GenerationTwoJson()
     {
         Ser::AnimationAssetData data;
-        data.Version       = 2;
         data.Name          = "curve";
         data.TickRate      = { 24000, 1 };
         data.DisplayRate   = { 30, 1 };
@@ -577,7 +568,7 @@ namespace
         data.Channels.push_back( channel );
 
         // Written WITHOUT the sections field, which is what a real generation-2 file on disk looks like.
-        std::string json = rfl::json::write( data );
+        std::string json = "{\"Version\":2," + rfl::json::write( data ).substr( 1 );
         const auto  at   = json.find( ",\"Sections\":[]" );
         if ( at != std::string::npos )
         {
@@ -621,7 +612,9 @@ TEST( AnimationClipFormat, AMigratedClipSTATESOneWholeClipAbsoluteSectionAtFullW
     ASSERT_TRUE( reread.has_value() );
     const auto& out = reread.value();
 
-    EXPECT_EQ( out.Version, Desert::Assets::Serialization::kAnimationVersion );
+    EXPECT_NE( migrated.GetValue().find( "\"Version\":3" ), std::string::npos )
+         << "the migration's output is frozen at generation 3, which the header raise reads";
+    EXPECT_FALSE( out.Header.has_value() ) << "the GUID is minted once, by the header raise";
     ASSERT_EQ( out.Sections.size(), 1U );
     EXPECT_EQ( out.Sections[0].StartTick, 0 );
     EXPECT_EQ( out.Sections[0].EndTick, out.DurationTicks ) << "the whole clip, to its stated length";
@@ -633,7 +626,6 @@ TEST( AnimationClipFormat, AMigratedClipSTATESOneWholeClipAbsoluteSectionAtFullW
 TEST( AnimationClipFormat, AClipWithABackwardsOrUnknownSectionIsRefusedRatherThanRepaired )
 {
     Ser::AnimationAssetData data;
-    data.Version       = Desert::Assets::Serialization::kAnimationVersion;
     data.Name          = "broken";
     data.TickRate      = { 24000, 1 };
     data.DisplayRate   = { 30, 1 };
@@ -669,7 +661,6 @@ TEST( AnimationClipFormat, AScaleKeysSHAPEAndTANGENTSSurviveARoundTrip )
     // a save, a load and a second save silently flattened every authored scale curve in the project.
     // Both ends of the chain looked right; the middle link dropped a property.
     Ser::AnimationAssetData data;
-    data.Version       = Desert::Assets::Serialization::kAnimationVersion;
     data.Name          = "scaled";
     data.TickRate      = { 24000, 1 };
     data.DisplayRate   = { 30, 1 };

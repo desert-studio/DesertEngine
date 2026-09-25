@@ -318,7 +318,7 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
 {
     // A file an artist wrote by hand, with nothing in it but the numbers that have no answer.
     const std::string minimal =
-         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},"Shape":{
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,"ExtinctionFactor":1.0,
@@ -332,7 +332,7 @@ TEST( CloudTypeFormat, TheOptionalFieldsAreOptionalAndTheShapeIsNot )
     // And the other way round: a shape with a field MISSING is refused rather than defaulted, because a
     // number nobody wrote is not a number anybody chose.
     const std::string incomplete =
-         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},"Shape":{
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":5},"Dependencies":[]},"Shape":{
         "BaseAltitudeKm":1.0,"TopAltitudeKm":3.0,"EdgeTopFraction":0.4,"BaseRampFraction":0.1,
         "Profile":{"HalfWidth":[0.62,0.60120887,0.5827022,0.56448,0.5465422,0.5288889,0.51152,0.49443555,0.47763556,0.46112,0.4448889,0.42894223,0.41328,0.39790222,0.3828089,0.368]},"AnvilAltitudeKm":0.0,"AnvilThicknessKm":0.0,"AnvilStrength":0.0,
         "DetailCharacter":0.6,"DetailFactor":1.0,"DensityFactor":1.0,
@@ -854,8 +854,17 @@ TEST( CloudTypeLibrary, OnlyTheTypesThatNeedTheirOwnNoiseNameOne )
     // documented "use the built-in default", and a library where all nine named a volume would be a
     // library that had turned a meaningful choice into boilerplate.
     const CloudTypeData cirrus = LoadShipped( kCloudTypeCirrus );
-    ASSERT_TRUE( cirrus.NoiseVolume.has_value() ) << "the one type whose edge is its identity names no volume";
-    EXPECT_EQ( cirrus.NoiseVolume.value(), "Clouds/CloudNoise_FineWisp.dcnv" );
+    if ( !cirrus.NoiseVolume || !cirrus.Header )
+    {
+        ADD_FAILURE() << "the one type whose edge is its identity names no volume (or states no header)";
+        return;
+    }
+    EXPECT_EQ( cirrus.NoiseVolume->Path, "Clouds/CloudNoise_FineWisp.dcnv" );
+    // BY GUID since CLTY 5 (T7h): the volume's envelope GUID resolves it, and the header states it again as
+    // its one Dependency - the registry's edge and the resolver's volume are one reference.
+    EXPECT_EQ( cirrus.Header->Dependencies, std::vector<std::string>{ cirrus.NoiseVolume->Guid } );
+    const auto guid = Common::Content::AssetGuidFromText( cirrus.NoiseVolume->Guid );
+    EXPECT_TRUE( guid && !guid.GetValue().IsNull() ) << "'" << cirrus.NoiseVolume->Guid << "'";
 
     for ( const char* name :
           { kCloudTypeStratus, kCloudTypeCumulusMediocris, kCloudTypeCumulusCongestus, kCloudTypeCumulonimbus,
@@ -1643,5 +1652,63 @@ TEST( CloudTypeFormat, AVersionThreeFileWithoutAHeaderIsRefusedNamingTheMigrator
     const auto refused = ParseCloudType( text );
     ASSERT_FALSE( refused ) << "a header-less version-3 file was read";
     EXPECT_NE( refused.GetError().find( "format version 3" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
+}
+
+TEST( CloudTypeFormat, ANoiseVolumeIsNamedByGuidAndStatedAsTheOneDependency )
+{
+    CloudTypeData data = LoadShipped( kCloudTypeCumulusCongestus );
+    data.NoiseVolume   = Desert::Assets::AssetGuidRef{ "0123456789abcdef0123456789abcdef", "Clouds/X.dcnv" };
+    const std::string written = WriteCloudType( data );
+    auto              parsed  = ParseCloudType( written );
+    if ( !parsed )
+    {
+        ADD_FAILURE() << parsed.GetError();
+        return;
+    }
+    const CloudTypeData& parsedType = parsed.GetValue();
+    if ( !parsedType.Header )
+    {
+        ADD_FAILURE() << "the parsed type states no header";
+        return;
+    }
+    EXPECT_EQ( parsedType.NoiseVolume, data.NoiseVolume );
+    EXPECT_EQ( parsedType.Header->Dependencies, std::vector<std::string>{ "0123456789abcdef0123456789abcdef" } );
+
+    // The dependency dropped from the header: one reference stated once is refused, by name.
+    CloudTypeData unstated = parsed.GetValue();
+    if ( !unstated.Header )
+    {
+        ADD_FAILURE() << "the copied type states no header";
+        return;
+    }
+    unstated.Header->Dependencies.clear();
+    const std::string text    = rfl::json::write( unstated );
+    auto              refused = ParseCloudType( text );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "Dependencies" ), std::string::npos ) << refused.GetError();
+
+    // A reference without a GUID is a bare path again.
+    CloudTypeData bare = parsed.GetValue();
+    if ( !bare.NoiseVolume || !bare.Header )
+    {
+        ADD_FAILURE() << "the copied type names no volume or states no header";
+        return;
+    }
+    bare.NoiseVolume->Guid.clear();
+    bare.Header->Dependencies = { "" };
+    auto noGuid               = ParseCloudType( rfl::json::write( bare ) );
+    ASSERT_FALSE( noGuid );
+    EXPECT_NE( noGuid.GetError().find( "GUID" ), std::string::npos ) << noGuid.GetError();
+}
+
+TEST( CloudTypeFormat, AVersionFourFileIsRefusedByItsVersionAndNotByAJsonTypeError )
+{
+    const std::string v4 =
+         R"({"Header":{"Kind":"CloudType","Guid":"0123456789abcdef0123456789abcdef","Versions":{"CLTY":4},"Dependencies":[]},)"
+         R"("NoiseVolume":"Clouds/CloudNoise_FineWisp.dcnv","Shape":{}})";
+    auto refused = ParseCloudType( v4 );
+    ASSERT_FALSE( refused );
+    EXPECT_NE( refused.GetError().find( "version 4" ), std::string::npos ) << refused.GetError();
     EXPECT_NE( refused.GetError().find( "SceneMigrator" ), std::string::npos ) << refused.GetError();
 }

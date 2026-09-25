@@ -14,7 +14,12 @@ re-spells Params through MaterialData's float storage; that is normalised away o
 one-to-one with a (GUID, locator) across the corpus and every locator names a tracked file whose text header, if
 it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings 1 -> STRT 2 and .detheme 1 -> UITH 2 (T7b),
 .derig 1 -> CRIG 2 and .retarget 1 -> RTGT 2 (T7c) swap FormatVersion for the header alone; .danimgraph 0 -> ANGR 1
-(T7d) gains the header and had no version member to drop.
+(T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
+swaps its top-level `Version` (not FormatVersion) for the header; .retarget RTGT 2 -> 3 (T7f) names its rig by
+{Guid, Path}, normalised back only when the Guid is the one the named cooked rig states; .decloudtype CLTY 4 -> 5 (T7h) names
+its noise volume the same way, the Guid the one the named .dcnv envelope states. The binary .dcnv
+bare DCNV 2 -> envelope DCNV 3 and .dcmv bare DCMV 2 -> envelope DCMV 3 (T7g) must carry the old bytes after
+magic and version as their one payload.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
 each key pairs one-to-one with a GUID. Scene v30 (T6f) does the same to the UI sprite and splash keys.
 Those are normalised away below - nothing else is.
@@ -303,34 +308,126 @@ def strip_material_v3(old, new, ext):
 _TEXT_HEADER_GUIDS = {}  # text header GUID -> paths, gathered over every "the file gains a header" raise
 
 # The text kinds whose old top-level FormatVersion became the header (SceneMigrator's kTextHeaderRaises):
-# extension -> (Kind, tag, old version, new version, whether an absent FormatVersion meant the old version).
+# extension -> (Kind, tag, old version, new version, whether an absent member meant the old version, the old
+# top-level version member's name).
 TEXT_HEADER_RAISES = {
-    ".decloudtype": ("CloudType", "CLTY", 3, 4, False),  # AF7v
-    ".destrings": ("StringTable", "STRT", 1, 2, True),  # T7b
-    ".detheme": ("UITheme", "UITH", 1, 2, True),  # T7b
-    ".derig": ("ControlRig", "CRIG", 1, 2, True),  # T7c
-    ".retarget": ("Retarget", "RTGT", 1, 2, True),  # T7c
-    ".danimgraph": ("AnimGraph", "ANGR", 0, 1, True),  # T7d: generation 0 stated no version at all
+    ".decloudtype": ("CloudType", "CLTY", 3, 4, False, "FormatVersion"),  # AF7v
+    ".destrings": ("StringTable", "STRT", 1, 2, True, "FormatVersion"),  # T7b
+    ".detheme": ("UITheme", "UITH", 1, 2, True, "FormatVersion"),  # T7b
+    ".derig": ("ControlRig", "CRIG", 1, 2, True, "FormatVersion"),  # T7c
+    ".retarget": ("Retarget", "RTGT", 1, 2, True, "FormatVersion"),  # T7c
+    ".danimgraph": ("AnimGraph", "ANGR", 0, 1, True, "FormatVersion"),  # T7d: generation 0 stated no version
+    ".skeleton": ("Skeleton", "SKEL", 0, 1, True, "FormatVersion"),  # T7e: generation 0 stated no version
+    ".anim": ("Animation", "ANIM", 3, 4, False, "Version"),  # T7e: the old member was `Version`
 }
 
 
 def strip_text_kind_header(old, new, ext, path):
-    """A text kind's FormatVersion N -> header (tag N+1): the old FormatVersion is gone and the header states
+    """A text kind's version member N -> header (tag N+1): the old member is gone and the header states
     the kind, the tag at the new version and no Dependencies - nothing else. True when stripped; GUID
     uniqueness is judged over the corpus."""
     row = TEXT_HEADER_RAISES.get(ext)
     if row is None or not isinstance(old, dict) or not isinstance(new, dict) or "Header" in old:
         return False
-    kind, tag, before, after, absent_is_before = row
+    kind, tag, before, after, absent_is_before, member = row
     header = new.get("Header", {})
-    stated = old.get("FormatVersion", before if absent_is_before else None)
-    if stated != before or "FormatVersion" in new or header.get("Kind") != kind or \
+    stated = old.get(member, before if absent_is_before else None)
+    if stated != before or member in new or header.get("Kind") != kind or \
             header.get("Versions") != {tag: after} or header.get("Dependencies") != [] or not header.get("Guid"):
         return False
     _TEXT_HEADER_GUIDS.setdefault(header["Guid"], []).append(path)
-    old.pop("FormatVersion", None)
+    old.pop(member, None)
     new.pop("Header")
     return True
+
+
+def strip_retarget_rig_guid(root, old, new, ext):
+    """.retarget RTGT 2 -> 3 (T7f): the bare rig path becomes {Guid, Path}, the Guid the one the named
+    Editor/Cooked/Meshes rig's header states and the header's one Dependency. Normalised back to the v2 shape
+    only when all of that holds. True when stripped."""
+    if ext != ".retarget" or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_header, header, rig = old.get("Header", {}), new.get("Header", {}), new.get("SourceSkeleton")
+    if old_header.get("Versions") != {"RTGT": 2} or header.get("Versions") != {"RTGT": 3} or \
+            not isinstance(old.get("SourceSkeleton"), str) or not isinstance(rig, dict) or \
+            rig.get("Path") != old["SourceSkeleton"] or header.get("Dependencies") != [rig.get("Guid")] or \
+            locator_header_guid(f"{root}/Editor/Cooked/Meshes/{rig['Path']}") != rig.get("Guid"):
+        return False
+    new["SourceSkeleton"] = rig["Path"]
+    header["Versions"] = {"RTGT": 2}
+    header["Dependencies"] = []
+    return True
+
+
+
+def dcnv_envelope_guid(file):
+    """The GUID a `.dcnv` AF1 envelope states: bytes 16..32, hi u64 then lo u64, each little-endian, printed as
+    AssetGuidToText does (hi then lo, 32 lowercase hex digits). None for a missing or bare file."""
+    try:
+        with open(file, "rb") as f:
+            head = f.read(32)
+    except OSError:
+        return None
+    if len(head) < 32 or head[:4] != b"DAST":
+        return None
+    hi, lo = struct.unpack("<QQ", head[16:32])
+    return f"{hi:016x}{lo:016x}"
+
+
+def strip_cloud_type_noise_guid(root, old, new, ext):
+    """.decloudtype CLTY 4 -> 5 (T7h): the bare NoiseVolume path becomes {Guid, Path}, the Guid the one the
+    named Editor/Resources/Assets `.dcnv` envelope states and the header's one Dependency; a type naming no
+    volume only moves its version. Normalised back to the v4 shape only when all of that holds. True when
+    stripped."""
+    if ext != ".decloudtype" or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_header, header = old.get("Header", {}), new.get("Header", {})
+    if old_header.get("Versions") != {"CLTY": 4} or header.get("Versions") != {"CLTY": 5}:
+        return False
+    if "NoiseVolume" not in old:
+        if "NoiseVolume" in new or header.get("Dependencies") != []:
+            return False
+    else:
+        volume = new.get("NoiseVolume")
+        if not isinstance(old["NoiseVolume"], str) or not isinstance(volume, dict) or \
+                volume.get("Path") != old["NoiseVolume"] or header.get("Dependencies") != [volume.get("Guid")] or \
+                dcnv_envelope_guid(f"{root}/Editor/Resources/Assets/{volume['Path']}") != volume.get("Guid"):
+            return False
+        new["NoiseVolume"] = volume["Path"]
+    header["Versions"] = {"CLTY": 4}
+    header["Dependencies"] = []
+    return True
+
+# The binary containers T7g moved into the AF1 envelope: (extension, bare magic = envelope subsystem tag).
+_BINARY_ENVELOPE_ROWS = ((".dcnv", b"DCNV"), (".dcmv", b"DCMV"))
+
+
+def compare_binary_envelopes(root, base, at_base):
+    """.dcnv / .dcmv bare container 2 -> envelope container 3 (T7g), binary, so outside the JSON walk. Branch on
+    the BASE file: a base that is already enveloped must match byte for byte; a bare base (the row's magic,
+    container 2) must reappear as the one Stored payload of an envelope that states the same tag - the old
+    bytes after magic and version, unchanged. Returns (compared, differ)."""
+    compared, differ = 0, []
+    tracked = git("-C", root, "ls-files").decode().splitlines()
+    for ext, magic in _BINARY_ENVELOPE_ROWS:
+        for path in [f for f in tracked if f.endswith(ext)]:
+            if path not in at_base:
+                continue
+            old = git("-C", root, "show", f"{base}:{path}")
+            with open(f"{root}/{path}", "rb") as f:
+                new = f.read()
+            compared += 1
+            if old[:4] != magic:
+                if old != new:
+                    differ.append(path)
+                continue
+            version = struct.unpack("<I", old[4:8])[0]
+            payload = old[8:]
+            if version != 2 or new[:4] == magic or new.count(payload) != 1 or \
+                    magic not in new[:len(new) - len(payload)]:
+                tag = magic.decode()
+                differ.append(f"{path}: bare {tag} {version} is not the one payload of a {tag} 3 envelope")
+    return compared, differ
 
 
 def locator_file(root, locator):
@@ -381,6 +478,8 @@ def main():
             strip_scene_v29(old, new, ext)
             strip_scene_v30(old, new, ext)
             strip_material_v3(old, new, ext)
+            strip_retarget_rig_guid(root, old, new, ext)
+            strip_cloud_type_noise_guid(root, old, new, ext)
             if old != new:
                 differ.append(path)
             compared += 1
@@ -393,6 +492,10 @@ def main():
         if normalise(old, ext, raised) != normalise(new, ext, raised):
             differ.append(path)
         compared += 1
+
+    binary_compared, binary_differ = compare_binary_envelopes(root, base, at_base)
+    compared += binary_compared
+    differ += binary_differ
 
     known = material_header_guids(root, files)
     for handle, guids in sorted(_SLOT_PAIRS.items(), key=lambda kv: str(kv[0])):

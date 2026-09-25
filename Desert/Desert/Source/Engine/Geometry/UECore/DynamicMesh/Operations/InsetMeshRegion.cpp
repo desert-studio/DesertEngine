@@ -1,10 +1,11 @@
-// Ported from UE 5.8 .../DynamicMesh/Private/Operations/InsetMeshRegion.cpp and PolyEditingEdgeUtil.cpp (see the
+// Ported from UE 5.8 .../DynamicMesh/Private/Operations/InsetMeshRegion.cpp (see the
 // header for the line ranges and the adaptations).
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/InsetMeshRegion.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMeshEditor.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -12,64 +13,6 @@
 
 namespace Desert::Geometry
 {
-    namespace
-    {
-        struct FLine3d
-        {
-            FVector3d Origin{ 0, 0, 0 };
-            FVector3d Direction{ 0, 0, 1 };
-            FVector3d NearestPoint( const FVector3d& P ) const
-            {
-                return Origin + Direction * ( P - Origin ).Dot( Direction );
-            }
-        };
-
-        // ComputeInsetLineSegmentsFromEdges (PolyEditingEdgeUtil.cpp:11).
-        void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32>& EdgeList,
-                                                double InsetDistance, TArray<FLine3d>& InsetLinesOut )
-        {
-            InsetLinesOut.SetNum( EdgeList.Num() );
-            for ( int32 k = 0; k < EdgeList.Num(); ++k )
-            {
-                if ( !Mesh.IsEdge( EdgeList[k] ) )
-                {
-                    InsetLinesOut[k] = FLine3d();
-                    continue;
-                }
-                const FDynamicMesh3::FEdge EdgeVT   = Mesh.GetEdge( EdgeList[k] );
-                FVector3d                  A        = Mesh.GetVertex( EdgeVT.Vert.A );
-                FVector3d                  B        = Mesh.GetVertex( EdgeVT.Vert.B );
-                FVector3d                  EdgeDir  = Normalized( A - B );
-                FVector3d                  Midpoint = ( A + B ) * 0.5;
-                FVector3d                  Normal, Centroid;
-                double                     Area;
-                Mesh.GetTriInfo( EdgeVT.Tri.A, Normal, Area, Centroid );
-                FVector3d InsetDir = Normal.Cross( EdgeDir );
-                if ( ( Centroid - Midpoint ).Dot( InsetDir ) < 0 )
-                    InsetDir = InsetDir * -1.0;
-                InsetLinesOut[k] = FLine3d{ Midpoint + InsetDir * InsetDistance, EdgeDir };
-            }
-        }
-
-        // SolveInsetVertexPositionFromLinePair (PolyEditingEdgeUtil.cpp:51); FDistLine3Line3d's closest points.
-        FVector3d SolveInsetVertexPositionFromLinePair( const FVector3d& Position, const FLine3d& L1,
-                                                        const FLine3d& L2 )
-        {
-            const double B = L1.Direction.Dot( L2.Direction );
-            if ( std::abs( B ) > 0.999 )
-                return L1.NearestPoint( Position );
-            const FVector3d Diff = L1.Origin - L2.Origin;
-            const double    D1   = Diff.Dot( L1.Direction );
-            const double    D2   = Diff.Dot( L2.Direction );
-            const double    Det  = 1.0 - B * B;
-            const double    S1   = ( B * D2 - D1 ) / Det;
-            const double    S2   = ( D2 - B * D1 ) / Det;
-            const FVector3d P1   = L1.Origin + L1.Direction * S1;
-            const FVector3d P2   = L2.Origin + L2.Direction * S2;
-            return ( P1 + P2 ) * 0.5;
-        }
-    } // namespace
-
     bool FInsetMeshRegion::Apply()
     {
         TArray<TArray<int32>> Components;
@@ -141,16 +84,9 @@ namespace Desert::Geometry
             const TArray<int32>& LoopVids = LoopPair.InnerVertices;
             TArray<FLine3d>      InsetLines;
             ComputeInsetLineSegmentsFromEdges( *Mesh, LoopPair.InnerEdges, InsetDistance, InsetLines );
-            // SolveInsetVertexPositionsFromInsetLines, bIsLoop = true.
             TArray<FVector3d> NewPositions;
-            const int32       N = LoopVids.Num();
-            NewPositions.SetNum( N );
-            for ( int32 vi = 0; vi < N; ++vi )
-            {
-                const FLine3d& PrevLine = ( vi == 0 ) ? InsetLines.Last() : InsetLines[vi - 1];
-                NewPositions[vi] = SolveInsetVertexPositionFromLinePair( Mesh->GetVertex( LoopVids[vi] ), PrevLine,
-                                                                         InsetLines[vi] );
-            }
+            SolveInsetVertexPositionsFromInsetLines( *Mesh, InsetLines, LoopVids, NewPositions, true );
+            const int32 N = LoopVids.Num();
             for ( int32 k = 0; k < N; ++k )
                 Mesh->SetVertex( LoopVids[k], NewPositions[k] );
             Region.InsetLoops.Emplace();

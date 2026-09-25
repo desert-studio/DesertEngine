@@ -1,5 +1,12 @@
 {
-    "Version": 3,
+    "Header": {
+        "Kind": "Animation",
+        "Guid": "2976c5016500e1c822f8647887e9ed42",
+        "Versions": {
+            "ANIM": 4
+        },
+        "Dependencies": []
+    },
     "Name": "ForeignArm_Swing",
     "TickRate": {
         "Numerator": 24000,

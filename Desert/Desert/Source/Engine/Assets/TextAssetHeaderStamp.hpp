@@ -24,9 +24,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kMaterialSchemaVersion = 3;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
-    // state it without the cloud maths.
+    // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
+    // the header's one Dependency.
     inline constexpr uint32_t kCloudTypeSchemaTag     = Common::Content::FourCC( "CLTY" );
-    inline constexpr uint32_t kCloudTypeSchemaVersion = 4;
+    inline constexpr uint32_t kCloudTypeSchemaVersion = 5;
     // A .destrings: the string table file layout, stated in the header since v2 (T7b; v1 had a top-level
     // FormatVersion, absent meaning 1, and no header).
     inline constexpr uint32_t kStringTableSchemaTag     = Common::Content::FourCC( "STRT" );
@@ -38,12 +39,21 @@ namespace Desert::Assets
     inline constexpr uint32_t kControlRigSchemaTag     = Common::Content::FourCC( "CRIG" );
     inline constexpr uint32_t kControlRigSchemaVersion = 2;
     // A .retarget: the retarget file layout, stated in the header since v2 (T7c; v1 as the string table's).
+    // v3 (T7f): the source rig is named by {Guid, Path} and stated as the header's one Dependency.
     inline constexpr uint32_t kRetargetSchemaTag     = Common::Content::FourCC( "RTGT" );
-    inline constexpr uint32_t kRetargetSchemaVersion = 2;
+    inline constexpr uint32_t kRetargetSchemaVersion = 3;
     // A .danimgraph: the anim graph file layout, stated in the header since v1 (T7d). The files before it
     // stated no version at all - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kAnimGraphSchemaTag     = Common::Content::FourCC( "ANGR" );
     inline constexpr uint32_t kAnimGraphSchemaVersion = 1;
+    // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
+    // version at all - that generation is 0, and a file of it is refused by name.
+    inline constexpr uint32_t kSkeletonSchemaTag     = Common::Content::FourCC( "SKEL" );
+    inline constexpr uint32_t kSkeletonSchemaVersion = 1;
+    // A .anim: the clip file layout, stated in the header since v4 (T7e; v0-v3 had a top-level `Version`,
+    // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
+    inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
+    inline constexpr uint32_t kAnimationSchemaVersion = 4;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

@@ -1,5 +1,6 @@
 #include "CloudThumbnail.hpp"
 
+#include <Editor/Widgets/HdrSphereThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
 
 #include <Engine/Assets/CloudLayout.hpp>
@@ -26,11 +27,6 @@ namespace Desert::Editor::CloudThumbnail
     {
         constexpr uint32_t kSide  = kSize;
         constexpr size_t   kBytes = static_cast<size_t>( kSide ) * kSide * 4u;
-
-        // THE PALETTE, once. Four pictures drawn by four functions in one file will otherwise end up with
-        // four backgrounds, and a grid of cloud tiles that do not share a backdrop reads as four different
-        // kinds of asset rather than one family.
-        constexpr unsigned char kBackdrop[3] = { 24, 28, 34 };
 
         // ------------------------------------------------------------------------------------------
         // Reading the file
@@ -543,6 +539,15 @@ namespace Desert::Editor::CloudThumbnail
             return PaintCloudType( payload );
         if ( ext == "detheme" )
             return PaintUITheme( payload );
+        if ( ext == "hdr" )
+        {
+            auto map = HdrSphereThumbnail::Decode( payload );
+            if ( !map )
+                return Common::MakeFormattedError<std::vector<unsigned char>>( "'{}': {}", assetPath,
+                                                                               map.GetError() );
+            return Common::MakeSuccess(
+                 HdrSphereThumbnail::Paint( map.GetValue(), kSide, HdrSphereThumbnail::kThumbnailView ) );
+        }
 
         return Common::MakeFormattedError<std::vector<unsigned char>>(
              "'{}' has extension '{}', which no CPU thumbnail producer claims. If the Content Browser "
