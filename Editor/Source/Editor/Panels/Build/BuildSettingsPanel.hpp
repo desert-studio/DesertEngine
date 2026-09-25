@@ -52,6 +52,7 @@ namespace Desert::Editor
         size_t      m_LastCookUnwritten = 0;
         std::string m_LastMessage; // guarded by the m_Building/m_HasResult handshake
         std::string m_LastPackageDir;
+        std::string m_SchemeMessage; // UI thread only: what the last "Create default" click did
         // Where the release's patch baseline was recorded, or empty when this build produced none
         // (every Rebuild Content.dpak — a dev archive is not a release). Shown because it is the one
         // artifact of a package that has to be KEPT: the next update is built by comparing against it,

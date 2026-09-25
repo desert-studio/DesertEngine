@@ -396,7 +396,7 @@ TEST( PakChunks, EveryWayOfAskingForAnEmptyOrAmbiguousChunkIsRefusedByName )
     EXPECT_FALSE( Refused( registry, good ) );
 }
 
-TEST( PakChunks, TheSchemeRoundTripsAndAnEmptyFileIsAProjectThatWasNeverDivided )
+TEST( PakChunks, TheSchemeRoundTripsAndABlankOrHalfWrittenFileIsRefused )
 {
     ChunkScheme scheme;
     scheme.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat", "assets:B.demat" } } );
@@ -409,12 +409,79 @@ TEST( PakChunks, TheSchemeRoundTripsAndAnEmptyFileIsAProjectThatWasNeverDivided 
     EXPECT_EQ( parsed.GetValue().Chunks.front().Roots.size(), 2u );
     EXPECT_EQ( parsed.GetValue().AlwaysBase, scheme.AlwaysBase );
 
+    // A blank file is an unfinished write, not "one archive" (owner, 2026-09-25).
     const auto empty = ParseChunkScheme( "   \n\t " );
-    ASSERT_TRUE( empty ) << empty.GetError();
-    EXPECT_TRUE( empty.GetValue().Chunks.empty() );
+    ASSERT_FALSE( empty.IsSuccess() );
+    EXPECT_NE( empty.GetError().find( "empty" ), std::string::npos ) << empty.GetError();
+
+    // A missing field is refused by its name rather than read as an empty list nobody wrote.
+    const auto halfWritten = ParseChunkScheme( R"({ "Chunks": [] })" );
+    ASSERT_FALSE( halfWritten.IsSuccess() );
+    EXPECT_NE( halfWritten.GetError().find( "AlwaysBase" ), std::string::npos ) << halfWritten.GetError();
 
     const auto rubbish = ParseChunkScheme( "{ this is not json" );
     EXPECT_FALSE( rubbish.IsSuccess() );
+}
+
+TEST( PakChunks, AnAbsentSchemeIsARefusalThatNamesThePathAndTheWayOut )
+{
+    const fs::path dir     = MakeTempDir( "absent" );
+    const fs::path missing = dir / "ContentChunks.json";
+
+    const auto loaded = LoadChunkScheme( missing );
+    ASSERT_FALSE( loaded.IsSuccess() ) << "an absent scheme must not package as one archive by default";
+    EXPECT_NE( loaded.GetError().find( missing.string() ), std::string::npos ) << loaded.GetError();
+    EXPECT_NE( loaded.GetError().find( "Create default ContentChunks.json" ), std::string::npos )
+         << loaded.GetError();
+
+    // A broken file is refused by its path too, not treated as absent.
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( missing, "{ \"Chunks\": 7 }" ) );
+    const auto broken = LoadChunkScheme( missing );
+    ASSERT_FALSE( broken.IsSuccess() );
+    EXPECT_NE( broken.GetError().find( missing.string() ), std::string::npos ) << broken.GetError();
+}
+
+TEST( PakChunks, TheDefaultSchemeIsAnExplicitSingleArchiveAndNeverOverwritesOne )
+{
+    const fs::path dir  = MakeTempDir( "default" );
+    const fs::path path = dir / "ContentChunks.json";
+
+    const auto written = WriteDefaultChunkScheme( path );
+    ASSERT_TRUE( written ) << written.GetError();
+
+    const auto loaded = LoadChunkScheme( path );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    EXPECT_TRUE( loaded.GetValue().Chunks.empty() );
+
+    const AssetRegistry registry = RegistryOf( { Row( "assets:A.demat", {} ), Row( "assets:B.demat", {} ) } );
+    const auto          plan     = BuildChunkPlan( registry, loaded.GetValue() );
+    ASSERT_TRUE( plan ) << plan.GetError();
+    ASSERT_EQ( plan.GetValue().Count(), 1u );
+    EXPECT_EQ( plan.GetValue().Names().front(), BASE_CHUNK_NAME );
+
+    // A second call must refuse rather than replace whatever is there now.
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic(
+         path, WriteChunkScheme( ChunkScheme{ { ChunkRule{ "North", { "assets:A.demat" } } }, {} } ) ) );
+    EXPECT_FALSE( WriteDefaultChunkScheme( path ).IsSuccess() );
+    const auto kept = LoadChunkScheme( path );
+    ASSERT_TRUE( kept ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue().Chunks.size(), 1u );
+}
+
+TEST( PakChunks, TheDesertProjectStatesItsDivisionInItsOwnFile )
+{
+    // Through ChunkSchemePath(), exactly as the packager asks, so the committed file is proven to sit
+    // where packaging looks and not merely to parse.
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "the repository root could not be found from the test's cwd";
+    const SandboxProject project( root );
+    ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
+    const auto loaded = LoadChunkScheme( ChunkSchemePath() );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    const auto gathered = GatherProjectRegistry();
+    ASSERT_TRUE( gathered ) << gathered.GetError();
+    const auto plan = BuildChunkPlan( gathered.GetValue(), loaded.GetValue() );
+    ASSERT_TRUE( plan ) << plan.GetError();
 }
 
 TEST( PakChunks, TheChunkListSurvivesTheHostThatWroteIt )

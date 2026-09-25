@@ -16,6 +16,7 @@
 #include <Editor/Packaging/GamePackager.hpp>
 #include <Editor/Packaging/PackageCook.hpp>
 #include <Editor/Packaging/PackageTarget.hpp>
+#include <Common/Content/ContentChunks.hpp>
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Editor/Packaging/PackagedContentTrees.hpp>
 
@@ -157,6 +158,40 @@ TEST( PackagedContent, PakKeysAreTheRuntimeLookupKeysUnderThePackageRoot )
     }
 }
 
+// NO SCHEME, NO PACKAGE (owner, 2026-09-25). A project without ContentChunks.json used to package as
+// one undivided archive; now the packager refuses, names the file it looked for, and writes nothing.
+// "One archive" survives only as a choice the file states (WriteDefaultChunkScheme).
+TEST( PackagedContent, APackageWithoutAChunkSchemeIsRefusedByPathAndWritesNoArchive )
+{
+    EnvironmentGuard guard;
+
+    const fs::path base = fs::temp_directory_path() / "desert_pkg_noscheme";
+    fs::remove_all( base );
+    const fs::path proj = base / "proj";
+
+    WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
+    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+
+    SetEnv( "HOME", base.string() );
+    fs::current_path( proj );
+    ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+
+    const fs::path scheme = Common::Content::ChunkSchemePath();
+    ASSERT_EQ( fs::weakly_canonical( scheme ), fs::weakly_canonical( proj / "ContentChunks.json" ) );
+    ASSERT_FALSE( fs::exists( scheme ) );
+
+    const auto refused = Desert::Editor::BuildContentPak();
+    ASSERT_FALSE( refused.Success ) << "a project with no chunk scheme packaged anyway: " << refused.Message;
+    EXPECT_NE( refused.Message.find( scheme.string() ), std::string::npos ) << refused.Message;
+    EXPECT_FALSE( fs::exists( proj / "Content.dpak" ) ) << "the refusal still wrote an archive";
+
+    // The way out the message names, taken: the default scheme makes the same project package.
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( scheme ) );
+    const auto packaged = Desert::Editor::BuildContentPak();
+    ASSERT_TRUE( packaged.Success ) << packaged.Message;
+    EXPECT_TRUE( fs::exists( proj / "Content.dpak" ) );
+}
+
 TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
 {
     EnvironmentGuard guard;
@@ -177,6 +212,7 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
     SetEnv( "HOME", base.string() ); // keep RegisterRecent out of the real user config
     fs::current_path( proj );        // relative resource trees resolve against the editor cwd
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     const auto result = Desert::Editor::BuildContentPak();
     ASSERT_TRUE( result.Success ) << result.Message;
@@ -256,6 +292,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // ---- the DEV side. The reference is minted exactly the way the Details panel's script picker mints
     // it: enumerate the census row for scripts, then StableKeyForPath over what the enumeration returned.
@@ -368,6 +405,7 @@ TEST( PackagedContent, AServiceAssetReferenceResolvesToTheSameFileLooseAndPackag
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     struct Case
     {
@@ -488,6 +526,7 @@ TEST( PackagedContent, ACleanProjectPackagesComplete )
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     const auto result = Desert::Editor::BuildContentPak();
 
@@ -517,6 +556,7 @@ TEST( PackagedContent, AnAssetTheCookCannotBakeMakesThePackageIncompleteAndSaysH
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     const auto result = Desert::Editor::BuildContentPak();
 
@@ -564,6 +604,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // The dev side stores one artifact of each kind, exactly as the cook does.
     const std::vector<uint32_t> spirv    = { 0x07230203u, 1u, 2u, 3u };
@@ -682,6 +723,7 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // The packager's cook, at this build's own profile (what BuildContentPak passes).
     const auto stats = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
@@ -752,6 +794,7 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // Occupy Cooked/ShaderCache with a regular file, so create_directories cannot make the folder
     // and every store into it fails.
@@ -802,6 +845,7 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // The PLAIN layout, because it is the one every host has — the .app branch is macOS-only by
     // construction and asking for it elsewhere is refused (with a log line) rather than obeyed.
@@ -857,6 +901,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     Desert::Editor::PackageOptions options;
     options.OutputDir = ( base / "out" ).string();
@@ -961,6 +1006,7 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // The PLAIN layout, because it is the one every host has.
     Desert::Editor::PackageOptions options;
@@ -1032,6 +1078,7 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     Desert::Editor::PackageOptions options;
     options.OutputDir    = ( base / "out" ).string();
@@ -1122,6 +1169,7 @@ TEST( PackagedContent, APackagedReleaseRecordsAManifestOfTheArchiveItActuallyShi
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     Desert::Editor::PackageOptions options;
     options.OutputDir    = ( base / "out" ).string();
@@ -1192,6 +1240,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // ---- release 1: what the player installs, and the record of it the publisher keeps.
     Desert::Editor::PackageOptions v1;
@@ -1258,6 +1307,7 @@ TEST( PackagedContent, APatchWithNoBaselineIsRefusedByNameAndWritesNothing )
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     const auto shipped = PackageInto( base / "out" );
     ASSERT_TRUE( shipped.Success ) << shipped.Message;
@@ -1653,6 +1703,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
 
     // THE PROJECT'S OWN REGISTRY, gathered from its content roots as the editor gathers at start: one row
     // per content file, which here is the two texture ASSETS (`.detex`: the checker is Texture, the
@@ -1776,6 +1827,7 @@ TEST( PackagedContent, TheTexturesAPackageCarriesAreCookedInsideIt )
     Common::Utils::VFS::Unmount();
     fs::current_path( proj );
     ASSERT_TRUE( Desert::Project::ProjectContext::Open( ( proj / "T.deproj" ).string() ) );
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( proj / "ContentChunks.json" ) );
     ASSERT_TRUE( Desert::Assets::ContentRegistry::Gather().IsSuccess() );
     const auto again = Desert::Editor::CookContentCaches( Desert::Core::SpirvDebugInfoThisBuild() );
     EXPECT_EQ( again.TexturesCooked, 0u ) << "an unchanged source was cooked again";

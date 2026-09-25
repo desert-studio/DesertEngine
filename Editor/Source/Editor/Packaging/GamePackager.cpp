@@ -211,26 +211,14 @@ namespace Desert::Editor
 
         // THE DIVISION, DERIVED FROM THIS PROJECT'S OWN DATA. The registry stack carries the edges,
         // and the scheme file carries only what cannot be derived from them (chunk roots, and the
-        // keys pinned to the base). An ABSENT scheme is not an error and not a default set of
-        // chunks: it is a project that has not been divided, and it must package to exactly the one
-        // archive every project produced before chunks existed.
+        // keys pinned to the base). The scheme is REQUIRED: an absent, blank or broken file refuses
+        // the package by path, and a one-archive project says so in its file (owner, 2026-09-25).
         Common::ResultStr<Common::Content::ChunkPlan> PlanTheDivision()
         {
-            Common::Content::ChunkScheme scheme;
-            const fs::path               schemePath = Common::Content::ChunkSchemePath();
-            if ( Common::Utils::FileSystem::Exists( schemePath ) )
-            {
-                const auto text = Common::Utils::FileSystem::ReadFileContent( schemePath.string() );
-                if ( !text )
-                    return Common::MakeFormattedError<Common::Content::ChunkPlan>(
-                         "{} exists but could not be read: {}", schemePath.string(), text.GetError() );
-                auto parsed = Common::Content::ParseChunkScheme( text.GetValue() );
-                if ( !parsed )
-                    return Common::MakeFormattedError<Common::Content::ChunkPlan>( "{}: {}", schemePath.string(),
-                                                                                   parsed.GetError() );
-                scheme = parsed.GetValue();
-            }
-            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme );
+            const auto scheme = Common::Content::LoadChunkScheme( Common::Content::ChunkSchemePath() );
+            if ( !scheme )
+                return Common::MakeError<Common::Content::ChunkPlan>( scheme.GetError() );
+            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme.GetValue() );
         }
 
         // What the packager says about the division, so a one-archive project and a divided one are

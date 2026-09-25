@@ -11,6 +11,7 @@
 #include <Engine/Project/ProjectContext.hpp>
 
 #include <Common/Core/JobSystem.hpp>
+#include <Common/Content/ContentChunks.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -179,6 +180,28 @@ namespace Desert::Editor
                                                      "game starts empty (or pass --scene)." );
         else if ( current.empty() )
             ImGui::TextDisabled( "The packaged game boots to the chosen startup scene; saved to the .deproj." );
+
+        // THE SCHEME IS REQUIRED (owner, 2026-09-25). Said before the Build button rather than after a
+        // failed build: the packager refuses a project with no ContentChunks.json, and the message it
+        // refuses with is the same text drawn here (LoadChunkScheme), next to the one-click way out.
+        ImGui::Spacing();
+        const std::filesystem::path schemePath = Common::Content::ChunkSchemePath();
+        if ( !Common::Utils::FileSystem::Exists( schemePath ) )
+        {
+            ImGui::PushTextWrapPos( 0.0f );
+            ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s",
+                                Common::Content::LoadChunkScheme( schemePath ).GetError().c_str() );
+            ImGui::PopTextWrapPos();
+            if ( ImGui::Button( ICON_MDI_FILE_PLUS "  Create default ContentChunks.json" ) )
+            {
+                const auto written = Common::Content::WriteDefaultChunkScheme( schemePath );
+                m_SchemeMessage    = written ? "Wrote the one-archive scheme to " + schemePath.string() +
+                                                 " — edit it to divide the content, then Build again."
+                                             : written.GetError();
+            }
+        }
+        if ( !m_SchemeMessage.empty() )
+            ImGui::TextWrapped( "%s", m_SchemeMessage.c_str() );
 
         ImGui::Spacing();
         const bool building = m_Building.load();

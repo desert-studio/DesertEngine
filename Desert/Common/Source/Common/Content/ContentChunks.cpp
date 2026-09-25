@@ -2,9 +2,9 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
@@ -48,13 +48,16 @@ namespace Common::Content
 
     ResultStr<ChunkScheme> ParseChunkScheme( std::string_view json )
     {
-        // An absent or empty scheme is a project that has not been divided, not a broken one: it must
-        // produce exactly the single-archive behaviour that predates chunks.
+        // An empty scheme is a broken file, not an undivided project: the one-archive choice is written
+        // as `"Chunks": []`, so a blank file can only be a write that never finished.
         const std::string text( json );
         if ( text.find_first_not_of( " \t\r\n" ) == std::string::npos )
-            return MakeSuccess( ChunkScheme{} );
+            return MakeError<ChunkScheme>( "the chunk scheme is empty — an undivided project states "
+                                           "\"Chunks\": [] rather than leaving the file blank" );
 
-        auto parsed = rfl::json::read<ChunkSchemeJson, rfl::DefaultIfMissing>( text );
+        // No DefaultIfMissing: a scheme missing "Chunks" or "AlwaysBase" is refused by the field's name
+        // instead of reading as an empty list nobody wrote.
+        auto parsed = rfl::json::read<ChunkSchemeJson>( text );
         if ( !parsed )
             return MakeFormattedError<ChunkScheme>( "the chunk scheme could not be read: {}",
                                                     parsed.error().what() );
@@ -83,6 +86,36 @@ namespace Common::Content
         // content is DIVIDED and is not itself content, so a scan that enumerated it would offer a
         // build setting in an asset picker.
         return Constants::Path::CurrentProjectRoot().ProjectDir / "ContentChunks.json";
+    }
+
+    ResultStr<ChunkScheme> LoadChunkScheme( const fs::path& path )
+    {
+        if ( !Utils::FileSystem::Exists( path ) )
+            return MakeFormattedError<ChunkScheme>(
+                 "no chunk scheme at {} — packaging needs the project to state how its content is divided. "
+                 "Create the default one-archive scheme (Build Settings: \"Create default ContentChunks.json\", or the "
+                 "palette command Build > Create Default ContentChunks.json) and edit it to add chunks",
+                 path.string() );
+        const auto text = Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return MakeFormattedError<ChunkScheme>( "{} exists but could not be read: {}", path.string(),
+                                                    text.GetError() );
+        auto parsed = ParseChunkScheme( text.GetValue() );
+        if ( !parsed )
+            return MakeFormattedError<ChunkScheme>( "{}: {}", path.string(), parsed.GetError() );
+        return parsed;
+    }
+
+    BoolResultStr WriteDefaultChunkScheme( const fs::path& path )
+    {
+        if ( Utils::FileSystem::Exists( path ) )
+            return MakeFormattedError<bool>( "{} already exists; the default scheme never replaces one",
+                                             path.string() );
+        const auto written = Utils::FileSystem::WriteContentToFileAtomic( path, WriteChunkScheme( ChunkScheme{} ) );
+        if ( !written )
+            return MakeFormattedError<bool>( "could not write the default chunk scheme to {}: {}", path.string(),
+                                             written.GetError() );
+        return MakeSuccess( true );
     }
 
     const std::vector<std::string>& ChunkPlan::Names() const
