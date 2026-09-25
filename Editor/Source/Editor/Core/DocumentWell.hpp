@@ -108,7 +108,7 @@ namespace Desert::Editor
         // closed it is looking at that document already.
         void Opened( const SubjectId& subject )
         {
-            if ( !m_Documents->Find( subject ) )
+            if ( m_Documents->Find( subject ) == nullptr )
                 return;
             Touch( subject );
             m_WindowOpen = true;
