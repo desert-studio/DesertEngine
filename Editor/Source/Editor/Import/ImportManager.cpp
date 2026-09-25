@@ -7,6 +7,7 @@
 #include "Blend/BlendImporter.hpp"
 #include "CookPaths.hpp"
 #include "CookedJsonWrite.hpp"
+#include "MaterialAdoption.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
@@ -24,7 +25,6 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <chrono>
-#include <regex>
 
 namespace Desert::Editor
 {
@@ -163,17 +163,24 @@ namespace Desert::Editor
                 firstFailure = outcome.GetError();
         };
 
-        if ( result.Mesh )
-            record( SerializeMeshAsset( result.Mesh.value(), sourcePath ) );
+        // Materials are resolved BEFORE the mesh is written: a .demat already on disk keeps its GUID, and the
+        // submeshes are re-pointed at it, so the cooked mesh names the material the project actually holds.
+        ImportResult resolved = result;
+        if ( const auto adopted = MaterialAdoption::AdoptExistingMaterials( resolved, sourcePath ); !adopted )
+            return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
+                                                     adopted.GetError() );
 
-        if ( result.Skeleton )
-            record( SerializeSkeletonAsset( result.Skeleton.value(), sourcePath ) );
-
-        for ( const auto& anim : result.Animations )
-            record( SerializeAnimationAsset( anim, sourcePath ) );
-
-        for ( const auto& material : result.Materials )
+        for ( const auto& material : resolved.Materials )
             record( SerializeMaterialAsset( material, sourcePath ) );
+
+        if ( resolved.Mesh )
+            record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
+
+        if ( resolved.Skeleton )
+            record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
+
+        for ( const auto& anim : resolved.Animations )
+            record( SerializeAnimationAsset( anim, sourcePath ) );
 
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
@@ -308,14 +315,11 @@ namespace Desert::Editor
         // The stem alone put two same-named meshes from different folders in one folder, where the
         // "only write if MISSING" rule below turns a collision into a silent adoption: the second mesh's
         // materials are never written and it inherits the first mesh's instead.
-        static const std::regex illegal( R"([<>:"/\\|?*\s])" );
-        const std::string       safeName = std::regex_replace( material.Name, illegal, "_" );
-        const std::filesystem::path path =
-             CookPaths::MaterialFolder( sourcePath ) /
-             ( safeName + std::string( Common::Constants::Extensions::MATERIAL_EXTENSION ) );
+        const std::filesystem::path path = MaterialAdoption::MaterialAssetPath( sourcePath, material.Name );
 
         // Only write if MISSING: re-importing a mesh must NOT clobber the user's edits to its material (UE
         // behaviour — re-import updates geometry, keeps the material asset). Delete the .demat to regenerate.
+        // The kept file's GUID was already adopted into `material` and the submeshes (MaterialAdoption).
         std::error_code ec;
         if ( std::filesystem::exists( path, ec ) )
             return BOOLSUCCESS; // deliberately kept, not a failure to write

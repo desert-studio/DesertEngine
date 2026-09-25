@@ -361,10 +361,12 @@ namespace Desert::Editor
         void CycleDocuments();
 
         // ===== The document well (layout option B.1) =====
-        // The permanent "Documents" window: the tab the documents dock beside, the index of what is open,
-        // and — when nothing is open — the empty state that says what the area is for plus the list of
-        // recently closed documents. It does not collapse when it empties: a layout that moves on its own is
-        // what users report as "the editor lost my panel".
+        // The "Documents" window: the tab the documents dock beside, the index of what is open, and — when
+        // nothing is open — the empty state that says what the area is for plus the list of recently closed
+        // documents. It closes with its x like a tool (its neighbours take the area), comes back from
+        // Window > Documents or by itself when a document is opened, and its open/closed state is a line of
+        // the editor layout (DocumentWell::LayoutLine), so it survives a restart.
+        // Closing the window closes no document: they stay open and the well shows the same tabs on return.
         // The window title one document is drawn with — its type's icon (from the registration), its
         // subject's name, and the identity DocumentTitle baked into GetName(). A member rather than a free
         // function because the icon comes from m_SubjectEditors.
@@ -605,6 +607,9 @@ namespace Desert::Editor
         // every frame rather than remembered from the one frame the layout was built — a value captured at
         // build time is 0 for the whole of every later session.
         ImGuiID m_DocumentDockId = 0;
+        // What the layout file last said about the well's window; a difference marks imgui.ini dirty.
+        bool m_DocumentWellOpenInLayout = true;
+        void RegisterDocumentWellLayoutHandler();
 
         // A refused open, waiting to be shown (see DrawOpenRefusedPopup). Holds the census by value: the
         // documents it names may be closed while the dialog is up, and a row pointing at a destroyed panel
