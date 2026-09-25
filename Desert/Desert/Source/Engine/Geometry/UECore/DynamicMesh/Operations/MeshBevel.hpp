@@ -1,7 +1,7 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/MeshBevel.h:26-378 and
-// Private/Operations/MeshBevel.cpp:75-131,669-2082 (setup, topology build, unlink, displacement and meshing of
-// the chamfer bevel),
+// Private/Operations/MeshBevel.cpp:47-131,576-668,669-2082,3740-3774,3814-3969 (setup, topology build, unlink,
+// displacement and meshing of the chamfer bevel, Apply, normals and material IDs),
 // adapted: UE Core via UECore.hpp, namespace Desert::Geometry. FGeometryResult / FProgressCancel are replaced by a
 // named FailureReason, and a vertex UE would leave as EBevelVertexType::Unknown (silently not beveled) is REFUSED
 // with the vertex and the cause; bowtie vertices on the bevel graph are refused up front instead of FixBowties'
@@ -35,11 +35,35 @@ namespace Desert::Geometry
         /** Distance (cm) each beveled edge is inset into its two adjacent faces. */
         double InsetDistance = 5.0;
 
+        /** Options for MaterialID assignment on the new triangles generated for the bevel */
+        enum class EMaterialIDMode
+        {
+            ConstantMaterialID,
+            InferMaterialID,
+            InferMaterialID_ConstantIfAmbiguous
+        };
+        /** Which MaterialID assignment mode to use */
+        EMaterialIDMode MaterialIDMode = EMaterialIDMode::ConstantMaterialID;
+        /** Constant MaterialID used for various MaterialIDMode settings */
+        int32 SetConstantMaterialID = 0;
+
+        /** Triangles created by Apply: the vertex polygons, then the edge and loop strips. */
+        TArray<int32> NewTriangles;
+
         /** Initialize the bevel with all edges of the given GroupTopology. */
         bool InitializeFromGroupTopology( const FDynamicMesh3& Mesh, const FGroupTopology& Topology );
         /** Initialize the bevel with the specified edges of a GroupTopology. */
         bool InitializeFromGroupTopologyEdges( const FDynamicMesh3& Mesh, const FGroupTopology& Topology,
                                                const TArray<int32>& GroupEdges );
+
+        /**
+         * Bevel the initialized edges in place (UE Apply, B:576): unlink, displace, mesh, then the primary normals
+         * and material IDs of NewTriangles. Returns false with FailureReason (the mesh is then partially edited)
+         * as soon as a phase refuses. UV layers are NOT computed: the new triangles' UV overlay triangles stay
+         * unset until ComputeUVs (B:3776-3812) is ported by task P13d. Only the one-segment chamfer is ported:
+         * UE's NumSubdivisions / round profile (CreateBevelMeshing_Multi) is task P13e.
+         */
+        bool Apply( FDynamicMesh3& Mesh );
 
         struct FBevelLoop
         {
@@ -145,6 +169,11 @@ namespace Desert::Geometry
         void AppendTerminatorVertexPairQuad( FDynamicMesh3& Mesh, FBevelVertex& Vertex0, FBevelVertex& Vertex1 );
         void AppendEdgeQuads( FDynamicMesh3& Mesh, FBevelEdge& Edge );
         void AppendLoopQuads( FDynamicMesh3& Mesh, FBevelLoop& Loop );
+
+        /** Per-vertex normals within each new vertex polygon and each strip; no-op without attributes. */
+        void ComputeNormals( FDynamicMesh3& Mesh );
+        /** MaterialID of NewTriangles per MaterialIDMode; no-op without a MaterialID attribute. */
+        void ComputeMaterialIDs( FDynamicMesh3& Mesh );
 
     private:
         void InitVertexSet( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );

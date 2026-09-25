@@ -1,12 +1,15 @@
 // Ported from UE 5.8
-// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:75-131, 669-2082,
-// adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the progress-cancel checks are gone
-// (UECore has no FProgressCancel), and every UE path that leaves a vertex Unknown records why.
+// Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:47-131, 576-2082,
+// 3740-3774, 3814-3969, adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the
+// progress-cancel checks are gone (UECore has no FProgressCancel), and every UE path that leaves a vertex Unknown
+// records why. ComputeMaterialIDs fixes three UE slips, see there.
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
 
 #include "Engine/Geometry/UECore/CompGeom/PolygonTriangulation.hpp"
 #include "Engine/Geometry/UECore/Distance/DistLine3Line3.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
@@ -25,6 +28,20 @@ namespace Desert::Geometry
                     return true;
             }
             return false;
+        }
+
+        void QuadsToTris( const FDynamicMesh3& Mesh, const TArray<FIndex2i>& Quads, TArray<int32>& TrisOut,
+                          bool bReset )
+        {
+            if ( bReset )
+                TrisOut.Reset();
+            for ( const FIndex2i& Quad : Quads )
+            {
+                if ( Mesh.IsTriangle( Quad.A ) )
+                    TrisOut.Add( Quad.A );
+                if ( Mesh.IsTriangle( Quad.B ) )
+                    TrisOut.Add( Quad.B );
+            }
         }
     } // namespace
 
@@ -1191,6 +1208,169 @@ namespace Desert::Geometry
             {
                 AppendTerminatorVertexTriangle( Mesh, Vertex );
             }
+        }
+    }
+
+    bool FMeshBevel::Apply( FDynamicMesh3& Mesh )
+    {
+        // UE's FixBowties is RefuseBowties at initialization; each phase below may Refuse.
+        if ( !FailureReason.empty() )
+            return false;
+        UnlinkEdges( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
+        UnlinkLoops( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
+        UnlinkVertices( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
+        FixUpUnlinkedBevelEdges( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
+        DisplaceVertices( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
+        CreateBevelMeshing( Mesh );
+        if ( !FailureReason.empty() )
+            return false;
+
+        NewTriangles.Reset();
+        for ( const FBevelVertex& Vertex : Vertices )
+            NewTriangles.Append( Vertex.NewTriangles );
+        for ( const FBevelEdge& Edge : Edges )
+            QuadsToTris( Mesh, Edge.StripQuads, NewTriangles, false );
+        for ( const FBevelLoop& Loop : Loops )
+            QuadsToTris( Mesh, Loop.StripQuads, NewTriangles, false );
+
+        ComputeNormals( Mesh );
+        // UE's ComputeUVs (B:3776-3812: an ExpMap parameterization per bevel region) is task P13d; until then the
+        // UV overlays of NewTriangles stay unset, as the header documents.
+        ComputeMaterialIDs( Mesh );
+        return true;
+    }
+
+    void FMeshBevel::ComputeNormals( FDynamicMesh3& Mesh )
+    {
+        if ( !Mesh.HasAttributes() )
+            return;
+        FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
+
+        auto SetNormalsOnTriRegion = [NormalOverlay]( const TArray<int32>& Triangles ) {
+            if ( Triangles.Num() > 0 )
+                FMeshNormals::InitializeOverlayRegionToPerVertexNormals( NormalOverlay, Triangles );
+        };
+        for ( const FBevelVertex& Vertex : Vertices )
+            SetNormalsOnTriRegion( Vertex.NewTriangles );
+        TArray<int32> TriList;
+        for ( const FBevelEdge& Edge : Edges )
+        {
+            QuadsToTris( Mesh, Edge.StripQuads, TriList, true );
+            SetNormalsOnTriRegion( TriList );
+        }
+        for ( const FBevelLoop& Loop : Loops )
+        {
+            QuadsToTris( Mesh, Loop.StripQuads, TriList, true );
+            SetNormalsOnTriRegion( TriList );
+        }
+    }
+
+    // Three UE slips are fixed: the second strip neighbour was guarded by the first one's index (B:3861, reading
+    // triangle -1 on an open edge); a neighbour material was only counted the first time it was seen (B:3923),
+    // and the minimum count was picked where the comment says "most frequent" (B:3949). A terminator cap thus
+    // takes the material of the face it closes, not whichever neighbour came first.
+    void FMeshBevel::ComputeMaterialIDs( FDynamicMesh3& Mesh )
+    {
+        if ( !Mesh.HasAttributes() || !Mesh.Attributes()->HasMaterialID() )
+            return;
+        FDynamicMeshMaterialAttribute* MaterialIDs = Mesh.Attributes()->GetMaterialID();
+
+        if ( MaterialIDMode == EMaterialIDMode::ConstantMaterialID )
+        {
+            for ( const int32 tid : NewTriangles )
+                MaterialIDs->SetValue( tid, SetConstantMaterialID );
+            return;
+        }
+
+        auto SetQuadMaterial = [MaterialIDs]( const FIndex2i& Quad, int32 MaterialID ) {
+            if ( Quad.A >= 0 )
+                MaterialIDs->SetValue( Quad.A, MaterialID );
+            if ( Quad.B >= 0 )
+                MaterialIDs->SetValue( Quad.B, MaterialID );
+        };
+
+        // Materials of the new triangles along a beveled edge follow the adjacent pre-bevel triangles; an edge
+        // between two materials takes the lowest material seen along the strip (InferMaterialID) or the constant.
+        auto SetEdgeMaterials = [&]( const TArray<FIndex2i>& StripQuads, const TArray<FIndex2i>& EdgeTris ) {
+            const int32 NumEdges = EdgeTris.Num();
+            if ( StripQuads.Num() != NumEdges )
+            {
+                for ( const FIndex2i& Quad : StripQuads )
+                    SetQuadMaterial( Quad, SetConstantMaterialID );
+                return;
+            }
+            TArray<int32> SawMaterialIDs;
+            TArray<int32> AmbiguousEdges;
+            for ( int32 k = 0; k < NumEdges; ++k )
+            {
+                const FIndex2i NbrTris  = EdgeTris[k];
+                const int32    MatIDA   = MaterialIDs->GetValue( NbrTris.A );
+                const int32    MatIDB   = ( NbrTris.B >= 0 ) ? MaterialIDs->GetValue( NbrTris.B ) : MatIDA;
+                int32          SetMatID = MatIDA;
+                SawMaterialIDs.AddUnique( MatIDA );
+                SawMaterialIDs.AddUnique( MatIDB );
+                if ( MatIDA != MatIDB )
+                {
+                    SetMatID = SetConstantMaterialID;
+                    if ( MaterialIDMode == EMaterialIDMode::InferMaterialID )
+                        AmbiguousEdges.Add( k );
+                }
+                SetQuadMaterial( StripQuads[k], SetMatID );
+            }
+            if ( AmbiguousEdges.Num() > 0 )
+            {
+                const int32 LowestMatID = *std::min_element( SawMaterialIDs.begin(), SawMaterialIDs.end() );
+                for ( const int32 k : AmbiguousEdges )
+                    SetQuadMaterial( StripQuads[k], LowestMatID );
+            }
+        };
+        for ( const FBevelEdge& Edge : Edges )
+            SetEdgeMaterials( Edge.StripQuads, Edge.MeshEdgeTris );
+        for ( const FBevelLoop& Loop : Loops )
+            SetEdgeMaterials( Loop.StripQuads, Loop.MeshEdgeTris );
+
+        // Each vertex polygon takes the most frequent material across its border (the strips and faces around it).
+        for ( const FBevelVertex& Vertex : Vertices )
+        {
+            TArray<int32> NbrMaterialIDs;
+            TArray<int32> NbrMaterialIDCounts;
+            for ( const int32 tid : Vertex.NewTriangles )
+            {
+                const FIndex3i TriNbrs = Mesh.GetTriNeighbourTris( tid );
+                for ( int32 j = 0; j < 3; ++j )
+                {
+                    const int32 NbrTriangleID = TriNbrs[j];
+                    if ( !Mesh.IsTriangle( NbrTriangleID ) || Vertex.NewTriangles.Contains( NbrTriangleID ) )
+                        continue;
+                    const int32 Index = NbrMaterialIDs.AddUnique( MaterialIDs->GetValue( NbrTriangleID ) );
+                    if ( NbrMaterialIDCounts.Num() != NbrMaterialIDs.Num() )
+                        NbrMaterialIDCounts.Add( 0 );
+                    NbrMaterialIDCounts[Index]++;
+                }
+            }
+            int32 SetMaterialID = SetConstantMaterialID;
+            if ( NbrMaterialIDs.Num() > 0 )
+            {
+                int32 MaxIndex = 0;
+                for ( int32 k = 1; k < NbrMaterialIDs.Num(); ++k )
+                {
+                    if ( NbrMaterialIDCounts[k] > NbrMaterialIDCounts[MaxIndex] )
+                        MaxIndex = k;
+                }
+                SetMaterialID = NbrMaterialIDs[MaxIndex];
+            }
+            for ( const int32 tid : Vertex.NewTriangles )
+                MaterialIDs->SetValue( tid, SetMaterialID );
         }
     }
 } // namespace Desert::Geometry

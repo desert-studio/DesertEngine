@@ -5,6 +5,7 @@
 // into its own face. The subdivided cube (each face 2x2 quads) gives spans of two mesh edges, whose middle vertex
 // is split by the span interior unlink (ReconcileTriangleSets) before the terminator and junction unlinks.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
 
 #include <gtest/gtest.h>
@@ -122,10 +123,10 @@ namespace
     class FMeshBevelProbe : public FMeshBevel
     {
     public:
-        using FMeshBevel::CreateBevelMeshing;
         using FMeshBevel::DisplaceVertices;
         using FMeshBevel::Edges;
         using FMeshBevel::FixUpUnlinkedBevelEdges;
+        using FMeshBevel::Loops;
         using FMeshBevel::MeshEdgePairs;
         using FMeshBevel::UnlinkEdges;
         using FMeshBevel::UnlinkLoops;
@@ -139,13 +140,6 @@ namespace
             UnlinkLoops( mesh );
             UnlinkVertices( mesh );
             FixUpUnlinkedBevelEdges( mesh );
-        }
-        // UE Apply's chamfer phases, in order.
-        void Chamfer( FDynamicMesh3& mesh )
-        {
-            Unlink( mesh );
-            DisplaceVertices( mesh );
-            CreateBevelMeshing( mesh );
         }
     };
 
@@ -577,6 +571,59 @@ namespace
         EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
         EXPECT_NEAR( SignedVolume( mesh ), expectedVolume, 1e-6 * expectedVolume );
     }
+
+    // Every new triangle of a flat region carries its own geometric normal at each corner; a loop strip wrapping
+    // a corner is ONE region with per-vertex normals, so there the normal only has to be unit and outward. No
+    // normal element is shared by two polygroups; the UV overlays stay unset (ComputeUVs is task P13d).
+    void ExpectNewTriangleNormals( const FDynamicMesh3& mesh, const FMeshBevel& bevel, bool bFlatRegions = true )
+    {
+        if ( !mesh.HasAttributes() )
+            return;
+        const FDynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
+        for ( const int t : bevel.NewTriangles )
+        {
+            ASSERT_TRUE( normals.IsSetTriangle( t ) ) << "new triangle " << t;
+            const FIndex3i  elements = normals.GetTriangle( t );
+            const FVector3d faceN    = mesh.GetTriNormal( t );
+            for ( int j = 0; j < 3; ++j )
+            {
+                const FVector3f n = normals.GetElement( elements[j] );
+                const double cosine = faceN.X * n.X + faceN.Y * n.Y + faceN.Z * n.Z;
+                EXPECT_NEAR( n.X * n.X + n.Y * n.Y + n.Z * n.Z, 1.0, 1e-5 ) << "new triangle " << t;
+                if ( bFlatRegions )
+                    EXPECT_NEAR( cosine, 1.0, 1e-5 ) << "new triangle " << t;
+                else
+                    EXPECT_GT( cosine, 0.8 ) << "new triangle " << t;
+            }
+            for ( int layer = 0; layer < mesh.Attributes()->NumUVLayers(); ++layer )
+                EXPECT_FALSE( mesh.Attributes()->GetUVLayer( layer )->IsSetTriangle( t ) ) << "new triangle " << t;
+        }
+        std::map<int, int> elementGroup;
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            if ( !normals.IsSetTriangle( t ) )
+                continue;
+            const FIndex3i elements = normals.GetTriangle( t );
+            for ( int j = 0; j < 3; ++j )
+            {
+                const auto [it, inserted] = elementGroup.emplace( elements[j], mesh.GetTriangleGroup( t ) );
+                EXPECT_EQ( it->second, mesh.GetTriangleGroup( t ) ) << "normal element " << elements[j];
+            }
+        }
+    }
+
+    // Face f (polygroup f + 1) gets material 10 * (f + 1), so every face differs.
+    void SetFaceMaterials( FDynamicMesh3& mesh )
+    {
+        FDynamicMeshMaterialAttribute* materials = mesh.Attributes()->GetMaterialID();
+        for ( const int t : mesh.TriangleIndicesItr() )
+            materials->SetValue( t, 10 * mesh.GetTriangleGroup( t ) );
+    }
+
+    int Material( const FDynamicMesh3& mesh, int t )
+    {
+        return mesh.Attributes()->GetMaterialID()->GetValue( t );
+    }
 } // namespace
 
 // One edge of the n x n cube: the strip is the edge's new group, each terminator cap joins the face it closes
@@ -595,8 +642,8 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
         FMeshBevelProbe bevel;
         bevel.InsetDistance = 5.0;
         ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
-        bevel.Chamfer( mesh );
-        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        ExpectNewTriangleNormals( mesh, bevel );
 
         EXPECT_EQ( Groups( mesh ).size(), 7u );
         ExpectClosedSolid( mesh, 1.0e6 - 100.0 * 12.5 );
@@ -643,8 +690,8 @@ TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
         FMeshBevelProbe bevel;
         bevel.InsetDistance = 5.0;
         ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        bevel.Chamfer( mesh );
-        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        ExpectNewTriangleNormals( mesh, bevel );
 
         EXPECT_EQ( Groups( mesh ).size(), 26u );
         EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) );
@@ -658,6 +705,188 @@ TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
             const FVector3d normal = mesh.GetTriNormal( v.NewTriangles[0] );
             const FVector3d corner = mesh.GetTriCentroid( v.NewTriangles[0] );
             EXPECT_NEAR( normal.Dot( Normalized( corner ) ), 1.0, 1e-3 ) << "junction " << v.VertexID;
+        }
+    }
+}
+
+// Material IDs of the one-edge chamfer (faces 10..60): the strip lies between +X (10) and +Y (30), so it is
+// ambiguous; each terminator cap joins the face it closes and takes its material, the most frequent around it.
+TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
+{
+    using EMode = FMeshBevel::EMaterialIDMode;
+    for ( const EMode mode :
+          { EMode::ConstantMaterialID, EMode::InferMaterialID, EMode::InferMaterialID_ConstantIfAmbiguous } )
+    {
+        SCOPED_TRACE( "mode " + std::to_string( static_cast<int>( mode ) ) );
+        FDynamicMesh3 mesh = TangentCube();
+        ASSERT_TRUE( mesh.HasAttributes() && mesh.Attributes()->HasMaterialID() );
+        SetFaceMaterials( mesh );
+        FGroupTopology  topology( &mesh, true );
+        FMeshBevelProbe bevel;
+        bevel.MaterialIDMode        = mode;
+        bevel.SetConstantMaterialID = 7;
+        ASSERT_TRUE(
+             bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
+             << bevel.FailureReason;
+        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+        EXPECT_EQ( bevel.NewTriangles.Num(), 4 );
+        ExpectNewTriangleNormals( mesh, bevel );
+
+        const int stripMaterial = mode == EMode::InferMaterialID ? 10 : 7;
+        for ( const FIndex2i& quad : bevel.Edges[0].StripQuads )
+        {
+            EXPECT_EQ( Material( mesh, quad.A ), stripMaterial );
+            EXPECT_EQ( Material( mesh, quad.B ), stripMaterial );
+        }
+        for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+        {
+            const int capMaterial =
+                 mode == EMode::ConstantMaterialID ? 7 : ( mesh.GetVertex( v.VertexID ).Z > 0.0 ? 50 : 60 );
+            EXPECT_EQ( Material( mesh, v.NewTriangles[0] ), capMaterial ) << "terminator " << v.VertexID;
+        }
+    }
+}
+
+// All twelve edges, InferMaterialID: a strip takes the lower of its two faces, so around the corner of octant
+// (gx, gy, gz) the strips read gx, gx, gy and the corner triangle takes the most frequent, 10 * gx.
+TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
+{
+    FDynamicMesh3 mesh = TangentCube();
+    SetFaceMaterials( mesh );
+    FGroupTopology  topology( &mesh, true );
+    FMeshBevelProbe bevel;
+    bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+    EXPECT_EQ( bevel.NewTriangles.Num(), 8 + 12 * 2 );
+    for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+    {
+        const int gx = mesh.GetVertex( v.VertexID ).X > 0.0 ? 1 : 2;
+        EXPECT_EQ( Material( mesh, v.NewTriangles[0] ), 10 * gx ) << "junction " << v.VertexID;
+    }
+}
+
+// A refusal at initialization makes Apply refuse with the same reason and leave the mesh alone.
+TEST( MeshBevel, ApplyAfterRefusedInitializationReturnsFalse )
+{
+    FDynamicMesh3  mesh = TangentCube();
+    FGroupTopology topology( &mesh, true );
+    FMeshBevel     bevel;
+    EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 999 } ) );
+    const std::string reason = bevel.FailureReason;
+    ASSERT_FALSE( reason.empty() );
+    EXPECT_FALSE( bevel.Apply( mesh ) );
+    EXPECT_EQ( bevel.FailureReason, reason );
+    EXPECT_EQ( mesh.VertexCount(), 8 );
+    EXPECT_EQ( mesh.TriangleCount(), 12 );
+    EXPECT_EQ( bevel.NewTriangles.Num(), 0 );
+}
+
+// Top (group 1), sides (group 2), bottom (group 3): the two group edges are closed loops without a corner, so they
+// go through UnlinkBevelLoop / AppendLoopQuads. The top square insets to half-width 45 while the sides drop to
+// z = 45: per loop the removed volume is the integral over z in [45, 50] of 100^2 - (2 (95 - z))^2 = 5000 - 500/3.
+TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
+{
+    for ( const int n : { 1, 2 } )
+    {
+        SCOPED_TRACE( "faces of " + std::to_string( n ) + "x" + std::to_string( n ) + " quads" );
+        FDynamicMesh3 mesh = TangentCube( n );
+        for ( const int t : mesh.TriangleIndicesItr() )
+        {
+            const int face = t / ( 2 * n * n );
+            mesh.SetTriangleGroup( t, face == 4 ? 1 : ( face == 5 ? 3 : 2 ) );
+        }
+        SetFaceMaterials( mesh );
+        FGroupTopology  topology( &mesh, true );
+        FMeshBevelProbe bevel;
+        bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+        ASSERT_EQ( bevel.Loops.Num(), 2 );
+        EXPECT_EQ( bevel.Edges.Num(), 0 );
+        EXPECT_EQ( bevel.Vertices.Num(), 0 );
+        ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+
+        EXPECT_EQ( Groups( mesh ).size(), 5u );
+        ExpectClosedSolid( mesh, 1.0e6 - 2.0 * ( 5000.0 - 500.0 / 3.0 ) );
+        ExpectNewTriangleNormals( mesh, bevel, false );
+        for ( const FMeshBevel::FBevelLoop& loop : bevel.Loops )
+        {
+            EXPECT_EQ( loop.StripQuads.Num(), 4 * n );
+            // top loop: sides 20 against top 10; bottom loop: sides 20 against bottom 30
+            const int material = mesh.GetVertex( loop.MeshVertices[0] ).Z > 0.0 ? 10 : 20;
+            for ( const FIndex2i& quad : loop.StripQuads )
+            {
+                EXPECT_EQ( Material( mesh, quad.A ), material );
+                EXPECT_EQ( Material( mesh, quad.B ), material );
+            }
+        }
+    }
+}
+
+// The vertical edges at (50, 50) and (-50, -50): both ends of each split along the cap face's diagonal, which
+// joins the two terminators, so each cap is one quad in the cap face's group (AppendTerminatorVertexPairQuad).
+TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
+{
+    FDynamicMesh3   mesh = TangentCube();
+    FGroupTopology  topology( &mesh, true );
+    FMeshBevelProbe bevel;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges(
+         mesh, topology, { GroupEdgeBetween( topology, 1, 3 ), GroupEdgeBetween( topology, 2, 4 ) } ) )
+         << bevel.FailureReason;
+    ASSERT_EQ( bevel.Vertices.Num(), 4 );
+    for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+    {
+        ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::TerminatorVertex );
+        EXPECT_GE( v.ConnectedBevelVertex, 0 ) << "terminator " << v.VertexID;
+    }
+    ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+
+    EXPECT_EQ( Groups( mesh ).size(), 8u );
+    EXPECT_EQ( bevel.NewTriangles.Num(), 2 * 2 + 2 * 2 );
+    ExpectClosedSolid( mesh, 1.0e6 - 2.0 * 100.0 * 12.5 );
+    ExpectNewTriangleNormals( mesh, bevel );
+    for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
+    {
+        ASSERT_EQ( v.NewTriangles.Num(), 1 );
+        EXPECT_EQ( mesh.GetTriangleGroup( v.NewTriangles[0] ), mesh.GetVertex( v.VertexID ).Z > 0.0 ? 5 : 6 );
+    }
+}
+
+// The top face tilted to z = 50 + x / 2: the edge x = y = 50 now meets its top cap at a non-right angle. The
+// terminator still slides onto both inset lines, so every strip vertex stays 5 from the edge line and the removed
+// prism is the 5 x 5 triangle times the height over it, 100 + x / 2 at its centroid x = 50 - 5/3.
+TEST( MeshBevel, ApplyTerminatorOnATiltedCapStaysOnTheInsetLines )
+{
+    FDynamicMesh3 mesh = TangentCube();
+    for ( const int v : mesh.VertexIndicesItr() )
+    {
+        const FVector3d p = mesh.GetVertex( v );
+        if ( p.Z > 0.0 )
+            mesh.SetVertex( v, FVector3d( p.X, p.Y, 50.0 + 0.5 * p.X ) );
+    }
+    ExpectClosedSolid( mesh, 1.0e6 );
+    FGroupTopology  topology( &mesh, true );
+    FMeshBevelProbe bevel;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
+         << bevel.FailureReason;
+    ASSERT_TRUE( bevel.Apply( mesh ) ) << bevel.FailureReason;
+
+    EXPECT_EQ( Groups( mesh ).size(), 7u );
+    ExpectClosedSolid( mesh, 1.0e6 - 12.5 * ( 100.0 + 0.5 * ( 50.0 - 5.0 / 3.0 ) ) );
+    ExpectNewTriangleNormals( mesh, bevel );
+    for ( const FIndex2i& quad : bevel.Edges[0].StripQuads )
+    {
+        for ( const int t : { quad.A, quad.B } )
+        {
+            const FIndex3i tri = mesh.GetTriangle( t );
+            for ( int j = 0; j < 3; ++j )
+            {
+                // 5 from the edge line and, at the top end, on the tilted cap plane
+                const FVector3d p = mesh.GetVertex( tri[j] );
+                EXPECT_NEAR( std::hypot( p.X - 50.0, p.Y - 50.0 ), 5.0, 1e-9 ) << "strip vertex " << tri[j];
+                if ( p.Z > 0.0 )
+                    EXPECT_NEAR( p.Z, 50.0 + 0.5 * p.X, 1e-9 ) << "strip vertex " << tri[j];
+            }
         }
     }
 }
