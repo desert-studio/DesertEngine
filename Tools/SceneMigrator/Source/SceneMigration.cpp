@@ -2084,9 +2084,9 @@ namespace Desert::Migration
         {
             const std::string tag = entity.Tag.value_or( "Entity" );
             RaiseMeshGuids( entity.Components, tag, assetsRoot, report );
-            if ( !entity.PrefabOverrides.has_value() )
+            if ( !entity.PrefabOverrides )
                 continue;
-            auto& overrides = entity.PrefabOverrides.value();
+            auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
                 RaiseMeshGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
                                 assetsRoot, report );
@@ -2298,9 +2298,9 @@ namespace Desert::Migration
         {
             const std::string tag = entity.Tag.value_or( "Entity" );
             RaiseTextureGuids( entity.Components, tag, assetsRoot, index, report );
-            if ( !entity.PrefabOverrides.has_value() )
+            if ( !entity.PrefabOverrides )
                 continue;
-            auto& overrides = entity.PrefabOverrides.value();
+            auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
                 RaiseTextureGuids( overrides[i].Components,
                                    tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot, index,
@@ -2388,9 +2388,9 @@ namespace Desert::Migration
         {
             const std::string tag = entity.Tag.value_or( "Entity" );
             RaiseSpriteGuids( entity.Components, tag, assetsRoot, report );
-            if ( !entity.PrefabOverrides.has_value() )
+            if ( !entity.PrefabOverrides )
                 continue;
-            auto& overrides = entity.PrefabOverrides.value();
+            auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
                 RaiseSpriteGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
                                   assetsRoot, report );

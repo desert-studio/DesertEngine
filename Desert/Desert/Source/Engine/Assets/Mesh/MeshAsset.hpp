@@ -34,7 +34,7 @@ namespace Desert::Assets
             const auto& bytes = prefix.GetValue();
             if ( !bytes.has_value() )
                 return;
-            const auto guid = Common::Content::ReadMeshHeaderGuid( bytes.value() );
+            const auto guid = Common::Content::ReadMeshHeaderGuid( *bytes );
             if ( !guid || guid->IsNull() )
                 return;
             m_Guid = *guid;

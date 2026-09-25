@@ -130,10 +130,11 @@ namespace Desert::Assets
                  "[Material] '" + std::string( source ) +
                  "' is not a readable material file: " + parsed.error().what() );
         const MaterialData& material = parsed.value();
-        // The probe saw a header; this is the full read of the same text, checked on its own terms.
+        // The probe above read the same text, but this is a second parse: its header is asked again
+        // rather than assumed, so a disagreement between the two reads is a refusal and not a crash.
         if ( !material.Header.has_value() )
             return wrongSchema( 0 );
-        const Common::Content::TextAssetHeaderSerialized& textHeader = material.Header.value();
+        const Common::Content::TextAssetHeaderSerialized& textHeader = *material.Header;
         const Common::Content::AssetHeaderReadContext     context{ MaterialTextSubsystems() };
         const auto header = Common::Content::TextHeaderToAssetHeader( textHeader, context );
         if ( !header )
