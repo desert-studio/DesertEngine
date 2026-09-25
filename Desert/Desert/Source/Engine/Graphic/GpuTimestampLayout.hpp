@@ -2,78 +2,197 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Graphic
 {
     // ------------------------------------------------------------------------------------------------
-    // Where each GPU timestamp lives in the query pool, and how a nested measurement is turned into a
-    // breakdown that adds up. Pure functions of integers, outside the Vulkan class that uses them, for
-    // the same reason RenderGraphSort.hpp sits outside RenderGraphBuilder: VulkanGpuProfiler cannot be
-    // constructed without a device, so none of this would otherwise be assertable.
+    // Where each GPU timestamp lives in a frame's query pool, how big that pool has to be, which scope
+    // encloses which, and how a nested measurement is turned into a breakdown that adds up. Pure functions
+    // of integers and strings, outside the Vulkan class that uses them, for the same reason
+    // RenderGraphSort.hpp sits outside RenderGraphBuilder: VulkanGpuProfiler cannot be constructed without
+    // a device, so none of this would otherwise be assertable.
     //
-    // Two relations live here, and both have already been wrong once:
+    // Four relations live here:
     //
-    //   1. A QUERY BELONGS TO EXACTLY ONE (frame x renderer slot). Docs/RENDERER_FRAME_STATE.md is the
-    //      history of what happens when a per-frame GPU resource forgets the second dimension: the editor
-    //      runs several live SceneRenderers into one command buffer, and a pool keyed by frame alone has
-    //      the asset preview's "VolumetricClouds" land on top of the viewport's. Tests/Engine/
-    //      GpuTimestampLayout asserts the ranges are disjoint rather than trusting the multiplication.
+    //   1. ONE POOL PER FRAME IN FLIGHT, HANDED OUT LINEARLY. Query 0/1 bracket the whole command buffer;
+    //      scope i owns queries 2+2i and 3+2i, in the order scopes open, whichever view opens them. There
+    //      is no view dimension in the layout at all: views are unbounded, so a block per view would put a
+    //      ceiling back on the number of views the profiler can see.
     //
-    //   2. SELF TIMES PARTITION THE ROOT. Passes nest — the cloud march sits inside "Clouds:
+    //   2. THE POOL GROWS, NEVER MID-FRAME. A frame that asks for more scopes than its pool holds drops the
+    //      extra ones and raises the high-water mark; the pool is replaced when that frame index next
+    //      begins, where its old queries have been read and nothing is recording into it. Growth is
+    //      geometric so a slowly rising scope count reallocates a logarithmic number of times, not once per
+    //      new scope.
+    //
+    //   3. A PARENT IS IN THE SAME VIEW. Scopes of different views interleave in one list, but nesting is
+    //      tracked per view (the ActiveViewScope's target at BeginScope), so the preview's
+    //      "VolumetricClouds" can never be charged to the viewport's open "SceneRenderer::OnUpdate".
+    //
+    //   4. SELF TIMES PARTITION THE ROOT. Passes nest — the cloud march sits inside "Clouds:
     //      ExecuteInFrame" inside "VolumetricClouds" — so adding up the inclusive times counts the same
     //      microseconds three times. The first breakdown ever printed by this feature summed to 159% of
     //      its own frame for exactly that reason. Subtracting each scope's DIRECT children makes the
     //      remainder a partition, and that is a property worth asserting rather than eyeballing.
     // ------------------------------------------------------------------------------------------------
 
-    /// Queries reserved for one (frame x slot): two per scope, begin and end.
-    [[nodiscard]] constexpr uint32_t GpuQueriesPerSlot( uint32_t maxScopesPerSlot )
+    /// The pair bracketing the whole command buffer: begin at 0, end at 1.
+    inline constexpr uint32_t kGpuFrameTotalQuery = 0;
+
+    /// First query of the scope that opened @p scopeIndex-th in the frame; its end is the next query.
+    [[nodiscard]] constexpr uint32_t GpuScopeQueryBase( uint32_t scopeIndex )
     {
-        return maxScopesPerSlot * 2;
+        return 2 + scopeIndex * 2;
     }
 
-    /// Queries reserved for one frame: every slot, plus the pair that brackets the whole command buffer.
-    [[nodiscard]] constexpr uint32_t GpuQueriesPerFrame( uint32_t slotCount, uint32_t maxScopesPerSlot )
+    /// Queries a frame needs for @p scopeCount scopes plus its whole-frame bracket.
+    [[nodiscard]] constexpr uint32_t GpuQueriesForScopes( uint32_t scopeCount )
     {
-        return slotCount * GpuQueriesPerSlot( maxScopesPerSlot ) + 2;
+        return GpuScopeQueryBase( scopeCount );
     }
 
-    /// First query of a (frame x slot) block.
-    [[nodiscard]] constexpr uint32_t GpuSlotQueryBase( uint32_t frameIndex, uint32_t slot, uint32_t slotCount,
-                                                       uint32_t maxScopesPerSlot )
+    /// How many scopes a pool of @p queryCount queries can time, after the whole-frame bracket.
+    [[nodiscard]] constexpr uint32_t GpuScopeCapacity( uint32_t queryCount )
     {
-        return frameIndex * GpuQueriesPerFrame( slotCount, maxScopesPerSlot ) +
-               slot * GpuQueriesPerSlot( maxScopesPerSlot );
+        return queryCount < 2 ? 0 : ( queryCount - 2 ) / 2;
     }
 
-    /// The whole-frame bracket's pair, which sits after every slot's block in the same frame.
-    [[nodiscard]] constexpr uint32_t GpuFrameTotalQueryBase( uint32_t frameIndex, uint32_t slotCount,
-                                                             uint32_t maxScopesPerSlot )
+    /// Scopes the first pool of each frame is sized for. The editor's frame has ~30 pass-level scopes per
+    /// view, so one view fits from the first frame and every further view costs at most one growth.
+    inline constexpr uint32_t kGpuInitialScopeCapacity = 64;
+
+    /// Pool sizes are rounded up to this many queries, so a count that creeps up by one scope does not
+    /// produce a pool of an odd size that is outgrown again the next frame.
+    inline constexpr uint32_t kGpuQueryGranularity = 64;
+
+    // The query count a frame's pool must have once the busiest frame so far recorded @p highWaterScopes
+    // scopes. Returns @p currentQueries unchanged when that already fits — the caller replaces the pool
+    // exactly when the result differs. Never shrinks: a view closed for a moment would otherwise make the
+    // next frame drop scopes and grow again.
+    [[nodiscard]] constexpr uint32_t GpuGrownQueryCount( uint32_t currentQueries, uint32_t highWaterScopes )
     {
-        return frameIndex * GpuQueriesPerFrame( slotCount, maxScopesPerSlot ) +
-               slotCount * GpuQueriesPerSlot( maxScopesPerSlot );
+        const uint32_t required = GpuQueriesForScopes( highWaterScopes );
+        if ( required <= currentQueries )
+            return currentQueries;
+
+        const uint32_t geometric = currentQueries + currentQueries / 2;
+        const uint32_t target    = required > geometric ? required : geometric;
+        return ( target + kGpuQueryGranularity - 1 ) / kGpuQueryGranularity * kGpuQueryGranularity;
     }
 
-    /// Which frame a query index belongs to. The inverse of GpuSlotQueryBase's frame term — a scope
-    /// closes against the state it opened against by decoding its own handle, so this must invert.
-    [[nodiscard]] constexpr uint32_t GpuDecodeFrame( uint32_t queryBase, uint32_t slotCount,
-                                                     uint32_t maxScopesPerSlot )
+    // The profiler row a scope lands in. A scope recorded inside a view is prefixed with the view's name so
+    // that eight open views are eight sets of rows rather than one row averaging all of them; a scope
+    // recorded in the frame context (UI, bakes, the whole-frame bracket) keeps its bare name.
+    [[nodiscard]] inline std::string GpuViewScopeName( std::string_view viewName, std::string_view scope )
     {
-        return queryBase / GpuQueriesPerFrame( slotCount, maxScopesPerSlot );
-    }
+        if ( viewName.empty() )
+            return std::string( scope );
 
-    /// Which renderer slot a query index belongs to. Frame-total queries decode to slotCount, which is
-    /// out of range on purpose: they belong to no renderer, and a caller must not treat them as slot 0's.
-    [[nodiscard]] constexpr uint32_t GpuDecodeSlot( uint32_t queryBase, uint32_t slotCount,
-                                                    uint32_t maxScopesPerSlot )
-    {
-        return ( queryBase % GpuQueriesPerFrame( slotCount, maxScopesPerSlot ) ) /
-               GpuQueriesPerSlot( maxScopesPerSlot );
+        std::string name;
+        name.reserve( viewName.size() + 3 + scope.size() );
+        name.append( viewName ).append( " | " ).append( scope );
+        return name;
     }
 
     /// A scope with no enclosing scope.
     inline constexpr int32_t kGpuNoParent = -1;
+
+    /**
+     * @brief One frame's scopes, in the order they opened, with their nesting tracked per view.
+     *
+     * The bookkeeping half of the profiler: VulkanGpuProfiler owns one per frame in flight and writes the
+     * timestamps at GpuScopeQueryBase( index ) for whatever index Begin hands out. Owners are opaque
+     * addresses (the active ViewResources, or the frame context) used only as keys, never dereferenced, so
+     * a view destroyed before its frame is resolved costs nothing here.
+     */
+    class GpuScopeRecorder
+    {
+    public:
+        struct Scope
+        {
+            std::string Name;
+            // Index of the enclosing scope OF THE SAME OWNER, or kGpuNoParent. Always an earlier index,
+            // which is what GpuSelfTimes requires.
+            int32_t Parent = kGpuNoParent;
+            // Which of m_Stacks this scope was pushed on, so End pops the right one even if the active
+            // view has changed in between.
+            uint32_t Stack = 0;
+        };
+
+        // Starts a frame with room for @p capacityScopes.
+        void Reset( uint32_t capacityScopes )
+        {
+            m_Capacity  = capacityScopes;
+            m_Requested = 0;
+            m_Scopes.clear();
+            m_Stacks.clear();
+        }
+
+        // The scope's index (its queries are GpuScopeQueryBase( index ) and the next), or -1 when the pool
+        // is full. A refused scope still counts towards Requested(), which is what grows the pool.
+        [[nodiscard]] int32_t Begin( std::string name, const void* owner )
+        {
+            ++m_Requested;
+            if ( m_Scopes.size() >= m_Capacity )
+                return -1;
+
+            const uint32_t stackIndex = StackOf( owner );
+            auto&          stack      = m_Stacks[stackIndex].second;
+
+            const int32_t index = static_cast<int32_t>( m_Scopes.size() );
+            m_Scopes.push_back(
+                 Scope{ std::move( name ), stack.empty() ? kGpuNoParent : stack.back(), stackIndex } );
+            stack.push_back( index );
+            return index;
+        }
+
+        // Closes @p index. RAII scopes close innermost-first within their own view, so the top of that
+        // view's stack is the scope being closed; -1 (a refused scope) is ignored.
+        void End( int32_t index )
+        {
+            if ( index < 0 || static_cast<size_t>( index ) >= m_Scopes.size() )
+                return;
+            auto& stack = m_Stacks[m_Scopes[static_cast<size_t>( index )].Stack].second;
+            if ( !stack.empty() && stack.back() == index )
+                stack.pop_back();
+        }
+
+        [[nodiscard]] const std::vector<Scope>& Scopes() const noexcept
+        {
+            return m_Scopes;
+        }
+
+        /// Scopes asked for this frame, refused ones included — the number the pool must grow to.
+        [[nodiscard]] uint32_t Requested() const noexcept
+        {
+            return m_Requested;
+        }
+
+        [[nodiscard]] uint32_t Capacity() const noexcept
+        {
+            return m_Capacity;
+        }
+
+    private:
+        uint32_t StackOf( const void* owner )
+        {
+            // Linear: a frame has a handful of views, and a hash map would allocate every frame.
+            for ( uint32_t i = 0; i < m_Stacks.size(); ++i )
+                if ( m_Stacks[i].first == owner )
+                    return i;
+            m_Stacks.emplace_back( owner, std::vector<int32_t>{} );
+            return static_cast<uint32_t>( m_Stacks.size() - 1 );
+        }
+
+        uint32_t                                                  m_Capacity  = 0;
+        uint32_t                                                  m_Requested = 0;
+        std::vector<Scope>                                        m_Scopes;
+        std::vector<std::pair<const void*, std::vector<int32_t>>> m_Stacks;
+    };
 
     // Turn inclusive per-scope times into EXCLUSIVE ones by subtracting each scope's direct children.
     //

@@ -147,6 +147,14 @@ namespace Desert::Graphic::API::Vulkan
         m_RenderPassDeletionQueue.push_back( { renderPass, frameIndex } );
     }
 
+    void VulkanAllocator::RT_DestroyQueryPool( VkQueryPool queryPool )
+    {
+        if ( queryPool == VK_NULL_HANDLE )
+            return;
+        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        m_QueryPoolDeletionQueue.push_back( { queryPool, frameIndex } );
+    }
+
     void VulkanAllocator::RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool )
     {
         if ( descriptorPool == VK_NULL_HANDLE )
@@ -291,6 +299,18 @@ namespace Desert::Graphic::API::Vulkan
             else ++it;
         }
 
+        for ( auto it = m_QueryPoolDeletionQueue.begin(); it != m_QueryPoolDeletionQueue.end(); )
+        {
+            if ( takeFrame( it->FrameIndex ) )
+            {
+                vkDestroyQueryPool( device, it->QueryPool, nullptr );
+                it = m_QueryPoolDeletionQueue.erase( it );
+                ++destroyed;
+            }
+            else
+                ++it;
+        }
+
         for ( auto it = m_DescriptorPoolDeletionQueue.begin(); it != m_DescriptorPoolDeletionQueue.end(); )
         {
             if ( !takeFrame( it->FrameIndex ) )
@@ -335,7 +355,8 @@ namespace Desert::Graphic::API::Vulkan
     std::size_t VulkanAllocator::QueuedCount() const
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
-               m_RenderPassDeletionQueue.size() + m_DescriptorPoolDeletionQueue.size();
+               m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +
+               m_DescriptorPoolDeletionQueue.size();
     }
 
     VulkanAllocator::~VulkanAllocator()
