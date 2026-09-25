@@ -184,7 +184,6 @@ TEST( PackagedContent, APackageWithoutAChunkSchemeIsRefusedByPathAndWritesNoArch
     ASSERT_FALSE( refused.Success ) << "a project with no chunk scheme packaged anyway: " << refused.Message;
     EXPECT_NE( refused.Message.find( scheme.string() ), std::string::npos ) << refused.Message;
     EXPECT_FALSE( fs::exists( proj / "Content.dpak" ) ) << "the refusal still wrote an archive";
-    EXPECT_FALSE( fs::exists( proj / "Cooked" ) ) << "the scheme was read only after the cook had run";
 
     // The way out the message names, taken: the default scheme makes the same project package.
     ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( scheme ) );
@@ -928,6 +927,14 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     fs::remove_all( base );
     const fs::path proj = base / "proj";
 
+    // A REAL font, so the cook has something to write: a scene-only project cooks nothing, and "nothing
+    // was written" would then hold whichever order the packager used. The positive control at the end
+    // proves this fixture does make the cook write.
+    const fs::path realFont = fs::current_path() / "Editor" / "Resources" / "Fonts" / "Roboto-Regular.ttf";
+    ASSERT_TRUE( fs::exists( realFont ) ) << "the suite runs from the repository root: " << realFont;
+    fs::create_directories( proj / "Resources" / "Fonts" );
+    fs::copy_file( realFont, proj / "Resources" / "Fonts" / "Roboto-Regular.ttf" );
+
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
     SetEnv( "HOME", base.string() );
@@ -937,6 +944,17 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     const fs::path scheme = Common::Content::ChunkSchemePath();
     ASSERT_FALSE( fs::exists( scheme ) );
 
+    // Every file under the fixture's root (HOME included, so a cache kept there is seen too).
+    const auto filesUnder = [&base]
+    {
+        std::set<std::string> files;
+        for ( const auto& entry : fs::recursive_directory_iterator( base ) )
+            if ( entry.is_regular_file() )
+                files.insert( entry.path().string() );
+        return files;
+    };
+    const std::set<std::string> before = filesUnder();
+
     Desert::Editor::PackageOptions options;
     options.OutputDir = ( base / "out" ).string();
     options.Config    = "Release"; // nothing was built into base/build/Bin/Release
@@ -945,8 +963,17 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
     ASSERT_FALSE( result.Success ) << "a project with no chunk scheme packaged anyway";
     EXPECT_NE( result.Message.find( scheme.string() ), std::string::npos )
          << "something other than the scheme answered first: " << result.Message;
-    EXPECT_FALSE( fs::exists( proj / "Cooked" ) ) << "the cook ran before the scheme was read";
+    EXPECT_EQ( filesUnder(), before ) << "the refusal came after the cook had written its output";
     EXPECT_FALSE( fs::exists( base / "out" ) ) << "the refusal left something in the output directory";
+
+    // Positive control: with the scheme in place the same call reaches the cook (and then stops at the
+    // missing Runtime binary), and the cook does write — so the unchanged tree above was the order.
+    ASSERT_TRUE( Common::Content::WriteDefaultChunkScheme( scheme ) );
+    const std::set<std::string> withScheme = filesUnder();
+    const auto                  cooked     = Desert::Editor::PackageGame( options );
+    ASSERT_FALSE( cooked.Success );
+    EXPECT_EQ( cooked.Message.find( scheme.string() ), std::string::npos ) << cooked.Message;
+    EXPECT_GT( filesUnder().size(), withScheme.size() ) << "the fixture's font did not make the cook write anything";
 }
 
 // ── A PACKAGE STARTS BY ITSELF (П5) ───────────────────────────────────────────────────────────────
