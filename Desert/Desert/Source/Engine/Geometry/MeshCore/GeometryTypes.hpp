@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <unordered_map>
 
 namespace Desert::Geometry

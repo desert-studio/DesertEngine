@@ -7,6 +7,7 @@
 
 #include "Engine/Geometry/MeshCore/IndexTypes.hpp"
 
+#include <cassert>
 #include <cstdint>
 #include <vector>
 
