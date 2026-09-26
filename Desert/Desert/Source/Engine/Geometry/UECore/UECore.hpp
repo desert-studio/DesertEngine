@@ -1,4 +1,4 @@
-// UE Core shim for the ported GeometryCore (FDynamicMesh3 and its containers).
+// UE Core shim for the ported GeometryCore (DynamicMesh3 and its containers).
 // Not a port of a single UE file: it re-expresses, over std and glm, the subset of UE Core
 // (Runtime/Core: Containers/Array.h, ArrayView.h, Set.h, Map.h,
 // Misc/AssertionMacros.h) that the ported sources still call under UE names. It is being retired step by

@@ -9,7 +9,7 @@
 
 namespace Desert::Geometry
 {
-    class FIndexPriorityQueue
+    class IndexPriorityQueue
     {
     public:
         void Initialize( int MaxNodeID )
@@ -60,7 +60,7 @@ namespace Desert::Geometry
         }
 
     private:
-        struct FNode
+        struct Node
         {
             int   Id       = -1;
             float Priority = 0;
@@ -97,7 +97,7 @@ namespace Desert::Geometry
                 Index = Smallest;
             }
         }
-        std::vector<FNode> Nodes;
+        std::vector<Node>  Nodes;
         std::vector<int>   IdToIndex;
     };
 } // namespace Desert::Geometry

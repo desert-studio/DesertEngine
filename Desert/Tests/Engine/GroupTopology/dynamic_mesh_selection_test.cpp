@@ -1,4 +1,4 @@
-// P10: the element selection on the ported core (FDynamicMesh3 + FGroupTopology) selects EXACTLY what the
+// P10: the element selection on the ported core (DynamicMesh3 + GroupTopology) selects EXACTLY what the
 // EditMesh path selects on the same mesh. Both meshes are built from the same vertex/triangle/group lists, so
 // vertex, triangle and group IDs must agree as numbers; edge IDs are each core's own and are compared as the
 // vertex pairs they name. Every seed element of every mode goes through Convert (to all four modes), Grow,
@@ -83,8 +83,8 @@ namespace
     struct Pair
     {
         EditMesh       Old;
-        FDynamicMesh3  New;
-        FGroupTopology Topology;
+        DynamicMesh3   New;
+        GroupTopology  Topology;
         // Vertex / Edge picks against the EditMesh path's pixel-nearest rule (reported, not required equal).
         int PickSame          = 0;
         int PickOther         = 0;
@@ -104,11 +104,11 @@ namespace
             const auto& tri  = s.Triangles[t];
             int         oldT = -1;
             (void)p->Old.AppendTriangle( tri[0], tri[1], tri[2], oldT );
-            const int newT = p->New.AppendTriangle( FIndex3i( tri[0], tri[1], tri[2] ), s.Groups[t] );
+            const int newT = p->New.AppendTriangle( Index3i( tri[0], tri[1], tri[2] ), s.Groups[t] );
             EXPECT_EQ( oldT, newT );
             p->Old.Attributes().SetPolyGroup( oldT, s.Groups[t] );
         }
-        p->Topology = FGroupTopology( &p->New, true );
+        p->Topology = GroupTopology( &p->New, true );
         return p;
     }
 
@@ -129,7 +129,7 @@ namespace
         return out;
     }
 
-    std::set<std::pair<int, int>> NewValues( const FDynamicMesh3& m, const ElementSelection& s )
+    std::set<std::pair<int, int>> NewValues( const DynamicMesh3& m, const ElementSelection& s )
     {
         std::set<std::pair<int, int>> out;
         for ( const int id : s.Ids() )
@@ -139,7 +139,7 @@ namespace
                 out.insert( { id, -1 } );
                 continue;
             }
-            const FIndex2i ev = m.GetEdgeV( id );
+            const Index2i ev = m.GetEdgeV( id );
             out.insert( { std::min( ev.A, ev.B ), std::max( ev.A, ev.B ) } );
         }
         return out;
@@ -374,14 +374,14 @@ namespace
         return view;
     }
 
-    glm::vec3 At( const FDynamicMesh3& mesh, int v )
+    glm::vec3 At( const DynamicMesh3& mesh, int v )
     {
         const glm::dvec3 p = mesh.GetVertex( v );
         return { static_cast<float>( p.x ), static_cast<float>( p.y ), static_cast<float>( p.z ) };
     }
 } // namespace
 
-// UE PolyEdit (FMeshTopologySelector over FGroupTopology): an edge pick lands only on GROUP edges. Aimed at the
+// UE PolyEdit (FMeshTopologySelector over GroupTopology): an edge pick lands only on GROUP edges. Aimed at the
 // middle of a diagonal inside the +Z face's group, the group level misses while the triangle level hits it.
 TEST( DynamicMeshSelection, GroupEdgePickSkipsTheDiagonalInsideAGroup )
 {
@@ -390,7 +390,7 @@ TEST( DynamicMeshSelection, GroupEdgePickSkipsTheDiagonalInsideAGroup )
     int diagonal = -1;
     for ( const int e : p->New.EdgeIndicesItr() )
     {
-        const FIndex2i  ev = p->New.GetEdgeV( e );
+        const Index2i   ev = p->New.GetEdgeV( e );
         const glm::vec3 a  = At( p->New, ev.A );
         const glm::vec3 b  = At( p->New, ev.B );
         if ( a.z == 50.0f && b.z == 50.0f && a.x != b.x && a.y != b.y )
@@ -401,7 +401,7 @@ TEST( DynamicMeshSelection, GroupEdgePickSkipsTheDiagonalInsideAGroup )
         }
     }
     ASSERT_GE( diagonal, 0 );
-    const FIndex2i   ev   = p->New.GetEdgeV( diagonal );
+    const Index2i    ev   = p->New.GetEdgeV( diagonal );
     const glm::vec3  mid  = 0.5f * ( At( p->New, ev.A ) + At( p->New, ev.B ) );
     const PickView   view = ViewThrough( { 0.0f, 0.0f, 400.0f }, mid );
     const ElementHit tri  = PickElement( p->New, p->Topology, ElementMode::Edge, view, TopologyLevel::Triangle );
@@ -419,7 +419,7 @@ TEST( DynamicMeshSelection, GroupEdgePickSelectsEveryMeshEdgeOfTheGroupEdge )
     std::set<int> alongCubeEdge;
     for ( const int e : p->New.EdgeIndicesItr() )
     {
-        const FIndex2i ev = p->New.GetEdgeV( e );
+        const Index2i ev = p->New.GetEdgeV( e );
         if ( At( p->New, ev.A ).y == 50.0f && At( p->New, ev.A ).z == 50.0f && At( p->New, ev.B ).y == 50.0f &&
              At( p->New, ev.B ).z == 50.0f )
             alongCubeEdge.insert( e );

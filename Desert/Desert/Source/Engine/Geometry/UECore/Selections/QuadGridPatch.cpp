@@ -7,9 +7,9 @@
 
 namespace Desert::Geometry
 {
-    bool FQuadGridPatch::InitializeFromQuadPatch( const FDynamicMesh3&                      Mesh,
-                                                  const std::vector<std::vector<FIndex2i>>& QuadRowsIn,
-                                                  const std::vector<std::vector<int32_t>>&  VertexSpansIn )
+    bool QuadGridPatch::InitializeFromQuadPatch( const DynamicMesh3&                      Mesh,
+                                                 const std::vector<std::vector<Index2i>>& QuadRowsIn,
+                                                 const std::vector<std::vector<int32_t>>& VertexSpansIn )
     {
         if ( static_cast<int32_t>( VertexSpansIn.size() ) < 2 ||
              static_cast<int32_t>( QuadRowsIn.size() ) != static_cast<int32_t>( VertexSpansIn.size() ) - 1 )
@@ -44,14 +44,14 @@ namespace Desert::Geometry
                 const int32_t VertexB  = VertexSpans[j][k + 1];
                 const int32_t VertexC  = VertexSpans[j + 1][k + 1];
                 const int32_t VertexD  = VertexSpans[j + 1][k];
-                FIndex2i&   QuadTris = QuadTriangles[j][k];
+                Index2i&      QuadTris = QuadTriangles[j][k];
                 if ( !Mesh.IsTriangle( QuadTris.A ) || !Mesh.IsTriangle( QuadTris.B ) )
                 {
                     bAllOK = false;
                     break;
                 }
-                const FIndex3i TriA = Mesh.GetTriangle( QuadTris.A );
-                const FIndex3i TriB = Mesh.GetTriangle( QuadTris.B );
+                const Index3i        TriA = Mesh.GetTriangle( QuadTris.A );
+                const Index3i        TriB = Mesh.GetTriangle( QuadTris.B );
                 std::vector<int32_t> TriVerts;
                 TriVerts.push_back( TriA.A );
                 TriVerts.push_back( TriA.B );
@@ -93,7 +93,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool FQuadGridPatch::GetVertexColumn( int32_t ColumnIndex, std::vector<int32_t>& VerticesOut ) const
+    bool QuadGridPatch::GetVertexColumn( int32_t ColumnIndex, std::vector<int32_t>& VerticesOut ) const
     {
         if ( VertexSpans.empty() || ColumnIndex < 0 ||
              ColumnIndex >= static_cast<int32_t>( VertexSpans[0].size() ) )
@@ -104,7 +104,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    int32_t FQuadGridPatch::FindColumnIndex( int32_t VertexID ) const
+    int32_t QuadGridPatch::FindColumnIndex( int32_t VertexID ) const
     {
         for ( const std::vector<int32_t>& Span : VertexSpans )
         {

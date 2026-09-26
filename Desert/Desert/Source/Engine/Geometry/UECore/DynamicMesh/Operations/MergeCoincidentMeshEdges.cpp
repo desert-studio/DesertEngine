@@ -16,10 +16,10 @@ namespace Desert::Geometry
     namespace
     {
         // TPointHashGrid3<int32_t, double> with FScaleGridIndexer3 at the origin.
-        class FPointHashGrid3
+        class PointHashGrid3
         {
         public:
-            explicit FPointHashGrid3( double CellSize ) : CellSize( CellSize )
+            explicit PointHashGrid3( double CellSize ) : CellSize( CellSize )
             {
             }
             void InsertPointUnsafe( int32_t Value, const glm::dvec3& Pos )
@@ -61,9 +61,9 @@ namespace Desert::Geometry
 
     } // namespace
 
-    const double FMergeCoincidentMeshEdges::DEFAULT_TOLERANCE = FMathf::ZeroTolerance;
+    const double MergeCoincidentMeshEdges::DEFAULT_TOLERANCE = FMathf::ZeroTolerance;
 
-    bool FMergeCoincidentMeshEdges::Apply()
+    bool MergeCoincidentMeshEdges::Apply()
     {
         MergeVtxDistSqr          = MergeVertexTolerance * MergeVertexTolerance;
         double UseMergeSearchTol = ( MergeSearchTolerance > 0 ) ? MergeSearchTolerance : 2 * MergeVertexTolerance;
@@ -88,11 +88,11 @@ namespace Desert::Geometry
         if ( InitialNumBoundaryEdges > 100000 )
             hashN = 512;
 
-        const FAxisAlignedBox3d Bounds   = Mesh->GetBounds();
+        const AxisAlignedBox3d  Bounds   = Mesh->GetBounds();
         const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
                                                      std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
         const double CellSize = std::max( FMathd::ZeroTolerance, MaxDim / static_cast<double>( hashN ) );
-        FPointHashGrid3         MidpointsHash( CellSize );
+        PointHashGrid3          MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
         glm::dvec3           A{}, B{}, C{}, D{};
@@ -142,7 +142,7 @@ namespace Desert::Geometry
         }
 
         // potential duplicates, fewest possible matches first
-        FIndexPriorityQueue DuplicatesQueue;
+        IndexPriorityQueue DuplicatesQueue;
         DuplicatesQueue.Initialize( Mesh->MaxEdgeID() );
         for ( int eid : std::vector( RemainingEdges.begin(), RemainingEdges.end() ) )
         {
@@ -180,9 +180,9 @@ namespace Desert::Geometry
                      !EdgesToMerge->contains( other_eid ) )
                     continue;
 
-                FDynamicMesh3::FMergeEdgesInfo MergeInfo;
-                const EMeshResult              Result = Mesh->MergeEdges( eid, other_eid, MergeInfo );
-                if ( Result != EMeshResult::Ok )
+                DynamicMesh3::MergeEdgesInfo MergeInfo;
+                const MeshResult             Result = Mesh->MergeEdges( eid, other_eid, MergeInfo );
+                if ( Result != MeshResult::Ok )
                 {
                     // a failed pair leaves both equivalence sets
                     Matches.erase( Matches.begin() + i );

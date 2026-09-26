@@ -33,23 +33,23 @@ namespace
     }
 } // namespace
 
-FDynamicMeshAttributeSet::FDynamicMeshAttributeSet( FDynamicMesh3* Mesh ) : ParentMesh( Mesh )
+DynamicMeshAttributeSet::DynamicMeshAttributeSet( DynamicMesh3* Mesh ) : ParentMesh( Mesh )
 {
     SetNumUVLayers( 1 );
     SetNumNormalLayers( 1 );
 }
 
-FDynamicMeshAttributeSet::FDynamicMeshAttributeSet( FDynamicMesh3* Mesh, int32_t NumUVLayersIn,
-                                                    int32_t NumNormalLayersIn )
+DynamicMeshAttributeSet::DynamicMeshAttributeSet( DynamicMesh3* Mesh, int32_t NumUVLayersIn,
+                                                  int32_t NumNormalLayersIn )
      : ParentMesh( Mesh )
 {
     SetNumUVLayers( NumUVLayersIn );
     SetNumNormalLayers( NumNormalLayersIn );
 }
 
-FDynamicMeshAttributeSet::~FDynamicMeshAttributeSet() = default;
+DynamicMeshAttributeSet::~DynamicMeshAttributeSet() = default;
 
-void FDynamicMeshAttributeSet::Copy( const FDynamicMeshAttributeSet& Copy )
+void DynamicMeshAttributeSet::Copy( const DynamicMeshAttributeSet& Copy )
 {
     SetNumUVLayers( Copy.NumUVLayers() );
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
@@ -94,7 +94,7 @@ void FDynamicMeshAttributeSet::Copy( const FDynamicMeshAttributeSet& Copy )
     }
 }
 
-bool FDynamicMeshAttributeSet::IsCompact() const
+bool DynamicMeshAttributeSet::IsCompact() const
 {
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
@@ -121,7 +121,8 @@ bool FDynamicMeshAttributeSet::IsCompact() const
     return true;
 }
 
-void FDynamicMeshAttributeSet::CompactCopy( const FCompactMaps& CompactMaps, const FDynamicMeshAttributeSet& Copy )
+void DynamicMeshAttributeSet::CompactCopy( const DynamicMeshCompactMaps&  CompactMaps,
+                                           const DynamicMeshAttributeSet& Copy )
 {
     SetNumUVLayers( Copy.NumUVLayers() );
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
@@ -166,8 +167,8 @@ void FDynamicMeshAttributeSet::CompactCopy( const FCompactMaps& CompactMaps, con
     }
 }
 
-void FDynamicMeshAttributeSet::Append( const FDynamicMeshAttributeSet&   ToAppend,
-                                       const FDynamicMesh3::FAppendInfo& AppendInfo )
+void DynamicMeshAttributeSet::Append( const DynamicMeshAttributeSet&  ToAppend,
+                                      const DynamicMesh3::AppendInfo& AppendInfo )
 {
     auto AppendHelper = [&AppendInfo]<typename T>( T& Target, const T* ToAppendLayer )
     {
@@ -218,7 +219,7 @@ void FDynamicMeshAttributeSet::Append( const FDynamicMeshAttributeSet&   ToAppen
     }
 }
 
-void FDynamicMeshAttributeSet::AppendDefaulted( const FDynamicMesh3::FAppendInfo& AppendInfo )
+void DynamicMeshAttributeSet::AppendDefaulted( const DynamicMesh3::AppendInfo& AppendInfo )
 {
     for ( int32_t Idx = 0; Idx < NumUVLayers(); ++Idx )
     {
@@ -246,7 +247,7 @@ void FDynamicMeshAttributeSet::AppendDefaulted( const FDynamicMesh3::FAppendInfo
     }
 }
 
-void FDynamicMeshAttributeSet::CompactInPlace( const FCompactMaps& CompactMaps )
+void DynamicMeshAttributeSet::CompactInPlace( const DynamicMeshCompactMaps& CompactMaps )
 {
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
@@ -274,7 +275,7 @@ void FDynamicMeshAttributeSet::CompactInPlace( const FCompactMaps& CompactMaps )
     }
 }
 
-void FDynamicMeshAttributeSet::SplitAllBowties( bool bParallel )
+void DynamicMeshAttributeSet::SplitAllBowties( bool bParallel )
 {
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
@@ -290,8 +291,8 @@ void FDynamicMeshAttributeSet::SplitAllBowties( bool bParallel )
     }
 }
 
-void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttributeSet& ToMatch,
-                                                         bool bClearExisting, bool bDiscardExtraAttributes )
+void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttributeSet& ToMatch,
+                                                        bool bClearExisting, bool bDiscardExtraAttributes )
 {
     const bool bUseToMatch = bClearExisting || bDiscardExtraAttributes;
 
@@ -378,7 +379,7 @@ void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttri
     }
 }
 
-void FDynamicMeshAttributeSet::Reparent( FDynamicMesh3* NewParent )
+void DynamicMeshAttributeSet::Reparent( DynamicMesh3* NewParent )
 {
     ParentMesh = NewParent;
 
@@ -408,7 +409,7 @@ void FDynamicMeshAttributeSet::Reparent( FDynamicMesh3* NewParent )
     }
 }
 
-void FDynamicMeshAttributeSet::SetNumUVLayers( int Num )
+void DynamicMeshAttributeSet::SetNumUVLayers( int Num )
 {
     SetNumLayers( UVLayers, Num,
                   [this]()
@@ -419,17 +420,17 @@ void FDynamicMeshAttributeSet::SetNumUVLayers( int Num )
                   } );
 }
 
-void FDynamicMeshAttributeSet::EnableTangents()
+void DynamicMeshAttributeSet::EnableTangents()
 {
     SetNumNormalLayers( 3 );
 }
 
-void FDynamicMeshAttributeSet::DisableTangents()
+void DynamicMeshAttributeSet::DisableTangents()
 {
     SetNumNormalLayers( 1 );
 }
 
-void FDynamicMeshAttributeSet::SetNumNormalLayers( int Num )
+void DynamicMeshAttributeSet::SetNumNormalLayers( int Num )
 {
     SetNumLayers( NormalLayers, Num,
                   [this]()
@@ -440,7 +441,7 @@ void FDynamicMeshAttributeSet::SetNumNormalLayers( int Num )
                   } );
 }
 
-void FDynamicMeshAttributeSet::EnablePrimaryColors()
+void DynamicMeshAttributeSet::EnablePrimaryColors()
 {
     if ( HasPrimaryColors() == false )
     {
@@ -449,47 +450,47 @@ void FDynamicMeshAttributeSet::EnablePrimaryColors()
     }
 }
 
-void FDynamicMeshAttributeSet::DisablePrimaryColors()
+void DynamicMeshAttributeSet::DisablePrimaryColors()
 {
     ColorLayer.reset();
 }
 
-int32_t FDynamicMeshAttributeSet::NumPolygroupLayers() const
+int32_t DynamicMeshAttributeSet::NumPolygroupLayers() const
 {
     return static_cast<int32_t>( PolygroupLayers.size() );
 }
 
-void FDynamicMeshAttributeSet::SetNumPolygroupLayers( int32_t Num )
+void DynamicMeshAttributeSet::SetNumPolygroupLayers( int32_t Num )
 {
     SetNumLayers( PolygroupLayers, Num,
-                  [this]() { return std::make_unique<FDynamicMeshPolygroupAttribute>( ParentMesh ); } );
+                  [this]() { return std::make_unique<DynamicMeshPolygroupAttribute>( ParentMesh ); } );
 }
 
-FDynamicMeshPolygroupAttribute* FDynamicMeshAttributeSet::GetPolygroupLayer( int Index )
+DynamicMeshPolygroupAttribute* DynamicMeshAttributeSet::GetPolygroupLayer( int Index )
 {
     return PolygroupLayers[Index].get();
 }
 
-const FDynamicMeshPolygroupAttribute* FDynamicMeshAttributeSet::GetPolygroupLayer( int Index ) const
+const DynamicMeshPolygroupAttribute* DynamicMeshAttributeSet::GetPolygroupLayer( int Index ) const
 {
     return PolygroupLayers[Index].get();
 }
 
-void FDynamicMeshAttributeSet::EnableMaterialID()
+void DynamicMeshAttributeSet::EnableMaterialID()
 {
     if ( HasMaterialID() == false )
     {
-        MaterialIDAttrib = std::make_unique<FDynamicMeshMaterialAttribute>( ParentMesh );
+        MaterialIDAttrib = std::make_unique<DynamicMeshMaterialAttribute>( ParentMesh );
         MaterialIDAttrib->Initialize( static_cast<int32_t>( 0 ) );
     }
 }
 
-void FDynamicMeshAttributeSet::DisableMaterialID()
+void DynamicMeshAttributeSet::DisableMaterialID()
 {
     MaterialIDAttrib.reset();
 }
 
-bool FDynamicMeshAttributeSet::IsSeamEdge( int eid ) const
+bool DynamicMeshAttributeSet::IsSeamEdge( int eid ) const
 {
     for ( const auto& UVLayer : UVLayers )
     {
@@ -512,7 +513,7 @@ bool FDynamicMeshAttributeSet::IsSeamEdge( int eid ) const
     return false;
 }
 
-bool FDynamicMeshAttributeSet::IsSeamEndEdge( int eid ) const
+bool DynamicMeshAttributeSet::IsSeamEndEdge( int eid ) const
 {
     for ( const auto& UVLayer : UVLayers )
     {
@@ -535,8 +536,8 @@ bool FDynamicMeshAttributeSet::IsSeamEndEdge( int eid ) const
     return false;
 }
 
-bool FDynamicMeshAttributeSet::IsSeamEdge( int EdgeID, bool& bIsUVSeamOut, bool& bIsNormalSeamOut,
-                                           bool& bIsColorSeamOut, bool& bIsTangentSeamOut ) const
+bool DynamicMeshAttributeSet::IsSeamEdge( int EdgeID, bool& bIsUVSeamOut, bool& bIsNormalSeamOut,
+                                          bool& bIsColorSeamOut, bool& bIsTangentSeamOut ) const
 {
     bIsUVSeamOut = false;
     for ( const auto& UVLayer : UVLayers )
@@ -556,7 +557,7 @@ bool FDynamicMeshAttributeSet::IsSeamEdge( int EdgeID, bool& bIsUVSeamOut, bool&
     return bIsUVSeamOut || bIsNormalSeamOut || bIsColorSeamOut || bIsTangentSeamOut;
 }
 
-bool FDynamicMeshAttributeSet::IsSeamVertex( int VID, bool bBoundaryIsSeam ) const
+bool DynamicMeshAttributeSet::IsSeamVertex( int VID, bool bBoundaryIsSeam ) const
 {
     for ( const auto& UVLayer : UVLayers )
     {
@@ -579,7 +580,7 @@ bool FDynamicMeshAttributeSet::IsSeamVertex( int VID, bool bBoundaryIsSeam ) con
     return false;
 }
 
-bool FDynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) const
+bool DynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) const
 {
     for ( const auto& UVLayer : UVLayers )
     {
@@ -602,7 +603,7 @@ bool FDynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) cons
     return false;
 }
 
-bool FDynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
+bool DynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
 {
     if ( MaterialIDAttrib == nullptr )
     {
@@ -611,7 +612,7 @@ bool FDynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
     UE_CHECK( ParentMesh->IsEdge( EdgeID ) );
     if ( ParentMesh->IsEdge( EdgeID ) && !ParentMesh->IsBoundaryEdge( EdgeID ) )
     {
-        const FIndex2i EdgeTris = ParentMesh->GetEdgeT( EdgeID );
+        const Index2i  EdgeTris = ParentMesh->GetEdgeT( EdgeID );
         const int      MatA     = MaterialIDAttrib->GetValue( EdgeTris.A );
         const int      MatB     = MaterialIDAttrib->GetValue( EdgeTris.B );
         return MatA != MatB;
@@ -619,17 +620,17 @@ bool FDynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
     return false;
 }
 
-void FDynamicMeshAttributeSet::OnNewVertex( int VertexID, bool bInserted )
+void DynamicMeshAttributeSet::OnNewVertex( int VertexID, bool bInserted )
 {
     FDynamicMeshAttributeSetBase::OnNewVertex( VertexID, bInserted );
 }
 
-void FDynamicMeshAttributeSet::OnRemoveVertex( int VertexID )
+void DynamicMeshAttributeSet::OnRemoveVertex( int VertexID )
 {
     FDynamicMeshAttributeSetBase::OnRemoveVertex( VertexID );
 }
 
-void FDynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
+void DynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
 {
     FDynamicMeshAttributeSetBase::OnNewTriangle( TriangleID, bInserted );
 
@@ -657,7 +658,7 @@ void FDynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
     }
 }
 
-void FDynamicMeshAttributeSet::OnRemoveTriangle( int TriangleID )
+void DynamicMeshAttributeSet::OnRemoveTriangle( int TriangleID )
 {
     FDynamicMeshAttributeSetBase::OnRemoveTriangle( TriangleID );
 
@@ -676,7 +677,7 @@ void FDynamicMeshAttributeSet::OnRemoveTriangle( int TriangleID )
     // material ID and polygroup attributes do not need to be updated when a triangle is removed
 }
 
-void FDynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
+void DynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
 {
     FDynamicMeshAttributeSetBase::OnReverseTriOrientation( TriangleID );
 
@@ -719,43 +720,43 @@ void FDynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
         PolygroupLayer->Handler( __VA_ARGS__ );                                                                   \
     }
 
-void FDynamicMeshAttributeSet::OnSplitEdge( const DynamicMeshInfo::FEdgeSplitInfo& SplitInfo )
+void DynamicMeshAttributeSet::OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo )
 {
     DESERT_ATTRIBUTE_SET_FORWARD( OnSplitEdge, SplitInfo )
 }
 
-void FDynamicMeshAttributeSet::OnFlipEdge( const DynamicMeshInfo::FEdgeFlipInfo& FlipInfo )
+void DynamicMeshAttributeSet::OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo )
 {
     DESERT_ATTRIBUTE_SET_FORWARD( OnFlipEdge, FlipInfo )
 }
 
-void FDynamicMeshAttributeSet::OnCollapseEdge( const DynamicMeshInfo::FEdgeCollapseInfo& CollapseInfo )
+void DynamicMeshAttributeSet::OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo )
 {
     DESERT_ATTRIBUTE_SET_FORWARD( OnCollapseEdge, CollapseInfo )
 }
 
-void FDynamicMeshAttributeSet::OnPokeTriangle( const DynamicMeshInfo::FPokeTriangleInfo& PokeInfo )
+void DynamicMeshAttributeSet::OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& PokeInfo )
 {
     DESERT_ATTRIBUTE_SET_FORWARD( OnPokeTriangle, PokeInfo )
 }
 
-void FDynamicMeshAttributeSet::OnMergeEdges( const DynamicMeshInfo::FMergeEdgesInfo& MergeInfo )
+void DynamicMeshAttributeSet::OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo )
 {
     DESERT_ATTRIBUTE_SET_FORWARD( OnMergeEdges, MergeInfo )
 }
 
-void FDynamicMeshAttributeSet::OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& MergeInfo )
+void DynamicMeshAttributeSet::OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo )
 {
     DESERT_ATTRIBUTE_SET_FORWARD( OnMergeVertices, MergeInfo )
 }
 
-void FDynamicMeshAttributeSet::OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                              const std::span<const int>&              TrianglesToUpdate ){
+void DynamicMeshAttributeSet::OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
+                                             const std::span<const int>&             TrianglesToUpdate ){
      DESERT_ATTRIBUTE_SET_FORWARD( OnSplitVertex, SplitInfo, TrianglesToUpdate ) }
 
 #undef DESERT_ATTRIBUTE_SET_FORWARD
 
-size_t FDynamicMeshAttributeSet::GetByteCount() const
+size_t DynamicMeshAttributeSet::GetByteCount() const
 {
     size_t ByteCount = 0;
     for ( const auto& UVLayer : UVLayers )
@@ -785,7 +786,7 @@ size_t FDynamicMeshAttributeSet::GetByteCount() const
     return ByteCount;
 }
 
-bool FDynamicMeshAttributeSet::CheckValidity( bool bAllowNonmanifold, EValidityCheckFailMode FailMode ) const
+bool DynamicMeshAttributeSet::CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
 {
     bool bValid = FDynamicMeshAttributeSetBase::CheckValidity( bAllowNonmanifold, FailMode );
     for ( int UVLayerIndex = 0; UVLayerIndex < NumUVLayers(); UVLayerIndex++ )

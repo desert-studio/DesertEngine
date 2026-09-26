@@ -1,4 +1,4 @@
-// FDynamicMeshUVEditor::SetTriangleUVsFromFreeBoundarySpectralConformal (ported from UE with its solver). A planar
+// DynamicMeshUVEditor::SetTriangleUVsFromFreeBoundarySpectralConformal (ported from UE with its solver). A planar
 // region has a zero-energy conformal map, a similarity of itself: every UV angle must equal its 3D angle, and the
 // square's corners must stay right angles (a boundary pinned to a circle would open them to 180 degrees). A
 // spherical cap is not developable: angles move, but no triangle may flip or collapse.
@@ -19,9 +19,9 @@ namespace
 
     // (Cells+1)^2 grid over a 100 cm square, interior vertices jittered so the triangles are irregular; Bend lifts
     // it onto a sphere of that radius (0 = flat).
-    FDynamicMesh3 Grid( double Bend )
+    DynamicMesh3 Grid( double Bend )
     {
-        FDynamicMesh3 mesh;
+        DynamicMesh3 mesh;
         for ( int k = 0; k <= Cells; ++k )
         {
             for ( int i = 0; i <= Cells; ++i )
@@ -64,7 +64,7 @@ namespace
         double MinAreaRatio   = 1e30; // UV area / 3D area, normalized by the mean ratio
     };
 
-    FStats Measure( const FDynamicMesh3& mesh, const FDynamicMeshUVOverlay& uvs )
+    FStats Measure( const DynamicMesh3& mesh, const FDynamicMeshUVOverlay& uvs )
     {
         FStats              s;
         int                 count    = 0;
@@ -72,8 +72,8 @@ namespace
         std::vector<double> ratios;
         for ( const int t : mesh.TriangleIndicesItr() )
         {
-            const FIndex3i v = mesh.GetTriangle( t );
-            const FIndex3i e = uvs.GetTriangle( t );
+            const Index3i  v = mesh.GetTriangle( t );
+            const Index3i  e = uvs.GetTriangle( t );
             glm::dvec3     p[3]{};
             glm::dvec3     q[3]{};
             for ( int j = 0; j < 3; ++j )
@@ -102,7 +102,7 @@ namespace
         return s;
     }
 
-    std::vector<int32_t> AllTriangles( const FDynamicMesh3& mesh )
+    std::vector<int32_t> AllTriangles( const DynamicMesh3& mesh )
     {
         std::vector<int32_t> triangles;
         for ( const int t : mesh.TriangleIndicesItr() )
@@ -115,10 +115,10 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
 {
     for ( const bool preserveIrregularity : { false, true } )
     {
-        FDynamicMesh3          mesh = Grid( 0.0 );
+        DynamicMesh3           mesh = Grid( 0.0 );
         FDynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
-        FDynamicMeshUVEditor   editor( &mesh, &uvs );
-        FUVEditResult          result;
+        DynamicMeshUVEditor    editor( &mesh, &uvs );
+        UVEditResult           result;
         ASSERT_TRUE( editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), false,
                                                                              preserveIrregularity, &result ) );
         EXPECT_EQ( static_cast<int32_t>( result.NewUVElements.size() ), mesh.VertexCount() );
@@ -134,12 +134,12 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
 TEST( SpectralConformalUV, SphericalCapInPlaceKeepsOrientationAndAngles )
 {
     // the bevel's call: existing UV topology, irregularity preserved
-    FDynamicMesh3          mesh = Grid( 120.0 );
+    DynamicMesh3           mesh = Grid( 120.0 );
     FDynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
-    FDynamicMeshUVEditor   editor( &mesh, &uvs );
+    DynamicMeshUVEditor    editor( &mesh, &uvs );
     ASSERT_TRUE( editor.SetTriangleUVsFromExpMap( AllTriangles( mesh ) ) );
     const int     elementsBefore = uvs.ElementCount();
-    FUVEditResult result;
+    UVEditResult  result;
     ASSERT_TRUE(
          editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), true, true, &result ) );
     EXPECT_EQ( uvs.ElementCount(), elementsBefore );

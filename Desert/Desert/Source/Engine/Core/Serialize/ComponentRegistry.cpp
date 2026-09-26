@@ -1078,7 +1078,7 @@ namespace Desert::Core::Serialize
                                    tag, loaded.GetError() );
                     }
                     else if ( auto set = ECS::SetEditableMesh(
-                                   smc, std::make_shared<const Geometry::FDynamicMesh3>( loaded.ExtractValue() ) );
+                                   smc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
                               !set.IsSuccess() )
                     {
                         LOG_ERROR(

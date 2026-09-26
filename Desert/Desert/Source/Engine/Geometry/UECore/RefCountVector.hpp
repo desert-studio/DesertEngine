@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Util/RefCountVector.h:1-541,603-668, adapted: UE
 // Core types via UECore.hpp, namespace Desert::Geometry, FString UsageStats and FArchive serialization (532-602)
-// not ported. Port of geometry3cpp FRefCountVector
+// not ported. Port of geometry3cpp RefCountVector
 
 #pragma once
 
@@ -11,7 +11,7 @@ namespace Desert::Geometry
 {
 
     /**
-     * FRefCountVector is used to keep track of which indices in a linear Index list are in use/referenced.
+     * RefCountVector is used to keep track of which indices in a linear Index list are in use/referenced.
      * A free list is tracked so that unreferenced indices can be re-used.
      *
      * The enumerator iterates over valid indices (ie where refcount > 0)
@@ -19,21 +19,21 @@ namespace Desert::Geometry
      * overflows.
      * @warning No overflow checking is done in release builds.
      */
-    class FRefCountVector
+    class RefCountVector
     {
     public:
         static constexpr unsigned short INVALID_REF_COUNT = std::numeric_limits<uint16_t>::max();
 
-        FRefCountVector()                         = default;
-        FRefCountVector( const FRefCountVector& ) = default;
-        FRefCountVector( FRefCountVector&& From )
+        RefCountVector()                        = default;
+        RefCountVector( const RefCountVector& ) = default;
+        RefCountVector( RefCountVector&& From )
              : RefCounts( std::move( From.RefCounts ) ), FreeIndices( std::move( From.FreeIndices ) ),
                UsedCount( From.UsedCount )
         {
             From.UsedCount = 0;
         }
-        FRefCountVector& operator=( const FRefCountVector& ) = default;
-        FRefCountVector& operator=( FRefCountVector&& From )
+        RefCountVector& operator=( const RefCountVector& ) = default;
+        RefCountVector& operator=( RefCountVector&& From )
         {
             RefCounts      = std::move( From.RefCounts );
             FreeIndices    = std::move( From.FreeIndices );
@@ -86,7 +86,7 @@ namespace Desert::Geometry
         // Append all ref counts from another RefCountVector, offsetting FreeIndices to refer to their corresponded
         // new array positions Note this does not try to 'fill in' original free indices, by design -- all existing
         // IDs remain untouched, and all new IDs are simply offsets of the Other's IDs
-        void Append( const FRefCountVector& Other )
+        void Append( const RefCountVector& Other )
         {
             size_t OrigNum  = RefCounts.Num();
             size_t OrigFree = FreeIndices.Num();
@@ -225,7 +225,7 @@ namespace Desert::Geometry
             }
         }
 
-        const TDynamicVector<unsigned short>& GetRawRefCounts() const
+        const DynamicVector<unsigned short>& GetRawRefCounts() const
         {
             return RefCounts;
         }
@@ -233,7 +233,7 @@ namespace Desert::Geometry
         /**
          * @warning you should not use this!
          */
-        TDynamicVector<unsigned short>& GetRawRefCountsUnsafe()
+        DynamicVector<unsigned short>& GetRawRefCountsUnsafe()
         {
             return RefCounts;
         }
@@ -381,7 +381,7 @@ namespace Desert::Geometry
                 }
             }
 
-            inline BaseIterator( const FRefCountVector* VectorIn, int IndexIn, int LastIn )
+            inline BaseIterator( const RefCountVector* VectorIn, int IndexIn, int LastIn )
             {
                 Vector    = VectorIn;
                 Index     = IndexIn;
@@ -391,10 +391,10 @@ namespace Desert::Geometry
                     goto_next(); // initialize
                 }
             }
-            const FRefCountVector* Vector;
+            const RefCountVector*  Vector;
             int                    Index;
             int                    LastIndex;
-            friend class FRefCountVector;
+            friend class RefCountVector;
         };
 
         /*
@@ -425,11 +425,11 @@ namespace Desert::Geometry
             }
 
         protected:
-            inline IndexIterator( const FRefCountVector* VectorIn, int Index, int Last )
+            inline IndexIterator( const RefCountVector* VectorIn, int Index, int Last )
                  : BaseIterator( VectorIn, Index, Last )
             {
             }
-            friend class FRefCountVector;
+            friend class RefCountVector;
         };
 
         inline IndexIterator BeginIndices() const
@@ -449,20 +449,20 @@ namespace Desert::Geometry
         class IndexEnumerable
         {
         public:
-            const FRefCountVector* Vector;
+            const RefCountVector* Vector;
             IndexEnumerable()
             {
                 Vector = nullptr;
             }
-            IndexEnumerable( const FRefCountVector* VectorIn )
+            IndexEnumerable( const RefCountVector* VectorIn )
             {
                 Vector = VectorIn;
             }
-            typename FRefCountVector::IndexIterator begin() const
+            typename RefCountVector::IndexIterator begin() const
             {
                 return Vector->BeginIndices();
             }
-            typename FRefCountVector::IndexIterator end() const
+            typename RefCountVector::IndexIterator end() const
             {
                 return Vector->EndIndices();
             }
@@ -549,7 +549,7 @@ namespace Desert::Geometry
             return RefCounts.GetByteCount() + FreeIndices.GetByteCount();
         }
 
-        friend bool operator==( const FRefCountVector& Lhs, const FRefCountVector& Rhs )
+        friend bool operator==( const RefCountVector& Lhs, const RefCountVector& Rhs )
         {
             if ( Lhs.GetCount() != Rhs.GetCount() )
             {
@@ -573,14 +573,14 @@ namespace Desert::Geometry
             return true;
         }
 
-        friend bool operator!=( const FRefCountVector& Lhs, const FRefCountVector& Rhs )
+        friend bool operator!=( const RefCountVector& Lhs, const RefCountVector& Rhs )
         {
             return !( Lhs == Rhs );
         }
 
     private:
-        TDynamicVector<unsigned short> RefCounts{};
-        TDynamicVector<int>            FreeIndices{};
+        DynamicVector<unsigned short>  RefCounts{};
+        DynamicVector<int>             FreeIndices{};
         int                            UsedCount{ 0 };
     };
 

@@ -60,7 +60,7 @@ namespace
 namespace Desert::Geometry
 {
     template <typename RealType>
-    bool TMeshTangents<RealType>::CopyToOverlays( FDynamicMesh3& MeshToSet ) const
+    bool MeshTangents<RealType>::CopyToOverlays( DynamicMesh3& MeshToSet ) const
     {
         if ( !MeshToSet.HasAttributes() || MeshToSet.Attributes()->NumNormalLayers() != 3 )
         {
@@ -79,8 +79,8 @@ namespace Desert::Geometry
             TangentOverlays[Idx]->CreateFromPredicate(
                  [&MeshToSet, &TV]( int ParentVertexIdx, int TriIDA, int TriIDB ) -> bool
                  {
-                     const FIndex3i TriA = MeshToSet.GetTriangle( TriIDA );
-                     const FIndex3i TriB = MeshToSet.GetTriangle( TriIDB );
+                     const Index3i  TriA = MeshToSet.GetTriangle( TriIDA );
+                     const Index3i  TriB = MeshToSet.GetTriangle( TriIDB );
                      const int      SubA = TriA.IndexOf( ParentVertexIdx );
                      const int      SubB = TriB.IndexOf( ParentVertexIdx );
                      UE_CHECK_SLOW( SubA > -1 && SubB > -1 );
@@ -94,7 +94,7 @@ namespace Desert::Geometry
             // Note: shared elements will be written to multiple times, and the last value written will be used
             for ( int TID : MeshToSet.TriangleIndicesItr() )
             {
-                const FIndex3i ElTri = TangentOverlays[Idx]->GetTriangle( TID );
+                const Index3i ElTri = TangentOverlays[Idx]->GetTriangle( TID );
                 for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
                 {
                     TangentOverlays[Idx]->SetElement( ElTri[SubIdx], (glm::vec3)TV[TID * 3 + SubIdx] );
@@ -106,8 +106,8 @@ namespace Desert::Geometry
 
     template <typename RealType>
     void
-    TMeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const FDynamicMeshNormalOverlay* NormalOverlay,
-                                                                 const FDynamicMeshUVOverlay*     UVOverlay )
+    MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const FDynamicMeshNormalOverlay* NormalOverlay,
+                                                                const FDynamicMeshUVOverlay*     UVOverlay )
     {
         const int32_t MaxTriangleID = Mesh->MaxTriangleID();
         InitializeTriVertexTangents( false );
@@ -152,5 +152,5 @@ namespace Desert::Geometry
              } );
     }
 
-    template class TMeshTangents<double>;
+    template class MeshTangents<double>;
 } // namespace Desert::Geometry

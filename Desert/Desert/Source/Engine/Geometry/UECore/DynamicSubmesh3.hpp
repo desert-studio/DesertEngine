@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicSubmesh3.h (Compute, MapVertexToBaseMesh,
 // MapTriangleToBaseMesh), adapted: geometry only - UE's WantComponents / bAttributes / border-edge sets and
-// FDynamicMeshEditor::AppendTriangles are not ported, the only caller (the ExpMap UV editor) asks for
-// EMeshComponents::None without attributes. The maps are flat arrays: submesh IDs are appended densely.
+// DynamicMeshEditor::AppendTriangles are not ported, the only caller (the ExpMap UV editor) asks for
+// MeshComponents::None without attributes. The maps are flat arrays: submesh IDs are appended densely.
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
@@ -9,17 +9,17 @@
 
 namespace Desert::Geometry
 {
-    class FDynamicSubmesh3
+    class DynamicSubmesh3
     {
     public:
-        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const std::vector<int32_t>& Triangles )
+        DynamicSubmesh3( const DynamicMesh3* BaseMeshIn, const std::vector<int32_t>& Triangles )
              : BaseMesh( BaseMeshIn )
         {
             std::unordered_map<int32_t, int32_t> BaseToSubV;
             for ( const int32_t BaseTID : Triangles )
             {
-                const FIndex3i BaseTri = BaseMesh->GetTriangle( BaseTID );
-                FIndex3i       SubTri;
+                const Index3i BaseTri = BaseMesh->GetTriangle( BaseTID );
+                Index3i       SubTri;
                 for ( int32_t j = 0; j < 3; ++j )
                 {
                     if ( const int32_t* Found = FindValue( BaseToSubV, BaseTri[j] ) )
@@ -40,7 +40,7 @@ namespace Desert::Geometry
                 SubToBaseT.push_back( BaseTID );
             }
         }
-        FDynamicMesh3& GetSubmesh()
+        DynamicMesh3& GetSubmesh()
         {
             return Submesh;
         }
@@ -59,8 +59,8 @@ namespace Desert::Geometry
         }
 
     private:
-        const FDynamicMesh3* BaseMesh;
-        FDynamicMesh3        Submesh;
+        const DynamicMesh3*  BaseMesh;
+        DynamicMesh3         Submesh;
         std::vector<int32_t> SubToBaseV;
         std::vector<int32_t> SubToBaseT;
         std::vector<int32_t> FailedTriangles;

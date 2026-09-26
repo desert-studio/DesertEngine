@@ -1,6 +1,6 @@
-// The UE primitives FMeshBevel's chamfer needs (P13b): TLine3, FDistLine3Line3d, the shared inset-line solve in
+// The UE primitives MeshBevel's chamfer needs (P13b): Line3, DistLine3Line3d, the shared inset-line solve in
 // PolyEditingEdgeUtil and the 3D ear clip in PolygonTriangulation. Each test pins a value UE's code produces, so a
-// port slip (a sign, an average, a winding) turns it red; FInsetMeshRegion's own tests cover the solve in context.
+// port slip (a sign, an average, a winding) turns it red; InsetMeshRegion's own tests cover the solve in context.
 #include "Engine/Geometry/UECore/CompGeom/PolygonTriangulation.hpp"
 #include "Engine/Geometry/UECore/Distance/DistLine3Line3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
@@ -24,9 +24,9 @@ namespace
     }
 
     // A 100 x 100 cm square in the XY plane, two triangles, counter-clockwise corners 0..3 from the origin.
-    FDynamicMesh3 Square( std::vector<int32_t>& CornersOut )
+    DynamicMesh3 Square( std::vector<int32_t>& CornersOut )
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3 Mesh;
         CornersOut.clear();
         CornersOut.push_back( Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) ) );
         CornersOut.push_back( Mesh.AppendVertex( glm::dvec3( 100, 0, 0 ) ) );
@@ -45,7 +45,7 @@ namespace
         return { X + 7.0, Y * c - 3.0, Y * s + 11.0 };
     }
 
-    glm::dvec3 TriangleCross( const std::vector<glm::dvec3>& P, const FIndex3i& T )
+    glm::dvec3 TriangleCross( const std::vector<glm::dvec3>& P, const Index3i& T )
     {
         return glm::cross( ( P[T.B] - P[T.A] ), P[T.C] - P[T.A] );
     }
@@ -53,7 +53,7 @@ namespace
 
 TEST( BevelPrimitives, Line3FromPointsIsUnitAndProjects )
 {
-    const FLine3d Line = FLine3d::FromPoints( glm::dvec3( 1, 2, 3 ), glm::dvec3( 1, 2, 13 ) );
+    const Line3d Line = Line3d::FromPoints( glm::dvec3( 1, 2, 3 ), glm::dvec3( 1, 2, 13 ) );
     ExpectNear( Line.Direction, glm::dvec3( 0, 0, 1 ), "direction" );
     EXPECT_NEAR( Line.Project( glm::dvec3( 5, 5, 8 ) ), 5.0, Tol );
     ExpectNear( Line.PointAt( 5.0 ), glm::dvec3( 1, 2, 8 ), "point at" );
@@ -63,8 +63,8 @@ TEST( BevelPrimitives, Line3FromPointsIsUnitAndProjects )
 TEST( BevelPrimitives, DistLine3Line3SkewLines )
 {
     // X axis, and a Y-parallel line 5 cm above it through (3, 2, 5): closest pair (3,0,0)-(3,0,5).
-    FDistLine3Line3d Distance( FLine3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
-                               FLine3d( glm::dvec3( 3, 2, 5 ), glm::dvec3( 0, 1, 0 ) ) );
+    DistLine3Line3d Distance( Line3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
+                              Line3d( glm::dvec3( 3, 2, 5 ), glm::dvec3( 0, 1, 0 ) ) );
     EXPECT_NEAR( Distance.Get(), 5.0, Tol );
     EXPECT_FALSE( Distance.bIsParallel );
     ExpectNear( Distance.Line1ClosestPoint, glm::dvec3( 3, 0, 0 ), "line 1 closest" );
@@ -73,8 +73,8 @@ TEST( BevelPrimitives, DistLine3Line3SkewLines )
     EXPECT_NEAR( Distance.Line2Parameter, -2.0, Tol );
 
     // At 45 degrees the cross term of the solve matters: projections cross at (2, 0), 5 cm apart in Z.
-    FDistLine3Line3d Oblique( FLine3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
-                              FLine3d( glm::dvec3( 3, 1, 5 ), Normalized( glm::dvec3( 1, 1, 0 ) ) ) );
+    DistLine3Line3d Oblique( Line3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
+                             Line3d( glm::dvec3( 3, 1, 5 ), Normalized( glm::dvec3( 1, 1, 0 ) ) ) );
     EXPECT_NEAR( Oblique.Get(), 5.0, Tol );
     ExpectNear( Oblique.Line1ClosestPoint, glm::dvec3( 2, 0, 0 ), "oblique line 1 closest" );
     ExpectNear( Oblique.Line2ClosestPoint, glm::dvec3( 2, 0, 5 ), "oblique line 2 closest" );
@@ -83,8 +83,8 @@ TEST( BevelPrimitives, DistLine3Line3SkewLines )
 
 TEST( BevelPrimitives, DistLine3Line3ParallelLines )
 {
-    FDistLine3Line3d Distance( FLine3d( glm::dvec3( 4, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
-                               FLine3d( glm::dvec3( -9, 3, 4 ), glm::dvec3( -1, 0, 0 ) ) );
+    DistLine3Line3d Distance( Line3d( glm::dvec3( 4, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
+                              Line3d( glm::dvec3( -9, 3, 4 ), glm::dvec3( -1, 0, 0 ) ) );
     EXPECT_NEAR( Distance.GetSquared(), 25.0, Tol );
     EXPECT_TRUE( Distance.bIsParallel );
     ExpectNear( Distance.Line1ClosestPoint, glm::dvec3( 4, 0, 0 ), "line 1 origin" );
@@ -95,26 +95,26 @@ TEST( BevelPrimitives, InsetPairIsMidpointOfClosestPoints )
 {
     // Skew lines: the solve returns the midpoint of the closest pair, not either point.
     const glm::dvec3 P = SolveInsetVertexPositionFromLinePair(
-         glm::dvec3( 50, 50, 50 ), FLine3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
-         FLine3d( glm::dvec3( 3, 2, 6 ), glm::dvec3( 0, 1, 0 ) ) );
+         glm::dvec3( 50, 50, 50 ), Line3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
+         Line3d( glm::dvec3( 3, 2, 6 ), glm::dvec3( 0, 1, 0 ) ) );
     ExpectNear( P, glm::dvec3( 3, 0, 3 ), "skew midpoint" );
 
     // Nearly parallel (|dot| > 0.999): nearest point on the first line to the vertex.
     const glm::dvec3 Q = SolveInsetVertexPositionFromLinePair(
-         glm::dvec3( 20, 7, 0 ), FLine3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
-         FLine3d( glm::dvec3( 0, 5, 0 ), Normalized( glm::dvec3( 1, 0.01, 0 ) ) ) );
+         glm::dvec3( 20, 7, 0 ), Line3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
+         Line3d( glm::dvec3( 0, 5, 0 ), Normalized( glm::dvec3( 1, 0.01, 0 ) ) ) );
     ExpectNear( Q, glm::dvec3( 20, 0, 0 ), "parallel fallback" );
 }
 
 TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 {
     std::vector<int32_t> Corners;
-    const FDynamicMesh3 Mesh = Square( Corners );
+    const DynamicMesh3   Mesh = Square( Corners );
     std::vector<int32_t> Edges;
     for ( int32_t i = 0; i < 4; ++i )
         Edges.push_back( Mesh.FindEdge( Corners[i], Corners[( i + 1 ) % 4] ) );
 
-    std::vector<FLine3d> Lines;
+    std::vector<Line3d> Lines;
     ComputeInsetLineSegmentsFromEdges( Mesh, Edges, 10.0, Lines );
     ASSERT_EQ( static_cast<int32_t>( Lines.size() ), 4 );
     // Each line runs along its edge, moved 10 cm towards the square's inside.
@@ -133,7 +133,7 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 
     // An open span 0-1-2 over edges 0 and 1: the ends are projected onto their one line.
     const std::vector<int32_t> SpanVertices = { Corners[0], Corners[1], Corners[2] };
-    const std::vector<FLine3d> SpanLines    = { Lines[0], Lines[1] };
+    const std::vector<Line3d>  SpanLines    = { Lines[0], Lines[1] };
     std::vector<glm::dvec3>    Span;
     SolveInsetVertexPositionsFromInsetLines( Mesh, SpanLines, SpanVertices, Span, false );
     ASSERT_EQ( static_cast<int32_t>( Span.size() ), 3 );
@@ -145,8 +145,8 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 TEST( BevelPrimitives, InsetLineOfAMissingEdgeIsTheDefaultLine )
 {
     std::vector<int32_t> Corners;
-    const FDynamicMesh3 Mesh = Square( Corners );
-    std::vector<FLine3d> Lines;
+    const DynamicMesh3   Mesh = Square( Corners );
+    std::vector<Line3d>  Lines;
     ComputeInsetLineSegmentsFromEdges( Mesh, std::vector<int32_t>{ 12345 }, 10.0, Lines );
     ASSERT_EQ( static_cast<int32_t>( Lines.size() ), 1 );
     ExpectNear( Lines[0].Origin, glm::dvec3( 0, 0, 0 ), "default origin" );
@@ -178,11 +178,11 @@ TEST( BevelPrimitives, EarClipOfAConcavePolygonCoversItOnce )
 
     for ( const bool bHoleFill : { true, false } )
     {
-        std::vector<FIndex3i> Triangles;
+        std::vector<Index3i> Triangles;
         PolygonTriangulation::TriangulateSimplePolygon( P, Triangles, bHoleFill );
         ASSERT_EQ( static_cast<int32_t>( Triangles.size() ), 4 ) << "hole fill " << bHoleFill;
         double UnsignedArea = 0;
-        for ( const FIndex3i& T : Triangles )
+        for ( const Index3i& T : Triangles )
         {
             UnsignedArea += 0.5 * glm::length( TriangleCross( P, T ) );
             // A hole fill is wound against the polygon, the plain triangulation with it (both in UE's normal).
@@ -200,13 +200,13 @@ TEST( BevelPrimitives, EarClipOfAConcavePolygonCoversItOnce )
 TEST( BevelPrimitives, EarClipOfATriangleHonoursHoleFillWinding )
 {
     const std::vector<glm::dvec3> P = { glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ), glm::dvec3( 0, 1, 0 ) };
-    std::vector<FIndex3i>         Triangles;
+    std::vector<Index3i>          Triangles;
     PolygonTriangulation::TriangulateSimplePolygon( P, Triangles );
     ASSERT_EQ( static_cast<int32_t>( Triangles.size() ), 1 );
-    EXPECT_EQ( Triangles[0], FIndex3i( 0, 2, 1 ) );
+    EXPECT_EQ( Triangles[0], Index3i( 0, 2, 1 ) );
     PolygonTriangulation::TriangulateSimplePolygon( P, Triangles, false );
     ASSERT_EQ( static_cast<int32_t>( Triangles.size() ), 1 );
-    EXPECT_EQ( Triangles[0], FIndex3i( 0, 1, 2 ) );
+    EXPECT_EQ( Triangles[0], Index3i( 0, 1, 2 ) );
 
     PolygonTriangulation::TriangulateSimplePolygon( std::vector<glm::dvec3>{ P[0], P[1] }, Triangles );
     EXPECT_EQ( static_cast<int32_t>( Triangles.size() ), 0 );

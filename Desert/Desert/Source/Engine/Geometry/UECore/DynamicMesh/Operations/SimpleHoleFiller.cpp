@@ -9,7 +9,7 @@
 
 using namespace Desert::Geometry;
 
-bool FSimpleHoleFiller::Fill( int GroupID )
+bool SimpleHoleFiller::Fill( int GroupID )
 {
     if ( Mesh->HasAttributes() && Mesh->Attributes()->HasPrimaryColors() )
     {
@@ -30,7 +30,7 @@ bool FSimpleHoleFiller::Fill( int GroupID )
     // a three-vertex hole needs one triangle
     if ( Loop.GetVertexCount() == 3 )
     {
-        const FIndex3i Tri( Loop.Vertices[0], Loop.Vertices[2], Loop.Vertices[1] );
+        const Index3i  Tri( Loop.Vertices[0], Loop.Vertices[2], Loop.Vertices[1] );
         const int      NewTID = Mesh->AppendTriangle( Tri, GroupID );
         if ( NewTID < 0 )
         {
@@ -45,7 +45,7 @@ bool FSimpleHoleFiller::Fill( int GroupID )
     return Fill_Fan( GroupID );
 }
 
-bool FSimpleHoleFiller::Fill_Fan( int GroupID )
+bool SimpleHoleFiller::Fill_Fan( int GroupID )
 {
     glm::dvec3 C = glm::dvec3( 0 );
     for ( int i = 0; i < Loop.GetVertexCount(); ++i )
@@ -54,8 +54,8 @@ bool FSimpleHoleFiller::Fill_Fan( int GroupID )
 
     NewVertex = Mesh->AppendVertex( C );
 
-    FDynamicMeshEditor     Editor( Mesh );
-    FDynamicMeshEditResult AddFanResult;
+    DynamicMeshEditor     Editor( Mesh );
+    DynamicMeshEditResult AddFanResult;
     if ( !Editor.AddTriangleFan_OrderedVertexLoop( NewVertex, Loop.Vertices, GroupID, AddFanResult ) )
     {
         Mesh->RemoveVertex( NewVertex, false );

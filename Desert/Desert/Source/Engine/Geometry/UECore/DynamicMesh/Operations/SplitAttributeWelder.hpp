@@ -10,7 +10,7 @@
 namespace Desert::Geometry
 {
     /** Welds split attribute elements (split normals, UV seams...) that share one vertex of the parent mesh. */
-    class FSplitAttributeWelder
+    class SplitAttributeWelder
     {
     public:
         /** Applied as DistSquared(UVA, UVB) <= UVDistSqrdThreshold. */
@@ -23,9 +23,9 @@ namespace Desert::Geometry
         float TangentVecDotThreshold = 0.f;
 
         /** Weld the split elements at ParentVID in each overlay that are within the matching threshold. */
-        void WeldSplitElements( FDynamicMesh3& ParentMesh, const int32_t ParentVID );
+        void WeldSplitElements( DynamicMesh3& ParentMesh, const int32_t ParentVID );
         /** Weld split elements across the entire mesh. */
-        void WeldSplitElements( FDynamicMesh3& ParentMesh );
+        void WeldSplitElements( DynamicMesh3& ParentMesh );
 
         static void WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& UVOverlay,
                                   float UVDistSqrdThreshold );

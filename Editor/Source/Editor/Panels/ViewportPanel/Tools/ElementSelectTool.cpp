@@ -27,7 +27,7 @@ namespace Desert::Editor::Tools
 
         struct Target
         {
-            std::shared_ptr<const Geometry::FDynamicMesh3> Source;
+            std::shared_ptr<const Geometry::DynamicMesh3> Source;
             glm::mat4                                 World{ 1.0f };
         };
 
@@ -54,8 +54,8 @@ namespace Desert::Editor::Tools
         struct Painter
         {
             ImDrawList&                     List;
-            const Geometry::FDynamicMesh3&  Mesh;
-            const Geometry::FGroupTopology& Topology;
+            const Geometry::DynamicMesh3&   Mesh;
+            const Geometry::GroupTopology&  Topology;
             const glm::mat4&          World;
             const glm::mat4&          ViewProj;
             glm::vec2                 Pos;
@@ -99,7 +99,7 @@ namespace Desert::Editor::Tools
                     List.AddTriangle( a, b, c, outline, 1.5f );
             }
             // A mesh edge lies on a group edge when it is open or its two triangles are in different groups
-            // (FGroupTopology's own definition), so a polygroup's triangulation diagonals are not group edges.
+            // (GroupTopology's own definition), so a polygroup's triangulation diagonals are not group edges.
             bool IsGroupEdge( int e ) const
             {
                 const auto et = Mesh.GetEdgeT( e );
@@ -192,8 +192,8 @@ namespace Desert::Editor::Tools
             return;
         }
         // Track built the topology for exactly this mesh (it rebuilds whenever the entity's mesh changes).
-        const Geometry::FDynamicMesh3&  mesh     = *state.Mesh();
-        const Geometry::FGroupTopology& topology = *state.Topology();
+        const Geometry::DynamicMesh3&  mesh     = *state.Mesh();
+        const Geometry::GroupTopology& topology = *state.Topology();
 
         Geometry::PickView view;
         view.LocalToWorld    = target.World;

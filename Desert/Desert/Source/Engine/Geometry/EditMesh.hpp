@@ -23,10 +23,10 @@ namespace Desert::Geometry
     // and refuses with EditResult::AttributeSeam where the attribute outcome would be meaningless.
     // Conversion to and from the render buffer is EditMeshConversion.hpp.
     //
-    // THE SHAPE IS UE's FDynamicMesh3, re-implemented rather than ported. It was measured before choosing:
+    // THE SHAPE IS UE's DynamicMesh3, re-implemented rather than ported. It was measured before choosing:
     // the port would have been ~7.4k lines (DynamicMesh3.h/.cpp/_Edits/_Queries + DynamicVector,
     // RefCountVector, SmallListSet, IteratorUtil) written against UE Core (TArray x32, FString x32,
-    // TFunction x31, FArchive x22, FVector3d/FIndex3i/FIndex2i x232) and wired to the attribute set
+    // TFunction x31, FArchive x22, FVector3d/Index3i/Index2i x232) and wired to the attribute set
     // (x40), and the licence waiver that would allow it expires with the current commercial project - an
     // expiry is not acceptable under the one structure every modeling tab stands on. What is kept is the
     // PATTERN, because it is the right one for tools rather than for a half-edge textbook:

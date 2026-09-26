@@ -9,10 +9,10 @@ namespace Desert::Geometry
 {
 
     /**
-     * EMeshResult is returned by various mesh/graph operations to either indicate success,
+     * MeshResult is returned by various mesh/graph operations to either indicate success,
      * or communicate which type of error ocurred (some errors are recoverable, and some not).
      */
-    enum class EMeshResult
+    enum class MeshResult
     {
         Ok                  = 0,
         Failed_NotAVertex   = 1,
@@ -47,11 +47,11 @@ namespace Desert::Geometry
     };
 
     /**
-     * EOperationValidationResult is meant to be returned by Validate() functions of
+     * OperationValidationResult is meant to be returned by Validate() functions of
      * Operation classes (eg like ExtrudeMesh, etc) to indicate whether the operation
      * can be successfully applied.
      */
-    enum class EOperationValidationResult
+    enum class OperationValidationResult
     {
         Ok                   = 0,
         Failed_UnknownReason = 1,
@@ -60,10 +60,10 @@ namespace Desert::Geometry
     };
 
     /**
-     * EValidityCheckFailMode is passed to CheckValidity() functions of various classes
+     * ValidityCheckFailMode is passed to CheckValidity() functions of various classes
      * to specify how validity checks should fail.
      */
-    enum class EValidityCheckFailMode
+    enum class ValidityCheckFailMode
     {
         /** Function returns false if a failure is encountered */
         ReturnOnly = 0,
@@ -74,7 +74,7 @@ namespace Desert::Geometry
     };
 
     /**
-     * TIndexMap stores mappings between indices, which are assumed to be an integer type.
+     * IndexMap stores mappings between indices, which are assumed to be an integer type.
      * Both forward and backward mapping are stored
      *
      * @todo make either mapping optional
@@ -84,7 +84,7 @@ namespace Desert::Geometry
      * @todo identity and shift modes that don't actually store anything
      */
     template <typename IntType>
-    struct TIndexMap
+    struct IndexMap
     {
     protected:
         std::unordered_map<IntType, IntType> ForwardMap;
@@ -93,7 +93,7 @@ namespace Desert::Geometry
         bool                   bWantReverse;
 
     public:
-        TIndexMap()
+        IndexMap()
         {
             bWantForward = bWantReverse = true;
         }
@@ -205,6 +205,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef TIndexMap<int> FIndexMapi;
+    typedef IndexMap<int> FIndexMapi;
 
 } // namespace Desert::Geometry

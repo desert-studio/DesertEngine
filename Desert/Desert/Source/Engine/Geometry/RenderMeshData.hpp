@@ -8,7 +8,7 @@ namespace Desert::Geometry
 {
     // The engine's render-mesh arrays (Vertex / Index / Submesh, what DynamicMesh and StaticMesh are built
     // from), as both editable-mesh cores convert to and from them: EditMesh (EditMeshConversion.hpp) and
-    // FDynamicMesh3 (DynamicMeshRenderConversion.hpp). Kept free of the GPU classes so it is testable without
+    // DynamicMesh3 (DynamicMeshRenderConversion.hpp). Kept free of the GPU classes so it is testable without
     // a device.
     //
     // THE RENDER SIDE HAS NO TOPOLOGY. A render vertex is one (position, normal, tangent frame, UV) tuple, so

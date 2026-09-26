@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Selections/MeshConnectedComponents.h:18-165,
-// 190-197, adapted: UE Core via UECore.hpp, namespace Desert::Geometry, TIndirectArray<FComponent> is a
-// TArray<FComponent> (components are appended whole, so no reference into the array is held across an Add). Only
-// the triangle seed-list path FGroupEdgeInserter uses (GroupEdgeInserter.cpp:764, :1084) is ported:
+// 190-197, adapted: UE Core via UECore.hpp, namespace Desert::Geometry, TIndirectArray<Component> is a
+// TArray<Component> (components are appended whole, so no reference into the array is held across an Add). Only
+// the triangle seed-list path GroupEdgeInserter uses (GroupEdgeInserter.cpp:764, :1084) is ported:
 // FindTrianglesConnectedToSeeds with and without a connectivity predicate. The vertex, ROI and filter variants,
 // SortByCount, the Initialize* and GrowTo* helpers have no caller here and are not carried.
 #pragma once
@@ -16,20 +16,20 @@ namespace Desert::Geometry
      * Connected components of a mesh, grown from seed triangles. Mesh connectivity is used unless a
      * predicate says when two neighbouring triangles count as connected.
      */
-    class FMeshConnectedComponents
+    class MeshConnectedComponents
     {
     public:
-        const FDynamicMesh3* Mesh;
+        const DynamicMesh3* Mesh;
 
-        struct FComponent
+        struct Component
         {
             /** Triangle IDs in the component, in the order they were reached. */
             std::vector<int> Indices;
         };
 
-        std::vector<FComponent> Components;
+        std::vector<Component> Components;
 
-        explicit FMeshConnectedComponents( const FDynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit MeshConnectedComponents( const DynamicMesh3* MeshIn ) : Mesh( MeshIn )
         {
         }
 
@@ -37,19 +37,19 @@ namespace Desert::Geometry
         {
             return static_cast<int32_t>( Components.size() );
         }
-        [[nodiscard]] const FComponent& GetComponent( int32_t Index ) const
+        [[nodiscard]] const Component& GetComponent( int32_t Index ) const
         {
             return Components[Index];
         }
-        FComponent& GetComponent( int32_t Index )
+        Component& GetComponent( int32_t Index )
         {
             return Components[Index];
         }
-        const FComponent& operator[]( int32_t Index ) const
+        const Component& operator[]( int32_t Index ) const
         {
             return Components[Index];
         }
-        FComponent& operator[]( int32_t Index )
+        Component& operator[]( int32_t Index )
         {
             return Components[Index];
         }
@@ -66,11 +66,11 @@ namespace Desert::Geometry
     protected:
         void        FindTriComponents( const std::vector<int32_t>& SeedList, std::vector<uint8_t>& ActiveSet,
                                        const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate );
-        void        FindTriComponent( FComponent& Component, std::vector<int32_t>& ComponentQueue,
+        void        FindTriComponent( Component& Component, std::vector<int32_t>& ComponentQueue,
                                       std::vector<uint8_t>& ActiveSet ) const;
-        void        FindTriComponent( FComponent& Component, std::vector<int32_t>& ComponentQueue,
+        void        FindTriComponent( Component& Component, std::vector<int32_t>& ComponentQueue,
                                       std::vector<uint8_t>&                          ActiveSet,
                                       const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate ) const;
-        static void RemoveFromActiveSet( const FComponent& Component, std::vector<uint8_t>& ActiveSet );
+        static void RemoveFromActiveSet( const Component& Component, std::vector<uint8_t>& ActiveSet );
     };
 } // namespace Desert::Geometry

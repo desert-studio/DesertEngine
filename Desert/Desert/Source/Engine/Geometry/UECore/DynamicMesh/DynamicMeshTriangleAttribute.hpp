@@ -12,40 +12,40 @@ namespace Desert::Geometry
 {
 
     template <typename AttribValueType, int AttribDimension>
-    class TDynamicMeshTriangleAttribute;
+    class DynamicMeshTriangleAttribute;
 
     /**
-     * TDynamicMeshTriangleAttribute is an add-on to a FDynamicMesh3 that allows for
+     * DynamicMeshTriangleAttribute is an add-on to a DynamicMesh3 that allows for
      * per-triangle storage of an attribute value.
      *
-     * The FDynamicMesh3 mesh topology operations (eg split/flip/collapse edge, poke face, etc)
+     * The DynamicMesh3 mesh topology operations (eg split/flip/collapse edge, poke face, etc)
      * can be mirrored to the overlay via OnSplitEdge(), etc.
      */
     template <typename AttribValueType, int AttribDimension>
-    class TDynamicMeshTriangleAttribute : public FDynamicMeshAttributeBase
+    class DynamicMeshTriangleAttribute : public FDynamicMeshAttributeBase
     {
 
     protected:
         /** The parent mesh this overlay belongs to */
-        FDynamicMesh3* ParentMesh;
+        DynamicMesh3* ParentMesh;
 
         /** List of per-triangle attribute values */
-        TDynamicVector<AttribValueType> AttribValues;
+        DynamicVector<AttribValueType> AttribValues;
 
         using Super = FDynamicMeshAttributeBase;
 
-        friend class FDynamicMesh3;
-        friend class FDynamicMeshAttributeSet;
+        friend class DynamicMesh3;
+        friend class DynamicMeshAttributeSet;
 
     public:
         /** Create an empty overlay */
-        TDynamicMeshTriangleAttribute()
+        DynamicMeshTriangleAttribute()
         {
             ParentMesh = nullptr;
         }
 
         /** Create an overlay for the given parent mesh */
-        TDynamicMeshTriangleAttribute( FDynamicMesh3* ParentMeshIn, bool bAutoInit = true )
+        DynamicMeshTriangleAttribute( DynamicMesh3* ParentMeshIn, bool bAutoInit = true )
         {
             ParentMesh = ParentMeshIn;
             if ( bAutoInit )
@@ -56,62 +56,62 @@ namespace Desert::Geometry
 
     private:
         /** @set the parent mesh for this overlay.  Only safe for use during FDynamicMesh move */
-        void Reparent( FDynamicMesh3* ParentMeshIn )
+        void Reparent( DynamicMesh3* ParentMeshIn )
         {
             ParentMesh = ParentMeshIn;
         }
 
     public:
         /** @return the parent mesh for this overlay */
-        const FDynamicMesh3* GetParentMesh() const
+        const DynamicMesh3* GetParentMesh() const
         {
             return ParentMesh;
         }
         /** @return the parent mesh for this overlay */
-        FDynamicMesh3* GetParentMesh()
+        DynamicMesh3* GetParentMesh()
         {
             return ParentMesh;
         }
 
-        virtual FDynamicMeshAttributeBase* MakeNew( FDynamicMesh3* ParentMeshIn ) const override
+        virtual FDynamicMeshAttributeBase* MakeNew( DynamicMesh3* ParentMeshIn ) const override
         {
-            TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* Matching =
-                 new TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
+            DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* Matching =
+                 new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
             Matching->Initialize();
             return Matching;
         }
 
-        virtual FDynamicMeshAttributeBase* MakeCopy( FDynamicMesh3* ParentMeshIn ) const override
+        virtual FDynamicMeshAttributeBase* MakeCopy( DynamicMesh3* ParentMeshIn ) const override
         {
-            TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* ToFill =
-                 new TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
+            DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* ToFill =
+                 new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
             ToFill->Copy( *this );
             return ToFill;
         }
 
         /** Set this overlay to contain the same arrays as the copy overlay */
-        void Copy( const TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& Copy )
+        void Copy( const DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& Copy )
         {
             CopyParentClassData( Copy );
             AttribValues = Copy.AttribValues;
         }
 
-        virtual FDynamicMeshAttributeBase* MakeCompactCopy( const FCompactMaps& CompactMaps,
-                                                            FDynamicMesh3*      ParentMeshIn ) const override
+        virtual FDynamicMeshAttributeBase* MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
+                                                            DynamicMesh3* ParentMeshIn ) const override
         {
-            TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* ToFill =
-                 new TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
+            DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* ToFill =
+                 new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
             ToFill->Initialize();
             ToFill->CompactCopy( CompactMaps, *this );
             return ToFill;
         }
 
-        void CompactInPlace( const FCompactMaps& CompactMaps )
+        void CompactInPlace( const DynamicMeshCompactMaps& CompactMaps )
         {
             for ( int TID = 0, NumTID = CompactMaps.NumTriangleMappings(); TID < NumTID; TID++ )
             {
                 const int ToTID = CompactMaps.GetTriangleMapping( TID );
-                if ( ToTID == FCompactMaps::InvalidID )
+                if ( ToTID == DynamicMeshCompactMaps::InvalidID )
                 {
                     continue;
                 }
@@ -123,8 +123,8 @@ namespace Desert::Geometry
             AttribValues.Resize( ParentMesh->MaxTriangleID() * AttribDimension );
         }
 
-        void CompactCopy( const FCompactMaps&                                                    CompactMaps,
-                          const TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& ToCopy )
+        void CompactCopy( const DynamicMeshCompactMaps&                                         CompactMaps,
+                          const DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& ToCopy )
         {
             CopyParentClassData( ToCopy );
             UE_CHECK( CompactMaps.NumTriangleMappings() <= int( ToCopy.AttribValues.Num() / AttribDimension ) );
@@ -132,7 +132,7 @@ namespace Desert::Geometry
             for ( int TID = 0, NumTID = CompactMaps.NumTriangleMappings(); TID < NumTID; TID++ )
             {
                 const int ToTID = CompactMaps.GetTriangleMapping( TID );
-                if ( ToTID == FCompactMaps::InvalidID )
+                if ( ToTID == DynamicMeshCompactMaps::InvalidID )
                 {
                     continue;
                 }
@@ -167,7 +167,7 @@ namespace Desert::Geometry
         // Accessors/Queries
         //
 
-        virtual bool Append( const TDynamicAttributeBase& Source, const FDynamicMesh3::FAppendInfo& Info ) override
+        virtual bool Append( const DynamicAttributeBase& Source, const DynamicMesh3::AppendInfo& Info ) override
         {
             int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
             if ( NewMaxID * AttribDimension > AttribValues.Num() )
@@ -188,7 +188,7 @@ namespace Desert::Geometry
             return true;
         }
 
-        virtual void AppendDefaulted( const FDynamicMesh3::FAppendInfo& Info ) override
+        virtual void AppendDefaulted( const DynamicMesh3::AppendInfo& Info ) override
         {
             int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
             AttribValues.SetMinimumSize( NewMaxID * AttribDimension, GetDefaultAttributeValue() );
@@ -291,8 +291,8 @@ namespace Desert::Geometry
         /** Returns true if the parent-mesh edge is a "Seam" in this overlay */
         bool IsBorderEdge( int EdgeID, bool bMeshBoundaryIsBorder = true ) const
         {
-            FIndex2i EdgeTris = ParentMesh->GetEdgeT( EdgeID );
-            if ( EdgeTris.B == FDynamicMesh3::InvalidID )
+            Index2i EdgeTris = ParentMesh->GetEdgeT( EdgeID );
+            if ( EdgeTris.B == DynamicMesh3::InvalidID )
             {
                 return bMeshBoundaryIsBorder;
             }
@@ -310,49 +310,49 @@ namespace Desert::Geometry
 
     public:
         /** Update the overlay to reflect an edge split in the parent mesh */
-        void OnSplitEdge( const DynamicMeshInfo::FEdgeSplitInfo& SplitInfo ) override
+        void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo ) override
         {
             CopyValue( SplitInfo.OriginalTriangles.A, SplitInfo.NewTriangles.A );
-            if ( SplitInfo.OriginalTriangles.B != FDynamicMesh3::InvalidID )
+            if ( SplitInfo.OriginalTriangles.B != DynamicMesh3::InvalidID )
             {
                 CopyValue( SplitInfo.OriginalTriangles.B, SplitInfo.NewTriangles.B );
             }
         }
 
         /** Update the overlay to reflect an edge flip in the parent mesh */
-        void OnFlipEdge( const DynamicMeshInfo::FEdgeFlipInfo& FlipInfo ) override
+        void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo ) override
         {
             // yikes! triangles did not actually change so we will leave attrib unmodified
         }
 
         /** Update the overlay to reflect an edge collapse in the parent mesh */
-        void OnCollapseEdge( const DynamicMeshInfo::FEdgeCollapseInfo& CollapseInfo ) override
+        void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo ) override
         {
             // nothing to do here, triangles were only deleted
         }
 
         /** Update the overlay to reflect a face poke in the parent mesh */
-        void OnPokeTriangle( const DynamicMeshInfo::FPokeTriangleInfo& PokeInfo ) override
+        void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& PokeInfo ) override
         {
             CopyValue( PokeInfo.OriginalTriangle, PokeInfo.NewTriangles.A );
             CopyValue( PokeInfo.OriginalTriangle, PokeInfo.NewTriangles.B );
         }
 
         /** Update the overlay to reflect an edge merge in the parent mesh */
-        void OnMergeEdges( const DynamicMeshInfo::FMergeEdgesInfo& MergeInfo ) override
+        void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo ) override
         {
             // nothing to do here because triangles did not change
         }
 
-        void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& MergeInfo ) override
+        void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo ) override
         {
             // This resolves as either an edge collapse, edge weld, or merge of disconnected vertices.
             //  The triangles either get removed or unchanged- nothing more to do here.
         }
 
         /** Update the overlay to reflect a vertex split in the parent */
-        void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                            const std::span<const int>&              TrianglesToUpdate ) override
+        void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
+                            const std::span<const int>&             TrianglesToUpdate ) override
         {
             // nothing to do here because triangles did not change
         }
@@ -385,7 +385,7 @@ namespace Desert::Geometry
         /**
          * Returns true if this AttributeSet is the same as Other.
          */
-        bool IsSameAs( const TDynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& Other,
+        bool IsSameAs( const DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& Other,
                        bool bIgnoreDataLayout ) const
         {
             if ( !bIgnoreDataLayout )
@@ -405,11 +405,11 @@ namespace Desert::Geometry
             }
             else
             {
-                FRefCountVector::IndexIterator       ItTid    = ParentMesh->GetTrianglesRefCounts().BeginIndices();
-                const FRefCountVector::IndexIterator ItTidEnd = ParentMesh->GetTrianglesRefCounts().EndIndices();
-                FRefCountVector::IndexIterator       ItTidOther =
+                RefCountVector::IndexIterator       ItTid    = ParentMesh->GetTrianglesRefCounts().BeginIndices();
+                const RefCountVector::IndexIterator ItTidEnd = ParentMesh->GetTrianglesRefCounts().EndIndices();
+                RefCountVector::IndexIterator       ItTidOther =
                      Other.ParentMesh->GetTrianglesRefCounts().BeginIndices();
-                const FRefCountVector::IndexIterator ItTidEndOther =
+                const RefCountVector::IndexIterator ItTidEndOther =
                      Other.ParentMesh->GetTrianglesRefCounts().EndIndices();
 
                 while ( ItTid != ItTidEnd && ItTidOther != ItTidEndOther )
@@ -446,7 +446,7 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        virtual bool CheckValidity( bool bAllowNonmanifold, EValidityCheckFailMode FailMode ) const override
+        virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const override
         {
             // just check that the values buffer is big enough
             if ( !ParentMesh || ParentMesh->MaxTriangleID() < 0 ||
@@ -454,10 +454,10 @@ namespace Desert::Geometry
             {
                 switch ( FailMode )
                 {
-                    case EValidityCheckFailMode::Check:
+                    case ValidityCheckFailMode::Check:
                         UE_CHECK( false );
                         return false;
-                    case EValidityCheckFailMode::Ensure:
+                    case ValidityCheckFailMode::Ensure:
                         UE_ENSURE( false );
                         return false;
                     default:
@@ -475,23 +475,23 @@ namespace Desert::Geometry
     };
 
     /**
-     * TDynamicMeshScalarTriangleAttribute is an extension of TDynamicMeshTriangleAttribute for scalar-valued
+     * DynamicMeshScalarTriangleAttribute is an extension of DynamicMeshTriangleAttribute for scalar-valued
      * attributes. Adds some convenience functions to simplify get/set code.
      */
     template <typename RealType>
-    class TDynamicMeshScalarTriangleAttribute : public TDynamicMeshTriangleAttribute<RealType, 1>
+    class DynamicMeshScalarTriangleAttribute : public DynamicMeshTriangleAttribute<RealType, 1>
     {
     public:
-        using BaseType = TDynamicMeshTriangleAttribute<RealType, 1>;
+        using BaseType = DynamicMeshTriangleAttribute<RealType, 1>;
         using BaseType::GetValue;
         using BaseType::SetNewValue;
         using BaseType::SetValue;
 
-        TDynamicMeshScalarTriangleAttribute() : BaseType()
+        DynamicMeshScalarTriangleAttribute() : BaseType()
         {
         }
 
-        TDynamicMeshScalarTriangleAttribute( FDynamicMesh3* ParentMeshIn ) : BaseType( ParentMeshIn )
+        DynamicMeshScalarTriangleAttribute( DynamicMesh3* ParentMeshIn ) : BaseType( ParentMeshIn )
         {
         }
 
@@ -512,14 +512,14 @@ namespace Desert::Geometry
     };
 
     template <typename AttribValueType>
-    class TDynamicMeshSingleTriangleAttribute : public TDynamicMeshTriangleAttribute<AttribValueType, 1>
+    class DynamicMeshSingleTriangleAttribute : public DynamicMeshTriangleAttribute<AttribValueType, 1>
     {
-        using BaseType = TDynamicMeshTriangleAttribute<AttribValueType, 1>;
+        using BaseType = DynamicMeshTriangleAttribute<AttribValueType, 1>;
 
     public:
-        TDynamicMeshSingleTriangleAttribute() = default;
+        DynamicMeshSingleTriangleAttribute() = default;
 
-        TDynamicMeshSingleTriangleAttribute( FDynamicMesh3* ParentMeshIn, bool bAutoInit = true )
+        DynamicMeshSingleTriangleAttribute( DynamicMesh3* ParentMeshIn, bool bAutoInit = true )
              : BaseType( ParentMeshIn, bAutoInit )
         {
         }

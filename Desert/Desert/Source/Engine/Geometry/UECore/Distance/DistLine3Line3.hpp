@@ -13,12 +13,12 @@ namespace Desert::Geometry
      * Compute distance between two 3D lines
      */
     template <typename Real>
-    class TDistLine3Line3
+    class DistLine3Line3
     {
     public:
         // Input
-        TLine3<Real> Line1;
-        TLine3<Real> Line2;
+        Line3<Real> Line1;
+        Line3<Real> Line2;
 
         // Results
         Real          DistanceSquared = -1.0;
@@ -28,7 +28,7 @@ namespace Desert::Geometry
         glm::vec<3, Real> Line2ClosestPoint{};
         Real          Line2Parameter = 0;
 
-        TDistLine3Line3( const TLine3<Real>& Line1In, const TLine3<Real>& Line2In )
+        DistLine3Line3( const Line3<Real>& Line1In, const Line3<Real>& Line2In )
              : Line1( Line1In ), Line2( Line2In )
         {
         }
@@ -94,6 +94,6 @@ namespace Desert::Geometry
         }
     };
 
-    using FDistLine3Line3f = TDistLine3Line3<float>;
-    using FDistLine3Line3d = TDistLine3Line3<double>;
+    using DistLine3Line3f = DistLine3Line3<float>;
+    using DistLine3Line3d = DistLine3Line3<double>;
 } // namespace Desert::Geometry

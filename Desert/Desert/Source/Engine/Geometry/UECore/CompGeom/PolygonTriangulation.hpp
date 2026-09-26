@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/CompGeom/PolygonTriangulation.h:29-47, adapted:
-// namespace Desert::Geometry::PolygonTriangulation; only the 3D ear clip and its plane fit (FMeshBevel's
+// namespace Desert::Geometry::PolygonTriangulation; only the 3D ear clip and its plane fit (MeshBevel's
 // junction polygons need them). The 2D TriangulateSimplePolygon and the constrained Delaunay path are not ported.
 #pragma once
 
@@ -28,5 +28,5 @@ namespace Desert::Geometry::PolygonTriangulation
      */
     template <typename RealType>
     void TriangulateSimplePolygon( const std::vector<glm::vec<3, RealType>>& VertexPositions,
-                                   std::vector<FIndex3i>& OutTriangles, bool bOrientAsHoleFill = true );
+                                   std::vector<Index3i>& OutTriangles, bool bOrientAsHoleFill = true );
 } // namespace Desert::Geometry::PolygonTriangulation

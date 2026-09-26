@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshDijkstra.h (constructor,
-// FSeedPoint, ComputeToMaxDistance, GetMaxGraphDistance(PointID), GetNodeForPointSetID, UpdateNeighboursSparse),
-// adapted: nodes live in a TArray and are addressed by index (UE holds FGraphNode* across appends, which its
-// chunked TDynamicVector keeps stable and a TArray would not); no distance weighting, target or path queries.
+// SeedPoint, ComputeToMaxDistance, GetMaxGraphDistance(PointID), GetNodeForPointSetID, UpdateNeighboursSparse),
+// adapted: nodes live in a TArray and are addressed by index (UE holds GraphNode* across appends, which its
+// chunked DynamicVector keeps stable and a TArray would not); no distance weighting, target or path queries.
 #pragma once
 
 #include "Engine/Geometry/UECore/IndexPriorityQueue.hpp"
@@ -11,22 +11,22 @@
 namespace Desert::Geometry
 {
     template <class PointSetType>
-    class TMeshDijkstra
+    class MeshDijkstra
     {
     public:
-        struct FSeedPoint
+        struct SeedPoint
         {
             int32_t ExternalID    = -1;
             int32_t PointID       = 0;
             double StartDistance = 0;
         };
 
-        explicit TMeshDijkstra( const PointSetType* PointSetIn ) : PointSet( PointSetIn )
+        explicit MeshDijkstra( const PointSetType* PointSetIn ) : PointSet( PointSetIn )
         {
             Queue.Initialize( PointSet->MaxVertexID() );
         }
 
-        void ComputeToMaxDistance( const std::vector<FSeedPoint>& SeedPointsIn, double ComputeToMaxDistanceIn )
+        void ComputeToMaxDistance( const std::vector<SeedPoint>& SeedPointsIn, double ComputeToMaxDistanceIn )
         {
             MaxGraphDistance        = 0.0;
             MaxGraphDistancePointID = -1;
@@ -35,7 +35,7 @@ namespace Desert::Geometry
                 const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
                 if ( Queue.Contains( PointID ) )
                     continue; // UE ensure()s on a repeated seed and skips it
-                FGraphNode& Node   = AllocatedNodes[GetNodeIndex( PointID, true )];
+                GraphNode& Node    = AllocatedNodes[GetNodeIndex( PointID, true )];
                 Node.GraphDistance = SeedPointsIn[SeedIndex].StartDistance;
                 Node.bFrozen       = true;
                 Node.SeedPointID   = SeedIndex;
@@ -44,7 +44,7 @@ namespace Desert::Geometry
             while ( Queue.GetCount() > 0 )
             {
                 const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
-                FGraphNode& Node      = AllocatedNodes[NodeIndex];
+                GraphNode&    Node      = AllocatedNodes[NodeIndex];
                 MaxGraphDistance      = TMathUtil<double>::Max( Node.GraphDistance, MaxGraphDistance );
                 if ( MaxGraphDistance > ComputeToMaxDistanceIn )
                     return;
@@ -63,7 +63,7 @@ namespace Desert::Geometry
         }
 
     private:
-        struct FGraphNode
+        struct GraphNode
         {
             int32_t PointID;
             int32_t ParentPointID;
@@ -73,8 +73,8 @@ namespace Desert::Geometry
         };
         const PointSetType* PointSet;
         std::unordered_map<int32_t, int32_t> IDToNodeIndexMap;
-        std::vector<FGraphNode>              AllocatedNodes;
-        FIndexPriorityQueue Queue;
+        std::vector<GraphNode>               AllocatedNodes;
+        IndexPriorityQueue                   Queue;
         double              MaxGraphDistance        = 0.0;
         int32_t                MaxGraphDistancePointID = -1;
 
@@ -84,7 +84,7 @@ namespace Desert::Geometry
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            AllocatedNodes.push_back( FGraphNode{ PointSetID, -1, 0, 0.0, false } );
+            AllocatedNodes.push_back( GraphNode{ PointSetID, -1, 0, 0.0, false } );
             const int32_t NewIndex = static_cast<int32_t>( AllocatedNodes.size() ) - 1;
             IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
             return NewIndex;
@@ -97,7 +97,7 @@ namespace Desert::Geometry
             const glm::dvec3 ParentPos  = PointSet->GetVertex( ParentID );
             for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
             {
-                FGraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
+                GraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )
                     continue;
                 const double NbrDist = ParentDist + Distance( ParentPos, PointSet->GetVertex( NbrPointID ) );

@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/LineTypes.h:140-222, adapted: namespace
-// Desert::Geometry; only TLine3 (FMeshBevel, the inset solve and FDistLine3Line3d use it). TLine2 is not ported.
+// Desert::Geometry; only Line3 (MeshBevel, the inset solve and DistLine3Line3d use it). TLine2 is not ported.
 #pragma once
 
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
@@ -7,11 +7,11 @@
 namespace Desert::Geometry
 {
     /**
-     * TLine3 is a three-dimensional infinite line.
+     * Line3 is a three-dimensional infinite line.
      * The line is stored in (Center,Direction) form.
      */
     template <typename T>
-    struct TLine3
+    struct Line3
     {
         /** Origin / Center Point of Line */
         glm::vec<3, T> Origin = glm::vec<3, T>( 0 );
@@ -19,18 +19,18 @@ namespace Desert::Geometry
         glm::vec<3, T> Direction = glm::vec<3, T>( 1, 0, 0 );
 
         /** Construct default line along X axis */
-        TLine3() = default;
+        Line3() = default;
 
         /** Construct line with given Origin and Direction */
-        TLine3( const glm::vec<3, T>& OriginIn, const glm::vec<3, T>& DirectionIn )
+        Line3( const glm::vec<3, T>& OriginIn, const glm::vec<3, T>& DirectionIn )
              : Origin( OriginIn ), Direction( DirectionIn )
         {
         }
 
         /** @return line between two points */
-        static TLine3<T> FromPoints( const glm::vec<3, T>& Point0, const glm::vec<3, T>& Point1 )
+        static Line3<T> FromPoints( const glm::vec<3, T>& Point0, const glm::vec<3, T>& Point1 )
         {
-            return TLine3<T>( Point0, Normalized( Point1 - Point0 ) );
+            return Line3<T>( Point0, Normalized( Point1 - Point0 ) );
         }
 
         /** @return point on line at given line parameter value (distance along line from origin) */
@@ -61,6 +61,6 @@ namespace Desert::Geometry
         }
     };
 
-    using FLine3d = TLine3<double>;
-    using FLine3f = TLine3<float>;
+    using Line3d = Line3<double>;
+    using Line3f = Line3<float>;
 } // namespace Desert::Geometry

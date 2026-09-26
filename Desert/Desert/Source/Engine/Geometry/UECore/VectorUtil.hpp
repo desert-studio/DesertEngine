@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/VectorUtil.h:42-56,70-109,148-178,476-489,540-552,
-// 612-636, adapted: only the functions the FDynamicMesh3 port and MeshTangents call; namespace
+// 612-636, adapted: only the functions the DynamicMesh3 port and MeshTangents call; namespace
 // Desert::Geometry::VectorUtil.
 #pragma once
 

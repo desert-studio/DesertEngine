@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/VectorTypes.h:127-131,160-213,253-259,355-362,
-// adapted: only the TVector/TVector2 helpers the FDynamicMesh3 port calls; UE::Math::TVector is our shim
+// adapted: only the TVector/TVector2 helpers the DynamicMesh3 port calls; UE::Math::TVector is our shim
 // TVector; component-wise Min/Max come from Core's Math/Vector.h (FVector::Min/Max) as free functions here.
 #pragma once
 

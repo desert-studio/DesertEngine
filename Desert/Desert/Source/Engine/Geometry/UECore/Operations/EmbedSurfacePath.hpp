@@ -1,10 +1,10 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Operations/EmbedSurfacePath.h:22-83,89-104,113-121,
-// 160-196, adapted: UE Core via UECore.hpp, namespace Desert::Geometry. Only what FGroupEdgeInserter's plane-cut
-// embedding (GroupEdgeInserter.cpp:1025-1028) uses is ported: FMeshSurfacePoint and
-// FMeshSurfacePath::EmbedSimplePath, plus IsConnected to check a path before embedding it. Left out, with reasons:
+// 160-196, adapted: UE Core via UECore.hpp, namespace Desert::Geometry. Only what GroupEdgeInserter's plane-cut
+// embedding (GroupEdgeInserter.cpp:1025-1028) uses is ported: MeshSurfacePoint and
+// MeshSurfacePath::EmbedSimplePath, plus IsConnected to check a path before embedding it. Left out, with reasons:
 // - AddViaPlanarWalk / ClosePath and the closed-path flag they set (WalkMeshPlanar, ~360 lines): no caller yet;
-//   FGroupEdgeInserter builds its path itself (GetPlaneCutPath).
-// - EmbedProjectedPath(s) and FFrame3d: outside this port.
+//   GroupEdgeInserter builds its path itself (GetPlaneCutPath).
+// - EmbedProjectedPath(s) and Frame3d: outside this port.
 // - FEmbedSimplePathSettings (snap-to-vertex, loop removal, tiny-edge flips): every caller here takes the default
 //   (all off), so the options would be settings nothing sets.
 // - bUpdatePath: UE never implemented it (its branch is `ensure(false)`), so the path is always consumed.
@@ -19,9 +19,9 @@
 
 namespace Desert::Geometry
 {
-    class FDynamicMesh3;
+    class DynamicMesh3;
 
-    enum class ESurfacePointType
+    enum class SurfacePointType
     {
         Vertex   = 0,
         Edge     = 1,
@@ -32,55 +32,55 @@ namespace Desert::Geometry
      * Basic struct to represent a point on a mesh surface, as a vertex, a point on an edge, or a point inside a
      * triangle.
      */
-    struct FMeshSurfacePoint
+    struct MeshSurfacePoint
     {
         int               ElementID = -1;
         glm::dvec3        BaryCoord = glm::dvec3( 0 );
-        ESurfacePointType PointType = ESurfacePointType::Vertex;
+        SurfacePointType  PointType = SurfacePointType::Vertex;
 
-        FMeshSurfacePoint() = default;
+        MeshSurfacePoint() = default;
 
-        FMeshSurfacePoint( int TriangleID, const glm::dvec3& InBaryCoord )
-             : ElementID( TriangleID ), BaryCoord( InBaryCoord ), PointType( ESurfacePointType::Triangle )
+        MeshSurfacePoint( int TriangleID, const glm::dvec3& InBaryCoord )
+             : ElementID( TriangleID ), BaryCoord( InBaryCoord ), PointType( SurfacePointType::Triangle )
         {
         }
 
-        explicit FMeshSurfacePoint( int VertexID ) : ElementID( VertexID ), BaryCoord( 1, 0, 0 )
+        explicit MeshSurfacePoint( int VertexID ) : ElementID( VertexID ), BaryCoord( 1, 0, 0 )
         {
         }
 
-        FMeshSurfacePoint( int InElementID, const glm::dvec3& InBaryCoord, ESurfacePointType InPointType )
+        MeshSurfacePoint( int InElementID, const glm::dvec3& InBaryCoord, SurfacePointType InPointType )
              : ElementID( InElementID ), BaryCoord( InBaryCoord ), PointType( InPointType )
         {
         }
 
         /** A point on edge EdgeID at LerpParam from the edge's first vertex (GetEdgeV order) to its second. */
-        static FMeshSurfacePoint MakeEdgePoint( int32_t EdgeID, double LerpParam )
+        static MeshSurfacePoint MakeEdgePoint( int32_t EdgeID, double LerpParam )
         {
-            return { EdgeID, glm::dvec3( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge };
+            return { EdgeID, glm::dvec3( 1 - LerpParam, LerpParam, 0. ), SurfacePointType::Edge };
         }
 
-        /** @return the parameter to pass to FDynamicMesh3::SplitEdge to split the edge at this point */
+        /** @return the parameter to pass to DynamicMesh3::SplitEdge to split the edge at this point */
         [[nodiscard]] double GetEdgeSplitParam() const
         {
-            UE_CHECK_SLOW( PointType == ESurfacePointType::Edge );
+            UE_CHECK_SLOW( PointType == SurfacePointType::Edge );
             return BaryCoord[1];
         }
 
-        glm::dvec3 Pos( const FDynamicMesh3* Mesh ) const;
+        glm::dvec3 Pos( const DynamicMesh3* Mesh ) const;
     };
 
     /**
      * Represent a path on the surface of a mesh via barycentric coordinates and triangle references
      */
-    class FMeshSurfacePath
+    class MeshSurfacePath
     {
     public:
-        FDynamicMesh3* Mesh;
+        DynamicMesh3* Mesh;
         // Surface points paired with triangle to walk to get to next surface point
-        std::vector<std::pair<FMeshSurfacePoint, int>> Path;
+        std::vector<std::pair<MeshSurfacePoint, int>> Path;
 
-        explicit FMeshSurfacePath( FDynamicMesh3* InMesh ) : Mesh( InMesh )
+        explicit MeshSurfacePath( DynamicMesh3* InMesh ) : Mesh( InMesh )
         {
         }
 

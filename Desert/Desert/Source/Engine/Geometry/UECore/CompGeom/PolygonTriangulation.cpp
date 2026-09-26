@@ -32,7 +32,7 @@ namespace Desert::Geometry::PolygonTriangulation
 
     template <typename T>
     void TriangulateSimplePolygon( const std::vector<glm::vec<3, T>>& VertexPositions,
-                                   std::vector<FIndex3i>& OutTriangles, bool bOrientAsHoleFill )
+                                   std::vector<Index3i>& OutTriangles, bool bOrientAsHoleFill )
     {
         struct Local3
         {
@@ -76,7 +76,7 @@ namespace Desert::Geometry::PolygonTriangulation
         }
         if ( PolygonVertexCount == 3 )
         {
-            OutTriangles.push_back( bOrientAsHoleFill ? FIndex3i( 0, 2, 1 ) : FIndex3i( 0, 1, 2 ) );
+            OutTriangles.push_back( bOrientAsHoleFill ? Index3i( 0, 2, 1 ) : Index3i( 0, 1, 2 ) );
             return;
         }
 
@@ -140,7 +140,7 @@ namespace Desert::Geometry::PolygonTriangulation
                     const int32_t A = PrevVertexNumbers[EarVertexNumber];
                     const int32_t B = EarVertexNumber;
                     const int32_t C = NextVertexNumbers[EarVertexNumber];
-                    OutTriangles.push_back( bOrientAsHoleFill ? FIndex3i( A, C, B ) : FIndex3i( A, B, C ) );
+                    OutTriangles.push_back( bOrientAsHoleFill ? Index3i( A, C, B ) : Index3i( A, B, C ) );
                 }
                 NextVertexNumbers[PrevVertexNumbers[EarVertexNumber]] = NextVertexNumbers[EarVertexNumber];
                 PrevVertexNumbers[NextVertexNumbers[EarVertexNumber]] = PrevVertexNumbers[EarVertexNumber];
@@ -162,8 +162,8 @@ namespace Desert::Geometry::PolygonTriangulation
                                                 glm::vec<3, float>& );
     template double ComputePolygonPlane<double>( const std::vector<glm::vec<3, double>>&, glm::vec<3, double>&,
                                                  glm::vec<3, double>& );
-    template void TriangulateSimplePolygon<float>( const std::vector<glm::vec<3, float>>&, std::vector<FIndex3i>&,
-                                                   bool );
-    template void TriangulateSimplePolygon<double>( const std::vector<glm::vec<3, double>>&,
-                                                    std::vector<FIndex3i>&, bool );
+    template void   TriangulateSimplePolygon<float>( const std::vector<glm::vec<3, float>>&, std::vector<Index3i>&,
+                                                     bool );
+    template void TriangulateSimplePolygon<double>( const std::vector<glm::vec<3, double>>&, std::vector<Index3i>&,
+                                                    bool );
 } // namespace Desert::Geometry::PolygonTriangulation

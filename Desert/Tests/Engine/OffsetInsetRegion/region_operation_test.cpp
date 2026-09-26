@@ -74,11 +74,11 @@ namespace
     }
 
     // Face f is polygroup f + 1.
-    FDynamicMesh3 TangentCube()
+    DynamicMesh3 TangentCube()
     {
         auto imported = DynamicMeshFromRenderMesh( HardCube( 50.0f ) );
         EXPECT_TRUE( imported.IsSuccess() ) << ( imported.IsSuccess() ? "" : imported.GetError() );
-        FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+        DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
         EXPECT_TRUE( mesh.Attributes()->HasTangentSpace() );
         mesh.EnableTriangleGroups();
         for ( int t : mesh.TriangleIndicesItr() )
@@ -86,7 +86,7 @@ namespace
         return mesh;
     }
 
-    ElementSelection Groups( const FDynamicMesh3& mesh, std::initializer_list<int> faces )
+    ElementSelection Groups( const DynamicMesh3& mesh, std::initializer_list<int> faces )
     {
         ElementSelection selection( ElementMode::PolyGroup );
         for ( int f : faces )
@@ -103,7 +103,7 @@ namespace
 
 TEST( RegionOperation, TangentCubeImportsWithTheTopFaceWhereTheTestSaysItIs )
 {
-    const FDynamicMesh3 mesh = TangentCube();
+    const DynamicMesh3 mesh = TangentCube();
     EXPECT_NEAR( mesh.GetTriNormal( 2 * kPlusZ ).z, 1.0, 1e-9 );
     EXPECT_NEAR( mesh.GetTriNormal( 2 * kPlusZ + 1 ).z, 1.0, 1e-9 );
 }
@@ -117,7 +117,7 @@ TEST( RegionOperation, EveryOperationOnATangentCubeRendersBack )
                                         RegionOperation::Inset, RegionOperation::Outset } )
     {
         SCOPED_TRACE( ToString( operation ) );
-        const FDynamicMesh3 before = TangentCube();
+        const DynamicMesh3  before = TangentCube();
         auto                region = RunRegionOperation( operation, before, Groups( before, { kPlusZ } ), 20.0f );
         ASSERT_TRUE( region.IsSuccess() ) << region.GetError();
         const RegionOutcome done = region.ExtractValue();
@@ -138,17 +138,17 @@ TEST( RegionOperation, EveryOperationOnATangentCubeRendersBack )
 
 TEST( RegionOperation, ExtrudeLiftsTheTopFaceByTheDistance )
 {
-    const FDynamicMesh3 before = TangentCube();
+    const DynamicMesh3 before = TangentCube();
     auto region = RunRegionOperation( RegionOperation::Extrude, before, Groups( before, { kPlusZ } ), 20.0f );
     ASSERT_TRUE( region.IsSuccess() ) << region.GetError();
     const RegionOutcome    done = region.ExtractValue();
-    const FGroupTopology   topology( done.Mesh.get(), true );
+    const GroupTopology    topology( done.Mesh.get(), true );
     const ElementSelection triangles =
          ConvertSelection( *done.Mesh, topology, done.Selection, ElementMode::Triangle );
     ASSERT_EQ( triangles.Size(), 2u );
     for ( int t : triangles.Ids() )
     {
-        const FIndex3i tri = done.Mesh->GetTriangle( t );
+        const Index3i tri = done.Mesh->GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
             EXPECT_NEAR( done.Mesh->GetVertex( tri[j] ).z, 70.0, 1e-9 );
     }
@@ -158,12 +158,12 @@ TEST( RegionOperation, ExtrudeLiftsTheTopFaceByTheDistance )
 // (equal areas) that is (1,0,1)/sqrt(2) times the distance.
 TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
 {
-    const FDynamicMesh3 before = TangentCube();
+    const DynamicMesh3  before = TangentCube();
     auto                region =
          RunRegionOperation( RegionOperation::PushPull, before, Groups( before, { kPlusX, kPlusZ } ), 20.0f );
     ASSERT_TRUE( region.IsSuccess() ) << region.GetError();
     const RegionOutcome    done = region.ExtractValue();
-    const FGroupTopology   topology( done.Mesh.get(), true );
+    const GroupTopology    topology( done.Mesh.get(), true );
     const ElementSelection triangles =
          ConvertSelection( *done.Mesh, topology, done.Selection, ElementMode::Triangle );
     ASSERT_EQ( triangles.Size(), 4u );
@@ -171,7 +171,7 @@ TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
     const glm::dvec3 move( step, 0.0, step );
     for ( int t : triangles.Ids() )
     {
-        const FIndex3i tri = done.Mesh->GetTriangle( t );
+        const Index3i tri = done.Mesh->GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
         {
             // Back where it came from: a corner of the +X or +Z face of the 100 cm cube.
@@ -187,7 +187,7 @@ TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
 
 TEST( RegionOperation, InsetOfFiveFacesIsRefusedForTheInteriorVertices )
 {
-    const FDynamicMesh3 before = TangentCube();
+    const DynamicMesh3  before = TangentCube();
     auto                region = RunRegionOperation( RegionOperation::Inset, before,
                                                      Groups( before, { kPlusX, kMinusX, kPlusY, kMinusY, kPlusZ } ), 20.0f );
     ASSERT_FALSE( region.IsSuccess() );
@@ -196,7 +196,7 @@ TEST( RegionOperation, InsetOfFiveFacesIsRefusedForTheInteriorVertices )
 
 TEST( RegionOperation, ZeroAndWronglySignedDistancesAreRefusedByName )
 {
-    const FDynamicMesh3 before = TangentCube();
+    const DynamicMesh3  before = TangentCube();
     const auto          top    = Groups( before, { kPlusZ } );
     auto                zero   = RunRegionOperation( RegionOperation::Extrude, before, top, 0.0f );
     ASSERT_FALSE( zero.IsSuccess() );
@@ -208,7 +208,7 @@ TEST( RegionOperation, ZeroAndWronglySignedDistancesAreRefusedByName )
 }
 
 // Weld (P12): the cube imported WITHOUT position welding is twelve loose triangles - every edge, face diagonals
-// included, is an open seam with a coincident partner. FMergeCoincidentMeshEdges with the UE Weld Edges tool's
+// included, is an open seam with a coincident partner. MergeCoincidentMeshEdges with the UE Weld Edges tool's
 // defaults (ZeroTolerance, split-attribute welding on merged edges, 0.1 degree normal/tangent and 0.01 UV
 // thresholds) must close it into one watertight 8-vertex cube that still renders back with its hard normals and
 // tangent frame.
@@ -216,14 +216,14 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
 {
     auto imported = DynamicMeshFromRenderMesh( HardCube( 50.0f ), WeldOptions{ -1.0f, 1e-5f } );
     ASSERT_TRUE( imported.IsSuccess() ) << imported.GetError();
-    FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+    DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
     ASSERT_EQ( mesh.VertexCount(), 36 ); // no corner is shared: 12 loose triangles
     int openBefore = 0;
     for ( int e : mesh.BoundaryEdgeIndicesItr() )
         openBefore += e >= 0 ? 1 : 0;
     ASSERT_EQ( openBefore, 36 );
 
-    FMergeCoincidentMeshEdges merger( &mesh );
+    MergeCoincidentMeshEdges merger( &mesh );
     merger.MergeVertexTolerance                        = FMathf::ZeroTolerance;
     merger.MergeSearchTolerance                        = 2 * merger.MergeVertexTolerance;
     merger.bWeldAttrsOnMergedEdges                     = true;
@@ -248,22 +248,22 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
     }
 }
 
-// P12b: a cube with its top face deleted has one four-edge hole; FMeshBoundaryLoops finds it and FSimpleHoleFiller
+// P12b: a cube with its top face deleted has one four-edge hole; MeshBoundaryLoops finds it and SimpleHoleFiller
 // closes it with a fan that faces out, and the attributes UE's HoleFillOp sets make it render back.
 TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
 {
-    FDynamicMesh3 mesh = TangentCube();
+    DynamicMesh3 mesh = TangentCube();
     mesh.RemoveTriangle( 2 * kPlusZ );
     mesh.RemoveTriangle( 2 * kPlusZ + 1 );
     ASSERT_FALSE( mesh.IsClosed() );
 
-    FMeshBoundaryLoops loops( &mesh );
+    MeshBoundaryLoops loops( &mesh );
     ASSERT_EQ( loops.GetLoopCount(), 1 );
     EXPECT_EQ( static_cast<int32_t>( loops.Spans.size() ), 0 );
     EXPECT_EQ( loops.Loops[0].GetEdgeCount(), 4 );
     EXPECT_TRUE( loops.Loops[0].IsBoundaryLoop( mesh ) );
 
-    FSimpleHoleFiller filler( &mesh, loops.Loops[0] );
+    SimpleHoleFiller filler( &mesh, loops.Loops[0] );
     ASSERT_TRUE( filler.Fill() ) << filler.FailureReason;
     EXPECT_EQ( static_cast<int32_t>( filler.NewTriangles.size() ), 4 );
     EXPECT_TRUE( mesh.IsClosed() );
@@ -274,12 +274,12 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
     for ( int t : filler.NewTriangles )
         EXPECT_NEAR( mesh.GetTriNormal( t ).z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
 
-    FDynamicMeshEditor editor( &mesh );
+    DynamicMeshEditor editor( &mesh );
     editor.SetTriangleNormals( filler.NewTriangles, glm::vec3( 0, 0, 1 ) );
     editor.SetTriangleUVsFromProjection( filler.NewTriangles, mesh.GetVertex( filler.NewVertex ),
                                          glm::dvec3( 0, 0, 1 ), 1.0f );
-    FDynamicMeshAttributeSet* attributes = mesh.Attributes();
-    FMeshTangentsd            tangents( &mesh );
+    DynamicMeshAttributeSet* attributes = mesh.Attributes();
+    MeshTangentsd            tangents( &mesh );
     tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), attributes->PrimaryUV() );
     ASSERT_TRUE( tangents.CopyToOverlays( mesh ) );
 
@@ -295,13 +295,13 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
 // The editor's Fill Hole: the whole HoleFillOp orchestration, including the plane normal it derives (not given).
 TEST( RegionOperation, FillHolesDerivesTheCapNormalFromTheLoop )
 {
-    FDynamicMesh3 before = TangentCube();
+    DynamicMesh3 before = TangentCube();
     before.RemoveTriangle( 2 * kPlusZ );
     before.RemoveTriangle( 2 * kPlusZ + 1 );
 
     auto filled = FillHoles( before, ElementSelection( ElementMode::Triangle ) );
     ASSERT_TRUE( filled.IsSuccess() ) << filled.GetError();
-    const FDynamicMesh3& mesh = *filled.GetValue().Mesh;
+    const DynamicMesh3& mesh = *filled.GetValue().Mesh;
     EXPECT_TRUE( mesh.IsClosed() );
     EXPECT_EQ( filled.GetValue().Selection.Size(), 4u );
     auto render = ToRenderMesh( mesh );
@@ -323,7 +323,7 @@ TEST( RegionOperation, WeldEdgesClosesAnImportedHardCube )
 {
     auto imported = DynamicMeshFromRenderMesh( HardCube( 50.0f ), WeldOptions{ -1.0f, 1e-5f } );
     ASSERT_TRUE( imported.IsSuccess() ) << imported.GetError();
-    const FDynamicMesh3 before = std::move( imported.ExtractValue().Mesh );
+    const DynamicMesh3 before = std::move( imported.ExtractValue().Mesh );
     ASSERT_FALSE( before.IsClosed() );
     auto welded = WeldEdges( before, ElementMode::Edge );
     ASSERT_TRUE( welded.IsSuccess() ) << welded.GetError();
@@ -337,7 +337,7 @@ TEST( RegionOperation, WeldEdgesClosesAnImportedHardCube )
 // step (P12d found the editor reporting +0/+0).
 TEST( RegionOperation, WeldEdgesRefusesAnOpenBoxWithNoCoincidentPair )
 {
-    FDynamicMesh3 before = TangentCube();
+    DynamicMesh3 before = TangentCube();
     before.RemoveTriangle( 2 * kPlusZ );
     before.RemoveTriangle( 2 * kPlusZ + 1 );
     ASSERT_FALSE( before.IsClosed() );
@@ -350,13 +350,13 @@ TEST( RegionOperation, WeldEdgesRefusesAnOpenBoxWithNoCoincidentPair )
 namespace
 {
     // The Edge selection the editor's group-level pick makes: every mesh edge of the group edge between two faces.
-    ElementSelection GroupEdgeBetween( const FDynamicMesh3& mesh, int faceA, int faceB )
+    ElementSelection GroupEdgeBetween( const DynamicMesh3& mesh, int faceA, int faceB )
     {
-        const FGroupTopology topology( &mesh, true );
+        const GroupTopology  topology( &mesh, true );
         ElementSelection     selection( ElementMode::Edge );
         for ( int e = 0; e < static_cast<int32_t>( topology.Edges.size() ); ++e )
         {
-            const FIndex2i g = topology.Edges[e].Groups;
+            const Index2i g = topology.Edges[e].Groups;
             if ( ( g.A == faceA + 1 && g.B == faceB + 1 ) || ( g.A == faceB + 1 && g.B == faceA + 1 ) )
                 for ( const int eid : topology.GetGroupEdgeEdges( e ) )
                     EXPECT_TRUE( selection.Add( mesh, eid ).IsSuccess() ) << "edge " << eid;
@@ -364,7 +364,7 @@ namespace
         return selection;
     }
 
-    size_t GroupCount( const FDynamicMesh3& mesh )
+    size_t GroupCount( const DynamicMesh3& mesh )
     {
         std::vector<int> groups;
         for ( const int t : mesh.TriangleIndicesItr() )
@@ -379,7 +379,7 @@ namespace
 // edges and renders back with a tangent frame.
 TEST( RegionOperation, InsertEdgeLoopSplitsTheCubeRingIntoTenGroups )
 {
-    const FDynamicMesh3 before = TangentCube();
+    const DynamicMesh3 before = TangentCube();
     ASSERT_EQ( GroupCount( before ), 6u );
     auto loop = InsertEdgeLoop( before, GroupEdgeBetween( before, kPlusX, kPlusZ ), 0.5f );
     ASSERT_TRUE( loop.IsSuccess() ) << loop.GetError();
@@ -391,7 +391,7 @@ TEST( RegionOperation, InsertEdgeLoopSplitsTheCubeRingIntoTenGroups )
     EXPECT_GE( done.Selection.Ids().size(), 4u );
     for ( const int eid : done.Selection.Ids() )
     {
-        const FIndex2i v = done.Mesh->GetEdgeV( eid );
+        const Index2i v = done.Mesh->GetEdgeV( eid );
         EXPECT_NEAR( done.Mesh->GetVertex( v.A ).y, 0.0, 1e-6 );
         EXPECT_NEAR( done.Mesh->GetVertex( v.B ).y, 0.0, 1e-6 );
     }
@@ -404,7 +404,7 @@ TEST( RegionOperation, InsertEdgeLoopSplitsTheCubeRingIntoTenGroups )
 // The position is measured from the group edge's first corner: 0.25 and 0.75 put the loop on opposite sides.
 TEST( RegionOperation, InsertEdgeLoopPositionMovesTheLoopAlongTheEdge )
 {
-    const FDynamicMesh3        before = TangentCube();
+    const DynamicMesh3         before = TangentCube();
     std::array<double, 2>      y{};
     const std::array<float, 2> at{ 0.25f, 0.75f };
     for ( size_t i = 0; i < at.size(); ++i )
@@ -421,7 +421,7 @@ TEST( RegionOperation, InsertEdgeLoopPositionMovesTheLoopAlongTheEdge )
 
 TEST( RegionOperation, InsertEdgeLoopRefusalsNameTheCause )
 {
-    const FDynamicMesh3 cube    = TangentCube();
+    const DynamicMesh3  cube    = TangentCube();
     auto                refused = [&]( const ElementSelection& selection, float position, const char* text )
     {
         auto r = InsertEdgeLoop( cube, selection, position );

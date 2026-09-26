@@ -10,6 +10,6 @@ namespace Desert::Geometry
      * ExpMap UVs for an arbitrary connected TriangleSet, scaled so their UV/3D density matches the already-set
      * neighbour triangles. False when the ExpMap reports a failure.
      */
-    bool ComputeArbitraryTrianglePatchUVs( FDynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
+    bool ComputeArbitraryTrianglePatchUVs( DynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
                                            const std::vector<int32_t>& TriangleSet );
 } // namespace Desert::Geometry

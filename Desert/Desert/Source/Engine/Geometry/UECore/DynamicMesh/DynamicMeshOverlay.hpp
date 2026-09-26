@@ -19,10 +19,10 @@
 namespace Desert::Geometry
 {
 
-    class FDynamicMesh3;
+    class DynamicMesh3;
 
     /**
-     * TDynamicMeshOverlay is an add-on to a FDynamicMesh3 that allows for per-triangle storage
+     * DynamicMeshOverlay is an add-on to a DynamicMesh3 that allows for per-triangle storage
      * of an "element" (eg like a per-triangle UV or normal). However the elements can be shared
      * between triangles at shared vertices because the elements are stored in a separate indexable
      * list.
@@ -38,7 +38,7 @@ namespace Desert::Geometry
      * A "seam" edge is one where at least one of the elements of the triangles on either
      * side of the edge is not shared between the two triangles.
      *
-     * The FDynamicMesh3 mesh topology operations (eg split/flip/collapse edge, poke face, etc)
+     * The DynamicMesh3 mesh topology operations (eg split/flip/collapse edge, poke face, etc)
      * can be mirrored to the overlay via OnSplitEdge(), etc.
      *
      * Note that although this is a template, many of the functions are defined in the .cpp file.
@@ -46,69 +46,70 @@ namespace Desert::Geometry
      * you wish to use in the block at the top of DynamicMeshOverlay.cpp
      */
     template <typename RealType, int ElementSize>
-    class TDynamicMeshOverlay
+    class DynamicMeshOverlay
     {
 
     protected:
         /** The parent mesh this overlay belongs to */
-        FDynamicMesh3* ParentMesh;
+        DynamicMesh3* ParentMesh;
 
         /** Reference counts of element indices. Iterate over this to find out which elements are valid. */
-        FRefCountVector ElementsRefCounts;
+        RefCountVector ElementsRefCounts;
         /** List of element values */
-        TDynamicVector<RealType> Elements;
+        DynamicVector<RealType> Elements;
         /** List of parent vertex indices, one per element */
-        TDynamicVector<int> ParentVertices;
+        DynamicVector<int> ParentVertices;
 
         /** List of triangle element-index triplets [Elem0 Elem1 Elem2]*/
-        TDynamicVector<int> ElementTriangles;
+        DynamicVector<int> ElementTriangles;
 
-        friend class FDynamicMesh3;
-        friend class FDynamicMeshAttributeSet;
+        friend class DynamicMesh3;
+        friend class DynamicMeshAttributeSet;
 
     public:
         /** Create an empty overlay */
-        TDynamicMeshOverlay()
+        DynamicMeshOverlay()
         {
             ParentMesh = nullptr;
         }
 
         /** Create an overlay for the given parent mesh */
-        TDynamicMeshOverlay( FDynamicMesh3* ParentMeshIn )
+        DynamicMeshOverlay( DynamicMesh3* ParentMeshIn )
         {
             ParentMesh = ParentMeshIn;
         }
 
     private:
         /** @set the parent mesh for this overlay.  Only safe for use during FDynamicMesh move */
-        void Reparent( FDynamicMesh3* ParentMeshIn )
+        void Reparent( DynamicMesh3* ParentMeshIn )
         {
             ParentMesh = ParentMeshIn;
         }
 
     public:
         /** @return the parent mesh for this overlay */
-        const FDynamicMesh3* GetParentMesh() const
+        const DynamicMesh3* GetParentMesh() const
         {
             return ParentMesh;
         }
         /** @return the parent mesh for this overlay */
-        FDynamicMesh3* GetParentMesh()
+        DynamicMesh3* GetParentMesh()
         {
             return ParentMesh;
         }
 
         /** Set this overlay to contain the same arrays as the copy overlay */
-        void Copy( const TDynamicMeshOverlay<RealType, ElementSize>& Copy )
+        void Copy( const DynamicMeshOverlay<RealType, ElementSize>& Copy )
         {
-            ElementsRefCounts = FRefCountVector( Copy.ElementsRefCounts );
+            ElementsRefCounts = RefCountVector( Copy.ElementsRefCounts );
             Elements          = Copy.Elements;
             ParentVertices    = Copy.ParentVertices;
             ElementTriangles  = Copy.ElementTriangles;
         }
 
         /** Copy the Copy overlay to a compact rep, also updating parent references based on the CompactMaps */
-        void CompactCopy( const FCompactMaps& CompactMaps, const TDynamicMeshOverlay<RealType, ElementSize>& Copy )
+        void CompactCopy( const DynamicMeshCompactMaps&                    CompactMaps,
+                          const DynamicMeshOverlay<RealType, ElementSize>& Copy )
         {
             ClearElements();
 
@@ -141,14 +142,14 @@ namespace Desert::Geometry
                     continue;
                 }
                 const int ToTID           = CompactMaps.GetTriangleMapping( FromTID );
-                FIndex3i  FromTriElements = Copy.GetTriangle( FromTID );
-                SetTriangle( ToTID, FIndex3i( MapE[FromTriElements.A], MapE[FromTriElements.B],
-                                              MapE[FromTriElements.C] ) );
+                Index3i   FromTriElements = Copy.GetTriangle( FromTID );
+                SetTriangle(
+                     ToTID, Index3i( MapE[FromTriElements.A], MapE[FromTriElements.B], MapE[FromTriElements.C] ) );
             }
         }
 
         /** Compact overlay and update links to parent based on CompactMaps */
-        void CompactInPlace( const FCompactMaps& CompactMaps )
+        void CompactInPlace( const DynamicMeshCompactMaps& CompactMaps )
         {
             int iLastE = MaxElementID() - 1, iCurE = 0;
             while ( iLastE >= 0 && ElementsRefCounts.IsValidUnsafe( iLastE ) == false )
@@ -176,7 +177,7 @@ namespace Desert::Geometry
                 }
             }
 
-            TDynamicVector<unsigned short>& ERef = ElementsRefCounts.GetRawRefCountsUnsafe();
+            DynamicVector<unsigned short>&  ERef = ElementsRefCounts.GetRawRefCountsUnsafe();
             RealType                        Data[ElementSize];
             while ( iCurE < iLastE )
             {
@@ -185,7 +186,7 @@ namespace Desert::Geometry
                 SetElement( iCurE, Data );
                 ParentVertices[iCurE] = ParentVertices[iLastE];
                 ERef[iCurE]           = ERef[iLastE];
-                ERef[iLastE]          = FRefCountVector::INVALID_REF_COUNT;
+                ERef[iLastE]          = RefCountVector::INVALID_REF_COUNT;
                 MapE[iLastE]          = iCurE;
 
                 // move cur forward one, last back one, and  then search for next valid
@@ -243,7 +244,7 @@ namespace Desert::Geometry
             UE_CHECK_SLOW( IsCompact() );
         }
 
-        void Append( const TDynamicMeshOverlay& ToAppend, const FDynamicMesh3::FAppendInfo& AppendInfo )
+        void Append( const DynamicMeshOverlay& ToAppend, const DynamicMesh3::AppendInfo& AppendInfo )
         {
             // We expect to be appending s.t. the intial ElementTriangles map to the pre-append triangles
             if ( !UE_ENSURE( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 ) )
@@ -278,7 +279,7 @@ namespace Desert::Geometry
             ElementsRefCounts.Append( ToAppend.ElementsRefCounts );
             Elements.Add( ToAppend.Elements );
         }
-        void AppendDefaulted( const FDynamicMesh3::FAppendInfo& AppendInfo )
+        void AppendDefaulted( const DynamicMesh3::AppendInfo& AppendInfo )
         {
             // Note: ElementRefCounts, Elements and ParentVertices remain unchanged, since the new triangles are
             // unset
@@ -323,7 +324,7 @@ namespace Desert::Geometry
             return ElementsRefCounts.IsDense();
         }
 
-        typedef typename FRefCountVector::IndexEnumerable element_iterator;
+        typedef typename RefCountVector::IndexEnumerable element_iterator;
 
         /** @return enumerator for valid element indices suitable for use with range-based for */
         element_iterator ElementIndicesItr() const
@@ -352,7 +353,7 @@ namespace Desert::Geometry
          *  when remeshing across existing elements to avoid them being freed while temporarily unreferenced,
          *  but then it should eventually be followed by a call to FreeUnusedElements().
          */
-        EMeshResult SetTriangle( int TriangleID, const FIndex3i& TriElements, bool bAllowElementFreeing = true );
+        MeshResult SetTriangle( int TriangleID, const Index3i& TriElements, bool bAllowElementFreeing = true );
 
         /**
          * Goes through elements and frees any whose reference counts indicate that they are not being used. This
@@ -505,7 +506,7 @@ namespace Desert::Geometry
          * If bUnsafe, we use fast id allocation that does not update free list.
          * You should only be using this between BeginUnsafeElementsInsert() / EndUnsafeElementsInsert() calls
          */
-        EMeshResult InsertElement( int ElementID, const RealType* Value, bool bUnsafe = false );
+        MeshResult InsertElement( int ElementID, const RealType* Value, bool bUnsafe = false );
 
         //
         // Accessors/Queries
@@ -558,21 +559,21 @@ namespace Desert::Geometry
         }
 
         /** Get the element index tuple for a triangle */
-        inline FIndex3i GetTriangle( int TriangleID ) const
+        inline Index3i GetTriangle( int TriangleID ) const
         {
             int i = 3 * TriangleID;
-            return FIndex3i( ElementTriangles[i], ElementTriangles[i + 1], ElementTriangles[i + 2] );
+            return Index3i( ElementTriangles[i], ElementTriangles[i + 1], ElementTriangles[i + 2] );
         }
 
         /** If the triangle is set to valid element indices, return the indices in TriangleOut and return true,
          * otherwise return false */
-        inline bool GetTriangleIfValid( int TriangleID, FIndex3i& TriangleOut ) const
+        inline bool GetTriangleIfValid( int TriangleID, Index3i& TriangleOut ) const
         {
             int i = 3 * TriangleID;
             int a = ElementTriangles[i];
             if ( a >= 0 )
             {
-                TriangleOut = FIndex3i( a, ElementTriangles[i + 1], ElementTriangles[i + 2] );
+                TriangleOut = Index3i( a, ElementTriangles[i + 1], ElementTriangles[i + 2] );
                 UE_CHECK_SLOW( TriangleOut.B >= 0 && TriangleOut.C >= 0 );
                 return true;
             }
@@ -644,7 +645,7 @@ namespace Desert::Geometry
         /**
          * Find the element ID at a vertex of a triangle.
          *
-         * @return Returns the element ID or FDynamicMesh3::InvalidID if the vertex is not a parent of any element
+         * @return Returns the element ID or DynamicMesh3::InvalidID if the vertex is not a parent of any element
          * contained in the triangle.
          */
         int GetElementIDAtVertex( int TriangleID, int VertexID ) const;
@@ -653,7 +654,7 @@ namespace Desert::Geometry
          * Find an element ID associated with the given VertexID
          *
          * @param VertexID The vertex ID to search
-         * @param OutElementID Will be set to the found element ID, or FDynamicMesh3::InvalidID if none found
+         * @param OutElementID Will be set to the found element ID, or DynamicMesh3::InvalidID if none found
          * @return true if an element ID was found, false otherwise
          */
         bool FindAnyElementIDAtVertex( int32_t VertexID, int32_t& OutElementID ) const;
@@ -687,13 +688,13 @@ namespace Desert::Geometry
         /**
          * Checks that the overlay mesh is well-formed, ie all internal data structures are consistent
          */
-        bool CheckValidity( bool                   bAllowNonManifoldVertices = true,
-                            EValidityCheckFailMode FailMode = EValidityCheckFailMode::Check ) const;
+        bool CheckValidity( bool                  bAllowNonManifoldVertices = true,
+                            ValidityCheckFailMode FailMode                  = ValidityCheckFailMode::Check ) const;
 
         /**
          * Returns true if this overlay is the same as Other.
          */
-        bool IsSameAs( const TDynamicMeshOverlay<RealType, ElementSize>& Other, bool bIgnoreDataLayout ) const;
+        bool IsSameAs( const DynamicMeshOverlay<RealType, ElementSize>& Other, bool bIgnoreDataLayout ) const;
 
         [[nodiscard]] size_t GetByteCount() const
         {
@@ -709,20 +710,20 @@ namespace Desert::Geometry
         /** Reverse the orientation of a triangle's elements */
         void OnReverseTriOrientation( int TriangleID );
         /** Update the overlay to reflect an edge split in the parent mesh */
-        void OnSplitEdge( const DynamicMeshInfo::FEdgeSplitInfo& SplitInfo );
+        void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo );
         /** Update the overlay to reflect an edge flip in the parent mesh */
-        void OnFlipEdge( const DynamicMeshInfo::FEdgeFlipInfo& FlipInfo );
+        void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo );
         /** Update the overlay to reflect an edge collapse in the parent mesh */
-        void OnCollapseEdge( const DynamicMeshInfo::FEdgeCollapseInfo& CollapseInfo );
+        void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo );
         /** Update the overlay to reflect a face poke in the parent mesh */
-        void OnPokeTriangle( const DynamicMeshInfo::FPokeTriangleInfo& PokeInfo );
+        void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& PokeInfo );
         /** Update the overlay to reflect an edge merge in the parent mesh */
-        void OnMergeEdges( const DynamicMeshInfo::FMergeEdgesInfo& MergeInfo );
+        void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo );
         /** Update the overlay to reflect a vertex merge in the parent mesh */
-        void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& MergeInfo );
+        void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo );
         /** Update the overlay to reflect a vertex split in the parent mesh */
-        void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                            const std::span<const int>&              TrianglesToUpdate );
+        void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
+                            const std::span<const int>&             TrianglesToUpdate );
 
     protected:
         /** Set the value at an Element to be a linear interpolation of two other Elements */
@@ -732,28 +733,28 @@ namespace Desert::Geometry
                                  const glm::dvec3& BaryCoords );
 
         /** updates the triangles array and optionally the element reference counts */
-        void InternalSetTriangle( int TriangleID, const FIndex3i& TriElements, bool bUpdateRefCounts,
+        void InternalSetTriangle( int TriangleID, const Index3i& TriElements, bool bUpdateRefCounts,
                                   bool bAllowElementFreeing = true );
     };
 
     /**
-     * TDynamicMeshVectorOverlay is an convenient extension of TDynamicMeshOverlay that adds
+     * DynamicMeshVectorOverlay is an convenient extension of DynamicMeshOverlay that adds
      * a specific N-element Vector type to the template, and adds accessor functions
-     * that convert between that N-element vector type and the N-element arrays used by TDynamicMeshOverlay.
+     * that convert between that N-element vector type and the N-element arrays used by DynamicMeshOverlay.
      */
     template <typename RealType, int ElementSize, typename InVectorType>
-    class TDynamicMeshVectorOverlay : public TDynamicMeshOverlay<RealType, ElementSize>
+    class DynamicMeshVectorOverlay : public DynamicMeshOverlay<RealType, ElementSize>
     {
     public:
-        using BaseType   = TDynamicMeshOverlay<RealType, ElementSize>;
+        using BaseType   = DynamicMeshOverlay<RealType, ElementSize>;
         using VectorType = InVectorType;
 
-        TDynamicMeshVectorOverlay() : TDynamicMeshOverlay<RealType, ElementSize>()
+        DynamicMeshVectorOverlay() : DynamicMeshOverlay<RealType, ElementSize>()
         {
         }
 
-        TDynamicMeshVectorOverlay( FDynamicMesh3* parentMesh )
-             : TDynamicMeshOverlay<RealType, ElementSize>( parentMesh )
+        DynamicMeshVectorOverlay( DynamicMesh3* parentMesh )
+             : DynamicMeshOverlay<RealType, ElementSize>( parentMesh )
         {
         }
 
@@ -863,23 +864,23 @@ namespace Desert::Geometry
 #endif
 
 #if !UE_MERGED_MODULES
-    extern template class TDynamicMeshOverlay<float, 1>;
-    extern template class TDynamicMeshOverlay<double, 1>;
-    extern template class TDynamicMeshOverlay<int, 1>;
-    extern template class TDynamicMeshOverlay<float, 2>;
-    extern template class TDynamicMeshOverlay<double, 2>;
-    extern template class TDynamicMeshOverlay<int, 2>;
-    extern template class TDynamicMeshOverlay<float, 3>;
-    extern template class TDynamicMeshOverlay<double, 3>;
-    extern template class TDynamicMeshOverlay<int, 3>;
-    extern template class TDynamicMeshOverlay<float, 4>;
-    extern template class TDynamicMeshOverlay<double, 4>;
+    extern template class DynamicMeshOverlay<float, 1>;
+    extern template class DynamicMeshOverlay<double, 1>;
+    extern template class DynamicMeshOverlay<int, 1>;
+    extern template class DynamicMeshOverlay<float, 2>;
+    extern template class DynamicMeshOverlay<double, 2>;
+    extern template class DynamicMeshOverlay<int, 2>;
+    extern template class DynamicMeshOverlay<float, 3>;
+    extern template class DynamicMeshOverlay<double, 3>;
+    extern template class DynamicMeshOverlay<int, 3>;
+    extern template class DynamicMeshOverlay<float, 4>;
+    extern template class DynamicMeshOverlay<double, 4>;
 
-    extern template class TDynamicMeshVectorOverlay<float, 2, glm::vec2>;
-    extern template class TDynamicMeshVectorOverlay<double, 2, glm::dvec2>;
-    extern template class TDynamicMeshVectorOverlay<float, 3, glm::vec3>;
-    extern template class TDynamicMeshVectorOverlay<double, 3, glm::dvec3>;
-    extern template class TDynamicMeshVectorOverlay<float, 4, glm::vec4>;
+    extern template class DynamicMeshVectorOverlay<float, 2, glm::vec2>;
+    extern template class DynamicMeshVectorOverlay<double, 2, glm::dvec2>;
+    extern template class DynamicMeshVectorOverlay<float, 3, glm::vec3>;
+    extern template class DynamicMeshVectorOverlay<double, 3, glm::dvec3>;
+    extern template class DynamicMeshVectorOverlay<float, 4, glm::vec4>;
 #endif
 
 #undef UE_EXTERN_TEMPLATE_API

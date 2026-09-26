@@ -9,7 +9,7 @@ namespace Desert::Geometry
     namespace
     {
         template <typename OverlayType, typename ShouldWeldFunctorType>
-        void WeldSplits( const FDynamicMesh3* ParentMesh, const int32_t ParentVID, OverlayType& Overlay,
+        void WeldSplits( const DynamicMesh3* ParentMesh, const int32_t ParentVID, OverlayType& Overlay,
                          ShouldWeldFunctorType& ShouldWeld )
         {
             if ( !ParentMesh || !ParentMesh->IsVertex( ParentVID ) )
@@ -39,7 +39,7 @@ namespace Desert::Geometry
                     {
                         if ( !Overlay.IsSetTriangle( TID ) )
                             continue;
-                        FIndex3i TriElements     = Overlay.GetTriangle( TID );
+                        Index3i  TriElements     = Overlay.GetTriangle( TID );
                         bool     bUpdateTriangle = false;
                         for ( int c = 0; c < 3; ++c )
                         {
@@ -57,9 +57,9 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    void FSplitAttributeWelder::WeldSplitElements( FDynamicMesh3& ParentMesh, const int32_t ParentVID )
+    void SplitAttributeWelder::WeldSplitElements( DynamicMesh3& ParentMesh, const int32_t ParentVID )
     {
-        FDynamicMeshAttributeSet* Attributes = ParentMesh.Attributes();
+        DynamicMeshAttributeSet* Attributes = ParentMesh.Attributes();
         if ( !Attributes || !ParentMesh.IsVertex( ParentVID ) )
             return;
         for ( int32_t i = 0, I = Attributes->NumUVLayers(); i < I; ++i )
@@ -73,16 +73,16 @@ namespace Desert::Geometry
             WeldSplitColors( ParentVID, *Overlay, ColorDistSqrdThreshold );
     }
 
-    void FSplitAttributeWelder::WeldSplitElements( FDynamicMesh3& ParentMesh )
+    void SplitAttributeWelder::WeldSplitElements( DynamicMesh3& ParentMesh )
     {
         for ( int vid : ParentMesh.VertexIndicesItr() )
             WeldSplitElements( ParentMesh, vid );
     }
 
-    void FSplitAttributeWelder::WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& Overlay,
-                                              float UVDistSqrdThreshold )
+    void SplitAttributeWelder::WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& Overlay,
+                                             float UVDistSqrdThreshold )
     {
-        const FDynamicMesh3* ParentMesh = Overlay.GetParentMesh();
+        const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
         const float          Threshold  = std::max( UVDistSqrdThreshold, 0.f );
         auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
@@ -94,10 +94,10 @@ namespace Desert::Geometry
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
     }
 
-    void FSplitAttributeWelder::WeldSplitUnitVectors( const int32_t ParentVID, FDynamicMeshNormalOverlay& Overlay,
-                                                      float DotThreshold, bool bMergeZeroVectors )
+    void SplitAttributeWelder::WeldSplitUnitVectors( const int32_t ParentVID, FDynamicMeshNormalOverlay& Overlay,
+                                                     float DotThreshold, bool bMergeZeroVectors )
     {
-        const FDynamicMesh3* ParentMesh = Overlay.GetParentMesh();
+        const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
         auto                 ShouldWeld = [&Overlay, DotThreshold, bMergeZeroVectors]( const int32_t eid,
                                                                        const int32_t oeid ) -> bool
         {
@@ -129,10 +129,10 @@ namespace Desert::Geometry
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
     }
 
-    void FSplitAttributeWelder::WeldSplitColors( const int32_t ParentVID, FDynamicMeshColorOverlay& Overlay,
-                                                 float ColorDistSqrdThreshold )
+    void SplitAttributeWelder::WeldSplitColors( const int32_t ParentVID, FDynamicMeshColorOverlay& Overlay,
+                                                float ColorDistSqrdThreshold )
     {
-        const FDynamicMesh3* ParentMesh = Overlay.GetParentMesh();
+        const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
         const float          Threshold  = std::max( ColorDistSqrdThreshold, 0.f );
         auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {

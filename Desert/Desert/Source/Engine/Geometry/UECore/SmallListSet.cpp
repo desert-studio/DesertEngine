@@ -5,7 +5,7 @@
 namespace Desert::Geometry
 {
 
-    void FSmallListSet::Resize( int32_t NewSize )
+    void SmallListSet::Resize( int32_t NewSize )
     {
         auto const CurSize = static_cast<int32_t>( ListHeads.GetLength() );
         if ( NewSize > CurSize )
@@ -18,7 +18,7 @@ namespace Desert::Geometry
         }
     }
 
-    void FSmallListSet::ResizeAndAllocateBlocks( int32_t NewSize )
+    void SmallListSet::ResizeAndAllocateBlocks( int32_t NewSize )
     {
         Reset();
         Resize( NewSize );
@@ -40,7 +40,7 @@ namespace Desert::Geometry
         AllocatedCount = NewSize;
     }
 
-    void FSmallListSet::AllocateAt( int32_t ListIndex )
+    void SmallListSet::AllocateAt( int32_t ListIndex )
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
         if ( ListIndex >= (int)ListHeads.GetLength() )
@@ -56,11 +56,11 @@ namespace Desert::Geometry
         }
         else
         {
-            UE_CHECKF( ListHeads[ListIndex] == NullValue, "FSmallListSet: list at %d is not empty!", ListIndex );
+            UE_CHECKF( ListHeads[ListIndex] == NullValue, "SmallListSet: list at %d is not empty!", ListIndex );
         }
     }
 
-    void FSmallListSet::Compact( int32_t MaxListIndex )
+    void SmallListSet::Compact( int32_t MaxListIndex )
     {
         UE_CHECK_SLOW( MaxListIndex >= 0 );
         auto const CurSize = static_cast<int32_t>( ListHeads.GetLength() );
@@ -71,8 +71,8 @@ namespace Desert::Geometry
         }
 
         AllocatedCount = 0;
-        TDynamicVector<int32_t> NewBlocks{};
-        TDynamicVector<int32_t> NewLinkedListElements{};
+        DynamicVector<int32_t> NewBlocks{};
+        DynamicVector<int32_t> NewLinkedListElements{};
         for ( int32_t Idx = 0, Num = static_cast<int32_t>( ListHeads.GetLength() ), CurBlockIdx = 0; Idx < Num;
               ++Idx, CurBlockIdx += BLOCK_LIST_OFFSET + 1 )
         {
@@ -118,7 +118,7 @@ namespace Desert::Geometry
         FreeBlocks.Clear();
     }
 
-    void FSmallListSet::AppendWithElementOffset( const FSmallListSet& Other, int32_t ElementOffset )
+    void SmallListSet::AppendWithElementOffset( const SmallListSet& Other, int32_t ElementOffset )
     {
         auto const    OrigListBlocksNum         = static_cast<int32_t>( ListBlocks.Num() );
         auto const    OrigListHeadsNum          = static_cast<int32_t>( ListHeads.Num() );
@@ -193,7 +193,7 @@ namespace Desert::Geometry
         AllocatedCount += Other.AllocatedCount;
     }
 
-    void FSmallListSet::Insert( int32_t ListIndex, int32_t Value )
+    void SmallListSet::Insert( int32_t ListIndex, int32_t Value )
     {
         UE_CHECK_SLOW( 0 <= ListIndex && ListIndex < (int32_t)ListHeads.Num() );
         int32_t block_ptr = ListHeads[ListIndex];
@@ -237,7 +237,7 @@ namespace Desert::Geometry
         ListBlocks[block_ptr] += 1;
     }
 
-    bool FSmallListSet::Remove( int32_t ListIndex, int32_t Value )
+    bool SmallListSet::Remove( int32_t ListIndex, int32_t Value )
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
         int32_t const block_ptr = ListHeads[ListIndex];
@@ -283,7 +283,7 @@ namespace Desert::Geometry
         return false;
     }
 
-    void FSmallListSet::Move( int32_t FromIndex, int32_t ToIndex )
+    void SmallListSet::Move( int32_t FromIndex, int32_t ToIndex )
     {
         UE_CHECK_SLOW( FromIndex >= 0 );
         UE_CHECK_SLOW( ToIndex >= 0 );
@@ -292,7 +292,7 @@ namespace Desert::Geometry
         ListHeads[FromIndex] = NullValue;
     }
 
-    void FSmallListSet::Clear( int32_t ListIndex )
+    void SmallListSet::Clear( int32_t ListIndex )
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
         int32_t const block_ptr = ListHeads[ListIndex];
@@ -320,7 +320,7 @@ namespace Desert::Geometry
         }
     }
 
-    bool FSmallListSet::Contains( int32_t ListIndex, int32_t Value ) const
+    bool SmallListSet::Contains( int32_t ListIndex, int32_t Value ) const
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
         int32_t const block_ptr = ListHeads[ListIndex];
@@ -363,8 +363,8 @@ namespace Desert::Geometry
         return false;
     }
 
-    bool FSmallListSet::EnumerateEarlyOut( int32_t                               ListIndex,
-                                           const std::function<bool( int32_t )>& ApplyFunc ) const
+    bool SmallListSet::EnumerateEarlyOut( int32_t                               ListIndex,
+                                          const std::function<bool( int32_t )>& ApplyFunc ) const
     {
         int32_t const block_ptr = ListHeads[ListIndex];
         if ( block_ptr != NullValue )
@@ -406,7 +406,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    int32_t FSmallListSet::AllocateBlock()
+    int32_t SmallListSet::AllocateBlock()
     {
         auto const nfree = static_cast<int32_t>( FreeBlocks.GetLength() );
         if ( nfree > 0 )
@@ -422,7 +422,7 @@ namespace Desert::Geometry
         return nsize;
     }
 
-    bool FSmallListSet::RemoveFromLinkedList( int32_t block_ptr, int32_t val )
+    bool SmallListSet::RemoveFromLinkedList( int32_t block_ptr, int32_t val )
     {
         int32_t cur_ptr  = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
         int32_t prev_ptr = NullValue;

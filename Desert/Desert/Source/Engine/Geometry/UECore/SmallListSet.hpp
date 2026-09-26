@@ -10,18 +10,18 @@ namespace Desert::Geometry
 {
 
     /**
-     * FSmallListSet stores a set of short integer-valued variable-size lists.
-     * The lists are encoded into a few large TDynamicVector buffers, with internal pooling,
+     * SmallListSet stores a set of short integer-valued variable-size lists.
+     * The lists are encoded into a few large DynamicVector buffers, with internal pooling,
      * so adding/removing lists usually does not involve any new or delete ops.
      *
      * The lists are stored in two parts. The first N elements are stored in a linear
-     * subset of a TDynamicVector. If the list spills past these N elements, the extra elements
+     * subset of a DynamicVector. If the list spills past these N elements, the extra elements
      * are stored in a linked list (which is also stored in a flat array).
      *
      * Each list stores its count, so list-size operations are constant time.
      * All the internal "pointers" are 32-bit.
      */
-    class FSmallListSet
+    class SmallListSet
     {
     protected:
         /** This value is used to indicate Null in internal pointers */
@@ -34,16 +34,16 @@ namespace Desert::Geometry
         static constexpr int32_t BLOCK_LIST_OFFSET = BLOCKSIZE + 1;
 
         /** mapping from list index to offset into ListBlocks that contains list data */
-        TDynamicVector<int32_t> ListHeads{};
+        DynamicVector<int32_t> ListHeads{};
 
         /**
          * flat buffer used to store per-list linear-memory blocks.
          * blocks are BLOCKSIZE+2 long, elements are [CurrentCount, item0...itemN, LinkedListPtr]
          */
-        TDynamicVector<int32_t> ListBlocks{};
+        DynamicVector<int32_t> ListBlocks{};
 
         /** list of free blocks as indices/offsets into ListBlocks */
-        TDynamicVector<int32_t> FreeBlocks{};
+        DynamicVector<int32_t> FreeBlocks{};
 
         /** number of allocated lists */
         int32_t AllocatedCount{ 0 };
@@ -52,7 +52,7 @@ namespace Desert::Geometry
          * flat buffer used to store linked-list "spill" elements
          * each element is [value, next_ptr]
          */
-        TDynamicVector<int32_t> LinkedListElements{};
+        DynamicVector<int32_t> LinkedListElements{};
 
         /** index of first free element in LinkedListElements */
         int32_t FreeHeadIndex{ NullValue };
@@ -303,7 +303,7 @@ namespace Desert::Geometry
          * @param Other the list to append
          * @param ElementOffset amount to shift all appended elements
          */
-        void AppendWithElementOffset( const FSmallListSet& Other, int32_t ElementOffset );
+        void AppendWithElementOffset( const SmallListSet& Other, int32_t ElementOffset );
 
         /**
          * Call ApplyFunc on each element of the list at ListIndex, until ApplyFunc returns false
@@ -311,7 +311,7 @@ namespace Desert::Geometry
          */
         bool EnumerateEarlyOut( int32_t ListIndex, const std::function<bool( int32_t )>& ApplyFunc ) const;
 
-        friend bool operator==( const FSmallListSet& Lhs, const FSmallListSet& Rhs )
+        friend bool operator==( const SmallListSet& Lhs, const SmallListSet& Rhs )
         {
             if ( Lhs.Size() != Rhs.Size() )
             {
@@ -348,7 +348,7 @@ namespace Desert::Geometry
             return true;
         }
 
-        friend bool operator!=( const FSmallListSet& Lhs, const FSmallListSet& Rhs )
+        friend bool operator!=( const SmallListSet& Lhs, const SmallListSet& Rhs )
         {
             return !( Lhs == Rhs );
         }
@@ -411,7 +411,7 @@ namespace Desert::Geometry
                 }
             }
 
-            BaseValueIterator( const FSmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
+            BaseValueIterator( const SmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
             {
                 this->ListSet   = ListSetIn;
                 this->ListIndex = ListIndex;
@@ -446,7 +446,7 @@ namespace Desert::Geometry
                 cur_ptr   = -1;
             }
 
-            const FSmallListSet* ListSet;
+            const SmallListSet*  ListSet;
             int32_t              ListIndex;
             int32_t              block_ptr;
             int32_t              N;
@@ -454,7 +454,7 @@ namespace Desert::Geometry
             int32_t              iCur;
             int32_t              cur_ptr;
             int32_t              cur_value = 0;
-            friend class FSmallListSet;
+            friend class SmallListSet;
         };
 
         /**
@@ -479,12 +479,12 @@ namespace Desert::Geometry
             }
 
         protected:
-            ValueIterator( const FSmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
+            ValueIterator( const SmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
                  : BaseValueIterator( ListSetIn, ListIndex, is_end )
             {
             }
 
-            friend class FSmallListSet;
+            friend class SmallListSet;
         };
 
         /**
@@ -510,21 +510,21 @@ namespace Desert::Geometry
         class ValueEnumerable
         {
         public:
-            const FSmallListSet* ListSet;
+            const SmallListSet*  ListSet;
             int32_t              ListIndex;
             ValueEnumerable()
             {
             }
-            ValueEnumerable( const FSmallListSet* ListSetIn, int32_t ListIndex )
+            ValueEnumerable( const SmallListSet* ListSetIn, int32_t ListIndex )
             {
                 this->ListSet   = ListSetIn;
                 this->ListIndex = ListIndex;
             }
-            typename FSmallListSet::ValueIterator begin() const
+            typename SmallListSet::ValueIterator begin() const
             {
                 return ListSet->BeginValues( ListIndex );
             }
-            typename FSmallListSet::ValueIterator end() const
+            typename SmallListSet::ValueIterator end() const
             {
                 return ListSet->EndValues( ListIndex );
             }
@@ -569,7 +569,7 @@ namespace Desert::Geometry
             }
 
         protected:
-            MappedValueIterator( const FSmallListSet* ListSetIn, int32_t ListIndex, bool is_end,
+            MappedValueIterator( const SmallListSet* ListSetIn, int32_t ListIndex, bool is_end,
                                  std::function<int32_t( int32_t )> MapFuncIn )
                  : BaseValueIterator( ListSetIn, ListIndex, is_end )
             {
@@ -577,7 +577,7 @@ namespace Desert::Geometry
             }
 
             std::function<int32_t( int32_t )> MapFunc;
-            friend class FSmallListSet;
+            friend class SmallListSet;
         };
 
         /**
@@ -605,22 +605,22 @@ namespace Desert::Geometry
         class MappedValueEnumerable
         {
         public:
-            const FSmallListSet*      ListSet;
+            const SmallListSet*               ListSet;
             int32_t                           ListIndex;
             std::function<int32_t( int32_t )> MapFunc;
             MappedValueEnumerable()
             {
             }
-            MappedValueEnumerable( const FSmallListSet* ListSetIn, int32_t ListIndex,
+            MappedValueEnumerable( const SmallListSet* ListSetIn, int32_t ListIndex,
                                    std::function<int32_t( int32_t )> MapFunc )
                  : ListSet( ListSetIn ), ListIndex( ListIndex ), MapFunc( std::move( MapFunc ) )
             {
             }
-            typename FSmallListSet::MappedValueIterator begin() const
+            typename SmallListSet::MappedValueIterator begin() const
             {
                 return ListSet->BeginMappedValues( ListIndex, MapFunc );
             }
-            typename FSmallListSet::MappedValueIterator end() const
+            typename SmallListSet::MappedValueIterator end() const
             {
                 return ListSet->EndMappedValues( ListIndex, MapFunc );
             }

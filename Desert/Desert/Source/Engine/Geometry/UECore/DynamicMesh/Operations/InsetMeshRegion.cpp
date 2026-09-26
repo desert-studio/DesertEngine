@@ -13,7 +13,7 @@
 
 namespace Desert::Geometry
 {
-    bool FInsetMeshRegion::Apply()
+    bool InsetMeshRegion::Apply()
     {
         std::vector<std::vector<int32_t>> Components;
         FindConnectedTriangleComponents( *Mesh, Triangles, Components );
@@ -21,7 +21,7 @@ namespace Desert::Geometry
         InsetRegions.resize( static_cast<int32_t>( Components.size() ) );
         for ( int32_t k = 0; k < static_cast<int32_t>( Components.size() ); ++k )
         {
-            FInsetInfo& Region      = InsetRegions[k];
+            InsetInfo& Region       = InsetRegions[k];
             Region.InitialTriangles = Components[k];
             if ( !ApplyInset( Region ) )
             {
@@ -38,24 +38,24 @@ namespace Desert::Geometry
         return bAllOK;
     }
 
-    bool FInsetMeshRegion::ApplyInset( FInsetInfo& Region )
+    bool InsetMeshRegion::ApplyInset( InsetInfo& Region )
     {
         // UE solves interior vertices with a Laplacian deformer; that solver is not ported, so such a region is
         // refused here, before the mesh is touched.
         {
-            FMeshRegionBoundaryLoops Loops( Mesh, Region.InitialTriangles, false );
+            MeshRegionBoundaryLoops Loops( Mesh, Region.InitialTriangles, false );
             if ( !Loops.Compute() )
             {
                 FailureReason = Loops.FailureReason;
                 return false;
             }
             std::unordered_set<int32_t> LoopVertices;
-            for ( const FEdgeLoop& Loop : Loops.Loops )
+            for ( const EdgeLoop& Loop : Loops.Loops )
                 for ( int32_t const v : Loop.Vertices )
                     LoopVertices.insert( v );
             for ( int32_t const tid : Region.InitialTriangles )
             {
-                const FIndex3i Tri = Mesh->GetTriangle( tid );
+                const Index3i Tri = Mesh->GetTriangle( tid );
                 for ( int j = 0; j < 3; ++j )
                     if ( !LoopVertices.contains( Tri[j] ) )
                     {
@@ -69,22 +69,22 @@ namespace Desert::Geometry
             }
         }
 
-        FDynamicMeshEditor                       Editor( Mesh );
-        std::vector<FDynamicMeshEditor::FLoopPairSet> LoopPairs;
+        DynamicMeshEditor                           Editor( Mesh );
+        std::vector<DynamicMeshEditor::LoopPairSet> LoopPairs;
         if ( !Editor.DisconnectTriangles( Region.InitialTriangles, LoopPairs, true, FailureReason ) )
             return false;
 
-        std::vector<std::vector<FTriVidPair>> InsetStitchSides;
+        std::vector<std::vector<TriVidPair>> InsetStitchSides;
         InsetStitchSides.resize( static_cast<int32_t>( LoopPairs.size() ) );
         for ( int32_t i = 0; i < static_cast<int32_t>( LoopPairs.size() ); ++i )
-            FDynamicMeshEditor::ConvertLoopToTriVidPairSequence( *Mesh, LoopPairs[i].InnerVertices,
-                                                                 LoopPairs[i].InnerEdges, InsetStitchSides[i] );
+            DynamicMeshEditor::ConvertLoopToTriVidPairSequence( *Mesh, LoopPairs[i].InnerVertices,
+                                                                LoopPairs[i].InnerEdges, InsetStitchSides[i] );
 
         Region.InsetLoops.clear();
-        for ( const FDynamicMeshEditor::FLoopPairSet& LoopPair : LoopPairs )
+        for ( const DynamicMeshEditor::LoopPairSet& LoopPair : LoopPairs )
         {
             const std::vector<int32_t>& LoopVids = LoopPair.InnerVertices;
-            std::vector<FLine3d>        InsetLines;
+            std::vector<Line3d>         InsetLines;
             ComputeInsetLineSegmentsFromEdges( *Mesh, LoopPair.InnerEdges, InsetDistance, InsetLines );
             std::vector<glm::dvec3> NewPositions;
             SolveInsetVertexPositionsFromInsetLines( *Mesh, InsetLines, LoopVids, NewPositions, true );
@@ -100,10 +100,10 @@ namespace Desert::Geometry
         Region.BaseLoops.resize( NumInitialLoops );
         Region.StitchTriangles.resize( NumInitialLoops );
         Region.StitchPolygonIDs.resize( NumInitialLoops );
-        std::vector<std::vector<FIndex2i>> QuadStrips;
+        std::vector<std::vector<Index2i>> QuadStrips;
         for ( int32_t LoopIndex = 0; LoopIndex < NumInitialLoops; ++LoopIndex )
         {
-            const FDynamicMeshEditor::FLoopPairSet& LoopPair  = LoopPairs[LoopIndex];
+            const DynamicMeshEditor::LoopPairSet&   LoopPair  = LoopPairs[LoopIndex];
             const std::vector<int32_t>&             BaseLoopV = LoopPair.OuterVertices;
             const int32_t                           NumLoopV  = static_cast<int32_t>( BaseLoopV.size() );
             std::vector<int32_t>                    NewGroupIDs;
@@ -125,7 +125,7 @@ namespace Desert::Geometry
                 }
                 EdgeGroups.push_back( NewGroupsMap[GroupPair] );
             }
-            FDynamicMeshEditResult StitchResult;
+            DynamicMeshEditResult StitchResult;
             if ( !Editor.StitchVertexLoopToTriVidPairSequence( InsetStitchSides[LoopIndex], BaseLoopV,
                                                                StitchResult ) )
             {
@@ -157,7 +157,7 @@ namespace Desert::Geometry
                     glm::dvec3       AxisX{}, AxisY{};
                     if ( k == 0 )
                     {
-                        // FFrame3d(0, Normal).ConstrainedAlignAxis(0, FirstEdge, Normal): X is the first edge
+                        // Frame3d(0, Normal).ConstrainedAlignAxis(0, FirstEdge, Normal): X is the first edge
                         // in the quad's plane, Y = Z x X.
                         glm::dvec3 FirstEdge = Mesh->GetVertex( BaseLoopV[1] ) - Mesh->GetVertex( BaseLoopV[0] );
                         AxisX                = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );

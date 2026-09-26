@@ -9,7 +9,7 @@
 
 namespace Desert::Geometry
 {
-    bool ComputeArbitraryTrianglePatchUVs( FDynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
+    bool ComputeArbitraryTrianglePatchUVs( DynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
                                            const std::vector<int32_t>& TriangleSet )
     {
         std::vector<int32_t> NbrTriSet;
@@ -17,10 +17,10 @@ namespace Desert::Geometry
         double        Nbr3DAreaSum = 0.0;
         for ( const int32_t tid : TriangleSet )
         {
-            const FIndex3i NbrTris = Mesh.GetTriNeighbourTris( tid );
+            const Index3i NbrTris = Mesh.GetTriNeighbourTris( tid );
             for ( int32_t j = 0; j < 3; ++j )
             {
-                if ( NbrTris[j] == FDynamicMesh3::InvalidID ||
+                if ( NbrTris[j] == DynamicMesh3::InvalidID ||
                      ( std::find( NbrTriSet.begin(), NbrTriSet.end(), NbrTris[j] ) != NbrTriSet.end() ) )
                     continue;
                 NbrTriSet.push_back( NbrTris[j] );
@@ -42,8 +42,8 @@ namespace Desert::Geometry
         const double UseUVScale = TMathUtil<double>::Max( std::sqrt( NbrUVAreaSum ), 0.0001 ) /
                                   TMathUtil<double>::Max( std::sqrt( Nbr3DAreaSum ), 0.0001 );
 
-        FDynamicMeshUVEditor UVEditor( &Mesh, &UVOverlay );
-        FUVEditResult        UVEditResult;
+        DynamicMeshUVEditor  UVEditor( &Mesh, &UVOverlay );
+        UVEditResult         UVEditResult;
         const bool           bOK = UVEditor.SetTriangleUVsFromExpMap( TriangleSet, &UVEditResult );
         UVEditor.TransformUVElements( UVEditResult.NewUVElements, [UseUVScale]( const glm::vec2& UV )
                                       { return UV * static_cast<float>( UseUVScale ); } );

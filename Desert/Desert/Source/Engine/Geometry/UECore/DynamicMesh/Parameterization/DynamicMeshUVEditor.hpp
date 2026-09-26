@@ -13,15 +13,15 @@
 
 namespace Desert::Geometry
 {
-    struct FUVEditResult
+    struct UVEditResult
     {
         std::vector<int32_t> NewUVElements;
     };
 
-    class FDynamicMeshUVEditor
+    class DynamicMeshUVEditor
     {
     public:
-        FDynamicMeshUVEditor( FDynamicMesh3* MeshIn, FDynamicMeshUVOverlay* UVOverlayIn )
+        DynamicMeshUVEditor( DynamicMesh3* MeshIn, FDynamicMeshUVOverlay* UVOverlayIn )
              : Mesh( MeshIn ), UVOverlay( UVOverlayIn )
         {
         }
@@ -31,14 +31,14 @@ namespace Desert::Geometry
                                   const std::function<glm::vec2( const glm::vec2& )>& TransformFunc );
 
         /** Frame at the vertex farthest (Dijkstra) from the longest boundary loop; false without a boundary. */
-        static bool EstimateGeodesicCenterFrameVertex( const FDynamicMesh3& Mesh, FFrame3d& FrameOut,
+        static bool EstimateGeodesicCenterFrameVertex( const DynamicMesh3& Mesh, Frame3d& FrameOut,
                                                        int32_t& VertexIDOut, bool bAlignToUnitAxes = true );
 
         /**
          * New UV island for the (connected) Triangles from one discrete exponential map centred at
          * EstimateGeodesicCenterFrameVertex. False if the frame was a fallback or any triangle stayed unset.
          */
-        bool SetTriangleUVsFromExpMap( const std::vector<int32_t>& Triangles, FUVEditResult* Result = nullptr );
+        bool SetTriangleUVsFromExpMap( const std::vector<int32_t>& Triangles, UVEditResult* Result = nullptr );
 
         /**
          * Spectral conformal UVs with a free boundary (nothing pinned; the longest boundary loop is the free set).
@@ -48,7 +48,7 @@ namespace Desert::Geometry
         bool SetTriangleUVsFromFreeBoundarySpectralConformal( const std::vector<int32_t>& Triangles,
                                                               bool                        bUseExistingUVTopology,
                                                               bool                        bPreserveIrregularity,
-                                                              FUVEditResult*              Result = nullptr );
+                                                              UVEditResult*               Result = nullptr );
 
         /**
          * One UV element per mesh vertex, set on every triangle (existing elements are cleared). VertexToUVOut
@@ -65,7 +65,7 @@ namespace Desert::Geometry
                                   float ScaleFactor = 1.0f );
 
     private:
-        FDynamicMesh3*         Mesh;
+        DynamicMesh3*          Mesh;
         FDynamicMeshUVOverlay* UVOverlay;
     };
 } // namespace Desert::Geometry

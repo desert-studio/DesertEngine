@@ -311,7 +311,7 @@ namespace
     }
 
     // A base clause may name an ALIAS of the abstract base, not the base itself: the UE geometry port
-    // derives from `FDynamicMeshAttributeBase`, which is `typedef TDynamicAttributeBase<FDynamicMesh3>`.
+    // derives from `FDynamicMeshAttributeBase`, which is `typedef DynamicAttributeBase<DynamicMesh3>`.
     // Without resolving the alias the census reads that base as having no derived class at all. Returns
     // alias -> aliased class (last `::` component, template arguments dropped) for both spellings.
     std::map<std::string, std::string> TypeAliases( const std::string& code )
@@ -834,7 +834,7 @@ TEST( PureVirtualCensus, NoAbstractBaseIsLeftWithoutASingleImplementation )
 
 TEST( PureVirtualCensus, ABaseNamedThroughAnAliasCountsAsDerived )
 {
-    // The shape that made TDynamicAttributeBase look orphaned: the derived class names a typedef of the
+    // The shape that made DynamicAttributeBase look orphaned: the derived class names a typedef of the
     // template, never the template itself. Both alias spellings, and a chain of two, must reach the base.
     const std::string     code        = "template <typename P> class TBase { virtual void F() = 0; };\n"
                                         "typedef TBase<Mesh> FMeshBase;\n"

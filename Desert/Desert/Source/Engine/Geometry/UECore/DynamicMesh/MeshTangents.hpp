@@ -13,29 +13,29 @@
 namespace Desert::Geometry
 {
     /**
-     * TMeshTangents is a utility class that can calculate and store tangents and bitangents for a FDynamicMesh3,
+     * MeshTangents is a utility class that can calculate and store tangents and bitangents for a DynamicMesh3,
      * one pair per triangle corner (index TriangleID * 3 + corner).
      */
     template <typename RealType>
-    class TMeshTangents
+    class MeshTangents
     {
     protected:
         /** Target Mesh */
-        const FDynamicMesh3* Mesh = nullptr;
+        const DynamicMesh3* Mesh = nullptr;
         /** Set of computed tangents */
         std::vector<glm::vec<3, RealType>> Tangents;
         /** Set of computed bitangents */
         std::vector<glm::vec<3, RealType>> Bitangents;
 
     public:
-        TMeshTangents() = default;
+        MeshTangents() = default;
 
-        explicit TMeshTangents( const FDynamicMesh3* MeshIn )
+        explicit MeshTangents( const DynamicMesh3* MeshIn )
         {
             SetMesh( MeshIn );
         }
 
-        void SetMesh( const FDynamicMesh3* MeshIn )
+        void SetMesh( const DynamicMesh3* MeshIn )
         {
             this->Mesh = MeshIn;
         }
@@ -87,7 +87,7 @@ namespace Desert::Geometry
          * overlays, rebuilding their topology so corners whose values agree share one element.
          * @return false when MeshToSet has no attribute set or not exactly three normal layers
          */
-        bool CopyToOverlays( FDynamicMesh3& MeshToSet ) const;
+        bool CopyToOverlays( DynamicMesh3& MeshToSet ) const;
 
     protected:
         void SetTangentCount( int Count, bool bClearToZero )
@@ -106,5 +106,5 @@ namespace Desert::Geometry
         }
     };
 
-    using FMeshTangentsd = TMeshTangents<double>;
+    using MeshTangentsd = MeshTangents<double>;
 } // namespace Desert::Geometry

@@ -12,29 +12,29 @@ namespace Desert::Geometry
 {
 
     /**
-     * FMeshNormals is a utility class that can calculate and store various types of
+     * MeshNormals is a utility class that can calculate and store various types of
      * normal vectors for a FDynamicMesh.
      */
-    class FMeshNormals
+    class MeshNormals
     {
     protected:
         /** Target Mesh */
-        const FDynamicMesh3* Mesh;
+        const DynamicMesh3* Mesh;
         /** Set of computed normals */
         std::vector<glm::dvec3> Normals;
 
     public:
-        FMeshNormals()
+        MeshNormals()
         {
             Mesh = nullptr;
         }
 
-        FMeshNormals( const FDynamicMesh3* Mesh )
+        MeshNormals( const DynamicMesh3* Mesh )
         {
             SetMesh( Mesh );
         }
 
-        void SetMesh( const FDynamicMesh3* MeshIn )
+        void SetMesh( const DynamicMesh3* MeshIn )
         {
             this->Mesh = MeshIn;
         }
@@ -75,7 +75,7 @@ namespace Desert::Geometry
         }
 
         // Method to use when copying split normals to per-vertex normals
-        enum class ECombineSplitNormalsMethod
+        enum class CombineSplitNormalsMethod
         {
             // Average the split normals
             Average,
@@ -84,11 +84,11 @@ namespace Desert::Geometry
         };
 
         /**
-         * Fill in per-vertex normals in the FMeshNormals::Normals array by copying normals from the overlay
+         * Fill in per-vertex normals in the MeshNormals::Normals array by copying normals from the overlay
          * @param CombineSplitNormals Method to use when copying split normals to per-vertex normals.
          */
         void GetVertexNormalsFromOverlayNormals(
-             ECombineSplitNormalsMethod CombineSplitNormals = ECombineSplitNormalsMethod::Average );
+             CombineSplitNormalsMethod CombineSplitNormals = CombineSplitNormalsMethod::Average );
 
         /**
          * Compute per-triangle normals
@@ -125,7 +125,7 @@ namespace Desert::Geometry
          * @warning assumes that the computed normals are vertex normals
          * @param bInvert if true, normals are flipped
          */
-        void CopyToVertexNormals( FDynamicMesh3* SetMesh, bool bInvert = false ) const;
+        void CopyToVertexNormals( DynamicMesh3* SetMesh, bool bInvert = false ) const;
 
         /**
          * Copy the current set of normals to the NormalOverlay attribute layer
@@ -138,13 +138,13 @@ namespace Desert::Geometry
          * Compute per-vertex normals for the given Mesh
          * @param bInvert if true, normals are flipped
          */
-        static void QuickComputeVertexNormals( FDynamicMesh3& Mesh, bool bInvert = false );
+        static void QuickComputeVertexNormals( DynamicMesh3& Mesh, bool bInvert = false );
 
         /**
          * Apply rounds of explicit uniform-weighted normal smoothing to the VertexNormals attribute of the given
          * Mesh.
          */
-        static void SmoothVertexNormals( FDynamicMesh3& Mesh, int32_t SmoothingRounds, double SmoothingAlpha );
+        static void SmoothVertexNormals( DynamicMesh3& Mesh, int32_t SmoothingRounds, double SmoothingAlpha );
 
         /**
          * Compute per-vertex normals for the vertices of a set of triangles of a Mesh
@@ -152,7 +152,7 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @param bInvert if true, normals are flipped
          */
-        static void QuickComputeVertexNormalsForTriangles( FDynamicMesh3&              Mesh,
+        static void QuickComputeVertexNormalsForTriangles( DynamicMesh3&               Mesh,
                                                            const std::vector<int32_t>& Triangles,
                                                            bool bWeightByArea = true, bool bWeightByAngle = true,
                                                            bool bInvert = false );
@@ -164,7 +164,7 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @return the vertex normal at vertex VertIdx of Mesh.
          */
-        static glm::dvec3 ComputeVertexNormal( const FDynamicMesh3& Mesh, int VertIdx, bool bWeightByArea = true,
+        static glm::dvec3 ComputeVertexNormal( const DynamicMesh3& Mesh, int VertIdx, bool bWeightByArea = true,
                                                bool bWeightByAngle = true );
 
         /**
@@ -175,7 +175,7 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @return the vertex normal at vertex VertIdx of Mesh.
          */
-        static glm::dvec3 ComputeVertexNormal( const FDynamicMesh3& Mesh, int32_t VertIdx,
+        static glm::dvec3 ComputeVertexNormal( const DynamicMesh3& Mesh, int32_t VertIdx,
                                                std::function<bool( int32_t )> TriangleFilterFunc,
                                                bool bWeightByArea = true, bool bWeightByAngle = true );
 
@@ -185,7 +185,7 @@ namespace Desert::Geometry
          * @param bWeightByArea weight neighbor triangles by area
          * @param bWeightByAngle weight neighbor triangles by angle
          */
-        static glm::dvec3 ComputeOverlayNormal( const FDynamicMesh3&             Mesh,
+        static glm::dvec3 ComputeOverlayNormal( const DynamicMesh3&              Mesh,
                                                 const FDynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
                                                 bool bWeightByArea = true, bool bWeightByAngle = true );
 
@@ -204,18 +204,18 @@ namespace Desert::Geometry
          */
         static void InitializeOverlayToPerTriangleNormals( FDynamicMeshNormalOverlay* NormalOverlay );
 
-        static void InitializeOverlayTopologyFromOpeningAngle( const FDynamicMesh3*       Mesh,
+        static void InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*        Mesh,
                                                                FDynamicMeshNormalOverlay* NormalOverlay,
                                                                double                     AngleThresholdDeg );
 
-        static void InitializeOverlayTopologyFromFaceGroups( const FDynamicMesh3*       Mesh,
+        static void InitializeOverlayTopologyFromFaceGroups( const DynamicMesh3*        Mesh,
                                                              FDynamicMeshNormalOverlay* NormalOverlay );
 
         /**
          * Initialize the given Mesh with per-face normals, ie separate overlay element for each vertex of each
          * triangle.
          */
-        static void InitializeMeshToPerTriangleNormals( FDynamicMesh3* Mesh );
+        static void InitializeMeshToPerTriangleNormals( DynamicMesh3* Mesh );
 
         /**
          * Initialize the given triangles of NormalOverlay with per-vertex normals, ie single overlay element for
@@ -229,20 +229,20 @@ namespace Desert::Geometry
          * Compute overlay normals for the given mesh
          * @param bInvert if true, normals are flipped
          */
-        static bool QuickRecomputeOverlayNormals( FDynamicMesh3& Mesh, bool bInvert = false,
+        static bool QuickRecomputeOverlayNormals( DynamicMesh3& Mesh, bool bInvert = false,
                                                   bool bWeightByArea = true, bool bWeightByAngle = true,
                                                   bool bParallelCompute = true );
 
         /**
          * Compute overlay normals for the given mesh, for the given set of triangles
          */
-        static bool RecomputeOverlayTriNormals( FDynamicMesh3& Mesh, const std::vector<int32_t>& Triangles,
+        static bool RecomputeOverlayTriNormals( DynamicMesh3& Mesh, const std::vector<int32_t>& Triangles,
                                                 bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
          * Compute overlay normals for the given mesh, for the given set of element IDs
          */
-        static bool RecomputeOverlayElementNormals( FDynamicMesh3& Mesh, const std::vector<int32_t>& ElementIDs,
+        static bool RecomputeOverlayElementNormals( DynamicMesh3& Mesh, const std::vector<int32_t>& ElementIDs,
                                                     bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
@@ -253,7 +253,7 @@ namespace Desert::Geometry
          * @param bWeightByArea if true, include weighting by the area of the triangle
          * @param bWeightByAngle if true, include weighting by the interior angles of the triangle
          */
-        static glm::dvec3 GetVertexWeightsOnTriangle( const FDynamicMesh3* Mesh, int TriID, double TriArea,
+        static glm::dvec3 GetVertexWeightsOnTriangle( const DynamicMesh3* Mesh, int TriID, double TriArea,
                                                       bool bWeightByArea, bool bWeightByAngle );
 
     protected:

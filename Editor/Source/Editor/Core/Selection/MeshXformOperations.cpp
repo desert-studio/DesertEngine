@@ -24,7 +24,7 @@ namespace Desert::Editor::Core
 {
     namespace
     {
-        using MeshPtr = std::shared_ptr<const Geometry::FDynamicMesh3>;
+        using MeshPtr = std::shared_ptr<const Geometry::DynamicMesh3>;
 
         struct Target
         {

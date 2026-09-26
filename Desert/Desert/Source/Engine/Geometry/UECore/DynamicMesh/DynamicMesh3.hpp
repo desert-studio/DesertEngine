@@ -2,7 +2,7 @@
 // via UECore.hpp, namespace Desert::Geometry, change-stamp mutex is std::mutex; NOT ported here: FArchive
 // serialization, FMeshShapeGenerator construction,
 // IsSameAs/MeshInfoString (1603-1707),
-// vertex/triangle frames (FFrame3d), debug-mesh stash; GetBounds has no parallel path.
+// vertex/triangle frames (Frame3d), debug-mesh stash; GetBounds has no parallel path.
 
 // Port of geometry3cpp DMesh3
 
@@ -32,9 +32,9 @@
 namespace Desert::Geometry
 {
 
-    class FCompactMaps;
+    class DynamicMeshCompactMaps;
 
-    enum class EMeshComponents : uint8_t
+    enum class MeshComponents : uint8_t
     {
         None          = 0,
         VertexNormals = 1,
@@ -45,16 +45,16 @@ namespace Desert::Geometry
     };
 
     /**
-     * FDynamicMesh3 is a dynamic triangle mesh class. The mesh has has connectivity,
+     * DynamicMesh3 is a dynamic triangle mesh class. The mesh has has connectivity,
      * is an indexed mesh, and allows for gaps in the index space.
      *
      * internally, all data is stored in POD-type buffers, except for the vertex->edge
      * links, which are stored as List<int>'s. The arrays of POD data are stored in
-     * TDynamicVector's, so they grow in chunks, which is relatively efficient. The actual
+     * DynamicVector's, so they grow in chunks, which is relatively efficient. The actual
      * blocks are arrays, so they can be efficiently mem-copied into larger buffers
      * if necessary.
      *
-     * Reference counts for verts/tris/edges are stored as separate FRefCountVector
+     * Reference counts for verts/tris/edges are stored as separate RefCountVector
      * instances.
      *
      * Vertices are stored as doubles, although this should be easily changed
@@ -64,7 +64,7 @@ namespace Desert::Geometry
      * Note that in practice, these are generally only used as scratch space, in limited
      * circumstances, usually when needed for performance reasons. Most of our geometry
      * code instead prefers to read attributes from the per-triangle AttributeSet accessed
-     * via Attributes() (see TDynamicMeshOverlay for a description of the structure). For
+     * via Attributes() (see DynamicMeshOverlay for a description of the structure). For
      * instance, an empty (but existing) attribute set will take precedence over non-empty
      * vertex normals in much of our processing code.
      *
@@ -92,9 +92,9 @@ namespace Desert::Geometry
      * The function CheckValidity() does extensive sanity checking on the mesh data structure.
      * Use this to test your code, both for mesh construction and editing!!
      */
-    class FDynamicMeshAttributeSet;
+    class DynamicMeshAttributeSet;
 
-    class FDynamicMesh3
+    class DynamicMesh3
     {
 
         // TODO:
@@ -104,14 +104,14 @@ namespace Desert::Geometry
 
     public:
         // Inline-allocator array types optionally used for mesh queries, to reduce heap allocations
-        using FLocalIntArray  = std::vector<int32_t>;
-        using FLocalBoolArray = std::vector<bool>;
+        using LocalIntArray  = std::vector<int32_t>;
+        using LocalBoolArray = std::vector<bool>;
 
-        struct FEdge
+        struct Edge
         {
-            FIndex2i    Vert;
-            FIndex2i    Tri;
-            friend bool operator!=( const FEdge& e0, const FEdge& e1 )
+            Index2i     Vert;
+            Index2i     Tri;
+            friend bool operator!=( const Edge& e0, const Edge& e1 )
             {
                 return ( e0.Vert != e1.Vert ) || ( e0.Tri != e1.Tri );
             }
@@ -126,56 +126,56 @@ namespace Desert::Geometry
         constexpr static int DuplicateTriangleID = -3;
 
         const static glm::dvec3   InvalidVertex;
-        constexpr static FIndex3i InvalidTriangle{ InvalidID, InvalidID, InvalidID };
-        constexpr static FIndex2i InvalidEdge{ InvalidID, InvalidID };
+        constexpr static Index3i  InvalidTriangle{ InvalidID, InvalidID, InvalidID };
+        constexpr static Index2i  InvalidEdge{ InvalidID, InvalidID };
 
     protected:
         /** List of vertex positions */
-        TDynamicVector<glm::dvec3> Vertices{};
+        DynamicVector<glm::dvec3> Vertices{};
         /** Reference counts of vertex indices. For vertices that exist, the count is 1 +
          * num_triangle_using_vertex. Iterate over this to find out which vertex indices are valid. */
-        FRefCountVector VertexRefCounts{};
+        RefCountVector VertexRefCounts{};
         /** (optional) List of per-vertex normals */
-        std::optional<TDynamicVector<glm::vec3>> VertexNormals{};
+        std::optional<DynamicVector<glm::vec3>> VertexNormals{};
         /** (optional) List of per-vertex colors */
-        std::optional<TDynamicVector<glm::vec3>> VertexColors{};
+        std::optional<DynamicVector<glm::vec3>> VertexColors{};
         /** (optional) List of per-vertex uv's */
-        std::optional<TDynamicVector<glm::vec2>> VertexUVs{};
+        std::optional<DynamicVector<glm::vec2>> VertexUVs{};
         /** List of per-vertex edge one-rings */
-        FSmallListSet VertexEdgeLists;
+        SmallListSet VertexEdgeLists;
 
         /** List of triangle vertex-index triplets [Vert0 Vert1 Vert2]*/
-        TDynamicVector<FIndex3i> Triangles;
+        DynamicVector<Index3i> Triangles;
         /** Reference counts of triangle indices. Ref count is always 1 if the triangle exists. Iterate over this
          * to find out which triangle indices are valid. */
-        FRefCountVector TriangleRefCounts;
+        RefCountVector TriangleRefCounts;
         /** List of triangle edge triplets [Edge0 Edge1 Edge2] */
-        TDynamicVector<FIndex3i> TriangleEdges;
+        DynamicVector<Index3i> TriangleEdges;
         /** (optional) List of per-triangle group identifiers */
-        std::optional<TDynamicVector<int>> TriangleGroups{};
+        std::optional<DynamicVector<int>> TriangleGroups{};
         /** Upper bound on the triangle group IDs used in the mesh (may be larger than the actual maximum if
          * triangles have been deleted) */
         int GroupIDCounter = 0;
 
         /** Extended Attributes for the Mesh (UV layers, Hard Normals, additional Polygroup Layers, etc) */
-        std::unique_ptr<FDynamicMeshAttributeSet> AttributeSet{};
+        std::unique_ptr<DynamicMeshAttributeSet> AttributeSet{};
 
         /** List of edge elements. An edge is four elements [VertA, VertB, Tri0, Tri1], where VertA < VertB, and
          * Tri1 may be InvalidID (if the edge is a boundary edge) */
-        TDynamicVector<FEdge> Edges;
+        DynamicVector<Edge> Edges;
         /** Reference counts of edge indices. Ref count is always 1 if the edge exists. Iterate over this to find
          * out which edge indices are valid. */
-        FRefCountVector EdgeRefCounts;
+        RefCountVector EdgeRefCounts;
 
     private:
-        struct FChangeStamp
+        struct ChangeStamp
         {
-            explicit FChangeStamp( bool bInIsEnabled ) : bIsEnabled( bInIsEnabled )
+            explicit ChangeStamp( bool bInIsEnabled ) : bIsEnabled( bInIsEnabled )
             {
             }
 
-            FChangeStamp( const FChangeStamp& )            = delete;
-            FChangeStamp& operator=( const FChangeStamp& ) = delete;
+            ChangeStamp( const ChangeStamp& )            = delete;
+            ChangeStamp& operator=( const ChangeStamp& ) = delete;
 
             /** Enable/disable this change stamp. */
             bool bIsEnabled = false;
@@ -230,36 +230,36 @@ namespace Desert::Geometry
 
         // Shape change tracking can be problematic in multi-threaded contexts so they're disabled by default.
         // In fact, it is not suggested that these be used at all. (See comment for SetShapeChangeStampEnabled.)
-        FChangeStamp ChangeStampShape{ /*bIsEnabled=*/false };
+        ChangeStamp ChangeStampShape{ /*bIsEnabled=*/false };
 
         // Topological change tracking is enabled by default.
-        FChangeStamp ChangeStampTopology{ /*bIsEnabled=*/true };
+        ChangeStamp ChangeStampTopology{ /*bIsEnabled=*/true };
 
     public:
         /** Default constructor */
-        FDynamicMesh3();
+        DynamicMesh3();
 
         /** Copy/Move construction */
-        FDynamicMesh3( const FDynamicMesh3& CopyMesh );
-        FDynamicMesh3( FDynamicMesh3&& MoveMesh );
+        DynamicMesh3( const DynamicMesh3& CopyMesh );
+        DynamicMesh3( DynamicMesh3&& MoveMesh );
 
         /** Copy and move assignment */
-        const FDynamicMesh3& operator=( const FDynamicMesh3& CopyMesh );
-        const FDynamicMesh3& operator=( FDynamicMesh3&& MoveMesh );
+        const DynamicMesh3& operator=( const DynamicMesh3& CopyMesh );
+        const DynamicMesh3& operator=( DynamicMesh3&& MoveMesh );
 
         /** Destructor */
-        virtual ~FDynamicMesh3();
+        virtual ~DynamicMesh3();
 
         /** Construct an empty mesh with specified attributes */
-        explicit FDynamicMesh3( bool bWantNormals, bool bWantColors, bool bWantUVs, bool bWantTriGroups );
-        explicit FDynamicMesh3( EMeshComponents flags );
+        explicit DynamicMesh3( bool bWantNormals, bool bWantColors, bool bWantUVs, bool bWantTriGroups );
+        explicit DynamicMesh3( MeshComponents flags );
 
         /** Set internal data structures to be a copy of input mesh using the specified attributes*/
-        void Copy( const FDynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true, bool bUVs = true,
+        void Copy( const DynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true, bool bUVs = true,
                    bool bAttributes = true );
 
         // Tracks how IDs are offset and number of elements appended by a mesh append operation
-        struct FAppendInfo
+        struct AppendInfo
         {
             // Offsets for base mesh element IDs
             int32_t VertexOffset = 0, TriangleOffset = 0, EdgeOffset = 0, GroupOffset = 0;
@@ -284,7 +284,7 @@ namespace Desert::Geometry
          * @param ToAppend Mesh to append
          * @param OutAppendInfo Optionally stores offsets and number of IDs appended for mesh elements.
          */
-        void AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInfo* OutAppendInfo = nullptr );
+        void AppendWithOffsets( const DynamicMesh3& ToAppend, AppendInfo* OutAppendInfo = nullptr );
 
         /**
          * Copy input mesh while compacting, i.e. removing unused vertices/triangles/edges.
@@ -296,8 +296,9 @@ namespace Desert::Geometry
          * @param CompactInfo if not nullptr, will be filled with mapping indicating how vertex and triangle IDs
          * were changed during compaction
          */
-        void CompactCopy( const FDynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true,
-                          bool bUVs = true, bool bAttributes = true, FCompactMaps* CompactInfo = nullptr );
+        void CompactCopy( const DynamicMesh3& CopyMesh, bool bNormals = true, bool bColors = true,
+                          bool bUVs = true, bool bAttributes = true,
+                          DynamicMeshCompactMaps* CompactInfo = nullptr );
 
         /** Discard all data */
         void Clear();
@@ -309,7 +310,7 @@ namespace Desert::Geometry
          * If bDiscardExtraAttributes=true and bClearExisting=false, extra attributes not in ToMatch are discarded,
          * but existing attributes are not cleared/reset
          */
-        void EnableMatchingAttributes( const FDynamicMesh3& ToMatch, bool bClearExisting = true,
+        void EnableMatchingAttributes( const DynamicMesh3& ToMatch, bool bClearExisting = true,
                                        bool bDiscardExtraAttributes = false );
 
     public:
@@ -377,12 +378,12 @@ namespace Desert::Geometry
             return AttributeSet != nullptr;
         }
         /** @return a pointer to the attribute set, if the mesh has one, else nullptr */
-        FDynamicMeshAttributeSet* Attributes()
+        DynamicMeshAttributeSet* Attributes()
         {
             return AttributeSet.get();
         }
         /** @return a pointer to the attribute set, if the mesh has one, else nullptr */
-        const FDynamicMeshAttributeSet* Attributes() const
+        const DynamicMeshAttributeSet* Attributes() const
         {
             return AttributeSet.get();
         }
@@ -391,7 +392,7 @@ namespace Desert::Geometry
         /** Discard the attribute set */
         void DiscardAttributes();
 
-        /** @return bitwise-or of EMeshComponents flags specifying which extra data this mesh has */
+        /** @return bitwise-or of MeshComponents flags specifying which extra data this mesh has */
         int GetComponentsFlags() const;
 
         /** @return true if VertexID is a valid vertex in this mesh */
@@ -503,12 +504,12 @@ namespace Desert::Geometry
         //   and other related begin() / end() idioms
     public:
         // simplify names for iterations
-        typedef typename FRefCountVector::IndexEnumerable vertex_iterator;
-        typedef typename FRefCountVector::IndexEnumerable triangle_iterator;
-        typedef typename FRefCountVector::IndexEnumerable edge_iterator;
+        typedef typename RefCountVector::IndexEnumerable vertex_iterator;
+        typedef typename RefCountVector::IndexEnumerable triangle_iterator;
+        typedef typename RefCountVector::IndexEnumerable edge_iterator;
         template <typename T>
-        using value_iteration          = FRefCountVector::MappedEnumerable<T>;
-        using vtx_triangles_enumerable = TPairExpandEnumerable<FSmallListSet::ValueIterator>;
+        using value_iteration          = RefCountVector::MappedEnumerable<T>;
+        using vtx_triangles_enumerable = PairExpandEnumerable<SmallListSet::ValueIterator>;
 
         /** @return enumerable object for valid vertex indices suitable for use with range-based for, ie for ( int
          * i : VertexIndicesItr() ) */
@@ -535,7 +536,7 @@ namespace Desert::Geometry
 
         /** @return enumerable object for boundary edge indices suitable for use with range-based for, ie for ( int
          * i : BoundaryEdgeIndicesItr() ) */
-        FRefCountVector::FilteredEnumerable BoundaryEdgeIndicesItr() const
+        RefCountVector::FilteredEnumerable BoundaryEdgeIndicesItr() const
         {
             return EdgeRefCounts.FilteredIndices( [this]( int EdgeID )
                                                   { return Edges[EdgeID].Tri[1] == InvalidID; } );
@@ -549,22 +550,22 @@ namespace Desert::Geometry
         }
 
         /** Enumerate all triangles in the mesh */
-        value_iteration<FIndex3i> TrianglesItr() const
+        value_iteration<Index3i> TrianglesItr() const
         {
-            return TriangleRefCounts.MappedIndices<FIndex3i>( [this]( int TriangleID )
-                                                              { return Triangles[TriangleID]; } );
+            return TriangleRefCounts.MappedIndices<Index3i>( [this]( int TriangleID )
+                                                             { return Triangles[TriangleID]; } );
         }
 
         /** Enumerate edges. Each returned element is [v0,v1,t0,t1], where t1 will be InvalidID if this is a
          * boundary edge */
-        value_iteration<FEdge> EdgesItr() const
+        value_iteration<Edge> EdgesItr() const
         {
-            return EdgeRefCounts.MappedIndices<FEdge>( [this]( int EdgeID ) { return Edges[EdgeID]; } );
+            return EdgeRefCounts.MappedIndices<Edge>( [this]( int EdgeID ) { return Edges[EdgeID]; } );
         }
 
         /** @return enumerable object for one-ring vertex neighbours of a vertex, suitable for use with range-based
          * for, ie for ( int i : VtxVerticesItr(VertexID) ) */
-        FSmallListSet::MappedValueEnumerable VtxVerticesItr( int VertexID ) const
+        SmallListSet::MappedValueEnumerable VtxVerticesItr( int VertexID ) const
         {
             UE_CHECK_SLOW( VertexRefCounts.IsValid( VertexID ) );
             return VertexEdgeLists.MappedValues( VertexID, [VertexID, this]( int eid )
@@ -582,7 +583,7 @@ namespace Desert::Geometry
 
         /** @return enumerable object for one-ring edges of a vertex, suitable for use with range-based for, ie for
          * ( int i : VtxEdgesItr(VertexID) ) */
-        FSmallListSet::ValueEnumerable VtxEdgesItr( int VertexID ) const
+        SmallListSet::ValueEnumerable VtxEdgesItr( int VertexID ) const
         {
             UE_CHECK_SLOW( VertexRefCounts.IsValid( VertexID ) );
             return VertexEdgeLists.Values( VertexID );
@@ -621,24 +622,24 @@ namespace Desert::Geometry
         //
     public:
         /** Append vertex at position and other fields, returns vid */
-        int AppendVertex( const FVertexInfo& VertInfo );
+        int AppendVertex( const VertexInfo& VertInfo );
 
         /** Append vertex at position, returns vid */
         int AppendVertex( const glm::dvec3& Position )
         {
-            return AppendVertex( FVertexInfo( Position ) );
+            return AppendVertex( VertexInfo( Position ) );
         }
 
         /** Copy vertex SourceVertexID from existing SourceMesh, returns new vertex id */
-        int AppendVertex( const FDynamicMesh3& SourceMesh, int SourceVertexID );
+        int AppendVertex( const DynamicMesh3& SourceMesh, int SourceVertexID );
 
         /** TriVertices must be distinct and refer to existing, valid vertices */
-        int AppendTriangle( const FIndex3i& TriVertices, int GroupID = 0 );
+        int AppendTriangle( const Index3i& TriVertices, int GroupID = 0 );
 
         /** Vertex0, Vertex1, and Vertex2 must be distinct and refer to existing, valid vertices */
         inline int AppendTriangle( int Vertex0, int Vertex1, int Vertex2, int GroupID = 0 )
         {
-            return AppendTriangle( FIndex3i( Vertex0, Vertex1, Vertex2 ), GroupID );
+            return AppendTriangle( Index3i( Vertex0, Vertex1, Vertex2 ), GroupID );
         }
 
         //
@@ -666,7 +667,7 @@ namespace Desert::Geometry
          * If bUnsafe, we use fast id allocation that does not update free list.
          * You should only be using this between BeginUnsafeVerticesInsert() / EndUnsafeVerticesInsert() calls
          */
-        EMeshResult InsertVertex( int VertexID, const FVertexInfo& VertInfo, bool bUnsafe = false );
+        MeshResult InsertVertex( int VertexID, const VertexInfo& VertInfo, bool bUnsafe = false );
 
         /** Call this before a set of unsafe InsertTriangle() calls */
         virtual void BeginUnsafeTrianglesInsert()
@@ -685,8 +686,8 @@ namespace Desert::Geometry
          * If bUnsafe, we use fast id allocation that does not update free list.
          * You should only be using this between BeginUnsafeTrianglesInsert() / EndUnsafeTrianglesInsert() calls
          */
-        EMeshResult InsertTriangle( int TriangleID, const FIndex3i& TriVertices, int GroupID = 0,
-                                    bool bUnsafe = false );
+        MeshResult InsertTriangle( int TriangleID, const Index3i& TriVertices, int GroupID = 0,
+                                   bool bUnsafe = false );
 
         //
         // Vertex/Tri/Edge accessors
@@ -725,11 +726,11 @@ namespace Desert::Geometry
         }
 
         /** Get extended vertex information */
-        bool GetVertex( int VertexID, FVertexInfo& VertInfo, bool bWantNormals, bool bWantColors,
+        bool GetVertex( int VertexID, VertexInfo& VertInfo, bool bWantNormals, bool bWantColors,
                         bool bWantUVs ) const;
 
         /** Get all vertex information available */
-        FVertexInfo GetVertexInfo( int VertexID ) const;
+        VertexInfo GetVertexInfo( int VertexID ) const;
 
         /** @return the valence of a vertex (the number of connected edges) */
         int GetVtxEdgeCount( int VertexID ) const
@@ -741,28 +742,28 @@ namespace Desert::Geometry
         int GetMaxVtxEdgeCount() const;
 
         /** Get triangle vertices */
-        inline FIndex3i GetTriangle( int TriangleID ) const
+        inline Index3i GetTriangle( int TriangleID ) const
         {
             UE_CHECK_SLOW( IsTriangle( TriangleID ) );
             return Triangles[TriangleID];
         }
 
         /** Get triangle vertices */
-        inline const FIndex3i& GetTriangleRef( int TriangleID ) const
+        inline const Index3i& GetTriangleRef( int TriangleID ) const
         {
             UE_CHECK_SLOW( IsTriangle( TriangleID ) );
             return Triangles[TriangleID];
         }
 
         /** Get triangle edges */
-        inline FIndex3i GetTriEdges( int TriangleID ) const
+        inline Index3i GetTriEdges( int TriangleID ) const
         {
             UE_CHECK_SLOW( IsTriangle( TriangleID ) );
             return TriangleEdges[TriangleID];
         }
 
         /** Get triangle edges */
-        inline const FIndex3i& GetTriEdgesRef( int TriangleID ) const
+        inline const Index3i& GetTriEdgesRef( int TriangleID ) const
         {
             UE_CHECK_SLOW( IsTriangle( TriangleID ) );
             return TriangleEdges[TriangleID];
@@ -778,10 +779,10 @@ namespace Desert::Geometry
         /**  Applies a given function to both TriEdgeIDs which each EdgeID in a given Triangle is associated with
          */
         void
-        EnumerateTriEdgeIDsFromTriID( const int                                              TriID,
-                                      const std::function<void( FMeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
+        EnumerateTriEdgeIDsFromTriID( const int                                             TriID,
+                                      const std::function<void( MeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
         {
-            FIndex3i TriEdges = GetTriEdges( TriID );
+            Index3i TriEdges = GetTriEdges( TriID );
             for ( int TriEdgesIndex = 0; TriEdgesIndex <= 2; TriEdgesIndex++ )
             {
                 EnumerateTriEdgeIDsFromEdgeID( TriEdges[TriEdgesIndex], TriEdgeFunc );
@@ -789,13 +790,13 @@ namespace Desert::Geometry
         }
 
         /** Find the neighbour triangles of a triangle (any of them might be InvalidID) */
-        FIndex3i GetTriNeighbourTris( int TriangleID ) const;
+        Index3i GetTriNeighbourTris( int TriangleID ) const;
 
         /** Get the three vertex positions of a triangle */
         template <typename VecType>
         inline void GetTriVertices( int TriangleID, VecType& v0, VecType& v1, VecType& v2 ) const
         {
-            const FIndex3i& Triangle = Triangles[TriangleID];
+            const Index3i& Triangle  = Triangles[TriangleID];
             v0                       = Vertices[Triangle[0]];
             v1                       = Vertices[Triangle[1]];
             v2                       = Vertices[Triangle[2]];
@@ -808,21 +809,21 @@ namespace Desert::Geometry
         }
 
         /** Get the vertices and triangles of an edge, returned as [v0,v1,t0,t1], where t1 may be InvalidID */
-        inline FEdge GetEdge( int EdgeID ) const
+        inline Edge GetEdge( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
             return Edges[EdgeID];
         }
 
         /** Get the vertices and triangles of an edge, returned as [v0,v1,t0,t1], where t1 may be InvalidID */
-        inline const FEdge& GetEdgeRef( int EdgeID ) const
+        inline const Edge& GetEdgeRef( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
             return Edges[EdgeID];
         }
 
         /** Get the vertex pair for an edge */
-        inline FIndex2i GetEdgeV( int EdgeID ) const
+        inline Index2i GetEdgeV( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
             return Edges[EdgeID].Vert;
@@ -833,7 +834,7 @@ namespace Desert::Geometry
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
 
-            const FIndex2i Verts = Edges[EdgeID].Vert;
+            const Index2i Verts = Edges[EdgeID].Vert;
 
             a = Vertices[Verts[0]];
             b = Vertices[Verts[1]];
@@ -842,36 +843,36 @@ namespace Desert::Geometry
         }
 
         /** Get the triangle pair for an edge. The second triangle may be InvalidID */
-        inline FIndex2i GetEdgeT( int EdgeID ) const
+        inline Index2i GetEdgeT( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
             return Edges[EdgeID].Tri;
         }
 
         /** Return edge vertex indices, but oriented based on attached triangle (rather than min-sorted) */
-        FIndex2i GetOrientedBoundaryEdgeV( int EdgeID ) const;
+        Index2i GetOrientedBoundaryEdgeV( int EdgeID ) const;
 
         /** Return (triangle, edge_index) representation for given Edge ID */
-        inline FMeshTriEdgeID GetTriEdgeIDFromEdgeID( int EdgeID ) const
+        inline MeshTriEdgeID GetTriEdgeIDFromEdgeID( int EdgeID ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
             int32_t const TriIndex = Edges[EdgeID].Tri.A;
-            FIndex3i TriEdges = TriangleEdges[TriIndex];
+            Index3i       TriEdges = TriangleEdges[TriIndex];
             if ( TriEdges.A == EdgeID )
             {
-                return FMeshTriEdgeID( TriIndex, 0 );
+                return MeshTriEdgeID( TriIndex, 0 );
             }
             {
-                return FMeshTriEdgeID( TriIndex, ( TriEdges.B == EdgeID ) ? 1 : 2 );
+                return MeshTriEdgeID( TriIndex, ( TriEdges.B == EdgeID ) ? 1 : 2 );
             }
         }
 
         /** Applies a given function to both TriEdgeIDs which a given EdgeID is associated with*/
         void
-        EnumerateTriEdgeIDsFromEdgeID( const int32_t                                          EdgeID,
-                                       const std::function<void( FMeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
+        EnumerateTriEdgeIDsFromEdgeID( const int32_t                                         EdgeID,
+                                       const std::function<void( MeshTriEdgeID TriEdgeID )>& TriEdgeFunc ) const
         {
-            const FMeshTriEdgeID FirstTriEdgeID = GetTriEdgeIDFromEdgeID(
+            const MeshTriEdgeID FirstTriEdgeID = GetTriEdgeIDFromEdgeID(
                  EdgeID ); // function gets MeshTriEdgeID for edge included in EdgeTri.A only
             TriEdgeFunc( FirstTriEdgeID );
 
@@ -879,15 +880,15 @@ namespace Desert::Geometry
             const int OtherTriID = GetEdgeT( EdgeID ).B;
             if ( OtherTriID != IndexConstants::InvalidID )
             {
-                FMeshTriEdgeID SecondTriEdgeID;
-                const FIndex3i SecondTriEdges = GetTriEdges( OtherTriID );
+                MeshTriEdgeID SecondTriEdgeID;
+                const Index3i SecondTriEdges = GetTriEdges( OtherTriID );
                 if ( SecondTriEdges.A == EdgeID )
                 {
-                    SecondTriEdgeID = FMeshTriEdgeID( OtherTriID, 0 );
+                    SecondTriEdgeID = MeshTriEdgeID( OtherTriID, 0 );
                 }
                 else
                 {
-                    SecondTriEdgeID = FMeshTriEdgeID( OtherTriID, ( SecondTriEdges.B == EdgeID ) ? 1 : 2 );
+                    SecondTriEdgeID = MeshTriEdgeID( OtherTriID, ( SecondTriEdges.B == EdgeID ) ? 1 : 2 );
                 }
                 TriEdgeFunc( SecondTriEdgeID );
             }
@@ -900,7 +901,7 @@ namespace Desert::Geometry
         /**
          * Enable requested set of mesh components (triangle groups and vertex normals/colors/UVs)
          * and discard any that are not requested
-         * @param MeshComponentsFlags A 'bitwise or' of requested EMeshComponents flags
+         * @param MeshComponentsFlags A 'bitwise or' of requested MeshComponents flags
          */
         void EnableMeshComponents( int MeshComponentsFlags );
 
@@ -914,7 +915,7 @@ namespace Desert::Geometry
                 return glm::vec3( 0, 1, 0 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
-            const TDynamicVector<glm::vec3>& Normals = VertexNormals.value();
+            const DynamicVector<glm::vec3>& Normals = VertexNormals.value();
             return Normals[vID];
         }
 
@@ -923,7 +924,7 @@ namespace Desert::Geometry
             if ( HasVertexNormals() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<glm::vec3>& Normals = VertexNormals.value();
+                DynamicVector<glm::vec3>& Normals  = VertexNormals.value();
                 Normals[vID]                       = vNewNormal;
             }
         }
@@ -939,7 +940,7 @@ namespace Desert::Geometry
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
 
-            const TDynamicVector<glm::vec3>& Colors = VertexColors.value();
+            const DynamicVector<glm::vec3>& Colors = VertexColors.value();
             return Colors[vID];
         }
 
@@ -948,7 +949,7 @@ namespace Desert::Geometry
             if ( HasVertexColors() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<glm::vec3>& Colors = VertexColors.value();
+                DynamicVector<glm::vec3>& Colors  = VertexColors.value();
                 Colors[vID]                       = vNewColor;
             }
         }
@@ -963,7 +964,7 @@ namespace Desert::Geometry
                 return glm::vec2( 0 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
-            const TDynamicVector<glm::vec2>& UVs = VertexUVs.value();
+            const DynamicVector<glm::vec2>& UVs = VertexUVs.value();
             return UVs[vID];
         }
 
@@ -972,7 +973,7 @@ namespace Desert::Geometry
             if ( HasVertexUVs() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<glm::vec2>& UVs = VertexUVs.value();
+                DynamicVector<glm::vec2>& UVs  = VertexUVs.value();
                 UVs[vID]                       = vNewUV;
             }
         }
@@ -1036,7 +1037,7 @@ namespace Desert::Geometry
          * If edge has vertices [a,b], and is connected two triangles [a,b,c] and [a,b,d],
          * this returns [c,d], or [c,InvalidID] for a boundary edge
          */
-        FIndex2i GetEdgeOpposingV( int EdgeID ) const;
+        Index2i GetEdgeOpposingV( int EdgeID ) const;
 
         /**
          * Given an edge and vertex on that edge, returns other vertex of edge, the two opposing verts, and the two
@@ -1056,9 +1057,9 @@ namespace Desert::Geometry
          * @param vID Vertex ID
          * @param EdgeListOut boundary edge IDs are appended to this list
          * @return count of number of elements of e that were filled
-         * Note: ArrayType must by std::vector<int> or FLocalIntArray
+         * Note: ArrayType must by std::vector<int> or LocalIntArray
          */
-        template <typename ArrayType = FLocalIntArray>
+        template <typename ArrayType = LocalIntArray>
         int GetAllVtxBoundaryEdges( int VertexID, ArrayType& EdgeListOut ) const;
 
         /**
@@ -1068,10 +1069,10 @@ namespace Desert::Geometry
 
         /**
          * Get triangle one-ring at vertex.
-         * Note: ArrayType must by std::vector<int> or FLocalIntArray
+         * Note: ArrayType must by std::vector<int> or LocalIntArray
          */
-        template <typename ArrayType = FLocalIntArray>
-        EMeshResult GetVtxTriangles( int VertexID, ArrayType& TrianglesOut ) const;
+        template <typename ArrayType = LocalIntArray>
+        MeshResult GetVtxTriangles( int VertexID, ArrayType& TrianglesOut ) const;
 
         /**
          * @return Triangle ID for a single triangle connected to VertexID, or InvalidID if VertexID does not exist
@@ -1087,12 +1088,12 @@ namespace Desert::Geometry
          * @param ContiguousGroupLengths Lengths of contiguous groups packed into TrianglesOut (if not a bowtie,
          * this will just be a length-one array w/ {TrianglesOut.Num()})
          * @param GroupIsLoop Indicates whether each contiguous group is a loop (first triangle connected to last)
-         * or not Note: ArrayTypes must by std::vector<int>/<bool> or FLocalIntArray/FLocalBoolArry
+         * or not Note: ArrayTypes must by std::vector<int>/<bool> or LocalIntArray/FLocalBoolArry
          */
-        template <typename IntArrayType = FLocalIntArray, typename BoolArrayType = FLocalBoolArray>
-        EMeshResult GetVtxContiguousTriangles( int VertexID, IntArrayType& TrianglesOut,
-                                               IntArrayType&  ContiguousGroupLengths,
-                                               BoolArrayType& GroupIsLoop ) const;
+        template <typename IntArrayType = LocalIntArray, typename BoolArrayType = LocalBoolArray>
+        MeshResult GetVtxContiguousTriangles( int VertexID, IntArrayType& TrianglesOut,
+                                              IntArrayType&  ContiguousGroupLengths,
+                                              BoolArrayType& GroupIsLoop ) const;
 
         /** Returns true if the two triangles connected to edge have different group IDs */
         bool IsGroupBoundaryEdge( int EdgeID ) const;
@@ -1104,10 +1105,10 @@ namespace Desert::Geometry
         bool IsGroupJunctionVertex( int VertexID ) const;
 
         /** Returns up to 4 group IDs at vertex. Returns false if > 4 encountered */
-        bool GetVertexGroups( int VertexID, FIndex4i& GroupsOut ) const;
+        bool GetVertexGroups( int VertexID, Index4i& GroupsOut ) const;
 
-        /** Returns all group IDs at vertex. ArrayType must by std::vector<int> or FLocalIntArray */
-        template <typename ArrayType = FLocalIntArray>
+        /** Returns all group IDs at vertex. ArrayType must by std::vector<int> or LocalIntArray */
+        template <typename ArrayType = LocalIntArray>
         bool GetAllVertexGroups( int VertexID, ArrayType& GroupsOut ) const;
 
         /** returns true if vID is a "bowtie" vertex, ie multiple disjoint triangle sets in one-ring */
@@ -1147,15 +1148,15 @@ namespace Desert::Geometry
         //
     public:
         /** Returns bounding box of all mesh vertices (including unreferenced vertices) */
-        FAxisAlignedBox3d GetBounds() const;
+        AxisAlignedBox3d GetBounds() const;
 
         /** Returns bounding box of all selected mesh vertices. Will use a chunked parallel implementation for
          * larger selections. */
-        FAxisAlignedBox3d GetBoundsForVertexSelection( std::span<const int32_t> VertexIDs ) const;
+        AxisAlignedBox3d GetBoundsForVertexSelection( std::span<const int32_t> VertexIDs ) const;
 
         /** Returns bounding box of all selected mesh triangles. Will use a chunked parallel implementation for
          * larger selections. */
-        FAxisAlignedBox3d GetBoundsForTriangleSelection( std::span<const int32_t> TriangleIDs ) const;
+        AxisAlignedBox3d GetBoundsForTriangleSelection( std::span<const int32_t> TriangleIDs ) const;
 
         /** Calculate face normal of triangle */
         glm::dvec3 GetTriNormal( int TriangleID ) const;
@@ -1181,10 +1182,10 @@ namespace Desert::Geometry
 
         /** Compute interpolated vertex attributes at point of triangle */
         void GetTriBaryPoint( int TriangleID, double Bary0, double Bary1, double Bary2,
-                              FVertexInfo& VertInfo ) const;
+                              VertexInfo& VertInfo ) const;
 
         /** Construct bounding box of triangle as efficiently as possible */
-        FAxisAlignedBox3d GetTriBounds( int TriangleID ) const;
+        AxisAlignedBox3d GetTriBounds( int TriangleID ) const;
 
         /** Compute solid angle of oriented triangle tID relative to point p - see WindingNumber() */
         double GetTriSolidAngle( int TriangleID, const glm::dvec3& p ) const;
@@ -1219,51 +1220,51 @@ namespace Desert::Geometry
         // direct buffer access
         //
     public:
-        const TDynamicVector<glm::dvec3>& GetVerticesBuffer() const
+        const DynamicVector<glm::dvec3>& GetVerticesBuffer() const
         {
             return Vertices;
         }
-        const FRefCountVector& GetVerticesRefCounts() const
+        const RefCountVector& GetVerticesRefCounts() const
         {
             return VertexRefCounts;
         }
-        const TDynamicVector<glm::vec3>* GetNormalsBuffer() const
+        const DynamicVector<glm::vec3>* GetNormalsBuffer() const
         {
             return HasVertexNormals() ? &VertexNormals.value() : nullptr;
         }
-        const TDynamicVector<glm::vec3>* GetColorsBuffer() const
+        const DynamicVector<glm::vec3>* GetColorsBuffer() const
         {
             return HasVertexColors() ? &VertexColors.value() : nullptr;
         }
-        const TDynamicVector<glm::vec2>* GetUVBuffer() const
+        const DynamicVector<glm::vec2>* GetUVBuffer() const
         {
             return HasVertexUVs() ? &VertexUVs.value() : nullptr;
         }
-        const TDynamicVector<FIndex3i>& GetTrianglesBuffer() const
+        const DynamicVector<Index3i>& GetTrianglesBuffer() const
         {
             return Triangles;
         }
-        const FRefCountVector& GetTrianglesRefCounts() const
+        const RefCountVector& GetTrianglesRefCounts() const
         {
             return TriangleRefCounts;
         }
-        const TDynamicVector<int>* GetTriangleGroupsBuffer() const
+        const DynamicVector<int>* GetTriangleGroupsBuffer() const
         {
             return HasTriangleGroups() ? &TriangleGroups.value() : nullptr;
         }
-        const TDynamicVector<FEdge>& GetEdgesBuffer() const
+        const DynamicVector<Edge>& GetEdgesBuffer() const
         {
             return Edges;
         }
-        const FRefCountVector& GetEdgesRefCounts() const
+        const RefCountVector& GetEdgesRefCounts() const
         {
             return EdgeRefCounts;
         }
-        const FSmallListSet& GetVertexEdges() const
+        const SmallListSet& GetVertexEdges() const
         {
             return VertexEdgeLists;
         }
-        const TDynamicVector<FIndex3i>& GetTriangleEdges() const
+        const DynamicVector<Index3i>& GetTriangleEdges() const
         {
             return TriangleEdges;
         }
@@ -1278,7 +1279,7 @@ namespace Desert::Geometry
          * @param CompactInfo if not nullptr, will be filled with mapping indicating how vertex and triangle IDs
          * were changed during compaction
          */
-        void CompactInPlace( FCompactMaps* CompactInfo = nullptr );
+        void CompactInPlace( DynamicMeshCompactMaps* CompactInfo = nullptr );
 
         /**
          * Remove unused vertices. Note: Does not compact the remaining vertices.
@@ -1300,7 +1301,7 @@ namespace Desert::Geometry
         /**
          * Reverse the ccw/cw orientation of a triangle
          */
-        EMeshResult ReverseTriOrientation( int TriangleID );
+        MeshResult ReverseTriOrientation( int TriangleID );
 
         /**
          * Remove vertex VertexID and all connected triangles.
@@ -1308,7 +1309,7 @@ namespace Desert::Geometry
          * If bPreserveManifold is true, checks that we will not create a bowtie vertex first.
          * In this case, returns Failed_WouldCreateBowtie if removing the triangles would create a bowtie.
          */
-        EMeshResult RemoveVertex( int VertexID, bool bPreserveManifold = false );
+        MeshResult RemoveVertex( int VertexID, bool bPreserveManifold = false );
 
         /**
          * Remove a triangle from the mesh. Also removes any unreferenced edges after tri is removed.
@@ -1317,8 +1318,8 @@ namespace Desert::Geometry
          * If this check is not done, you have to make sure you don't create a bow tie, because other
          * code assumes we don't have bow ties, and will not handle it properly
          */
-        EMeshResult RemoveTriangle( int TriangleID, bool bRemoveIsolatedVertices = true,
-                                    bool bPreserveManifold = false );
+        MeshResult RemoveTriangle( int TriangleID, bool bRemoveIsolatedVertices = true,
+                                   bool bPreserveManifold = false );
 
         /**
          * Rewrite the triangle to reference the new tuple of vertices.
@@ -1326,17 +1327,17 @@ namespace Desert::Geometry
          * @todo this function currently does not guarantee that the returned mesh is well-formed. Only call if you
          * know it's OK.
          */
-        virtual EMeshResult SetTriangle( int TriangleID, const FIndex3i& NewVertices,
-                                         bool bRemoveIsolatedVertices = true );
+        virtual MeshResult SetTriangle( int TriangleID, const Index3i& NewVertices,
+                                        bool bRemoveIsolatedVertices = true );
 
     public:
-        using FEdgeFlipInfo      = DynamicMeshInfo::FEdgeFlipInfo;
-        using FEdgeSplitInfo     = DynamicMeshInfo::FEdgeSplitInfo;
-        using FEdgeCollapseInfo  = DynamicMeshInfo::FEdgeCollapseInfo;
-        using FMergeEdgesInfo    = DynamicMeshInfo::FMergeEdgesInfo;
-        using FMergeVerticesInfo = DynamicMeshInfo::FMergeVerticesInfo;
-        using FPokeTriangleInfo  = DynamicMeshInfo::FPokeTriangleInfo;
-        using FVertexSplitInfo   = DynamicMeshInfo::FVertexSplitInfo;
+        using EdgeFlipInfo      = DynamicMeshInfo::EdgeFlipInfo;
+        using EdgeSplitInfo     = DynamicMeshInfo::EdgeSplitInfo;
+        using EdgeCollapseInfo  = DynamicMeshInfo::EdgeCollapseInfo;
+        using MergeEdgesInfo    = DynamicMeshInfo::MergeEdgesInfo;
+        using MergeVerticesInfo = DynamicMeshInfo::MergeVerticesInfo;
+        using PokeTriangleInfo  = DynamicMeshInfo::PokeTriangleInfo;
+        using VertexSplitInfo   = DynamicMeshInfo::VertexSplitInfo;
 
         /**
          * Split an edge of the mesh by inserting a vertex. This creates a new triangle on either side of the edge
@@ -1351,7 +1352,7 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult SplitEdge( int EdgeAB, FEdgeSplitInfo& SplitInfo, double SplitParameterT = 0.5 );
+        virtual MeshResult SplitEdge( int EdgeAB, EdgeSplitInfo& SplitInfo, double SplitParameterT = 0.5 );
 
         /**
          * Splits the edge between two vertices at the midpoint, if this edge exists
@@ -1361,7 +1362,7 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        EMeshResult SplitEdge( int EdgeVertA, int EdgeVertB, FEdgeSplitInfo& SplitInfo );
+        MeshResult SplitEdge( int EdgeVertA, int EdgeVertB, EdgeSplitInfo& SplitInfo );
 
         /**
          * Flip/Rotate an edge of the mesh. This does not change the number of edges, vertices, or triangles.
@@ -1375,7 +1376,7 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult FlipEdge( int EdgeAB, FEdgeFlipInfo& FlipInfo );
+        virtual MeshResult FlipEdge( int EdgeAB, EdgeFlipInfo& FlipInfo );
 
         /** calls FlipEdge() on the edge between two vertices, if it exists
          * @param EdgeVertA index of first vertex
@@ -1384,7 +1385,7 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult FlipEdge( int EdgeVertA, int EdgeVertB, FEdgeFlipInfo& FlipInfo );
+        virtual MeshResult FlipEdge( int EdgeVertA, int EdgeVertB, EdgeFlipInfo& FlipInfo );
 
         /**
          * Clones the given vertex and updates any provided triangles to use the new vertex if/where they used the
@@ -1396,8 +1397,8 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult SplitVertex( int VertexID, const std::span<const int>& TrianglesToUpdate,
-                                         FVertexSplitInfo& SplitInfo );
+        virtual MeshResult SplitVertex( int VertexID, const std::span<const int>& TrianglesToUpdate,
+                                        VertexSplitInfo& SplitInfo );
 
         /**
          * Tests whether splitting the given vertex with the given triangles would leave no triangles attached to
@@ -1410,7 +1411,7 @@ namespace Desert::Geometry
          */
         virtual bool SplitVertexWouldLeaveIsolated( int VertexID, const std::span<const int>& TrianglesToUpdate );
 
-        struct FCollapseEdgeOptions
+        struct CollapseEdgeOptions
         {
             /**
              * When false, collapse is disallowed if the edge is the boundary of a single triangle hole,
@@ -1433,7 +1434,7 @@ namespace Desert::Geometry
              */
             bool bAllowTetrahedronCollapse = false;
         };
-        virtual EMeshResult CanCollapseEdge( int vKeep, int vRemove, const FCollapseEdgeOptions& Options ) const;
+        virtual MeshResult CanCollapseEdge( int vKeep, int vRemove, const CollapseEdgeOptions& Options ) const;
 
         /**
          * Tests whether collapsing the specified edge using the CollapseEdge function would succeed.
@@ -1444,7 +1445,7 @@ namespace Desert::Geometry
          * currently affect whether the edge is collapsable.
          * @return Ok if the edge can be collapsed, or enum value indicating why the operation cannot be applied
          */
-        virtual EMeshResult CanCollapseEdge( int vKeep, int vRemove, double EdgeParameterT = 0 ) const;
+        virtual MeshResult CanCollapseEdge( int vKeep, int vRemove, double EdgeParameterT = 0 ) const;
 
         /**
          * Collapse the edge between the two vertices, if topologically possible.
@@ -1456,15 +1457,15 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult CollapseEdge( int KeepVertID, int RemoveVertID, double EdgeParameterT,
-                                          const FCollapseEdgeOptions& Options, FEdgeCollapseInfo& CollapseInfo );
+        virtual MeshResult CollapseEdge( int KeepVertID, int RemoveVertID, double EdgeParameterT,
+                                         const CollapseEdgeOptions& Options, EdgeCollapseInfo& CollapseInfo );
 
         /**
          * Collapse the edge between the two vertices, if topologically possible. Equivalent to
          *  using the other overload with 0 for EdgeParameterT.
          */
-        virtual EMeshResult CollapseEdge( int KeepVertID, int RemoveVertID, const FCollapseEdgeOptions& Options,
-                                          FEdgeCollapseInfo& CollapseInfo )
+        virtual MeshResult CollapseEdge( int KeepVertID, int RemoveVertID, const CollapseEdgeOptions& Options,
+                                         EdgeCollapseInfo& CollapseInfo )
         {
             return CollapseEdge( KeepVertID, RemoveVertID, 0, Options, CollapseInfo );
         }
@@ -1479,13 +1480,13 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult CollapseEdge( int KeepVertID, int RemoveVertID, double EdgeParameterT,
-                                          FEdgeCollapseInfo& CollapseInfo );
+        virtual MeshResult CollapseEdge( int KeepVertID, int RemoveVertID, double EdgeParameterT,
+                                         EdgeCollapseInfo& CollapseInfo );
         /**
          * Collapse the edge between the two vertices, if topologically possible. Equivalent to calling
          *  the options overload with default options and using 0 for EdgeParameterT.
          */
-        virtual EMeshResult CollapseEdge( int KeepVertID, int RemoveVertID, FEdgeCollapseInfo& CollapseInfo )
+        virtual MeshResult CollapseEdge( int KeepVertID, int RemoveVertID, EdgeCollapseInfo& CollapseInfo )
         {
             return CollapseEdge( KeepVertID, RemoveVertID, 0, CollapseInfo );
         }
@@ -1508,17 +1509,17 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult MergeEdges( int KeepEdgeID, int DiscardEdgeID, double InterpolationT,
-                                        FMergeEdgesInfo& MergeInfo, bool bCheckValidOrientation = true );
+        virtual MeshResult MergeEdges( int KeepEdgeID, int DiscardEdgeID, double InterpolationT,
+                                       MergeEdgesInfo& MergeInfo, bool bCheckValidOrientation = true );
 
         /**
          * Weld one edge to the other. Equivalent to calling the other overload with 0 for InterpolationT
          *  (i.e. the vertices stay at unmodified kept vertex positions).
          */
-        virtual EMeshResult MergeEdges( int KeepEdgeID, int DiscardEdgeID, FMergeEdgesInfo& MergeInfo,
-                                        bool bCheckValidOrientation = true );
+        virtual MeshResult MergeEdges( int KeepEdgeID, int DiscardEdgeID, MergeEdgesInfo& MergeInfo,
+                                       bool bCheckValidOrientation = true );
 
-        struct FMergeVerticesOptions
+        struct MergeVerticesOptions
         {
             // If false, we disallow vertex merges that attempt to merge one non-boundary vert to a
             //  a non-adjacent vert, even if this is possible through a bowtie. Note that merging
@@ -1542,25 +1543,25 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult MergeVertices( int KeepVid, int DiscardVid, double InterpolationT,
-                                           const FMergeVerticesOptions& Options, FMergeVerticesInfo& MergeInfo );
+        virtual MeshResult MergeVertices( int KeepVid, int DiscardVid, double InterpolationT,
+                                          const MergeVerticesOptions& Options, MergeVerticesInfo& MergeInfo );
 
         /**
          * Weld DiscardVid to KeepVid. Equivalent to calling the options overload with default options.
          */
-        virtual EMeshResult MergeVertices( int KeepVid, int DiscardVid, double InterpolationT,
-                                           FMergeVerticesInfo& MergeInfo )
+        virtual MeshResult MergeVertices( int KeepVid, int DiscardVid, double InterpolationT,
+                                          MergeVerticesInfo& MergeInfo )
         {
-            return MergeVertices( KeepVid, DiscardVid, InterpolationT, FMergeVerticesOptions(), MergeInfo );
+            return MergeVertices( KeepVid, DiscardVid, InterpolationT, MergeVerticesOptions(), MergeInfo );
         }
 
         /**
          * Weld DiscardVid to KeepVid. Equivalent to calling the options overload with default options and 0 for
          * InterpolationT.
          */
-        virtual EMeshResult MergeVertices( int KeepVid, int DiscardVid, FMergeVerticesInfo& MergeInfo )
+        virtual MeshResult MergeVertices( int KeepVid, int DiscardVid, MergeVerticesInfo& MergeInfo )
         {
-            return MergeVertices( KeepVid, DiscardVid, 0, FMergeVerticesOptions(), MergeInfo );
+            return MergeVertices( KeepVid, DiscardVid, 0, MergeVerticesOptions(), MergeInfo );
         }
 
         /**
@@ -1571,11 +1572,11 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult PokeTriangle( int TriangleID, const glm::dvec3& BaryCoordinates,
-                                          FPokeTriangleInfo& PokeInfo );
+        virtual MeshResult PokeTriangle( int TriangleID, const glm::dvec3& BaryCoordinates,
+                                         PokeTriangleInfo& PokeInfo );
 
         /** Call PokeTriangle at the centroid of the triangle */
-        virtual EMeshResult PokeTriangle( int TriangleID, FPokeTriangleInfo& PokeInfo )
+        virtual MeshResult PokeTriangle( int TriangleID, PokeTriangleInfo& PokeInfo )
         {
             return PokeTriangle( TriangleID, glm::dvec3( 1 ) / 3.0, PokeInfo );
         }
@@ -1587,7 +1588,7 @@ namespace Desert::Geometry
         /**
          * Options for what the validity check will permit
          */
-        struct FValidityOptions
+        struct ValidityOptions
         {
             bool bAllowNonManifoldVertices             = false;
             bool bAllowAdjacentFacesReverseOrientation = false;
@@ -1595,8 +1596,8 @@ namespace Desert::Geometry
             /**
              * Construct validity checking options
              */
-            FValidityOptions( bool bAllowNonManifoldVertices             = false,
-                              bool bAllowAdjacentFacesReverseOrientation = false )
+            ValidityOptions( bool bAllowNonManifoldVertices             = false,
+                             bool bAllowAdjacentFacesReverseOrientation = false )
                  : bAllowNonManifoldVertices( bAllowNonManifoldVertices ),
                    bAllowAdjacentFacesReverseOrientation( bAllowAdjacentFacesReverseOrientation )
             {
@@ -1605,9 +1606,9 @@ namespace Desert::Geometry
             /**
              * Construct with most-permissive options that we still consider valid for processing
              */
-            static FValidityOptions Permissive()
+            static ValidityOptions Permissive()
             {
-                FValidityOptions ToRet;
+                ValidityOptions ToRet;
                 ToRet.bAllowAdjacentFacesReverseOrientation = true;
                 ToRet.bAllowNonManifoldVertices             = true;
                 return ToRet;
@@ -1617,8 +1618,8 @@ namespace Desert::Geometry
         /**
          * Checks that the mesh is well-formed, ie all internal data structures are consistent
          */
-        virtual bool CheckValidity( FValidityOptions       ValidityOptions = FValidityOptions(),
-                                    EValidityCheckFailMode FailMode        = EValidityCheckFailMode::Check ) const;
+        virtual bool CheckValidity( ValidityOptions       Options  = ValidityOptions(),
+                                    ValidityCheckFailMode FailMode = ValidityCheckFailMode::Check ) const;
 
         //
         // Internal functions
@@ -1626,11 +1627,11 @@ namespace Desert::Geometry
     protected:
         inline void SetTriangleInternal( int TriangleID, int v0, int v1, int v2 )
         {
-            Triangles[TriangleID] = FIndex3i( v0, v1, v2 );
+            Triangles[TriangleID] = Index3i( v0, v1, v2 );
         }
         inline void SetTriangleEdgesInternal( int TriangleID, int e0, int e1, int e2 )
         {
-            TriangleEdges[TriangleID] = FIndex3i( e0, e1, e2 );
+            TriangleEdges[TriangleID] = Index3i( e0, e1, e2 );
         }
 
         inline int AddEdgeInternal( int vA, int vB, int tA, int tB = InvalidID )
@@ -1642,7 +1643,7 @@ namespace Desert::Geometry
                 vA    = t;
             }
             int eid = EdgeRefCounts.Allocate();
-            Edges.InsertAt( FEdge{ { vA, vB }, { tA, tB } }, eid );
+            Edges.InsertAt( Edge{ { vA, vB }, { tA, tB } }, eid );
             VertexEdgeLists.Insert( vA, eid );
             VertexEdgeLists.Insert( vB, eid );
             return eid;
@@ -1651,7 +1652,7 @@ namespace Desert::Geometry
 
         inline int ReplaceTriangleVertex( int TriangleID, int vOld, int vNew )
         {
-            FIndex3i& Triangle = Triangles[TriangleID];
+            Index3i& Triangle = Triangles[TriangleID];
             for ( int i : { 0, 1, 2 } )
             {
                 if ( Triangle[i] == vOld )
@@ -1672,7 +1673,7 @@ namespace Desert::Geometry
             VertexEdgeLists.AllocateAt( VertexID );
         }
 
-        template <typename ArrayType = FLocalIntArray>
+        template <typename ArrayType = LocalIntArray>
         void GetVertexEdgesList( int VertexID, ArrayType& EdgesOut ) const
         {
             for ( int eid : VertexEdgeLists.Values( VertexID ) )
@@ -1716,7 +1717,7 @@ namespace Desert::Geometry
 
         inline bool TriHasSequentialVertices( int TriangleID, int vA, int vB ) const
         {
-            const FIndex3i& Tri = Triangles[TriangleID];
+            const Index3i& Tri = Triangles[TriangleID];
             return ( ( Tri.A == vA && Tri.B == vB ) || ( Tri.B == vA && Tri.C == vB ) ||
                      ( Tri.C == vA && Tri.A == vB ) );
         }
@@ -1727,30 +1728,29 @@ namespace Desert::Geometry
 
         inline bool EdgeHasVertex( int EdgeID, int VertexID ) const
         {
-            const FIndex2i Verts = Edges[EdgeID].Vert;
+            const Index2i Verts = Edges[EdgeID].Vert;
             return ( Verts[0] == VertexID ) || ( Verts[1] == VertexID );
         }
         inline bool EdgeHasTriangle( int EdgeID, int TriangleID ) const
         {
-            const FIndex2i Tris = Edges[EdgeID].Tri;
+            const Index2i Tris = Edges[EdgeID].Tri;
             return ( Tris[0] == TriangleID ) || ( Tris[1] == TriangleID );
         }
 
         inline int GetOtherEdgeVertex( int EdgeID, int VertexID ) const
         {
-            const FIndex2i Verts = Edges[EdgeID].Vert;
+            const Index2i Verts = Edges[EdgeID].Vert;
             return ( Verts[0] == VertexID ) ? Verts[1] : ( ( Verts[1] == VertexID ) ? Verts[0] : InvalidID );
         }
         inline int GetOtherEdgeTriangle( int EdgeID, int TriangleID ) const
         {
-            const FIndex2i Tris = Edges[EdgeID].Tri;
+            const Index2i Tris = Edges[EdgeID].Tri;
             return ( Tris[0] == TriangleID ) ? Tris[1] : ( ( Tris[1] == TriangleID ) ? Tris[0] : InvalidID );
         }
 
         inline void AddTriangleEdge( int TriangleID, int v0, int v1, int j, int EdgeID )
         {
-            FIndex3i& TriEdges =
-                 TriangleEdges.ElementAt( TriangleID, FIndex3i( InvalidID, InvalidID, InvalidID ) );
+            Index3i& TriEdges = TriangleEdges.ElementAt( TriangleID, Index3i( InvalidID, InvalidID, InvalidID ) );
             if ( EdgeID != InvalidID )
             {
                 Edges[EdgeID].Tri[1] = TriangleID;
@@ -1766,16 +1766,16 @@ namespace Desert::Geometry
         // The logic is a bit tricky to follow without drawing it out on paper, but this will only return
         // each triangle once, for the 'outgoing' edge from the vertex, and each triangle only has one such edge
         // at any vertex (including boundary triangles)
-        inline FIndex2i GetOrderedOneRingEdgeTris( int VertexID, int EdgeID ) const
+        inline Index2i GetOrderedOneRingEdgeTris( int VertexID, int EdgeID ) const
         {
-            const FIndex2i Tris = Edges[EdgeID].Tri;
+            const Index2i Tris = Edges[EdgeID].Tri;
 
             int vOther = GetOtherEdgeVertex( EdgeID, VertexID );
             int et1    = Tris[1];
             et1     = ( et1 != InvalidID && TriHasSequentialVertices( et1, VertexID, vOther ) ) ? et1 : InvalidID;
             int et0 = Tris[0];
-            return TriHasSequentialVertices( et0, VertexID, vOther ) ? FIndex2i( et0, et1 )
-                                                                     : FIndex2i( et1, InvalidID );
+            return TriHasSequentialVertices( et0, VertexID, vOther ) ? Index2i( et0, et1 )
+                                                                     : Index2i( et1, InvalidID );
         }
 
         void ReverseTriOrientationInternal( int TriangleID );
@@ -1783,13 +1783,13 @@ namespace Desert::Geometry
     protected:
         /* We keep this version of CanCollapseEdge internal because the CollapseInfo struct may only be partially
          * filled out by the function */
-        virtual EMeshResult CanCollapseEdgeInternal( int vKeep, int vRemove, double collapse_t,
-                                                     FEdgeCollapseInfo* OutCollapseInfo ) const;
+        virtual MeshResult CanCollapseEdgeInternal( int vKeep, int vRemove, double collapse_t,
+                                                    EdgeCollapseInfo* OutCollapseInfo ) const;
 
     private:
-        virtual EMeshResult CanCollapseEdgeInternal( int vKeep, int vRemove, double collapse_t,
-                                                     const FCollapseEdgeOptions& Options,
-                                                     FEdgeCollapseInfo*          OutCollapseInfo ) const;
+        virtual MeshResult CanCollapseEdgeInternal( int vKeep, int vRemove, double collapse_t,
+                                                    const CollapseEdgeOptions& Options,
+                                                    EdgeCollapseInfo*          OutCollapseInfo ) const;
     };
 
 } // namespace Desert::Geometry

@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/GroupTopology.h:18-568,
-// adapted: UE Core via UECore.hpp, namespace Desert::Geometry; FGroupEdge::Span is FEdgeSpan from
+// adapted: UE Core via UECore.hpp, namespace Desert::Geometry; GroupEdge::Span is EdgeSpan from
 // MeshRegionBoundaryLoops.hpp; RebuildTopology returns the region-loop failure by name. Not ported: the
-// extra-corner hook (ShouldAddExtraCornerAtVert, RebuildTopologyWithSpecificExtraCorners), the FMeshTriEdgeID
+// extra-corner hook (ShouldAddExtraCornerAtVert, RebuildTopologyWithSpecificExtraCorners), the MeshTriEdgeID
 // overloads, and the frame/bounds helpers (GetGroupFrame, GetSelectionFrame, GetSelectionBounds,
 // GetEdgeMidpoint) - no Modeling code reads them yet; they arrive with the gizmo port that does.
 #pragma once
@@ -16,7 +16,7 @@
 namespace Desert::Geometry
 {
     /** A selection of group-topology elements: groups (faces), corners and group edges, by their topology IDs. */
-    struct FGroupTopologySelection
+    struct GroupTopologySelection
     {
         std::unordered_set<int32_t> SelectedGroupIDs;
         std::unordered_set<int32_t> SelectedCornerIDs;
@@ -34,16 +34,16 @@ namespace Desert::Geometry
         }
     };
 
-    class FGroupTopology
+    class GroupTopology
     {
     public:
-        FGroupTopology() = default;
-        FGroupTopology( const FDynamicMesh3* Mesh, bool bAutoBuild );
-        FGroupTopology( const FGroupTopology& )            = default;
-        FGroupTopology& operator=( const FGroupTopology& ) = default;
-        virtual ~FGroupTopology()                          = default;
+        GroupTopology() = default;
+        GroupTopology( const DynamicMesh3* Mesh, bool bAutoBuild );
+        GroupTopology( const GroupTopology& )            = default;
+        GroupTopology& operator=( const GroupTopology& ) = default;
+        virtual ~GroupTopology()                         = default;
 
-        const FDynamicMesh3* GetMesh() const
+        const DynamicMesh3* GetMesh() const
         {
             return Mesh;
         }
@@ -62,36 +62,36 @@ namespace Desert::Geometry
         }
 
         /** A corner is a mesh vertex where three or more group edges meet (a mesh-border edge counts as one). */
-        struct FCorner
+        struct Corner
         {
             int         VertexID = IndexConstants::InvalidID;
             std::vector<int> NeighbourGroupIDs;
         };
-        std::vector<FCorner> Corners;
+        std::vector<Corner> Corners;
 
         /** One closed boundary of a group, as the ordered group edges around it. */
-        struct FGroupBoundary
+        struct GroupBoundary
         {
             std::vector<int> GroupEdges;
             std::vector<int> NeighbourGroupIDs;
             bool        bIsOnBoundary = false;
         };
 
-        struct FGroup
+        struct Group
         {
             int                    GroupID = 0;
             std::vector<int>            Triangles;
-            std::vector<FGroupBoundary> Boundaries;
+            std::vector<GroupBoundary>  Boundaries;
             std::vector<int>            NeighbourGroupIDs;
         };
-        std::vector<FGroup> Groups;
+        std::vector<Group> Groups;
 
         /** The mesh-edge span between two corners (or a closed loop with no corners) shared by two groups. */
-        struct FGroupEdge
+        struct GroupEdge
         {
-            FIndex2i  Groups;
-            FEdgeSpan Span;
-            FIndex2i  EndpointCorners;
+            Index2i  Groups;
+            EdgeSpan Span;
+            Index2i  EndpointCorners;
 
             int OtherGroupID( int GroupID ) const
             {
@@ -100,11 +100,11 @@ namespace Desert::Geometry
             }
             bool IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const;
         };
-        std::vector<FGroupEdge> Edges;
+        std::vector<GroupEdge> Edges;
 
         int                GetCornerVertexID( int CornerID ) const;
         [[nodiscard]] int32_t GetCornerIDFromVertexID( int32_t VertexID ) const;
-        const FGroup*      FindGroupByID( int GroupID ) const;
+        const Group*            FindGroupByID( int GroupID ) const;
         const std::vector<int>& GetGroupTriangles( int GroupID ) const;
         const std::vector<int>& GetGroupNbrGroups( int GroupID ) const;
         int                FindGroupEdgeID( int MeshEdgeID ) const;
@@ -125,30 +125,30 @@ namespace Desert::Geometry
         void               FindVertexNbrGroups( int VertexID, std::vector<int>& GroupsOut ) const;
         void               CollectGroupVertices( int GroupID, std::unordered_set<int>& Vertices ) const;
         void               CollectGroupBoundaryVertices( int GroupID, std::unordered_set<int>& Vertices ) const;
-        void               GetSelectedTriangles( const FGroupTopologySelection& Selection,
-                                                 std::vector<int32_t>&          Triangles ) const;
+        void               GetSelectedTriangles( const GroupTopologySelection& Selection,
+                                                 std::vector<int32_t>&         Triangles ) const;
 
     protected:
-        const FDynamicMesh3* Mesh = nullptr;
+        const DynamicMesh3*  Mesh = nullptr;
         std::vector<int>     GroupIDToGroupIndexMap; // fast lookup of the index in Groups, given a GroupID
         std::vector<int>     EmptyArray;
         std::unordered_map<int32_t, int32_t> VertexIDToCornerIDMap;
         std::string          FailureReason;
 
         bool     ShouldVertBeCorner( int VertexID ) const;
-        bool     GenerateBoundaryAndGroupEdges( FGroup&                               Group,
+        bool     GenerateBoundaryAndGroupEdges( Group&                                Group,
                                                 std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
                                                 std::vector<bool>&                    VertCheckedForCorner );
-        FIndex2i MakeEdgeGroupsPair( int MeshEdgeID ) const;
+        Index2i  MakeEdgeGroupsPair( int MeshEdgeID ) const;
         void     GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const;
     };
 
     /** Every triangle is its own group: corners are all vertices, group edges are all mesh edges. */
-    class FTriangleGroupTopology : public FGroupTopology
+    class TriangleGroupTopology : public GroupTopology
     {
     public:
-        FTriangleGroupTopology() = default;
-        FTriangleGroupTopology( const FDynamicMesh3* Mesh, bool bAutoBuild );
+        TriangleGroupTopology() = default;
+        TriangleGroupTopology( const DynamicMesh3* Mesh, bool bAutoBuild );
         bool RebuildTopology() override;
         int  GetGroupID( int TriangleID ) const override
         {

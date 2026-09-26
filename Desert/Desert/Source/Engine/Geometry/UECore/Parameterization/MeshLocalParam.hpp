@@ -1,9 +1,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshLocalParam.h
-// (ELocalParamTypes, ComputeToMaxDistance from a centre vertex, HasUV, GetUV, ProcessQueueUntilTermination,
+// (LocalParamTypes, ComputeToMaxDistance from a centre vertex, HasUV, GetUV, ProcessQueueUntilTermination,
 // ComputeLocalUV, PropagateUV, UpdateUVExpmap/Upwind/Planar, UpdateNeighboursSparse), adapted: nodes addressed by
 // index in a TArray (see MeshDijkstra.hpp), the 2x2 rotation written out (no FMatrix2d), external normals and the
 // three-seed / TransformUV / GetAllComputedUVs entry points are not ported. Normals: the mesh's vertex normals
-// when it has them, else FMeshNormals::ComputeVertexNormal, as UE's GetNormal for FDynamicMesh3.
+// when it has them, else MeshNormals::ComputeVertexNormal, as UE's GetNormal for DynamicMesh3.
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
@@ -13,7 +13,7 @@
 
 namespace Desert::Geometry
 {
-    enum class ELocalParamTypes : uint8_t
+    enum class LocalParamTypes : uint8_t
     {
         PlanarProjection        = 1,
         ExponentialMap          = 2,
@@ -21,22 +21,22 @@ namespace Desert::Geometry
     };
 
     template <class PointSetType>
-    class TMeshLocalParam
+    class MeshLocalParam
     {
     public:
-        ELocalParamTypes ParamMode = ELocalParamTypes::ExponentialMapUpwindAvg;
+        LocalParamTypes ParamMode = LocalParamTypes::ExponentialMapUpwindAvg;
 
-        explicit TMeshLocalParam( const PointSetType* PointSetIn ) : PointSet( PointSetIn )
+        explicit MeshLocalParam( const PointSetType* PointSetIn ) : PointSet( PointSetIn )
         {
             Queue.Initialize( PointSet->MaxVertexID() );
         }
 
-        void ComputeToMaxDistance( int32_t CenterPointVtxID, const FFrame3d& CenterPointFrame,
+        void ComputeToMaxDistance( int32_t CenterPointVtxID, const Frame3d& CenterPointFrame,
                                    double ComputeToMaxDistanceIn )
         {
             SeedFrame            = CenterPointFrame;
             MaxGraphDistance     = 0.0;
-            FGraphNode& Center   = AllocatedNodes[GetNodeIndex( CenterPointVtxID, true )];
+            GraphNode& Center    = AllocatedNodes[GetNodeIndex( CenterPointVtxID, true )];
             Center.UV            = glm::dvec2( 0 );
             Center.GraphDistance = 0;
             Center.bFrozen       = true;
@@ -57,7 +57,7 @@ namespace Desert::Geometry
         }
 
     private:
-        struct FGraphNode
+        struct GraphNode
         {
             int32_t   PointID       = 0;
             int32_t   ParentPointID = 0;
@@ -68,9 +68,9 @@ namespace Desert::Geometry
         };
         const PointSetType* PointSet;
         std::unordered_map<int32_t, int32_t> IDToNodeIndexMap;
-        std::vector<FGraphNode>              AllocatedNodes;
-        FIndexPriorityQueue Queue;
-        FFrame3d            SeedFrame;
+        std::vector<GraphNode>               AllocatedNodes;
+        IndexPriorityQueue                   Queue;
+        Frame3d                              SeedFrame;
         double              MaxGraphDistance = 0.0;
 
         [[nodiscard]] glm::dvec3 GetPosition( int32_t PointID ) const
@@ -84,11 +84,11 @@ namespace Desert::Geometry
                 const glm::vec3 N = PointSet->GetVertexNormal( PointID );
                 return { N.x, N.y, N.z };
             }
-            return FMeshNormals::ComputeVertexNormal( *PointSet, PointID );
+            return MeshNormals::ComputeVertexNormal( *PointSet, PointID );
         }
-        FFrame3d GetFrame( const FGraphNode& Node ) const
+        Frame3d GetFrame( const GraphNode& Node ) const
         {
-            return FFrame3d( GetPosition( Node.PointID ), Node.CachedNormal );
+            return Frame3d( GetPosition( Node.PointID ), Node.CachedNormal );
         }
         void ProcessQueueUntilTermination( double MaxDistance )
         {
@@ -103,13 +103,13 @@ namespace Desert::Geometry
                 {
                     switch ( ParamMode )
                     {
-                        case ELocalParamTypes::ExponentialMap:
+                        case LocalParamTypes::ExponentialMap:
                             UpdateUVExpmap( AllocatedNodes[NodeIndex] );
                             break;
-                        case ELocalParamTypes::ExponentialMapUpwindAvg:
+                        case LocalParamTypes::ExponentialMapUpwindAvg:
                             UpdateUVExpmapUpwind( AllocatedNodes[NodeIndex] );
                             break;
-                        case ELocalParamTypes::PlanarProjection:
+                        case LocalParamTypes::PlanarProjection:
                             AllocatedNodes[NodeIndex].UV =
                                  ComputeLocalUV( SeedFrame, GetPosition( AllocatedNodes[NodeIndex].PointID ) );
                             break;
@@ -119,17 +119,17 @@ namespace Desert::Geometry
                 UpdateNeighboursSparse( NodeIndex );
             }
         }
-        static glm::dvec2 ComputeLocalUV( const FFrame3d& Frame, glm::dvec3 Position )
+        static glm::dvec2 ComputeLocalUV( const Frame3d& Frame, glm::dvec3 Position )
         {
             Position -= Frame.Origin;
             return { glm::dot( Position, Frame.X() ), glm::dot( Position, Frame.Y() ) };
         }
         // the UV of Position from the neighbour's UV, in the neighbour's tangent frame rotated into the seed's
         static glm::dvec2 PropagateUV( const glm::dvec3& Position, const glm::dvec2& NbrUV,
-                                       const FFrame3d& NbrFrame, const FFrame3d& SeedFrameIn )
+                                       const Frame3d& NbrFrame, const Frame3d& SeedFrameIn )
         {
             const glm::dvec2 LocalUV = ComputeLocalUV( NbrFrame, Position );
-            FFrame3d        SeedToLocal( SeedFrameIn );
+            Frame3d          SeedToLocal( SeedFrameIn );
             SeedToLocal.AlignAxis( 2, NbrFrame.Z() );
             const glm::dvec3 vAlignedSeedX = SeedToLocal.X();
             const glm::dvec3 vLocalX       = NbrFrame.X();
@@ -141,12 +141,12 @@ namespace Desert::Geometry
             return NbrUV + glm::dvec2( CosTheta * LocalUV.x + SinTheta * LocalUV.y,
                                        -SinTheta * LocalUV.x + CosTheta * LocalUV.y );
         }
-        void UpdateUVExpmap( FGraphNode& Node )
+        void UpdateUVExpmap( GraphNode& Node )
         {
-            const FGraphNode& Parent = AllocatedNodes[IDToNodeIndexMap.at( Node.ParentPointID )];
+            const GraphNode& Parent = AllocatedNodes[IDToNodeIndexMap.at( Node.ParentPointID )];
             Node.UV = PropagateUV( GetPosition( Node.PointID ), Parent.UV, GetFrame( Parent ), SeedFrame );
         }
-        void UpdateUVExpmapUpwind( FGraphNode& Node )
+        void UpdateUVExpmapUpwind( GraphNode& Node )
         {
             const glm::dvec3 NodePos   = GetPosition( Node.PointID );
             glm::dvec2       AverageUV = glm::dvec2( 0 );
@@ -156,7 +156,7 @@ namespace Desert::Geometry
                 const int32_t* Found = FindValue( IDToNodeIndexMap, NbrPointID );
                 if ( Found == nullptr || !AllocatedNodes[*Found].bFrozen )
                     continue;
-                const FFrame3d  NbrFrame = GetFrame( AllocatedNodes[*Found] );
+                const Frame3d    NbrFrame = GetFrame( AllocatedNodes[*Found] );
                 const glm::dvec2 NbrUV    = PropagateUV( NodePos, AllocatedNodes[*Found].UV, NbrFrame, SeedFrame );
                 const double    Weight =
                      1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + TMathUtil<double>::ZeroTolerance );
@@ -173,7 +173,7 @@ namespace Desert::Geometry
             if ( !bCreateIfMissing )
                 return -1;
             AllocatedNodes.push_back(
-                 FGraphNode{ PointSetID, -1, 0.0, glm::dvec2( 0 ), false, GetNormal( PointSetID ) } );
+                 GraphNode{ PointSetID, -1, 0.0, glm::dvec2( 0 ), false, GetNormal( PointSetID ) } );
             const int32_t NewIndex = static_cast<int32_t>( AllocatedNodes.size() ) - 1;
             IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
             return NewIndex;
@@ -185,7 +185,7 @@ namespace Desert::Geometry
             const glm::dvec3 ParentPos  = GetPosition( ParentID );
             for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
             {
-                FGraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
+                GraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )
                     continue;
                 const double NbrDist = ParentDist + Distance( ParentPos, GetPosition( NbrPointID ) );

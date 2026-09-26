@@ -12,18 +12,18 @@ namespace Desert::Geometry
      * Compute unsigned distance between 3D Point and 3D Triangle
      */
     template <typename Real>
-    class TDistPoint3Triangle3
+    class DistPoint3Triangle3
     {
     public:
         // Input
         glm::vec<3, Real> Point{};
-        TTriangle3<Real> Triangle;
+        Triangle3<Real>   Triangle;
 
         // Results
         glm::vec<3, Real> TriangleBaryCoords{};
         glm::vec<3, Real> ClosestTrianglePoint{};
 
-        TDistPoint3Triangle3( const glm::vec<3, Real>& PointIn, const TTriangle3<Real>& TriangleIn )
+        DistPoint3Triangle3( const glm::vec<3, Real>& PointIn, const Triangle3<Real>& TriangleIn )
              : Point( PointIn ), Triangle( TriangleIn )
         {
         }
@@ -235,6 +235,6 @@ namespace Desert::Geometry
         }
     };
 
-    using FDistPoint3Triangle3f = TDistPoint3Triangle3<float>;
-    using FDistPoint3Triangle3d = TDistPoint3Triangle3<double>;
+    using DistPoint3Triangle3f = DistPoint3Triangle3<float>;
+    using DistPoint3Triangle3d = DistPoint3Triangle3<double>;
 } // namespace Desert::Geometry

@@ -13,7 +13,7 @@ namespace Desert::Geometry
      * Stores index remapping for vertices and triangles.
      * Should only be used for compacting, and should maintain invariant that *Map[Idx] <= Idx for all maps
      */
-    class FCompactMaps
+    class DynamicMeshCompactMaps
     {
         std::vector<int32_t> VertMap;
         std::vector<int32_t> TriMap;
@@ -159,7 +159,7 @@ namespace Desert::Geometry
         }
 
         /** Get mapping for three vertices, e.g. a triangle */
-        FIndex3i GetVertexMapping( FIndex3i FromIDs ) const
+        Index3i GetVertexMapping( Index3i FromIDs ) const
         {
             return { VertMap[FromIDs[0]], VertMap[FromIDs[1]], VertMap[FromIDs[2]] };
         }

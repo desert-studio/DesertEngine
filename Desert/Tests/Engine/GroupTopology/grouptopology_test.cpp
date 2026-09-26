@@ -1,4 +1,4 @@
-// FGroupTopology (ported from UE 5.8 GroupTopology.cpp) on meshes whose UE answer is known by construction:
+// GroupTopology (ported from UE 5.8 GroupTopology.cpp) on meshes whose UE answer is known by construction:
 // a polygrouped cube (6 groups, 8 corners, 12 group edges), a capped cylinder (3 groups, NO corners - every
 // ring vertex meets exactly two group edges - and two closed loops), an open tube, and a cube whose top is
 // its own group (one corner-free loop). The invariants below hold for any mesh: every group boundary closes,
@@ -21,9 +21,9 @@ namespace
     constexpr double Side = 100.0; // centimetres
 
     // Quads wound counter-clockwise seen from outside; face f gets group GroupOf[f].
-    FDynamicMesh3 MakeCube( const int ( &GroupOf )[6] )
+    DynamicMesh3 MakeCube( const int ( &GroupOf )[6] )
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3 Mesh;
         Mesh.EnableTriangleGroups();
         for ( int i = 0; i < 8; ++i )
             Mesh.AppendVertex(
@@ -40,9 +40,9 @@ namespace
     }
 
     // N-sided cylinder: side = group 1, top cap = group 2, bottom cap = group 3 (caps are centre fans).
-    FDynamicMesh3 MakeCylinder( int N, bool bCaps )
+    DynamicMesh3 MakeCylinder( int N, bool bCaps )
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3 Mesh;
         Mesh.EnableTriangleGroups();
         for ( int Ring = 0; Ring < 2; ++Ring )
             for ( int i = 0; i < N; ++i )
@@ -72,7 +72,7 @@ namespace
 
     // Every boundary of every group closes: a corner-free edge is a loop whose span repeats its first vertex;
     // otherwise each endpoint of the boundary's spans is shared by exactly two of them.
-    void ExpectBoundariesClose( const FGroupTopology& Topo )
+    void ExpectBoundariesClose( const GroupTopology& Topo )
     {
         for ( const auto& Group : Topo.Groups )
             for ( const auto& Boundary : Group.Boundaries )
@@ -100,7 +100,7 @@ namespace
 
     // Every mesh edge between two groups (or on the mesh border) is in exactly one group edge, and
     // FindGroupEdgeID finds that one; no other mesh edge is in any.
-    void ExpectGroupEdgesPartition( const FDynamicMesh3& Mesh, const FGroupTopology& Topo )
+    void ExpectGroupEdgesPartition( const DynamicMesh3& Mesh, const GroupTopology& Topo )
     {
         std::map<int, int> Owner;
         for ( int G = 0; G < static_cast<int32_t>( Topo.Edges.size() ); ++G )
@@ -111,9 +111,9 @@ namespace
             }
         for ( int Eid : Mesh.EdgeIndicesItr() )
         {
-            const FIndex2i Et = Mesh.GetEdgeT( Eid );
-            const bool     bOnG =
-                 Et.B == FDynamicMesh3::InvalidID || Topo.GetGroupID( Et.A ) != Topo.GetGroupID( Et.B );
+            const Index2i Et = Mesh.GetEdgeT( Eid );
+            const bool    bOnG =
+                 Et.B == DynamicMesh3::InvalidID || Topo.GetGroupID( Et.A ) != Topo.GetGroupID( Et.B );
             EXPECT_EQ( Owner.count( Eid ) == 1, bOnG ) << "mesh edge " << Eid;
             if ( bOnG )
                 EXPECT_EQ( Topo.FindGroupEdgeID( Eid ), Owner[Eid] );
@@ -124,8 +124,8 @@ namespace
 TEST( GroupTopology, CubeHasSixGroupsEightCornersTwelveEdges )
 {
     const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
-    const FDynamicMesh3 Mesh      = MakeCube( Groups );
-    FGroupTopology      Topo( &Mesh, false );
+    const DynamicMesh3  Mesh      = MakeCube( Groups );
+    GroupTopology       Topo( &Mesh, false );
     ASSERT_TRUE( Topo.RebuildTopology() ) << Topo.Failure();
     EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 6 );
     EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 8 );
@@ -166,8 +166,8 @@ TEST( GroupTopology, CubeHasSixGroupsEightCornersTwelveEdges )
 TEST( GroupTopology, CappedCylinderHasNoCornersAndTwoClosedLoops )
 {
     constexpr int       N    = 12;
-    const FDynamicMesh3 Mesh = MakeCylinder( N, true );
-    FGroupTopology      Topo( &Mesh, true );
+    const DynamicMesh3  Mesh = MakeCylinder( N, true );
+    GroupTopology       Topo( &Mesh, true );
     EXPECT_TRUE( Topo.Failure().empty() ) << Topo.Failure();
     EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 3 );
     EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 0 );
@@ -191,15 +191,15 @@ TEST( GroupTopology, CappedCylinderHasNoCornersAndTwoClosedLoops )
 
 TEST( GroupTopology, OpenTubeLoopsLieOnTheMeshBorder )
 {
-    const FDynamicMesh3 Mesh = MakeCylinder( 8, false );
-    FGroupTopology      Topo( &Mesh, true );
+    const DynamicMesh3 Mesh = MakeCylinder( 8, false );
+    GroupTopology      Topo( &Mesh, true );
     ASSERT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 1 );
     EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 0 );
     ASSERT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 2 );
     for ( int E = 0; E < 2; ++E )
     {
         EXPECT_TRUE( Topo.IsBoundaryEdge( E ) );
-        EXPECT_EQ( Topo.Edges[E].Groups.B, FDynamicMesh3::InvalidID );
+        EXPECT_EQ( Topo.Edges[E].Groups.B, DynamicMesh3::InvalidID );
     }
     for ( const auto& B : Topo.Groups[0].Boundaries )
         EXPECT_TRUE( B.bIsOnBoundary );
@@ -211,8 +211,8 @@ TEST( GroupTopology, OpenTubeLoopsLieOnTheMeshBorder )
 TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
 {
     const int           Groups[6] = { 0, 7, 0, 0, 0, 0 }; // face 1 (z = Side) is group 7
-    const FDynamicMesh3 Mesh      = MakeCube( Groups );
-    FGroupTopology      Topo( &Mesh, true );
+    const DynamicMesh3  Mesh      = MakeCube( Groups );
+    GroupTopology       Topo( &Mesh, true );
     EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 2 );
     EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 0 );
     ASSERT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 1 );
@@ -221,7 +221,7 @@ TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
     std::unordered_set<int> Verts;
     Topo.CollectGroupBoundaryVertices( 7, Verts );
     EXPECT_EQ( static_cast<int32_t>( Verts.size() ), 4 );
-    FGroupTopologySelection Sel;
+    GroupTopologySelection Sel;
     Sel.SelectedGroupIDs.insert( 7 );
     std::vector<int32_t> Tris;
     Topo.GetSelectedTriangles( Sel, Tris );
@@ -233,8 +233,8 @@ TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
 TEST( GroupTopology, TriangleTopologyIsTheMeshItself )
 {
     const int              Groups[6] = { 0, 1, 2, 3, 4, 5 };
-    const FDynamicMesh3    Mesh      = MakeCube( Groups );
-    FTriangleGroupTopology Topo( &Mesh, true );
+    const DynamicMesh3     Mesh      = MakeCube( Groups );
+    TriangleGroupTopology  Topo( &Mesh, true );
     EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 12 );
     EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 8 );
     EXPECT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 18 );
@@ -263,9 +263,9 @@ namespace
         return view;
     }
 
-    std::vector<int> TriEditEdgePick( const FDynamicMesh3& mesh, const glm::vec3& eye, const glm::vec3& target )
+    std::vector<int> TriEditEdgePick( const DynamicMesh3& mesh, const glm::vec3& eye, const glm::vec3& target )
     {
-        const FGroupTopology topology( &mesh, true );
+        const GroupTopology  topology( &mesh, true );
         const ElementHit     hit =
              PickElement( mesh, topology, ElementMode::Edge, CentreView( eye, target ), TopologyLevel::Triangle );
         return HitElements( topology, ElementMode::Edge, TopologyLevel::Triangle, hit );
@@ -278,7 +278,7 @@ namespace
 TEST( GroupTopology, TriEditPicksTheFaceDiagonalHeadOn )
 {
     const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
-    const FDynamicMesh3 Mesh      = MakeCube( Groups );
+    const DynamicMesh3  Mesh      = MakeCube( Groups );
     const glm::vec3     mid( 50.0f, 50.0f, 100.0f );
     EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 0, 0, 300 ), mid ),
                std::vector<int>{ Mesh.FindEdge( 4, 7 ) } );
@@ -287,7 +287,7 @@ TEST( GroupTopology, TriEditPicksTheFaceDiagonalHeadOn )
 TEST( GroupTopology, TriEditPicksTheFaceDiagonalObliquely )
 {
     const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
-    const FDynamicMesh3 Mesh      = MakeCube( Groups );
+    const DynamicMesh3  Mesh      = MakeCube( Groups );
     const glm::vec3     mid( 50.0f, 50.0f, 100.0f );
     EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 120, -80, 300 ), mid ),
                std::vector<int>{ Mesh.FindEdge( 4, 7 ) } );
@@ -297,7 +297,7 @@ TEST( GroupTopology, TriEditPicksTheFaceDiagonalObliquely )
 TEST( GroupTopology, TriEditPicksOneCubeEdgeAtItsMiddle )
 {
     const int           Groups[6] = { 0, 1, 2, 3, 4, 5 };
-    const FDynamicMesh3 Mesh      = MakeCube( Groups );
+    const DynamicMesh3  Mesh      = MakeCube( Groups );
     const glm::vec3     mid( 50.0f, 0.0f, 100.0f );
     EXPECT_EQ( TriEditEdgePick( Mesh, mid + glm::vec3( 60, -200, 250 ), mid ),
                std::vector<int>{ Mesh.FindEdge( 4, 5 ) } );

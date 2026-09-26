@@ -18,7 +18,7 @@
 namespace Desert::Geometry
 {
     /** A closed loop of mesh vertices; Edges[i] joins Vertices[i] and Vertices[(i+1) % Num]. */
-    struct FEdgeLoop
+    struct EdgeLoop
     {
         std::vector<int> Vertices;
         std::vector<int> Edges;
@@ -26,11 +26,11 @@ namespace Desert::Geometry
 
         void Initialize( const std::vector<int>& VerticesIn, const std::vector<int>& EdgesIn,
                          const std::vector<int>* BowtieVerticesIn = nullptr );
-        /** UE InitializeFromVertices with bAutoOrient = false (FMeshBoundaryLoops never orients). */
-        bool InitializeFromVertices( const FDynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
+        /** UE InitializeFromVertices with bAutoOrient = false (MeshBoundaryLoops never orients). */
+        bool InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
         /** UE EdgeLoop.cpp:21-38: Vertices[i] is the vertex Edges[i-1] and Edges[i] share. */
-        void InitializeFromEdges( const FDynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
-        bool IsBoundaryLoop( const FDynamicMesh3& Mesh ) const;
+        void InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
+        bool IsBoundaryLoop( const DynamicMesh3& Mesh ) const;
         int  GetVertexCount() const
         {
             return static_cast<int32_t>( Vertices.size() );
@@ -42,29 +42,29 @@ namespace Desert::Geometry
     };
 
     /** An open span of mesh vertices; Edges[i] joins Vertices[i] and Vertices[i+1]. */
-    struct FEdgeSpan
+    struct EdgeSpan
     {
         std::vector<int> Vertices;
         std::vector<int> Edges;
         std::vector<int> BowtieVertices;
 
-        void InitializeFromVertices( const FDynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
+        void InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
         /** For a closed loop of edges, Vertices ends with its first vertex repeated (as UE). */
-        void InitializeFromEdges( const FDynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
+        void InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
     };
 
     /** Extracts the boundary loops of a triangle region, oriented with the region on the left. */
-    class FMeshRegionBoundaryLoops
+    class MeshRegionBoundaryLoops
     {
     public:
-        const FDynamicMesh3* Mesh = nullptr;
-        std::vector<FEdgeLoop> Loops;
+        const DynamicMesh3*   Mesh = nullptr;
+        std::vector<EdgeLoop> Loops;
         bool                 bFailed = false;
         /** Why Compute failed, with the vertex/edge that stopped it. Empty on success. */
         std::string FailureReason;
 
-        FMeshRegionBoundaryLoops( const FDynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
-                                  bool bAutoCompute = true );
+        MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
+                                 bool bAutoCompute = true );
 
         bool Compute();
 
@@ -81,8 +81,8 @@ namespace Desert::Geometry
          * @return false if the loop edge is not on this region's boundary or the overlay has no element there.
          */
         template <typename StorageType, int ElementSize, typename ElementType>
-        bool GetLoopOverlayMap( const FEdgeLoop&                                     LoopIn,
-                                const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay,
+        bool GetLoopOverlayMap( const EdgeLoop&                                     LoopIn,
+                                const DynamicMeshOverlay<StorageType, ElementSize>& Overlay,
                                 VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const;
 
         /**
@@ -91,7 +91,7 @@ namespace Desert::Geometry
          */
         template <typename StorageType, int ElementSize, typename ElementType>
         static void UpdateLoopOverlayMapValidity( VidOverlayMap<ElementType>& LoopVidsToOverlayElements,
-                                                  const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay );
+                                                  const DynamicMeshOverlay<StorageType, ElementSize>& Overlay );
 
     private:
         std::vector<bool> Triangles; // membership over [0, MaxTriangleID)
@@ -103,7 +103,7 @@ namespace Desert::Geometry
             return Edges[Eid];
         }
         bool     IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const;
-        FIndex2i GetOrientedEdgeVerts( int Eid, int TidIn ) const;
+        Index2i  GetOrientedEdgeVerts( int Eid, int TidIn ) const;
         int      GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const;
     };
 } // namespace Desert::Geometry

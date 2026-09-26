@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/BoxTypes.h:246-249,382,438,466,884-885,
-// adapted: only the TAxisAlignedBox3 members the FDynamicMesh3 port calls (construction incl. the three-point
+// adapted: only the AxisAlignedBox3 members the DynamicMesh3 port calls (construction incl. the three-point
 // constructor, Empty, Contain, Center/Extents/DiagonalLength/IsEmpty), written over the shim TVector; transform,
 // distance and interval members are not ported.
 #pragma once
@@ -9,24 +9,24 @@
 namespace Desert::Geometry
 {
     template <typename RealType>
-    struct TAxisAlignedBox3
+    struct AxisAlignedBox3
     {
         glm::vec<3, RealType> Min{};
         glm::vec<3, RealType> Max{};
 
-        TAxisAlignedBox3()
+        AxisAlignedBox3()
              : Min( TMathUtil<RealType>::MaxReal, TMathUtil<RealType>::MaxReal, TMathUtil<RealType>::MaxReal ),
                Max( -TMathUtil<RealType>::MaxReal, -TMathUtil<RealType>::MaxReal, -TMathUtil<RealType>::MaxReal )
         {
         }
 
-        TAxisAlignedBox3( const glm::vec<3, RealType>& MinIn, const glm::vec<3, RealType>& MaxIn )
+        AxisAlignedBox3( const glm::vec<3, RealType>& MinIn, const glm::vec<3, RealType>& MaxIn )
              : Min( MinIn ), Max( MaxIn )
         {
         }
 
-        TAxisAlignedBox3( const glm::vec<3, RealType>& A, const glm::vec<3, RealType>& B,
-                          const glm::vec<3, RealType>& C )
+        AxisAlignedBox3( const glm::vec<3, RealType>& A, const glm::vec<3, RealType>& B,
+                         const glm::vec<3, RealType>& C )
              : Min( std::min( A.x, std::min( B.x, C.x ) ), std::min( A.y, std::min( B.y, C.y ) ),
                     std::min( A.z, std::min( B.z, C.z ) ) ),
                Max( std::max( A.x, std::max( B.x, C.x ) ), std::max( A.y, std::max( B.y, C.y ) ),
@@ -34,9 +34,9 @@ namespace Desert::Geometry
         {
         }
 
-        static TAxisAlignedBox3<RealType> Empty()
+        static AxisAlignedBox3<RealType> Empty()
         {
-            return TAxisAlignedBox3();
+            return AxisAlignedBox3();
         }
 
         glm::vec<3, RealType> Center() const
@@ -76,7 +76,7 @@ namespace Desert::Geometry
                 Max.z = V.z;
         }
 
-        void Contain( const TAxisAlignedBox3<RealType>& Other )
+        void Contain( const AxisAlignedBox3<RealType>& Other )
         {
             Min.x = Min.x < Other.Min.x ? Min.x : Other.Min.x;
             Min.y = Min.y < Other.Min.y ? Min.y : Other.Min.y;
@@ -87,6 +87,6 @@ namespace Desert::Geometry
         }
     };
 
-    using FAxisAlignedBox3f = TAxisAlignedBox3<float>;
-    using FAxisAlignedBox3d = TAxisAlignedBox3<double>;
+    using AxisAlignedBox3f = AxisAlignedBox3<float>;
+    using AxisAlignedBox3d = AxisAlignedBox3<double>;
 } // namespace Desert::Geometry

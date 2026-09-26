@@ -34,7 +34,7 @@ namespace
     }
 } // namespace
 
-int FMeshBoundaryLoops::FindLoopContainingVertex( int VertexID ) const
+int MeshBoundaryLoops::FindLoopContainingVertex( int VertexID ) const
 {
     for ( int li = 0; li < static_cast<int32_t>( Loops.size() ); ++li )
         if ( ( std::find( Loops[li].Vertices.begin(), Loops[li].Vertices.end(), VertexID ) !=
@@ -43,7 +43,7 @@ int FMeshBoundaryLoops::FindLoopContainingVertex( int VertexID ) const
     return -1;
 }
 
-int FMeshBoundaryLoops::FindLoopContainingEdge( int EdgeID ) const
+int MeshBoundaryLoops::FindLoopContainingEdge( int EdgeID ) const
 {
     for ( int li = 0; li < static_cast<int32_t>( Loops.size() ); ++li )
         if ( ( std::find( Loops[li].Edges.begin(), Loops[li].Edges.end(), EdgeID ) != Loops[li].Edges.end() ) )
@@ -51,7 +51,7 @@ int FMeshBoundaryLoops::FindLoopContainingEdge( int EdgeID ) const
     return -1;
 }
 
-bool FMeshBoundaryLoops::Compute()
+bool MeshBoundaryLoops::Compute()
 {
     // Triangles are assumed consistently oriented, so a closed boundary loop is followed by walking edges in
     // order.
@@ -82,7 +82,7 @@ bool FMeshBoundaryLoops::Compute()
         bool bIsOpenSpan = false;
         while ( !bClosed )
         {
-            const FIndex2i Ev    = Mesh->GetOrientedBoundaryEdgeV( ECur );
+            const Index2i  Ev    = Mesh->GetOrientedBoundaryEdgeV( ECur );
             int            CureB = Ev.B;
             if ( bIsOpenSpan )
                 CureB = Ev.A;
@@ -158,30 +158,30 @@ bool FMeshBoundaryLoops::Compute()
         {
             bSawOpenSpans = true;
             ReverseInPlace( LoopEdges );
-            Spans.push_back( FEdgeSpan{} );
+            Spans.push_back( EdgeSpan{} );
             Spans[static_cast<int32_t>( Spans.size() ) - 1].InitializeFromEdges( *Mesh, LoopEdges );
         }
         else if ( !Bowties.empty() )
         {
-            FSubloops Subloops;
+            Subloops Subloops;
             if ( !ExtractSubloops( LoopVerts, LoopEdges, Bowties, Subloops ) )
             {
                 if ( !Subloops.Spans.empty() )
                 {
                     bFellBackToSpansOnFailure = true;
-                    for ( const FEdgeSpan& Span : Subloops.Spans )
+                    for ( const EdgeSpan& Span : Subloops.Spans )
                         Spans.push_back( Span );
                 }
             }
             else
             {
-                for ( const FEdgeLoop& Loop : Subloops.Loops )
+                for ( const EdgeLoop& Loop : Subloops.Loops )
                     Loops.push_back( Loop );
             }
         }
         else
         {
-            Loops.push_back( FEdgeLoop{} );
+            Loops.push_back( EdgeLoop{} );
             Loops[static_cast<int32_t>( Loops.size() ) - 1].Initialize( LoopVerts, LoopEdges );
         }
         LoopEdges.clear();
@@ -191,7 +191,7 @@ bool FMeshBoundaryLoops::Compute()
     return true;
 }
 
-glm::dvec3 FMeshBoundaryLoops::GetVertexNormal( int Vid ) const
+glm::dvec3 MeshBoundaryLoops::GetVertexNormal( int Vid ) const
 {
     glm::dvec3 N = glm::dvec3( 0 );
     for ( int Ti : Mesh->VtxTrianglesItr( Vid ) )
@@ -200,12 +200,12 @@ glm::dvec3 FMeshBoundaryLoops::GetVertexNormal( int Vid ) const
     return N;
 }
 
-int FMeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges,
-                                          int BdryEdgesCount, const std::vector<bool>& UsedEdges ) const
+int MeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges,
+                                         int BdryEdgesCount, const std::vector<bool>& UsedEdges ) const
 {
     // the normal at the bowtie vertex is the plane the turn angles are measured in
     const glm::dvec3 N      = GetVertexNormal( BowtieV );
-    const FIndex2i  Ev     = Mesh->GetEdgeV( IncomingE );
+    const Index2i    Ev     = Mesh->GetEdgeV( IncomingE );
     const int       OtherV = ( Ev.A == BowtieV ) ? Ev.B : Ev.A;
     const glm::dvec3 Ab     = Mesh->GetVertex( BowtieV ) - Mesh->GetVertex( OtherV );
 
@@ -216,7 +216,7 @@ int FMeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std:
         const int BdryEid = BdryEdges[i];
         if ( UsedEdges[BdryEid] )
             continue;
-        const FIndex2i BdryEv = Mesh->GetOrientedBoundaryEdgeV( BdryEid );
+        const Index2i BdryEv = Mesh->GetOrientedBoundaryEdgeV( BdryEid );
         if ( BdryEv.A != BowtieV )
             continue; // must chain onto the end of the current edge, orientation-wise
         const glm::dvec3 Bc     = Mesh->GetVertex( BdryEv.B ) - Mesh->GetVertex( BowtieV );
@@ -230,10 +230,10 @@ int FMeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std:
     return BestE;
 }
 
-bool FMeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE,
-                                          std::vector<int>& Bowties, FSubloops& SubloopsOut )
+bool MeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE,
+                                         std::vector<int>& Bowties, Subloops& SubloopsOut )
 {
-    FSubloops& Subs = SubloopsOut;
+    Subloops& Subs = SubloopsOut;
 
     // only the bowties the loop passes more than once split it
     std::vector<int> Dupes;
@@ -243,7 +243,7 @@ bool FMeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<i
 
     if ( Dupes.empty() )
     {
-        Subs.Loops.push_back( FEdgeLoop{} );
+        Subs.Loops.push_back( EdgeLoop{} );
         Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1].Initialize( LoopV, LoopE, &Bowties );
         return true;
     }
@@ -275,8 +275,8 @@ bool FMeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<i
             for ( int i = 0; i < static_cast<int32_t>( LoopV.size() ); ++i )
                 if ( LoopV[i] != -1 )
                     VerticesTemp.push_back( LoopV[i] );
-            Subs.Spans.push_back( FEdgeSpan{} );
-            FEdgeSpan& NewSpan = Subs.Spans[static_cast<int32_t>( Subs.Spans.size() ) - 1];
+            Subs.Spans.push_back( EdgeSpan{} );
+            EdgeSpan& NewSpan = Subs.Spans[static_cast<int32_t>( Subs.Spans.size() ) - 1];
             NewSpan.InitializeFromVertices( *Mesh, VerticesTemp );
             NewSpan.BowtieVertices = Bowties;
             return false;
@@ -290,8 +290,8 @@ bool FMeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<i
 
         VerticesTemp.clear();
         ExtractSpan( LoopV, StartI, EndI, true, VerticesTemp );
-        Subs.Loops.push_back( FEdgeLoop{} );
-        FEdgeLoop& NewLoop = Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1];
+        Subs.Loops.push_back( EdgeLoop{} );
+        EdgeLoop& NewLoop = Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1];
         NewLoop.InitializeFromVertices( *Mesh, VerticesTemp );
         NewLoop.BowtieVertices = Bowties;
 
@@ -305,17 +305,16 @@ bool FMeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<i
             VerticesTemp.push_back( LoopV[i] );
     if ( !VerticesTemp.empty() )
     {
-        Subs.Loops.push_back( FEdgeLoop{} );
-        FEdgeLoop& NewLoop = Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1];
+        Subs.Loops.push_back( EdgeLoop{} );
+        EdgeLoop& NewLoop = Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1];
         NewLoop.InitializeFromVertices( *Mesh, VerticesTemp );
         NewLoop.BowtieVertices = Bowties;
     }
     return true;
 }
 
-bool FMeshBoundaryLoops::IsSimpleBowtieLoop( const std::vector<int>& LoopVerts,
-                                             const std::vector<int>& BowtieVerts, int BowtieVertex, int& StartI,
-                                             int& EndI )
+bool MeshBoundaryLoops::IsSimpleBowtieLoop( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
+                                            int BowtieVertex, int& StartI, int& EndI )
 {
     StartI = FindIndex( LoopVerts, 0, BowtieVertex );
     EndI   = FindIndex( LoopVerts, StartI + 1, BowtieVertex );
@@ -329,8 +328,8 @@ bool FMeshBoundaryLoops::IsSimpleBowtieLoop( const std::vector<int>& LoopVerts,
     return false;
 }
 
-bool FMeshBoundaryLoops::IsSimplePath( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
-                                       int BowtieVertex, int I1, int I2 )
+bool MeshBoundaryLoops::IsSimplePath( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
+                                      int BowtieVertex, int I1, int I2 )
 {
     const int N = static_cast<int32_t>( LoopVerts.size() );
     for ( int i = I1; i != I2; i = ( i + 1 ) % N )
@@ -345,8 +344,8 @@ bool FMeshBoundaryLoops::IsSimplePath( const std::vector<int>& LoopVerts, const 
     return true;
 }
 
-void FMeshBoundaryLoops::ExtractSpan( std::vector<int>& Loop, int I0, int I1, bool bMarkInvalid,
-                                      std::vector<int>& OutSpan )
+void MeshBoundaryLoops::ExtractSpan( std::vector<int>& Loop, int I0, int I1, bool bMarkInvalid,
+                                     std::vector<int>& OutSpan )
 {
     OutSpan.resize( CountSpan( Loop, I0, I1 ) );
     int       Ai = 0;
@@ -362,7 +361,7 @@ void FMeshBoundaryLoops::ExtractSpan( std::vector<int>& Loop, int I0, int I1, bo
     }
 }
 
-int FMeshBoundaryLoops::CountSpan( const std::vector<int>& Loop, int I0, int I1 )
+int MeshBoundaryLoops::CountSpan( const std::vector<int>& Loop, int I0, int I1 )
 {
     int       C = 0;
     const int N = static_cast<int32_t>( Loop.size() );
@@ -372,7 +371,7 @@ int FMeshBoundaryLoops::CountSpan( const std::vector<int>& Loop, int I0, int I1 
     return C;
 }
 
-int FMeshBoundaryLoops::FindIndex( const std::vector<int>& Loop, int Start, int Item )
+int MeshBoundaryLoops::FindIndex( const std::vector<int>& Loop, int Start, int Item )
 {
     for ( int i = Start; i < static_cast<int32_t>( Loop.size() ); ++i )
         if ( Loop[i] == Item )
@@ -380,7 +379,7 @@ int FMeshBoundaryLoops::FindIndex( const std::vector<int>& Loop, int Start, int 
     return -1;
 }
 
-int FMeshBoundaryLoops::CountInList( const std::vector<int>& Loop, int Item )
+int MeshBoundaryLoops::CountInList( const std::vector<int>& Loop, int Item )
 {
     int C = 0;
     for ( int i = 0; i < static_cast<int32_t>( Loop.size() ); ++i )

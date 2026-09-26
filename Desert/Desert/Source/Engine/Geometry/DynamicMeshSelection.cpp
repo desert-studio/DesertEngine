@@ -10,12 +10,12 @@
 namespace Desert::Geometry
 {
     // The ported core under the names ElementSelectionAlgorithms.inl reads. Polygroups come from the
-    // FGroupTopology when the view carries one (picking and the operations), from the triangle groups otherwise
+    // GroupTopology when the view carries one (picking and the operations), from the triangle groups otherwise
     // (Exists / KeyOf, which only ask whether a live triangle carries the group).
-    class FDynamicMeshElements
+    class DynamicMeshElements
     {
     public:
-        explicit FDynamicMeshElements( const FDynamicMesh3& mesh, const FGroupTopology* topology = nullptr )
+        explicit DynamicMeshElements( const DynamicMesh3& mesh, const GroupTopology* topology = nullptr )
              : m_Mesh( mesh ), m_Topology( topology )
         {
         }
@@ -63,17 +63,17 @@ namespace Desert::Geometry
         }
         [[nodiscard]] std::array<int, 3> GetTriangle( int t ) const
         {
-            const FIndex3i tri = m_Mesh.GetTriangle( t );
+            const Index3i tri = m_Mesh.GetTriangle( t );
             return { tri.A, tri.B, tri.C };
         }
         [[nodiscard]] std::array<int, 3> GetTriangleEdges( int t ) const
         {
-            const FIndex3i te = m_Mesh.GetTriEdges( t );
+            const Index3i te = m_Mesh.GetTriEdges( t );
             return { te.A, te.B, te.C };
         }
         [[nodiscard]] std::array<int, 2> GetEdgeVertices( int e ) const
         {
-            const FIndex2i ev = m_Mesh.GetEdgeV( e );
+            const Index2i ev = m_Mesh.GetEdgeV( e );
             return { ev.A, ev.B };
         }
         [[nodiscard]] std::vector<int> GetVertexNeighbours( int v ) const
@@ -82,7 +82,7 @@ namespace Desert::Geometry
             m_Mesh.EnumerateVertexEdges( v, [&]( int32_t e ) { out.push_back( OtherEnd( e, v ) ); } );
             return out;
         }
-        [[nodiscard]] const FDynamicMeshElements& Attributes() const
+        [[nodiscard]] const DynamicMeshElements& Attributes() const
         {
             return *this;
         }
@@ -94,7 +94,7 @@ namespace Desert::Geometry
     private:
         [[nodiscard]] int OtherEnd( int e, int v ) const
         {
-            const FIndex2i ev = m_Mesh.GetEdgeV( e );
+            const Index2i ev = m_Mesh.GetEdgeV( e );
             return ev.A == v ? ev.B : ev.A;
         }
 
@@ -107,8 +107,8 @@ namespace Desert::Geometry
             return out;
         }
 
-        const FDynamicMesh3&  m_Mesh;
-        const FGroupTopology* m_Topology;
+        const DynamicMesh3&  m_Mesh;
+        const GroupTopology* m_Topology;
     };
 } // namespace Desert::Geometry
 
@@ -122,7 +122,7 @@ namespace Desert::Geometry
     // GeometrySet3.cpp:95-240 (FindNearestPointToRay, FindNearestCurveToRay), adapted: one element kind per call
     // (our ElementMode; the corner/edge/face resolve tolerances of :150-178 only arbitrate between kinds, so they
     // have nothing to arbitrate), corners and group edges of a per-triangle topology are the mesh's own vertices
-    // and edges (UE's FTriangleGroupTopology), a linear scan in place of FGeometrySet3 / FDynamicMeshAABBTree3,
+    // and edges (UE's TriangleGroupTopology), a linear scan in place of FGeometrySet3 / FDynamicMeshAABBTree3,
     // the visual-angle PointSnapQuery replaced by the viewport-pixel tolerance of PickView, back faces hit and
     // occlude (the mechanic's bHitBackFaces default), an occluded edge skipped rather than failing the pick
     // (PickNearestEdge says why), and the occlusion ray bounded at the eye with the relative
@@ -144,7 +144,7 @@ namespace Desert::Geometry
         }
 
         // IsOccluded: a ray from the point back to the eye crossing any triangle before it.
-        bool Occluded( const FDynamicMeshElements& mesh, const PickView& view, const glm::vec3& point )
+        bool Occluded( const DynamicMeshElements& mesh, const PickView& view, const glm::vec3& point )
         {
             const glm::vec3 toEye = view.RayOrigin - point;
             const float     dist  = glm::length( toEye );
@@ -193,7 +193,7 @@ namespace Desert::Geometry
 
         // DoCornerBasedSelection over FindNearestPointToRay: of the candidate vertices within tolerance, the one
         // NEAREST ALONG THE RAY; a miss when that one is occluded (no fallback to the next, as in UE).
-        ElementHit PickNearestVertex( const FDynamicMeshElements& mesh, const PickView& view,
+        ElementHit PickNearestVertex( const DynamicMeshElements& mesh, const PickView& view,
                                       const std::vector<int>& candidates )
         {
             ElementHit best;
@@ -225,7 +225,7 @@ namespace Desert::Geometry
         // could win on noise and the pick missed. Occluded candidates are skipped instead, which keeps UE's
         // "never select what is hidden" and makes the tie deterministic. A polyline's nearest point is its
         // nearest segment's, so scanning a group edge's segments is FindNearestCurveToRay over that curve.
-        ElementHit PickNearestEdge( const FDynamicMeshElements& mesh, const PickView& view,
+        ElementHit PickNearestEdge( const DynamicMeshElements& mesh, const PickView& view,
                                     const std::vector<int>& candidates )
         {
             ElementHit best;
@@ -254,7 +254,7 @@ namespace Desert::Geometry
 
         // GetGeometrySet's points: every corner's vertex (UE's FMeshTopologySelector picks corners, never the
         // vertices inside a group edge or a group).
-        std::vector<int> CornerVertices( const FGroupTopology& topology )
+        std::vector<int> CornerVertices( const GroupTopology& topology )
         {
             std::vector<int> out;
             for ( const auto& corner : topology.Corners )
@@ -264,7 +264,7 @@ namespace Desert::Geometry
 
         // GetGeometrySet's curves: the mesh edges of every group edge (GetGroupEdgeEdges). A diagonal inside a
         // group belongs to no group edge, so it cannot be picked.
-        std::vector<int> GroupEdgeSegments( const FGroupTopology& topology )
+        std::vector<int> GroupEdgeSegments( const GroupTopology& topology )
         {
             std::vector<int> out;
             for ( int g = 0; g < static_cast<int32_t>( topology.Edges.size() ); ++g )
@@ -286,10 +286,10 @@ namespace Desert::Geometry
         return "?";
     }
 
-    ElementHit PickElement( const FDynamicMesh3& mesh, const FGroupTopology& topology, ElementMode mode,
+    ElementHit PickElement( const DynamicMesh3& mesh, const GroupTopology& topology, ElementMode mode,
                             const PickView& view, TopologyLevel level )
     {
-        const FDynamicMeshElements elements( mesh, &topology );
+        const DynamicMeshElements  elements( mesh, &topology );
         const bool                 groups = level == TopologyLevel::Group;
         switch ( mode )
         {
@@ -312,7 +312,7 @@ namespace Desert::Geometry
         return {};
     }
 
-    std::vector<int> HitElements( const FGroupTopology& topology, ElementMode mode, TopologyLevel level,
+    std::vector<int> HitElements( const GroupTopology& topology, ElementMode mode, TopologyLevel level,
                                   const ElementHit& hit )
     {
         if ( !hit.IsHit() )
@@ -327,48 +327,48 @@ namespace Desert::Geometry
         return out;
     }
 
-    ElementSelection ConvertSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+    ElementSelection ConvertSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                        const ElementSelection& selection, ElementMode target )
     {
-        return ConvertSelectionT( FDynamicMeshElements( mesh, &topology ), selection, target );
+        return ConvertSelectionT( DynamicMeshElements( mesh, &topology ), selection, target );
     }
 
-    ElementSelection SelectConnected( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+    ElementSelection SelectConnected( const DynamicMesh3& mesh, const GroupTopology& topology,
                                       const ElementSelection& selection )
     {
-        return SelectConnectedT( FDynamicMeshElements( mesh, &topology ), selection );
+        return SelectConnectedT( DynamicMeshElements( mesh, &topology ), selection );
     }
 
-    ElementSelection GrowSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+    ElementSelection GrowSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                     const ElementSelection& selection )
     {
-        return GrowSelectionT( FDynamicMeshElements( mesh, &topology ), selection );
+        return GrowSelectionT( DynamicMeshElements( mesh, &topology ), selection );
     }
 
-    ElementSelection ShrinkSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+    ElementSelection ShrinkSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                       const ElementSelection& selection )
     {
-        return ShrinkSelectionT( FDynamicMeshElements( mesh, &topology ), selection );
+        return ShrinkSelectionT( DynamicMeshElements( mesh, &topology ), selection );
     }
 
-    ElementSelection InvertSelection( const FDynamicMesh3& mesh, const FGroupTopology& topology,
+    ElementSelection InvertSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                       const ElementSelection& selection )
     {
-        return InvertSelectionT( FDynamicMeshElements( mesh, &topology ), selection );
+        return InvertSelectionT( DynamicMeshElements( mesh, &topology ), selection );
     }
 
-    Common::BoolResultStr ElementSelection::Add( const FDynamicMesh3& mesh, int id )
+    Common::BoolResultStr ElementSelection::Add( const DynamicMesh3& mesh, int id )
     {
-        return AddIn( FDynamicMeshElements( mesh ), id );
+        return AddIn( DynamicMeshElements( mesh ), id );
     }
 
-    Common::BoolResultStr ElementSelection::Toggle( const FDynamicMesh3& mesh, int id )
+    Common::BoolResultStr ElementSelection::Toggle( const DynamicMesh3& mesh, int id )
     {
-        return ToggleIn( FDynamicMeshElements( mesh ), id );
+        return ToggleIn( DynamicMeshElements( mesh ), id );
     }
 
-    PruneReport ElementSelection::Prune( const FDynamicMesh3& mesh )
+    PruneReport ElementSelection::Prune( const DynamicMesh3& mesh )
     {
-        return PruneIn( FDynamicMeshElements( mesh ) );
+        return PruneIn( DynamicMeshElements( mesh ) );
     }
 } // namespace Desert::Geometry

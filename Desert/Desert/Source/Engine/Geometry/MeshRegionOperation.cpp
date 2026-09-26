@@ -36,16 +36,16 @@ namespace Desert::Geometry
     {
         // UE rebuilds tangents after every edit (they are derived data); the per-triangle path is exact on the
         // flat faces the region operations create.
-        Common::BoolResultStr RecomputeTangents( FDynamicMesh3& mesh, const char* name )
+        Common::BoolResultStr RecomputeTangents( DynamicMesh3& mesh, const char* name )
         {
-            FDynamicMeshAttributeSet* attributes = mesh.Attributes();
+            DynamicMeshAttributeSet* attributes = mesh.Attributes();
             if ( attributes == nullptr || !attributes->HasTangentSpace() )
                 return Common::MakeSuccess( true );
             const FDynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
             if ( uvs == nullptr )
                 return Common::MakeFormattedError<bool>(
                      "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
-            FMeshTangentsd tangents( &mesh );
+            MeshTangentsd tangents( &mesh );
             tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
             if ( !tangents.CopyToOverlays( mesh ) )
                 return Common::MakeFormattedError<bool>(
@@ -56,7 +56,7 @@ namespace Desert::Geometry
 
         // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
         // (ComputePolygonPlane, Newell's method), adapted: the loop's vertex IDs in, no area returned.
-        void ComputeLoopPlane( const FDynamicMesh3& mesh, const std::vector<int>& loopVertices, glm::dvec3& normal,
+        void ComputeLoopPlane( const DynamicMesh3& mesh, const std::vector<int>& loopVertices, glm::dvec3& normal,
                                glm::dvec3& origin )
         {
             normal          = glm::dvec3( 0, 0, 0 );
@@ -75,8 +75,8 @@ namespace Desert::Geometry
             Normalize( normal );
         }
 
-        // UE HoleFillOp.cpp:19-40 (LoopIsValid); FEdgeLoop::IsBoundaryLoop stands for CheckValidity.
-        bool LoopIsValid( const FDynamicMesh3& mesh, const FEdgeLoop& loop )
+        // UE HoleFillOp.cpp:19-40 (LoopIsValid); EdgeLoop::IsBoundaryLoop stands for CheckValidity.
+        bool LoopIsValid( const DynamicMesh3& mesh, const EdgeLoop& loop )
         {
             if ( loop.Edges.empty() )
                 return false;
@@ -87,10 +87,10 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    Common::ResultStr<RegionOutcome> FillHoles( const FDynamicMesh3& before, const ElementSelection& selection )
+    Common::ResultStr<RegionOutcome> FillHoles( const DynamicMesh3& before, const ElementSelection& selection )
     {
-        auto                     mesh = std::make_shared<FDynamicMesh3>( before );
-        const FMeshBoundaryLoops boundary( mesh.get() );
+        auto                    mesh = std::make_shared<DynamicMesh3>( before );
+        const MeshBoundaryLoops boundary( mesh.get() );
         if ( boundary.GetLoopCount() == 0 )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Fill Hole: the mesh has no open loop ({} open spans)",
@@ -119,7 +119,7 @@ namespace Desert::Geometry
         std::vector<int32_t> newTriangles;
         for ( const int index : loopIndices )
         {
-            const FEdgeLoop& loop = boundary.Loops[index];
+            const EdgeLoop& loop = boundary.Loops[index];
             if ( !LoopIsValid( *mesh, loop ) )
                 return Common::MakeFormattedError<RegionOutcome>(
                      "Mesh Fill Hole: loop {} ({} edges) is no longer a boundary loop", index,
@@ -128,13 +128,13 @@ namespace Desert::Geometry
             glm::dvec3 planeOrigin{};
             ComputeLoopPlane( *mesh, loop.Vertices, planeNormal, planeOrigin );
             planeNormal *= -1.0; // UE: ComputePolygonPlane orients opposite to what the fill expects
-            FSimpleHoleFiller filler( mesh.get(), loop );
+            SimpleHoleFiller filler( mesh.get(), loop );
             if ( !filler.Fill( mesh->AllocateTriangleGroup() ) )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh Fill Hole: loop {} ({} edges): {}", index,
                                                                   loop.GetEdgeCount(), filler.FailureReason );
             if ( mesh->HasAttributes() )
             {
-                FDynamicMeshEditor editor( mesh.get() );
+                DynamicMeshEditor editor( mesh.get() );
                 editor.SetTriangleNormals( filler.NewTriangles, glm::vec3( static_cast<float>( planeNormal.x ),
                                                                            static_cast<float>( planeNormal.y ),
                                                                            static_cast<float>( planeNormal.z ) ) );
@@ -154,14 +154,14 @@ namespace Desert::Geometry
                                                                   added.GetError() );
         if ( selection.Mode() != ElementMode::Triangle )
         {
-            const FGroupTopology afterTopology( mesh.get(), true );
+            const GroupTopology afterTopology( mesh.get(), true );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
     }
 
-    Common::ResultStr<RegionOutcome> InsertEdgeLoop( const FDynamicMesh3&    before,
-                                                     const ElementSelection& selection, float position )
+    Common::ResultStr<RegionOutcome> InsertEdgeLoop( const DynamicMesh3& before, const ElementSelection& selection,
+                                                     float position )
     {
         if ( selection.Mode() != ElementMode::Edge || selection.Empty() )
             return Common::MakeFormattedError<RegionOutcome>(
@@ -171,10 +171,10 @@ namespace Desert::Geometry
         if ( !std::isfinite( position ) || position <= 0.0f || position >= 1.0f )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: position {} is outside (0, 1)", position );
-        auto mesh = std::make_shared<FDynamicMesh3>( before );
+        auto mesh = std::make_shared<DynamicMesh3>( before );
         if ( !mesh->HasTriangleGroups() )
             return Common::MakeError<RegionOutcome>( "Mesh Insert Edge Loop: the mesh has no polygroups" );
-        FGroupTopology topology( mesh.get(), true );
+        GroupTopology  topology( mesh.get(), true );
         int            groupEdge = IndexConstants::InvalidID;
         for ( const int e : selection.Ids() )
         {
@@ -190,7 +190,7 @@ namespace Desert::Geometry
         }
 
         const std::vector<double>                    proportions = { static_cast<double>( position ) };
-        FGroupEdgeInserter::FEdgeLoopInsertionParams params;
+        GroupEdgeInserter::EdgeLoopInsertionParams   params;
         params.Mesh               = mesh.get();
         params.Topology           = &topology;
         params.GroupEdgeID        = groupEdge;
@@ -198,10 +198,10 @@ namespace Desert::Geometry
         params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
         std::unordered_set<int32_t>               newEids;
         std::unordered_set<int32_t>               problemGroupEdges;
-        FGroupEdgeInserter::FOptionalOutputParams out;
+        GroupEdgeInserter::OptionalOutputParams   out;
         out.NewEidsOut             = &newEids;
         out.ProblemGroupEdgeIDsOut = &problemGroupEdges;
-        if ( !FGroupEdgeInserter::InsertEdgeLoops( params, out ) )
+        if ( !GroupEdgeInserter::InsertEdgeLoops( params, out ) )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: the loop across group edge {} failed ({} problem group edges)", groupEdge,
                  static_cast<int32_t>( problemGroupEdges.size() ) );
@@ -216,10 +216,10 @@ namespace Desert::Geometry
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );
     }
 
-    Common::ResultStr<RegionOutcome> WeldEdges( const FDynamicMesh3& before, ElementMode mode )
+    Common::ResultStr<RegionOutcome> WeldEdges( const DynamicMesh3& before, ElementMode mode )
     {
-        auto                      mesh = std::make_shared<FDynamicMesh3>( before );
-        FMergeCoincidentMeshEdges merger( mesh.get() );
+        auto                     mesh = std::make_shared<DynamicMesh3>( before );
+        MergeCoincidentMeshEdges merger( mesh.get() );
         merger.bWeldAttrsOnMergedEdges                  = true;
         merger.SplitAttributeWelder.UVDistSqrdThreshold = 0.01f * 0.01f;
         merger.SplitAttributeWelder.NormalVecDotThreshold =
@@ -243,7 +243,7 @@ namespace Desert::Geometry
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
     }
 
-    Common::ResultStr<RegionOutcome> RunRegionOperation( RegionOperation operation, const FDynamicMesh3& before,
+    Common::ResultStr<RegionOutcome> RunRegionOperation( RegionOperation operation, const DynamicMesh3& before,
                                                          const ElementSelection& selection, float distance )
     {
         const char* name = ToString( operation );
@@ -255,7 +255,7 @@ namespace Desert::Geometry
                  operation == RegionOperation::Extrude ? "Push/Pull takes a signed distance"
                  : operation == RegionOperation::Inset ? "use Outset"
                                                        : "use Inset" );
-        const FGroupTopology   topology( &before, true );
+        const GroupTopology    topology( &before, true );
         const ElementSelection triangles = ConvertSelection( before, topology, selection, ElementMode::Triangle );
         if ( triangles.Empty() )
             return Common::MakeFormattedError<RegionOutcome>(
@@ -265,17 +265,17 @@ namespace Desert::Geometry
         for ( const int t : triangles.Ids() )
             regionTriangles.push_back( t );
 
-        auto          mesh = std::make_shared<FDynamicMesh3>( before );
+        auto                 mesh = std::make_shared<DynamicMesh3>( before );
         std::vector<int32_t> resultTriangles;
         if ( operation == RegionOperation::Extrude || operation == RegionOperation::PushPull )
         {
-            FOffsetMeshRegion extruder( mesh.get() );
+            OffsetMeshRegion extruder( mesh.get() );
             extruder.Triangles = regionTriangles;
             // UE's Extrude default (SelectedTriangleNormalsEven): every selected face moves by the full
             // distance. Push/Pull is FExtrudeOp's SingleDirection: one direction, the region's area-weighted
             // normal, so the walls are parallel and a push into a solid cannot fold them.
             extruder.ExtrusionVectorType =
-                 FOffsetMeshRegion::EVertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
+                 OffsetMeshRegion::VertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
             extruder.DefaultOffsetDistance = distance;
             if ( operation == RegionOperation::PushPull )
             {
@@ -301,7 +301,7 @@ namespace Desert::Geometry
         }
         else
         {
-            FInsetMeshRegion inset( mesh.get() );
+            InsetMeshRegion inset( mesh.get() );
             inset.Triangles     = regionTriangles;
             inset.InsetDistance = operation == RegionOperation::Outset ? -distance : distance;
             if ( !inset.Apply() )
@@ -320,7 +320,7 @@ namespace Desert::Geometry
                                                                   added.GetError() );
         if ( selection.Mode() != ElementMode::Triangle )
         {
-            const FGroupTopology afterTopology( mesh.get(), true );
+            const GroupTopology afterTopology( mesh.get(), true );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ) } );

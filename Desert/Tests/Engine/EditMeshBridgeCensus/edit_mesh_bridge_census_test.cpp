@@ -1,6 +1,6 @@
 // "Outside Geometry/EditMesh* and the bridge, nobody includes an EditMesh header" (P8a).
 //
-// StaticMeshComponent::EditableMesh is an FDynamicMesh3; the operations and tools not yet ported still run
+// StaticMeshComponent::EditableMesh is an DynamicMesh3; the operations and tools not yet ported still run
 // on EditMesh, and every crossing goes through Engine/Geometry/EditMeshBridge.{hpp,cpp}. The promise that
 // makes P8b a deletion and not a hunt is that no other file names an EditMesh header: a tool that includes
 // Engine/Geometry/EditMesh.hpp directly has built a second crossing the bridge does not know about.
@@ -143,7 +143,7 @@ namespace
 
     constexpr Known kKnown[] = {
          { "Desert/Desert/Source/Engine/Geometry/ShapeGenerators.hpp: Engine/Geometry/EditMeshConversion.hpp",
-           "the shape generators build an EditMesh; P16 ports them onto FDynamicMesh3" },
+           "the shape generators build an EditMesh; P16 ports them onto DynamicMesh3" },
          { "Desert/Desert/Source/Engine/Geometry/VoxelBlockout.hpp: Engine/Geometry/EditMeshConversion.hpp",
            "the CubeGrid bake builds an EditMesh; P18 ports it" },
          { "Tools/SceneMigrator/Source/SceneMigration.cpp: Engine/Geometry/EditMeshConversion.hpp",

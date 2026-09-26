@@ -1,7 +1,7 @@
 // Ported from UE 5.8
 // Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/Operations/MergeCoincidentMeshEdges.h:1-91 and
 // Private/DynamicMesh/Operations/MergeCoincidentMeshEdges.cpp:1-235, adapted: namespace Desert::Geometry, UE Core
-// via UECore.hpp; TPointHashGrid3 (FindPointsInBall/InsertPointUnsafe) and FIndexPriorityQueue (Insert/Dequeue)
+// via UECore.hpp; TPointHashGrid3 (FindPointsInBall/InsertPointUnsafe) and IndexPriorityQueue (Insert/Dequeue)
 // are ported as the subset Apply uses, private to the .cpp - the hash cell is a std::unordered_map bucket, so
 // points of one cell are visited in insertion order where UE's TMultiMap visits them newest-first; the equivalence
 // sets are owned by std::unique_ptr instead of new/delete.
@@ -19,13 +19,13 @@ namespace Desert::Geometry
      * merges each pair into a single edge. Similar to welding vertices but safer: it cannot form bowties. Two
      * edges with the same orientation (from their triangles) cannot be merged.
      */
-    class FMergeCoincidentMeshEdges
+    class MergeCoincidentMeshEdges
     {
     public:
         /** Default tolerance is float ZeroTolerance. */
         static const double DEFAULT_TOLERANCE;
 
-        FDynamicMesh3* Mesh;
+        DynamicMesh3* Mesh;
         /** Edges are coincident if both pairs of endpoint vertices are closer than this distance. */
         double MergeVertexTolerance = DEFAULT_TOLERANCE;
         /** Only merge unambiguous pairs that have unique duplicate-edge matches. */
@@ -36,14 +36,14 @@ namespace Desert::Geometry
         int32_t FinalNumBoundaryEdges   = 0;
         /** Weld split attributes at the vertices of each merged edge. */
         bool                  bWeldAttrsOnMergedEdges = false;
-        FSplitAttributeWelder SplitAttributeWelder;
+        SplitAttributeWelder  SplitAttributeWelder;
         /** Edges to merge (a pair qualifies when EITHER edge is in it); null merges across the entire mesh. */
         std::unordered_set<int32_t>* EdgesToMerge = nullptr;
 
-        explicit FMergeCoincidentMeshEdges( FDynamicMesh3* mesh ) : Mesh( mesh )
+        explicit MergeCoincidentMeshEdges( DynamicMesh3* mesh ) : Mesh( mesh )
         {
         }
-        virtual ~FMergeCoincidentMeshEdges() = default;
+        virtual ~MergeCoincidentMeshEdges() = default;
 
         /** Run the merge and modify Mesh; true if the algorithm succeeds. */
         virtual bool Apply();

@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/MathUtil.h:18-78,149-215, adapted: only the
-// float/double constants and the TMathUtil functions the FDynamicMesh3 port calls, bodies over <cmath>;
+// float/double constants and the TMathUtil functions the DynamicMesh3 port calls, bodies over <cmath>;
 // SafeLargeValue for float uses FLT_MAX (UE_LARGE_WORLD_MAX is an engine-config value we do not have).
 #pragma once
 

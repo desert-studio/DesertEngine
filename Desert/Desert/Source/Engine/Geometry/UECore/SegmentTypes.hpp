@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/SegmentTypes.h:446-477,504-517,556-584,617-622,
-// 661-663, adapted: namespace Desert::Geometry; only the TSegment3 members FMeshSurfacePath::EmbedSimplePath calls
+// 661-663, adapted: namespace Desert::Geometry; only the Segment3 members MeshSurfacePath::EmbedSimplePath calls
 // (two-point construction, end points, point distance, unit-range projection). TSegment2 is not ported.
 #pragma once
 
@@ -11,16 +11,16 @@ namespace Desert::Geometry
     /** 3D line segment stored as Center point, normalized Direction vector, and scalar Extent (half the length).
      */
     template <typename T>
-    struct TSegment3
+    struct Segment3
     {
         glm::vec<3, T> Center    = glm::vec<3, T>( 0 );
         glm::vec<3, T> Direction = glm::vec<3, T>( 1, 0, 0 );
         T          Extent    = static_cast<T>( 0 );
 
-        TSegment3() = default;
+        Segment3() = default;
 
         // Extent's initializer normalizes Direction in place; declaration order puts Direction first.
-        TSegment3( const glm::vec<3, T>& Point0, const glm::vec<3, T>& Point1 )
+        Segment3( const glm::vec<3, T>& Point0, const glm::vec<3, T>& Point1 )
              : Center( T( .5 ) * ( Point0 + Point1 ) ), Direction( Point1 - Point0 ),
                Extent( T( .5 ) * Normalize( Direction ) )
         {
@@ -71,6 +71,6 @@ namespace Desert::Geometry
         }
     };
 
-    using FSegment3f = TSegment3<float>;
-    using FSegment3d = TSegment3<double>;
+    using Segment3f = Segment3<float>;
+    using Segment3d = Segment3<double>;
 } // namespace Desert::Geometry

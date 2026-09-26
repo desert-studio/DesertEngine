@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Quaternion.h (operator*, AxisX/Y/Z, SetAxisAngleR,
-// SetFromTo, SetFromRotationMatrix, Normalize) and Public/FrameTypes.h:70-160,340-440 (TFrame3 constructors,
+// SetFromTo, SetFromRotationMatrix, Normalize) and Public/FrameTypes.h:70-160,340-440 (Frame3 constructors,
 // GetAxis, X/Y/Z, Rotate, AlignAxis, ConstrainedAlignAxis, ConstrainedAlignPerpAxes), adapted: only what the
 // ExpMap parameterization calls; the 3-axis constructor builds the quaternion from the columns directly (no
 // TMatrix3), and ConstrainedAlignAxis takes the signed plane angle as atan2 (UE's VectorUtil::PlaneAngleSignedD is
@@ -14,16 +14,16 @@
 namespace Desert::Geometry
 {
     template <typename RealType>
-    struct TQuaternion
+    struct Quaternion
     {
         RealType X = 0, Y = 0, Z = 0, W = 1;
 
-        TQuaternion() = default;
-        TQuaternion( RealType XIn, RealType YIn, RealType ZIn, RealType WIn )
+        Quaternion() = default;
+        Quaternion( RealType XIn, RealType YIn, RealType ZIn, RealType WIn )
              : X( XIn ), Y( YIn ), Z( ZIn ), W( WIn )
         {
         }
-        TQuaternion( const glm::vec<3, RealType>& From, const glm::vec<3, RealType>& To )
+        Quaternion( const glm::vec<3, RealType>& From, const glm::vec<3, RealType>& To )
         {
             SetFromTo( From, To );
         }
@@ -145,26 +145,26 @@ namespace Desert::Geometry
     };
 
     template <typename RealType>
-    TQuaternion<RealType> operator*( const TQuaternion<RealType>& A, const TQuaternion<RealType>& B )
+    Quaternion<RealType> operator*( const Quaternion<RealType>& A, const Quaternion<RealType>& B )
     {
-        return TQuaternion<RealType>(
+        return Quaternion<RealType>(
              A.W * B.X + A.X * B.W + A.Y * B.Z - A.Z * B.Y, A.W * B.Y + A.Y * B.W + A.Z * B.X - A.X * B.Z,
              A.W * B.Z + A.Z * B.W + A.X * B.Y - A.Y * B.X, A.W * B.W - A.X * B.X - A.Y * B.Y - A.Z * B.Z );
     }
 
     template <typename RealType>
-    struct TFrame3
+    struct Frame3
     {
         glm::vec<3, RealType> Origin = glm::vec<3, RealType>( 0 );
-        TQuaternion<RealType> Rotation;
+        Quaternion<RealType>  Rotation;
 
-        TFrame3() = default;
-        TFrame3( const glm::vec<3, RealType>& OriginIn, const glm::vec<3, RealType>& SetZ ) : Origin( OriginIn )
+        Frame3() = default;
+        Frame3( const glm::vec<3, RealType>& OriginIn, const glm::vec<3, RealType>& SetZ ) : Origin( OriginIn )
         {
             Rotation.SetFromTo( glm::vec<3, RealType>( 0, 0, 1 ), SetZ );
         }
-        TFrame3( const glm::vec<3, RealType>& OriginIn, const glm::vec<3, RealType>& XIn,
-                 const glm::vec<3, RealType>& YIn, const glm::vec<3, RealType>& ZIn )
+        Frame3( const glm::vec<3, RealType>& OriginIn, const glm::vec<3, RealType>& XIn,
+                const glm::vec<3, RealType>& YIn, const glm::vec<3, RealType>& ZIn )
              : Origin( OriginIn )
         {
             Rotation.SetFromAxes( XIn, YIn, ZIn );
@@ -188,15 +188,15 @@ namespace Desert::Geometry
         {
             return Rotation.AxisZ();
         }
-        void Rotate( const TQuaternion<RealType>& Quat )
+        void Rotate( const Quaternion<RealType>& Quat )
         {
-            TQuaternion<RealType> NewRotation = Quat * Rotation;
+            Quaternion<RealType> NewRotation = Quat * Rotation;
             if ( NewRotation.Normalize() > 0 )
                 Rotation = NewRotation;
         }
         void AlignAxis( int AxisIndex, const glm::vec<3, RealType>& ToDirection )
         {
-            Rotate( TQuaternion<RealType>( GetAxis( AxisIndex ), ToDirection ) );
+            Rotate( Quaternion<RealType>( GetAxis( AxisIndex ), ToDirection ) );
         }
         void ConstrainedAlignAxis( int AxisIndex, const glm::vec<3, RealType>& ToDirection,
                                    const glm::vec<3, RealType>& AroundVector )
@@ -206,7 +206,7 @@ namespace Desert::Geometry
             glm::vec<3, RealType>       To   = ToDirection;
             From                             = Normalized( From - N * glm::dot( From, N ) );
             To                               = Normalized( To - N * glm::dot( To, N ) );
-            TQuaternion<RealType> RelRotation;
+            Quaternion<RealType> RelRotation;
             RelRotation.SetAxisAngleR( AroundVector,
                                        std::atan2( glm::dot( glm::cross( From, To ), N ), glm::dot( From, To ) ) );
             Rotate( RelRotation );
@@ -227,6 +227,6 @@ namespace Desert::Geometry
         }
     };
 
-    using FQuaterniond = TQuaternion<double>;
-    using FFrame3d     = TFrame3<double>;
+    using Quaterniond = Quaternion<double>;
+    using Frame3d     = Frame3<double>;
 } // namespace Desert::Geometry

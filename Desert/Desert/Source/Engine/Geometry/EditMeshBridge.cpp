@@ -17,15 +17,15 @@ namespace Desert::Geometry::Bridge
         // lock() comparison and is a miss, never another mesh's view.
         struct Entry
         {
-            std::weak_ptr<const FDynamicMesh3> Mesh;
+            std::weak_ptr<const DynamicMesh3>  Mesh;
             std::shared_ptr<const EditMesh>    View;
         };
 
         std::mutex                                      g_Mutex;
-        std::unordered_map<const FDynamicMesh3*, Entry> g_Views;
+        std::unordered_map<const DynamicMesh3*, Entry>  g_Views;
 
-        void RememberLocked( const std::shared_ptr<const FDynamicMesh3>& mesh,
-                             std::shared_ptr<const EditMesh>             view )
+        void RememberLocked( const std::shared_ptr<const DynamicMesh3>& mesh,
+                             std::shared_ptr<const EditMesh>            view )
         {
             std::erase_if( g_Views, []( const auto& kv ) { return kv.second.Mesh.expired(); } );
             g_Views[mesh.get()] = Entry{ mesh, std::move( view ) };
@@ -33,7 +33,7 @@ namespace Desert::Geometry::Bridge
     } // namespace
 
     Common::ResultStr<std::shared_ptr<const EditMesh>>
-    EditMeshView( const std::shared_ptr<const FDynamicMesh3>& mesh )
+    EditMeshView( const std::shared_ptr<const DynamicMesh3>& mesh )
     {
         if ( !mesh )
             return Common::MakeError<std::shared_ptr<const EditMesh>>( "EditMeshView: no mesh" );
@@ -54,17 +54,17 @@ namespace Desert::Geometry::Bridge
         return Common::MakeSuccess( std::move( view ) );
     }
 
-    Common::ResultStr<std::shared_ptr<const FDynamicMesh3>> FromEditMesh( EditMesh          mesh,
-                                                                          ElementSelection* selection )
+    Common::ResultStr<std::shared_ptr<const DynamicMesh3>> FromEditMesh( EditMesh          mesh,
+                                                                         ElementSelection* selection )
     {
         const CompactMaps maps = mesh.Compact();
         if ( selection )
             (void)selection->Remap( maps );
         auto converted = DynamicMeshFromSerialized( ToSerialized( mesh ), "EditMeshBridge" );
         if ( !converted.IsSuccess() )
-            return Common::MakeError<std::shared_ptr<const FDynamicMesh3>>( "FromEditMesh: " +
-                                                                            converted.GetError() );
-        auto out = std::make_shared<const FDynamicMesh3>( converted.ExtractValue() );
+            return Common::MakeError<std::shared_ptr<const DynamicMesh3>>( "FromEditMesh: " +
+                                                                           converted.GetError() );
+        auto out = std::make_shared<const DynamicMesh3>( converted.ExtractValue() );
         if ( selection && selection->Mode() == ElementMode::Edge )
         {
             ElementSelection edges( ElementMode::Edge );
@@ -73,12 +73,12 @@ namespace Desert::Geometry::Bridge
                 const auto& ev   = mesh.GetEdgeVertices( e );
                 const int   edge = out->FindEdge( ev[0], ev[1] );
                 if ( edge < 0 )
-                    return Common::MakeFormattedError<std::shared_ptr<const FDynamicMesh3>>(
+                    return Common::MakeFormattedError<std::shared_ptr<const DynamicMesh3>>(
                          "FromEditMesh: selected edge {} ({}, {}) has no edge in the converted mesh", e, ev[0],
                          ev[1] );
                 if ( auto added = edges.Add( *out, edge ); !added.IsSuccess() )
-                    return Common::MakeError<std::shared_ptr<const FDynamicMesh3>>( "FromEditMesh: " +
-                                                                                    added.GetError() );
+                    return Common::MakeError<std::shared_ptr<const DynamicMesh3>>( "FromEditMesh: " +
+                                                                                   added.GetError() );
             }
             *selection = std::move( edges );
         }
@@ -87,7 +87,7 @@ namespace Desert::Geometry::Bridge
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    Common::ResultStr<ElementSelection> ToEditMeshSelection( const FDynamicMesh3& mesh, const EditMesh& view,
+    Common::ResultStr<ElementSelection> ToEditMeshSelection( const DynamicMesh3& mesh, const EditMesh& view,
                                                              const ElementSelection& selection )
     {
         if ( selection.Mode() != ElementMode::Edge )
@@ -95,7 +95,7 @@ namespace Desert::Geometry::Bridge
         ElementSelection edges( ElementMode::Edge );
         for ( const int e : selection.Ids() )
         {
-            const FIndex2i ev   = mesh.GetEdgeV( e );
+            const Index2i  ev   = mesh.GetEdgeV( e );
             const int      edge = view.FindEdge( ev.A, ev.B );
             if ( edge < 0 )
                 return Common::MakeFormattedError<ElementSelection>(

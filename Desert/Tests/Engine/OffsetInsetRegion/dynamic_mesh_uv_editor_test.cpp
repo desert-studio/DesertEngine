@@ -1,4 +1,4 @@
-// FDynamicMeshUVEditor::SetTriangleUVsFromExpMap (ported from UE) on a CURVED patch. The bevel regions ComputeUVs
+// DynamicMeshUVEditor::SetTriangleUVsFromExpMap (ported from UE) on a CURVED patch. The bevel regions ComputeUVs
 // sees are flat or nearly so, where every vertex frame is the same and PropagateUV's rotation is the identity; on
 // a cylinder the vertex frames turn around the axis, so the rotation from a neighbour's frame into the seed's
 // frame carries the whole map. A cylinder is developable: the exponential map must unroll it with edge lengths
@@ -22,9 +22,9 @@ namespace
     constexpr int    Rows     = 4;  // along the axis
 
     // A quarter of an open cylinder around Z, triangles wound so their normals point away from the axis.
-    FDynamicMesh3 CylinderStrip()
+    DynamicMesh3 CylinderStrip()
     {
-        FDynamicMesh3 mesh;
+        DynamicMesh3 mesh;
         for ( int k = 0; k <= Rows; ++k )
         {
             for ( int i = 0; i <= Segments; ++i )
@@ -50,15 +50,15 @@ namespace
 
 TEST( DynamicMeshUVEditor, ExpMapUnrollsACylinderStripKeepingEdgeLengths )
 {
-    FDynamicMesh3 mesh = CylinderStrip();
+    DynamicMesh3 mesh = CylinderStrip();
     ASSERT_GE( mesh.Attributes()->NumUVLayers(), 1 );
     FDynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
     std::vector<int32_t>   triangles;
     for ( const int t : mesh.TriangleIndicesItr() )
         triangles.push_back( t );
 
-    FDynamicMeshUVEditor editor( &mesh, &uvs );
-    FUVEditResult        result;
+    DynamicMeshUVEditor editor( &mesh, &uvs );
+    UVEditResult        result;
     ASSERT_TRUE( editor.SetTriangleUVsFromExpMap( triangles, &result ) );
     EXPECT_EQ( static_cast<int32_t>( result.NewUVElements.size() ), mesh.VertexCount() );
 
@@ -66,8 +66,8 @@ TEST( DynamicMeshUVEditor, ExpMapUnrollsACylinderStripKeepingEdgeLengths )
     for ( const int t : triangles )
     {
         ASSERT_TRUE( uvs.IsSetTriangle( t ) ) << "triangle " << t;
-        const FIndex3i vertices = mesh.GetTriangle( t );
-        const FIndex3i elements = uvs.GetTriangle( t );
+        const Index3i vertices = mesh.GetTriangle( t );
+        const Index3i elements = uvs.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
         {
             const double length3d =
