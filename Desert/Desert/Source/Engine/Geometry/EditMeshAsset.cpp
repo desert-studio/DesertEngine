@@ -39,27 +39,27 @@ namespace Desert::Geometry
         return Common::MakeSuccess( MeshAssetDataFromRender( render, slotMaterials, std::move( groups ) ) );
     }
 
-    Common::ResultStr<EditMesh> FromMeshAssetData( const Ser::MeshAssetData& data )
+    Common::ResultStr<ImportedEditMesh> FromMeshAssetData( const Ser::MeshAssetData& data )
     {
         auto arrays = RenderFromMeshAssetData( data );
         if ( !arrays.IsSuccess() )
-            return Common::MakeError<EditMesh>( arrays.GetError() );
+            return Common::MakeError<ImportedEditMesh>( arrays.GetError() );
         const RenderMeshData render = arrays.ExtractValue();
 
         auto imported = FromRenderMesh( render );
         if ( !imported.IsSuccess() )
-            return Common::MakeError<EditMesh>( imported.GetError() );
+            return Common::MakeError<ImportedEditMesh>( imported.GetError() );
         ImportedEditMesh result = imported.ExtractValue();
-        if ( result.DroppedDegenerate != 0 || result.DroppedDuplicate != 0 || result.DetachedTriangles != 0 )
-            return Common::MakeFormattedError<EditMesh>(
-                 "the asset's {} faces do not weld back one-to-one ({} degenerate, {} duplicate, {} detached), "
-                 "so its per-face polygroups cannot be placed",
-                 data.Indices.size(), result.DroppedDegenerate, result.DroppedDuplicate,
-                 result.DetachedTriangles );
+        if ( result.Mesh.TriangleCount() == 0 )
+            return Common::MakeFormattedError<ImportedEditMesh>(
+                 "none of the asset's {} faces survives the weld ({} degenerate, {} duplicate), so there is "
+                 "nothing to model",
+                 data.Indices.size(), result.DroppedDegenerate, result.DroppedDuplicate );
 
-        // Nothing was dropped, so face k of the file is triangle k of the fresh mesh.
-        for ( size_t k = 0; k < data.PolyGroups.size(); ++k )
-            result.Mesh.Attributes().SetPolyGroup( static_cast<int>( k ), data.PolyGroups[k] );
-        return Common::MakeSuccess( std::move( result.Mesh ) );
+        // Face k of the file is render face k; a dropped face has no triangle and its group goes with it.
+        for ( size_t k = 0; k < data.PolyGroups.size() && k < result.TriangleOfFace.size(); ++k )
+            if ( const int t = result.TriangleOfFace[k]; t != InvalidId )
+                result.Mesh.Attributes().SetPolyGroup( t, data.PolyGroups[k] );
+        return Common::MakeSuccess( std::move( result ) );
     }
 } // namespace Desert::Geometry

@@ -5,6 +5,7 @@ local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 project "Editor"
     kind "ConsoleApp"
+    DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
     -- Visual Studio / Xcode start the process here (F5): the engine finds Resources/ under the working
     -- directory, and a checkout keeps it in Editor/. Without this VS starts in build/Bin/<cfg> and stops.
@@ -145,6 +146,10 @@ project "Editor"
         -- The application icon: the .exe's icon in Explorer and, because the resource is named GLFW_ICON,
         -- the icon GLFW gives every window it creates (Resources/Branding/README.md).
         files { "Resources/Branding/Editor.rc" }
+        -- The control channel's socket (Common/Core/LocalSocket.hpp): AF_UNIX over Winsock, and the DACL
+        -- that keeps the socket file to its owner. HERE AND NOT IN THE ENGINE -- the shipped game has no
+        -- control channel and must not link a socket library for one it does not have.
+        links { "ws2_32", "advapi32" }
 
     -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
     -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;

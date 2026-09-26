@@ -1,13 +1,13 @@
 // Ported from UE 5.8 ModelingComponents/Private/ModelingToolTargetUtil.cpp:302-335, adapted: see the header.
 #include "ModelingToolTarget.hpp"
 
+#include <Common/Core/Logger.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <filesystem>
-#include <fstream>
 #include <map>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -20,10 +20,18 @@ namespace Desert::Editor
         auto data = Assets::Serialization::ReadMeshAssetData( bytes, whatFor );
         if ( !data.IsSuccess() )
             return Common::MakeError<MeshPtr>( data.GetError() );
-        auto mesh = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
-        if ( !mesh.IsSuccess() )
-            return Common::MakeFormattedError<MeshPtr>( "{}: {}", whatFor, mesh.GetError() );
-        return Common::MakeSuccess( MeshPtr( std::make_shared<Geometry::DynamicMesh3>( mesh.ExtractValue() ) ) );
+        auto lifted = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
+        if ( !lifted.IsSuccess() )
+            return Common::MakeFormattedError<MeshPtr>( "{}: {}", whatFor, lifted.GetError() );
+        Geometry::ImportedDynamicMesh imported = lifted.ExtractValue();
+        // The skipped faces are gone from the mesh the tool edits, so a commit writes the file without them:
+        // said out loud here, with the same counts the importer reports for the EditMesh core.
+        if ( imported.DroppedDegenerate != 0 || imported.DroppedDuplicate != 0 || imported.DetachedTriangles != 0 )
+            LOG_WARN( "[Modeling] '{}': skipped {} degenerate and {} duplicate face(s), and detached {} "
+                      "non-manifold face(s) onto their own vertices",
+                      whatFor, imported.DroppedDegenerate, imported.DroppedDuplicate, imported.DetachedTriangles );
+        return Common::MakeSuccess(
+             MeshPtr( std::make_shared<Geometry::DynamicMesh3>( std::move( imported.Mesh ) ) ) );
     }
 
     Common::ResultStr<ToolTargetMesh> GetToolTargetMeshAt( const MeshPtr&               editable,
@@ -45,13 +53,14 @@ namespace Desert::Editor
         auto& slot = lifted[assetFile.string()];
         if ( !slot.second || slot.first != stamp )
         {
-            std::ifstream in( assetFile, std::ios::binary );
-            if ( !in )
-                return Common::MakeFormattedError<ToolTargetMesh>( "static mesh {} cannot be opened",
-                                                                   assetFile.string() );
-            std::ostringstream bytes;
-            bytes << in.rdbuf();
-            auto mesh = LiftStaticMeshBytes( bytes.str(), assetFile.string() );
+            // THE LOADER'S READ, NOT THE FILE'S BYTES: a .stmesh is a MeshSourceAsset (AF4d) and what the entity
+            // draws is its render form from the DDC (StaticMeshAsset::LoadFromFile). Lifting that same form keeps
+            // the target in the space the viewport picks in (import scale / up axis applied), and a file that is
+            // not a source asset is refused here by name exactly as the loader refuses it.
+            const auto raw = Assets::LoadMeshPlatformData( assetFile );
+            if ( !raw.IsSuccess() )
+                return Common::MakeError<ToolTargetMesh>( raw.GetError() );
+            auto mesh = LiftStaticMeshBytes( raw.GetValue(), assetFile.string() );
             if ( !mesh.IsSuccess() )
                 return Common::MakeError<ToolTargetMesh>( mesh.GetError() );
             slot = { stamp, mesh.ExtractValue() };

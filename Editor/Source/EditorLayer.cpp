@@ -109,8 +109,11 @@
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
+#include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
+
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -870,8 +873,8 @@ namespace Desert::Editor
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
-        m_Panels.Add<Editor::WorldPartitionPanel>( m_MainScene, m_AssetManager.get(),
-                                                   [this] { return m_WorldStreamer.get(); } );
+        m_WorldPartitionPanel = &m_Panels.Add<Editor::WorldPartitionPanel>(
+             m_MainScene, m_AssetManager.get(), [this] { return m_WorldStreamer.get(); } );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
         m_Panels.Add<Editor::HistoryPanel>();
@@ -4106,6 +4109,17 @@ namespace Desert::Editor
                                   } } );
         }
 
+        // Switching a world on (UE's "Convert Level to World Partition"). Offered UNCONDITIONALLY, unlike
+        // the panel's button: a command that vanishes from the palette cannot tell the user WHY it is not
+        // available, and the refusal this one returns names the scene and the grids it already has.
+        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kConvertToWorldPartitionLabel ), [this]
+                              {
+                                  if ( m_WorldPartitionPanel == nullptr )
+                                      return Common::MakeError( "convert to World Partition: the World "
+                                                                "Partition window does not exist" );
+                                  return m_WorldPartitionPanel->ConvertSceneToWorldPartition();
+                              } } );
+
         // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
         // same dialog F2 opens.
         commands.push_back( { "Assets", "Rename the selected asset", [this]
@@ -4996,7 +5010,8 @@ namespace Desert::Editor
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
         modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
 
-        // CubeGrid's panel buttons are the tool's own one-shot requests.
+        // CubeGrid's panel buttons are the tool's own one-shot requests; Cancel also ends the tool, as the
+        // viewport tool bar's Cancel does (Tools::RaiseToolRequest).
         for ( const auto& [label, request] : std::initializer_list<std::pair<const char*, bool MS::*>>{
                    { "Accept and Start New", &MS::ReqAccept },
                    { "Cancel", &MS::ReqCancel },
@@ -5008,7 +5023,7 @@ namespace Desert::Editor
                                   {
                                       if ( auto active = needCubeGrid(); !active )
                                           return active;
-                                      MS::Get().*request = true;
+                                      Tools::RaiseToolRequest( MS::Get(), request );
                                       return PaletteCommandDone();
                                   } } );
         }
@@ -8376,7 +8391,8 @@ namespace Desert::Editor
                  Editor::ToastLevel::Error );
             return;
         }
-        if ( const auto loadable = Desert::Core::ParseLoadableScene( path.string(), content ); !loadable )
+        auto loadable = Desert::Core::ParseLoadableScene( path.string(), content );
+        if ( !loadable )
         {
             LOG_ERROR( "{0}", loadable.GetError() );
             Editor::ToastManager::Push( "Scene not loaded — see the log (it names the SceneMigrator command)",
@@ -8403,7 +8419,7 @@ namespace Desert::Editor
         // reported and NOT returned from on purpose: the scene is already cleared by this point, so the
         // rebuild below is what leaves the editor in a coherent (empty) state rather than one holding a
         // render registry for entities that no longer exist.
-        if ( const auto loaded = serializer.DeserializeFromJson( content, path.string() ); !loaded )
+        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path.string() ); !loaded )
         {
             LOG_ERROR( "{0}", loaded.GetError() );
             Editor::ToastManager::Push( "Scene failed to load — see the log", Editor::ToastLevel::Error );
@@ -9253,6 +9269,7 @@ namespace Desert::Editor
         // it today" is the weakest guarantee in this audit, because it is about the code that exists
         // rather than about the code. A8-2.
         m_FileExplorerPanel = nullptr;
+        m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.
         if ( const auto detached = m_ImGuiLayer->OnDetach(); !detached.IsSuccess() )

@@ -14,11 +14,11 @@ project(test_name)
     -- live in a header of their own. Nothing to link but Common, and that is the proof they are pure.
     files {
         test_files,
-        -- The document merge, because the round trip of a partitioned world currently GOES THROUGH IT:
-        -- SerializeToJson builds a fresh SceneSerialized from the live Scene, which has no partition
-        -- member yet, so the block survives a save only because a top-level key the writer does not
-        -- state is preserved. That is a claim about this file, so this file is compiled and asserted
-        -- rather than described. It is pure -- its only includes are its own header and <utility>.
+        -- The document merge. The live Scene HOLDS the partition since WPC1 and SerializeToJson states
+        -- the key from it, so an ordinary save no longer depends on this file; what it still protects is
+        -- a block written by a build whose writer does not state the key -- every build before WPC1. That
+        -- is a claim about this file, so this file is compiled and asserted rather than described. It is
+        -- pure -- its only includes are its own header and <utility>.
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         -- A landscape tile is placed by its root's frame, and the partitioner computes the rectangle with
         -- the same functions the loader uses. Both files are pure and link only Common.

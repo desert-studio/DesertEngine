@@ -27,6 +27,16 @@ namespace Desert::ECS
                  "SetEditableMesh: {} render vertices could not be uploaded: {}", data.Vertices.size(),
                  uploaded.GetError() );
 
+        // Every material id the mesh uses gets a slot (CoverMaterialIds): here and not per tool, because every
+        // writer of an editable mesh ends in this function. The runtime instances follow the slots; dropping
+        // them makes the mesh system rebuild them (the rule SceneCommands' slot restore follows).
+        if ( CoverMaterialIds( component.MaterialSlots, data.SubmeshMaterialIds ) )
+        {
+            component.RuntimeMaterialInstances.clear();
+            component.RuntimeSlots.reset();
+            component.SeenMaterialsVersion = 0;
+        }
+
         component.EditableMesh = std::move( mesh );
         component.RuntimeMesh  = std::move( runtime );
         return Common::MakeSuccess( true );

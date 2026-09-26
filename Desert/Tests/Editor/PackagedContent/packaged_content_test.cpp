@@ -65,6 +65,7 @@
 #include <vector>
 
 #include "../../TestSupport/result_assert.hpp"
+#include "../../TestSupport/pe_image.hpp"
 
 namespace fs = std::filesystem;
 
@@ -75,6 +76,32 @@ namespace
         fs::create_directories( p.parent_path() );
         std::ofstream out( p, std::ios::binary );
         out << content;
+    }
+
+    // THE RUNTIME THE PACKAGER COPIES -- AND ON WINDOWS IT HAS TO BE A REAL IMAGE.
+    // A few bytes of text were enough until PK-W1 (1be9818c7) made PackageGame read the runtime's PE
+    // import table to decide which Visual C++ redist DLLs ship beside it
+    // (Editor/Source/Editor/Packaging/GamePackager.cpp:469); a text file is refused there by name --
+    // "Cannot decide the app-local C++ runtime: ... not a PE image". That refusal is right, so the
+    // FIXTURE is what was wrong: it now writes a real image, built from the PE/COFF specification by the
+    // same TestSupport writer Tests/Common/PeImports checks the reader with. The other platforms never
+    // read the bytes and do not care what this file is.
+    //
+    // These six cases went red on dev the day PK-W1 landed and nothing said so: the walk is inside
+    // `host.Platform == TargetPlatform::Windows`, and the Windows CI job was not running.
+    void StageRuntimeBinary( const fs::path& p )
+    {
+        fs::create_directories( p.parent_path() );
+        // A RELEASE CRT, and it has to be synthesized rather than copied. Copying a binary this build
+        // produced gets past "not a PE image" and straight into the next refusal, which is just as
+        // right: a Debug build's binaries import the debug CRT, and Microsoft does not license that for
+        // redistribution. The three names below are what a /MD Runtime.exe imports, and they are what
+        // FindVcCrtRedistDir has to be able to resolve for the closure to come back.
+        const auto image =
+             Desert::TestSupport::MakePe( { .Imports = { "KERNEL32.dll", "VCRUNTIME140.dll", "MSVCP140.dll" } } );
+        std::ofstream out( p, std::ios::binary );
+        for ( const std::uint8_t byte : image )
+            out.put( static_cast<char>( byte ) );
     }
 
     // The archive key a lookup of `dir` produces once the VFS normalizes it against the package
@@ -207,7 +234,7 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "Resources" / "Fonts" / "fake.ttf", "font-body" );
     WriteFile( proj / "Resources" / "Icons" / "fake.svg", "icon-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() ); // keep RegisterRecent out of the real user config
     fs::current_path( proj );        // relative resource trees resolve against the editor cwd
@@ -287,7 +314,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
     const std::string body = "-- MoveAlongX\nProperties = { Speed = 3 }\n";
     WriteFile( proj / "GameAssets" / "Scripts" / "Examples" / "MoveAlongX.lua", body );
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -400,7 +427,7 @@ TEST( PackagedContent, AServiceAssetReferenceResolvesToTheSameFileLooseAndPackag
     const std::string iconBody = "<svg><path d=\"M0 0 L1 1\"/></svg>";
     WriteFile( proj / "GameAssets" / "Fonts" / "Custom.ttf", fontBody );
     WriteFile( proj / "GameAssets" / "UI" / "Glyphs" / "spark.svg", iconBody );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -521,7 +548,7 @@ TEST( PackagedContent, ACleanProjectPackagesComplete )
 
     // Nothing the cook can fail on: one scene, no font, no icon, no shader tree.
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -551,7 +578,7 @@ TEST( PackagedContent, AnAssetTheCookCannotBakeMakesThePackageIncompleteAndSaysH
     // whole difference between this case and the clean one, so the verdict below is attributable.
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "GameAssets" / "Fonts" / "Corrupt.ttf", "this is not a font" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -599,7 +626,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     const fs::path proj = base / "proj";
     const fs::path pkg  = base / "pkg";
 
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
@@ -718,7 +745,7 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
                                "}\n";
 
     WriteFile( proj / "Resources" / "Shaders" / "CookProbe.shader", kProbeShader );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
@@ -789,7 +816,7 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
                "        void main() { o_Color = vec4( 1.0 ); }\n"
                "    }\n"
                "}\n" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
@@ -836,11 +863,11 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
     const fs::path proj = base / "proj";
 
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     // The Runtime the packager copies. It looks one directory ABOVE the editor's cwd, which is why the
     // project sits inside `base` rather than being `base`.
-    WriteFile( base / "build" / "Bin" / "Release" / host.RuntimeBinary, "not really a binary" );
+    StageRuntimeBinary( base / "build" / "Bin" / "Release" / host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -896,7 +923,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
     fs::remove_all( base );
     const fs::path proj = base / "proj";
 
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     fs::create_directories( proj / "GameAssets" );
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -1047,10 +1074,10 @@ namespace
         const fs::path proj = base / "proj";
         WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
         WriteFile( proj / "Resources" / "Fonts" / "fake.ttf", "font-body" );
-        WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":"
+        WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":)"
                                       "\"GameAssets/Scenes/level.desce\"}" );
         // The packager looks one directory ABOVE the editor's cwd for it.
-        WriteFile( base / "build" / "Bin" / "Release" / runtimeBinaryName, "not really a binary" );
+        StageRuntimeBinary( base / "build" / "Bin" / "Release" / runtimeBinaryName );
         return proj;
     }
 } // namespace

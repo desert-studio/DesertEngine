@@ -47,6 +47,7 @@
  *    as StaticMeshCooked's census over `MeshService::BuildAndCache`.
  */
 
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include "../../TestSupport/cooked_static_mesh.hpp"
@@ -66,7 +67,6 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <cstddef>
 #include <cstdio>
@@ -643,7 +643,7 @@ TEST( MeshBinaryFormat, TheRetiredJsonFormIsRefusedByNameAndTheMessageNamesTheRe
     // one: the reader has to say WHICH file, WHY, and WHAT TO RUN. That is the difference between a
     // user re-cooking in ten seconds and a user filing a corruption report.
     const Ser::MeshAssetData source = FullyPopulated();
-    const std::string        asJson = rfl::json::write( source );
+    const std::string        asJson = Common::Json::Write( source );
 
     ASSERT_FALSE( Ser::LooksLikeMeshBinary( asJson ) );
 
@@ -666,7 +666,7 @@ TEST( MeshBinaryFormat, TheRetiredJsonFormIsRefusedByNameAndTheMessageNamesTheRe
 TEST( MeshBinaryFormat, BytesThatAreNeitherFormAreRefusedRatherThanReadAsEmpty )
 {
     for ( const std::string_view junk :
-          { std::string_view( "" ), std::string_view( "not a mesh" ), std::string_view( "{\"IsSkinned\":" ) } )
+          { std::string_view( "" ), std::string_view( "not a mesh" ), std::string_view( R"({"IsSkinned":)" ) } )
     {
         const auto read = Ser::ReadMeshAssetData( junk, "junk.stmesh" );
         EXPECT_FALSE( read.IsSuccess() ) << "accepted " << junk.size() << " bytes of junk";

@@ -49,6 +49,8 @@
 // the source for a census has precedent here: Desert/Tests/Engine/DeviceLostCensus does the same thing
 // for the same reason, and shares the reader this file includes.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Core/ViewportModes.hpp>
@@ -126,12 +128,12 @@ namespace
     // Every top-level key of one editor.json snapshot, in the order the file states them.
     std::vector<std::string> KeysOf( const std::string& json )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( json );
-        EXPECT_TRUE( parsed.has_value() ) << "not readable JSON: " << json;
-        if ( !parsed.has_value() )
+        const auto parsed = Common::Json::Parse( json );
+        EXPECT_TRUE( parsed.IsSuccess() ) << "not readable JSON: " << json;
+        if ( !parsed.IsSuccess() )
             return { "<unreadable>" };
 
-        const auto object = parsed.value().to_object();
+        const auto object = parsed.GetValue().to_object();
         EXPECT_TRUE( object.has_value() ) << "not a JSON object: " << json;
         if ( !object.has_value() )
             return { "<not-an-object>" };
@@ -146,16 +148,16 @@ namespace
     // which "unchanged" is checkable for a key whose TYPE this build has no idea about.
     std::string ValueOf( const std::string& json, const std::string& key )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( json );
-        if ( !parsed.has_value() )
+        const auto parsed = Common::Json::Parse( json );
+        if ( !parsed.IsSuccess() )
             return "<unreadable>";
-        const auto object = parsed.value().to_object();
+        const auto object = parsed.GetValue().to_object();
         if ( !object.has_value() )
             return "<not-an-object>";
         const auto value = object.value().get( key );
         if ( !value.has_value() )
             return "<missing>";
-        return rfl::json::write( value.value() );
+        return Common::Json::Write( value.value() );
     }
 
     // Which keys of editor.json differ between two snapshots of it.
@@ -257,13 +259,13 @@ TEST( PreferenceOwnership, AnUnrelatedSaveChangesNoFieldTheUserDidNotTouch )
     Gizmo::SetScaleSnap( 0.25f );
     Gizmo::SetPersistentSnap( true );
 
-    const std::string before = rfl::json::write( EditorPreferences::Get() );
+    const std::string before = Common::Json::Write( EditorPreferences::Get() );
 
     EditorPreferences::Get().ShowPerfHud = !EditorPreferences::Get().ShowPerfHud;
     EditorPreferences::Save();
 
     const std::vector<std::string> expected = { "ShowPerfHud" };
-    EXPECT_EQ( FieldsThatDiffer( before, rfl::json::write( EditorPreferences::Get() ) ), expected )
+    EXPECT_EQ( FieldsThatDiffer( before, Common::Json::Write( EditorPreferences::Get() ) ), expected )
          << "a save moved a field the action that triggered it never mentioned";
 
     // And the same statement asked of the thing the user can actually see — the step the gizmo snaps
@@ -290,13 +292,13 @@ TEST( PreferenceOwnership, TogglingThePerfHudDoesNotDisturbTheSnapStep )
     FreshInstall();
 
     Gizmo::SetTranslateSnap( 500.0f );
-    const std::string before = rfl::json::write( EditorPreferences::Get() );
+    const std::string before = Common::Json::Write( EditorPreferences::Get() );
 
     EditorPreferences::Get().ShowPerfHud = true;
     EditorPreferences::Save();
 
     const std::vector<std::string> expected = { "ShowPerfHud" };
-    EXPECT_EQ( FieldsThatDiffer( before, rfl::json::write( EditorPreferences::Get() ) ), expected );
+    EXPECT_EQ( FieldsThatDiffer( before, Common::Json::Write( EditorPreferences::Get() ) ), expected );
     EXPECT_FLOAT_EQ( Gizmo::TranslateSnap(), 500.0f );
 }
 
@@ -317,10 +319,10 @@ TEST( PreferenceOwnership, SaveRewritesNothingInTheStructItWrites )
     EditorPreferences::Get().CameraSpeed    = 4.25f;
     EditorPreferences::Get().ShowPerfHud    = true;
 
-    const std::string before = rfl::json::write( EditorPreferences::Get() );
+    const std::string before = Common::Json::Write( EditorPreferences::Get() );
     EditorPreferences::Save();
 
-    EXPECT_EQ( FieldsThatDiffer( before, rfl::json::write( EditorPreferences::Get() ) ),
+    EXPECT_EQ( FieldsThatDiffer( before, Common::Json::Write( EditorPreferences::Get() ) ),
                std::vector<std::string>{} );
 }
 
@@ -872,7 +874,7 @@ TEST( PreferenceOwnershipWindow, EveryControlIsBoundToARealPreferenceField )
 // 7. К9 — SAVING DOES NOT DELETE A KEY THE WRITER DOES NOT KNOW
 // ---------------------------------------------------------------------------------------------------
 //
-// THE DEFECT, MEASURED ON THE OWNER'S OWN FILE. Every save is `rfl::json::write( Get() )`: the whole of
+// THE DEFECT, MEASURED ON THE OWNER'S OWN FILE. Every save is `Common::Json::Write( Get() )`: the whole of
 // editor.json, rewritten from the struct the running binary was compiled with. Several agents run
 // several builds against the one `~/.desertengine/editor.json`, so the build that had not yet grown the
 // packaging fields erased `PackageAppBundle`, `PackageConfig` and `PackageOutputDir` — written minutes
@@ -904,7 +906,7 @@ namespace
     // and go, and so a test cannot accidentally assert against a file shape nothing produces.
     std::string PrefsFileWith( const std::string& extra )
     {
-        const std::string canonical = rfl::json::write( EditorPreferences{} );
+        const std::string canonical = Common::Json::Write( EditorPreferences{} );
         const std::size_t close     = canonical.rfind( '}' );
         EXPECT_NE( close, std::string::npos ) << "the preference writer did not produce a JSON object";
         if ( close == std::string::npos )
@@ -915,11 +917,11 @@ namespace
     // A JSON literal in the form rfl writes it, so a test compares values and not spelling.
     std::string Canonical( const std::string& jsonLiteral )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( jsonLiteral );
-        EXPECT_TRUE( parsed.has_value() ) << "test data is not valid JSON: " << jsonLiteral;
-        if ( !parsed.has_value() )
+        const auto parsed = Common::Json::Parse( jsonLiteral );
+        EXPECT_TRUE( parsed.IsSuccess() ) << "test data is not valid JSON: " << jsonLiteral;
+        if ( !parsed.IsSuccess() )
             return "<unreadable>";
-        return rfl::json::write( parsed.value() );
+        return Common::Json::Write( parsed.GetValue() );
     }
 } // namespace
 
@@ -941,7 +943,7 @@ TEST( PreferenceOwnershipUnknownKeys, ASaveDoesNotDeleteAKeyThisBuildDoesNotKnow
          { "ANewerBuildsIntSetting", "17", "a whole number" },
          { "ANewerBuildsFloatSetting", "0.25", "a fraction, which a naive int round-trip flattens" },
          { "ANewerBuildsListSetting", "[\"a\",\"b\",\"c\"]", "an array" },
-         { "ANewerBuildsBlockSetting", "{\"Nested\":{\"Deep\":[1,2,3]},\"Flag\":false}", "a nested object" },
+         { "ANewerBuildsBlockSetting", R"({"Nested":{"Deep":[1,2,3]},"Flag":false})", "a nested object" },
          { "ANewerBuildsAbsentSetting", "null", "a null — distinct from the key being gone" },
     };
 
@@ -978,9 +980,9 @@ TEST( PreferenceOwnershipUnknownKeys, ASaveDoesNotDeleteAKeyThisBuildDoesNotKnow
 TEST( PreferenceOwnershipUnknownKeys, AnUnknownKeySurvivesAnyNumberOfLaunchesAndSaves )
 {
     FreshInstall();
-    WriteWholeFile( PrefsPath(), PrefsFileWith( "\"ANewerBuildsSetting\":{\"Mode\":\"Face\",\"Passes\":3}" ) );
+    WriteWholeFile( PrefsPath(), PrefsFileWith( R"("ANewerBuildsSetting":{"Mode":"Face","Passes":3})" ) );
 
-    const std::string expected = Canonical( "{\"Mode\":\"Face\",\"Passes\":3}" );
+    const std::string expected = Canonical( R"({"Mode":"Face","Passes":3})" );
 
     for ( int launch = 0; launch < 3; ++launch )
     {
@@ -1003,7 +1005,7 @@ TEST( PreferenceOwnershipUnknownKeys, AnUnknownKeySurvivesAnyNumberOfLaunchesAnd
 TEST( PreferenceOwnershipUnknownKeys, AKeyThisBuildDoesKnowGoesToItsFieldAndNotToTheCarrier )
 {
     FreshInstall();
-    WriteWholeFile( PrefsPath(), PrefsFileWith( "\"ANewerBuildsSetting\":1" ) );
+    WriteWholeFile( PrefsPath(), PrefsFileWith( R"("ANewerBuildsSetting":1)" ) );
 
     EditorPreferences::Get() = EditorPreferences{};
     EditorPreferences::Load();
@@ -1049,7 +1051,7 @@ TEST( PreferenceOwnershipUnknownKeys, AFileThisBuildWroteHasNoUnknownKeysInIt )
 TEST( PreferenceOwnershipUnknownKeys, TheKeysWrittenAreExactlyTheStructsFieldsPlusThePreservedOnes )
 {
     FreshInstall();
-    WriteWholeFile( PrefsPath(), PrefsFileWith( "\"ANewerBuildsSetting\":1,\"AndAnother\":\"two\"" ) );
+    WriteWholeFile( PrefsPath(), PrefsFileWith( R"("ANewerBuildsSetting":1,"AndAnother":"two")" ) );
 
     EditorPreferences::Get() = EditorPreferences{};
     EditorPreferences::Load();
@@ -1108,7 +1110,7 @@ TEST( PreferenceOwnershipUnknownKeys, ASaveKeepsAKeyThatAppearedAfterThisEditorL
 
     // 10:30 — another build, with a field this one does not have, writes the file.
     const std::string theirs = ReadWholeFile( PrefsPath() );
-    WriteWholeFile( PrefsPath(), theirs.substr( 0, theirs.rfind( '}' ) ) + ",\"ANewerBuildsSetting\":true}" );
+    WriteWholeFile( PrefsPath(), theirs.substr( 0, theirs.rfind( '}' ) ) + R"(,"ANewerBuildsSetting":true})" );
 
     // 11:00 — somebody toggles the Perf HUD in the editor that has been open since ten.
     EditorPreferences::Get().ShowPerfHud = !EditorPreferences::Get().ShowPerfHud;
@@ -1134,8 +1136,8 @@ TEST( PreferenceOwnershipUnknownKeys, TheReReadTakesKeysItCannotNameAndNoValueIt
     // owns. Only the first may come back.
     EditorPreferences other;
     other.CameraSpeed        = 99.0f;
-    const std::string theirs = rfl::json::write( other );
-    WriteWholeFile( PrefsPath(), theirs.substr( 0, theirs.rfind( '}' ) ) + ",\"ANewerBuildsSetting\":true}" );
+    const std::string theirs = Common::Json::Write( other );
+    WriteWholeFile( PrefsPath(), theirs.substr( 0, theirs.rfind( '}' ) ) + R"(,"ANewerBuildsSetting":true})" );
 
     EditorPreferences::Get().ShowPerfHud = !EditorPreferences::Get().ShowPerfHud;
     ASSERT_TRUE( EditorPreferences::Save() );
@@ -1162,11 +1164,10 @@ TEST( PreferenceOwnershipUnknownKeys, ARetiredKeyIsDroppedAndAnotherBuildsKeyIsN
     // std::string, not a literal: rfl::Object overloads insert() for both std::string and
     // std::string_view, so a bare const char* is ambiguous.
     carrying.UnknownKeys.insert( std::string( "PhotogrammetryMode" ),
-                                 rfl::json::read<rfl::Generic>( "\"Object\"" ).value() );
-    carrying.UnknownKeys.insert( std::string( "ANewerBuildsSetting" ),
-                                 rfl::json::read<rfl::Generic>( "true" ).value() );
+                                 Common::Json::Value( std::string( "Object" ) ) );
+    carrying.UnknownKeys.insert( std::string( "ANewerBuildsSetting" ), Common::Json::Value( true ) );
     carrying.UnknownKeys.insert( std::string( "PhotogrammetryCaptureCommand" ),
-                                 rfl::json::read<rfl::Generic>( "\"capture {photos}\"" ).value() );
+                                 Common::Json::Value( std::string( "capture {photos}" ) ) );
 
     const auto raised = EditorPreferences::MigrateLoaded( carrying );
 
@@ -1189,7 +1190,7 @@ TEST( PreferenceOwnershipUnknownKeys, ARetiredKeyIsDroppedAndAnotherBuildsKeyIsN
 TEST( PreferenceOwnershipUnknownKeys, LoadingWritesTheFileBackWithoutTheRetiredKeys )
 {
     FreshInstall();
-    WriteWholeFile( PrefsPath(), PrefsFileWith( "\"PhotogrammetryMode\":\"Object\",\"ANewerBuildsSetting\":42" ) );
+    WriteWholeFile( PrefsPath(), PrefsFileWith( R"("PhotogrammetryMode":"Object","ANewerBuildsSetting":42)" ) );
 
     EditorPreferences::Get() = EditorPreferences{};
     EditorPreferences::Load();
@@ -1254,10 +1255,10 @@ namespace
     std::vector<std::string> DebugViewFields()
     {
         std::vector<std::string> names;
-        const auto               whole = rfl::json::read<rfl::Generic>( rfl::json::write( EditorPreferences{} ) );
-        if ( !whole.has_value() )
+        const auto               whole = Common::Json::Parse( Common::Json::Write( EditorPreferences{} ) );
+        if ( !whole.IsSuccess() )
             return names;
-        const auto root = whole.value().to_object();
+        const auto root = whole.GetValue().to_object();
         if ( !root.has_value() )
             return names;
         const auto view = root.value().get( "DebugView" );
@@ -1277,15 +1278,15 @@ namespace
     // document that has none of them and report everything as missing.
     std::vector<std::string> ViewFieldsThatDiffer( const std::string& before, const std::string& after )
     {
-        const auto lhs = rfl::json::read<rfl::Generic>( before );
-        const auto rhs = rfl::json::read<rfl::Generic>( after );
-        EXPECT_TRUE( lhs.has_value() ) << "the 'before' view is not readable JSON";
-        EXPECT_TRUE( rhs.has_value() ) << "the 'after' view is not readable JSON";
-        if ( !lhs.has_value() || !rhs.has_value() )
+        const auto lhs = Common::Json::Parse( before );
+        const auto rhs = Common::Json::Parse( after );
+        EXPECT_TRUE( lhs.IsSuccess() ) << "the 'before' view is not readable JSON";
+        EXPECT_TRUE( rhs.IsSuccess() ) << "the 'after' view is not readable JSON";
+        if ( !lhs.IsSuccess() || !rhs.IsSuccess() )
             return { "<unreadable>" };
 
-        const auto lhsObject = lhs.value().to_object();
-        const auto rhsObject = rhs.value().to_object();
+        const auto lhsObject = lhs.GetValue().to_object();
+        const auto rhsObject = rhs.GetValue().to_object();
         if ( !lhsObject.has_value() || !rhsObject.has_value() )
             return { "<not-an-object>" };
 
@@ -1299,7 +1300,7 @@ namespace
                 differing.push_back( key + " <missing>" );
                 continue;
             }
-            if ( rfl::json::write( a.value() ) != rfl::json::write( b.value() ) )
+            if ( Common::Json::Write( a.value() ) != Common::Json::Write( b.value() ) )
                 differing.push_back( key );
         }
         return differing;
@@ -1324,7 +1325,7 @@ TEST( PreferenceOwnership, AViewportModeOnlyEverSubtractsFromTheUsersAnswer )
     user.WireframeMode     = true;
 
     // No mode on: the renderer is handed exactly what the user chose, field for field.
-    EXPECT_EQ( rfl::json::write( ApplyViewportModes( user, ViewportModes{} ) ), rfl::json::write( user ) )
+    EXPECT_EQ( Common::Json::Write( ApplyViewportModes( user, ViewportModes{} ) ), Common::Json::Write( user ) )
          << "a viewport with no mode active altered the user's view";
 
     // 2D UI mode on: the grid is gone and NOTHING ELSE MOVED. Asserted as "exactly one field differs, and
@@ -1337,12 +1338,12 @@ TEST( PreferenceOwnership, AViewportModeOnlyEverSubtractsFromTheUsersAnswer )
     EXPECT_FALSE( hidden.ShowGrid ) << "2D UI mode did not hide the grid";
 
     const std::vector<std::string> expected = { "ShowGrid" };
-    EXPECT_EQ( ViewFieldsThatDiffer( rfl::json::write( user ), rfl::json::write( hidden ) ), expected )
+    EXPECT_EQ( ViewFieldsThatDiffer( Common::Json::Write( user ), Common::Json::Write( hidden ) ), expected )
          << "2D UI mode changed a flag other than the grid on the way to the renderer";
 
     // A user with the grid already off keeps it off, and the mode adds nothing.
     const Desert::Graphic::DebugViewState allOff;
-    EXPECT_EQ( rfl::json::write( ApplyViewportModes( allOff, ui2d ) ), rfl::json::write( allOff ) );
+    EXPECT_EQ( Common::Json::Write( ApplyViewportModes( allOff, ui2d ) ), Common::Json::Write( allOff ) );
 }
 
 // THE HEADLINE, ASKED OF THE FILE. The user's own sentence, walked end to end through the real store: the

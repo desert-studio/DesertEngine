@@ -3,6 +3,7 @@
 #include "CookPaths.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
@@ -33,11 +34,11 @@ namespace Desert::Editor
         return { name.substr( 0, pos ), std::stoi( digits ) };
     }
 
-    Common::ResultStr<Assets::MeshSourceData>
-    MeshSourceFromImport( const Ser::MeshAssetData& imported, std::span<const Assets::MeshMaterialSlot> named,
-                          const std::string& name )
+    Common::ResultStr<ImportedMeshSource> MeshSourceFromImport( const Ser::MeshAssetData&                 imported,
+                                                                std::span<const Assets::MeshMaterialSlot> named,
+                                                                const std::string&                        name )
     {
-        using Result = Assets::MeshSourceData;
+        using Result = ImportedMeshSource;
         if ( imported.IsSkinned )
             return Common::MakeFormattedError<Result>( "'{}' is skinned; its source is AF4f's", name );
         if ( !imported.MorphTargets.empty() )
@@ -58,17 +59,17 @@ namespace Desert::Editor
                                                            name, level, expected - 1 );
 
         Result     out;
+        auto&      slots  = out.Source.MaterialSlots;
         const auto slotOf = [&]( const Ser::SubmeshData& sub )
         {
-            for ( size_t i = 0; i < out.MaterialSlots.size(); ++i )
-                if ( out.MaterialSlots[i].Material == sub.MaterialGuid )
+            for ( size_t i = 0; i < slots.size(); ++i )
+                if ( slots[i].Material == sub.MaterialGuid )
                     return static_cast<int>( i );
             const auto known = std::ranges::find_if( named, [&]( const auto& slot )
                                                      { return slot.Material == sub.MaterialGuid; } );
-            out.MaterialSlots.push_back(
-                 { known != named.end() ? known->Name : ParseSourceModelLOD( sub.Name ).first,
-                   sub.MaterialGuid } );
-            return static_cast<int>( out.MaterialSlots.size() - 1 );
+            slots.push_back( { known != named.end() ? known->Name : ParseSourceModelLOD( sub.Name ).first,
+                               sub.MaterialGuid } );
+            return static_cast<int>( slots.size() - 1 );
         };
 
         const bool groupsPerFace = imported.PolyGroups.size() == imported.Indices.size();
@@ -110,15 +111,28 @@ namespace Desert::Editor
             if ( !lifted.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "'{}' LOD{} cannot become a source model: {}", name,
                                                            level, lifted.GetError() );
-            Geometry::EditMesh mesh = lifted.ExtractValue();
+            Geometry::ImportedEditMesh welded = lifted.ExtractValue();
+            out.DroppedDegenerate += welded.DroppedDegenerate;
+            out.DroppedDuplicate += welded.DroppedDuplicate;
+            out.DetachedTriangles += welded.DetachedTriangles;
+            Geometry::EditMesh& mesh = welded.Mesh;
             // FromMeshAssetData numbers materials by submesh; the source numbers them by the shared slot table.
             for ( int t = 0; t < mesh.MaxTriangleId(); ++t )
                 if ( mesh.IsTriangle( t ) )
                     mesh.Attributes().SetMaterialId(
                          t, slotOfSubmesh[static_cast<size_t>( mesh.Attributes().GetMaterialId( t ) )] );
-            out.Models.push_back( { Geometry::Bridge::SavedFormFromEditMesh( mesh ) } );
+            out.Source.Models.push_back( { Geometry::Bridge::SavedFormFromEditMesh( mesh ) } );
         }
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    std::string SkippedFacesWarning( const ImportedMeshSource& source, const std::string& name )
+    {
+        if ( source.DroppedDegenerate == 0 && source.DroppedDuplicate == 0 && source.DetachedTriangles == 0 )
+            return {};
+        return fmt::format( "[Import] '{}': skipped {} degenerate and {} duplicate face(s), and detached {} "
+                            "non-manifold face(s) onto their own vertices",
+                            name, source.DroppedDegenerate, source.DroppedDuplicate, source.DetachedTriangles );
     }
 
     namespace
@@ -181,7 +195,10 @@ namespace Desert::Editor
         auto sourceData = MeshSourceFromImport( imported, named, source.string() );
         if ( !sourceData )
             return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );
-        asset.Source = sourceData.ExtractValue();
+        if ( const std::string warning = SkippedFacesWarning( sourceData.GetValue(), source.string() );
+             !warning.empty() )
+            LOG_WARN( "{}", warning );
+        asset.Source = std::move( sourceData.ExtractValue().Source );
 
         if ( existing && *existing == asset )
             return Common::MakeSuccess( MeshAssetWrite::Unchanged );

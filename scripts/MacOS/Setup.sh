@@ -305,7 +305,6 @@ REQUIRED_PATHS=(
     "ThirdParty/GLFW/include/GLFW/glfw3.h"
     "ThirdParty/ImGui/imgui.cpp"
     "ThirdParty/imgui-node-editor/imgui_node_editor.cpp"
-    "ThirdParty/yaml-cpp/src/parser.cpp"
     "ThirdParty/JoltPhysics/Jolt/Jolt.h"
     "ThirdParty/lua/lapi.c"
     "ThirdParty/spdlog/include/spdlog/spdlog.h"

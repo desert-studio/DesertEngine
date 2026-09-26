@@ -95,7 +95,7 @@ namespace Desert::Geometry::Bridge
     // MeshSourceAsset keeps. Inline for the same reason as the deriver's pair: the importer's suite compiles
     // the geometry it runs, not the ECS behind the rest of this bridge. Refused with FromMeshAssetData's
     // reason. removed by the card that moves the importer onto the ported core; the functions themselves by P8b.
-    [[nodiscard]] inline Common::ResultStr<EditMesh>
+    [[nodiscard]] inline Common::ResultStr<ImportedEditMesh>
     EditMeshFromMeshAssetData( const Assets::Serialization::MeshAssetData& data )
     {
         return FromMeshAssetData( data );

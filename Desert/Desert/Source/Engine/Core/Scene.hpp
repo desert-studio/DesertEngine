@@ -9,6 +9,7 @@
 #include <Engine/Core/Camera.hpp>
 
 #include "SceneSettings.hpp"
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 
@@ -16,7 +17,7 @@
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
 #include <glm/glm.hpp>
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Carry.hpp>
 #include <cstdint>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -272,13 +273,35 @@ namespace Desert::Core
         //
         // Empty for a scene that was never loaded from a file (File → New), which makes the merge the
         // identity and costs a new scene nothing.
-        [[nodiscard]] const rfl::Generic::Object& GetLoadedDocument() const
+        [[nodiscard]] const std::optional<Common::Json::TextDocument>& GetLoadedDocument() const
         {
             return m_LoadedDocument;
         }
-        void SetLoadedDocument( rfl::Generic::Object document )
+        void SetLoadedDocument( Common::Json::TextDocument document )
         {
             m_LoadedDocument = std::move( document );
+        }
+
+        // WHETHER THIS WORLD IS PARTITIONED, AND WITH WHAT — held on the live scene, which is what makes
+        // it editable at all.
+        //
+        // It used to be held NOWHERE. The loader read the `WorldPartition` block, logged what the
+        // partition would cost and threw it away; the saver never wrote the key, and the block survived a
+        // save only because the foreign-key merge preserves a top-level key the writer does not state
+        // (ForeignKeys.hpp). That is preservation of something this build DOES declare — so the block was
+        // simultaneously ours and unknown, and nothing in the editor could change it: turning a world on
+        // meant editing the `.desce` by hand. Now the loader stores it here, the saver states it from
+        // here, and the editor's Convert command is an ordinary edit of a scene member.
+        //
+        // Absent = this world is not partitioned (SceneSerialized::WorldPartition says the same thing on
+        // disk, and this is that field in memory — one value, one place).
+        [[nodiscard]] const std::optional<WorldPartitionSerialized>& GetWorldPartition() const
+        {
+            return m_WorldPartition;
+        }
+        void SetWorldPartition( std::optional<WorldPartitionSerialized> partition )
+        {
+            m_WorldPartition = std::move( partition );
         }
 
         // The engine's ONE "save this scene" entry point — and therefore the one that has to answer
@@ -417,6 +440,8 @@ namespace Desert::Core
         std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
-        rfl::Generic::Object m_LoadedDocument;
+        std::optional<Common::Json::TextDocument> m_LoadedDocument;
+        // See GetWorldPartition().
+        std::optional<WorldPartitionSerialized> m_WorldPartition;
     };
 } // namespace Desert::Core
