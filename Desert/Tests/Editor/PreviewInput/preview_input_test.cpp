@@ -272,7 +272,7 @@ TEST( PreviewInput, PreviewWidgetClaimsTheWheelThroughTheRule )
     const auto zoomable = source.rfind( "const bool zoomable = m_HasContent && m_Fill != Fill::SkyDome;", rule );
     ASSERT_NE( zoomable, std::string::npos );
     EXPECT_LT( rule - zoomable, 200u );
-    EXPECT_EQ( source.find( "PreviewOwnsWheel" ), std::string::npos ) << "a second wheel rule is back";
+    EXPECT_EQ( source.find( "PreviewOwnsWheel" ), std::string::npos ); // a second wheel rule is back
 }
 
 int main( int argc, char** argv )
