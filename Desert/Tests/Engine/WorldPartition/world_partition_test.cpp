@@ -455,8 +455,7 @@ TEST( WorldPartitionConvert, AnAlreadyPartitionedSceneIsRefusedByName )
 // switched on by hand, and overwriting it with the default grid is the same substitution.
 TEST( WorldPartitionConvert, AnEmptyPartitionBlockIsStillPartitionedAndStillRefused )
 {
-    const auto refused =
-         Desert::Core::Rules::ConvertToWorldPartition( "Empty Block", WorldPartitionSerialized{} );
+    const auto refused = Desert::Core::Rules::ConvertToWorldPartition( "Empty Block", WorldPartitionSerialized{} );
     ASSERT_FALSE( refused.IsSuccess() );
     EXPECT_NE( refused.GetError().find( "Empty Block" ), std::string::npos ) << refused.GetError();
 }

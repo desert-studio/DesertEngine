@@ -4116,7 +4116,7 @@ namespace Desert::Editor
         // Switching a world on (UE's "Convert Level to World Partition"). Offered UNCONDITIONALLY, unlike
         // the panel's button: a command that vanishes from the palette cannot tell the user WHY it is not
         // available, and the refusal this one returns names the scene and the grids it already has.
-        commands.push_back( { "Scene", std::string( Core::Rules::kConvertToWorldPartitionLabel ), [this]
+        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kConvertToWorldPartitionLabel ), [this]
                               {
                                   if ( m_WorldPartitionPanel == nullptr )
                                       return Common::MakeError( "convert to World Partition: the World "
