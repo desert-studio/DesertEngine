@@ -2,6 +2,8 @@
 
 #include <Common/Core/Timestep.hpp>
 
+#include <Engine/Assets/ContentDirectoryWatch.hpp>
+
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -69,6 +71,8 @@ namespace Desert::Runtime
 
         using Clock = std::filesystem::file_time_type;
         std::unordered_map<std::string, Clock> m_KnownTimes;
+        // Files that appeared or went away with no loaded object to report them: their rows follow here.
+        Assets::ContentDirectoryWatch          m_ContentWatch;
         float                                  m_Accum       = 0.0f;
         bool                                   m_FirstScan   = true;
         static constexpr float                 kPollInterval = 0.7f; // seconds

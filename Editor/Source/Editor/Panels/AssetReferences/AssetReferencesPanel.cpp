@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -124,17 +125,20 @@ namespace Desert::Editor
         ImGui::BeginChild( "##meshUsers", ImVec2( 0.0f, 90.0f ), true );
         {
             size_t found = 0;
-            for ( const auto& [meshHandle, meshAsset] : m_AssetManager->FindAllByType<Assets::MeshAsset>() )
-            {
-                if ( !meshAsset )
-                    continue;
-                const auto& handles = meshAsset->GetMaterialHandles();
-                if ( std::find( handles.begin(), handles.end(), externalId ) == handles.end() )
-                    continue;
-                ImGui::BulletText(
-                     "%s", meshAsset->GetMetadata().Filepath.filename().generic_string().c_str() );
-                ++found;
-            }
+            for ( const auto kind :
+                  { Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::SkinnedMesh } )
+                for ( const auto& row : Assets::ContentRegistry::Rows( kind ) )
+                {
+                    const auto meshAsset = m_AssetManager->ProbeByHandle<Assets::MeshAsset>( row.Handle );
+                    if ( !meshAsset )
+                        continue;
+                    const auto& handles = meshAsset->GetMaterialHandles();
+                    if ( std::find( handles.begin(), handles.end(), externalId ) == handles.end() )
+                        continue;
+                    ImGui::BulletText( "%s",
+                                       meshAsset->GetMetadata().Filepath.filename().generic_string().c_str() );
+                    ++found;
+                }
             if ( found == 0 )
                 ImGui::TextDisabled( "No loaded mesh asset embeds this material." );
         }

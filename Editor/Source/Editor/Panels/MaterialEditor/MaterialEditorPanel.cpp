@@ -49,6 +49,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -1477,13 +1478,14 @@ namespace Desert::Editor
                     {
                         if ( m_AssetManager )
                         {
-                            const auto skyboxes = m_AssetManager->FindAllByType<Assets::SkyboxAsset>();
-                            for ( const auto& [handle, sky] : skyboxes )
+                            const auto skyboxes =
+                                 Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox );
+                            for ( const auto& row : skyboxes )
                             {
-                                const std::string name = sky->GetMetadata().Filepath.filename().string();
-                                if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( handle ) ==
+                                const std::string name = row.Path.filename().string();
+                                if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( row.Handle ) ==
                                                                            data.GetTexture( p.Name ) ) )
-                                    bindSkybox( handle );
+                                    bindSkybox( row.Handle );
                             }
                             if ( skyboxes.empty() )
                                 ImGui::TextDisabled( "No HDR skyboxes in this project"
@@ -1555,7 +1557,8 @@ namespace Desert::Editor
                 {
                     if ( m_AssetManager )
                     {
-                        const auto     textures = m_AssetManager->FindAllByType<Assets::TextureAsset>();
+                        const auto textures =
+                             Assets::ContentRegistry::Rows( Common::Content::ContentKind::Texture );
                         const uint64_t bound    = data.GetTexture( p.Name );
 
                         // UNBINDING, WHICH WAS NOT EXPRESSIBLE UNTIL M9. This entry was deliberately absent
@@ -1575,23 +1578,22 @@ namespace Desert::Editor
                             ImGui::SetItemDefaultFocus();
                         ImGui::Separator();
 
-                        for ( const auto& [handle, texture] : textures )
+                        for ( const auto& row : textures )
                         {
                             // The SOURCE path when there is one, exactly as the button label above resolves
                             // it: a cooked asset's own filepath is a hash nobody recognises, and a list of
                             // those is a list of nothing.
-                            const auto& source = texture->GetSourcePath();
-                            const auto  path = !source.empty() ? source : texture->GetMetadata().Filepath.string();
+                            const auto texture = m_AssetManager->ProbeByHandle<Assets::TextureAsset>( row.Handle );
+                            const std::string source = texture ? texture->GetSourcePath() : std::string();
+                            const auto        path   = !source.empty() ? source : row.Path.string();
                             const std::string name = std::filesystem::path( path ).filename().string();
-                            if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( handle ) == bound ) &&
-                                 !texture->Guid().IsNull() )
+                            if ( ImGui::Selectable( name.c_str(), static_cast<uint64_t>( row.Handle ) == bound ) &&
+                                 row.Guid.has_value() && !row.Guid->IsNull() )
                             {
-                                data.SetTexture(
-                                     p.Name, texture->Guid(),
-                                     Common::AssetHandle::StableKeyForPath( texture->GetMetadata().Filepath ) );
+                                data.SetTexture( p.Name, *row.Guid, row.Key );
                                 changed = true;
                             }
-                            if ( static_cast<uint64_t>( handle ) == bound )
+                            if ( static_cast<uint64_t>( row.Handle ) == bound )
                                 ImGui::SetItemDefaultFocus();
                         }
                         if ( textures.empty() )
@@ -1719,8 +1721,9 @@ namespace Desert::Editor
                 }
                 if ( m_AssetManager )
                 {
-                    for ( const auto& [h, shader] : m_AssetManager->FindAllByType<Assets::ShaderAsset>() )
+                    for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Shader ) )
                     {
+                        const auto shader = m_AssetManager->ProbeByHandle<Assets::ShaderAsset>( row.Handle );
                         if ( !shader )
                             continue;
                         // Parsed rather than guessed from the path: "is this a medium" is a property of
@@ -1745,7 +1748,7 @@ namespace Desert::Editor
                         if ( !parsed.GetValue().Meta.IsMediumProgram() )
                             continue;
 
-                        const bool selected = ( static_cast<uint64_t>( h ) == handle );
+                        const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
                         const auto label    = name;
                         if ( ImGui::Selectable( label.c_str(), selected ) )
                         {
@@ -1823,14 +1826,16 @@ namespace Desert::Editor
             }
             if ( m_AssetManager && isType )
             {
-                for ( const auto& [h, type] : m_AssetManager->FindAllByType<Assets::CloudTypeAsset>() )
+                for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudType ) )
                 {
-                    const bool selected = ( static_cast<uint64_t>( h ) == handle );
-                    if ( ImGui::Selectable( type->GetDisplayName().c_str(), selected ) && !type->Guid().IsNull() )
+                    const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
+                    if ( ImGui::Selectable(
+                              ::Desert::Editor::PickerDisplayName<Assets::CloudTypeAsset>( *m_AssetManager, row )
+                                   .c_str(),
+                              selected ) &&
+                         row.Guid.has_value() && !row.Guid->IsNull() )
                     {
-                        data.SetCloudAsset(
-                             p.Name, type->Guid(),
-                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
+                        data.SetCloudAsset( p.Name, *row.Guid, row.Key );
                         changed = true;
                     }
                     if ( selected )
@@ -1839,16 +1844,14 @@ namespace Desert::Editor
             }
             else if ( m_AssetManager && isLayout )
             {
-                for ( const auto& [h, painting] : m_AssetManager->FindAllByType<Assets::CloudLayoutAsset>() )
+                for ( const auto& row :
+                      Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudLayout ) )
                 {
-                    const bool selected = ( static_cast<uint64_t>( h ) == handle );
-                    if ( ImGui::Selectable( painting->GetMetadata().Filepath.filename().string().c_str(),
-                                            selected ) &&
-                         !painting->Guid().IsNull() )
+                    const bool selected = ( static_cast<uint64_t>( row.Handle ) == handle );
+                    if ( ImGui::Selectable( row.Path.filename().string().c_str(), selected ) &&
+                         row.Guid.has_value() && !row.Guid->IsNull() )
                     {
-                        data.SetCloudAsset(
-                             p.Name, painting->Guid(),
-                             Common::AssetHandle::StableKeyForPath( painting->GetMetadata().Filepath ) );
+                        data.SetCloudAsset( p.Name, *row.Guid, row.Key );
                         changed = true;
                     }
                     if ( selected )

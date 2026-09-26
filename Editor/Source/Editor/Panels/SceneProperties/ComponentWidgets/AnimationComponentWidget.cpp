@@ -23,6 +23,7 @@
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -213,16 +214,18 @@ namespace Desert::Editor
             }
             if ( assets != nullptr )
             {
-                for ( const auto& [handle, graph] : assets->FindAllByType<Assets::AnimGraphAsset>() )
+                for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::AnimGraph ) )
                 {
-                    const bool selected = ( handle == animation.GraphAsset );
-                    if ( ImGui::Selectable( graph->GetDisplayName().c_str(), selected ) )
+                    const bool selected = ( row.Handle == animation.GraphAsset );
+                    if ( ImGui::Selectable(
+                              ::Desert::Editor::PickerDisplayName<Assets::AnimGraphAsset>( *assets, row ).c_str(),
+                              selected ) )
                     {
                         // ONLY THE HANDLE. The object is AnimationECSSystem's to hand over, from the
                         // asset, so that every entity naming one file ends up pointing at ONE object —
                         // assigning `graph->GetGraph()` here as well would be a second writer of the same
                         // fact and the two would disagree the first time a load replaced it.
-                        animation.GraphAsset = handle;
+                        animation.GraphAsset = row.Handle;
                         animation.GraphEvaluator.reset();
                     }
                     if ( selected )

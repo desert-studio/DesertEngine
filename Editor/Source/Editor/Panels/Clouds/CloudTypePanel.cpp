@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -454,15 +455,16 @@ namespace Desert::Editor
 
             if ( m_Assets )
             {
-                for ( const auto& [handle, volume] : m_Assets->FindAllByType<Assets::CloudNoiseVolumeAsset>() )
+                for ( const auto& row :
+                      Assets::ContentRegistry::Rows( Common::Content::ContentKind::CloudNoiseVolume ) )
                 {
                     // The GUID the volume's envelope states is what the file resolves by; a volume with
                     // none (a bare container the load refuses) cannot be named and is not offered.
                     const Common::Content::AssetGuid guid =
-                         Assets::CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( volume->GetMetadata().Filepath );
+                         Assets::CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid( row.Path );
                     if ( guid.IsNull() )
                         continue;
-                    const std::string relative = RelativeToAssets( volume->GetMetadata().Filepath );
+                    const std::string relative = RelativeToAssets( row.Path );
                     if ( ImGui::Selectable( relative.c_str(), relative == current ) )
                         m_Data.NoiseVolume =
                              Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid ), relative };

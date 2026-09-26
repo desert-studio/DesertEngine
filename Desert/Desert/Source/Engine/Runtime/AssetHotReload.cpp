@@ -1,6 +1,7 @@
 #include <Engine/Runtime/AssetHotReload.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -74,6 +75,7 @@ namespace Desert::Runtime
         PollCloudTypes( assetManager );
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
+        m_ContentWatch.Poll();
         m_FirstScan = false;
     }
 
@@ -142,6 +144,7 @@ namespace Desert::Runtime
                 continue;
             }
             it->second = mtime;
+            Assets::ContentRegistry::Update( path );
 
             // A FAILED RE-READ LEAVES THE OLD VOLUME BOUND, deliberately. The panel writes a volume with a
             // single truncating stream write, so a poll that lands mid-write sees a short file; refusing it
@@ -272,6 +275,7 @@ namespace Desert::Runtime
                 continue;
             }
             it->second = mtime;
+            Assets::ContentRegistry::Update( path );
 
             // Only the shader NAME is snapshotted before the re-parse. A `wasCustom` flag was taken here
             // too and then never read: whether the asset crossed between PBR and data-driven is already
@@ -355,6 +359,10 @@ namespace Desert::Runtime
 
         const bool changed = it->second != mtime;
         it->second         = mtime;
+        // The registry row follows the bytes: a rewritten header may state another GUID, other edges or
+        // another size, and the pickers read the row, not the object this poll is about to reload.
+        if ( changed )
+            Assets::ContentRegistry::Update( path );
         return changed;
     }
 
