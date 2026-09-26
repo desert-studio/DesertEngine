@@ -111,7 +111,7 @@ namespace Desert::Geometry
                                                               const std::vector<int>&   EdgeLoop,
                                                               std::vector<FTriVidPair>& TriVertPairsOut )
     {
-        if ( !UE_ENSURE( static_cast<int32_t>( EdgeLoop.size() ) == static_cast<int32_t>( VidLoop.size() ) ) )
+        if ( !UE_ENSURE( EdgeLoop.size() == VidLoop.size() ) )
             return false;
         for ( int32_t QuadIndex = 0; QuadIndex < static_cast<int32_t>( EdgeLoop.size() ); ++QuadIndex )
         {

@@ -204,8 +204,7 @@ namespace Desert::Geometry
         const FEdgeLoop*         Longest = nullptr;
         for ( const FEdgeLoop& Loop : Loops.Loops )
         {
-            if ( Longest == nullptr ||
-                 static_cast<int32_t>( Loop.Vertices.size() ) > static_cast<int32_t>( Longest->Vertices.size() ) )
+            if ( Longest == nullptr || Loop.Vertices.size() > Longest->Vertices.size() )
                 Longest = &Loop;
         }
         if ( Longest == nullptr )

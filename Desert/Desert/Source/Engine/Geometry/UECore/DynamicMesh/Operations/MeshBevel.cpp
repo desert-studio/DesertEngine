@@ -1999,8 +1999,7 @@ namespace Desert::Geometry
             Refuse( Where + ": " + Error );
             return;
         }
-        if ( static_cast<int32_t>( QuadStripEdgeVerts0.size() ) !=
-             static_cast<int32_t>( QuadStripEdgeVerts1.size() ) )
+        if ( QuadStripEdgeVerts0.size() != QuadStripEdgeVerts1.size() )
         {
             Refuse( Where + ": their end columns have " +
                     std::to_string( static_cast<int32_t>( QuadStripEdgeVerts0.size() ) ) + " and " +
@@ -2612,8 +2611,7 @@ namespace Desert::Geometry
                     const int32_t Index = static_cast<int32_t>( Found - NbrMaterialIDs.begin() );
                     if ( Found == NbrMaterialIDs.end() )
                         NbrMaterialIDs.push_back( MaterialID );
-                    if ( static_cast<int32_t>( NbrMaterialIDCounts.size() ) !=
-                         static_cast<int32_t>( NbrMaterialIDs.size() ) )
+                    if ( NbrMaterialIDCounts.size() != NbrMaterialIDs.size() )
                         NbrMaterialIDCounts.push_back( 0 );
                     NbrMaterialIDCounts[Index]++;
                 }

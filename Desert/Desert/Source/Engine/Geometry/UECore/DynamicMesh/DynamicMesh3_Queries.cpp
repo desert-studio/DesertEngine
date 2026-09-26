@@ -302,9 +302,8 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
         SpanLengths.push_back( static_cast<int32_t>( TrianglesOut.size() ) - SpanStart );
     }
 
-    return UE_ENSURE( static_cast<int32_t>( SpanLengths.size() ) == static_cast<int32_t>( IsLoop.size() ) )
-                ? EMeshResult::Ok
-                : EMeshResult::Failed_InvalidNeighbourhood;
+    return UE_ENSURE( SpanLengths.size() == IsLoop.size() ) ? EMeshResult::Ok
+                                                            : EMeshResult::Failed_InvalidNeighbourhood;
 }
 
 template EMeshResult FDynamicMesh3::GetVtxContiguousTriangles<std::vector<int32_t>, std::vector<bool>>(
