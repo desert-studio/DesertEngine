@@ -44,13 +44,13 @@ namespace Desert::Core
             return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] {0}. Nothing was loaded.", moved.GetError() ) );
 
-        auto document = Common::Json::Parse( json );
+        auto document = Common::Json::TextDocument::Parse( json );
         if ( !document )
             return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}' is not a readable scene file: {1}. Nothing was loaded.",
                               source, document.GetError() ) );
 
-        auto parsed = Common::Json::Root( document.GetValue() ).AsDocument<SceneSerialized>();
+        auto parsed = document.GetValue().AsDocument<SceneSerialized>();
         if ( !parsed )
             return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}' is not a readable scene file: {1}. Nothing was loaded.",
@@ -75,15 +75,19 @@ namespace Desert::Core
         return Common::MakeSuccess( LoadableScene{ document.ExtractValue(), parsed.ExtractValue() } );
     }
 
-    Common::Json::Value ComposeSceneDocument( const SceneSerialized&                    fresh,
-                                              const std::optional<Common::Json::Value>& loaded,
-                                              const Serialize::KeyIsOurs&               entityKeyIsOurs )
+    Common::ResultStr<Common::Json::TextDocument>
+    ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
+                          const Serialize::KeyIsOurs& entityKeyIsOurs )
     {
-        Common::Json::Value written = Common::Json::FromStruct( fresh );
+        auto written = Common::Json::TextDocument::Parse( Common::Json::Write( fresh ) );
+        if ( !written )
+            return Common::MakeError<Common::Json::TextDocument>(
+                 fmt::format( "[SceneSerializer] '{0}': the typed writer's output is not JSON ({1})",
+                              fresh.SceneName, written.GetError() ) );
         if ( !loaded.has_value() )
             return written;
-        return Common::Json::Value( Serialize::MergeSceneDocument(
-             Common::Json::Root( written ), Common::Json::Root( *loaded ), entityKeyIsOurs ) );
+        return Common::MakeSuccess(
+             Serialize::MergeSceneDocument( written.GetValue(), *loaded, entityKeyIsOurs ) );
     }
 
 } // namespace Desert::Core

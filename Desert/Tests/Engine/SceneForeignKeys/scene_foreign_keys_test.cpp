@@ -76,28 +76,30 @@ namespace
         return rfl::json::write( object );
     }
 
-    // The merge walks Nodes over values; the fixtures here are parsed objects, so each call wraps them.
+    // The merge runs on TextDocuments (Common/Json/Carry.hpp); the rule fixtures here are small objects with
+    // small numbers, so each call carries them across as text and back.
+    Common::Json::TextDocument AsText( const Common::Json::Object& object )
+    {
+        auto document = Common::Json::TextDocument::Parse( rfl::json::write( object ) );
+        EXPECT_TRUE( static_cast<bool>( document ) );
+        return document.ExtractValue();
+    }
     Common::Json::Object MergeObjects( const Common::Json::Object& fresh, const Common::Json::Object& source,
                                        const Desert::Core::Serialize::KeyIsOurs& ours )
     {
-        const Common::Json::Value f( fresh );
-        const Common::Json::Value s( source );
-        return Desert::Core::Serialize::MergeObjects( Common::Json::Root( f ), Common::Json::Root( s ), ours );
+        return Parse( Desert::Core::Serialize::MergeObjects( AsText( fresh ), AsText( source ), ours ).Text() );
     }
     Common::Json::Object MergeSceneDocument( const Common::Json::Object& fresh, const Common::Json::Object& source,
                                              const Desert::Core::Serialize::KeyIsOurs& ours )
     {
-        const Common::Json::Value f( fresh );
-        const Common::Json::Value s( source );
-        return Desert::Core::Serialize::MergeSceneDocument( Common::Json::Root( f ), Common::Json::Root( s ),
-                                                            ours );
+        return Parse(
+             Desert::Core::Serialize::MergeSceneDocument( AsText( fresh ), AsText( source ), ours ).Text() );
     }
     void CountForeignKeysAtLevel( const Common::Json::Object&               source,
                                   const Desert::Core::Serialize::KeyIsOurs& ours,
                                   std::map<std::string, int>&               into )
     {
-        const Common::Json::Value s( source );
-        Desert::Core::Serialize::CountForeignKeysAtLevel( Common::Json::Root( s ), ours, into );
+        Desert::Core::Serialize::CountForeignKeysAtLevel( AsText( source ).KeysAt(), ours, into );
     }
 
     KeyIsOurs Owns( std::vector<std::string> names )
@@ -456,9 +458,12 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskIsUnchangedByAWholeDocumentRoundTrip )
     for ( const auto& path : scenes )
     {
         SCOPED_TRACE( path.string() );
-        const std::string source   = ReadAll( path );
-        const auto        document = Parse( source );
-        EXPECT_EQ( Write( MergeSceneDocument( document, document, NothingIsOurs() ) ), Write( document ) );
+        auto document = Common::Json::TextDocument::Parse( ReadAll( path ) );
+        ASSERT_TRUE( static_cast<bool>( document ) ) << document.GetError();
+        EXPECT_EQ( Desert::Core::Serialize::MergeSceneDocument( document.GetValue(), document.GetValue(),
+                                                                NothingIsOurs() )
+                        .Text(),
+                   document.GetValue().Text() );
     }
 }
 
@@ -478,12 +483,50 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoaders
         const auto        loadable = Desert::Core::ParseLoadableScene( path.string(), bytes );
         ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
 
-        const std::optional<Common::Json::Value> document = loadable.GetValue().Document;
-        const auto                               written  = Common::Json::WriteCanonical(
-             Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() ) );
+        const std::optional<Common::Json::TextDocument> document = loadable.GetValue().Document;
+        const auto                                      composed =
+             Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() );
+        ASSERT_TRUE( static_cast<bool>( composed ) ) << composed.GetError();
+        const auto written = Common::Json::WriteCanonical( composed.GetValue() );
         ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
         EXPECT_TRUE( written.GetValue() == bytes ) << FirstDifference( written.GetValue(), bytes );
     }
+}
+
+// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (rfl::Generic) has no
+// unsigned 64-bit number, and the pre-fix save re-read the scene as a Value before the merge, so every save of a
+// loaded scene wrote such an id NEGATIVE (the same bits, different text: 9365333062700381311 came out as
+// -9081411011009170305). Pinned on the committed scene that showed it, through the loader's parse and the
+// saver's compose, and on a record whose id a pre-fix save already spelled negative: it is still matched, so
+// the key another build put on it is carried rather than dropped.
+TEST( ForeignKeysCorpus, AnIdAtOrAbove2To63SurvivesLoadAndSaveUnsigned )
+{
+    const std::filesystem::path path =
+         std::filesystem::path( RepoRoot() ) / "Editor/Resources/Assets/Scenes/UI_OverScene.desce";
+    const std::string bytes = ReadAll( path );
+    ASSERT_NE( bytes.find( "\"id\": 9365333062700381311" ), std::string::npos ) << "the fixture id moved";
+
+    const auto loadable = Desert::Core::ParseLoadableScene( path.string(), bytes );
+    ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
+    const std::optional<Common::Json::TextDocument> document = loadable.GetValue().Document;
+    const auto                                      composed =
+         Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() );
+    ASSERT_TRUE( static_cast<bool>( composed ) ) << composed.GetError();
+    const auto written = Common::Json::WriteCanonical( composed.GetValue() );
+    ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
+    EXPECT_NE( written.GetValue().find( "\"id\": 9365333062700381311" ), std::string::npos );
+    EXPECT_EQ( written.GetValue().find( "-9081411011009170305" ), std::string::npos )
+         << "the id was written negative";
+    EXPECT_TRUE( written.GetValue() == bytes ) << FirstDifference( written.GetValue(), bytes );
+
+    auto fresh = Common::Json::TextDocument::Parse( R"({"Entities":[{"id":9365333062700381311,"Tag":"A"}]})" );
+    auto source =
+         Common::Json::TextDocument::Parse( R"({"Entities":[{"id":-9081411011009170305,"Tag":"A","Alien":1}]})" );
+    ASSERT_TRUE( fresh && source );
+    EXPECT_EQ( Desert::Core::Serialize::MergeSceneDocument( fresh.GetValue(), source.GetValue(),
+                                                            Owns( { "id", "Tag" } ) )
+                    .Text(),
+               R"({"Entities":[{"id":9365333062700381311,"Tag":"A","Alien":1}]})" );
 }
 
 // A key another build added at the TOP of the file: the gate tolerates it (refusing it would refuse that build's
@@ -501,9 +544,11 @@ TEST( ForeignKeysCorpus, AKeyAnotherBuildAddedAtTheTopIsReadPastAndWrittenBackIn
     const auto loadable = Desert::Core::ParseLoadableScene( "Foreign.desce", bytes );
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
 
-    const std::optional<Common::Json::Value> document = loadable.GetValue().Document;
-    const auto                               written  = Common::Json::WriteCanonical(
-         Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() ) );
+    const std::optional<Common::Json::TextDocument> document = loadable.GetValue().Document;
+    const auto                                      composed =
+         Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() );
+    ASSERT_TRUE( static_cast<bool>( composed ) ) << composed.GetError();
+    const auto written = Common::Json::WriteCanonical( composed.GetValue() );
     ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
     const auto at = written.GetValue().find( "\"ForeignTop\"" );
     ASSERT_NE( at, std::string::npos ) << "the foreign key was lost by the save";

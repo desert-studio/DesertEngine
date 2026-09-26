@@ -186,7 +186,7 @@ namespace Desert::Core
     {
     }
 
-    Common::Json::Value SceneSerializer::SerializeToDocument() const
+    Common::ResultStr<Common::Json::TextDocument> SceneSerializer::SerializeToDocument() const
     {
         SceneSerialized scene;
         // The GUID survives the save (StampTextHeader keeps the loaded one); a scene that never had one gets
@@ -324,7 +324,15 @@ namespace Desert::Core
 
     std::string SceneSerializer::SerializeToJson() const
     {
-        return Common::Json::Write( SerializeToDocument() );
+        // Every caller refuses an empty text with its own reason (the save, the autosave, the Play snapshot,
+        // the device-lost recovery); the cause is logged here, where it is known.
+        auto document = SerializeToDocument();
+        if ( !document )
+        {
+            LOG_ERROR( "{0}. The scene was not serialized.", document.GetError() );
+            return {};
+        }
+        return document.GetValue().Text();
     }
 
     Common::BoolResultStr SceneSerializer::DeserializeFromJson( const std::string& json,
@@ -369,23 +377,19 @@ namespace Desert::Core
         {
             std::map<std::string, int> foreign;
             // Counted on the document the gate parsed - there is no second parse to disagree with the first.
-            const Common::Json::Node document = Common::Json::Root( loaded.Document );
-            Serialize::CountForeignKeysAtLevel( document, NamesIn( Common::Json::MemberNames<SceneSerialized>() ),
-                                                foreign );
-            if ( const auto settings = document.Find( "Settings" ); settings.has_value() )
-                if ( const auto* st = Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
-                {
-                    std::vector<std::string> fields;
-                    for ( const auto& field : st->Fields )
-                        fields.push_back( field.Name );
-                    Serialize::CountForeignKeysAtLevel( *settings, NamesIn( fields ), foreign );
-                }
-            if ( const auto entities = document.Find( "Entities" ); entities.has_value() )
+            const Common::Json::TextDocument& document = loaded.Document;
+            Serialize::CountForeignKeysAtLevel( document.KeysAt(),
+                                                NamesIn( Common::Json::MemberNames<SceneSerialized>() ), foreign );
+            if ( const auto* st = Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
             {
-                const auto ours = EntityRecordKeyIsOurs();
-                entities->ForEachElement( [&]( std::size_t, const Common::Json::Node& record )
-                                          { Serialize::CountForeignKeysAtLevel( record, ours, foreign ); } );
+                std::vector<std::string> fields;
+                for ( const auto& field : st->Fields )
+                    fields.push_back( field.Name );
+                Serialize::CountForeignKeysAtLevel( document.KeysAt( "Settings" ), NamesIn( fields ), foreign );
             }
+            const auto ours = EntityRecordKeyIsOurs();
+            for ( const auto& record : document.RecordKeysAt( "Entities" ) )
+                Serialize::CountForeignKeysAtLevel( record, ours, foreign );
 
             if ( const std::string named = Serialize::DescribeForeignKeys( foreign ); !named.empty() )
                 LOG_WARN( "[SceneSerializer] '{0}' states {1} key(s) this build does not declare: {2}. "
@@ -688,7 +692,11 @@ namespace Desert::Core
 
         // The file is the canonical text (AF6), not the writer's single line: one field per line is what makes a
         // scene's git diff name the fields that changed and two edits to different entities merge.
-        const auto text = Common::Json::WriteCanonical( SerializeToDocument() );
+        const auto document = SerializeToDocument();
+        if ( !document )
+            return Common::MakeFormattedError( "could not save '{}': {}", m_Scene->GetSceneName(),
+                                               document.GetError() );
+        const auto text = Common::Json::WriteCanonical( document.GetValue() );
         if ( !text )
             return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),
                                                text.GetError() );

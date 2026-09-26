@@ -23,7 +23,7 @@ namespace Desert::Core
         std::string SerializeToJson() const;
         /// The document a save writes (ComposeSceneDocument): this build's tree with the loaded file's foreign
         /// keys merged back. SerializeToJson writes it as one line, SaveToFile in the canonical layout.
-        [[nodiscard]] Common::Json::Value SerializeToDocument() const;
+        [[nodiscard]] Common::ResultStr<Common::Json::TextDocument> SerializeToDocument() const;
 
         /// Loads a scene from the JSON text of a .desce file into the scene this serializer was made for.
         ///
