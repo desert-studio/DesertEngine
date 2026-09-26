@@ -58,7 +58,6 @@
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: the glm/UUID adapters plus the json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -412,7 +411,7 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     {
         std::ofstream out( scratch / "M_Dangling.demat" );
         ASSERT_TRUE( out.is_open() );
-        // No `Header`, on purpose: `ReferencesUnder` reads through `rfl::json::read<MaterialData>` and
+        // No `Header`, on purpose: `ReferencesUnder` reads through `Common::Json::Read<MaterialData>` and
         // `Header` is optional, so this fixture stays the minimal shape the census actually needs.
         out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
             << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
@@ -495,34 +494,35 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
     ASSERT_FALSE( handleNames.empty() ) << "no unambiguous AssetHandle field names were found";
 
     // Recursive walk of one parsed document, reporting every offending occurrence rather than the first.
-    std::vector<std::string>                                       offences;
-    std::function<void( const Common::Json::Value&, const std::string& )> visit =
-         [&]( const Common::Json::Value& node, const std::string& file )
+    std::vector<std::string>                                             offences;
+    std::function<void( const Common::Json::Node&, const std::string& )> visit =
+         [&]( const Common::Json::Node& node, const std::string& file )
     {
-        if ( const auto object = node.to_object() )
+        if ( node.GetKind() == Common::Json::Kind::Object )
         {
-            for ( const auto& [key, value] : object.value() )
-            {
-                // A NUMBER specifically, not merely "not a string". A key is not owned by the field
-                // census: `"Material"` is both an AssetHandle field (Terrain's slot) AND the component
-                // key the inline MaterialComponent serializes under, and the latter is an OBJECT. Flagging
-                // "not a string" reported 24 of those in one scene as if the format were broken. The
-                // defect being held here is one concept written as two TYPES — string and integer — so
-                // the integer is what the test looks for, and an object simply means the name is being
-                // used for something that is not a reference at all.
-                if ( handleNames.count( key ) != 0 &&
-                     ( value.to_int64().has_value() || value.to_double().has_value() ) )
-                {
-                    offences.push_back( file + ": '" + key + "' is written as a number, not a string" );
-                }
-                visit( value, file );
-            }
+            node.ForEachMember(
+                 [&]( std::string_view key, const Common::Json::Node& value )
+                 {
+                     // A NUMBER specifically, not merely "not a string". A key is not owned by the field
+                     // census: `"Material"` is both an AssetHandle field (Terrain's slot) AND the
+                     // component key the inline MaterialComponent serializes under, and the latter is an
+                     // OBJECT. Flagging "not a string" reported 24 of those in one scene as if the format
+                     // were broken. The defect being held here is one concept written as two TYPES —
+                     // string and integer — so the integer is what the test looks for, and an object
+                     // simply means the name is being used for something that is not a reference at all.
+                     if ( handleNames.count( std::string( key ) ) != 0 && value.AsNumber() )
+                     {
+                         offences.push_back( file + ": '" + std::string( key ) +
+                                             "' is written as a number, not a string" );
+                     }
+                     visit( value, file );
+                 } );
             return;
         }
-        if ( const auto array = node.to_array() )
+        if ( node.GetKind() == Common::Json::Kind::Array )
         {
-            for ( const auto& element : array.value() )
-                visit( element, file );
+            node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                 { visit( element, file ); } );
         }
     };
 
@@ -553,7 +553,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
             if ( !parsed )
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
-            visit( parsed.GetValue(),
+            visit( Common::Json::Root( parsed.GetValue() ),
                    fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string() );
         }
     }

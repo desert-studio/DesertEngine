@@ -30,7 +30,8 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp> // SceneSerialized - the corpus block at the bottom
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -533,16 +534,17 @@ TEST( SceneStitchCorpus, EverySceneStitchesWithNothingShadowedMintedOrUnresolved
 {
     for ( const auto& path : RepositoryScenes() )
     {
-        const auto parsed = rfl::json::read<Desert::Core::SceneSerialized>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        const auto parsed = Common::Json::Read<Desert::Core::SceneSerialized>( ReadAll( path ) );
+        ASSERT_TRUE( parsed ) << path.string() << ": " << parsed.GetError();
 
         const StitchPlan plan =
-             PlanSceneStitch( parsed->Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
+             PlanSceneStitch( parsed.GetValue().Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
 
         EXPECT_EQ( plan.Shadowed, 0u ) << path.string();
         EXPECT_EQ( plan.Minted, 0u ) << path.string();
         EXPECT_EQ( plan.UnresolvedParents, 0u ) << path.string();
-        EXPECT_EQ( plan.Created.size() + plan.PrefabRecords.size(), parsed->Entities.size() ) << path.string();
+        EXPECT_EQ( plan.Created.size() + plan.PrefabRecords.size(), parsed.GetValue().Entities.size() )
+             << path.string();
     }
 }
 
@@ -561,16 +563,16 @@ TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInSiblingOrder )
 {
     for ( const auto& path : RepositoryScenes() )
     {
-        const auto parsed = rfl::json::read<Desert::Core::SceneSerialized>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        const auto parsed = Common::Json::Read<Desert::Core::SceneSerialized>( ReadAll( path ) );
+        ASSERT_TRUE( parsed ) << path.string() << ": " << parsed.GetError();
 
         const StitchPlan plan =
-             PlanSceneStitch( parsed->Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
+             PlanSceneStitch( parsed.GetValue().Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
 
         std::vector<size_t> nonPrefab;
-        for ( size_t record = 0; record < parsed->Entities.size(); ++record )
+        for ( size_t record = 0; record < parsed.GetValue().Entities.size(); ++record )
         {
-            if ( !parsed->Entities[record].PrefabPath.has_value() )
+            if ( !parsed.GetValue().Entities[record].PrefabPath.has_value() )
             {
                 nonPrefab.push_back( record );
             }
@@ -581,8 +583,8 @@ TEST( SceneStitchCorpus, EverySceneRecordBecomesItsOwnEntityInSiblingOrder )
         std::stable_sort( nonPrefab.begin(), nonPrefab.end(),
                           [&]( size_t a, size_t b )
                           {
-                              return Desert::Core::Rules::SiblingIndexOf( parsed->Entities[a] ) <
-                                     Desert::Core::Rules::SiblingIndexOf( parsed->Entities[b] );
+                              return Desert::Core::Rules::SiblingIndexOf( parsed.GetValue().Entities[a] ) <
+                                     Desert::Core::Rules::SiblingIndexOf( parsed.GetValue().Entities[b] );
                           } );
         ASSERT_EQ( plan.Created.size(), nonPrefab.size() ) << path.string();
 
@@ -614,13 +616,13 @@ TEST( SceneStitchCorpus, ThePoliciesDifferExactlyOnTheScenesThatNameAPrefab )
 
     for ( const auto& path : RepositoryScenes() )
     {
-        const auto parsed = rfl::json::read<Desert::Core::SceneSerialized>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        const auto parsed = Common::Json::Read<Desert::Core::SceneSerialized>( ReadAll( path ) );
+        ASSERT_TRUE( parsed ) << path.string() << ": " << parsed.GetError();
 
         const StitchPlan listed =
-             PlanSceneStitch( parsed->Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
+             PlanSceneStitch( parsed.GetValue().Entities, CountingMint(), PrefabRecordPolicy::InstantiatedLater );
         const StitchPlan inPlace =
-             PlanSceneStitch( parsed->Entities, CountingMint(), PrefabRecordPolicy::CreatedInPlace );
+             PlanSceneStitch( parsed.GetValue().Entities, CountingMint(), PrefabRecordPolicy::CreatedInPlace );
 
         if ( listed.PrefabRecords.empty() )
         {
@@ -642,9 +644,9 @@ TEST( SceneStitchCorpus, ThePoliciesDifferExactlyOnTheScenesThatNameAPrefab )
         for ( const auto& prefab : listed.PrefabRecords )
         {
             EXPECT_EQ( prefab.Slot, kNoSlot ) << path.string() << ": a listed prefab takes no slot";
-            EXPECT_TRUE( parsed->Entities[prefab.Record].PrefabPath.has_value() ) << path.string();
+            EXPECT_TRUE( parsed.GetValue().Entities[prefab.Record].PrefabPath.has_value() ) << path.string();
             // And it knows where its body hangs, which is what the loader and PrefabFactory read.
-            if ( parsed->Entities[prefab.Record].parent.has_value() )
+            if ( parsed.GetValue().Entities[prefab.Record].parent.has_value() )
             {
                 EXPECT_LT( prefab.Parent, listed.Created.size() )
                      << path.string()
@@ -666,7 +668,7 @@ TEST( SceneStitchCorpus, ThePoliciesDifferExactlyOnTheScenesThatNameAPrefab )
 // 9e. And the records everything above is planned over are the records the FILE has - checked against the
 // same file read with no type at all (rfl::Generic: whatever JSON is actually in there).
 //
-// WHY THIS IS NEEDED. 9b..9d assert things about `parsed->Entities`, which is what SURVIVED the typed
+// WHY THIS IS NEEDED. 9b..9d assert things about `parsed.GetValue().Entities`, which is what SURVIVED the typed
 // read. If EntityData had no home for a field, or dropped a record, the plan would be clean and this suite
 // would report the corpus clean - about a corpus it had never seen. So the three inputs the stitch
 // actually decides on - how many records there are, the id each one claims, and the parent it names - are
@@ -683,36 +685,41 @@ TEST( SceneStitchCorpus, EveryRecordTheFileHasIsARecordTheStitchSees )
     {
         const std::string source = ReadAll( path );
 
-        const auto typed = rfl::json::read<Desert::Core::SceneSerialized>( source );
-        ASSERT_TRUE( typed.has_value() ) << path.string();
+        const auto typed = Common::Json::Read<Desert::Core::SceneSerialized>( source );
+        ASSERT_TRUE( typed ) << path.string() << ": " << typed.GetError();
 
-        const auto raw = rfl::json::read<rfl::Generic>( source );
-        ASSERT_TRUE( raw.has_value() ) << path.string();
-        const auto rawObject = raw->to_object();
-        ASSERT_TRUE( rawObject.has_value() ) << path.string();
-        const auto rawEntities = rawObject.value().get( "Entities" ).value().to_array();
-        ASSERT_TRUE( rawEntities.has_value() ) << path.string();
+        const auto raw = Common::Json::Parse( source );
+        ASSERT_TRUE( raw ) << path.string() << ": " << raw.GetError();
+        const Common::Json::Node rawRoot         = Common::Json::Root( raw.GetValue() );
+        const auto               rawEntitiesNode = rawRoot.Get( "Entities" );
+        ASSERT_TRUE( rawEntitiesNode ) << path.string() << ": " << rawEntitiesNode.GetError();
+        std::vector<Common::Json::Node> rawEntities;
+        rawEntitiesNode.GetValue().ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                                   { rawEntities.push_back( element ); } );
 
-        ASSERT_EQ( rawEntities.value().size(), typed->Entities.size() ) << path.string();
+        ASSERT_EQ( rawEntities.size(), typed.GetValue().Entities.size() ) << path.string();
 
-        for ( size_t record = 0; record < typed->Entities.size(); ++record )
+        for ( size_t record = 0; record < typed.GetValue().Entities.size(); ++record )
         {
-            const auto rawRecord = rawEntities.value()[record].to_object();
-            ASSERT_TRUE( rawRecord.has_value() ) << path.string();
+            const Common::Json::Node& rawRecord   = rawEntities[record];
+            const auto&               typedRecord = typed.GetValue().Entities[record];
+            ASSERT_EQ( rawRecord.GetKind(), Common::Json::Kind::Object ) << path.string();
 
-            const auto rawId = rawRecord.value().get( "id" );
-            ASSERT_EQ( rawId.has_value(), typed->Entities[record].id.has_value() ) << path.string();
+            const auto rawId = rawRecord.Find( "id" );
+            ASSERT_EQ( rawId.has_value(), typedRecord.id.has_value() ) << path.string();
             if ( rawId.has_value() )
             {
-                const auto bits = static_cast<uint64_t>( rawId.value().to_int64().value() );
-                EXPECT_EQ( bits, (uint64_t)*typed->Entities[record].id ) << path.string();
+                const auto integer = rawId->AsInteger();
+                ASSERT_TRUE( integer ) << path.string() << ": " << integer.GetError();
+                const auto bits = static_cast<uint64_t>( integer.GetValue() );
+                EXPECT_EQ( bits, (uint64_t)*typedRecord.id ) << path.string();
             }
 
-            const auto rawParent = rawRecord.value().get( "parent" );
-            EXPECT_EQ( rawParent.has_value(), typed->Entities[record].parent.has_value() ) << path.string();
+            const auto rawParent = rawRecord.Find( "parent" );
+            EXPECT_EQ( rawParent.has_value(), typedRecord.parent.has_value() ) << path.string();
 
-            const auto rawPrefab = rawRecord.value().get( "PrefabPath" );
-            EXPECT_EQ( rawPrefab.has_value(), typed->Entities[record].PrefabPath.has_value() ) << path.string();
+            const auto rawPrefab = rawRecord.Find( "PrefabPath" );
+            EXPECT_EQ( rawPrefab.has_value(), typedRecord.PrefabPath.has_value() ) << path.string();
         }
     }
 }

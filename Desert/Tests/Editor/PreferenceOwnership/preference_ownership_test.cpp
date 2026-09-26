@@ -133,14 +133,14 @@ namespace
         if ( !parsed.IsSuccess() )
             return { "<unreadable>" };
 
-        const auto object = parsed.GetValue().to_object();
-        EXPECT_TRUE( object.has_value() ) << "not a JSON object: " << json;
-        if ( !object.has_value() )
+        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
+        EXPECT_EQ( root.GetKind(), Common::Json::Kind::Object ) << "not a JSON object: " << json;
+        if ( root.GetKind() != Common::Json::Kind::Object )
             return { "<not-an-object>" };
 
         std::vector<std::string> keys;
-        for ( const auto& [name, value] : object.value() )
-            keys.push_back( name );
+        root.ForEachMember( [&]( std::string_view name, const Common::Json::Node& )
+                            { keys.emplace_back( name ); } );
         return keys;
     }
 
@@ -151,13 +151,13 @@ namespace
         const auto parsed = Common::Json::Parse( json );
         if ( !parsed.IsSuccess() )
             return "<unreadable>";
-        const auto object = parsed.GetValue().to_object();
-        if ( !object.has_value() )
+        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
+        if ( root.GetKind() != Common::Json::Kind::Object )
             return "<not-an-object>";
-        const auto value = object.value().get( key );
+        const auto value = root.Find( key );
         if ( !value.has_value() )
             return "<missing>";
-        return Common::Json::Write( value.value() );
+        return Common::Json::Write( value->Raw() );
     }
 
     // Which keys of editor.json differ between two snapshots of it.
@@ -1258,17 +1258,11 @@ namespace
         const auto               whole = Common::Json::Parse( Common::Json::Write( EditorPreferences{} ) );
         if ( !whole.IsSuccess() )
             return names;
-        const auto root = whole.GetValue().to_object();
-        if ( !root.has_value() )
-            return names;
-        const auto view = root.value().get( "DebugView" );
+        const auto view = Common::Json::Root( whole.GetValue() ).Find( "DebugView" );
         if ( !view.has_value() )
             return names;
-        const auto fields = view.value().to_object();
-        if ( !fields.has_value() )
-            return names;
-        for ( const auto& entry : fields.value() )
-            names.push_back( entry.first );
+        view->ForEachMember( [&]( std::string_view name, const Common::Json::Node& )
+                             { names.emplace_back( name ); } );
         return names;
     }
 
@@ -1285,22 +1279,23 @@ namespace
         if ( !lhs.IsSuccess() || !rhs.IsSuccess() )
             return { "<unreadable>" };
 
-        const auto lhsObject = lhs.GetValue().to_object();
-        const auto rhsObject = rhs.GetValue().to_object();
-        if ( !lhsObject.has_value() || !rhsObject.has_value() )
+        const Common::Json::Node lhsObject = Common::Json::Root( lhs.GetValue() );
+        const Common::Json::Node rhsObject = Common::Json::Root( rhs.GetValue() );
+        if ( lhsObject.GetKind() != Common::Json::Kind::Object ||
+             rhsObject.GetKind() != Common::Json::Kind::Object )
             return { "<not-an-object>" };
 
         std::vector<std::string> differing;
         for ( const std::string& key : DebugViewFields() )
         {
-            const auto a = lhsObject.value().get( key );
-            const auto b = rhsObject.value().get( key );
+            const auto a = lhsObject.Find( key );
+            const auto b = rhsObject.Find( key );
             if ( !a.has_value() || !b.has_value() )
             {
                 differing.push_back( key + " <missing>" );
                 continue;
             }
-            if ( Common::Json::Write( a.value() ) != Common::Json::Write( b.value() ) )
+            if ( Common::Json::Write( a->Raw() ) != Common::Json::Write( b->Raw() ) )
                 differing.push_back( key );
         }
         return differing;

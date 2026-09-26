@@ -76,48 +76,37 @@ namespace
         EXPECT_TRUE( parsed.IsSuccess() ) << path;
         if ( !parsed.IsSuccess() )
             return data;
-        const auto object = parsed.GetValue().to_object();
-        EXPECT_TRUE( object.has_value() ) << path;
-        if ( !object.has_value() )
-            return data;
+        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
+        EXPECT_EQ( root.GetKind(), Common::Json::Kind::Object ) << path;
 
-        const auto params = object.value().get( "Params" );
+        const auto params = root.Find( "Params" );
         if ( !params.has_value() )
             return data;
 
-        // BOUND TO A NAMED LOCAL, and it has to be. `for (auto& n : params.value().to_array().value())`
-        // compiles, runs, and iterates nothing: to_array() returns a Result BY VALUE, .value() hands
-        // back a reference into it, and a range-for only lifetime-extends the final temporary — the
-        // Result is destroyed before the first iteration. It cost a debugging round here, silently
-        // reporting every shipped material as stating no parameters at all.
-        const auto entries = params.value().to_array();
-        if ( !entries.has_value() )
-            return data;
+        params->ForEachElement(
+             [&]( std::size_t, const Common::Json::Node& entry )
+             {
+                 const auto name  = entry.Find( "Name" );
+                 const auto value = entry.Find( "Value" );
+                 if ( !name.has_value() || !value.has_value() )
+                     return;
+                 const auto nameText = name->AsString();
+                 if ( !nameText )
+                     return;
 
-        for ( const auto& node : entries.value() )
-        {
-            const auto entry = node.to_object();
-            if ( !entry.has_value() )
-                continue;
-            const auto name  = entry.value().get( "Name" );
-            const auto value = entry.value().get( "Value" );
-            if ( !name.has_value() || !name.value().to_string().has_value() )
-                continue;
-            if ( !value.has_value() )
-                continue;
-            const auto valueArray = value.value().to_array();
-            if ( !valueArray.has_value() || valueArray.value().size() < 4 )
-                continue;
-            const auto& components = valueArray.value();
+                 std::vector<float> components;
+                 value->ForEachElement(
+                      [&]( std::size_t, const Common::Json::Node& component )
+                      {
+                          const auto d = component.AsNumber();
+                          components.push_back( d ? static_cast<float>( d.GetValue() ) : 0.0f );
+                      } );
+                 if ( components.size() < 4 )
+                     return;
 
-            glm::vec4 v( 0.0f );
-            for ( int i = 0; i < 4; ++i )
-            {
-                const auto d = components[i].to_double();
-                v[i]         = d.has_value() ? static_cast<float>( d.value() ) : 0.0f;
-            }
-            data.SetParam( name.value().to_string().value(), v );
-        }
+                 data.SetParam( nameText.GetValue(),
+                                glm::vec4( components[0], components[1], components[2], components[3] ) );
+             } );
         return data;
     }
 

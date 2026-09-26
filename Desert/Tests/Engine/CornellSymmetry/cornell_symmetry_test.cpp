@@ -128,69 +128,79 @@ namespace
         return buffer.str();
     }
 
-    Common::Json::Object ParseObject( const std::string& json, const std::string& what )
+    // The whole document, owned; everything below reads it through Common::Json::Node views.
+    Common::Json::Value ParseObject( const std::string& json, const std::string& what )
     {
         const auto parsed = Common::Json::Parse( json );
         EXPECT_TRUE( parsed.IsSuccess() ) << what;
         if ( !parsed.IsSuccess() )
-            return {};
-        const auto object = parsed.GetValue().to_object();
-        EXPECT_TRUE( object.has_value() ) << what;
-        return object.has_value() ? object.value() : Common::Json::Object{};
+            return Common::Json::Value( Common::Json::Object{} );
+        EXPECT_EQ( Common::Json::Root( parsed.GetValue() ).GetKind(), Common::Json::Kind::Object ) << what;
+        return parsed.GetValue();
     }
 
-    float Scalar( const Common::Json::Value& value )
+    float Scalar( const Common::Json::Node& value )
     {
-        if ( const auto d = value.to_double(); d.has_value() )
-            return static_cast<float>( d.value() );
-        if ( const auto i = value.to_int64(); i.has_value() )
-            return static_cast<float>( i.value() );
-        return std::numeric_limits<float>::quiet_NaN();
+        const auto number = value.AsNumber();
+        return number ? static_cast<float>( number.GetValue() ) : std::numeric_limits<float>::quiet_NaN();
     }
 
-    glm::vec3 Vec3( const Common::Json::Object& owner, const std::string& key )
+    float ScalarMember( const Common::Json::Node& owner, const std::string& key )
     {
-        const auto field = owner.get( key );
-        EXPECT_TRUE( field.has_value() ) << key;
-        if ( !field.has_value() )
+        const auto field = owner.Get( key );
+        EXPECT_TRUE( field ) << field.GetError();
+        return field ? Scalar( field.GetValue() ) : std::numeric_limits<float>::quiet_NaN();
+    }
+
+    std::vector<Common::Json::Node> Elements( const Common::Json::Node& array )
+    {
+        std::vector<Common::Json::Node> out;
+        array.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                              { out.push_back( element ); } );
+        return out;
+    }
+
+    glm::vec3 Vec3( const Common::Json::Node& owner, const std::string& key )
+    {
+        const auto field = owner.Get( key );
+        EXPECT_TRUE( field ) << field.GetError();
+        if ( !field )
             return {};
-        const auto array = field.value().to_array();
-        EXPECT_TRUE( array.has_value() ) << key;
-        if ( !array.has_value() || array.value().size() < 3 )
+        EXPECT_EQ( field.GetValue().GetKind(), Common::Json::Kind::Array ) << key;
+        const auto array = Elements( field.GetValue() );
+        if ( array.size() < 3 )
             return {};
-        return { Scalar( array.value()[0] ), Scalar( array.value()[1] ), Scalar( array.value()[2] ) };
+        return { Scalar( array[0] ), Scalar( array[1] ), Scalar( array[2] ) };
     }
 
     // One entity of CornellDemo, reduced to what a lighting question needs.
     struct Entity
     {
-        Common::Json::Object Record;
-        glm::vec3            Translation{ 0.0f };
-        glm::vec3            Scale{ 1.0f };
+        Common::Json::Value Record;
+        glm::vec3           Translation{ 0.0f };
+        glm::vec3           Scale{ 1.0f };
     };
 
-    Entity EntityByTag( const Common::Json::Object& scene, const std::string& tag )
+    Entity EntityByTag( const Common::Json::Value& scene, const std::string& tag )
     {
-        const auto entities = scene.get( "Entities" ).value().to_array();
-        EXPECT_TRUE( entities.has_value() );
-        if ( !entities.has_value() )
+        const auto entities = Common::Json::Root( scene ).Get( "Entities" );
+        EXPECT_TRUE( entities ) << entities.GetError();
+        if ( !entities )
             return {};
 
-        for ( const auto& node : entities.value() )
+        for ( const Common::Json::Node& record : Elements( entities.GetValue() ) )
         {
-            const auto record = node.to_object();
-            if ( !record.has_value() )
+            const auto name = record.Find( "Tag" );
+            if ( !name.has_value() )
                 continue;
-            const auto name = record.value().get( "Tag" );
-            if ( !name.has_value() || !name.value().to_string().has_value() )
-                continue;
-            if ( name.value().to_string().value() != tag )
+            const auto text = name->AsString();
+            if ( !text || text.GetValue() != tag )
                 continue;
 
             Entity found;
-            found.Record      = record.value();
-            found.Translation = Vec3( record.value(), "Translation" );
-            found.Scale       = Vec3( record.value(), "Scale" );
+            found.Record      = record.Raw();
+            found.Translation = Vec3( record, "Translation" );
+            found.Scale       = Vec3( record, "Scale" );
             return found;
         }
         EXPECT_TRUE( false ) << "CornellDemo has no entity tagged " << tag;
@@ -209,40 +219,34 @@ namespace
 
     Material LoadMaterial( const std::string& root, const std::string& relativePath )
     {
-        const std::string path = root + "Editor/Resources/Assets/" + relativePath;
-        const auto        file = ParseObject( ReadAll( path ), path );
+        const std::string         path = root + "Editor/Resources/Assets/" + relativePath;
+        const Common::Json::Value file = ParseObject( ReadAll( path ), path );
 
         Material   material;
-        const auto params = file.get( "Params" );
-        EXPECT_TRUE( params.has_value() ) << path;
-        if ( !params.has_value() )
+        const auto params = Common::Json::Root( file ).Get( "Params" );
+        EXPECT_TRUE( params ) << path << ": " << params.GetError();
+        if ( !params )
             return material;
-        const auto list = params.value().to_array();
-        EXPECT_TRUE( list.has_value() ) << path;
-        if ( !list.has_value() )
-            return material;
+        EXPECT_EQ( params.GetValue().GetKind(), Common::Json::Kind::Array ) << path;
 
-        for ( const auto& node : list.value() )
+        for ( const Common::Json::Node& entry : Elements( params.GetValue() ) )
         {
-            const auto entry = node.to_object();
-            if ( !entry.has_value() )
+            const auto name  = entry.Find( "Name" );
+            const auto value = entry.Find( "Value" );
+            if ( !name.has_value() || !value.has_value() )
                 continue;
-            const auto name = entry.value().get( "Name" );
-            if ( !name.has_value() || !name.value().to_string().has_value() )
+            const auto key = name->AsString();
+            if ( !key )
                 continue;
-            const auto value = entry.value().get( "Value" );
-            if ( !value.has_value() || !value.value().to_array().has_value() )
-                continue;
-            const auto components = value.value().to_array().value();
+            const auto components = Elements( *value );
             if ( components.empty() )
                 continue;
 
-            const std::string key = name.value().to_string().value();
-            if ( key == "AlbedoColor" && components.size() >= 3 )
+            if ( key.GetValue() == "AlbedoColor" && components.size() >= 3 )
                 material.Albedo = { Scalar( components[0] ), Scalar( components[1] ), Scalar( components[2] ) };
-            else if ( key == "MetallicFactor" )
+            else if ( key.GetValue() == "MetallicFactor" )
                 material.Metallic = Scalar( components[0] );
-            else if ( key == "RoughnessFactor" )
+            else if ( key.GetValue() == "RoughnessFactor" )
                 material.Roughness = Scalar( components[0] );
         }
         return material;
@@ -250,15 +254,21 @@ namespace
 
     std::string MaterialPathOf( const Entity& entity )
     {
-        const auto mesh = entity.Record.get( "StaticMesh" );
-        EXPECT_TRUE( mesh.has_value() );
-        if ( !mesh.has_value() )
+        const auto paths = Common::Json::Root( entity.Record ).Get( "StaticMesh" );
+        EXPECT_TRUE( paths ) << paths.GetError();
+        if ( !paths )
             return {};
-        const auto paths = mesh.value().to_object().value().get( "MaterialPaths" ).value().to_array();
-        EXPECT_TRUE( paths.has_value() );
-        if ( !paths.has_value() || paths.value().empty() )
+        const auto list = paths.GetValue().Get( "MaterialPaths" );
+        EXPECT_TRUE( list ) << list.GetError();
+        if ( !list )
             return {};
-        return paths.value()[0].to_string().value();
+        const auto elements = Elements( list.GetValue() );
+        EXPECT_FALSE( elements.empty() );
+        if ( elements.empty() )
+            return {};
+        const auto first = elements[0].AsString();
+        EXPECT_TRUE( first ) << first.GetError();
+        return first ? first.GetValue() : std::string{};
     }
 
     // The point light as the shader receives it, straight out of the scene file.
@@ -272,22 +282,22 @@ namespace
         int       Falloff   = 1;
     };
 
-    PointLightPayload LoadPointLight( const Common::Json::Object& scene, const std::string& tag )
+    PointLightPayload LoadPointLight( const Common::Json::Value& scene, const std::string& tag )
     {
         const Entity entity = EntityByTag( scene, tag );
-        const auto   block  = entity.Record.get( "PointLight" );
-        EXPECT_TRUE( block.has_value() ) << tag;
-        if ( !block.has_value() )
+        const auto   block  = Common::Json::Root( entity.Record ).Get( "PointLight" );
+        EXPECT_TRUE( block ) << tag << ": " << block.GetError();
+        if ( !block )
             return {};
-        const auto data = block.value().to_object().value();
+        const Common::Json::Node& data = block.GetValue();
 
         PointLightPayload light;
         light.Position  = entity.Translation;
         light.Color     = Vec3( data, "Color" );
-        light.Intensity = Scalar( data.get( "Intensity" ).value() );
-        light.Radius    = Scalar( data.get( "Radius" ).value() );
-        light.MinRadius = Scalar( data.get( "MinRadius" ).value() );
-        light.Falloff   = static_cast<int>( Scalar( data.get( "Falloff" ).value() ) );
+        light.Intensity = ScalarMember( data, "Intensity" );
+        light.Radius    = ScalarMember( data, "Radius" );
+        light.MinRadius = ScalarMember( data, "MinRadius" );
+        light.Falloff   = static_cast<int>( ScalarMember( data, "Falloff" ) );
         return light;
     }
 
@@ -323,7 +333,7 @@ namespace
 
     struct Fixture
     {
-        Common::Json::Object Scene;
+        Common::Json::Value  Scene;
         Entity               Left;
         Entity               Right;
         PointLightPayload    Light;

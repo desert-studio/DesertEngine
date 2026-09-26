@@ -13,6 +13,7 @@
 //   5. THE COST. The query measures a few dozen squares on a 50 000-cell world, not 50 000, and one
 //      query's time is printed (Release is the number that counts).
 
+#include <Common/Json/Json.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 
 #include <gtest/gtest.h>
@@ -197,10 +198,10 @@ TEST( WorldPartitionStreaming, AlwaysLoadedCompositesAreWantedWithNoSourceAtAll 
     std::vector<EntityData> records( 3 );
     records[0].id                           = Common::UUID( 1 );
     records[0].Translation                  = glm::vec3( 0.0f );
-    records[0].Components["DirectionLight"] = rfl::Generic( rfl::Generic::Object{} );
+    records[0].Components["DirectionLight"] = Common::Json::Value( Common::Json::Object{} );
     records[1].id                           = Common::UUID( 2 );
     records[1].Translation                  = glm::vec3( 90000.0f, 0.0f, 90000.0f );
-    records[1].Components["AlwaysLoaded"]   = rfl::Generic( rfl::Generic::Object{} );
+    records[1].Components["AlwaysLoaded"]   = Common::Json::Value( Common::Json::Object{} );
     records[2].id                           = Common::UUID( 3 );
     records[2].Translation                  = glm::vec3( 500.0f, 0.0f, 500.0f );
 

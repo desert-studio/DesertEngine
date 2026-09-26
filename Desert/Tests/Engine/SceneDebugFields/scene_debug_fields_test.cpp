@@ -30,8 +30,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <gtest/gtest.h>
 
@@ -342,24 +341,21 @@ TEST( SceneDebugFieldsCorpus, NoSceneOnDiskStatesAnyDebugVisualization )
 
     for ( const auto& path : scenes )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string() << " is not readable JSON";
+        const auto parsed = Common::Json::Parse( ReadAll( path ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << path.string() << " is not readable JSON";
 
-        const auto root = parsed.value().to_object();
-        ASSERT_TRUE( root.has_value() ) << path.string() << " is not a JSON object";
+        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
+        ASSERT_EQ( root.GetKind(), Common::Json::Kind::Object ) << path.string() << " is not a JSON object";
 
-        const auto settings = root.value().get( "Settings" );
+        const auto settings = root.Find( "Settings" );
         if ( !settings.has_value() )
             continue; // a scene stating no settings at all states no debug flag either
 
-        const auto fields = settings.value().to_object();
-        if ( !fields.has_value() )
+        if ( settings->GetKind() != Common::Json::Kind::Object )
             continue; // malformed, and SceneVersionGate is the suite that fails on that
 
-        // `get` rather than `find`: rfl::Object is a vector of pairs whose `find` is private and answers
-        // with an index, so neither `== end()` nor a lookup by index is available here.
         for ( const std::string& key : forbidden )
-            EXPECT_FALSE( fields.value().get( key ).has_value() )
+            EXPECT_FALSE( settings->Find( key ).has_value() )
                  << path.string() << " states Settings." << key
                  << " - a viewport debug flag in a level file. Run Tools/SceneMigrator over it.";
     }

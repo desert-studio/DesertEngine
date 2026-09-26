@@ -15,13 +15,21 @@ project "FbxMeshSplitter"
     files {
         "**.cpp",
         "**.hpp",
+        -- The JSON facade, compiled in as one source (the DesertCtl recipe): collection.json is written through
+        -- Editor/Panels/Collections/CollectionManifest.hpp, the header the Collections panel reads it with.
+        -- Linking Common instead would drag Optick and Cocoa into a CLI.
+        "%{wks.location}/Desert/Common/Source/Common/Json/Json.cpp",
     }
 
     -- Header-only: Editor/Import/TextureSourceFormats.hpp, the single texture-source priority list this
     -- tool shares with AssimpImporter. Nothing from Editor is compiled or linked here.
     includedirs {
         "%{wks.location}/Editor/Source",
+        "%{wks.location}/Desert/Common/Source",
     }
+
+    -- ResultStr needs fmt, header-only from the vendored spdlog.
+    defines { "FMT_HEADER_ONLY" }
 
     -- Assimp: the same pinned, source-built static library the Editor links, on every platform.
     -- BEFORE the configuration filters, and that is not cosmetic: the first version of this block sat
@@ -31,7 +39,21 @@ project "FbxMeshSplitter"
         "%{wks.location}/Editor/ThirdParty/assimp/include",
         "%{wks.location}/build/generated/assimp/include",
     }
+    externalincludedirs {
+        "%{wks.location}/ThirdParty/reflect-cpp/include",
+        "%{wks.location}/ThirdParty/spdlog/include",
+    }
     links { "Assimp" }
+
+    filter "system:not windows"
+        links { "ReflectCpp" }
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
 
     filter "configurations:Debug"
         symbols "On"

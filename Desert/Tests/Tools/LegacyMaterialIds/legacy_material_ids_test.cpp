@@ -13,8 +13,7 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
-
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -144,15 +143,15 @@ TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To4GivesTheFormTheEngineRe
 
     const std::string& v2 = raised.GetValue();
     EXPECT_EQ( v2.find( "MaterialId" ), std::string::npos ) << v2;
-    const auto frozen = rfl::json::read<MaterialDataV2>( v2 );
+    const auto frozen = Common::Json::Read<MaterialDataV2>( v2 );
     ASSERT_TRUE( frozen ) << v2;
-    ASSERT_TRUE( frozen.value().Header.has_value() );
-    EXPECT_EQ( Content::TextHeaderVersion( *frozen.value().Header, Desert::Assets::kMaterialSchemaTag ), 2u );
-    ASSERT_EQ( frozen.value().Header->Dependencies.size(), 1u );
-    EXPECT_EQ( frozen.value().Header->Dependencies.front(), kParent );
+    ASSERT_TRUE( frozen.GetValue().Header.has_value() );
+    EXPECT_EQ( Content::TextHeaderVersion( *frozen.GetValue().Header, Desert::Assets::kMaterialSchemaTag ), 2u );
+    ASSERT_EQ( frozen.GetValue().Header->Dependencies.size(), 1u );
+    EXPECT_EQ( frozen.GetValue().Header->Dependencies.front(), kParent );
 
     // The rest of the chain: MATL 2 -> 4 (no slots, no shader here) and the engine's own reader.
-    const auto v3 = RaiseMaterialV2ToV4( "inst.demat", frozen.value(), LegacyAssetRefMap{} );
+    const auto v3 = RaiseMaterialV2ToV4( "inst.demat", frozen.GetValue(), LegacyAssetRefMap{} );
     ASSERT_TRUE( v3 ) << v3.GetError();
     const auto text = Desert::Assets::WriteMaterialJson( v3.GetValue() );
     ASSERT_TRUE( text ) << text.GetError();

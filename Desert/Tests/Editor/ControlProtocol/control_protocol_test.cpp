@@ -72,31 +72,78 @@ namespace
     // this writes, so they assert against a parse rather than against a substring where they can.
     Common::Json::Object ReadBack( const Response& response )
     {
-        const auto parsed = Common::Json::Parse( FormatResponse( response ) );
-        EXPECT_TRUE( parsed ) << "a response that is not readable JSON is not a response";
-        if ( !parsed )
+        const auto parsed = Common::Json::Read<Common::Json::Object>( FormatResponse( response ) );
+        EXPECT_TRUE( parsed ) << "a response that is not a readable JSON object is not a response: "
+                              << parsed.GetError();
+        return parsed ? parsed.GetValue() : Common::Json::Object{};
+    }
+
+    // A required member. Missing fails the test with the facade's path, rather than reading on as a null.
+    Common::Json::Node Member( const Common::Json::Node& node, std::string_view key )
+    {
+        auto member = node.Get( key );
+        if ( !member )
+        {
+            ADD_FAILURE() << member.GetError();
             return {};
-        const auto object = parsed.GetValue().to_object();
-        EXPECT_TRUE( object );
-        return object ? object.value() : Common::Json::Object{};
+        }
+        return member.GetValue();
+    }
+
+    // The elements of a member that must be an array; anything else fails the test and yields none.
+    std::vector<Common::Json::Node> Elements( const Common::Json::Node& node )
+    {
+        std::vector<Common::Json::Node> elements;
+        if ( node.GetKind() != Common::Json::Kind::Array )
+        {
+            ADD_FAILURE() << "expected an array, found " << Common::Json::Write( node.Raw() );
+            return elements;
+        }
+        node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                             { elements.push_back( element ); } );
+        return elements;
+    }
+
+    // Absent reads as empty; PRESENT BUT NOT A STRING fails the test - a mistyped field is never an empty one.
+    std::string StringField( const Common::Json::Node& node, const char* key )
+    {
+        const auto field = node.Find( key );
+        if ( !field )
+            return {};
+        const auto text = field->AsString();
+        if ( !text )
+        {
+            ADD_FAILURE() << text.GetError();
+            return {};
+        }
+        return text.GetValue();
+    }
+
+    // Absent reads as the fallback; present but not a bool fails the test.
+    bool BoolField( const Common::Json::Node& node, const char* key, bool fallback )
+    {
+        const auto field = node.Find( key );
+        if ( !field )
+            return fallback;
+        const auto value = field->AsBool();
+        if ( !value )
+        {
+            ADD_FAILURE() << value.GetError();
+            return fallback;
+        }
+        return value.GetValue();
     }
 
     std::string StringField( const Common::Json::Object& object, const char* key )
     {
-        const auto field = object.get( key );
-        if ( !field )
-            return {};
-        const auto text = field.value().to_string();
-        return text ? text.value() : std::string{};
+        const Common::Json::Value value( object );
+        return StringField( Common::Json::Root( value ), key );
     }
 
     bool BoolField( const Common::Json::Object& object, const char* key, bool fallback )
     {
-        const auto field = object.get( key );
-        if ( !field )
-            return fallback;
-        const auto value = field.value().to_bool();
-        return value ? value.value() : fallback;
+        const Common::Json::Value value( object );
+        return BoolField( Common::Json::Root( value ), key, fallback );
     }
 } // namespace
 
@@ -476,34 +523,18 @@ TEST( ControlProtocol, TheDocumentsSectionCarriesBothTheOpenOnesAndTheClosedOnes
                                     .Focused            = true } );
     snapshot.RecentlyClosed.push_back( { .Name = "M_Barrel", .Type = "SurfaceMaterial", .Subject = "2222" } );
 
-    const Common::Json::Object json      = ToJson( snapshot, { "documents" } );
-    const auto                 documents = json.get( "documents" );
-    ASSERT_TRUE( documents );
+    const Common::Json::Value json( ToJson( snapshot, { "documents" } ) );
+    const Common::Json::Node  documents = Member( Common::Json::Root( json ), "documents" );
 
-    const auto object = documents.value().to_object();
-    ASSERT_TRUE( object );
+    const auto open = Elements( Member( documents, "open" ) );
+    ASSERT_EQ( open.size(), 1u );
+    EXPECT_EQ( StringField( open[0], "name" ), "M_Crate" );
+    EXPECT_TRUE( BoolField( open[0], "holdsSlot", false ) );
+    EXPECT_TRUE( BoolField( open[0], "focused", false ) );
 
-    const auto open = object.value().get( "open" );
-    ASSERT_TRUE( open );
-    const auto openArray = open.value().to_array();
-    ASSERT_TRUE( openArray );
-    ASSERT_EQ( openArray.value().size(), 1u );
-
-    const auto first = openArray.value()[0].to_object();
-    ASSERT_TRUE( first );
-    EXPECT_EQ( StringField( first.value(), "name" ), "M_Crate" );
-    EXPECT_TRUE( BoolField( first.value(), "holdsSlot", false ) );
-    EXPECT_TRUE( BoolField( first.value(), "focused", false ) );
-
-    const auto closed = object.value().get( "recentlyClosed" );
-    ASSERT_TRUE( closed );
-    const auto closedArray = closed.value().to_array();
-    ASSERT_TRUE( closedArray );
-    ASSERT_EQ( closedArray.value().size(), 1u );
-
-    const auto onlyClosed = closedArray.value()[0].to_object();
-    ASSERT_TRUE( onlyClosed );
-    EXPECT_EQ( StringField( onlyClosed.value(), "name" ), "M_Barrel" );
+    const auto closed = Elements( Member( documents, "recentlyClosed" ) );
+    ASSERT_EQ( closed.size(), 1u );
+    EXPECT_EQ( StringField( closed[0], "name" ), "M_Barrel" );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -525,16 +556,13 @@ TEST( ControlProtocol, EachOpenDocumentReportsWhereItsEditsHaveReached )
                                     .HasUnappliedEdits = true,
                                     .DiskState         = "dirty" } );
 
-    const auto documents = ToJson( snapshot, { "documents" } ).get( "documents" );
-    ASSERT_TRUE( documents );
-    const auto open = documents.value().to_object().value().get( "open" );
-    ASSERT_TRUE( open );
-    const auto first = open.value().to_array().value()[0].to_object();
-    ASSERT_TRUE( first );
+    const Common::Json::Value json( ToJson( snapshot, { "documents" } ) );
+    const auto open = Elements( Member( Member( Common::Json::Root( json ), "documents" ), "open" ) );
+    ASSERT_FALSE( open.empty() );
 
-    EXPECT_EQ( StringField( first.value(), "editModel" ), "staged" );
-    EXPECT_TRUE( BoolField( first.value(), "unapplied", false ) );
-    EXPECT_EQ( StringField( first.value(), "disk" ), "dirty" );
+    EXPECT_EQ( StringField( open[0], "editModel" ), "staged" );
+    EXPECT_TRUE( BoolField( open[0], "unapplied", false ) );
+    EXPECT_EQ( StringField( open[0], "disk" ), "dirty" );
 }
 
 // UNTRACKED IS THE DEFAULT AND IT IS NOT "CLEAN". A document that took no snapshot of its file has no
@@ -544,16 +572,14 @@ TEST( ControlProtocol, ADocumentThatSaysNothingIsNotReportedAsSavedAndUpToDate )
     EditorSnapshot snapshot;
     snapshot.Documents.push_back( { .Name = "Untitled", .Type = "SurfaceMaterial", .Subject = "3333" } );
 
-    const auto open =
-         ToJson( snapshot, { "documents" } ).get( "documents" ).value().to_object().value().get( "open" );
-    ASSERT_TRUE( open );
-    const auto first = open.value().to_array().value()[0].to_object();
-    ASSERT_TRUE( first );
+    const Common::Json::Value json( ToJson( snapshot, { "documents" } ) );
+    const auto open = Elements( Member( Member( Common::Json::Root( json ), "documents" ), "open" ) );
+    ASSERT_FALSE( open.empty() );
 
-    EXPECT_EQ( StringField( first.value(), "disk" ), "untracked" );
-    EXPECT_EQ( StringField( first.value(), "editModel" ), "write-through" )
+    EXPECT_EQ( StringField( open[0], "disk" ), "untracked" );
+    EXPECT_EQ( StringField( open[0], "editModel" ), "write-through" )
          << "a document that does not say it stages must not be offered Apply and Discard";
-    EXPECT_FALSE( BoolField( first.value(), "unapplied", true ) );
+    EXPECT_FALSE( BoolField( open[0], "unapplied", true ) );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -585,34 +611,27 @@ TEST( ControlProtocol, ThePropertyCensusCarriesTheShapeOfEveryPropertyAndNamesIt
     // able to see WHICH thing answered, or a change between the two requests is invisible in both replies.
     EXPECT_EQ( StringField( payload, "subject" ), "M_Crate" );
 
-    const auto entries = payload.get( "properties" );
-    ASSERT_TRUE( entries );
-    const auto array = entries.value().to_array();
-    ASSERT_TRUE( array );
-    ASSERT_EQ( array.value().size(), 2u );
+    const Common::Json::Value json( payload );
+    const auto                entries = Elements( Member( Common::Json::Root( json ), "properties" ) );
+    ASSERT_EQ( entries.size(), 2u );
 
-    const auto first = array.value()[0].to_object();
-    ASSERT_TRUE( first );
-    EXPECT_EQ( StringField( first.value(), "name" ), "RoughnessFactor" );
-    EXPECT_EQ( StringField( first.value(), "type" ), "float" );
-    EXPECT_TRUE( BoolField( first.value(), "settable", false ) );
-    EXPECT_TRUE( first.value().get( "min" ) );
-    EXPECT_TRUE( first.value().get( "max" ) );
+    const Common::Json::Node& first = entries[0];
+    EXPECT_EQ( StringField( first, "name" ), "RoughnessFactor" );
+    EXPECT_EQ( StringField( first, "type" ), "float" );
+    EXPECT_TRUE( BoolField( first, "settable", false ) );
+    EXPECT_TRUE( first.Find( "min" ) );
+    EXPECT_TRUE( first.Find( "max" ) );
 
     // Exactly as many numbers as the property takes -- the count is what the editor checks a write
     // against, so a census that padded it to four would be describing a property nobody can set.
-    const auto value = first.value().get( "value" );
-    ASSERT_TRUE( value );
-    ASSERT_TRUE( value.value().to_array() );
-    EXPECT_EQ( value.value().to_array().value().size(), 1u );
+    EXPECT_EQ( Elements( Member( first, "value" ) ).size(), 1u );
 
     // A row that cannot be written is LISTED, saying no and saying why. Omitting it would read as a
     // property the shader does not declare, and that is a different problem with a different fix.
-    const auto second = array.value()[1].to_object();
-    ASSERT_TRUE( second );
-    EXPECT_FALSE( BoolField( second.value(), "settable", true ) );
-    EXPECT_FALSE( StringField( second.value(), "why" ).empty() );
-    EXPECT_EQ( second.value().get( "value" ).value().to_array().value().size(), 0u );
+    const Common::Json::Node& second = entries[1];
+    EXPECT_FALSE( BoolField( second, "settable", true ) );
+    EXPECT_FALSE( StringField( second, "why" ).empty() );
+    EXPECT_EQ( Elements( Member( second, "value" ) ).size(), 0u );
 }
 
 // A property with no declared range has NO min/max field, rather than a null or a made-up bound. A client
@@ -625,13 +644,14 @@ TEST( ControlProtocol, APropertyWithNoDeclaredRangeCarriesNoBounds )
     unbounded.Type       = "float2";
     unbounded.Components = 2;
 
-    const auto payload = PropertiesToJson( "M_Crate", { unbounded } );
-    const auto first   = payload.get( "properties" ).value().to_array().value()[0].to_object();
-    ASSERT_TRUE( first );
+    const auto                payload = PropertiesToJson( "M_Crate", { unbounded } );
+    const Common::Json::Value json( payload );
+    const auto                entries = Elements( Member( Common::Json::Root( json ), "properties" ) );
+    ASSERT_EQ( entries.size(), 1u );
 
-    EXPECT_FALSE( first.value().get( "min" ) );
-    EXPECT_FALSE( first.value().get( "max" ) );
-    EXPECT_EQ( first.value().get( "value" ).value().to_array().value().size(), 2u );
+    EXPECT_FALSE( entries[0].Find( "min" ) );
+    EXPECT_FALSE( entries[0].Find( "max" ) );
+    EXPECT_EQ( Elements( Member( entries[0], "value" ) ).size(), 2u );
 }
 
 // The quiescence section speaks the SAME vocabulary a settle timeout does, so a client that read
@@ -641,13 +661,12 @@ TEST( ControlProtocol, TheQuiescenceSectionNamesOutstandingWorkInTheSameWordsARe
     EditorSnapshot snapshot;
     snapshot.Quiescence.Set( PendingWork::AssetOpens, true );
 
-    const auto section = ToJson( snapshot, { "quiescence" } ).get( "quiescence" );
-    ASSERT_TRUE( section );
-    const auto object = section.value().to_object();
-    ASSERT_TRUE( object );
+    const Common::Json::Value json( ToJson( snapshot, { "quiescence" } ) );
+    const Common::Json::Node  section = Member( Common::Json::Root( json ), "quiescence" );
+    ASSERT_EQ( section.GetKind(), Common::Json::Kind::Object );
 
-    EXPECT_FALSE( BoolField( object.value(), "settled", true ) );
-    EXPECT_EQ( StringField( object.value(), "outstanding" ), EditorQuiescence( snapshot.Quiescence ).Describe() );
+    EXPECT_FALSE( BoolField( section, "settled", true ) );
+    EXPECT_EQ( StringField( section, "outstanding" ), EditorQuiescence( snapshot.Quiescence ).Describe() );
 }
 
 int main( int argc, char** argv )

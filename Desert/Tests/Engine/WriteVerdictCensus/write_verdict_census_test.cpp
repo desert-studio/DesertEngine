@@ -530,7 +530,8 @@ TEST( WriteVerdictCensus, TheMatcherFindsTheFormItBansAndLeavesHonestWritesAlone
     EXPECT_TRUE( flagged( "std::string Save() {\n"
                           "  std::ofstream out( path, std::ios::binary );\n"
                           "  if ( !out ) return {};\n"
-                          "  out << rfl::json::write( data );\n"
+                          "  out << rfl::json"
+                          "::write( data );\n"
                           "  return path.string();\n}" ) )
          << "the operator<< form with no post-write check at all was missed";
 

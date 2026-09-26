@@ -183,63 +183,58 @@ namespace
     {
         const auto tree = Common::Json::Parse( ReadFile( path ) );
         ASSERT_TRUE( tree ) << path.string() << " does not parse as JSON";
-        const auto root = tree.GetValue().to_object();
-        ASSERT_TRUE( root ) << path.string() << " is not a JSON object";
+        const Common::Json::Node root = Common::Json::Root( tree.GetValue() );
+        ASSERT_EQ( root.GetKind(), Common::Json::Kind::Object ) << path.string() << " is not a JSON object";
 
-        const auto entities = root.value().get( "Entities" );
+        const auto entities = root.Find( "Entities" );
         if ( !entities.has_value() )
             return;
-        const auto list = entities.value().to_array();
-        if ( !list.has_value() )
-            return;
 
-        for ( const auto& element : list.value() )
-        {
-            const auto entity = element.to_object();
-            if ( !entity )
-                continue;
-            std::string tag = "Entity";
-            if ( const auto named = entity.value().get( "Tag" ); named.has_value() )
-            {
-                if ( const auto text = named.value().to_string(); text.has_value() )
-                    tag = text.value();
-            }
+        entities->ForEachElement(
+             [&]( std::size_t, const Common::Json::Node& entity )
+             {
+                 if ( entity.GetKind() != Common::Json::Kind::Object )
+                     return;
+                 std::string tag = "Entity";
+                 if ( const auto named = entity.Find( "Tag" ); named.has_value() )
+                 {
+                     if ( const auto text = named->AsString() )
+                         tag = text.GetValue();
+                 }
 
-            for ( const Site& site : kSites )
-            {
-                const auto payload = entity.value().get( site.Component );
-                if ( !payload.has_value() )
-                    continue;
-                const auto fields = payload.value().to_object();
-                if ( !fields )
-                    continue;
-                const auto named = fields.value().get( site.Key );
-                if ( !named.has_value() )
-                    continue;
-                const auto text = named.value().to_string();
-                if ( !text.has_value() || text.value().empty() )
-                    continue;
+                 for ( const Site& site : kSites )
+                 {
+                     const auto payload = entity.Find( site.Component );
+                     if ( !payload.has_value() )
+                         continue;
+                     const auto named = payload->Find( site.Key );
+                     if ( !named.has_value() )
+                         continue;
+                     const auto textResult = named->AsString();
+                     if ( !textResult || textResult.GetValue().empty() )
+                         continue;
+                     const std::string& text = textResult.GetValue();
 
-                const std::string where = std::string( site.Component ) + "." + site.Key;
-                if ( !site.SemicolonList )
-                {
-                    out.push_back( { path.stem().string(), tag, where, text.value() } );
-                    continue;
-                }
-                std::string item;
-                for ( const char c : text.value() + ";" )
-                {
-                    if ( c != ';' )
-                    {
-                        item += c;
-                        continue;
-                    }
-                    if ( !item.empty() )
-                        out.push_back( { path.stem().string(), tag, where, item } );
-                    item.clear();
-                }
-            }
-        }
+                     const std::string where = std::string( site.Component ) + "." + site.Key;
+                     if ( !site.SemicolonList )
+                     {
+                         out.push_back( { path.stem().string(), tag, where, text } );
+                         continue;
+                     }
+                     std::string item;
+                     for ( const char c : text + ";" )
+                     {
+                         if ( c != ';' )
+                         {
+                             item += c;
+                             continue;
+                         }
+                         if ( !item.empty() )
+                             out.push_back( { path.stem().string(), tag, where, item } );
+                         item.clear();
+                     }
+                 }
+             } );
     }
 
     std::vector<Authored> ShippedAuthoredStrings( const std::string& root )

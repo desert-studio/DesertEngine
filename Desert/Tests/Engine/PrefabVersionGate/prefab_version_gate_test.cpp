@@ -16,7 +16,7 @@
 
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -71,7 +71,7 @@ namespace
 
     std::string JsonAt( int sceneVersion, int unitVersion )
     {
-        return rfl::json::write( At( sceneVersion, unitVersion ) );
+        return Common::Json::Write( At( sceneVersion, unitVersion ) );
     }
 
     bool Mentions( const std::string& haystack, const std::string& needle )
@@ -266,7 +266,7 @@ TEST( PrefabVersionGate, AnUnversionedPrefabParsesAndIsRefusedAsVersionZero )
 {
     PrefabData unstamped;
     unstamped.Name      = "Legacy";
-    const auto loadable = ParseLoadablePrefab( "Legacy.deprefab", rfl::json::write( unstamped ) );
+    const auto loadable = ParseLoadablePrefab( "Legacy.deprefab", Common::Json::Write( unstamped ) );
 
     ASSERT_FALSE( static_cast<bool>( loadable ) );
     EXPECT_TRUE( Mentions( loadable.GetError(), "v0" ) ) << loadable.GetError();
@@ -372,15 +372,16 @@ TEST( PrefabVersionGateCorpus, EveryPrefabStatesBothVersionIntegersExplicitly )
 {
     for ( const auto& path : RepositoryPrefabs() )
     {
-        const auto parsed = rfl::json::read<PrefabData>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string();
+        const auto parsed = Common::Json::Read<PrefabData>( ReadAll( path ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << path.string() << ": " << ( parsed ? "" : parsed.GetError() );
 
-        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
-        ASSERT_TRUE( parsed->Header.has_value() ) << path.string() << " states no header";
-        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kSceneSchemaTag ),
+        ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << path.string() << " states no header";
+        ASSERT_TRUE( parsed.GetValue().Header.has_value() ) << path.string() << " states no header";
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
                    kSceneVersion )
              << path.string();
-        EXPECT_EQ( Desert::Assets::StatedVersion( parsed->Header, Desert::Assets::kUnitSchemaTag ), kUnitVersion )
+        EXPECT_EQ( Desert::Assets::StatedVersion( parsed.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+                   kUnitVersion )
              << path.string();
     }
 }

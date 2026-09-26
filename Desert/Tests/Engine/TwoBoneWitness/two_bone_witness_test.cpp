@@ -43,8 +43,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-#include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -131,10 +130,9 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".skeleton" );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".skeleton";
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        return data.has_value() ? data.value() : Desert::Assets::Serialization::SkeletonAssetData{};
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
+        return data.IsSuccess() ? data.GetValue() : Desert::Assets::Serialization::SkeletonAssetData{};
     }
 
     Desert::Assets::Serialization::MeshAssetData LoadMeshData( const std::string& stem )
@@ -154,14 +152,13 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kCookedDir + stem + ".anim" );
         EXPECT_FALSE( raw.empty() ) << "could not read " << stem << ".anim";
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        if ( !data.has_value() )
+        auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << data.GetError();
+        if ( !data.IsSuccess() )
         {
             return {};
         }
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.value() );
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
         EXPECT_TRUE( built.IsSuccess() ) << stem << ": " << ( built.IsSuccess() ? "" : built.GetError() );
         return built.IsSuccess() ? built.ExtractValue() : Desert::Animation::AnimationClip{};
     }
@@ -379,7 +376,7 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
     const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
     const std::string scene        = ReadFile( RepoRoot() + kSceneFile );
     ASSERT_FALSE( scene.empty() ) << "could not read " << kSceneFile;
-    EXPECT_NE( scene.find( "\"MeshGuid\": \"" + meshGuidText + "\"" ), std::string::npos )
+    EXPECT_NE( scene.find( R"("MeshGuid": ")" + meshGuidText + "\"" ), std::string::npos )
          << kSceneFile << " does not name the witness mesh by its header GUID " << meshGuidText
          << ", so the scene that places the rig would resolve to no mesh at all.";
 }
