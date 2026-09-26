@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Header-only rules (Engine/Core/Serialize/WorldPartitionResidencyRules.hpp over the streaming query): the
     -- residency step is a pure function of a plan, the sources, the previous state and the loader's reports, so
@@ -14,11 +14,11 @@ project(test_name)
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the record's component payloads are rfl::Generic
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the record's component payloads are rfl::Generic
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

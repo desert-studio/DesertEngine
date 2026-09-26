@@ -7,8 +7,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- NOTHING FROM THE ENGINE IS COMPILED IN, for the same reason ShippingBoundary compiles none: the
     -- question is "which pipeline-creation sites are inside the compiler's shipping boundary", and that
@@ -21,7 +21,7 @@ project(test_name)
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do

@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- CookPaths.hpp IS the subject and it is header-only, so the test compiles the importer's real
     -- formula rather than a restatement of it. Nothing else from the importer is pulled in: the assimp
@@ -16,10 +16,10 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",  -- <Editor/Import/CookPaths.hpp>
-        "%{wks.location}/Desert/Desert/Source", -- CookPaths forwards to <Engine/Assets/CookedTexturePath.hpp>
-        "%{wks.location}/Editor/Source/Editor/Import",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",  -- <Editor/Import/CookPaths.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source", -- CookPaths forwards to <Engine/Assets/CookedTexturePath.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

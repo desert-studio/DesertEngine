@@ -20,7 +20,7 @@ project "FbxMeshSplitter"
     -- Header-only: Editor/Import/TextureSourceFormats.hpp, the single texture-source priority list this
     -- tool shares with AssimpImporter. Nothing from Editor is compiled or linked here.
     includedirs {
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     -- Assimp: the same pinned, source-built static library the Editor links, on every platform.
@@ -28,8 +28,8 @@ project "FbxMeshSplitter"
     -- after `filter "configurations:Release"`, so it applied to RELEASE ONLY and the Debug build failed
     -- with "assimp/Importer.hpp file not found". A filter stays in force until the next one.
     externalincludedirs {
-        "%{wks.location}/Editor/ThirdParty/assimp/include",
-        "%{wks.location}/build/generated/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
     }
     links { "Assimp" }
 

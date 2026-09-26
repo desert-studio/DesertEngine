@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The subject is WHICH FILES EXIST in the shader tree and WHAT THEIR TEXT READS, which no engine
     -- symbol can answer, so this suite compiles nothing of the engine at all: it reads the tree. The one
@@ -15,12 +15,12 @@ project(test_name)
     files { test_files }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
 
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/", -- VolumetricCloudComponent.hpp is an entt registry away
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/", -- VolumetricCloudComponent.hpp is an entt registry away
     }
 
     -- The platform macro: CloudPayload.hpp reaches engine headers that use DESERT_DEBUG_BREAK.

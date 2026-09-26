@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- Both units under test are header-only and reach nothing but Common's write primitive, rfl::json and
     -- std::filesystem -- which is the point. WriteCookedJson was two identical copies inside two importer
@@ -17,15 +17,15 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source", -- <Editor/Import/CookedJsonWrite.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source", -- <Editor/Import/CookedJsonWrite.hpp>
         -- The cook enters every file it writes into the content registry the moment it exists (T2.4),
         -- so the header under test now reaches <Engine/Assets/ContentRegistry.hpp>. That header is
         -- deliberately header-only and reaches Common and nothing else, so this costs no Vulkan.
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the cooked metadata IS rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the cooked metadata IS rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

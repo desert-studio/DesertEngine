@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The importer ITSELF, not a copy of its rules. TextureImporter.cpp reaches nothing but std::filesystem,
     -- stb_image and the cooked-path formula, so the file every texture in the project is cooked by can be
@@ -17,24 +17,24 @@ project(test_name)
     -- two, so both have to be the real code, in one binary.
     files {
         test_files,
-        "%{wks.location}/Editor/Source/Editor/Import/TextureImporter.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- the cook measures its own BC7 output before keeping it
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
-        "%{wks.location}/ThirdParty/stb/stb_image.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/TextureBinary.cpp", -- TextureAsset reads the cooked container through it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Core/Formats/BlockCompression.cpp", -- the cook measures its own BC7 output before keeping it
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureAsset.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source", -- <Engine/Assets/Serialization/TextureBinary.hpp>
-        "%{wks.location}/Editor/Source",        -- the importer's own "TextureImporter.hpp" / "CookPaths.hpp"
-        "%{wks.location}/Editor/Source/Editor/Import",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source", -- <Engine/Assets/Serialization/TextureBinary.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",        -- the importer's own "TextureImporter.hpp" / "CookPaths.hpp"
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/entt/include/", -- AssetManager.hpp, included by TextureAsset.hpp
-        "%{wks.location}/ThirdParty/stb/include",
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the .tex payload is written with rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include/", -- AssetManager.hpp, included by TextureAsset.hpp
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the .tex payload is written with rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

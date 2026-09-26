@@ -10,7 +10,7 @@ project "DesertHeaderTool"
     }
 
     includedirs {
-        "%{wks.location}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
     }
 
     -- Keep the tool self-contained: it links nothing from the engine and uses only the STL.

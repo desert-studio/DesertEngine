@@ -30,7 +30,7 @@ BIN="${1:-build/Bin/Shipping/Runtime}"
 
 if [ ! -f "$BIN" ]; then
     echo "ShippingSymbols: '$BIN' does not exist." >&2
-    echo "  Build it first: make Runtime config=shipping -j8" >&2
+    echo "  Build it first: make -C build/Projects Runtime config=shipping -j8" >&2
     exit 2
 fi
 if ! command -v nm >/dev/null 2>&1; then

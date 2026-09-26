@@ -6,8 +6,8 @@ project(test_name)
     language "C++"
     cppdialect "C++20"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- DomeSheetLayout.hpp is header-only and depends on nothing at all — no glm, no engine, no stb — so
     -- the sampling plan and the sheet geometry are assertable without linking anything. That is

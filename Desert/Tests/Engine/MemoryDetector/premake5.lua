@@ -15,24 +15,24 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/MemoryReadout.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Utilities/ProcessMemory.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Graphic/MemoryReadout.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Utilities/ProcessMemory.cpp",
         -- THE THIRD FILE, AND WHY IT IS A FILE RATHER THAN libCommon. The ledger's rows carry a
         -- `Common::AssetHandle`, whose default constructor is `UUID(uint64_t)` — out of line, and the
         -- only symbol this suite needs from Common now that it opens ledger rows of its own. Linking the
         -- whole library to resolve one constructor would put Application, Window and the filesystem layer
         -- behind a suite whose entire value is that it asserts DECISIONS without opening a window.
-        "%{wks.location}/Desert/Common/Source/Common/Core/UUID.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/Common/Core/UUID.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

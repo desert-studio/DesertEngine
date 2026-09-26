@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The unit under test is header-only and free of the renderer: Engine/Core/RendererSlotPool.hpp is
     -- the whole of the renderer-slot accounting, on a plain bitmask. It sits outside SceneRenderer.cpp
@@ -18,13 +18,13 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
         -- <Editor/Core/SceneViewIdentity.hpp>. The editor is where slots are opened and closed, and the
         -- naming of an open scene view is the half of "close a view" that a slot count cannot check:
         -- returning the slot while every surviving viewport's callback points at the wrong document is a
         -- green sweep and a broken editor. Header-only, no ImGui, nothing to link.
-        "%{wks.location}/Editor/Source",
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

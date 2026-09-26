@@ -5,18 +5,18 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- Compile the unit under test directly (pure CPU; no GPU/engine link needed).
-        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/AutoRig.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Geometry/AutoRig.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",  -- <Common/Core/Math/AABB.hpp>
-        "%{wks.location}/Desert/Desert/Source",  -- <Engine/Geometry/AutoRig.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",  -- <Common/Core/Math/AABB.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",  -- <Engine/Geometry/AutoRig.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

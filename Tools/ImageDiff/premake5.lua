@@ -11,12 +11,12 @@ project "ImageDiff"
         "Source/**.cpp",
     }
     includedirs {
-        "%{wks.location}/Tools/Shared",
+        "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
     }
 
 
     externalincludedirs {
-        "%{wks.location}/ThirdParty/stb/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/include",
     }
 
     filter "configurations:Debug"

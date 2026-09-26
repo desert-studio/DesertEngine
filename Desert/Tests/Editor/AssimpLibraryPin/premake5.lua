@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- THIS SUITE LINKS THE BUILT LIBRARY ON PURPOSE. Its three questions — which formats did we get,
     -- which version did we get, and what does a real file import to — can only be answered by the
@@ -16,12 +16,12 @@ project(test_name)
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
     }
 
     externalincludedirs {
-        "%{wks.location}/Editor/ThirdParty/assimp/include",
-        "%{wks.location}/build/generated/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/Editor/ThirdParty/assimp/include",
+        "%{_MAIN_SCRIPT_DIR}/build/generated/assimp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

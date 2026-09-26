@@ -5,8 +5,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- The whole of localisation EXCEPT the asset wrapper: the `.destrings` format, the sigil that tells a
     -- key from a literal, the form ladder, the placeholder grammar, and the service the UI resolves
@@ -14,19 +14,19 @@ project(test_name)
     -- language change moves a key and cannot move a literal) is assertable here and not only in a frame.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/PluralRules.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocaleFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocalizedText.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/StringTable.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Localization/LocalizationService.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- the table is written by rfl::json
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- the table is written by rfl::json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

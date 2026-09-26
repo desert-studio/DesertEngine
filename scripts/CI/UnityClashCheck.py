@@ -2,6 +2,7 @@
 """Approximate MSBuild unity groups with clang -fsyntax-only.
 Usage: UnityClashCheck.py <repo root> <scratch dir> 12 Common Desert Editor, after `CI=true premake5 gmake`
 and `CI=true VULKAN_SDK=/opt/homebrew PROGRAMFILES=/tmp premake5 vs2022 --os=windows --unity` in the root.
+Both write into build/Projects/ (BuildScripts/Workspace.lua); every path inside is relative to it.
 Re-derives the opt-out list in BuildScripts/UnityBuild.lua; "0 with errors" is the pass.
 For each project: sources in .vcxproj item order, minus IncludeInUnityFile=false, pch Create, and
 sources the macOS makefile does not compile (Windows-only). Groups of N contiguous sources, at two
@@ -9,8 +10,9 @@ offsets (0 and N/2) so every adjacent pair is covered once more. Prints clash-sh
 import re, sys, subprocess, os, concurrent.futures as cf
 ROOT, OUT, N = sys.argv[1], sys.argv[2], int(sys.argv[3])
 projects = sys.argv[4:]
+PROJ_DIR = os.path.join(ROOT, 'build', 'Projects')
 def mkvars(mk):
-    t = open(os.path.join(ROOT, mk)).read()
+    t = open(os.path.join(PROJ_DIR, mk)).read()
     inc = re.search(r'^INCLUDES \+= (.*)$', t, re.M).group(1)
     fi = re.search(r'^FORCE_INCLUDE \+=(.*)$', t, re.M).group(1)
     dbg = t[t.index('ifeq ($(config),debug)'):]
@@ -20,7 +22,7 @@ def mkvars(mk):
 jobs = []
 for prj in projects:
     inc, fi, de, macsrcs = mkvars(prj + '.make')
-    x = open(os.path.join(ROOT, prj + '.vcxproj')).read()
+    x = open(os.path.join(PROJ_DIR, prj + '.vcxproj')).read()
     items = re.findall(r'<ClCompile Include="([^"]+\.cpp)"(\s*/>|>(.*?)</ClCompile>)', x, re.S)
     order, skipped = [], []
     for path, _, body in items:
@@ -36,8 +38,8 @@ for prj in projects:
             if len(g) < 2:
                 continue
             name = f'{OUT}/{prj}_o{off}_{gi:03d}.cpp'
-            open(name, 'w').write(''.join(f'#include "{ROOT}/{s}"\n' for s in g))
-            cmd = (f'cd "{ROOT}" && clang++ -fsyntax-only -ferror-limit=0 -std=c++20 -arch arm64 -w '
+            open(name, 'w').write(''.join(f'#include "{os.path.normpath(os.path.join(PROJ_DIR, s))}"\n' for s in g))
+            cmd = (f'cd "{PROJ_DIR}" && clang++ -fsyntax-only -ferror-limit=0 -std=c++20 -arch arm64 -w '
                    f'{de} {inc} {fi} "{name}"')
             jobs.append((prj, name, g, cmd))
 def run(j):

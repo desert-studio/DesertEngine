@@ -5,34 +5,34 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- Units under test (pure CPU): the .anim channel list -> runtime clip conversion, and since Д35
         -- its mirror -- runtime clip -> .anim, plus the file write that used to live inside an ImGui
         -- panel and therefore could not be compiled into any test binary at all.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipBuild.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.cpp",
         -- The conversion OUT of generation 0, and the tick grid it converts into (A5). Both are pure, so
         -- the suite that owns the format also owns its migration without gaining a dependency.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/KeyInterpolation.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         -- A32: the SECTION AUTHORING operations, so the round-trip test can author a section the way the
         -- Sequencer authors one instead of hand-filling the struct. A hand-filled section proves the
         -- writer and the reader agree; it cannot prove that what the editor PRODUCES survives the trip,
         -- which is the claim the section lane is making.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/ClipSection.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Desert/Desert/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
     }
     externalincludedirs {
-        "%{wks.location}/ThirdParty/reflect-cpp/include", -- <rflcpp/rfl.hpp>: the .anim format IS these structs
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include", -- <rflcpp/rfl.hpp>: the .anim format IS these structs
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

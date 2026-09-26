@@ -43,7 +43,7 @@ ifneq (,$(DESERT_VERSION_LOG))
 endif
 ]]
     filter "system:windows"
-        prebuildcommands { 'call "%{wks.location}\\scripts\\Windows\\GenVersion.bat"' }
+        prebuildcommands { 'call "%{_MAIN_SCRIPT_DIR}\\scripts\\Windows\\GenVersion.bat"' }
     filter {}
 
     files {
@@ -53,8 +53,8 @@ endif
         -- for the engine and the launcher); the ENGINE compiles it into Common, the launcher
         -- compiles the same file itself. Missing file here means an uninitialized submodule:
         -- `git submodule update --init ThirdParty/desert-shared`.
-        "%{wks.location}/ThirdParty/desert-shared/Source/ProjectFormat.cpp",
-        "%{wks.location}/ThirdParty/desert-shared/Source/EngineRegistry.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Source/ProjectFormat.cpp",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/desert-shared/Source/EngineRegistry.cpp",
     }
 
     includedirs {

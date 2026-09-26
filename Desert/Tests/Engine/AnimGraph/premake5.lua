@@ -5,21 +5,21 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     files {
         test_files,
         -- Compile the unit under test directly (pure CPU; the rfl serialization .cpp is NOT needed here).
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphEvaluator.cpp",
         -- The evaluator delegates its structure check to the validator (ONE spelling of "which
         -- conditions name an undeclared parameter"), so the two units link together everywhere.
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphValidation.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",  -- <Common/Core/ResultStr.hpp>
-        "%{wks.location}/Desert/Desert/Source",  -- <Engine/Animation/Graph/AnimGraph.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",  -- <Common/Core/ResultStr.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",  -- <Engine/Animation/Graph/AnimGraph.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do

@@ -7,8 +7,8 @@ project(test_name)
     kind "ConsoleApp"
     language "C++"
 
-    targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
-    objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
+    targetdir ("%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}")
+    objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
     -- NO GRAPHICS, AND THAT IS WHY THE TABLE IS SPLIT THE WAY IT IS. The census needs the role table
     -- and the SVG parser and nothing else; GizmoIconSet.cpp (which reaches Runtime::IconService and
@@ -16,13 +16,13 @@ project(test_name)
     -- filesystem + parser test that runs anywhere.
     files {
         test_files,
-        "%{wks.location}/Desert/Desert/Source/Engine/Vector/VectorImage.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Vector/VectorImage.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",   -- <Common/Core/Constants.hpp>
-        "%{wks.location}/Desert/Desert/Source",   -- <Engine/Vector/VectorImage.hpp>
-        "%{wks.location}/Editor/Source",          -- <Editor/Core/GizmoIconSet.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",   -- <Common/Core/Constants.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",   -- <Engine/Vector/VectorImage.hpp>
+        "%{_MAIN_SCRIPT_DIR}/Editor/Source",          -- <Editor/Core/GizmoIconSet.hpp>
     }
 
     for name, path in pairs(deps.TestSpecific.IncludeDir) do

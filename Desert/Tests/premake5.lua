@@ -78,8 +78,8 @@ group "Tests"
         kind "Utility"
         -- Same reason as the loop above: an aggregate over projects that do not exist in Shipping.
         removeconfigurations { "Shipping" }
-        targetdir "%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}"
-        objdir "%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}"
+        targetdir "%{_MAIN_SCRIPT_DIR}/build/Bin/Tests/%{cfg.buildcfg}"
+        objdir "%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}"
 
         for _, premake_file in ipairs(test_premake_files) do
             local test_dir = path.getdirectory(premake_file)
@@ -149,10 +149,10 @@ group "Tests"
         -- the one that owns the verdict — it is where the exit code is read and where the reports
         -- are uploaded from. (Release paid 2 min 20 s for the same duplicate.)
         postbuildcommands {
-            "if exist \"%{wks.location}\\run_tests.bat\" del \"%{wks.location}\\run_tests.bat\"",
+            "if exist \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\" del \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
 
-            "echo @echo off > \"%{wks.location}\\run_tests.bat\"",
-            "echo pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{wks.location}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg}>> \"%{wks.location}\\run_tests.bat\"",
+            "echo @echo off > \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
+            "echo pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{_MAIN_SCRIPT_DIR}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg}>> \"%{_MAIN_SCRIPT_DIR}\\run_tests.bat\"",
         }
     end
 

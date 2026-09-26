@@ -34,6 +34,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
+# premake writes the workspace Makefile and every <Project>.make into build/Projects/ (BuildScripts/Workspace.lua),
+# and every path inside them — sources, -I, objdir — is relative to THAT directory, so make runs there.
+PROJ_DIR="$ROOT/build/Projects"
 
 CONFIG="Debug"
 OUT="$ROOT/compile_commands.json"
@@ -49,8 +52,8 @@ MAKE_CONFIG="$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
 # EVERY FAILURE BELOW EXITS 2 AND NAMES ITSELF. An empty or partial database is the exact shape this
 # project keeps paying for — a tool that answers a different question with no sign that it did — and
 # downstream the answer would be "0 files analysed, no warnings", i.e. a silent pass.
-if [ ! -f "$ROOT/Makefile" ]; then
-    echo "GenCompileCommands: no Makefile in $ROOT — run 'CI=true premake5 gmake2' first." >&2
+if [ ! -f "$PROJ_DIR/Makefile" ]; then
+    echo "GenCompileCommands: no Makefile in $PROJ_DIR — run 'CI=true premake5 gmake2' first." >&2
     exit 2
 fi
 # THE LIST COMES FROM PREMAKE, NOT FROM A GLOB, and the difference is an exit 2 rather than a warning.
@@ -63,20 +66,20 @@ fi
 # same glob and the same defect; it was corrected the same day, where one orphan cost one BUILD-FAIL
 # instead of the whole run.)
 #
-# The root `Makefile` carries premake's own `PROJECTS :=` line and cannot name a project premake does
+# The workspace `Makefile` carries premake's own `PROJECTS :=` line and cannot name a project premake does
 # not know, so it is the honest source. Do NOT try to spot orphans by timestamp: premake rewrites only
 # the files that changed, so almost every makefile is older than the newest one.
-PROJECTS_LINE=$(sed -n 's/^PROJECTS := //p' "$ROOT/Makefile")
+PROJECTS_LINE=$(sed -n 's/^PROJECTS := //p' "$PROJ_DIR/Makefile")
 if [ -z "$PROJECTS_LINE" ]; then
-    echo "GenCompileCommands: $ROOT/Makefile has no 'PROJECTS :=' line — regenerate with premake." >&2
+    echo "GenCompileCommands: $PROJ_DIR/Makefile has no 'PROJECTS :=' line — regenerate with premake." >&2
     exit 2
 fi
 MAKEFILES=()
 for proj in $PROJECTS_LINE; do
-    [ -f "$ROOT/$proj.make" ] && MAKEFILES+=( "$ROOT/$proj.make" )
+    [ -f "$PROJ_DIR/$proj.make" ] && MAKEFILES+=( "$PROJ_DIR/$proj.make" )
 done
 if [ ${#MAKEFILES[@]} -eq 0 ]; then
-    echo "GenCompileCommands: no *.make in $ROOT — run 'CI=true premake5 gmake2' first." >&2
+    echo "GenCompileCommands: no *.make in $PROJ_DIR — run 'CI=true premake5 gmake2' first." >&2
     exit 2
 fi
 
@@ -99,7 +102,7 @@ MISMATCH=()
     for mk in "${MAKEFILES[@]}"; do
         PROJ="$(basename "$mk" .make)"
         set +e
-        make -n -B -f "$mk" config="$MAKE_CONFIG" verbose=1 LDDEPS= >"$TMP/out" 2>"$TMP/err"
+        make -n -B --no-print-directory -C "$PROJ_DIR" -f "$mk" config="$MAKE_CONFIG" verbose=1 LDDEPS= >"$TMP/out" 2>"$TMP/err"
         RC=$?
         set -e
         if [ $RC -ne 0 ]; then
@@ -136,6 +139,14 @@ MISMATCH=()
             TOTAL=$((TOTAL + 1))
             N=$((N + 1))
             case "/$SRC" in */ThirdParty/*) continue ;; esac
+            # The makefile names its source relative to build/Projects (`../../Desert/...`); the entry's
+            # `file` and the `-c` argument are the absolute path, and `directory` is build/Projects so the
+            # relative -I flags in the command resolve exactly as they did for make.
+            case "$SRC" in
+                /*) ABS="$SRC" ;;
+                ../../*) ABS="$ROOT/${SRC#../../}" ;;
+                *) ABS="$PROJ_DIR/$SRC" ;;
+            esac
 
             # Drop the precompiled header. premake emits BOTH `-include <objdir>/pch.hpp` (which
             # resolves to the .gch beside it) and a plain `-include pch.hpp`, so removing the first
@@ -147,17 +158,17 @@ MISMATCH=()
             # `file` the two never meet, and clang-tidy answers "no input files" — an error, but one
             # that a per-file loop could easily count as "this file produced no warnings".
             CMD="$(printf '%s' "$line" | sed -E \
-                -e 's#-include build/[^ ]*/pch\.hpp ##g' \
+                -e 's#-include [^ ]*Intermediates/[^ ]*/pch\.hpp ##g' \
                 -e 's#-MD ##g; s#-MP ##g' \
                 -e 's#-MF "[^"]*" ##g' \
                 -e 's#-o "[^"]*" ##g' \
-                -e "s#-c \"${SRC}\"#-c \"${ROOT}/${SRC}\"#")"
+                -e "s#-c \"${SRC}\"#-c \"${ABS}\"#")"
 
             ESC="$(printf '%s' "$CMD" | sed -e 's#\\#\\\\#g' -e 's#"#\\"#g')"
             [ $FIRST -eq 1 ] || echo ","
             FIRST=0
             printf '{"directory": "%s", "file": "%s", "command": "%s"}' \
-                "$ROOT" "$ROOT/$SRC" "$ESC"
+                "$PROJ_DIR" "$ABS" "$ESC"
             KEPT=$((KEPT + 1))
         done <"$TMP/out"
 
