@@ -129,7 +129,7 @@ TEST( ThumbnailPrefetch, APictureAWorkerHoldsIsNotDecodedAgainByTheDraw )
     // check comes before the one synchronous decode.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string cache = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
+    const std::string cache   = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
     const auto        pending = cache.find( "if ( !decoded && ThumbnailPrefetch::Get().Pending( sourcePath ) )" );
     const auto        decode  = cache.find( "decoded = ThumbnailPixels::Decode( sourcePath );" );
     ASSERT_NE( pending, std::string::npos ) << "Get() decodes a picture a worker is already decoding";

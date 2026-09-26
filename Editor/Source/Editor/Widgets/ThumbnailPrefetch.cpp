@@ -67,7 +67,7 @@ namespace Desert::Editor
         stbi_image_free( pixels );
 
         out.DecodedOn = std::this_thread::get_id();
-        out.DecodeMs  =
+        out.DecodeMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
         return out;
     }
