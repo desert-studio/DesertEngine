@@ -2,12 +2,14 @@
 //
 // TH3: a thumbnail capture cost ~215 ms on the main thread (readback 80, downscale 23, PNG ~108). The
 // downscale and the PNG now run on a worker through ThumbnailEncode, and ThumbnailService dispatches a new
-// capture only while CaptureBudget owes nothing. Both are plain logic and are driven here without Vulkan.
+// capture once what CaptureBudget is owed fits inside one frame. Both are plain logic and are driven here
+// without Vulkan.
 #include <Editor/Widgets/ThumbnailEncode.hpp>
 
 #include <gtest/gtest.h>
 #include <stb_image/stb_image.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -18,8 +20,59 @@ namespace
     using Desert::Editor::ThumbnailEncode::CaptureBudget;
     namespace Encode = Desert::Editor::ThumbnailEncode;
 
-    // A capture's measured main-thread cost before TH3, per frame it ran in.
-    constexpr double kOldCaptureMs = 215.0;
+    // Measured on the main thread (TH3, 15 Materials, editor-d1.log): the idle Tick between captures, the
+    // first render Tick of a capture, a later in-flight Tick, and the first capture of a session, which
+    // compiles its pipelines.
+    constexpr double kIdleTickMs         = 0.00004;
+    constexpr double kRenderTickMs       = 1.1;
+    constexpr double kInFlightTickMs     = 0.2;
+    constexpr double kFirstCaptureTickMs = 333.0;
+    constexpr int    kRenderTicks        = 5;
+    constexpr int    kInFlightTicks      = 21;
+
+    // ThumbnailService::TickCapture's order on one frame: repay, charge the renderer's Tick, then dispatch
+    // only with nothing in flight and the budget allowing it. Returns the frames the queue took to drain and
+    // the longest run of frames with a request queued and nothing in flight.
+    struct Drain
+    {
+        int Frames      = 0;
+        int LongestIdle = 0;
+    };
+    Drain DrainQueue( int captures )
+    {
+        CaptureBudget budget;
+        Drain         out;
+        int           queued   = captures;
+        int           inFlight = 0; // ticks left of the capture in flight
+        int           tick     = 0; // ticks the capture in flight has had
+        int           idle     = 0;
+        bool          first    = true;
+        while ( ( queued > 0 || inFlight > 0 ) && out.Frames < 100000 )
+        {
+            ++out.Frames;
+            budget.EndFrame();
+            if ( inFlight > 0 )
+            {
+                budget.Spend( first && tick == 0 ? kFirstCaptureTickMs
+                                                 : ( tick < kRenderTicks ? kRenderTickMs : kInFlightTickMs ) );
+                ++tick;
+                if ( --inFlight == 0 )
+                    first = false;
+                continue; // the frame that settles a capture does not dispatch the next
+            }
+            budget.Spend( kIdleTickMs );
+            if ( !budget.MayDispatch() )
+            {
+                out.LongestIdle = std::max( out.LongestIdle, ++idle );
+                continue;
+            }
+            idle     = 0;
+            --queued;
+            inFlight = kRenderTicks + kInFlightTicks;
+            tick     = 0;
+        }
+        return out;
+    }
 } // namespace
 
 TEST( ThumbnailEncode, DownscaleAveragesEachBlock )
@@ -89,25 +142,47 @@ TEST( ThumbnailEncode, ABudgetInDebtRefusesTheNextCaptureUntilRepaid )
     EXPECT_DOUBLE_EQ( budget.OwedMs(), 0.0 );
 }
 
-TEST( ThumbnailEncode, SixteenCapturesCannotStackIntoConsecutiveFrames )
+TEST( ThumbnailEncode, AnIdleTickCostingNanosecondsDoesNotHoldTheNextCapture )
 {
-    // Sixteen materials queued at once, each capture charging its old main-thread cost: the budget spreads
-    // the dispatches so the average main-thread cost per frame stays within one constant.
+    // The defect TH3 measured: repaid to zero, then the idle Tick charged 40 ns, and "owes nothing" was
+    // false until a Tick measured exactly 0 ns — the queue sat idle 0.1-2.8 s between 0.26 s captures.
     CaptureBudget budget;
-    int           dispatched = 0;
-    int           frames     = 0;
-    double        spent      = 0.0;
-    while ( dispatched < 16 )
+    budget.Spend( kRenderTickMs );
+    for ( int frame = 0; frame < 3; ++frame )
     {
         budget.EndFrame();
-        ++frames;
-        if ( budget.MayDispatch() )
-        {
-            budget.Spend( kOldCaptureMs );
-            spent += kOldCaptureMs;
-            ++dispatched;
-        }
+        budget.Spend( kIdleTickMs );
     }
-    EXPECT_LE( spent / frames, CaptureBudget::kMainThreadMsPerFrame + ( kOldCaptureMs / frames ) );
-    EXPECT_GE( frames, static_cast<int>( 15 * kOldCaptureMs / CaptureBudget::kMainThreadMsPerFrame ) );
+    EXPECT_TRUE( budget.MayDispatch() ) << "owed " << budget.OwedMs() << " ms";
+}
+
+TEST( ThumbnailEncode, AOneOffSpikeHoldsTheQueueForAtMostMaxWaitFrames )
+{
+    // The first capture compiles pipelines: 333 ms in one Tick. Repaying it at 2 ms a frame held the queue
+    // for 166 frames (2 s measured); the cap bounds the wait whatever the spike.
+    CaptureBudget budget;
+    budget.Spend( kFirstCaptureTickMs );
+    int waited = 0;
+    while ( waited <= CaptureBudget::kMaxWaitFrames )
+    {
+        budget.EndFrame();
+        budget.Spend( kIdleTickMs );
+        ++waited;
+        if ( budget.MayDispatch() )
+            break;
+    }
+    EXPECT_TRUE( budget.MayDispatch() );
+    EXPECT_LE( waited, CaptureBudget::kMaxWaitFrames );
+}
+
+TEST( ThumbnailEncode, FifteenQueuedCapturesDrainWithOneAlwaysInFlightWithinTheWaitBound )
+{
+    // The Materials folder of the TH3 measurement, in TickCapture's own order. Progress: with requests
+    // queued, the queue is never without a capture in flight for more than kMaxWaitFrames frames, so the
+    // whole queue drains in 15 captures' own frames plus that bound each.
+    const Drain drain = DrainQueue( 15 );
+    EXPECT_LE( drain.LongestIdle, CaptureBudget::kMaxWaitFrames );
+    EXPECT_LE( drain.Frames, 15 * ( kRenderTicks + kInFlightTicks + CaptureBudget::kMaxWaitFrames ) );
+    // One capture at a time: the queue cannot drain faster than its captures' own frames.
+    EXPECT_GE( drain.Frames, 15 * ( kRenderTicks + kInFlightTicks ) );
 }

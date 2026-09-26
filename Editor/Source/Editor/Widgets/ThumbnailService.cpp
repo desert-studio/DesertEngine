@@ -14,6 +14,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
@@ -306,11 +307,19 @@ namespace Desert::Editor
         // is a cold cache doing its job, and "0, 0, 8" is the cache doing its job.
         if ( !HasWork() && ( m_Captured || m_Painted || m_Skipped ) )
         {
-            LOG_INFO( "[Thumbnails] queue drained: {} captured, {} painted, {} already fresh on disk.", m_Captured,
-                      m_Painted, m_Skipped );
-            m_Captured = 0;
-            m_Painted  = 0;
-            m_Skipped  = 0;
+            const double runMs = m_RunBegan ? std::chrono::duration<double, std::milli>(
+                                                    std::chrono::steady_clock::now() - *m_RunBegan )
+                                                    .count()
+                                              : 0.0;
+            LOG_INFO( "[Thumbnails] queue drained: {} captured, {} painted, {} already fresh on disk; captures "
+                      "took {:.0f} ms from the first dispatch, longest wait on the budget {} frame(s).",
+                      m_Captured, m_Painted, m_Skipped, runMs, m_LongestBudgetWait );
+            m_Captured          = 0;
+            m_Painted           = 0;
+            m_Skipped           = 0;
+            m_RunBegan.reset();
+            m_BudgetWaitFrames  = 0;
+            m_LongestBudgetWait = 0;
         }
 
         // Nothing to preview this session -> never pay for the renderer (it owns a full SceneRenderer).
@@ -398,12 +407,20 @@ namespace Desert::Editor
             return;
         }
 
-        // The previous capture's main-thread cost is repaid before the next one starts.
-        if ( m_Renderer->HasPending() || !m_Budget.MayDispatch() )
+        // The previous capture's main-thread cost is repaid before the next one starts — for at most
+        // CaptureBudget::kMaxWaitFrames frames, so a queued request always progresses.
+        if ( m_Renderer->HasPending() )
             return;
+        if ( !m_Budget.MayDispatch() )
+        {
+            if ( !m_Queue.empty() )
+                m_LongestBudgetWait = std::max( m_LongestBudgetWait, ++m_BudgetWaitFrames );
+            return;
+        }
+        m_BudgetWaitFrames = 0;
 
         // Drain anything the queue no longer owes. A request can sit here for seconds — the drain rate
-        // measured on this machine is one capture per ~2 s — and in that time the same asset may have been
+        // measured on this machine is one capture per ~0.35 s — and in that time the same asset may have been
         // captured through another entry (two panels showing one material), or the panel that asked may
         // have called Invalidate() and asked again, leaving a duplicate behind it. Dispatching those would
         // re-render a picture that is already correct, at full cost, one after another.
@@ -455,5 +472,7 @@ namespace Desert::Editor
 
         m_Capture.Begin( req.Identity, req.Png, req.Source );
         m_InFlightTicks = 0;
+        if ( !m_RunBegan )
+            m_RunBegan = std::chrono::steady_clock::now();
     }
 } // namespace Desert::Editor

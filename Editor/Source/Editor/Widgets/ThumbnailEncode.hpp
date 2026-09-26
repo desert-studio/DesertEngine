@@ -25,16 +25,28 @@ namespace Desert::Editor::ThumbnailEncode
 
     /// MAIN-THREAD MILLISECONDS a capture may spend per frame, on average: a leaky bucket. Every Tick of the
     /// capture renderer charges what it cost; each frame repays kMainThreadMsPerFrame; a new capture is
-    /// dispatched only while nothing is owed. One constant decides the pace: a folder of sixteen materials
-    /// cannot stack sixteen captures' main-thread work into consecutive frames.
+    /// dispatched once what is owed fits inside one frame's allowance.
+    ///
+    /// "Fits inside one frame", not "owes nothing": the idle Tick between two captures is charged too, and it
+    /// costs a few hundredths of a millisecond, so after the repayment the debt was almost never EXACTLY
+    /// zero — a dispatch then waited for a Tick the clock happened to measure as 0 ns. Measured (TH3, 15
+    /// Materials): the queue sat idle 0.1-2.8 s between captures of 0.26 s, and 15 captures took 13-98 s.
+    ///
+    /// The debt is capped at kMaxWaitFrames frames of allowance. The budget exists so that captures cannot
+    /// stack into consecutive frames; it cannot un-spend a one-off spike that already happened (the first
+    /// capture compiles its pipelines: 333 ms in one Tick), and holding the whole queue for 166 frames to
+    /// "repay" it only delayed every other thumbnail by 2 s. So the queue always progresses: with a request
+    /// queued and no capture in flight, the next one is dispatched within kMaxWaitFrames frames.
     class CaptureBudget
     {
     public:
         static constexpr double kMainThreadMsPerFrame = 2.0;
+        static constexpr int    kMaxWaitFrames        = 8;
+        static constexpr double kMaxOwedMs            = kMaxWaitFrames * kMainThreadMsPerFrame;
 
-        void                 Spend( double ms ) { m_OwedMs += std::max( ms, 0.0 ); }
-        void                 EndFrame() { m_OwedMs = std::max( m_OwedMs - kMainThreadMsPerFrame, 0.0 ); }
-        [[nodiscard]] bool   MayDispatch() const { return m_OwedMs <= 0.0; }
+        void Spend( double ms ) { m_OwedMs = std::min( m_OwedMs + std::max( ms, 0.0 ), kMaxOwedMs ); }
+        void EndFrame() { m_OwedMs = std::max( m_OwedMs - kMainThreadMsPerFrame, 0.0 ); }
+        [[nodiscard]] bool   MayDispatch() const { return m_OwedMs < kMainThreadMsPerFrame; }
         [[nodiscard]] double OwedMs() const { return m_OwedMs; }
 
     private:

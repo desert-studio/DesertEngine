@@ -6,6 +6,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <future>
 #include <optional>
@@ -240,6 +241,11 @@ namespace Desert::Editor
         // looked identical in a log — and the second is what M8 was reported as.
         int m_Captured = 0;
         int m_Skipped  = 0; // queued, then found already fresh before it was dispatched
+        // The run's pace, for the one line that reports it: when its first capture was dispatched, and the
+        // longest the queue waited on the budget with nothing in flight (CaptureBudget::kMaxWaitFrames bounds it).
+        std::optional<std::chrono::steady_clock::time_point> m_RunBegan;
+        int                                                  m_BudgetWaitFrames    = 0;
+        int                                                  m_LongestBudgetWait   = 0;
 
         // ── THE SLOT-FREE HALF ────────────────────────────────────────────────────────────────────────
         //
