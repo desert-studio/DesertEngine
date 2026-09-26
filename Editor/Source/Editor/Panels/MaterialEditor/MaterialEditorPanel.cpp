@@ -736,9 +736,33 @@ namespace Desert::Editor
         // cubemap material's content IS a ball — offering Cube/Plane there would be two entries that
         // rebuild the preview into the same picture — and the refused domains draw nothing at all. So
         // the combo exists exactly where it means something, instead of being disabled everywhere else.
+        //
+        // THE ROW WRAPS, IT NEVER CLIPS: the pane is as narrow as the divider leaves it, and a control cut off
+        // at the edge is a control the person cannot reach. Each item asks PreviewPane::WrapsToNextLine
+        // (tested in PreviewInput) whether it still fits after the ones before it; if not, it starts a line.
+        const ImGuiStyle& style     = ImGui::GetStyle();
+        const float       available = std::max( ImGui::GetContentRegionAvail().x, 1.0f );
+        float             usedOnLine = 0.0f;
+        const auto        place      = [&]( const float itemWidth )
+        {
+            if ( usedOnLine > 0.0f && !PreviewPane::WrapsToNextLine( usedOnLine, itemWidth, style.ItemSpacing.x,
+                                                                    available ) )
+            {
+                ImGui::SameLine();
+                usedOnLine += style.ItemSpacing.x + itemWidth;
+            }
+            else
+                usedOnLine = itemWidth;
+        };
+        // A combo narrower than its preferred width rather than wider than the whole pane.
+        const auto comboWidth = [&]( const float preferred ) { return std::min( preferred, available ); };
+        const auto buttonWidth = [&]( const char* label )
+        { return ImGui::CalcTextSize( label, nullptr, true ).x + style.FramePadding.x * 2.0f; };
+
         if ( EffectiveDomain() == ::Desert::Core::Formats::ShaderDomain::Surface )
         {
-            ImGui::SetNextItemWidth( 110.0f );
+            place( comboWidth( 110.0f ) );
+            ImGui::SetNextItemWidth( comboWidth( 110.0f ) );
             if ( ImGui::BeginCombo( "##preview_shape", ShapeName( m_Shape ) ) )
             {
                 for ( auto s : { PreviewViewport::Shape::Sphere, PreviewViewport::Shape::Cube,
@@ -755,7 +779,6 @@ namespace Desert::Editor
                 }
                 ImGui::EndCombo();
             }
-            ImGui::SameLine();
         }
 
         // BACKGROUND AND LIGHT ON THE PICTURE, as UE's viewport toolbar has them: the sky preset is the
@@ -765,7 +788,8 @@ namespace Desert::Editor
         if ( m_Preview )
         {
             PreviewViewport::SceneSetup& setup = m_Preview->Setup();
-            ImGui::SetNextItemWidth( 150.0f );
+            place( comboWidth( 150.0f ) );
+            ImGui::SetNextItemWidth( comboWidth( 150.0f ) );
             if ( ImGui::BeginCombo( "##preview_background", Graphic::SkyPresetName( setup.Sky ) ) )
             {
                 for ( const auto& entry : Graphic::kSkyPresets )
@@ -778,15 +802,16 @@ namespace Desert::Editor
             }
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Background and lighting of the preview (not saved with the material)." );
-            ImGui::SameLine();
             // The dome's ground is not optional (DrawPreviewSceneTab says why), so there is no toggle there.
             if ( m_Preview->GetFill() != PreviewViewport::Fill::SkyDome )
             {
+                place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
+                       ImGui::CalcTextSize( "Floor", nullptr, true ).x );
                 ImGui::Checkbox( "Floor", &setup.ShowFloor );
-                ImGui::SameLine();
             }
         }
 
+        place( buttonWidth( "Reset View" ) );
         if ( ImGui::Button( "Reset View" ) && m_Preview )
             m_Preview->ResetView();
     }

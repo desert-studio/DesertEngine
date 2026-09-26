@@ -1,4 +1,5 @@
 #include "PreviewViewport.hpp"
+#include "PreviewPaneLayout.hpp"
 
 #include <Editor/RenderSystems/Passes/EditorCubemapPreviewPass.hpp>
 #include <Editor/RenderSystems/Passes/EditorGridPass.hpp>
@@ -34,7 +35,6 @@ namespace Desert::Editor
         constexpr float kNearPlane  = 1.0f;  // centimetres (see Common/Core/Units.hpp)
         constexpr float kFarPlane   = 100000.0f;
         constexpr float kPitchLimit = 1.45f; // just shy of straight down/up, so the orbit never gimbals
-        constexpr float kFitMargin  = 1.05f; // a little air around the fitted sphere
 
         // ── The sky dome (Fill::SkyDome) ──────────────────────────────────────────────────────────────
         //
@@ -834,62 +834,31 @@ namespace Desert::Editor
             m_Yaw      = kDomeDefaultYaw;
             m_Pitch    = kDomeDefaultPitch;
             m_Focus    = glm::vec3( 0.0f, kDomeEyeHeight, 0.0f );
-            m_Distance = 0.0f;
             LOG_TRACE( "[Preview] dome view reset: yaw {:.1f} deg, elevation {:.1f} deg, {:.0f} deg vertical "
                        "field (horizon, mid and zenith in one frame)",
                        glm::degrees( m_Yaw ), glm::degrees( m_Pitch ), kDomeFov );
             return;
         }
 
-        m_Yaw   = -0.6f;
-        m_Pitch = 0.4f;
+        // THE DISTANCE IS NOT SOLVED HERE: it depends on the pane's aspect, which a person changes by dragging
+        // the divider or the window long after this ran. ApplyCamera fits the subject to the pane every frame
+        // (PreviewPane::FitDistance) and m_Zoom is the person's wheel on top of that fit; resetting the view
+        // is returning to the framing orientation at exactly the fit.
+        m_Yaw   = PreviewPane::kFramingYaw;
+        m_Pitch = PreviewPane::kFramingPitch;
+        m_Zoom  = 1.0f;
 
-        const float halfFov = glm::radians( kFov ) * 0.5f;
-
-        if ( m_FrameIsRound )
-        {
-            // A ball is bounded by its own radius from every direction, so the tightest distance at which
-            // it is fully visible follows straight from the frustum: sin(fov/2) = R / d.
-            m_Distance = ( m_FrameRadius / std::sin( halfFov ) ) * kFitMargin;
-        }
-        else
-        {
-            // Everything else is fitted by the CORNERS of its box, in perspective. Fitting such a shape by
-            // its bounding sphere instead wastes the frame: a cube's sphere is 1.73x its half-size, so the
-            // camera sits ~10% further back than it needs to and the corners never reach the edges. The
-            // corner fit is exact — for the 100-unit cube it is 276 against the sphere fit's 302, and the
-            // silhouette actually touches the frame.
-            //
-            //   corner depth  = d + dot(c, forward)
-            //   inside while |dot(c, right)| <= depth * tan(fov/2)
-            //   => d >= |dot(c, right)| / tan(fov/2) - dot(c, forward)
-            const float tanHalf = std::tan( halfFov );
-
-            const float     cp = std::cos( m_Pitch );
-            const glm::vec3 eyeDir{ cp * std::sin( m_Yaw ), std::sin( m_Pitch ), cp * std::cos( m_Yaw ) };
-            const glm::vec3 forward = -eyeDir;
-            const glm::vec3 right   = glm::normalize( glm::cross(
-                 forward, std::abs( forward.y ) > 0.99f ? glm::vec3( 0, 0, 1 ) : glm::vec3( 0, 1, 0 ) ) );
-            const glm::vec3 up      = glm::normalize( glm::cross( right, forward ) );
-
-            float needed = 0.0f;
-            for ( int corner = 0; corner < 8; ++corner )
-            {
-                const glm::vec3 c( ( corner & 1 ) ? m_FrameHalfExtent.x : -m_FrameHalfExtent.x,
-                                   ( corner & 2 ) ? m_FrameHalfExtent.y : -m_FrameHalfExtent.y,
-                                   ( corner & 4 ) ? m_FrameHalfExtent.z : -m_FrameHalfExtent.z );
-
-                const float lateral = std::max( std::abs( glm::dot( c, right ) ), std::abs( glm::dot( c, up ) ) );
-                needed              = std::max( needed, lateral / tanHalf - glm::dot( c, forward ) );
-            }
-
-            // The preview is square, so one tan covers both axes. Never inside the content's own sphere.
-            m_Distance = std::max( needed * kFitMargin, m_FrameRadius );
-        }
-
-        LOG_TRACE( "[Preview] fit: {} radius {:.1f} (half-extent {:.1f} x {:.1f} x {:.1f}) -> distance {:.1f}",
+        LOG_TRACE( "[Preview] fit: {} radius {:.1f} (half-extent {:.1f} x {:.1f} x {:.1f}), distance at a square "
+                   "pane {:.1f}",
                    m_FrameIsRound ? "round," : "boxed,", m_FrameRadius, m_FrameHalfExtent.x, m_FrameHalfExtent.y,
-                   m_FrameHalfExtent.z, m_Distance );
+                   m_FrameHalfExtent.z, FittedDistance( 1.0f ) );
+    }
+
+    float PreviewViewport::FittedDistance( float aspect ) const
+    {
+        return PreviewPane::FitDistance( { m_FrameIsRound, m_FrameRadius, m_FrameHalfExtent },
+                                         PreviewPane::kFramingYaw, PreviewPane::kFramingPitch,
+                                         glm::radians( kFov ), aspect );
     }
 
     void PreviewViewport::ApplyCamera( uint32_t width, uint32_t height )
@@ -908,7 +877,8 @@ namespace Desert::Editor
         // Euler the camera wants is its own pitch, which is the opposite sign.
         const float     cp = std::cos( m_Pitch );
         const glm::vec3 offset{ cp * std::sin( m_Yaw ), std::sin( m_Pitch ), cp * std::cos( m_Yaw ) };
-        const glm::vec3 position = m_Focus + offset * m_Distance;
+        const float     aspect   = static_cast<float>( width ) / static_cast<float>( std::max( height, 1u ) );
+        const glm::vec3 position = m_Focus + offset * ( FittedDistance( aspect ) * m_Zoom );
 
         m_Camera->SetFromTransform( position, glm::vec3( -m_Pitch, m_Yaw, 0.0f ), kFov, kNearPlane, kFarPlane,
                                     width, height );
@@ -1103,7 +1073,8 @@ namespace Desert::Editor
             const glm::vec3 right = glm::normalize( glm::cross( forward, glm::vec3( 0, 1, 0 ) ) );
             const glm::vec3 up    = glm::normalize( glm::cross( right, forward ) );
 
-            const float speed = m_Distance / std::max( drawSize.y, 1.0f );
+            const float distance = FittedDistance( drawSize.x / drawSize.y ) * m_Zoom;
+            const float speed    = distance / std::max( drawSize.y, 1.0f );
             m_Focus += ( -right * input.PanDelta.x + up * input.PanDelta.y ) * speed;
         }
 
@@ -1120,8 +1091,10 @@ namespace Desert::Editor
         {
             // Multiplicative so the zoom feels the same at every distance, clamped so the asset can neither
             // be swallowed by the near plane nor lost to a dot.
-            m_Distance = std::clamp( m_Distance * std::exp( -input.Wheel * 0.12f ), m_FrameRadius * 0.6f,
-                                     m_FrameRadius * 20.0f );
+            // The zoom is relative to the pane's fit, so the clamp is too: the same world-space limits as before.
+            const float fitted = std::max( FittedDistance( drawSize.x / drawSize.y ), 1e-3f );
+            m_Zoom = std::clamp( m_Zoom * std::exp( -input.Wheel * 0.12f ), m_FrameRadius * 0.6f / fitted,
+                                 m_FrameRadius * 20.0f / fitted );
         }
 
         if ( input.Reframe )

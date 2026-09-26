@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <glm/glm.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -101,5 +103,90 @@ namespace Desert::Editor::PreviewPane
             return {};
         const Graphic::ViewExtent extent{ static_cast<uint32_t>( w ), static_cast<uint32_t>( h ) };
         return Graphic::IsUsableViewExtent( extent ) ? extent : Graphic::ViewExtent{};
+    }
+
+    // ── Framing: the subject whole, centred, with air around it ──────────────────────────────────────────
+
+    // The orientation a preview opens at (and returns to on Reset View): a three-quarter view from a little
+    // above. The fit is solved at THIS orientation, not the current one, so orbiting never dollies the camera.
+    inline constexpr float kFramingYaw   = -0.6f; // radians
+    inline constexpr float kFramingPitch = 0.4f;  // radians, positive = camera above the subject
+
+    // The share of the pane's NARROWER side left empty on EACH side of the fitted subject (UE's Material
+    // Editor viewport shows the sphere whole with a clear margin): the subject spans 1 - 2 * 0.1 = 80 % of it.
+    inline constexpr float kFrameMargin = 0.1f;
+
+    struct FramedSubject
+    {
+        // A ball is bounded by its own radius from every direction, so it fits by the cone tangent to it;
+        // everything else fits by the corners of its box, which is tighter than its bounding sphere.
+        bool      Round      = false;
+        float     Radius     = 1.0f;
+        glm::vec3 HalfExtent = glm::vec3( 0.5f );
+    };
+
+    /**
+     * @brief The orbit distance at which @p subject fits a pane of @p aspect (width / height) whole.
+     *
+     * The camera's field of view is VERTICAL, so the horizontal one follows from the aspect:
+     * tan(h/2) = aspect * tan(v/2). The subject must fit BOTH, which means the narrower side binds — a tall
+     * narrow pane is fitted by its width, a wide short one by its height. Fitting by the vertical field alone
+     * (the rule of the square thumbnail this replaced) pushes a subject out of the sides of every pane taller
+     * than it is wide.
+     *
+     * The margin is applied in tangent space, i.e. as a share of the SCREEN, because screen position is
+     * proportional to the tangent of the angle off the axis.
+     */
+    [[nodiscard]] inline float FitDistance( const FramedSubject& subject, const float yaw, const float pitch,
+                                            const float verticalFovRadians, const float aspect,
+                                            const float margin = kFrameMargin ) noexcept
+    {
+        // An aspect nobody can draw at (a pane collapsed to nothing, a NaN mid-drag) is fitted as a square
+        // rather than producing an infinite or negative distance the camera would be placed at.
+        const float usableAspect = ( aspect > 0.0f && std::isfinite( aspect ) ) ? aspect : 1.0f;
+        const float fill         = std::clamp( 1.0f - 2.0f * margin, 0.05f, 1.0f );
+        const float tanV         = std::tan( verticalFovRadians * 0.5f ) * fill;
+        const float tanH         = tanV * usableAspect;
+
+        if ( subject.Round )
+            return subject.Radius / std::sin( std::atan( std::min( tanV, tanH ) ) );
+
+        //   corner depth  = d + dot(c, forward)
+        //   inside while |dot(c, right)| <= depth * tanH  and  |dot(c, up)| <= depth * tanV
+        //   => d >= max(|dot(c, right)| / tanH, |dot(c, up)| / tanV) - dot(c, forward)
+        const float     cp = std::cos( pitch );
+        const glm::vec3 forward{ -cp * std::sin( yaw ), -std::sin( pitch ), -cp * std::cos( yaw ) };
+        const glm::vec3 right = glm::normalize(
+             glm::cross( forward, std::abs( forward.y ) > 0.99f ? glm::vec3( 0, 0, 1 ) : glm::vec3( 0, 1, 0 ) ) );
+        const glm::vec3 up = glm::normalize( glm::cross( right, forward ) );
+
+        float needed = 0.0f;
+        for ( int corner = 0; corner < 8; ++corner )
+        {
+            const glm::vec3 c( ( corner & 1 ) ? subject.HalfExtent.x : -subject.HalfExtent.x,
+                               ( corner & 2 ) ? subject.HalfExtent.y : -subject.HalfExtent.y,
+                               ( corner & 4 ) ? subject.HalfExtent.z : -subject.HalfExtent.z );
+            const float lateral =
+                 std::max( std::abs( glm::dot( c, right ) ) / tanH, std::abs( glm::dot( c, up ) ) / tanV );
+            needed = std::max( needed, lateral - glm::dot( c, forward ) );
+        }
+        // Never inside the content's own sphere, whatever a flat box's corners allow.
+        return std::max( needed, subject.Radius );
+    }
+
+    // ── The viewport toolbar: wraps, never clips ─────────────────────────────────────────────────────────
+
+    /**
+     * @brief Whether an item @p itemWidth wide starts a NEW toolbar line rather than following the items
+     * already @p usedOnLine wide on the current one, in a row @p available wide.
+     *
+     * The first item of a line never wraps (there is nothing to wrap away from; an item wider than the whole
+     * row is narrowed by the caller instead). Everything after it wraps as soon as it would cross the edge,
+     * so a narrow pane shows its toolbar on two or three lines instead of cutting the last controls off.
+     */
+    [[nodiscard]] constexpr bool WrapsToNextLine( const float usedOnLine, const float itemWidth,
+                                                  const float spacing, const float available ) noexcept
+    {
+        return usedOnLine > 0.0f && usedOnLine + spacing + itemWidth > available;
     }
 } // namespace Desert::Editor::PreviewPane

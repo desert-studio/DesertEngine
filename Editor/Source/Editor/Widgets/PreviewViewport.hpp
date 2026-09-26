@@ -344,6 +344,8 @@ namespace Desert::Editor
         // before its first frame do not, and the first Render resizes it.
         void EnsureInit( const Graphic::ViewExtent& extent = Graphic::kUnsizedViewExtent );
         void ApplyCamera( uint32_t width, uint32_t height );
+        // The orbit distance at which the current content fits a pane of @p aspect (width / height) whole.
+        float FittedDistance( float aspect ) const;
         // Write m_Setup onto the scene's entities. Called from Update(), every frame: the writes are a
         // handful of component fields, and doing them unconditionally is what removes the "the panel
         // edited the struct but forgot to push it" failure entirely.
@@ -394,7 +396,7 @@ namespace Desert::Editor
         // the panel owns the widget, across selections of the same kind).
         float     m_Yaw      = -0.6f; // radians
         float     m_Pitch    = 0.5f;
-        float     m_Distance = 3.0f; // world units, derived from the content's bounds on ResetView
+        float     m_Zoom     = 1.0f; // the wheel's multiple of the fitted distance; 1 = the subject exactly fits
         glm::vec3 m_Focus{ 0.0f };
         float     m_FrameRadius = 1.0f;                  // bounding radius of the current content
         glm::vec3 m_FrameHalfExtent{ 0.5f, 0.5f, 0.5f }; // half-size of its box, for the exact fit

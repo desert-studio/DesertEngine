@@ -4,8 +4,11 @@
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewPaneLayout.hpp>
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -266,4 +269,136 @@ TEST( PreviewPaneLayout, AnUnusablePaneSizeIsTheZeroExtentSoTheResizeIsSkipped )
         const auto extent = PaneLayout::RenderExtent( w, h, 1.0f );
         EXPECT_FALSE( Desert::Graphic::IsUsableViewExtent( extent ) ) << w << "x" << h;
     }
+}
+
+// ── Framing: the subject fits the pane's NARROWER side, whole, centred, with a margin ───────────────────
+//
+// Checked INDEPENDENTLY of FitDistance's own arithmetic: the camera is built the way the preview builds it
+// (an orbit at the framing yaw/pitch looking at the focus, vertical fov, the pane's aspect) and the subject
+// is projected through glm's own perspective. A rule that fitted by the vertical field alone passes the
+// square and the wide pane and fails the tall narrow one — the pane the lead's frame showed overflowing.
+namespace
+{
+    constexpr float kPreviewFov = glm::radians( 35.0f ); // PreviewViewport's kFov
+
+    struct Extent2D
+    {
+        float X = 0.0f; // the largest |NDC x| of the subject's silhouette
+        float Y = 0.0f;
+    };
+
+    glm::vec3 EyeAt( const float distance )
+    {
+        const float cp = std::cos( PaneLayout::kFramingPitch );
+        return glm::vec3( cp * std::sin( PaneLayout::kFramingYaw ), std::sin( PaneLayout::kFramingPitch ),
+                          cp * std::cos( PaneLayout::kFramingYaw ) ) *
+               distance;
+    }
+
+    Extent2D ProjectBox( const glm::vec3& half, const float distance, const float aspect )
+    {
+        const glm::mat4 view = glm::lookAt( EyeAt( distance ), glm::vec3( 0.0f ), glm::vec3( 0, 1, 0 ) );
+        const glm::mat4 proj = glm::perspective( kPreviewFov, aspect, 1.0f, 100000.0f );
+        Extent2D        e;
+        for ( int corner = 0; corner < 8; ++corner )
+        {
+            const glm::vec4 c( ( corner & 1 ) ? half.x : -half.x, ( corner & 2 ) ? half.y : -half.y,
+                               ( corner & 4 ) ? half.z : -half.z, 1.0f );
+            const glm::vec4 clip = proj * view * c;
+            e.X                  = std::max( e.X, std::abs( clip.x / clip.w ) );
+            e.Y                  = std::max( e.Y, std::abs( clip.y / clip.w ) );
+        }
+        return e;
+    }
+
+    // A sphere seen from its centre's axis is a circle of angular radius asin(R/d); on screen that is
+    // tan(asin(R/d)) against each axis's tan(fov/2).
+    Extent2D ProjectBall( const float radius, const float distance, const float aspect )
+    {
+        const float t    = std::tan( std::asin( radius / distance ) );
+        const float tanV = std::tan( kPreviewFov * 0.5f );
+        return { t / ( tanV * aspect ), t / tanV };
+    }
+
+    constexpr float kFill = 1.0f - 2.0f * PaneLayout::kFrameMargin; // the share of the narrow side it spans
+    constexpr float kTol  = 1e-3f;
+} // namespace
+
+TEST( PreviewPaneLayout, TheBallFitsTheNarrowerSideWithAMarginAtEveryPaneShape )
+{
+    const PaneLayout::FramedSubject ball{ true, 50.0f, glm::vec3( 50.0f ) };
+    for ( const float aspect : { 0.45f /* tall narrow */, 1.0f /* square */, 2.4f /* wide short */ } )
+    {
+        const float    d = PaneLayout::FitDistance( ball, PaneLayout::kFramingYaw, PaneLayout::kFramingPitch,
+                                                    kPreviewFov, aspect );
+        const Extent2D e = ProjectBall( ball.Radius, d, aspect );
+        EXPECT_LE( e.X, kFill + kTol ) << "aspect " << aspect << ": the ball overflows the pane sideways";
+        EXPECT_LE( e.Y, kFill + kTol ) << "aspect " << aspect << ": the ball overflows the pane vertically";
+        // Tight on the binding side: fitted, not merely shrunk to a dot.
+        EXPECT_NEAR( std::max( e.X, e.Y ), kFill, kTol ) << "aspect " << aspect;
+        EXPECT_NEAR( aspect < 1.0f ? e.X : e.Y, kFill, kTol )
+             << "aspect " << aspect << ": the NARROWER side must be the one the ball spans";
+    }
+}
+
+TEST( PreviewPaneLayout, TheCubeFitsTheNarrowerSideWithAMarginAtEveryPaneShape )
+{
+    const PaneLayout::FramedSubject cube{ false, 50.0f * std::sqrt( 3.0f ), glm::vec3( 50.0f ) };
+    for ( const float aspect : { 0.45f, 1.0f, 2.4f } )
+    {
+        const float    d = PaneLayout::FitDistance( cube, PaneLayout::kFramingYaw, PaneLayout::kFramingPitch,
+                                                    kPreviewFov, aspect );
+        const Extent2D e = ProjectBox( cube.HalfExtent, d, aspect );
+        EXPECT_LE( e.X, kFill + kTol ) << "aspect " << aspect << ": the cube overflows the pane sideways";
+        EXPECT_LE( e.Y, kFill + kTol ) << "aspect " << aspect << ": the cube overflows the pane vertically";
+        EXPECT_NEAR( std::max( e.X, e.Y ), kFill, kTol ) << "aspect " << aspect << ": not fitted, only shrunk";
+    }
+}
+
+TEST( PreviewPaneLayout, ACardIsNeverFramedFromInsideItsOwnSphere )
+{
+    // A flat card's corners allow a distance shorter than its radius; the camera must not stand in it.
+    const PaneLayout::FramedSubject card{ false, 50.0f, glm::vec3( 50.0f, 0.0f, 0.0f ) };
+    const float d = PaneLayout::FitDistance( card, PaneLayout::kFramingYaw, PaneLayout::kFramingPitch,
+                                             kPreviewFov, 1.0f );
+    EXPECT_GE( d, card.Radius );
+}
+
+TEST( PreviewPaneLayout, AnUndrawableAspectIsFittedAsASquareNotAtInfinity )
+{
+    const PaneLayout::FramedSubject ball{ true, 50.0f, glm::vec3( 50.0f ) };
+    const float square = PaneLayout::FitDistance( ball, 0.0f, 0.0f, kPreviewFov, 1.0f );
+    for ( const float aspect : { 0.0f, -1.0f, std::nanf( "" ), INFINITY } )
+        EXPECT_FLOAT_EQ( PaneLayout::FitDistance( ball, 0.0f, 0.0f, kPreviewFov, aspect ), square ) << aspect;
+}
+
+// ── The viewport toolbar wraps instead of clipping ─────────────────────────────────────────────────────
+
+TEST( PreviewPaneLayout, ToolbarItemsWrapExactlyWhenTheyWouldCrossTheEdge )
+{
+    // Shape 110 + Lighting 150 + Floor 60 + Reset View 90 with 8 px spacing = 434 px on one line.
+    const float items[]   = { 110.0f, 150.0f, 60.0f, 90.0f };
+    const auto  lineCount = []( const float( &widths )[4], const float available )
+    {
+        int   lines = 0;
+        float used  = 0.0f;
+        for ( const float w : widths )
+        {
+            if ( used == 0.0f || PaneLayout::WrapsToNextLine( used, w, 8.0f, available ) )
+            {
+                ++lines;
+                used = w;
+            }
+            else
+                used += 8.0f + w;
+            EXPECT_LE( used, std::max( available, w ) ) << "an item was placed past the edge at " << available;
+        }
+        return lines;
+    };
+    EXPECT_EQ( lineCount( items, 434.0f ), 1 ) << "a toolbar that exactly fits must not wrap";
+    EXPECT_EQ( lineCount( items, 433.0f ), 2 );
+    EXPECT_EQ( lineCount( items, 268.0f ), 2 ); // Shape + Lighting | Floor + Reset View
+    EXPECT_EQ( lineCount( items, 160.0f ), 3 ); // the minimum preview width: Shape | Lighting | Floor + Reset
+    EXPECT_FALSE( PaneLayout::WrapsToNextLine( 0.0f, 500.0f, 8.0f, 160.0f ) )
+         << "the first item of a line has nothing to wrap away from";
 }
