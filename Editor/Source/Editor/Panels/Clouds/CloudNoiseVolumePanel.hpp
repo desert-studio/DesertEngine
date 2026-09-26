@@ -62,7 +62,7 @@ namespace Desert::Editor
 
         // NEVER, and this is measured rather than assumed. This panel owns no PreviewViewport, no Scene and
         // no SceneRenderer: it bakes on the CPU and uploads the result as a single Graphic::Image2D, which
-        // is a device image and not a renderer. So the six-slot census (EditorLayer::RendererSlotCensus)
+        // is a device image and not a renderer. So the view census (EditorLayer::ViewCensus)
         // counts this document at zero for its whole life, and closing it returns nothing because it took
         // nothing. The same is true of the other three cloud documents.
 

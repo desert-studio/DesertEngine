@@ -113,10 +113,11 @@ namespace Desert::Editor
         //
         // A view is a live Graphic::SceneRenderer (counted by ViewResourceRegistry::LiveCount). This window
         // has none: it owns a Framebuffer, a RenderPass and a Render2D, and draws the canvas straight into
-        // them. So it can never claim a view and can never release one, and BOTH answers have to be false rather
-        // than the base class's conservative default — a `true` here would put "UICanvasComponent document 'HUD' —
-        // holds a slot" in the refusal census (EditorLayer::RendererSlotCensus), which tells a user to close a
-        // window that frees nothing. Its own GPU resources are released by the undrawn sweep below and by ~this.
+        // them. So it can never claim a view and can never release one, and BOTH answers have to be false
+        // rather than the base class's conservative default — a `true` here would put "UICanvasComponent
+        // document 'HUD' — holds a view" in the refusal census (EditorLayer::ViewCensus), which tells a user
+        // to close a window that frees nothing. Its own GPU resources are released by the undrawn sweep
+        // below and by ~this.
         [[nodiscard]] bool HoldsView() const override
         {
             return false;
@@ -144,7 +145,7 @@ namespace Desert::Editor
         // ISubjectDocument::ReleaseView exists to stop.
         //
         // ITS OWN COUNT AND NOT THE EDITOR'S. ReleaseSlotsOfHiddenDocuments is gated on
-        // HoldsView(), which this document answers false for the reason above, so the six-slot
+        // HoldsView(), which this document answers false for the reason above, so the view-release
         // path cannot serve it. The two numbers are independent — nothing has to keep them equal — and
         // they are the same order of magnitude because the question is the same one: has the user left?
         static constexpr uint32_t kFramesUndrawnBeforeTargetRelease = 30;

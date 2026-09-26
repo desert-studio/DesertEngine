@@ -135,9 +135,9 @@ namespace Desert::ECS
         std::shared_ptr<const Geometry::DynamicMesh3> EditableMesh;
         // DERIVED from EditableMesh by ECS::SetEditableMesh (Geometry::ToRenderMesh), and only by it: null
         // exactly when EditableMesh is. What the render path, picking and the Details panel read.
-        std::shared_ptr<DynamicMesh> RuntimeMesh;
-        bool                         OutlineDraw = false;
-        int                          ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
+        std::shared_ptr<DynamicMesh>           RuntimeMesh;
+        bool                                   OutlineDraw = false;
+        int                                    ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
@@ -174,8 +174,8 @@ namespace Desert::ECS
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
-                 RuntimeMaterialInstances;    // Cache to keep instances alive and avoid per-frame allocations
-        uint32_t SeenMaterialsVersion = 0;    // see StaticMeshComponent
+                 RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+        uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
         // In-editor rig: a skinned mesh built at runtime by "Convert to Skinned" (from a static mesh + placed

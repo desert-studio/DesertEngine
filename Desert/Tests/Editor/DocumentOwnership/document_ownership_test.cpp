@@ -313,7 +313,7 @@ TEST( PanelCensusRelation, TheCensusNoticesADocumentAmongTheTools )
     mixed.emplace_back( MakeDocument( DocumentTitle( "M_Crate_Painted", Asset( 11 ) ), Asset( 11 ) ) );
 
     EditorDocuments empty;
-    const auto      census = CensusOfPanels( mixed, empty );
+    const auto   census = CensusOfPanels( mixed, empty );
 
     EXPECT_EQ( census.Total, 2u );
     EXPECT_FALSE( census.ToolsHoldNoDocument );

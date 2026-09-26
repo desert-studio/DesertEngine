@@ -33,17 +33,30 @@
 namespace Desert::Graphic::Render2D
 {
     /**
-     * @brief Frames that must pass before a cache entry may be retired: the frames in flight.
+     * @brief How many frames-in-flight lengths an entry must sit unused before it is retired.
+     *
+     * The number is the old renderer-slot count, and it outlived the slots on purpose. The window used to be
+     * frames in flight x kMaxRendererSlots, and that factor was already margin, not a bound: it was carried
+     * over from when this window was shared with the material properties' dirty countdown (now versions,
+     * PropertyVersion.hpp). Removing the slots did not make the margin wrong, only unnamed. The two ways
+     * of getting it wrong are not symmetric: too short is a silent use-after-free on the GPU (descriptor
+     * sets destroyed under a frame still reading them — corruption, not a crash); too long is a few extra
+     * frames of life for a cache entry nobody is drawing. So the margin stays at what shipped.
+     */
+    inline constexpr uint32_t kExecutorRetireMargin = 6;
+
+    /**
+     * @brief Frames that must pass before a cache entry may be retired: frames in flight x the margin.
      *
      * Frames in flight is the GPU bound — the oldest submitted frame that may still read an executor's sets.
      * Views do not multiply it: every view records into the same frame, so a frame retiring on the GPU
-     * retires every view's use of the entry at once. Frames in flight is floored at 3 before FrameManager
-     * knows it, so the window is never zero.
+     * retires every view's use of the entry at once. The factor is kExecutorRetireMargin, above. Frames in
+     * flight is floored at 3 before FrameManager knows it, so the window is never zero.
      */
     inline uint32_t ExecutorRetireWindow()
     {
         const uint32_t framesInFlight = Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
-        return framesInFlight > 0 ? framesInFlight : 3u;
+        return ( framesInFlight > 0 ? framesInFlight : 3u ) * kExecutorRetireMargin;
     }
 
     /**

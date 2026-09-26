@@ -866,9 +866,8 @@ namespace Desert::Graphic::System
         if ( !targetFb )
             return;
 
-        builder.AddPass(
-             "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
-             m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb );
+        builder.AddPass( "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
+                         m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb );
     }
 
     void SkyboxRenderer::Render()

@@ -2610,13 +2610,13 @@ namespace Desert::Editor
                 continue;
 
             Control::DocumentSnapshot entry;
-            entry.Name              = DocumentDisplayName( document->GetName() );
-            entry.Type              = m_SubjectEditors.TypeName( subject );
-            entry.Subject           = subject.ToString();
-            entry.HoldsView         = document->HoldsView();
-            entry.ClaimsView        = document->ClaimsView();
-            entry.ViewForecastBytes = document->ViewForecastBytes();
-            entry.Focused           = ( subject == m_FocusedDocument );
+            entry.Name               = DocumentDisplayName( document->GetName() );
+            entry.Type               = m_SubjectEditors.TypeName( subject );
+            entry.Subject            = subject.ToString();
+            entry.HoldsView          = document->HoldsView();
+            entry.ClaimsView         = document->ClaimsView();
+            entry.ViewForecastBytes  = document->ViewForecastBytes();
+            entry.Focused            = ( subject == m_FocusedDocument );
 
             // The three states, asked of the document itself. Written out as words here rather than
             // exported as enums, because the wire is read by clients that have none of our headers.

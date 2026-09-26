@@ -13,8 +13,8 @@ namespace Desert::Engine
     public:
         void Initialize( uint32_t maxFramesInFlight )
         {
-            m_MaxFramesInFlight  = maxFramesInFlight;
-            m_CurrentFrameIndex  = 0;
+            m_MaxFramesInFlight = maxFramesInFlight;
+            m_CurrentFrameIndex = 0;
             m_AbsoluteFrameCount = 0;
         }
 
@@ -46,23 +46,14 @@ namespace Desert::Engine
             m_AbsoluteFrameCount++;
         }
 
-        [[nodiscard]] uint32_t GetCurrentFrameIndex() const
-        {
-            return m_CurrentFrameIndex;
-        }
-        [[nodiscard]] uint32_t GetMaxFramesInFlight() const
-        {
-            return m_MaxFramesInFlight;
-        }
-        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const
-        {
-            return m_AbsoluteFrameCount;
-        }
+        [[nodiscard]] uint32_t GetCurrentFrameIndex() const { return m_CurrentFrameIndex; }
+        [[nodiscard]] uint32_t GetMaxFramesInFlight() const { return m_MaxFramesInFlight; }
+        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const { return m_AbsoluteFrameCount; }
 
     private:
-        uint32_t m_CurrentFrameIndex     = 0;
-        uint32_t m_MaxFramesInFlight     = 2;
-        uint64_t m_AbsoluteFrameCount    = 0;
+        uint32_t m_CurrentFrameIndex = 0;
+        uint32_t m_MaxFramesInFlight = 2;
+        uint64_t m_AbsoluteFrameCount = 0;
         bool     m_CountFixedBySwapchain = false;
     };
 

@@ -646,8 +646,8 @@ namespace Desert::Graphic
         // Lens flare: the authored "Lens Flare" group, copied whole. Intensity and Tint are held out of
         // the pass's own params because the pass never applies them — the tonemap does, so that a flare
         // whose sun has left the screen fades through ONE number instead of two that could disagree.
-        m_LensFlare.Enabled   = sceneSettings.EnableLensFlare;
-        m_LensFlare.Intensity = sceneSettings.LensFlareIntensity;
+        m_LensFlare.Enabled         = sceneSettings.EnableLensFlare;
+        m_LensFlare.Intensity       = sceneSettings.LensFlareIntensity;
         // Normalised for the reason given at the bloom threshold above, and by the same number: this pass
         // thresholds the same raw HDR image, so leaving one of the two in raw radiance would only move the
         // defect from one bright pass to the other.

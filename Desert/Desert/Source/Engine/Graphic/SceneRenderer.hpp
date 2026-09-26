@@ -161,7 +161,7 @@ namespace Desert::Graphic
 
         [[nodiscard]] Common::BoolResultStr EndScene();
 
-        void                            Resize( const uint32_t width, const uint32_t height );
+        void Resize( const uint32_t width, const uint32_t height );
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
             return m_ViewExtent;
@@ -531,8 +531,8 @@ namespace Desert::Graphic
         System::LensFlareRenderer::Params m_LensFlare;
         glm::vec3                         m_LensFlareTint = glm::vec3( 1.0f );
         // Raised by the UI canvas when it drew glass; consumed at the top of the next frame's UI phase.
-        bool m_BackdropBlurNeeded = false;
-        bool m_ScenePlaying       = false; // set per frame in BeginScene (hides authoring aids)
+        bool                   m_BackdropBlurNeeded = false;
+        bool                   m_ScenePlaying = false; // set per frame in BeginScene (hides authoring aids)
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
@@ -577,12 +577,12 @@ namespace Desert::Graphic
         // What this VIEW is drawing on top of the world. NOT refreshed from the scene — pushed in by
         // whoever owns the view (SetDebugView), and "show nothing" until someone does. See
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
-        DebugViewState m_DebugView;
-        bool           m_EnableSSAO   = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
-        Core::GIMode   m_GIMode       = Core::GIMode::ScreenSpace; // indirect-light source
-        float          m_GIIntensity  = 2.0f;
-        bool           m_EnableSSR    = false;
-        float          m_SSRIntensity = 1.0f;
+        DebugViewState          m_DebugView;
+        bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
+        Core::GIMode            m_GIMode        = Core::GIMode::ScreenSpace; // indirect-light source
+        float                   m_GIIntensity   = 2.0f;
+        bool                    m_EnableSSR     = false;
+        float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.
         float m_SSRMaxDistance = Common::Units::Metres( 40.0f );
@@ -602,12 +602,12 @@ namespace Desert::Graphic
         bool EnsureGIResources();
         bool EnsureSSRResources();
         // Device can sample+blend RGBA32F colour attachments — the precondition both features share.
-        bool                                                            HasFloatRenderTargetSupport() const;
-        bool                                                            m_GIResourcesReady   = false;
-        bool                                                            m_GIResourcesFailed  = false;
-        bool                                                            m_SSRResourcesReady  = false;
-        bool                                                            m_SSRResourcesFailed = false;
-        RenderGraphBuilder                                              m_RenderGraphBuilder;
+        bool HasFloatRenderTargetSupport() const;
+        bool m_GIResourcesReady   = false;
+        bool m_GIResourcesFailed  = false;
+        bool m_SSRResourcesReady  = false;
+        bool m_SSRResourcesFailed = false;
+        RenderGraphBuilder      m_RenderGraphBuilder;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 
         // The names above, in the order they were first registered. RebuildRenderGraph walks THIS, not
@@ -615,8 +615,8 @@ namespace Desert::Graphic
         // meant "the pass whose system name happened to hash low", and it changed whenever a system was
         // added. The render graph tie-breaks equal passes inside a phase by registration order, so this
         // vector is what turns the order of the RegisterSystem calls in Init into the draw order.
-        std::vector<std::string> m_RenderSystemOrder;
-        PipelineCache            m_PipelineCache;
+        std::vector<std::string>                                        m_RenderSystemOrder;
+        PipelineCache                                                   m_PipelineCache;
 
         // Registers a system under `name`, or replaces the system already registered under it while
         // keeping its original position in the registration order.

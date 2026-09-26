@@ -16,7 +16,8 @@ namespace Desert
     class EngineContext final : public Common::Singleton<EngineContext>
     {
     public:
-        void Initialize( const std::shared_ptr<Window>& window, const std::shared_ptr<Engine::Device>& device,
+        void Initialize( const std::shared_ptr<Window>& window, 
+                         const std::shared_ptr<Engine::Device>& device,
                          const std::shared_ptr<Graphic::RendererContext>& rendererContext )
         {
             m_Window          = window;
