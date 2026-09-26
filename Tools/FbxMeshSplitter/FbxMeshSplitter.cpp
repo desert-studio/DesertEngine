@@ -1,5 +1,8 @@
 #include "FbxMeshSplitter.hpp"
 
+// First: the JSON facade pulls reflect-cpp, which must precede anything that could include <windows.h>.
+#include <Editor/Panels/Collections/CollectionManifest.hpp>
+
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
@@ -15,9 +18,9 @@
 #include <cstring>
 #include <functional>
 #include <fstream>
-#include <sstream>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <system_error>
 #include <unordered_set>
 #include <vector>
@@ -462,7 +465,7 @@ namespace FbxSplit
         const std::vector<MaterialDef> materials = ScanMaterials( fbxAbs.parent_path(), projectDir );
 
         std::unordered_set<std::string> usedNames;
-        std::string                     items; // accumulated JSON item entries
+        Desert::Editor::CollectionManifest manifest; // written through the shared writer the panel reads back
 
         for ( unsigned i = 0; i < scene->mNumMeshes; ++i )
         {
@@ -491,13 +494,13 @@ namespace FbxSplit
             std::filesystem::path rel      = std::filesystem::relative( objPath, projectDir, ec );
             const std::string     meshRel  = ec ? objPath.generic_string() : rel.generic_string();
             const int             matIndex = BestMaterialForCategory( stem, materials );
-            if ( !items.empty() )
-                items += ",\n";
-            items +=
-                 R"(    { "Name": ")" + name + R"(", "Category": ")" + stem + R"(", "Mesh": ")" + meshRel + R"(")";
+            Desert::Editor::CollectionManifestItem item;
+            item.Name     = name;
+            item.Category = stem;
+            item.Mesh     = meshRel;
             if ( matIndex >= 0 )
-                items += R"(, "Material": )" + std::to_string( matIndex );
-            items += " }";
+                item.Material = matIndex;
+            manifest.Items.push_back( std::move( item ) );
             ++result.MeshCount;
         }
 
@@ -509,53 +512,40 @@ namespace FbxSplit
 
         // Write the collection manifest next to the FBX so the engine's Collections panel picks it up.
         const std::filesystem::path manifestPath = fbxAbs.parent_path() / "collection.json";
-        // Build the Materials array (only the slots that were actually found; cutout => AlphaCutoff + TwoSided
-        // so foliage cards render right out of the box).
-        std::string materialsJson;
-        for ( const auto& m : materials )
+        // The Materials array (only the slots that were actually found; cutout => AlphaCutoff + TwoSided so
+        // foliage cards render right out of the box).
+        auto slot = []( const std::string& path ) -> std::optional<std::string>
         {
-            auto field = [&]( const char* key, const std::string& path )
+            if ( path.empty() )
+                return std::nullopt;
+            return path;
+        };
+        if ( !materials.empty() )
+        {
+            std::vector<Desert::Editor::CollectionManifestMaterial> offered;
+            for ( const auto& m : materials )
             {
-                if ( !path.empty() )
-                    materialsJson += std::string( ", \"" ) + key + "\": \"" + path + "\"";
-            };
-            if ( !materialsJson.empty() )
-                materialsJson += ",\n";
-            const bool cutout = !m.Opacity.empty();
-            materialsJson += R"(    { "Name": ")" + m.Stem + R"(")";
-            field( "Albedo", m.Albedo );
-            field( "Opacity", m.Opacity );
-            field( "Normal", m.Normal );
-            field( "Roughness", m.Roughness );
-            field( "Metallic", m.Metallic );
-            field( "AO", m.AO );
-            materialsJson += std::string( R"(, "AlphaCutoff": )" ) + ( cutout ? "0.5" : "0.0" );
-            materialsJson += std::string( R"(, "TwoSided": )" ) + ( cutout ? "true" : "false" );
-            materialsJson += " }";
+                const bool cutout = !m.Opacity.empty();
+                offered.push_back( { .Name        = m.Stem,
+                                     .Albedo      = slot( m.Albedo ),
+                                     .Opacity     = slot( m.Opacity ),
+                                     .Normal      = slot( m.Normal ),
+                                     .Roughness   = slot( m.Roughness ),
+                                     .Metallic    = slot( m.Metallic ),
+                                     .AO          = slot( m.AO ),
+                                     .AlphaCutoff = cutout ? 0.5f : 0.0f,
+                                     .TwoSided    = cutout } );
+            }
+            manifest.Materials = std::move( offered );
         }
-
-        const std::string  collName = fbxAbs.parent_path().filename().string();
-        std::ostringstream mf;
-        mf << "{\n  "
-              R"("Name": ")"
-           << collName
-           << R"(",)"
-              "\n  "
-              R"("Author": "FbxMeshSplitter",)"
-              "\n";
-        if ( !materialsJson.empty() )
-            mf << R"(  "Materials": [)"
-                  "\n"
-               << materialsJson << "\n  ],\n";
-        mf << R"(  "Items": [)"
-              "\n"
-           << items << "\n  ]\n}\n";
+        manifest.Name   = fbxAbs.parent_path().filename().string();
+        manifest.Author = "FbxMeshSplitter";
 
         // The manifest DID call close() — and then never looked at the stream again, so a failed flush
         // still produced result.Success = true and a ManifestPath the caller would go on to read. A
         // close whose result nobody reads is the same silence as no close at all; that is why the
         // verdict lives in WriteWholeFile and not at the call sites.
-        if ( std::string error; !WriteWholeFile( manifestPath, mf.str(), error ) )
+        if ( std::string error; !WriteWholeFile( manifestPath, Desert::Editor::WriteCollectionManifest( manifest ), error ) )
         {
             result.Error = "Could not write manifest: " + error;
             return result;

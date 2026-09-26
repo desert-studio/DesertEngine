@@ -30,6 +30,7 @@
 #include <Engine/Assets/Serialization/Material.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
+#include <Editor/Panels/Collections/CollectionManifest.hpp>
 #include <Common/Utilities/ContentManifest.hpp>
 #include <Common/Utilities/ContentUpdate.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -58,34 +59,9 @@ namespace Desert::Editor
             return Common::Constants::Path::COLLECTIONS_PATH.generic_string();
         }
 
-        // On-disk manifest shape (collection.json). Optional fields tolerate missing keys.
-        struct ManifestItem
-        {
-            std::string                Name;
-            std::optional<std::string> Category;
-            std::string                Mesh; // working-dir-relative source path
-            std::optional<std::string> Thumbnail;
-            std::optional<int>         Material; // index into Manifest::Materials (the mesh's PBR material)
-        };
-
-        // A PBR material the splitter detected from the pack's texture files (paths by filename suffix). The
-        // editor materializes these into real .demat assets (the engine owns that format; the tool stays
-        // engine-free). Cutout/foliage carries AlphaCutoff (TwoSided is reserved for a future shader feature).
-        struct ManifestMaterial
-        {
-            std::string                Name;
-            std::optional<std::string> Albedo, Opacity, Normal, Roughness, Metallic, AO;
-            std::optional<float>       AlphaCutoff;
-            std::optional<bool>        TwoSided;
-        };
-
-        struct Manifest
-        {
-            std::string                                  Name;
-            std::optional<std::string>                   Author;
-            std::optional<std::vector<ManifestMaterial>> Materials;
-            std::vector<ManifestItem>                    Items;
-        };
+        // The manifest shape, writer and reader live in CollectionManifest.hpp (shared with FbxMeshSplitter).
+        using Manifest         = CollectionManifest;
+        using ManifestMaterial = CollectionManifestMaterial;
 
         std::string ToLower( std::string s )
         {
@@ -456,7 +432,7 @@ namespace Desert::Editor
                 LOG_WARN( "[Collections] {}", raw.GetError() );
                 continue;
             }
-            const auto parsed = Common::Json::Read<Manifest>( raw.GetValue() );
+            const auto parsed = ReadCollectionManifest( raw.GetValue() );
             if ( !parsed )
             {
                 LOG_WARN( "[Collections] Failed to parse {}: {}", manifestPath.string(), parsed.GetError() );
