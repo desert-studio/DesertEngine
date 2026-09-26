@@ -28,7 +28,7 @@ namespace
 
     struct CountedCopy final : IViewResourceCopy
     {
-        CountedCopy()
+        explicit CountedCopy( const uint64_t bytes ) : Bytes( bytes )
         {
             ++g_LiveCopies;
         }
@@ -36,16 +36,24 @@ namespace
         {
             --g_LiveCopies;
         }
+
+        [[nodiscard]] uint64_t HeldBytes() const noexcept override
+        {
+            return Bytes;
+        }
+
+        uint64_t Bytes = 0;
     };
 
     struct CountingFactory final : IViewResourceCopyFactory
     {
-        int Created = 0;
+        int      Created   = 0;
+        uint64_t CopyBytes = 0; // what each copy made from here says it holds
 
         std::unique_ptr<IViewResourceCopy> CreateViewCopy( std::string_view, uint32_t ) override
         {
             ++Created;
-            return std::make_unique<CountedCopy>();
+            return std::make_unique<CountedCopy>( CopyBytes );
         }
     };
 
@@ -201,6 +209,33 @@ TEST_F( ViewResourcesTest, AcquireRefusesAnUnassignedKeyAndANullCopy )
     EXPECT_THROW( (void)view.Acquire( key, 0, none ), std::logic_error );
     EXPECT_EQ( view.Find( key, 0 ), nullptr ) << "a refused copy was left behind as an empty entry";
     EXPECT_EQ( view.CopyCount(), 0u );
+}
+
+// The view budget counts a view's holding as its targets PLUS these copies (SceneRenderer::HeldBytes); a
+// per-view uniform buffer a view never gives back must show up in the number the refusal prints.
+TEST_F( ViewResourcesTest, HeldBytesSumsEveryCopyOverEveryFrameAndDropsWithIt )
+{
+    ViewResources         view( "scene" );
+    ViewResources         other( "other" );
+    const ViewResourceKey uniforms = ViewResourceKey::Allocate();
+    const ViewResourceKey storage  = ViewResourceKey::Allocate();
+    CountingFactory       small;
+    small.CopyBytes = 256;
+    CountingFactory large;
+    large.CopyBytes = 4096;
+
+    EXPECT_EQ( view.HeldBytes(), 0u );
+    (void)view.Acquire( uniforms, 0, small );
+    (void)view.Acquire( uniforms, 1, small );
+    (void)view.Acquire( storage, 1, large );
+    (void)other.Acquire( uniforms, 0, large );
+    EXPECT_EQ( view.HeldBytes(), 256u + 256u + 4096u ) << "a frame in flight or a second resource went uncounted";
+    EXPECT_EQ( other.HeldBytes(), 4096u ) << "one view's copies were counted as another's";
+
+    EXPECT_EQ( view.Forget( storage ), 1u );
+    EXPECT_EQ( view.HeldBytes(), 512u ) << "a dropped copy is still counted as held";
+    view.Clear();
+    EXPECT_EQ( view.HeldBytes(), 0u );
 }
 
 int main( int argc, char** argv )

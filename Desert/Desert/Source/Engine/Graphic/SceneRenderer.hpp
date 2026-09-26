@@ -313,8 +313,9 @@ namespace Desert::Graphic
         static uint32_t GetLiveRendererCount();
 
         // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
-        // the same table the view's build is checked against). What the view-budget rule counts as
-        // "open views hold" (Engine/Core/ViewBudget.hpp).
+        // the same table the view's build is checked against) plus every per-view copy its ViewResources
+        // keeps (uniform/storage buffer copies, ...). What the view-budget rule counts as "open views hold"
+        // (Engine/Core/ViewBudget.hpp).
         [[nodiscard]] uint64_t HeldBytes() const;
 
         // Every live view and what it holds, for the budget's refusal text and its usage stand-in.

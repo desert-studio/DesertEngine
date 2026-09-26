@@ -459,7 +459,8 @@ namespace Desert::Graphic
     uint64_t SceneRenderer::HeldBytes() const
     {
         return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
-             .Total();
+                    .Total() +
+               m_ViewResources.HeldBytes();
     }
 
     std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()

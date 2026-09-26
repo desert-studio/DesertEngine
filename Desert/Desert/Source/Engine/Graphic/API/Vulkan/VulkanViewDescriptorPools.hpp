@@ -72,6 +72,13 @@ namespace Desert::Graphic::API::Vulkan
             return m_Sets;
         }
 
+        // Sets are carved out of the view's pool and allocate nothing of their own (see ViewPoolChain for
+        // why the pool itself counts nothing either).
+        [[nodiscard]] uint64_t HeldBytes() const noexcept override
+        {
+            return 0;
+        }
+
     private:
         std::vector<VkDescriptorSet>   m_Sets;
         std::shared_ptr<ViewPoolBlock> m_Pool;
