@@ -6,8 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <Common/Json/Document.hpp>
-
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -230,17 +229,14 @@ namespace
         const TypeInfo type = MakeSlotType();
         const Slot     src{ handle };
 
-        const std::string json = rfl::json::write( rfl::Generic( SerializeReflected( type, &src ) ) );
+        const std::string json = Common::Json::Write( Common::Json::Value( SerializeReflected( type, &src ) ) );
 
-        const auto reread = rfl::json::read<rfl::Generic>( json );
+        const auto reread = Common::Json::Read<Common::Json::Object>( json );
         if ( !reread )
-            return 0;
-        const auto obj = reread.value().to_object();
-        if ( !obj )
             return 0;
 
         Slot dst;
-        EXPECT_TRUE( Read( type, &dst, obj.value() ).empty() );
+        EXPECT_TRUE( Read( type, &dst, reread.GetValue() ).empty() );
         return dst.Handle;
     }
 } // namespace

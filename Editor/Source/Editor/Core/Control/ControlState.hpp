@@ -1,11 +1,10 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <Editor/Core/Control/ControlPipeline.hpp>
 #include <Editor/Core/EditableProperty.hpp>
-
-#include <rflcpp/rfl/Generic.hpp>
 
 #include <cstdint>
 #include <string>
@@ -103,10 +102,10 @@ namespace Desert::Editor::Control
 
         std::vector<EntitySnapshot> Selection; ///< last element is the primary selection
 
-        std::vector<DocumentSnapshot>       Documents;      ///< most recently used first
-        std::vector<ClosedDocumentSnapshot> RecentlyClosed; ///< newest first
+        std::vector<DocumentSnapshot>       Documents;               ///< most recently used first
+        std::vector<ClosedDocumentSnapshot> RecentlyClosed;          ///< newest first
         bool                                DocumentWellOpen = true; ///< the "Documents" window, not its documents
-        std::vector<PanelSnapshot>          Panels;         ///< tools only; a document is never here
+        std::vector<PanelSnapshot>          Panels;                  ///< tools only; a document is never here
 
         uint32_t RendererSlotsLive    = 0;
         uint32_t RendererSlotsPending = 0;
@@ -184,145 +183,145 @@ namespace Desert::Editor::Control
             return false;
         }
 
-        [[nodiscard]] inline rfl::Generic Str( const std::string& text )
+        [[nodiscard]] inline Common::Json::Value Str( const std::string& text )
         {
-            return rfl::Generic( text );
+            return Common::Json::Value( text );
         }
 
-        [[nodiscard]] inline rfl::Generic Num( double value )
+        [[nodiscard]] inline Common::Json::Value Num( double value )
         {
-            return rfl::Generic( value );
+            return Common::Json::Value( value );
         }
     } // namespace StateDetail
 
     /// The snapshot as JSON, restricted to @p sections (empty = all). Callers validate the sections
     /// first; anything unknown here is simply absent, because the refusal already happened.
-    [[nodiscard]] inline rfl::Generic::Object ToJson( const EditorSnapshot&           snapshot,
+    [[nodiscard]] inline Common::Json::Object ToJson( const EditorSnapshot&           snapshot,
                                                       const std::vector<std::string>& sections )
     {
         using namespace StateDetail;
-        rfl::Generic::Object root;
+        Common::Json::Object root;
 
         if ( Wanted( sections, "scene" ) )
         {
-            rfl::Generic::Object scene;
+            Common::Json::Object scene;
             scene["name"]     = Str( snapshot.SceneName );
-            scene["modified"] = rfl::Generic( snapshot.SceneHasUnsavedChanges );
-            scene["playing"]  = rfl::Generic( snapshot.InPlayMode );
-            root["scene"]     = rfl::Generic( scene );
+            scene["modified"] = Common::Json::Value( snapshot.SceneHasUnsavedChanges );
+            scene["playing"]  = Common::Json::Value( snapshot.InPlayMode );
+            root["scene"]     = Common::Json::Value( scene );
         }
 
         if ( Wanted( sections, "selection" ) )
         {
-            rfl::Generic::Array selection;
+            Common::Json::Value::Array selection;
             for ( const EntitySnapshot& entity : snapshot.Selection )
             {
-                rfl::Generic::Object item;
+                Common::Json::Object item;
                 item["tag"]  = Str( entity.Tag );
                 item["uuid"] = Str( entity.Uuid );
-                selection.push_back( rfl::Generic( item ) );
+                selection.push_back( Common::Json::Value( item ) );
             }
-            root["selection"] = rfl::Generic( selection );
+            root["selection"] = Common::Json::Value( selection );
         }
 
         if ( Wanted( sections, "authoring" ) )
         {
-            rfl::Generic::Object authoring;
+            Common::Json::Object authoring;
             authoring["mode"]             = Str( snapshot.Authoring.Mode );
             authoring["entity"]           = Str( snapshot.Authoring.Entity );
             authoring["holder"]           = Str( snapshot.Authoring.Holder );
             authoring["selectedBone"]     = Num( snapshot.Authoring.SelectedBone );
             authoring["selectedControl"]  = Num( snapshot.Authoring.SelectedControl );
-            authoring["showBoneNames"]    = rfl::Generic( snapshot.Authoring.ShowBoneNames );
-            authoring["previewsBindPose"] = rfl::Generic( snapshot.Authoring.PreviewsBindPose );
-            root["authoring"]             = rfl::Generic( authoring );
+            authoring["showBoneNames"]    = Common::Json::Value( snapshot.Authoring.ShowBoneNames );
+            authoring["previewsBindPose"] = Common::Json::Value( snapshot.Authoring.PreviewsBindPose );
+            root["authoring"]             = Common::Json::Value( authoring );
         }
 
         if ( Wanted( sections, "documents" ) )
         {
-            rfl::Generic::Array open;
+            Common::Json::Value::Array open;
             for ( const DocumentSnapshot& document : snapshot.Documents )
             {
-                rfl::Generic::Object item;
+                Common::Json::Object item;
                 item["name"]       = Str( document.Name );
                 item["type"]       = Str( document.Type );
                 item["subject"]    = Str( document.Subject );
-                item["holdsSlot"]  = rfl::Generic( document.HoldsRendererSlot );
-                item["claimsSlot"] = rfl::Generic( document.ClaimsRendererSlot );
-                item["focused"]    = rfl::Generic( document.Focused );
+                item["holdsSlot"]  = Common::Json::Value( document.HoldsRendererSlot );
+                item["claimsSlot"] = Common::Json::Value( document.ClaimsRendererSlot );
+                item["focused"]    = Common::Json::Value( document.Focused );
                 // The three states, so a client can say in numbers what a capture shows in pixels.
                 item["editModel"] = Str( document.EditModel );
-                item["unapplied"] = rfl::Generic( document.HasUnappliedEdits );
+                item["unapplied"] = Common::Json::Value( document.HasUnappliedEdits );
                 item["disk"]      = Str( document.DiskState );
-                open.push_back( rfl::Generic( item ) );
+                open.push_back( Common::Json::Value( item ) );
             }
 
-            rfl::Generic::Array closed;
+            Common::Json::Value::Array closed;
             for ( const ClosedDocumentSnapshot& document : snapshot.RecentlyClosed )
             {
-                rfl::Generic::Object item;
+                Common::Json::Object item;
                 item["name"]    = Str( document.Name );
                 item["type"]    = Str( document.Type );
                 item["subject"] = Str( document.Subject );
-                closed.push_back( rfl::Generic( item ) );
+                closed.push_back( Common::Json::Value( item ) );
             }
 
-            rfl::Generic::Object documents;
-            documents["open"] = rfl::Generic( open );
+            Common::Json::Object documents;
+            documents["open"] = Common::Json::Value( open );
             // The list the empty document well offers back, newest first. Named on the wire because it is
             // the one piece of document state that outlives the window it describes.
-            documents["recentlyClosed"] = rfl::Generic( closed );
-            documents["wellOpen"]       = rfl::Generic( snapshot.DocumentWellOpen );
-            root["documents"]           = rfl::Generic( documents );
+            documents["recentlyClosed"] = Common::Json::Value( closed );
+            documents["wellOpen"]       = Common::Json::Value( snapshot.DocumentWellOpen );
+            root["documents"]           = Common::Json::Value( documents );
         }
 
         if ( Wanted( sections, "panels" ) )
         {
-            rfl::Generic::Array panels;
+            Common::Json::Value::Array panels;
             for ( const PanelSnapshot& panel : snapshot.Panels )
             {
-                rfl::Generic::Object item;
+                Common::Json::Object item;
                 item["name"]       = Str( panel.Name );
-                item["visible"]    = rfl::Generic( panel.Visible );
-                item["pinned"]     = rfl::Generic( panel.Pinned );
-                item["contextual"] = rfl::Generic( panel.Contextual );
-                item["relevant"]   = rfl::Generic( panel.Relevant );
-                panels.push_back( rfl::Generic( item ) );
+                item["visible"]    = Common::Json::Value( panel.Visible );
+                item["pinned"]     = Common::Json::Value( panel.Pinned );
+                item["contextual"] = Common::Json::Value( panel.Contextual );
+                item["relevant"]   = Common::Json::Value( panel.Relevant );
+                panels.push_back( Common::Json::Value( item ) );
             }
-            root["panels"] = rfl::Generic( panels );
+            root["panels"] = Common::Json::Value( panels );
         }
 
         if ( Wanted( sections, "renderer_slots" ) )
         {
-            rfl::Generic::Object slots;
+            Common::Json::Object slots;
             slots["live"]          = Num( snapshot.RendererSlotsLive );
             slots["pending"]       = Num( snapshot.RendererSlotsPending );
             slots["max"]           = Num( snapshot.RendererSlotsMax );
-            root["renderer_slots"] = rfl::Generic( slots );
+            root["renderer_slots"] = Common::Json::Value( slots );
         }
 
         if ( Wanted( sections, "log" ) )
         {
-            rfl::Generic::Array tail;
+            Common::Json::Value::Array tail;
             for ( const std::string& line : snapshot.LogTail )
                 tail.push_back( Str( line ) );
 
-            rfl::Generic::Object log;
+            Common::Json::Object log;
             log["info"]    = Num( static_cast<double>( snapshot.LogInfoCount ) );
             log["warning"] = Num( static_cast<double>( snapshot.LogWarningCount ) );
             log["error"]   = Num( static_cast<double>( snapshot.LogErrorCount ) );
-            log["tail"]    = rfl::Generic( tail );
-            root["log"]    = rfl::Generic( log );
+            log["tail"]    = Common::Json::Value( tail );
+            root["log"]    = Common::Json::Value( log );
         }
 
         if ( Wanted( sections, "quiescence" ) )
         {
-            rfl::Generic::Object quiescence;
-            quiescence["settled"] = rfl::Generic( snapshot.Quiescence.Settled() );
+            Common::Json::Object quiescence;
+            quiescence["settled"] = Common::Json::Value( snapshot.Quiescence.Settled() );
             // What is outstanding, in the same words a settle timeout uses. One vocabulary, so a client
             // that read "asset documents are waiting to be opened" here recognises it in a refusal.
             quiescence["outstanding"] = Str( snapshot.Quiescence.Describe() );
-            root["quiescence"]        = rfl::Generic( quiescence );
+            root["quiescence"]        = Common::Json::Value( quiescence );
         }
 
         return root;
@@ -339,17 +338,17 @@ namespace Desert::Editor::Control
      * census that quietly listed only the writable rows would tell a client that a texture slot is not
      * declared by the shader, which is a different fact with a different fix.
      */
-    [[nodiscard]] inline rfl::Generic::Object PropertiesToJson( const std::string&                   subject,
+    [[nodiscard]] inline Common::Json::Object PropertiesToJson( const std::string&                   subject,
                                                                 const std::vector<EditableProperty>& properties )
     {
         using namespace StateDetail;
 
-        rfl::Generic::Array entries;
+        Common::Json::Value::Array entries;
         entries.reserve( properties.size() );
 
         for ( const EditableProperty& property : properties )
         {
-            rfl::Generic::Object item;
+            Common::Json::Object item;
             item["name"]       = Str( property.Name );
             item["label"]      = Str( property.Label );
             item["type"]       = Str( property.Type );
@@ -362,10 +361,10 @@ namespace Desert::Editor::Control
             if ( property.Max.has_value() )
                 item["max"] = Num( *property.Max );
 
-            rfl::Generic::Array value;
+            Common::Json::Value::Array value;
             for ( int i = 0; i < property.Components; ++i )
                 value.push_back( Num( property.Value[static_cast<std::size_t>( i )] ) );
-            item["value"] = rfl::Generic( value );
+            item["value"] = Common::Json::Value( value );
 
             // THE GROUP THE WINDOW DRAWS THIS ROW UNDER. Present even when empty, and that is deliberate:
             // "" is the shader declaring no Category, which the window shows under its own heading, so the
@@ -388,16 +387,16 @@ namespace Desert::Editor::Control
             if ( !property.Timing.empty() )
                 item["timing"] = Str( property.Timing );
 
-            item["settable"] = rfl::Generic( property.Settable );
+            item["settable"] = Common::Json::Value( property.Settable );
             if ( !property.Settable )
                 item["why"] = Str( property.NotSettableReason );
             if ( property.OverridesParent )
-                item["overridesParent"] = rfl::Generic( true );
+                item["overridesParent"] = Common::Json::Value( true );
 
-            entries.push_back( rfl::Generic( item ) );
+            entries.push_back( Common::Json::Value( item ) );
         }
 
-        rfl::Generic::Object payload;
+        Common::Json::Object payload;
         // NAMED "subject" AND NOT "document", and the rename is not cosmetic. The census answers for two
         // kinds of thing now — the focused document, and the editor's own view — so a field called
         // `document` carrying the word "viewport" would be a label asserting something the value denies,
@@ -407,7 +406,7 @@ namespace Desert::Editor::Control
         // camera is the one driving. A client that asked for properties and then set one has to be able to
         // see WHICH thing answered, or a change between the two requests is invisible in both replies.
         payload["subject"]    = Str( subject );
-        payload["properties"] = rfl::Generic( entries );
+        payload["properties"] = Common::Json::Value( entries );
         return payload;
     }
 } // namespace Desert::Editor::Control
