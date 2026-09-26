@@ -497,9 +497,9 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoaders
     }
 }
 
-// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (the generic tree) has no
-// unsigned 64-bit number, and the pre-fix save re-read the scene as a Value before the merge, so every save of a
-// loaded scene wrote such an id NEGATIVE (the same bits, different text: 9365333062700381311 came out as
+// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (the generic tree) has
+// no unsigned 64-bit number, and the pre-fix save re-read the scene as a Value before the merge, so every save of
+// a loaded scene wrote such an id NEGATIVE (the same bits, different text: 9365333062700381311 came out as
 // -9081411011009170305). Pinned on the committed scene that showed it, through the loader's parse and the
 // saver's compose, and on a record whose id a pre-fix save already spelled negative: it is still matched, so
 // the key another build put on it is carried rather than dropped.

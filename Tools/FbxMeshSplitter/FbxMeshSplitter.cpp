@@ -491,9 +491,9 @@ namespace FbxSplit
             }
 
             // Working-dir-relative source path (forward slashes) — the manifest payload + engine cook key.
-            std::filesystem::path rel      = std::filesystem::relative( objPath, projectDir, ec );
-            const std::string     meshRel  = ec ? objPath.generic_string() : rel.generic_string();
-            const int             matIndex = BestMaterialForCategory( stem, materials );
+            std::filesystem::path                  rel      = std::filesystem::relative( objPath, projectDir, ec );
+            const std::string                      meshRel  = ec ? objPath.generic_string() : rel.generic_string();
+            const int                              matIndex = BestMaterialForCategory( stem, materials );
             Desert::Editor::CollectionManifestItem item;
             item.Name     = name;
             item.Category = stem;

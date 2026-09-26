@@ -344,7 +344,7 @@ namespace
         EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
         if ( !parsed.IsSuccess() )
             return {};
-        const Common::Json::Value   tree = parsed.ExtractValue();
+        const Common::Json::Value tree = parsed.ExtractValue();
         // Set and Build are non-const; clang-tidy 18 misses the calls made through the member lambda below.
         // NOLINTNEXTLINE(misc-const-correctness)
         Common::Json::ObjectBuilder rebuilt;

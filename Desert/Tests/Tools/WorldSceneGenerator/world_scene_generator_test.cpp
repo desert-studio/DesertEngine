@@ -473,8 +473,8 @@ TEST( WorldSceneGenerator, TheGeneratedSceneIsUnchangedByAWholeDocumentRoundTrip
     ASSERT_FALSE( document.size() == 0 );
 
     const auto nothingIsOurs = []( const std::string& ) { return false; };
-    const std::string written   = Common::Json::Write( document );
-    const auto        tree      = Common::Json::TextDocument::Parse( written );
+    const std::string written       = Common::Json::Write( document );
+    const auto        tree          = Common::Json::TextDocument::Parse( written );
     ASSERT_TRUE( static_cast<bool>( tree ) ) << tree.GetError();
     EXPECT_EQ( MergeSceneDocument( tree.GetValue(), tree.GetValue(), nothingIsOurs ).Text(), written );
 }
