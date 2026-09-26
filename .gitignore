@@ -35,6 +35,8 @@
 *.user
 *.sln
 build
+# git on macOS ignores case, so `build` above also hid Editor/Source/Editor/Panels/Build (source, not output).
+!Editor/Source/Editor/Panels/Build/
 .git-gitlab
 
 Radiant/Shaders/SPIRV/Bin/

@@ -127,6 +127,8 @@
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
 #include "Editor/Panels/Sequencer/SequencerPanel.hpp"
 #include "Editor/Panels/Build/BuildSettingsPanel.hpp"
+#include "Editor/Panels/Build/ContentChunksPanel.hpp"
+#include "Editor/Packaging/ProjectChunkScheme.hpp"
 #include "Editor/Panels/History/HistoryPanel.hpp"
 #include "Editor/Panels/Localization/LocalizationPanel.hpp"
 #include "Editor/Panels/Validation/SceneValidationPanel.hpp"
@@ -893,6 +895,7 @@ namespace Desert::Editor
         m_Panels.Add<Editor::AnimLayersPanel>( m_MainScene, m_AnimationLibrary.get() );
         m_Panels.Add<Editor::ControlRigPanel>( m_MainScene );
         m_Panels.Add<Editor::BuildSettingsPanel>();
+        m_Panels.Add<Editor::ContentChunksPanel>();
         // THE CLOUDS WINDOW IS A TOOL, and it must be: it is a setting the user keeps (View ▸ Clouds), it
         // edits no subject of its own, and the compiler refuses a document here anyway (PanelRegistry).
         // What it DOES is show the documents that edit the six stages of the sky — asked of
@@ -5668,9 +5671,14 @@ namespace Desert::Editor
 
         // The Build Settings panel's "Create default ContentChunks.json", reachable by a script: the
         // packager refuses a project with no chunk scheme, and the way out must not need a mouse.
-        commands.push_back(
-             { "Build", "Create Default ContentChunks.json", []() -> Common::BoolResultStr
-               { return Common::Content::WriteDefaultChunkScheme( Common::Content::ChunkSchemePath() ); } } );
+        commands.push_back( { "Build", "Create Default ContentChunks.json", []() -> Common::BoolResultStr
+                              { return Editor::ProjectChunkScheme().CreateDefault(); } } );
+        // Re-reads the file into the one session, for a scheme edited outside the editor.
+        commands.push_back( { "Build", "Reload ContentChunks.json", []() -> Common::BoolResultStr
+                              {
+                                  Editor::ProjectChunkScheme().Reload();
+                                  return Common::MakeSuccess( true );
+                              } } );
 
         return commands;
     }

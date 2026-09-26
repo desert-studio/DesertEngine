@@ -104,6 +104,11 @@ namespace Common::Content
     // the palette command and the tests all go through this function.
     BoolResultStr WriteDefaultChunkScheme( const std::filesystem::path& path );
 
+    // The registry-free half of BuildChunkPlan's refusals: every chunk nameable as a file, none called
+    // the base, no two alike, none without roots. BuildChunkPlan runs it first; an editor runs it on
+    // an edit before any registry is at hand, so both refuse with one text.
+    BoolResultStr ValidateChunkScheme( const ChunkScheme& scheme );
+
     // THE ANSWER: a total function from a stable key to the archive it ships in.
     class ChunkPlan
     {
@@ -148,6 +153,25 @@ namespace Common::Content
     // derived rule, not a choice: duplicating it ships the bytes twice and, worse, makes "which copy
     // did the player get" depend on mount order for a file nobody meant to override.
     ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry& registry, const ChunkScheme& scheme );
+
+    // Writes an EDITED scheme over @p path, atomically and in the canonical layout. Refuses — writing
+    // nothing — whatever BuildChunkPlan would refuse against @p registry, so a scheme the editor saved
+    // is one the packager accepts; nothing is corrected on the way (a bad name stays the author's to fix).
+    BoolResultStr SaveChunkScheme( const std::filesystem::path& path, const ChunkScheme& scheme,
+                                   const Utils::AssetRegistry& registry );
+
+    // One content folder and how many of its registry rows land in each chunk (index-matched to the
+    // plan's Names(); [BASE_CHUNK] is what no chunk claimed, plus shared and pinned rows).
+    struct ChunkFolderRow
+    {
+        std::string              Folder; // stable-key prefix, e.g. "assets:Materials"
+        std::vector<std::size_t> FilesPerChunk;
+    };
+
+    // Every registry row grouped by folder, each resolved through ChunkPlan::ChunkFor — the function
+    // WriteChunkedPaks files a source under — so the panel shows the division the archives will have.
+    std::vector<ChunkFolderRow> SummarizeChunkFolders( const Utils::AssetRegistry& registry,
+                                                       const ChunkPlan&            plan );
 
     // ── WRITING THE ARCHIVES ──────────────────────────────────────────────────────────────────────
 
