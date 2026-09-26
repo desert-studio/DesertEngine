@@ -182,9 +182,14 @@ TEST( CloudProtocolScene, TheSettingsBlockIsWrittenInFull )
     {
         const auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
-        ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName << " has no Settings block";
+        const auto& settingsBlock = parsed.GetValue().Settings;
+        if ( !settingsBlock.has_value() )
+        {
+            ADD_FAILURE() << sceneName << " has no Settings block";
+            continue;
+        }
 
-        const auto settings = parsed.GetValue().Settings->to_object();
+        const auto settings = settingsBlock->to_object();
         ASSERT_TRUE( settings ) << sceneName << ": Settings is not an object";
 
         const std::set<std::string> present = KeysOf( settings.value() );
@@ -217,8 +222,13 @@ TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndTh
     {
         const auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
-        ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName;
-        const auto settings = parsed.GetValue().Settings->to_object();
+        const auto& settingsBlock = parsed.GetValue().Settings;
+        if ( !settingsBlock.has_value() )
+        {
+            ADD_FAILURE() << sceneName << " has no Settings block";
+            continue;
+        }
+        const auto settings = settingsBlock->to_object();
         ASSERT_TRUE( settings ) << sceneName;
 
         const std::set<std::string> present = KeysOf( settings.value() );
@@ -245,7 +255,7 @@ TEST( CloudProtocolScene, TheLoaderReadsTheseFilesVerbatimBecauseItAcceptsThemAt
         auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
 
-        const SceneSerialized scene = parsed.GetValue();
+        const SceneSerialized& scene = parsed.GetValue();
         ASSERT_TRUE( scene.Header.has_value() ) << sceneName << " states no SceneVersion";
         ASSERT_TRUE( scene.Header.has_value() ) << sceneName << " states no UnitVersion";
         EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
