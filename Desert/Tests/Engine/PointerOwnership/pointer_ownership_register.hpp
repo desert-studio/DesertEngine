@@ -1401,6 +1401,9 @@ namespace Desert::Tests::PointerCensus
         // The remainder, and the tree where the FORM answers least often of all three -- almost every
         // row here is a back-pointer whose safety is a containment or a construction order.
         // ------------------------------------------------------------------------------------------
+        { "Desert/Common/Source/Common/Json/Document.hpp",
+          "Node", "m_Value", Guard::CallScoped,
+          "a non-owning view into a Json::Value the reading call holds (the parsed document or a block of it); a Node is made and consumed inside that read, never stored, and Root() deletes its rvalue overload so a view over a temporary does not compile. A default Node points at a static null Value" },
         { "Desert/Common/Source/Common/Core/AssetHandle.hpp",
           "PathRoot", "Root", Guard::StaticStorage,
           "a namespace-scope path constant in Common/Core/Constants.hpp -- a pointer rather than a copy so a SetProjectRoot remap is followed rather than frozen" },
