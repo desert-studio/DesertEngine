@@ -14,6 +14,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Project/ProjectFormat.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -347,6 +348,56 @@ TEST( CookedRegistryGate, EveryRowWithAGuidIsKnownByItsGuidsFold )
 
     for ( const std::string& problem : IdentityProblems( registry ) )
         ADD_FAILURE() << problem;
+}
+
+// ── T2.7: AN ON-DEMAND KIND IS NEVER REACHABLE ONLY BY ITS PATH (AL1-2) ────────────────────────────────
+//
+// Noise volumes, hero-cloud bodies and painted layouts are no longer walked at boot; a process creates one
+// from its registry row when something names it by handle. A row of those kinds without a GUID could only
+// be found by path, which is the cook's refusal (AssetRegistryTool) -- asserted here on the corpus, and the
+// mutation below proves the check can fail.
+TEST( CookedRegistryGate, EveryOnDemandRowStatesAGuid )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    std::size_t                        onDemand = 0;
+    for ( const Common::Utils::AssetRegistryEntry& row : registry.Entries() )
+    {
+        const auto kind = Common::Content::ContentKindNamed( row.Kind );
+        onDemand += kind && Common::Content::LoadsOnDemand( *kind ) ? 1 : 0;
+    }
+    EXPECT_GT( onDemand, 0u ) << "the corpus holds no on-demand row, so this gate proves nothing";
+    for ( const std::string& problem : Common::Content::PathOnlyOnDemandRows( registry ) )
+        ADD_FAILURE() << problem;
+}
+
+TEST( CookedRegistryGate, AnOnDemandRowWithoutAGuidIsRefused )
+{
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    SandboxProject sandbox( root );
+    ASSERT_TRUE( sandbox.Opened() );
+
+    const Common::Utils::AssetRegistry registry = ScannedCorpus();
+    Common::Utils::AssetRegistry       mutated;
+    bool                               stripped = false;
+    for ( Common::Utils::AssetRegistryEntry row : registry.Entries() )
+    {
+        const auto kind = Common::Content::ContentKindNamed( row.Kind );
+        if ( !stripped && kind == Common::Content::ContentKind::CloudLayout && row.Guid.has_value() )
+        {
+            row.Guid.reset();
+            row.Identity = 0;
+            stripped     = true;
+        }
+        ASSERT_TRUE( mutated.Insert( std::move( row ) ) );
+    }
+    ASSERT_TRUE( stripped ) << "the corpus holds no .dclayout with a GUID to strip";
+    EXPECT_EQ( Common::Content::PathOnlyOnDemandRows( mutated ).size(), 1u );
 }
 
 TEST( CookedRegistryGate, EveryDependencyNamesARowByItsGuid )

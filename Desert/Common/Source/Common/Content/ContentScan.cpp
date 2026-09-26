@@ -410,6 +410,31 @@ namespace Common::Content
         return MakeSuccess( std::move( entry ) );
     }
 
+    bool LoadsOnDemand( const ContentKind kind )
+    {
+        return kind == ContentKind::CloudNoiseVolume || kind == ContentKind::CloudModellingVolume ||
+               kind == ContentKind::CloudLayout;
+    }
+
+    std::vector<std::string> PathOnlyOnDemandRows( const Utils::AssetRegistry& registry )
+    {
+        std::vector<std::string> problems;
+        for ( std::size_t i = 0; i < CONTENT_KIND_COUNT; ++i )
+        {
+            const auto kind = static_cast<ContentKind>( i );
+            if ( !LoadsOnDemand( kind ) )
+                continue;
+            for ( const Utils::AssetRegistryEntry* row : registry.OfKind( KindName( kind ) ) )
+            {
+                if ( !row->Guid.has_value() )
+                    problems.push_back( row->Key + ": a " + std::string( KindName( kind ) ) +
+                                        " states no GUID, so it is reachable only by its path and is created "
+                                        "on demand by GUID -- re-save it so its header carries one" );
+            }
+        }
+        return problems;
+    }
+
     GatheredRegistry GatherContentRegistry( const RegistryCache& cache )
     {
         GatheredRegistry gathered;
