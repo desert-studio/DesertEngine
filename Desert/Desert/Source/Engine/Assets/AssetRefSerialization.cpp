@@ -24,9 +24,9 @@ namespace Desert::Assets
     {
         const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
         if ( !guid || guid.GetValue().IsNull() )
-            return Common::MakeError<std::string>( std::format( "{} on {}: {} reference '{}' ('{}') states no GUID",
-                                                                site.Field, site.Context, site.Kind, ref.Guid,
-                                                                ref.Path ) );
+            return Common::MakeError<std::string>(
+                 std::format( "{} on {}: {} reference '{}' ('{}') states no GUID", site.Field, site.Context,
+                              site.Kind, ref.Guid, ref.Path ) );
         auto resolved = resolver( guid.GetValue() );
         if ( !resolved.has_value() )
             return Common::MakeError<std::string>(

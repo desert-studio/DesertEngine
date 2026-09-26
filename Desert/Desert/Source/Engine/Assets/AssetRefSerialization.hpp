@@ -40,7 +40,6 @@ namespace Desert::Assets
     [[nodiscard]] Common::ResultStr<AssetGuidRef> WriteAssetGuidRef( const Common::Content::AssetGuid& guid,
                                                                      const std::filesystem::path&      runtimePath,
                                                                      const AssetRefSite&               site );
-    [[nodiscard]] Common::ResultStr<std::string>  ResolveAssetGuidRef( const AssetGuidRef&      ref,
-                                                                       const AssetGuidResolver& resolver,
-                                                                       const AssetRefSite&      site );
+    [[nodiscard]] Common::ResultStr<std::string>
+    ResolveAssetGuidRef( const AssetGuidRef& ref, const AssetGuidResolver& resolver, const AssetRefSite& site );
 } // namespace Desert::Assets

@@ -44,10 +44,8 @@ namespace Desert::Assets
     // WriteAssetGuidRef/ResolveAssetGuidRef, so the two formats cannot drift into two spellings of one
     // reference. Both refuse by `site`: a name no loaded shader has, a shader with no header GUID, and a
     // GUID no loaded shader adopted.
-    [[nodiscard]] Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager,
-                                                                       std::string_view    name,
-                                                                       const AssetRefSite& site );
-    [[nodiscard]] Common::ResultStr<std::string>  FindShaderNameByRef( const AssetManager& manager,
-                                                                       const AssetGuidRef& ref,
-                                                                       const AssetRefSite& site );
+    [[nodiscard]] Common::ResultStr<AssetGuidRef>
+    FindShaderRefByName( const AssetManager& manager, std::string_view name, const AssetRefSite& site );
+    [[nodiscard]] Common::ResultStr<std::string>
+    FindShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref, const AssetRefSite& site );
 } // namespace Desert::Assets

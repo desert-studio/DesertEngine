@@ -85,7 +85,7 @@ namespace Desert::Assets
         if ( manager == nullptr )
             return;
         const std::string context = std::format( "material '{}'", m_Metadata.Filepath.generic_string() );
-        const auto        name    = FindShaderNameByRef( *manager, *m_Data.Shader, { "shader", "Shader", context } );
+        const auto        name = FindShaderNameByRef( *manager, *m_Data.Shader, { "shader", "Shader", context } );
         if ( !name )
         {
             LOG_ERROR( "{}; the material draws nothing until it names one", name.GetError() );

@@ -19,9 +19,9 @@
 
 namespace
 {
+    using Common::Content::AssetGuid;
     using Desert::Assets::AssetGuidRef;
     using Desert::Assets::AssetRefSite;
-    using Common::Content::AssetGuid;
     namespace fs = std::filesystem;
 
     struct Row
@@ -42,8 +42,8 @@ namespace
     std::vector<Row> Table()
     {
         return {
-             Row{ AssetGuid{ 0x1111222233334444ull, 0x5555666677778888ull }, AbsoluteAsset( "Shaders/Rock.shader" ),
-                  "Rock" },
+             Row{ AssetGuid{ 0x1111222233334444ull, 0x5555666677778888ull },
+                  AbsoluteAsset( "Shaders/Rock.shader" ), "Rock" },
              Row{ AssetGuid{ 0xaaaabbbbccccddddull, 0xeeeeffff00001111ull }, AbsoluteAsset( "Scenes/Menu.desce" ),
                   AbsoluteAsset( "Scenes/Menu.desce" ).generic_string() },
         };
@@ -135,8 +135,8 @@ TEST( SceneAssetGuidRoundTrip, AbsoluteRuntimePathSerializesToAssetsKey )
 
 TEST( SceneAssetGuidRoundTrip, AssetWithNoHeaderGuidIsRefusedNamingTheField )
 {
-    const auto written = Desert::Assets::WriteAssetGuidRef( AssetGuid{}, AbsoluteAsset( "Shaders/Bare.shader" ),
-                                                            kShaderSite );
+    const auto written =
+         Desert::Assets::WriteAssetGuidRef( AssetGuid{}, AbsoluteAsset( "Shaders/Bare.shader" ), kShaderSite );
     ASSERT_FALSE( written ) << written.GetValue().Guid;
     EXPECT_NE( written.GetError().find( "Material.Shader on entity 'Crate'" ), std::string::npos )
          << written.GetError();

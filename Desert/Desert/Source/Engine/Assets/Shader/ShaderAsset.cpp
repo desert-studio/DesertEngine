@@ -97,15 +97,16 @@ namespace Desert::Assets
                                                         const AssetRefSite& site )
     {
         // BY GUID, the shader's identity (the constructor adopts HandleForGuid of its header GUID).
-        return ResolveAssetGuidRef( ref,
-                                    [&manager]( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
-                                    {
-                                        const auto shader = manager.FindByHandle<ShaderAsset>( Common::AssetHandle(
-                                             static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
-                                        if ( shader == nullptr )
-                                            return std::nullopt;
-                                        return shader->GetMetadata().Filepath.stem().string();
-                                    },
-                                    site );
+        return ResolveAssetGuidRef(
+             ref,
+             [&manager]( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
+             {
+                 const auto shader = manager.FindByHandle<ShaderAsset>(
+                      Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+                 if ( shader == nullptr )
+                     return std::nullopt;
+                 return shader->GetMetadata().Filepath.stem().string();
+             },
+             site );
     }
 } // namespace Desert::Assets

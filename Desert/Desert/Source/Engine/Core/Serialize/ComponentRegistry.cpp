@@ -149,7 +149,8 @@ namespace Desert::Core::Serialize
 
         // BY GUID through the content registry, which indexes scenes by their header GUID (AF6f): a scene
         // moved or renamed keeps its GUID, so `Path` is only named in the error and never looked up.
-        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic& block, const Assets::AssetRefSite& site )
+        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic&         block,
+                                                        const Assets::AssetRefSite& site )
         {
             const auto fields = block.to_object();
             const auto text   = [&]( const char* key ) -> std::string
