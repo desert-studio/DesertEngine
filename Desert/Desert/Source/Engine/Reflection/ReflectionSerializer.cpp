@@ -184,7 +184,7 @@ namespace Desert::Reflection
             // A container goes through its typed lambda (WriteField) whatever its element type.
             if ( field.Type == FieldType::Struct && !( field.IsContainer && field.SerializeContainer ) )
             {
-                if ( field.StructType )
+                if ( field.StructType != nullptr )
                     stack.push_back( { field.StructType, static_cast<const std::byte*>( p ), &field, 0, {} } );
                 continue;
             }
@@ -386,7 +386,7 @@ namespace Desert::Reflection
             // A container goes through its typed lambda (ReadField) whatever its element type.
             if ( field.Type == FieldType::Struct && !( field.IsContainer && field.DeserializeContainer ) )
             {
-                if ( field.StructType && found->ExpectKind( Kind::Object, issues ) )
+                if ( field.StructType != nullptr && found->ExpectKind( Kind::Object, issues ) )
                     stack.push_back( { field.StructType, static_cast<std::byte*>( p ), *found, 0 } );
                 continue;
             }
