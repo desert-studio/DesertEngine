@@ -77,7 +77,7 @@ namespace Desert::Editor
      *
      * THIS CLASS CREATES NO RENDERER. It appends to `ThumbnailService`'s queues and nothing else, so the
      * number of renderer slots a running sweep can occupy is exactly the number that service occupies —
-     * ONE, and only while `RendererSlotBudget::MayClaim(Background, ...)` allows it. There are six slots
+     * ONE, and only while `MayCreateView(Background, ...)` allows it. There are six slots
      * (`EngineContext::kMaxRendererSlots`); a sweep at full tilt therefore leaves five for the surfaces a
      * person opens by hand, and the sixth is the one the service is forbidden to take. The four cloud
      * formats are painted on a JobSystem worker and claim NOTHING, so a project of clouds sweeps with all

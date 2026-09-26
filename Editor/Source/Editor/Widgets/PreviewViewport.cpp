@@ -461,6 +461,13 @@ namespace Desert::Editor
         m_AppliedSetupValid = true;
     }
 
+    void PreviewViewport::SetForcedLOD( const int lod )
+    {
+        if ( !m_Target || !m_Target.HasComponent<ECS::StaticMeshComponent>() )
+            return;
+        m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD = lod;
+    }
+
     void PreviewViewport::SetMesh( const Assets::AssetHandle&              mesh,
                                    const std::vector<Assets::AssetHandle>& materials )
     {
@@ -478,6 +485,7 @@ namespace Desert::Editor
         smc.RuntimeMaterialInstances.clear();
         smc.MeshHandle    = mesh;
         smc.MaterialSlots = materials;
+        smc.ForcedLOD     = -1;
 
         // Upright, like the material preview sets it: the target entity is reused across previews, so a
         // rotation left by an earlier one would tilt this mesh for no reason.

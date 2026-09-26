@@ -89,6 +89,7 @@ namespace Desert::Editor
          { "--shot-every", true, "1" },
          { "--control-socket", true, "/tmp/desert-editor.sock" },
          { "--language", true, "ru" },
+         { "--view-budget-mib", true, "512" },
          { "--gpu-profile", false, nullptr },
          { "--no-gpu-timing", false, nullptr },
          { "--gpu-profile-frame-only", false, nullptr },
@@ -134,6 +135,12 @@ namespace Desert::Editor
         /// would silently be comparing two languages. Deterministic by construction instead, with this
         /// flag as the only way to move it before the first frame.
         std::string Language;
+
+        /// `--view-budget-mib <N>`: check every new view against N MiB of device-local memory instead of the
+        /// driver's budget (Graphic::SetViewBudgetOverrideMiB, Engine/Core/ViewBudget.hpp). 0 — the default —
+        /// means the driver's budget. It exists because a low-memory refusal cannot otherwise be reproduced
+        /// on a machine with a large device: the refusal, its numbers and its modal are only reachable here.
+        uint64_t ViewBudgetMiB = 0;
     };
 
     namespace CommandLineDetail
@@ -346,6 +353,16 @@ namespace Desert::Editor
                          "--language '{}' is not a language this build knows; it knows: {}", value, known );
                 }
                 options.Language = value;
+            }
+            else if ( arg == "--view-budget-mib" )
+            {
+                int mib = 0;
+                if ( !ParseIntStrict( value, mib ) || mib < 1 )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--view-budget-mib '{}' is not a size in MiB (a whole number, at least 1).", value );
+                }
+                options.ViewBudgetMiB = static_cast<uint64_t>( mib );
             }
             else if ( arg == "--shot-frames" )
             {

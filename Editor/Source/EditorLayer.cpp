@@ -139,6 +139,7 @@
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
 #include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
+#include "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
@@ -986,6 +987,22 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
+        // THE STATIC MESH VIEWER. Also a renderer-slot claimant. AssetTypeID::Mesh covers `.skmesh` as well; the
+        // open route refuses those by name (Core::AssetSubjectFor), so only static meshes reach this factory.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Mesh ) ),
+             Registration{ "StaticMesh", ICON_MDI_CUBE_OUTLINE,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::StaticMeshViewerDocument>(
+                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
         // THE FOUR CLOUD DOCUMENTS. Each takes the raw AssetManager pointer the panels already held, so the
         // move from singleton to document changed the panels' ownership of their subject and nothing about
         // how they reach their assets.
@@ -1211,6 +1228,9 @@ namespace Desert::Editor
                      return sky;
                  return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors );
              } );
+        m_SubjectEditors.RegisterPathOpener(
+             { std::string( Common::Constants::Extensions::STATIC_MESH ) }, [this]( const std::string& path )
+             { return RequestStaticMeshDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [this]( const std::string& path )
