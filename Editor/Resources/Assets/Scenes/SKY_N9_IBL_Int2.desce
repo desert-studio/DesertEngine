@@ -36,6 +36,7 @@
             "Scale": [40.0, 1.0, 40.0],
             "StaticMesh": {
                 "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
         },

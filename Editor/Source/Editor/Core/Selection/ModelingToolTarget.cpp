@@ -1,6 +1,7 @@
 // Ported from UE 5.8 ModelingComponents/Private/ModelingToolTargetUtil.cpp:302-335, adapted: see the header.
 #include "ModelingToolTarget.hpp"
 
+#include <Common/Core/Logger.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 
@@ -20,10 +21,18 @@ namespace Desert::Editor
         auto data = Assets::Serialization::ReadMeshAssetData( bytes, whatFor );
         if ( !data.IsSuccess() )
             return Common::MakeError<MeshPtr>( data.GetError() );
-        auto mesh = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
-        if ( !mesh.IsSuccess() )
-            return Common::MakeFormattedError<MeshPtr>( "{}: {}", whatFor, mesh.GetError() );
-        return Common::MakeSuccess( MeshPtr( std::make_shared<Geometry::DynamicMesh3>( mesh.ExtractValue() ) ) );
+        auto lifted = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
+        if ( !lifted.IsSuccess() )
+            return Common::MakeFormattedError<MeshPtr>( "{}: {}", whatFor, lifted.GetError() );
+        Geometry::ImportedDynamicMesh imported = lifted.ExtractValue();
+        // The skipped faces are gone from the mesh the tool edits, so a commit writes the file without them:
+        // said out loud here, with the same counts the importer reports for the EditMesh core.
+        if ( imported.DroppedDegenerate != 0 || imported.DroppedDuplicate != 0 || imported.DetachedTriangles != 0 )
+            LOG_WARN( "[Modeling] '{}': skipped {} degenerate and {} duplicate face(s), and detached {} "
+                      "non-manifold face(s) onto their own vertices",
+                      whatFor, imported.DroppedDegenerate, imported.DroppedDuplicate, imported.DetachedTriangles );
+        return Common::MakeSuccess(
+             MeshPtr( std::make_shared<Geometry::DynamicMesh3>( std::move( imported.Mesh ) ) ) );
     }
 
     Common::ResultStr<ToolTargetMesh> GetToolTargetMeshAt( const MeshPtr&               editable,
