@@ -1500,7 +1500,7 @@ TEST( AssetHandleStability, AStringTableOpenedByItsOldPathAfterAMoveIsTheMovedTa
 
     Common::Utils::AssetRegistry registry;
     const std::string            oldKey = Common::AssetHandle::StableKeyForPath( oldFile );
-    auto row = Common::Content::RegistryRowFor(
+    auto                         row    = Common::Content::RegistryRowFor(
          oldKey, Common::Content::DescribeContentFile( oldFile, Common::Content::ContentKind::StringTable ) );
     ASSERT_TRUE( row ) << row.GetError();
     ASSERT_TRUE( registry.Insert( row.GetValue() ) );
@@ -1509,10 +1509,8 @@ TEST( AssetHandleStability, AStringTableOpenedByItsOldPathAfterAMoveIsTheMovedTa
     const auto moved = CR::MoveAsset( oldFile, newFile );
     ASSERT_TRUE( moved ) << moved.GetError();
 
-    const uint64_t tableHandle =
-         static_cast<uint64_t>( Desert::Assets::StringTableAsset( Desert::Assets::AssetPriority{}, newFile )
-                                     .GetMetadata()
-                                     .Handle );
+    const uint64_t tableHandle = static_cast<uint64_t>(
+         Desert::Assets::StringTableAsset( Desert::Assets::AssetPriority{}, newFile ).GetMetadata().Handle );
     Desert::Assets::StringTableAsset byOldPath( Desert::Assets::AssetPriority{}, oldFile );
     EXPECT_EQ( static_cast<uint64_t>( byOldPath.GetMetadata().Handle ), tableHandle )
          << "the old path took the redirector's identity, not the table's";
