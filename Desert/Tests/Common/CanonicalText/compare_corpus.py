@@ -31,11 +31,16 @@ Run from anywhere inside the repository:
 The base ref defaults to origin/task/AF2-cells-envelope, the last tree before AF6. Exit 1 on any difference.
 It is a script and not a gtest because the answer needs the git history, which a CI checkout at depth 1 lacks.
 """
-import json
-import os
-import struct
-import subprocess
 import sys
+
+# The corpus check runs from inside the repository; a __pycache__ next to the script would be a stray write
+# into the tree (TST1), so bytecode caching is off before any other import.
+sys.dont_write_bytecode = True
+
+import json  # noqa: E402
+import os  # noqa: E402
+import struct  # noqa: E402
+import subprocess  # noqa: E402
 
 TEXT_EXTENSIONS = (".desce", ".deprefab", ".demat", ".anim", ".danimgraph", ".dgraph", ".decloudtype",
                    ".destrings", ".detheme", ".derig", ".retarget", ".skeleton")

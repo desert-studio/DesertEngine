@@ -26,6 +26,8 @@
 
 #include <gtest/gtest.h>
 
+#include <random>
+
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -205,9 +207,52 @@ namespace
         Common::Constants::Path::ProjectRootState m_Saved;
     };
 
-    // A file that exists for the duration of one test and is removed afterwards — together with every
-    // directory it had to create, so a run from the tree root leaves no empty `Assets/Library/` or
-    // `RegistryProbe/Content/` behind (handoff_check's tree gate names the suite that does).
+    // Every test that writes a file or names `RegistryProbe/...` runs inside one of these: a fresh directory
+    // under the system temp directory becomes the working directory for the test and is deleted with
+    // everything in it afterwards. The tests need a RELATIVE spelling to resolve against the working
+    // directory (that is what they measure), but the suites run from the tree root, and a test that died
+    // between writing and cleaning up used to leave `Assets/Library/` or `RegistryProbe/Content/` in the
+    // checkout (TST1). Here a failure can leave at most a directory in temp.
+    class ScratchWorkingDirectory
+    {
+    public:
+        ScratchWorkingDirectory()
+        {
+            std::error_code ec;
+            m_Previous = std::filesystem::current_path( ec );
+            if ( ec )
+            {
+                ADD_FAILURE() << "could not read the working directory: " << ec.message();
+                return;
+            }
+            m_Dir = std::filesystem::temp_directory_path( ec ) /
+                    ( "desert-assethandlestability-" + std::to_string( std::random_device{}() ) );
+            std::filesystem::create_directories( m_Dir, ec );
+            if ( !ec )
+                std::filesystem::current_path( m_Dir, ec );
+            if ( ec )
+                ADD_FAILURE() << "could not enter the scratch directory '" << m_Dir.string() << "': " << ec.message();
+        }
+
+        ~ScratchWorkingDirectory()
+        {
+            std::error_code ec;
+            if ( !m_Previous.empty() )
+                std::filesystem::current_path( m_Previous, ec );
+            if ( !m_Dir.empty() )
+                std::filesystem::remove_all( m_Dir, ec );
+        }
+
+        ScratchWorkingDirectory( const ScratchWorkingDirectory& )            = delete;
+        ScratchWorkingDirectory& operator=( const ScratchWorkingDirectory& ) = delete;
+
+    private:
+        std::filesystem::path m_Previous;
+        std::filesystem::path m_Dir;
+    };
+
+    // A file that exists for the duration of one test and is removed afterwards; create it inside a
+    // ScratchWorkingDirectory, which owns the directories it needs.
     //
     // WHY THE REGISTRY TESTS NEED ONE. SkyboxAsset::Load used to be `m_ReadyForUse = true; return
     // BOOLSUCCESS;` — it never opened the file it named, so a skybox whose .hdr had been moved or left
@@ -224,15 +269,6 @@ namespace
         explicit ScratchFile( const std::filesystem::path& path ) : m_Path( path )
         {
             std::error_code ec;
-            // The outermost directory that does not exist yet is the one this file creates; the destructor
-            // removes up to it and no further, so a directory another file or the tree already owned stays.
-            for ( auto dir = m_Path.parent_path(); !dir.empty() && !std::filesystem::exists( dir, ec );
-                  dir      = dir.parent_path() )
-            {
-                m_CreatedTop = dir;
-                if ( dir == dir.parent_path() )
-                    break;
-            }
             std::filesystem::create_directories( m_Path.parent_path(), ec );
             const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
             const auto asset   = Desert::Assets::MakeTextureSourceAsset( Common::Content::ContentKind::Skybox,
@@ -248,15 +284,6 @@ namespace
         {
             std::error_code ec;
             std::filesystem::remove( m_Path, ec );
-            if ( m_CreatedTop.empty() )
-                return;
-            // Only EMPTY directories go (remove() refuses a non-empty one): a sibling ScratchFile still alive
-            // in the same directory keeps it, and the last one out takes it.
-            for ( auto dir = m_Path.parent_path(); !dir.empty(); dir = dir.parent_path() )
-            {
-                if ( !std::filesystem::remove( dir, ec ) || dir == m_CreatedTop )
-                    break;
-            }
         }
 
         ScratchFile( const ScratchFile& )            = delete;
@@ -264,7 +291,6 @@ namespace
 
     private:
         std::filesystem::path m_Path;
-        std::filesystem::path m_CreatedTop;
     };
 
     uint64_t HandleValue( const std::filesystem::path& path )
@@ -550,6 +576,7 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
 // this measuring identity and nothing else.
 TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The child process registers this path, and registering now requires the file to be there.
     const ScratchFile subject( kPathA );
 
@@ -566,6 +593,7 @@ TEST( AssetHandleStability, AHandleSavedByOneRunResolvesInTheNext )
 
 TEST( AssetHandleStability, AHandleFromNoAssetStillFailsToResolve )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The companion the test above needs to mean anything: if FindByHandle returned something for every
     // number, "RESOLVED" would be worthless. The scratch file is here for the same reason it is there —
     // the child registers this path, and a registration that fails would print its reason onto the
@@ -1009,6 +1037,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
 
 TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 {
+    const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
 
     const std::filesystem::path projectDir = std::filesystem::current_path() / "RegistryProbe";
@@ -1036,6 +1065,7 @@ TEST( AssetHandleStability, TwoSpellingsOfOneFileRegisterAsOneAsset )
 
 TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The companion: a dedup key that answered "yes" to everything would satisfy the test above and
     // collapse the whole library onto one record.
     ProjectRootGuard guard;
@@ -1054,6 +1084,7 @@ TEST( AssetHandleStability, TwoDifferentFilesStillRegisterSeparately )
 
 TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 {
+    const ScratchWorkingDirectory scratchDir;
     // The handle derivation deliberately gives every type at one path the SAME number (asserted at the
     // top of this file), so the registry's key has to carry the type as well or the second type would be
     // deduplicated away as a duplicate of the first.
@@ -1097,6 +1128,7 @@ TEST( AssetHandleStability, TwoAssetTypesMayShareOnePathAndStayTwoRecords )
 
 TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 {
+    const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
 
@@ -1134,6 +1166,7 @@ TEST( AssetHandleStability, ATypedLookupRefusesARecordOfAnotherType )
 
 TEST( AssetHandleStability, ATypedLookupRefusesAnotherClassUnderTheSameTypeId )
 {
+    const ScratchWorkingDirectory scratchDir;
     ProjectRootGuard guard;
     Common::Constants::Path::SetProjectRoot( std::filesystem::current_path() / "RegistryProbe", "Content" );
 
@@ -1307,7 +1340,9 @@ int main( int argc, char** argv )
         return 0;
     }
 
-    g_ExecutablePath = argv[0];
+    // Absolute: the child-process tests run from a scratch working directory, where a relative argv[0]
+    // would name nothing.
+    g_ExecutablePath = std::filesystem::absolute( argv[0] ).string();
 
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();

@@ -24,21 +24,9 @@ fail=0
 # Parallel for time; a suite that fails in parallel is re-run ALONE before it counts as red, so two suites
 # sharing a temp path cannot manufacture a red.
 BIN=build/Bin/Tests/Debug
-# Each run records its wall-clock window (.t0/.t1), so a file that appears in the tree can be traced to the
-# suites that were running when it was born — see (h).
-run_one() {
-    date +%s >"$2/$(basename "$1").t0"
-    dev_capped 300 "$1" </dev/null >"$2/$(basename "$1").log" 2>&1; echo $? >"$2/$(basename "$1").rc"
-    date +%s >"$2/$(basename "$1").t1"
-}
-# The tree as git sees it, ignored entries included (collapsed to their top directory): a suite that writes into
-# the checkout shows up here as a new line, whether .gitignore hides it or not. Git does not list EMPTY
-# directories, and a scratch file removed at teardown leaves exactly that (RegistryProbe/Content/ sat in the root
-# unseen), so the root's own entries are listed too.
-tree_state() {
-    { git status --porcelain --ignored --untracked-files=normal 2>/dev/null
-      for e in * .[!.]*; do [ -e "$e" ] && printf '?? %s\n' "$e"; done; } | LC_ALL=C sort -u
-}
+# run_one (records each run's window), tree_state and trace_leaks — step (h) — live in tree_leaks.sh, which
+# also runs the same check standalone on named suites.
+source "$(dirname "$0")/tree_leaks.sh"
 export -f run_one dev_capped
 dev_regen_makefiles "$LOG" || exit 2
 # A suite deleted on this branch keeps its old .make (premake never removes one), and the build below stops on
@@ -105,38 +93,8 @@ for t in "${bins[@]}"; do
         if [ -f "$lib" ] && [ "$lib" -nt "$t" ]; then stale+=("$name<$(basename "$lib")"); break; fi
     done
 done
-# (h) the suites must leave the checkout as they found it. On 09-26 the owner found DerivedDataCache/ (bucket
-# files) and Assets/Library/ in the root of a Windows tree after a run: tests without a project wrote relative to
-# the working directory, which is the tree root here. A new entry is traced to the suites whose run window
-# contains its birth; each candidate is then re-run ALONE with the entry moved aside, and the one that recreates
-# it is named. The entries are moved to $LOG/leaked (never deleted) so the tree is clean for the next run.
-tree_state >"$LOG/tree.after"
-leaked=$(LC_ALL=C comm -13 "$LOG/tree.before" "$LOG/tree.after" | sed 's/^.. //; s/^"//; s/"$//; s:/$::' | LC_ALL=C sort -u)
-if [ -n "$leaked" ]; then
-    fail=1
-    mkdir -p "$LOG/leaked"
-    while IFS= read -r entry; do
-        [ -e "$entry" ] || continue
-        born=$(stat -f %B "$entry" 2>/dev/null); [[ "$born" =~ ^[0-9]+$ ]] || born=$(stat -c %W "$entry" 2>/dev/null || echo 0)
-        candidates=()
-        for t in "${bins[@]}"; do
-            n=$(basename "$t"); t0=$(cat "$LOG/$n.t0" 2>/dev/null || echo 0); t1=$(cat "$LOG/$n.t1" 2>/dev/null || echo 0)
-            [ "$born" -ge "$((t0 - 1))" ] && [ "$born" -le "$((t1 + 1))" ] && candidates+=("$t")
-        done
-        writers=()
-        for t in "${candidates[@]:+${candidates[@]}}"; do
-            [ -e "$entry" ] && mv "$entry" "$LOG/leaked/$(echo "$entry" | tr / _).$RANDOM$RANDOM"
-            run_one "$t" "$LOG/leaked"
-            [ -e "$entry" ] && writers+=("$(basename "$t")")
-        done
-        [ -e "$entry" ] && mv "$entry" "$LOG/leaked/$(echo "$entry" | tr / _).$RANDOM$RANDOM"
-        if [ ${#writers[@]} -gt 0 ]; then
-            for w in "${writers[@]}"; do red+=("suite $w wrote $entry into the tree (moved to $LOG/leaked)"); done
-        else
-            red+=("$entry appeared in the tree during the suites; running then: $(for t in "${candidates[@]:+${candidates[@]}}"; do basename "$t"; done | tr '\n' ' ')(no single suite recreated it alone; moved to $LOG/leaked)")
-        fi
-    done <<<"$leaked"
-fi
+# (h) the suites must leave the checkout as they found it; a new entry is traced to the suite that wrote it.
+trace_leaks "$LOG" "${bins[@]}" || fail=1
 
 [ ${#red[@]} -gt 0 ] && fail=1
 [ "$total" -eq 0 ] && { red+=("no test binaries in $BIN — build the suites first"); fail=1; }
