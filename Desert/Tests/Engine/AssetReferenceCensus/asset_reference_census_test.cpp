@@ -147,7 +147,7 @@ namespace
             const auto parsed = rfl::json::read<MaterialData>( ReadAll( entry.path() ) );
             if ( !parsed )
             {
-                if ( parseError && parseError->empty() )
+                if ( parseError != nullptr && parseError->empty() )
                     *parseError = entry.path().string() + ": " + parsed.error().what();
                 continue;
             }
@@ -184,9 +184,10 @@ namespace
                 continue;
             const auto stated =
                  CC::ReadAssetHeaderIfStated( entry.path(), CC::AssetHeaderReadContext{ {}, true } );
-            if ( !stated.IsSuccess() || !stated.GetValue() )
+            if ( !stated.IsSuccess() || !stated.GetValue().has_value() )
                 continue; // not an asset with a header: HandleOfContentFile reports a header that does not read
-            const CC::ContentKind kind = stated.GetValue()->Kind;
+            const auto&           header = stated.GetValue();
+            const CC::ContentKind kind   = header.value().Kind;
             if ( kind != CC::ContentKind::StaticMesh && kind != CC::ContentKind::SkinnedMesh )
                 continue;
 
@@ -194,11 +195,11 @@ namespace
             const auto        asset = Desert::Assets::ReadMeshSourceAssetFile( entry.path() );
             if ( !asset.IsSuccess() )
             {
-                if ( parseError && parseError->empty() )
+                if ( parseError != nullptr && parseError->empty() )
                     *parseError = name + ": " + asset.GetError();
                 continue;
             }
-            if ( meshesRead )
+            if ( meshesRead != nullptr )
                 ++*meshesRead;
             for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
             {

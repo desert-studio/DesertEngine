@@ -144,7 +144,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // The new pool first: if it cannot be made, the old one keeps timing what it can hold rather than
         // the frame losing every scope.
-        const auto grown = CreatePool( wanted );
+        auto* const grown = CreatePool( wanted );
         if ( grown == VK_NULL_HANDLE )
         {
             LOG_ERROR( "[GpuProfiler] vkCreateQueryPool failed growing a frame's pool from {} to {} queries "

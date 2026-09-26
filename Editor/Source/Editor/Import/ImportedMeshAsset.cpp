@@ -90,7 +90,7 @@ namespace Desert::Editor
                 copy.LODs.clear();
                 // Iterator offsets are signed; the bounds were checked above, so these cannot overflow.
                 const auto vertexBegin = static_cast<std::ptrdiff_t>( sub.VertexOffset );
-                const auto vertexEnd   = static_cast<std::ptrdiff_t>( sub.VertexOffset + sub.VertexCount );
+                const auto vertexEnd   = static_cast<std::ptrdiff_t>( sub.VertexOffset ) + static_cast<std::ptrdiff_t>( sub.VertexCount );
                 const auto faceBegin   = static_cast<std::ptrdiff_t>( firstFace );
                 const auto faceEnd     = static_cast<std::ptrdiff_t>( firstFace + sub.IndexCount / 3 );
                 part.StaticVertices.insert( part.StaticVertices.end(),
