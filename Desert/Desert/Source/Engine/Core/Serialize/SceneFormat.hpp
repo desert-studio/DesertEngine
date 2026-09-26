@@ -2,6 +2,10 @@
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Core/Serialize/ForeignKeys.hpp>
+
+#include <Common/Json/Carry.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -112,7 +116,7 @@ namespace Desert::Core
         std::string                                               SceneName;
         std::vector<Assets::EntityData> Entities;
         // Scene-wide settings - reflected, so the whole block round-trips through the generic serializer.
-        std::optional<rfl::Generic> Settings;
+        std::optional<Common::Json::Value> Settings;
         // Absent = this world is not partitioned. See WorldPartitionSerialized.
         std::optional<WorldPartitionSerialized> WorldPartition;
     };
@@ -165,7 +169,30 @@ namespace Desert::Core
     // PURE - no filesystem (the caller has already read the text), no globals, no scene. The parse it does
     // is the same one the loader does; the loader calls THIS rather than repeating the checks, so there is
     // one statement of what "loadable" means and one wording of the refusal.
-    [[nodiscard]] Common::ResultStr<SceneSerialized> ParseLoadableScene( std::string_view   source,
-                                                                         const std::string& json );
+    //
+    // THE ONE PARSE OF A LOAD. The text is parsed once, into the document; the typed tree is read off that
+    // document, and BOTH come back: the loader instantiates the typed tree and keeps the document for the
+    // saver's foreign-key merge. A caller that asks first hands the result on to SceneSerializer::Deserialize
+    // rather than the text, so asking costs no second parse.
+    struct LoadableScene
+    {
+        Common::Json::TextDocument
+                        Document; // the file as parsed - every key, known or not, every number at its width
+        SceneSerialized Scene;    // the typed view of that same document
+    };
+    [[nodiscard]] Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view   source,
+                                                                       const std::string& json );
+
+    // What a save writes: the tree this build states (`fresh`), with every key of the loaded document this
+    // build does not state merged back where it stood (ForeignKeys.hpp). No loaded document (a scene that
+    // never came from a file) = `fresh` as it is. PURE - the saver calls it, and the corpus suite proves a
+    // committed scene comes back byte for byte through the same function.
+    //
+    // `fresh` is written by the TYPED writer (Json::Write), where a UUID is a uint64 - never through
+    // Json::Value, which has no unsigned 64-bit number and would spell an id >= 2^63 negative. Fails only
+    // when the typed writer's output is not JSON (a NaN or an infinity in the scene), naming the reason.
+    [[nodiscard]] Common::ResultStr<Common::Json::TextDocument>
+    ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
+                          const Serialize::KeyIsOurs& entityKeyIsOurs );
 
 } // namespace Desert::Core

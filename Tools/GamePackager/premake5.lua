@@ -24,6 +24,7 @@ project "GamePackager"
         -- The same four files Tests/Editor/PackagedContent compiles, so the suite links what the tool links.
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",

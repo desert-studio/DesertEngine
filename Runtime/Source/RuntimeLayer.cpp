@@ -390,7 +390,8 @@ namespace Desert::Player
             }
             json = jsonRead.ExtractValue();
         }
-        if ( const auto loadable = Core::ParseLoadableScene( path, json ); !loadable )
+        auto loadable = Core::ParseLoadableScene( path, json );
+        if ( !loadable )
         {
             LOG_ERROR( "[Runtime] Scene switch refused, the running scene is untouched: {}", loadable.GetError() );
             return;
@@ -417,7 +418,7 @@ namespace Desert::Player
         }
 
         Core::SceneSerializer serializer( m_Scene.get(), m_AssetManager.get() );
-        if ( const auto loaded = serializer.DeserializeFromJson( json, path ); !loaded )
+        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path ); !loaded )
         {
             LOG_ERROR( "[Runtime] Scene switch failed after teardown: {}", loaded.GetError() );
             return;

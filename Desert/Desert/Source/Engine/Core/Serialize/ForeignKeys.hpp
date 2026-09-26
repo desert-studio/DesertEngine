@@ -28,10 +28,10 @@
 // the run compulsory. Preservation is only ever for keys another BUILD owns. Nothing here has a list
 // of key names in it, and nothing here should ever grow one.
 //
-// PURE. No GPU, no scene, no filesystem, no globals — in: two parsed trees; out: one. That is what
-// lets Desert/Tests/Engine/SceneForeignKeys assert the whole class over the real corpus.
+// PURE. No GPU, no scene, no filesystem, no globals — in: two parsed documents; out: one. That is
+// what lets Desert/Tests/Engine/SceneForeignKeys assert the whole class over the real corpus.
 
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Carry.hpp>
 
 #include <functional>
 #include <map>
@@ -49,7 +49,7 @@ namespace Desert::Core::Serialize
     // component key only when the entity HAS that component, so an entity whose light the user just
     // DELETED looks exactly like an entity carrying a component this build never heard of. Without
     // this predicate the merge below would faithfully resurrect every component anyone removed.
-    using KeyIsOurs = std::function<bool( const std::string& )>;
+    using KeyIsOurs = Common::Json::KeyIsOurs;
 
     // Nothing at this level is ours, so every key the fresh tree omits is foreign and is kept. The
     // default for every level except an entity record.
@@ -61,8 +61,12 @@ namespace Desert::Core::Serialize
     //
     // Arrays are NOT merged element by element — a fresh array replaces the source's. Entities are the
     // one array whose elements have identity, and MergeSceneDocument below is what knows that.
-    [[nodiscard]] rfl::Generic::Object MergeObjects( rfl::Generic::Object        fresh,
-                                                     const rfl::Generic::Object& source, const KeyIsOurs& ours );
+    //
+    // The merge itself runs on yyjson documents inside Common/Json (Carry.hpp: MergeCarried), so a number
+    // keeps its width through it - an entity id at or above 2^63 is written back unsigned, as it was read.
+    [[nodiscard]] Common::Json::TextDocument MergeObjects( const Common::Json::TextDocument& fresh,
+                                                           const Common::Json::TextDocument& source,
+                                                           const KeyIsOurs&                  ours );
 
     // The whole .desce, merged: the top level by the rule above, and `Entities` element by element,
     // matched on the record's `id`. A record in `source` whose id is not in `fresh` is DROPPED — that
@@ -70,9 +74,9 @@ namespace Desert::Core::Serialize
     //
     // `entityKeyIsOurs` is asked about the keys of one entity record (its meta members and the
     // component keys this build's registry holds). Everything below that answers to NothingIsOurs.
-    [[nodiscard]] rfl::Generic::Object MergeSceneDocument( rfl::Generic::Object        fresh,
-                                                           const rfl::Generic::Object& source,
-                                                           const KeyIsOurs&            entityKeyIsOurs );
+    [[nodiscard]] Common::Json::TextDocument MergeSceneDocument( const Common::Json::TextDocument& fresh,
+                                                                 const Common::Json::TextDocument& source,
+                                                                 const KeyIsOurs& entityKeyIsOurs );
 
     // Every key at THIS ONE LEVEL of `source` that `ours` does not claim, counted by NAME and not by
     // path: a key that appears on forty entities is one finding with a count of forty, not forty log
@@ -83,7 +87,8 @@ namespace Desert::Core::Serialize
     // record to the component registry — and a recursion would have to carry a table of which
     // registry answers where, which is a second statement of the format. The caller walks the levels
     // it knows and asks here with the right predicate for each.
-    void CountForeignKeysAtLevel( const rfl::Generic::Object& source, const KeyIsOurs& ours,
+    // `keys` are the member names of that one level (TextDocument::KeysAt / RecordKeysAt).
+    void CountForeignKeysAtLevel( const std::vector<std::string>& keys, const KeyIsOurs& ours,
                                   std::map<std::string, int>& into );
 
     // "Foo (x40), Bar" — the one line a load logs. Empty when the map is empty, so the caller can
