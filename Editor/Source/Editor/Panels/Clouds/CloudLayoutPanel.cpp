@@ -5,6 +5,7 @@
 #include <Common/Core/Math/Rounding.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -73,29 +74,13 @@ namespace Desert::Editor
         const ImVec4 kErrorColour( 0.95f, 0.45f, 0.40f, 1.0f );
         const ImVec4 kWarnColour( 0.95f, 0.78f, 0.35f, 1.0f );
         const ImVec4 kGoodColour( 0.55f, 0.85f, 0.55f, 1.0f );
-
-        // The document's VISIBLE title: the subject's file name. Computed before the base class is
-        // constructed — ISubjectDocument bakes the title in its own constructor and holds it for the
-        // window's life — so it is a free function rather than a member.
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets )
-            {
-                if ( const auto asset = assets->ProbeByHandle<Assets::CloudLayoutAsset>( subject ) )
-                    return asset->GetMetadata().Filepath.filename().string();
-            }
-            // Not created yet (the kind is created on demand, AL1-2): the registry row names the file.
-            if ( const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::CloudLayout,
-                                                                  static_cast<uint64_t>( subject ) ) )
-                return row->Path.filename().string();
-            return "Cloud Layout";
-        }
     } // namespace
 
     CloudLayoutPanel::CloudLayoutPanel( const Assets::AssetHandle&             subject,
                                         std::shared_ptr<::Desert::Core::Scene> scene,
                                         Assets::AssetManager*                  assets )
-         : ISubjectDocument( SubjectTitle( subject, assets ),
+         : ISubjectDocument( AssetSubjectTitle<Assets::CloudLayoutAsset>(
+                                  subject, assets, Common::Content::ContentKind::CloudLayout, "Cloud Layout" ),
                              AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudLayout ) ) ),
            m_Scene( std::move( scene ) ), m_Assets( assets )
     {

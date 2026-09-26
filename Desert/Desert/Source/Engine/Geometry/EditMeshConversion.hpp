@@ -29,6 +29,9 @@ namespace Desert::Geometry
         int DetachedTriangles = 0; // a third triangle on an edge or an opposite winding: given its own copies
                                    // of its already-used corners (EditMesh refuses such an edge; the render
                                    // mesh had it)
+        // Per render face (render.Indices order), the triangle it became, or InvalidId for a dropped one: what
+        // lets per-face data (the file's polygroups) follow its face past the dropped ones.
+        std::vector<int> TriangleOfFace;
     };
 
     // Welds render vertices by position into EditMesh vertices, and each layer by value per welded vertex

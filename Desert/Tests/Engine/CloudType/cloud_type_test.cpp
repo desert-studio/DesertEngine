@@ -16,6 +16,7 @@
 // The library is read from DISK rather than embedded, deliberately: an embedded copy would be a third
 // statement of the same numbers and would pass while the shipped files were broken.
 
+#include <Common/Json/Json.hpp>
 #include "CloudScheduleReference.hpp"
 
 #include <Engine/Assets/CloudProceduralVolume.hpp>
@@ -32,7 +33,6 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
 // The LAYER's Detail Strength, for the one relation that is between the library and the layer: the cut's
@@ -1553,10 +1553,10 @@ TEST( CloudTypeLibrary, AShippedCloudMaterialsTypeSlotNamesARegisteredType )
     std::ifstream in( material );
     ASSERT_TRUE( in.good() ) << material.string() << " could not be opened";
     const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
-    const auto        parsed = rfl::json::read<MaterialData>( text );
-    ASSERT_TRUE( parsed ) << parsed.error().what();
+    const auto        parsed = Common::Json::Read<MaterialData>( text );
+    ASSERT_TRUE( parsed ) << parsed.GetError();
 
-    const uint64_t slot = parsed.value().GetCloudAsset( "CloudType1" );
+    const uint64_t slot = parsed.GetValue().GetCloudAsset( "CloudType1" );
     ASSERT_NE( slot, 0u ) << material.string() << " no longer authors CloudType1; pick a material that does";
 
     // The handles the service would hold: one per shipped type, derived as the asset derives it.
@@ -1647,7 +1647,7 @@ TEST( CloudTypeFormat, AVersionThreeFileWithoutAHeaderIsRefusedNamingTheMigrator
     const auto    at   = text.find( "\"Header\"" );
     ASSERT_NE( at, std::string::npos );
     const auto close = text.find( "}", text.find( "\"Dependencies\"", at ) );
-    text             = "{\"FormatVersion\":3," + text.substr( text.find_first_not_of( " \t\r\n,", close + 1 ) );
+    text             = R"({"FormatVersion":3,)" + text.substr( text.find_first_not_of( " \t\r\n,", close + 1 ) );
 
     const auto refused = ParseCloudType( text );
     ASSERT_FALSE( refused ) << "a header-less version-3 file was read";
@@ -1683,7 +1683,7 @@ TEST( CloudTypeFormat, ANoiseVolumeIsNamedByGuidAndStatedAsTheOneDependency )
         return;
     }
     unstated.Header->Dependencies.clear();
-    const std::string text    = rfl::json::write( unstated );
+    const std::string text    = Common::Json::Write( unstated );
     auto              refused = ParseCloudType( text );
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "Dependencies" ), std::string::npos ) << refused.GetError();
@@ -1697,7 +1697,7 @@ TEST( CloudTypeFormat, ANoiseVolumeIsNamedByGuidAndStatedAsTheOneDependency )
     }
     bare.NoiseVolume->Guid.clear();
     bare.Header->Dependencies = { "" };
-    auto noGuid               = ParseCloudType( rfl::json::write( bare ) );
+    auto noGuid               = ParseCloudType( Common::Json::Write( bare ) );
     ASSERT_FALSE( noGuid );
     EXPECT_NE( noGuid.GetError().find( "GUID" ), std::string::npos ) << noGuid.GetError();
 }

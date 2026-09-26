@@ -4,6 +4,7 @@
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -55,27 +56,6 @@ namespace Desert::Editor
             return axis == 0 ? "X" : axis == 1 ? "Y" : "Z";
         }
 
-        // The document's VISIBLE title: the subject's file name. Computed before the base class is
-        // constructed — ISubjectDocument bakes the title in its own constructor and holds it for the
-        // window's life — so it is a free function rather than a member.
-        //
-        // Falls back to the type's name rather than to something empty: a document whose asset has gone
-        // missing still has to be a window the user can find and close.
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets )
-            {
-                if ( const auto asset = assets->ProbeByHandle<Assets::CloudNoiseVolumeAsset>( subject ) )
-                    return asset->GetMetadata().Filepath.filename().string();
-            }
-            // Not created yet (the kind is created on demand, AL1-2): the registry row names the file
-            // without the title having to create the shell the constructor is about to create anyway.
-            if ( const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::CloudNoiseVolume,
-                                                                  static_cast<uint64_t>( subject ) ) )
-                return row->Path.filename().string();
-            return "Cloud Noise Volume";
-        }
-
         // -- EVERY NUMBER OF THE RECIPE, ONCE ----------------------------------------------------------
         //
         // TWO READERS AND ONE LIST, for the reason CloudTypePanel's kShapeFields carries at length: the
@@ -114,7 +94,8 @@ namespace Desert::Editor
     CloudNoiseVolumePanel::CloudNoiseVolumePanel( const Assets::AssetHandle& subject,
                                                   Assets::AssetManager*      assets )
          : ISubjectDocument(
-                SubjectTitle( subject, assets ),
+                AssetSubjectTitle<Assets::CloudNoiseVolumeAsset>(
+                     subject, assets, Common::Content::ContentKind::CloudNoiseVolume, "Cloud Noise Volume" ),
                 AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudNoiseVolume ) ) ),
            m_Assets( assets )
     {

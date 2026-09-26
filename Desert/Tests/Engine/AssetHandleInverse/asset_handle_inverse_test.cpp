@@ -34,6 +34,8 @@
 // (`MeshPath` + a path-derived `MeshGuid` number) is gone with SCNE 28: a scene names a mesh by its header
 // GUID text, so no scene row depends on the path derivation any more.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -204,7 +206,8 @@ namespace
     // to be the LAST comment line before the statement — one more line of prose under it and clang-tidy
     // does not see it, which is how the first attempt at this went red with the comment already written.
     // NOLINTNEXTLINE(misc-no-recursion)
-    void CollectPairs( const rfl::Generic& node, const std::string& scene, std::vector<PathAndGuid>& materials )
+    void CollectPairs( const Common::Json::Value& node, const std::string& scene,
+                       std::vector<PathAndGuid>& materials )
     {
         if ( const auto array = node.to_array() )
         {
@@ -220,7 +223,7 @@ namespace
         const auto& fields = object.value();
 
         // `rfl::Object::find` returns an INDEX, not an iterator, so the pairs are walked instead.
-        const auto valueOf = [&fields]( const char* name ) -> const rfl::Generic*
+        const auto valueOf = [&fields]( const char* name ) -> const Common::Json::Value*
         {
             for ( const auto& [key, value] : fields )
             {
@@ -229,8 +232,8 @@ namespace
             }
             return nullptr;
         };
-        const rfl::Generic* paths = valueOf( "MaterialPaths" );
-        const rfl::Generic* guids = valueOf( "MaterialGuids" );
+        const Common::Json::Value* paths = valueOf( "MaterialPaths" );
+        const Common::Json::Value* guids = valueOf( "MaterialGuids" );
         if ( paths != nullptr && guids != nullptr )
         {
             const auto pathArray = paths->to_array();
@@ -261,14 +264,14 @@ namespace
         {
             if ( !entry.is_regular_file() || entry.path().extension() != ".desce" )
                 continue;
-            const auto parsed = rfl::json::read<rfl::Generic>( ReadAll( entry.path() ) );
+            const auto parsed = Common::Json::Parse( ReadAll( entry.path() ) );
             if ( !parsed )
             {
                 if ( parseError != nullptr && parseError->empty() )
-                    *parseError = entry.path().filename().string() + ": " + parsed.error().what();
+                    *parseError = entry.path().filename().string() + ": " + parsed.GetError();
                 continue;
             }
-            CollectPairs( parsed.value(), entry.path().filename().string(), materials );
+            CollectPairs( parsed.GetValue(), entry.path().filename().string(), materials );
         }
     }
 
@@ -302,7 +305,7 @@ namespace
     std::string GuidOfDemat( const fs::path& demat )
     {
         size_t at = 0;
-        return QuotedValueAfter( ReadAll( demat ), "\"Guid\":", 0, at );
+        return QuotedValueAfter( ReadAll( demat ), R"("Guid":)", 0, at );
     }
 } // namespace
 

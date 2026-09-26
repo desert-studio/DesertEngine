@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/Entity.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
+#include <Editor/Widgets/PreviewInput.hpp>
 
 #include <functional>
 #include <memory>
@@ -53,10 +54,11 @@ namespace Desert::Editor
         // lend one, so a component never has to know where it came from — the caller falls back to a
         // cached thumbnail.
         //
-        // Always Static (Editor/Widgets/PreviewInput.hpp): a Details row is a summary of a field, so the
-        // picture keeps one angle and double-click opens @p openHandle — the asset the row stands for —
-        // through the same AssetFieldRequests queue every other asset field in Details uses.
-        [[nodiscard]] bool DrawPreview( const ImVec2& size, uint64_t openHandle ) const;
+        // The mode comes from @p kind (DetailsPreviewInteraction, Editor/Widgets/PreviewInput.hpp): the
+        // Static Mesh row orbits and zooms, the Skybox row keeps one angle. A Static row's double-click opens
+        // @p openHandle — the asset the row stands for — through the same AssetFieldRequests queue every
+        // other asset field in Details uses; an Interactive row's double-click re-frames instead.
+        [[nodiscard]] bool DrawPreview( const ImVec2& size, DetailsPreviewKind kind, uint64_t openHandle ) const;
 
         // Details search box: while non-empty, reflected components draw only the fields that match.
         // A hand-written widget cannot filter itself — the panel decides whether to draw it at all.

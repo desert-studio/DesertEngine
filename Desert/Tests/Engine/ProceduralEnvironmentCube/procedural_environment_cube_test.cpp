@@ -227,6 +227,64 @@ TEST( ProceduralEnvironmentCube, TheHdrPathKeepsItsRadianceCube )
 }
 
 // ------------------------------------------------------------------------------------------------
+// 2b. What decides that a skybox has an environment: the asset, never its file name, and never quietly.
+//
+// Since AF3 moved every skybox to a `.detex` container, `Create` built its environment only under
+// `extension == ".hdr"` and fell to a bare `return {};` otherwise: every HDR sky rendered black with no
+// IBL and the log said nothing about why. The suite has no device, so `Create` cannot be run here; what
+// it can pin is the shape the defect had -- a name-based gate, and an empty return nothing announced.
+// ------------------------------------------------------------------------------------------------
+TEST( ProceduralEnvironmentCube, TheSkyboxAssetDecidesAndEveryEmptyEnvironmentIsAnnounced )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const std::string source = StripComments( ReadAll( root + kSceneEnvironment ) );
+    const std::string body   = BodyOf( source, "Environment EnvironmentManager::Create(" );
+    ASSERT_FALSE( body.empty() ) << "EnvironmentManager::Create is not where this suite expects it";
+
+    EXPECT_EQ( body.find( "GetFileExtension" ), std::string::npos )
+         << "EnvironmentManager::Create decides by the skybox's file NAME again. Skyboxes are `.detex` "
+            "containers; the container's own kind and key (FindCookedPanorama) is the one gate.";
+    EXPECT_EQ( body.find( "\".hdr\"" ), std::string::npos )
+         << "EnvironmentManager::Create compares against \".hdr\" -- no committed skybox has that extension.";
+
+    const std::size_t gate = body.find( "FindCookedPanorama(" );
+    ASSERT_NE( gate, std::string::npos ) << "EnvironmentManager::Create no longer asks FindCookedPanorama";
+    const std::string beforeGate = body.substr( 0, gate );
+    EXPECT_EQ( FindIdentifier( beforeGate, "if", 0 ), std::string::npos )
+         << "something branches before FindCookedPanorama is asked -- it must be the first and only gate";
+    EXPECT_EQ( FindIdentifier( beforeGate, "return", 0 ), std::string::npos )
+         << "EnvironmentManager::Create returns before FindCookedPanorama is asked";
+
+    // Every empty environment is the statement right after a LOG_ERROR: `}` or anything else before a
+    // `return {};` is the silent fall-through this test exists for.
+    std::size_t emptyReturns = 0;
+    for ( std::size_t at = body.find( "return {};" ); at != std::string::npos;
+          at             = body.find( "return {};", at + 1 ) )
+    {
+        ++emptyReturns;
+        std::size_t end = at;
+        while ( end > 0 && std::isspace( static_cast<unsigned char>( body[end - 1] ) ) != 0 )
+            --end;
+        ASSERT_GT( end, 0u );
+        EXPECT_EQ( body[end - 1], ';' ) << "a `return {};` in EnvironmentManager::Create follows '"
+                                        << body[end - 1] << "', not a logged statement:\n"
+                                        << body.substr( end > 200 ? end - 200 : 0, 220 );
+        if ( body[end - 1] != ';' )
+            continue;
+        // The statement before is a LOG_ERROR when the last LOG_ERROR before the return is followed by
+        // no `;` other than its own (format strings hold `{}`, so braces cannot delimit statements).
+        const std::size_t log = body.rfind( "LOG_ERROR", end );
+        ASSERT_NE( log, std::string::npos ) << "an empty environment is returned and nothing is logged";
+        EXPECT_EQ( body.find( ';', log ), end - 1 )
+             << "an empty environment is returned without a LOG_ERROR right before it:\n"
+             << body.substr( log, end - log );
+    }
+    EXPECT_GE( emptyReturns, 2u ) << "the two refusals (no cooked panorama, panorama did not load) are gone";
+}
+
+// ------------------------------------------------------------------------------------------------
 // 3. The consumers: who is allowed to name RadianceMap at all.
 // ------------------------------------------------------------------------------------------------
 TEST( ProceduralEnvironmentCube, NoOneElseNamesTheRadianceCube )

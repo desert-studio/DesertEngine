@@ -18,6 +18,10 @@ project "DesertCtl"
     }
     includedirs {
         "%{wks.location}/Tools/Shared",
+        -- For Common/Core/LocalSocket.hpp ALONE, which is header-only: the editor's end of this channel
+        -- opens the same socket, and the platform differences are written once rather than once per end.
+        -- No Common library is linked -- see above, this tool builds where a renderer cannot.
+        "%{wks.location}/Desert/Common/Source",
     }
 
 
@@ -25,9 +29,12 @@ project "DesertCtl"
         "%{wks.location}/ThirdParty/reflect-cpp/include",
     }
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
+    -- ON EVERY PLATFORM, which it was not before. The Windows build of this tool used to be a dozen lines
+    -- that printed "no transport on Windows" and returned: it reached no parser, so it linked no parser,
+    -- and the exclusion below looked harmless. Now that the channel HAS a Windows transport the Windows
+    -- build does the same work as the others, and without this it fails to link with LNK2019 on
+    -- rfl::Generic's constructors and yyjson_read_opts.
+    links { "ReflectCpp" }
 
     filter "configurations:Debug"
         symbols "On"
@@ -37,6 +44,8 @@ project "DesertCtl"
 
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
+        -- AF_UNIX over Winsock, and the DACL on the socket file (Common/Core/LocalSocket.hpp).
+        links { "ws2_32", "advapi32" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }

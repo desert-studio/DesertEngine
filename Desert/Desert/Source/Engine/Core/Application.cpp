@@ -4,11 +4,15 @@
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Core/SceneAssetRoots.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 
 #include <Common/Core/EventRegistry.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <GLFW/glfw3.h>
+
+#include <chrono>
+#include <thread>
 
 namespace Desert::Engine
 {
@@ -161,6 +165,9 @@ namespace Desert::Engine
     void Application::Run()
     {
         float m_LastFrameTime = 0.0f;
+        // Loop state rather than a member: nothing outside this loop has a use for it, and the whole of
+        // what it remembers is whether the PREVIOUS iteration stood down (see 1b below).
+        Graphic::DrawableAreaGate drawableArea;
         while ( m_IsRunningApplication )
         {
             // Frame boundary for the profiler (publishes last frame, flips Optick's frame). Placed at the
@@ -179,6 +186,41 @@ namespace Desert::Engine
             {
                 DESERT_PROFILE_SCOPE( "ProcessEvents" );
                 m_Window->ProcessEvents();
+            }
+
+            // 1b. STAND THE WHOLE FRAME DOWN WHILE THERE IS NOTHING TO DRAW INTO.
+            //
+            // A minimised window reports a 0x0 framebuffer, and no image can be acquired from a surface
+            // with no area. Everything below then runs on a frame that cannot finish: the acquire fails,
+            // Submit still waits on the PresentComplete semaphore that acquire never signalled
+            // (VUID-vkQueueSubmit-pWaitSemaphores-03238) and Present hands back whatever image index was
+            // left from the last real frame. Measured on Windows, three minimise/restore cycles: 72
+            // acquire failures and 72 of that VUID, one pair per frame.
+            //
+            // HERE, BEFORE THE ACQUIRE, WHICH IS WHAT MAKES `continue` SAFE. Skipping the rest of the loop
+            // after PrepareNextFrame would leak an acquired image every iteration and the next acquire
+            // would eventually block forever (see BeginFrame's failure branch below, which cannot use
+            // `continue` for exactly that reason). Nothing has been acquired at this point in the loop.
+            //
+            // The event pump above keeps running, which is what eventually delivers the restore.
+            const auto drawable = drawableArea.Observe( m_Window->HasDrawableArea() );
+            if ( drawable.SkipFrame )
+            {
+                if ( drawable.AnnounceStop )
+                    LOG_INFO( "[Application] the window has no drawable area (minimised); standing the "
+                              "frame loop down until it comes back. Nothing is acquired, recorded, "
+                              "submitted or presented until then." );
+
+                // NOT A SPIN. Present is what paced this loop, and skipping it removes the only thing that
+                // made an iteration cost anything — a minimised editor would otherwise burn a core doing
+                // nothing. Long enough to idle, short enough that the restore is acted on in one frame's
+                // worth of time.
+                std::this_thread::sleep_for( std::chrono::milliseconds( 16 ) );
+                continue;
+            }
+            if ( drawable.AnnounceResume )
+            {
+                LOG_INFO( "[Application] the window has a drawable area again; frames resume." );
             }
 
             // 2. Prepare Frame (Acquire next image) — CPU blocks here if the GPU is behind / vsync-gated.

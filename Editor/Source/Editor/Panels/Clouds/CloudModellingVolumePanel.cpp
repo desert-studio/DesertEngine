@@ -3,6 +3,7 @@
 #include "CloudDocumentOpen.hpp"
 
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -55,30 +56,14 @@ namespace Desert::Editor
             blob.Primitive = Assets::CloudModellingPrimitive::Sphere;
             return blob;
         }
-
-        // The document's VISIBLE title: the subject's file name. Computed before the base class is
-        // constructed — ISubjectDocument bakes the title in its own constructor and holds it for the
-        // window's life — so it is a free function rather than a member.
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets )
-            {
-                if ( const auto asset = assets->ProbeByHandle<Assets::CloudModellingVolumeAsset>( subject ) )
-                    return asset->GetMetadata().Filepath.filename().string();
-            }
-            // Not created yet (the kind is created on demand, AL1-2): the registry row names the file
-            // without the title having to create the shell the constructor is about to create anyway.
-            if ( const auto row = Assets::ContentRegistry::RowOf(
-                      Common::Content::ContentKind::CloudModellingVolume, static_cast<uint64_t>( subject ) ) )
-                return row->Path.filename().string();
-            return "Cloud Modelling Volume";
-        }
     } // namespace
 
     CloudModellingVolumePanel::CloudModellingVolumePanel( const Assets::AssetHandle& subject,
                                                           Assets::AssetManager*      assets )
          : ISubjectDocument(
-                SubjectTitle( subject, assets ),
+                AssetSubjectTitle<Assets::CloudModellingVolumeAsset>(
+                     subject, assets, Common::Content::ContentKind::CloudModellingVolume,
+                     "Cloud Modelling Volume" ),
                 AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudModellingVolume ) ) ),
            m_Assets( assets )
     {
@@ -643,15 +628,19 @@ namespace Desert::Editor
             m_SliceImage.reset();
         }
 
-        const Core::Formats::Image2DSpecification spec{
+        // FULLY QUALIFIED, and it has to stay that way: this file compiles inside an MSBuild unity
+        // group (BuildScripts/UnityBuild.lua), where a `using namespace Desert::Editor` in an earlier
+        // member of the group rebinds a bare `Core::` to Desert::Editor::Core -- C3083 on every name
+        // below. Qualifying is what takes this file off that file's opt-out list.
+        const ::Desert::Core::Formats::Image2DSpecification spec{
              .Tag        = "CloudModellingSlice",
              .Width      = slice.Width,
              .Height     = slice.Height,
-             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Format     = ::Desert::Core::Formats::ImageFormat::RGBA8F,
              .Mips       = 1,
              .Data       = std::move( pixels ),
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Sample,
+             .Usage      = ::Desert::Core::Formats::Image2DUsage::Image2D,
+             .Properties = ::Desert::Core::Formats::Sample,
         };
 
         m_SliceImage       = Graphic::Image2D::Create( spec );
