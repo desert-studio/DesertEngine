@@ -209,7 +209,7 @@ void DynamicMeshAttributeSet::Append( const DynamicMeshAttributeSet&  ToAppend,
         const std::unique_ptr<DynamicMeshAttributeBase>* AppendAttr =
              FindValue( ToAppend.m_GenericAttributes, AttribPair.first );
         DynamicMeshAttributeBase& Target = *AttribPair.second;
-        if ( AppendAttr && *AppendAttr )
+        if ( ( AppendAttr != nullptr ) && *AppendAttr )
         {
             Target.Append( **AppendAttr, AppendInfo );
         }
@@ -315,9 +315,9 @@ void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttribu
         m_NormalLayers[k]->ClearElements();
     }
 
-    bool bWantColorLayer =
+    const bool bWantColorLayer =
          bUseToMatch ? ToMatch.HasPrimaryColors() : ( ToMatch.HasPrimaryColors() || this->HasPrimaryColors() );
-    if ( bClearExisting || bWantColorLayer == false )
+    if ( bClearExisting || !bWantColorLayer )
     {
         DisablePrimaryColors();
     }
@@ -326,9 +326,9 @@ void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttribu
         EnablePrimaryColors();
     }
 
-    bool bWantMaterialID =
+    const bool bWantMaterialID =
          bUseToMatch ? ToMatch.HasMaterialID() : ( ToMatch.HasMaterialID() || this->HasMaterialID() );
-    if ( bClearExisting || bWantMaterialID == false )
+    if ( bClearExisting || !bWantMaterialID )
     {
         DisableMaterialID();
     }
@@ -444,7 +444,7 @@ void DynamicMeshAttributeSet::SetNumNormalLayers( int Num )
 
 void DynamicMeshAttributeSet::EnablePrimaryColors()
 {
-    if ( HasPrimaryColors() == false )
+    if ( !HasPrimaryColors() )
     {
         m_ColorLayer = std::make_unique<DynamicMeshColorOverlay>( m_ParentMesh );
         m_ColorLayer->InitializeTriangles( m_ParentMesh->MaxTriangleID() );
@@ -479,7 +479,7 @@ const DynamicMeshPolygroupAttribute* DynamicMeshAttributeSet::GetPolygroupLayer(
 
 void DynamicMeshAttributeSet::EnableMaterialID()
 {
-    if ( HasMaterialID() == false )
+    if ( !HasMaterialID() )
     {
         m_MaterialIDAttrib = std::make_unique<DynamicMeshMaterialAttribute>( m_ParentMesh );
         m_MaterialIDAttrib->Initialize( static_cast<int32_t>( 0 ) );
@@ -507,11 +507,7 @@ bool DynamicMeshAttributeSet::IsSeamEdge( int eid ) const
             return true;
         }
     }
-    if ( m_ColorLayer && m_ColorLayer->IsSeamEdge( eid ) )
-    {
-        return true;
-    }
-    return false;
+    return m_ColorLayer && m_ColorLayer->IsSeamEdge( eid );
 }
 
 bool DynamicMeshAttributeSet::IsSeamEndEdge( int eid ) const
@@ -530,11 +526,7 @@ bool DynamicMeshAttributeSet::IsSeamEndEdge( int eid ) const
             return true;
         }
     }
-    if ( m_ColorLayer && m_ColorLayer->IsSeamEndEdge( eid ) )
-    {
-        return true;
-    }
-    return false;
+    return m_ColorLayer && m_ColorLayer->IsSeamEndEdge( eid );
 }
 
 bool DynamicMeshAttributeSet::IsSeamEdge( int EdgeID, bool& bIsUVSeamOut, bool& bIsNormalSeamOut,
@@ -574,11 +566,7 @@ bool DynamicMeshAttributeSet::IsSeamVertex( int VID, bool bBoundaryIsSeam ) cons
             return true;
         }
     }
-    if ( m_ColorLayer && m_ColorLayer->IsSeamVertex( VID, bBoundaryIsSeam ) )
-    {
-        return true;
-    }
-    return false;
+    return m_ColorLayer && m_ColorLayer->IsSeamVertex( VID, bBoundaryIsSeam );
 }
 
 bool DynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) const
@@ -597,11 +585,7 @@ bool DynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) const
             return true;
         }
     }
-    if ( m_ColorLayer && m_ColorLayer->IsSeamIntersectionVertex( VertexID ) )
-    {
-        return true;
-    }
-    return false;
+    return m_ColorLayer && m_ColorLayer->IsSeamIntersectionVertex( VertexID );
 }
 
 bool DynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
@@ -649,7 +633,7 @@ void DynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
     }
     if ( m_MaterialIDAttrib )
     {
-        int NewValue = 0;
+        const int NewValue = 0;
         m_MaterialIDAttrib->SetNewValue( TriangleID, &NewValue );
     }
     for ( const auto& PolygroupLayer : m_PolygroupLayers )

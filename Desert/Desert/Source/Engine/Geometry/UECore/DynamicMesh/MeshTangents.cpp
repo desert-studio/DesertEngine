@@ -5,6 +5,8 @@
 // constructor), instantiated for double only.
 #include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
 
+#include <cmath>
+
 #include "Engine/Geometry/UECore/VectorUtil.hpp"
 
 using namespace Desert::Geometry;
@@ -16,8 +18,10 @@ namespace
                              glm::dvec3& BitangentOut, glm::dvec2& MagnitudesOut, double& OrientationSignOut,
                              bool& bIsDegenerateOut )
     {
-        const glm::dvec2 UVEdge1( (double)TriUVs[1].x - TriUVs[0].x, (double)TriUVs[1].y - TriUVs[0].y );
-        const glm::dvec2 UVEdge2( (double)TriUVs[2].x - TriUVs[0].x, (double)TriUVs[2].y - TriUVs[0].y );
+        const glm::dvec2 UVEdge1( static_cast<double>( TriUVs[1].x ) - TriUVs[0].x,
+                                  static_cast<double>( TriUVs[1].y ) - TriUVs[0].y );
+        const glm::dvec2 UVEdge2( static_cast<double>( TriUVs[2].x ) - TriUVs[0].x,
+                                  static_cast<double>( TriUVs[2].y ) - TriUVs[0].y );
         const glm::dvec3 TriEdge1 = TriVertices[1] - TriVertices[0];
         const glm::dvec3 TriEdge2 = TriVertices[2] - TriVertices[0];
 
@@ -92,12 +96,13 @@ namespace Desert::Geometry
 
             // Write tangent values out for each wedge value
             // Note: shared elements will be written to multiple times, and the last value written will be used
-            for ( int TID : MeshToSet.TriangleIndicesItr() )
+            for ( const int TID : MeshToSet.TriangleIndicesItr() )
             {
                 const Index3i ElTri = TangentOverlays[Idx]->GetTriangle( TID );
                 for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
                 {
-                    TangentOverlays[Idx]->SetElement( ElTri[SubIdx], (glm::vec3)TV[TID * 3 + SubIdx] );
+                    TangentOverlays[Idx]->SetElement( ElTri[SubIdx],
+                                                      static_cast<glm::vec3>( TV[TID * 3 + SubIdx] ) );
                 }
             }
         }
@@ -114,7 +119,7 @@ namespace Desert::Geometry
         // compute per-triangle tangent and bitangent
         for ( int32_t TriangleID = 0; TriangleID < MaxTriangleID; ++TriangleID )
         {
-            if ( m_Mesh->IsTriangle( TriangleID ) == false || UVOverlay->IsSetTriangle( TriangleID ) == false )
+            if ( !m_Mesh->IsTriangle( TriangleID ) || !UVOverlay->IsSetTriangle( TriangleID ) )
             {
                 continue;
             }
@@ -126,24 +131,26 @@ namespace Desert::Geometry
             glm::vec3 TriNormals[3]{};
             NormalOverlay->GetTriElements( TriangleID, TriNormals[0], TriNormals[1], TriNormals[2] );
 
-            glm::dvec3 Tangent{}, Bitangent{};
+            glm::dvec3 Tangent{};
+            glm::dvec3 Bitangent{};
             glm::dvec2 Magnitudes{};
-            double     OrientationSign;
-            bool       bIsDegenerate;
+            double     OrientationSign = NAN;
+            bool       bIsDegenerate   = false;
             ComputeFaceTangent( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, OrientationSign,
                                 bIsDegenerate );
 
             for ( int32_t j = 0; j < 3; ++j )
             {
-                const glm::dvec3 VtxNormal        = (glm::dvec3)TriNormals[j];
+                const glm::dvec3 VtxNormal        = glm::dvec3( TriNormals[j] );
                 const glm::dvec3 ProjectedTangent = PlaneProjectionNormalized( Tangent, VtxNormal );
 
                 const double BitangentSign = VectorUtil::BitangentSign( VtxNormal, ProjectedTangent, Bitangent );
                 const glm::dvec3 ReconsBitangent =
                      VectorUtil::Bitangent( VtxNormal, ProjectedTangent, BitangentSign );
 
-                SetPerTriangleTangent( TriangleID, j, Normalized( (glm::vec<3, RealType>)ProjectedTangent ),
-                                       Normalized( (glm::vec<3, RealType>)ReconsBitangent ) );
+                SetPerTriangleTangent( TriangleID, j,
+                                       Normalized( static_cast<glm::vec<3, RealType>>( ProjectedTangent ) ),
+                                       Normalized( static_cast<glm::vec<3, RealType>>( ReconsBitangent ) ) );
             }
         }
     }

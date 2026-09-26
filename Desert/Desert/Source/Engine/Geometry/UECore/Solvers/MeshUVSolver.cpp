@@ -32,10 +32,10 @@ namespace Desert::Geometry
 
             CotanTriangleData( const DynamicMesh3& Mesh, int32_t TriID )
             {
-                const Index3i  EdgeIds = Mesh.GetTriEdges( TriID );
-                glm::dvec3     VertA{};
-                glm::dvec3     VertB{};
-                glm::dvec3     VertC{};
+                const Index3i EdgeIds = Mesh.GetTriEdges( TriID );
+                glm::dvec3    VertA{};
+                glm::dvec3    VertB{};
+                glm::dvec3    VertC{};
                 Mesh.GetTriVertices( TriID, VertA, VertB, VertC );
                 const glm::dvec3 EdgeAB( VertB - VertA );
                 const glm::dvec3 EdgeAC( VertC - VertA );
@@ -81,9 +81,9 @@ namespace Desert::Geometry
                                            const std::vector<int32_t>& ToIndex, CotangentWeightMode WeightMode,
                                            std::vector<Triplet>& Triplets )
         {
-            const int32_t                   NumVerts = static_cast<int32_t>( ToVertex.size() );
-            std::vector<CotanTriangleData>  TriData;
-            std::vector<int32_t>            ToTriIdx( Mesh.MaxTriangleID(), DynamicMesh3::InvalidID );
+            const auto                     NumVerts = static_cast<int32_t>( ToVertex.size() );
+            std::vector<CotanTriangleData> TriData;
+            std::vector<int32_t>           ToTriIdx( Mesh.MaxTriangleID(), DynamicMesh3::InvalidID );
             for ( const int32_t tid : Mesh.TriangleIndicesItr() )
             {
                 ToTriIdx[tid] = static_cast<int32_t>( TriData.size() );
@@ -315,7 +315,7 @@ namespace Desert::Geometry
 
     bool SpectralConformalMeshUVSolver::SolveUVs( std::vector<glm::dvec2>& OutUVs )
     {
-        const int32_t NumVerts = static_cast<int32_t>( m_ToVertex.size() );
+        const auto    NumVerts = static_cast<int32_t>( m_ToVertex.size() );
         const int32_t N        = 2 * NumVerts;
         OutUVs.assign( m_Mesh.MaxVertexID(), glm::dvec2( 0 ) );
         if ( NumVerts == 0 || m_Boundary.empty() )
@@ -355,7 +355,7 @@ namespace Desert::Geometry
             const MeshBoundaryLoops Loops( &m_Mesh, true );
             for ( const EdgeLoop& Loop : Loops.m_Loops )
             {
-                const int32_t NumLoopVert = static_cast<int32_t>( Loop.Vertices.size() );
+                const auto NumLoopVert = static_cast<int32_t>( Loop.Vertices.size() );
                 for ( int32_t Idx = 0; Idx < NumLoopVert; ++Idx )
                     AppendAreaEdge( m_ToIndex[Loop.Vertices[( Idx + 1 ) % NumLoopVert]],
                                     m_ToIndex[Loop.Vertices[Idx]], NumVerts, -1.0, Triplets );

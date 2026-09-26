@@ -60,15 +60,11 @@ namespace Desert::Geometry
     struct MeshTriEdgeID
     {
         /** The 0/1/2 index of the edge in the triangle's tuple of edges */
-        unsigned TriEdgeIndex : 2;
+        unsigned TriEdgeIndex : 2 { 0 };
         /** The index of the mesh Triangle */
-        unsigned TriangleID : 30;
+        unsigned TriangleID : 30 { 0 };
 
-        MeshTriEdgeID()
-        {
-            TriEdgeIndex = 0;
-            TriangleID   = 0;
-        }
+        MeshTriEdgeID() = default;
 
         /**
          * Construct a MeshTriEdgeID for the given TriangleID and Edge Index in range
@@ -78,17 +74,16 @@ namespace Desert::Geometry
         {
             assert( EdgeIndexIn >= 0 && EdgeIndexIn <= 2 );
             assert( TriangleIDIn >= 0 && TriangleIDIn < ( 1 << 30 ) );
-            TriEdgeIndex = (unsigned int)EdgeIndexIn;
-            TriangleID   = (unsigned int)TriangleIDIn;
+            TriEdgeIndex = static_cast<unsigned int>( EdgeIndexIn );
+            TriangleID   = static_cast<unsigned int>( TriangleIDIn );
         }
 
         /**
          * Decode an encoded MeshTriEdgeID from a packed uint32_t created by the Encoded() function
          */
         explicit MeshTriEdgeID( uint32_t EncodedEdgeKey )
+             : TriEdgeIndex( ( EncodedEdgeKey & 0xC0000000 ) >> 30 ), TriangleID( EncodedEdgeKey & 0x8FFFFFFF )
         {
-            TriangleID   = EncodedEdgeKey & 0x8FFFFFFF;
-            TriEdgeIndex = ( EncodedEdgeKey & 0xC0000000 ) >> 30;
         }
 
         /**
@@ -121,15 +116,12 @@ namespace Desert::Geometry
         /** The index of the mesh Triangle */
         int32_t TriangleID;
         /** The 0/1/2 index of the first vertex in the triangles tuple of vertices */
-        unsigned VertIndexA : 2;
+        unsigned VertIndexA : 2 { 0 };
         /** The 0/1/2 index of the second vertex in the triangles tuple of vertices */
-        unsigned VertIndexB : 2;
+        unsigned VertIndexB : 2 { 0 };
 
-        MeshTriOrderedEdgeID()
+        MeshTriOrderedEdgeID() : TriangleID( IndexConstants::InvalidID )
         {
-            TriangleID = IndexConstants::InvalidID;
-            VertIndexA = 0;
-            VertIndexB = 0;
         }
 
         MeshTriOrderedEdgeID( int32_t TriangleIDIn, int32_t VertexIndexA, int32_t VertexIndexB )
@@ -146,115 +138,112 @@ namespace Desert::Geometry
 
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/InfoTypes.h:146-248, adapted: nested in
 // namespace Desert::Geometry; the bowtie edge lists are a plain TArray (the shim has no TInlineAllocator).
-namespace Desert::Geometry
+
+namespace Desert::Geometry::DynamicMeshInfo
 {
 
-    namespace DynamicMeshInfo
+    /** Information about the mesh elements created by a call to SplitEdge() */
+    struct EdgeSplitInfo
     {
+        int     OriginalEdge{};    // the edge that was split
+        Index2i OriginalVertices;  // original edge vertices [a,b]
+        Index2i OtherVertices;     // original opposing vertices [c,d] - d is InvalidID for boundary edges
+        Index2i OriginalTriangles; // original edge triangles [t0,t1]
+        bool    bIsBoundary{};     // was the split edge a boundary edge?  (redundant)
 
-        /** Information about the mesh elements created by a call to SplitEdge() */
-        struct EdgeSplitInfo
-        {
-            int      OriginalEdge;      // the edge that was split
-            Index2i  OriginalVertices;  // original edge vertices [a,b]
-            Index2i  OtherVertices;     // original opposing vertices [c,d] - d is InvalidID for boundary edges
-            Index2i  OriginalTriangles; // original edge triangles [t0,t1]
-            bool     bIsBoundary;       // was the split edge a boundary edge?  (redundant)
+        int     NewVertex{};  // new vertex f that was created
+        Index2i NewTriangles; // new triangles [t2,t3], oriented as explained in SplitEdge() header comment
+        Index3i NewEdges;     // new edges are [f,b], [f,c] and [f,d] if this is not a boundary edge
 
-            int      NewVertex;    // new vertex f that was created
-            Index2i  NewTriangles; // new triangles [t2,t3], oriented as explained in SplitEdge() header comment
-            Index3i  NewEdges;     // new edges are [f,b], [f,c] and [f,d] if this is not a boundary edge
+        double SplitT{}; // parameter value for NewVertex along original edge
+    };
 
-            double SplitT; // parameter value for NewVertex along original edge
-        };
-
-        /** Information about the mesh elements modified by a call to FlipEdge() */
-        struct EdgeFlipInfo
-        {
-            int      EdgeID;        // the edge that was flipped
-            Index2i  OriginalVerts; // original verts of the flipped edge, that are no longer connected
-            Index2i  OpposingVerts; // the opposing verts of the flipped edge, that are now connected
-            Index2i  Triangles;     // the two triangle IDs. Original tris vert [Vert0,Vert1,OtherVert0] and
+    /** Information about the mesh elements modified by a call to FlipEdge() */
+    struct EdgeFlipInfo
+    {
+        int     EdgeID{};      // the edge that was flipped
+        Index2i OriginalVerts; // original verts of the flipped edge, that are no longer connected
+        Index2i OpposingVerts; // the opposing verts of the flipped edge, that are now connected
+        Index2i Triangles;     // the two triangle IDs. Original tris vert [Vert0,Vert1,OtherVert0] and
                                // [Vert1,Vert0,OtherVert1]. New triangles are [OtherVert0, OtherVert1, Vert1] and
                                // [OtherVert1, OtherVert0, Vert0]
-        };
+    };
 
-        /** Information about mesh elements modified/removed by CollapseEdge() */
-        struct EdgeCollapseInfo
-        {
-            int      KeptVertex;    // the vertex that was kept (ie collapsed "to")
-            int      RemovedVertex; // the vertex that was removed
-            Index2i  OpposingVerts; // the opposing vertices [c,d]. If the edge was a boundary edge, d is InvalidID
-            bool     bIsBoundary;   // was the edge a boundary edge
+    /** Information about mesh elements modified/removed by CollapseEdge() */
+    struct EdgeCollapseInfo
+    {
+        int     KeptVertex{};    // the vertex that was kept (ie collapsed "to")
+        int     RemovedVertex{}; // the vertex that was removed
+        Index2i OpposingVerts;   // the opposing vertices [c,d]. If the edge was a boundary edge, d is InvalidID
+        bool    bIsBoundary{};   // was the edge a boundary edge
 
-            int      CollapsedEdge; // the edge that was collapsed/removed
-            Index2i  RemovedTris;   // the triangles that were removed in the collapse (second is InvalidID for
-                                    // boundary edge)
-            Index2i RemovedEdges;   // the edges that were removed (second is InvalidID for boundary edge)
-            Index2i KeptEdges;      // the edges that were kept (second is InvalidID for boundary edge)
+        int     CollapsedEdge{}; // the edge that was collapsed/removed
+        Index2i RemovedTris;     // the triangles that were removed in the collapse (second is InvalidID for
+                                 // boundary edge)
+        Index2i RemovedEdges;    // the edges that were removed (second is InvalidID for boundary edge)
+        Index2i KeptEdges;       // the edges that were kept (second is InvalidID for boundary edge)
 
-            double CollapseT; // interpolation parameter along edge for new vertex in range [0,1] where 0 =>
-                              // KeptVertex and 1 => RemovedVertex
-        };
+        double CollapseT{}; // interpolation parameter along edge for new vertex in range [0,1] where 0 =>
+                            // KeptVertex and 1 => RemovedVertex
+    };
 
-        /** Information about mesh elements modified by MergeEdges() */
-        struct MergeEdgesInfo
-        {
-            int KeptEdge;    // the edge that was kept
-            int RemovedEdge; // the edge that was removed
+    /** Information about mesh elements modified by MergeEdges() */
+    struct MergeEdgesInfo
+    {
+        int KeptEdge{};    // the edge that was kept
+        int RemovedEdge{}; // the edge that was removed
 
-            Index2i KeptVerts;    // The two vertices that were kept (redundant w/ KeptEdge?)
-            Index2i RemovedVerts; // The removed vertices of RemovedEdge. Either may be InvalidID if it was same
-                                  // as the paired KeptVert
+        Index2i KeptVerts;    // The two vertices that were kept (redundant w/ KeptEdge?)
+        Index2i RemovedVerts; // The removed vertices of RemovedEdge. Either may be InvalidID if it was same
+                              // as the paired KeptVert
 
-            Index2i ExtraRemovedEdges; // extra removed edges, see description below. Either may be or InvalidID
-            Index2i ExtraKeptEdges;    // extra kept edges, paired with ExtraRemovedEdges
+        Index2i ExtraRemovedEdges; // extra removed edges, see description below. Either may be or InvalidID
+        Index2i ExtraKeptEdges;    // extra kept edges, paired with ExtraRemovedEdges
 
-            // Even more Removed and Kept edges, in cases where there were multiple such edges on one or both sides
-            // of the merged edge Only possible if the pre-merge mesh had non-manifold vertices (aka bowties), in
-            // almost all meshes these arrays will be empty
-            std::vector<int> BowtiesRemovedEdges, BowtiesKeptEdges;
+        // Even more Removed and Kept edges, in cases where there were multiple such edges on one or both sides
+        // of the merged edge Only possible if the pre-merge mesh had non-manifold vertices (aka bowties), in
+        // almost all meshes these arrays will be empty
+        std::vector<int> BowtiesRemovedEdges, BowtiesKeptEdges;
 
-            double InterpolationT = 0; // Interpolation parameter for each kept vertex in range [0,1] where 0 =>
-                                       // KeptVertex and 1 => RemovedVertex
-        };
+        double InterpolationT = 0; // Interpolation parameter for each kept vertex in range [0,1] where 0 =>
+                                   // KeptVertex and 1 => RemovedVertex
+    };
 
-        /** Information about mesh elements modified by MergeVertices() */
-        struct MergeVerticesInfo
-        {
-            int    KeptVertex;         // the vertex that was kept
-            int    RemovedVertex;      // the vertex that was removed
-            double InterpolationT = 0; // Interpolation parameter for the kept vertex in range [0,1] where 0 =>
-                                       // KeptVertex and 1 => RemovedVertex
+    /** Information about mesh elements modified by MergeVertices() */
+    struct MergeVerticesInfo
+    {
+        int    KeptVertex{};       // the vertex that was kept
+        int    RemovedVertex{};    // the vertex that was removed
+        double InterpolationT = 0; // Interpolation parameter for the kept vertex in range [0,1] where 0 =>
+                                   // KeptVertex and 1 => RemovedVertex
 
-            // If the merge resolves as an edge collapse, the information is stored here
-            std::optional<EdgeCollapseInfo> EdgeCollapseInfo;
-            // If the merge resolves as an edge weld, the information is stored here
-            std::optional<MergeEdgesInfo> MergeEdgesInfo;
-        };
+        // If the merge resolves as an edge collapse, the information is stored here
+        std::optional<EdgeCollapseInfo> EdgeCollapseInfo;
+        // If the merge resolves as an edge weld, the information is stored here
+        std::optional<MergeEdgesInfo> MergeEdgesInfo;
+    };
 
-        /** Information about mesh elements modified/created by PokeTriangle() */
-        struct PokeTriangleInfo
-        {
-            int      OriginalTriangle; // the triangle that was poked
-            Index3i  TriVertices;      // vertices of the original triangle
+    /** Information about mesh elements modified/created by PokeTriangle() */
+    struct PokeTriangleInfo
+    {
+        int     OriginalTriangle{}; // the triangle that was poked
+        Index3i TriVertices;        // vertices of the original triangle
 
-            int      NewVertex;    // the new vertex that was inserted
-            Index2i  NewTriangles; // the two new triangles that were added (OriginalTriangle is re-used, see code
-                                   // for vertex orders)
-            Index3i NewEdges;      // the three new edges connected to NewVertex
+        int     NewVertex{};  // the new vertex that was inserted
+        Index2i NewTriangles; // the two new triangles that were added (OriginalTriangle is re-used, see code
+                              // for vertex orders)
+        Index3i NewEdges;     // the three new edges connected to NewVertex
 
-            glm::dvec3 BaryCoords{}; // barycentric coords that NewVertex was inserted at
-        };
+        glm::dvec3 BaryCoords{}; // barycentric coords that NewVertex was inserted at
+    };
 
-        /** Information about mesh elements modified/created by SplitVertex() */
-        struct VertexSplitInfo
-        {
-            int OriginalVertex;
-            int NewVertex;
-            // if needed could possibly add information about added edges?  but it would be a dynamic array, and
-            // there is no use for it yet. modified triangles are passed as input to the function, no need to store
-            // those here.
-        };
-    } // namespace DynamicMeshInfo
-} // namespace Desert::Geometry
+    /** Information about mesh elements modified/created by SplitVertex() */
+    struct VertexSplitInfo
+    {
+        int OriginalVertex;
+        int NewVertex;
+        // if needed could possibly add information about added edges?  but it would be a dynamic array, and
+        // there is no use for it yet. modified triangles are passed as input to the function, no need to store
+        // those here.
+    };
+} // namespace Desert::Geometry::DynamicMeshInfo

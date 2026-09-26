@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "Engine/Geometry/UECore/DynamicVector.hpp"
 #include "Engine/Geometry/UECore/IteratorUtil.hpp"
 
@@ -26,14 +28,14 @@ namespace Desert::Geometry
 
         RefCountVector()                        = default;
         RefCountVector( const RefCountVector& ) = default;
-        RefCountVector( RefCountVector&& From )
+        RefCountVector( RefCountVector&& From ) noexcept
              : m_RefCounts( std::move( From.m_RefCounts ) ), m_FreeIndices( std::move( From.m_FreeIndices ) ),
                m_UsedCount( From.m_UsedCount )
         {
             From.m_UsedCount = 0;
         }
         RefCountVector& operator=( const RefCountVector& ) = default;
-        RefCountVector& operator=( RefCountVector&& From )
+        RefCountVector& operator=( RefCountVector&& From ) noexcept
         {
             m_RefCounts      = std::move( From.m_RefCounts );
             m_FreeIndices    = std::move( From.m_FreeIndices );
@@ -42,43 +44,43 @@ namespace Desert::Geometry
             return *this;
         }
 
-        bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return m_UsedCount == 0;
         }
 
-        size_t GetCount() const
+        [[nodiscard]] size_t GetCount() const
         {
             return m_UsedCount;
         }
 
-        size_t GetMaxIndex() const
+        [[nodiscard]] size_t GetMaxIndex() const
         {
             return m_RefCounts.GetLength();
         }
 
-        bool IsDense() const
+        [[nodiscard]] bool IsDense() const
         {
             return m_FreeIndices.GetLength() == 0;
         }
 
-        bool IsValid( int Index ) const
+        [[nodiscard]] bool IsValid( int Index ) const
         {
-            return ( Index >= 0 && Index < (int)m_RefCounts.GetLength() && IsValidUnsafe( Index ) );
+            return ( Index >= 0 && Index < static_cast<int>( m_RefCounts.GetLength() ) && IsValidUnsafe( Index ) );
         }
 
-        bool IsValidUnsafe( int Index ) const
+        [[nodiscard]] bool IsValidUnsafe( int Index ) const
         {
             return m_RefCounts[Index] > 0 && m_RefCounts[Index] < INVALID_REF_COUNT;
         }
 
-        int GetRefCount( int Index ) const
+        [[nodiscard]] int GetRefCount( int Index ) const
         {
-            int n = m_RefCounts[Index];
+            const int n = m_RefCounts[Index];
             return ( n == INVALID_REF_COUNT ) ? 0 : n;
         }
 
-        int GetRawRefCount( int Index ) const
+        [[nodiscard]] int GetRawRefCount( int Index ) const
         {
             return m_RefCounts[Index];
         }
@@ -88,13 +90,13 @@ namespace Desert::Geometry
         // IDs remain untouched, and all new IDs are simply offsets of the Other's IDs
         void Append( const RefCountVector& Other )
         {
-            size_t OrigNum  = m_RefCounts.Num();
-            size_t OrigFree = m_FreeIndices.Num();
+            const size_t OrigNum  = m_RefCounts.Num();
+            const size_t OrigFree = m_FreeIndices.Num();
             m_RefCounts.Add( Other.m_RefCounts );
             m_FreeIndices.Add( Other.m_FreeIndices );
             for ( size_t Idx = OrigFree, N = m_FreeIndices.Num(); Idx < N; ++Idx )
             {
-                m_FreeIndices[Idx] += OrigNum;
+                m_FreeIndices[Idx] += static_cast<int>( OrigNum );
             }
             m_UsedCount += Other.m_UsedCount;
         }
@@ -105,27 +107,23 @@ namespace Desert::Geometry
             if ( m_FreeIndices.IsEmpty() )
             {
                 m_RefCounts.Add( 1 );
-                return (int)m_RefCounts.GetLength() - 1;
+                return static_cast<int>( m_RefCounts.GetLength() ) - 1;
             }
-            else
+
+            int iFree = INDEX_NONE;
+            while ( iFree == INDEX_NONE && !m_FreeIndices.IsEmpty() )
             {
-                int iFree = INDEX_NONE;
-                while ( iFree == INDEX_NONE && m_FreeIndices.IsEmpty() == false )
-                {
-                    iFree = m_FreeIndices.Back();
-                    m_FreeIndices.PopBack();
+                iFree = m_FreeIndices.Back();
+                m_FreeIndices.PopBack();
                 }
                 if ( iFree != INDEX_NONE )
                 {
                     m_RefCounts[iFree] = 1;
                     return iFree;
                 }
-                else
-                {
-                    m_RefCounts.Add( 1 );
-                    return (int)m_RefCounts.GetLength() - 1;
-                }
-            }
+
+                m_RefCounts.Add( 1 );
+                return static_cast<int>( m_RefCounts.GetLength() ) - 1;
         }
 
         int Increment( int Index, unsigned short IncrementCount = 1 )
@@ -156,12 +154,12 @@ namespace Desert::Geometry
          */
         bool AllocateAt( int Index )
         {
-            if ( Index >= (int)m_RefCounts.GetLength() )
+            if ( Index >= static_cast<int>( m_RefCounts.GetLength() ) )
             {
-                int j = (int)m_RefCounts.GetLength();
+                int j = static_cast<int>( m_RefCounts.GetLength() );
                 while ( j < Index )
                 {
-                    unsigned short InvalidCount =
+                    const unsigned short InvalidCount =
                          INVALID_REF_COUNT; // required on older clang because a constexpr can't be passed by ref
                     m_RefCounts.Add( InvalidCount );
                     m_FreeIndices.Add( j );
@@ -171,13 +169,12 @@ namespace Desert::Geometry
                 m_UsedCount++;
                 return true;
             }
-            else
+
+            if ( IsValidUnsafe( Index ) )
             {
-                if ( IsValidUnsafe( Index ) )
-                {
-                    return false;
+                return false;
                 }
-                int N = (int)m_FreeIndices.GetLength();
+                const int N = static_cast<int>( m_FreeIndices.GetLength() );
                 for ( int i = 0; i < N; ++i )
                 {
                     if ( m_FreeIndices[i] == Index )
@@ -190,7 +187,6 @@ namespace Desert::Geometry
                     }
                 }
                 return false;
-            }
         }
 
         /**
@@ -199,12 +195,12 @@ namespace Desert::Geometry
          */
         bool AllocateAtUnsafe( int Index )
         {
-            if ( Index >= (int)m_RefCounts.GetLength() )
+            if ( Index >= static_cast<int>( m_RefCounts.GetLength() ) )
             {
-                int j = (int)m_RefCounts.GetLength();
+                int j = static_cast<int>( m_RefCounts.GetLength() );
                 while ( j < Index )
                 {
-                    unsigned short InvalidCount =
+                    const unsigned short InvalidCount =
                          INVALID_REF_COUNT; // required on older clang because a constexpr can't be passed by ref
                     m_RefCounts.Add( InvalidCount );
                     ++j;
@@ -213,19 +209,17 @@ namespace Desert::Geometry
                 m_UsedCount++;
                 return true;
             }
-            else
+
+            if ( IsValidUnsafe( Index ) )
             {
-                if ( IsValidUnsafe( Index ) )
-                {
-                    return false;
+                return false;
                 }
                 m_RefCounts[Index] = 1;
                 m_UsedCount++;
                 return true;
-            }
         }
 
-        const DynamicVector<unsigned short>& GetRawRefCounts() const
+        [[nodiscard]] const DynamicVector<unsigned short>& GetRawRefCounts() const
         {
             return m_RefCounts;
         }
@@ -299,7 +293,7 @@ namespace Desert::Geometry
             {
                 if ( m_RefCounts[Index] == INVALID_REF_COUNT )
                 {
-                    m_FreeIndices[FreeIndicesIndex++] = Index;
+                    m_FreeIndices[FreeIndicesIndex++] = static_cast<int>( Index );
                 }
             }
         }
@@ -309,7 +303,7 @@ namespace Desert::Geometry
             m_FreeIndices.Clear();
             m_UsedCount = 0;
 
-            int N = (int)m_RefCounts.GetLength();
+            const int N = static_cast<int>( m_RefCounts.GetLength() );
             for ( int i = 0; i < N; ++i )
             {
                 if ( IsValidUnsafe( i ) )
@@ -355,45 +349,39 @@ namespace Desert::Geometry
         class BaseIterator
         {
         public:
-            inline BaseIterator()
-            {
-                m_Vector    = nullptr;
-                m_Index     = 0;
-                m_LastIndex = 0;
-            }
+            BaseIterator() = default;
 
-            inline bool operator==( const BaseIterator& Other ) const
+            bool operator==( const BaseIterator& Other ) const
             {
                 return m_Index == Other.m_Index;
             }
-            inline bool operator!=( const BaseIterator& Other ) const
+            bool operator!=( const BaseIterator& Other ) const
             {
                 return m_Index != Other.m_Index;
             }
 
         protected:
-            inline void goto_next()
+            void goto_next()
             {
                 m_Index++;
-                while ( m_Index < m_LastIndex && m_Vector->IsValidUnsafe( m_Index ) == false )
+                while ( m_Index < m_LastIndex && !m_Vector->IsValidUnsafe( m_Index ) )
                 {
                     m_Index++;
                 }
             }
 
-            inline BaseIterator( const RefCountVector* VectorIn, int IndexIn, int LastIn )
+            BaseIterator( const RefCountVector* VectorIn, int IndexIn, int LastIn )
+                 : m_Vector( VectorIn ), m_Index( IndexIn ), m_LastIndex( LastIn )
             {
-                m_Vector    = VectorIn;
-                m_Index     = IndexIn;
-                m_LastIndex = LastIn;
-                if ( m_Index != m_LastIndex && m_Vector->IsValidUnsafe( m_Index ) == false )
+
+                if ( m_Index != m_LastIndex && !m_Vector->IsValidUnsafe( m_Index ) )
                 {
                     goto_next(); // initialize
                 }
             }
-            const RefCountVector* m_Vector;
-            int                   m_Index;
-            int                   m_LastIndex;
+            const RefCountVector* m_Vector = nullptr;
+            int                   m_Index{ 0 };
+            int                   m_LastIndex{ 0 };
             friend class RefCountVector;
         };
 
@@ -403,21 +391,21 @@ namespace Desert::Geometry
         class IndexIterator : public BaseIterator
         {
         public:
-            inline IndexIterator() : BaseIterator()
+            IndexIterator() : BaseIterator()
             {
             }
 
-            inline int operator*() const
+            int operator*() const
             {
                 return this->m_Index;
             }
 
-            inline IndexIterator& operator++() // prefix
+            IndexIterator& operator++() // prefix
             {
                 this->goto_next();
                 return *this;
             }
-            inline IndexIterator operator++( int ) // postfix
+            IndexIterator operator++( int ) // postfix
             {
                 IndexIterator copy( *this );
                 this->goto_next();
@@ -425,21 +413,22 @@ namespace Desert::Geometry
             }
 
         protected:
-            inline IndexIterator( const RefCountVector* VectorIn, int Index, int Last )
+            IndexIterator( const RefCountVector* VectorIn, int Index, int Last )
                  : BaseIterator( VectorIn, Index, Last )
             {
             }
             friend class RefCountVector;
         };
 
-        inline IndexIterator BeginIndices() const
+        [[nodiscard]] IndexIterator BeginIndices() const
         {
-            return IndexIterator( this, (int)0, (int)m_RefCounts.GetLength() );
+            return { this, 0, static_cast<int>( m_RefCounts.GetLength() ) };
         }
 
-        inline IndexIterator EndIndices() const
+        [[nodiscard]] IndexIterator EndIndices() const
         {
-            return IndexIterator( this, (int)m_RefCounts.GetLength(), (int)m_RefCounts.GetLength() );
+            return { this, static_cast<int>( m_RefCounts.GetLength() ),
+                     static_cast<int>( m_RefCounts.GetLength() ) };
         }
 
         /**
@@ -449,20 +438,16 @@ namespace Desert::Geometry
         class IndexEnumerable
         {
         public:
-            const RefCountVector* m_Vector;
-            IndexEnumerable()
+            const RefCountVector* m_Vector = nullptr;
+            IndexEnumerable()              = default;
+            IndexEnumerable( const RefCountVector* VectorIn ) : m_Vector( VectorIn )
             {
-                m_Vector = nullptr;
             }
-            IndexEnumerable( const RefCountVector* VectorIn )
-            {
-                m_Vector = VectorIn;
-            }
-            typename RefCountVector::IndexIterator begin() const
+            [[nodiscard]] typename RefCountVector::IndexIterator begin() const
             {
                 return m_Vector->BeginIndices();
             }
-            typename RefCountVector::IndexIterator end() const
+            [[nodiscard]] typename RefCountVector::IndexIterator end() const
             {
                 return m_Vector->EndIndices();
             }
@@ -472,9 +457,9 @@ namespace Desert::Geometry
          * returns iteration object over valid indices
          * usage: for (int idx : indices()) { ... }
          */
-        inline IndexEnumerable Indices() const
+        [[nodiscard]] IndexEnumerable Indices() const
         {
-            return IndexEnumerable( this );
+            return { this };
         }
 
         /*
@@ -523,27 +508,24 @@ namespace Desert::Geometry
             std::function<bool( int )> m_FilterFunc;
             IndexEnumerable            m_enumerable;
             FilteredEnumerable( const IndexEnumerable& enumerable, std::function<bool( int )> FilterFuncIn )
+                 : m_FilterFunc( std::move( FilterFuncIn ) ), m_enumerable( enumerable )
             {
-                this->m_enumerable = enumerable;
-                this->m_FilterFunc = FilterFuncIn;
             }
 
-            FilteredIterator<int, IndexIterator> begin()
+            [[nodiscard]] FilteredIterator<int, IndexIterator> begin() const
             {
-                return FilteredIterator<int, IndexIterator>( m_enumerable.begin(), m_enumerable.end(),
-                                                             m_FilterFunc );
+                return { m_enumerable.begin(), m_enumerable.end(), m_FilterFunc };
             }
 
-            FilteredIterator<int, IndexIterator> end()
+            [[nodiscard]] FilteredIterator<int, IndexIterator> end() const
             {
-                return FilteredIterator<int, IndexIterator>( m_enumerable.end(), m_enumerable.end(),
-                                                             m_FilterFunc );
+                return { m_enumerable.end(), m_enumerable.end(), m_FilterFunc };
             }
         };
 
         FilteredEnumerable FilteredIndices( std::function<bool( int )> FilterFunc ) const
         {
-            return FilteredEnumerable( Indices(), FilterFunc );
+            return { Indices(), std::move( FilterFunc ) };
         }
 
         [[nodiscard]] size_t GetByteCount() const

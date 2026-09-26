@@ -31,12 +31,12 @@ namespace Desert::Geometry
 
         bool Compute();
 
-        int GetLoopCount() const
+        [[nodiscard]] int GetLoopCount() const
         {
             return static_cast<int32_t>( m_Loops.size() );
         }
-        int FindLoopContainingVertex( int VertexID ) const;
-        int FindLoopContainingEdge( int EdgeID ) const;
+        [[nodiscard]] int FindLoopContainingVertex( int VertexID ) const;
+        [[nodiscard]] int FindLoopContainingEdge( int EdgeID ) const;
 
     private:
         struct Subloops
@@ -46,11 +46,11 @@ namespace Desert::Geometry
         };
         std::vector<int> m_VerticesTemp;
 
-        glm::dvec3 GetVertexNormal( int Vid ) const;
-        int  FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges, int BdryEdgesCount,
-                               const std::vector<bool>& UsedEdges ) const;
-        bool       ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE, std::vector<int>& Bowties,
-                                    Subloops& SubloopsOut );
+        [[nodiscard]] glm::dvec3 GetVertexNormal( int Vid ) const;
+        [[nodiscard]] int        FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges,
+                                                   int BdryEdgesCount, const std::vector<bool>& UsedEdges ) const;
+        bool ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE, std::vector<int>& Bowties,
+                              Subloops& SubloopsOut );
 
         static bool IsSimpleBowtieLoop( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
                                         int BowtieVertex, int& StartI, int& EndI );

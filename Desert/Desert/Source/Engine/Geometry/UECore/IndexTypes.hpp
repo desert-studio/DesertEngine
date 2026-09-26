@@ -30,7 +30,7 @@ namespace Desert::Geometry
 
         constexpr static Index2i Zero()
         {
-            return Index2i( 0, 0 );
+            return { 0, 0 };
         }
         constexpr static Index2i Max()
         {
@@ -38,7 +38,7 @@ namespace Desert::Geometry
         }
         constexpr static Index2i Invalid()
         {
-            return Index2i( IndexConstants::InvalidID, IndexConstants::InvalidID );
+            return { IndexConstants::InvalidID, IndexConstants::InvalidID };
         }
 
         int& operator[]( int Idx )
@@ -50,47 +50,45 @@ namespace Desert::Geometry
             return Idx == 0 ? A : B;
         }
 
-        inline bool operator==( const Index2i& Other ) const
+        bool operator==( const Index2i& Other ) const
         {
             return A == Other.A && B == Other.B;
         }
-        inline bool operator!=( const Index2i& Other ) const
+        bool operator!=( const Index2i& Other ) const
         {
             return A != Other.A || B != Other.B;
         }
 
-        int IndexOf( int Value ) const
+        [[nodiscard]] int IndexOf( int Value ) const
         {
             return ( A == Value ) ? 0 : ( ( B == Value ) ? 1 : -1 );
         }
-        bool Contains( int Value ) const
+        [[nodiscard]] bool Contains( int Value ) const
         {
             return ( A == Value ) || ( B == Value );
         }
 
         /** @return whichever of A or B is not Value, or IndexConstants::InvalidID if neither is Value */
-        int OtherElement( int Value ) const
+        [[nodiscard]] int OtherElement( int Value ) const
         {
             if ( A == Value )
             {
                 return B;
             }
-            else if ( B == Value )
+            if ( B == Value )
             {
                 return A;
             }
-            else
-            {
-                return IndexConstants::InvalidID;
-            }
+
+            return IndexConstants::InvalidID;
         }
 
-        inline void Swap()
+        void Swap()
         {
             std::swap( A, B );
         }
 
-        inline void Sort()
+        void Sort()
         {
             if ( A > B )
             {
@@ -117,7 +115,7 @@ namespace Desert::Geometry
 
         constexpr static Index3i Zero()
         {
-            return Index3i( 0, 0, 0 );
+            return { 0, 0, 0 };
         }
         constexpr static Index3i Max()
         {
@@ -126,7 +124,7 @@ namespace Desert::Geometry
         }
         constexpr static Index3i Invalid()
         {
-            return Index3i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID );
+            return { IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID };
         }
 
         int& operator[]( int Idx )
@@ -147,11 +145,11 @@ namespace Desert::Geometry
             return A != Other.A || B != Other.B || C != Other.C;
         }
 
-        int IndexOf( int Value ) const
+        [[nodiscard]] int IndexOf( int Value ) const
         {
             return ( A == Value ) ? 0 : ( ( B == Value ) ? 1 : ( C == Value ? 2 : -1 ) );
         }
-        bool Contains( int Value ) const
+        [[nodiscard]] bool Contains( int Value ) const
         {
             return ( A == Value ) || ( B == Value ) || ( C == Value );
         }
@@ -176,7 +174,7 @@ namespace Desert::Geometry
         /** @return offset triplet, with the OffsetIndicesBy value added to each index */
         [[nodiscard]] Index3i GetOffsetBy( int32_t OffsetIndicesBy ) const
         {
-            return Index3i( A + OffsetIndicesBy, B + OffsetIndicesBy, C + OffsetIndicesBy );
+            return { A + OffsetIndicesBy, B + OffsetIndicesBy, C + OffsetIndicesBy };
         }
 
         /**
@@ -186,13 +184,13 @@ namespace Desert::Geometry
         {
             if ( B == WantIndex0Value )
             {
-                return Index3i( B, C, A );
+                return { B, C, A };
             }
-            else if ( C == WantIndex0Value )
+            if ( C == WantIndex0Value )
             {
-                return Index3i( C, A, B );
+                return { C, A, B };
             }
-            return Index3i( A, B, C );
+            return { A, B, C };
         }
     };
 
@@ -216,7 +214,7 @@ namespace Desert::Geometry
 
         static Index4i Zero()
         {
-            return Index4i( 0, 0, 0, 0 );
+            return { 0, 0, 0, 0 };
         }
         static Index4i Max()
         {
@@ -225,8 +223,8 @@ namespace Desert::Geometry
         }
         static Index4i Invalid()
         {
-            return Index4i( IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID,
-                            IndexConstants::InvalidID );
+            return { IndexConstants::InvalidID, IndexConstants::InvalidID, IndexConstants::InvalidID,
+                     IndexConstants::InvalidID };
         }
 
         int& operator[]( int Idx )
@@ -247,12 +245,12 @@ namespace Desert::Geometry
             return A != Other.A || B != Other.B || C != Other.C || D != Other.D;
         }
 
-        int IndexOf( int Value ) const
+        [[nodiscard]] int IndexOf( int Value ) const
         {
             return ( A == Value ) ? 0
                                   : ( ( B == Value ) ? 1 : ( ( C == Value ) ? 2 : ( ( D == Value ) ? 3 : -1 ) ) );
         }
-        bool Contains( int Idx ) const
+        [[nodiscard]] bool Contains( int Idx ) const
         {
             return A == Idx || B == Idx || C == Idx || D == Idx;
         }
@@ -266,7 +264,8 @@ struct std::hash<Desert::Geometry::Index2i>
 {
     size_t operator()( const Desert::Geometry::Index2i& I ) const noexcept
     {
-        return std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.A ) ) << 32 ) | uint32_t( I.B ) );
+        return std::hash<uint64_t>{}( ( static_cast<uint64_t>( static_cast<uint32_t>( I.A ) ) << 32 ) |
+                                      static_cast<uint32_t>( I.B ) );
     }
 };
 
@@ -275,7 +274,8 @@ struct std::hash<Desert::Geometry::Index3i>
 {
     size_t operator()( const Desert::Geometry::Index3i& I ) const noexcept
     {
-        const size_t H = std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.A ) ) << 32 ) | uint32_t( I.B ) );
+        const size_t H = std::hash<uint64_t>{}( ( static_cast<uint64_t>( static_cast<uint32_t>( I.A ) ) << 32 ) |
+                                                static_cast<uint32_t>( I.B ) );
         return H ^ ( std::hash<int>{}( I.C ) + 0x9e3779b97f4a7c15ull + ( H << 6 ) + ( H >> 2 ) );
     }
 };
@@ -285,8 +285,10 @@ struct std::hash<Desert::Geometry::Index4i>
 {
     size_t operator()( const Desert::Geometry::Index4i& I ) const noexcept
     {
-        const size_t H0 = std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.A ) ) << 32 ) | uint32_t( I.B ) );
-        const size_t H1 = std::hash<uint64_t>{}( ( uint64_t( uint32_t( I.C ) ) << 32 ) | uint32_t( I.D ) );
+        const size_t H0 = std::hash<uint64_t>{}( ( static_cast<uint64_t>( static_cast<uint32_t>( I.A ) ) << 32 ) |
+                                                 static_cast<uint32_t>( I.B ) );
+        const size_t H1 = std::hash<uint64_t>{}( ( static_cast<uint64_t>( static_cast<uint32_t>( I.C ) ) << 32 ) |
+                                                 static_cast<uint32_t>( I.D ) );
         return H0 ^ ( H1 + 0x9e3779b97f4a7c15ull + ( H0 << 6 ) + ( H0 >> 2 ) );
     }
 };

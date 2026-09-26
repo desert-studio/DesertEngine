@@ -14,8 +14,8 @@ namespace Desert::Geometry
         if ( static_cast<int32_t>( VertexSpansIn.size() ) < 2 ||
              static_cast<int32_t>( QuadRowsIn.size() ) != static_cast<int32_t>( VertexSpansIn.size() ) - 1 )
             return false;
-        const int32_t NumV = static_cast<int32_t>( VertexSpansIn[0].size() );
-        const int32_t NumQ = static_cast<int32_t>( QuadRowsIn[0].size() );
+        const auto NumV = static_cast<int32_t>( VertexSpansIn[0].size() );
+        const auto NumQ = static_cast<int32_t>( QuadRowsIn[0].size() );
         if ( NumQ != NumV - 1 )
             return false;
         for ( int32_t j = 1; j < static_cast<int32_t>( VertexSpansIn.size() ); ++j )
@@ -23,7 +23,7 @@ namespace Desert::Geometry
             if ( static_cast<int32_t>( VertexSpansIn[j].size() ) != NumV )
                 return false;
         }
-        const int32_t NumQuadRows = static_cast<int32_t>( QuadRowsIn.size() );
+        const auto NumQuadRows = static_cast<int32_t>( QuadRowsIn.size() );
         for ( int32_t j = 1; j < NumQuadRows; ++j )
         {
             if ( static_cast<int32_t>( QuadRowsIn[j].size() ) != NumQ )
@@ -99,8 +99,8 @@ namespace Desert::Geometry
              ColumnIndex >= static_cast<int32_t>( m_VertexSpans[0].size() ) )
             return false;
         VerticesOut.clear();
-        for ( int32_t k = 0; k < static_cast<int32_t>( m_VertexSpans.size() ); ++k )
-            VerticesOut.push_back( m_VertexSpans[k][ColumnIndex] );
+        for ( const auto& m_VertexSpan : m_VertexSpans )
+            VerticesOut.push_back( m_VertexSpan[ColumnIndex] );
         return true;
     }
 

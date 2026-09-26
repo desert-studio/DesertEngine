@@ -129,7 +129,7 @@ namespace Desert::Geometry
         }
 
         /** add mapping from one index to another */
-        inline void Add( IntType FromID, IntType ToID )
+        void Add( IntType FromID, IntType ToID )
         {
             assert( FromID >= 0 && ToID >= 0 );
             ForwardMap.Add( FromID, ToID );
@@ -137,7 +137,7 @@ namespace Desert::Geometry
         }
 
         /** @return true if we can map forward from this value */
-        inline bool ContainsFrom( IntType FromID ) const
+        bool ContainsFrom( IntType FromID ) const
         {
             assert( FromID >= 0 );
             assert( bWantForward );
@@ -145,7 +145,7 @@ namespace Desert::Geometry
         }
 
         /** @return true if we can reverse-map from this value */
-        inline bool ContainsTo( IntType ToID ) const
+        bool ContainsTo( IntType ToID ) const
         {
             assert( ToID >= 0 );
             assert( bWantReverse );
@@ -153,7 +153,7 @@ namespace Desert::Geometry
         }
 
         /** @return forward-map of input value */
-        inline IntType GetTo( IntType FromID ) const
+        IntType GetTo( IntType FromID ) const
         {
             assert( FromID >= 0 );
             assert( bWantForward );
@@ -162,7 +162,7 @@ namespace Desert::Geometry
         }
 
         /** @return reverse-map of input value */
-        inline IntType GetFrom( IntType ToID ) const
+        IntType GetFrom( IntType ToID ) const
         {
             assert( ToID >= 0 );
             assert( bWantReverse );
@@ -171,7 +171,7 @@ namespace Desert::Geometry
         }
 
         /** @return forward-map of input value or null if not found */
-        inline const IntType* FindTo( IntType FromID ) const
+        const IntType* FindTo( IntType FromID ) const
         {
             assert( FromID >= 0 );
             assert( bWantForward );
@@ -179,7 +179,7 @@ namespace Desert::Geometry
         }
 
         /** @return reverse-map of input value or null if not found */
-        inline const IntType* FindFrom( IntType ToID ) const
+        const IntType* FindFrom( IntType ToID ) const
         {
             assert( ToID >= 0 );
             assert( bWantReverse );
@@ -205,6 +205,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef IndexMap<int> IndexMapi;
+    using IndexMapi = IndexMap<int>;
 
 } // namespace Desert::Geometry

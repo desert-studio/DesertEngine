@@ -31,10 +31,10 @@ namespace Desert::Geometry
                 int32_t c = 0;
                 int32_t d = 0;
                 GetQuadVidsForIndex( i, a, b, c, d );
-                int const NewGroupID = Editor.m_Mesh->AllocateTriangleGroup();
+                const int NewGroupID = Editor.m_Mesh->AllocateTriangleGroup();
                 ResultOut.NewGroups.push_back( NewGroupID );
-                int const tid1 = Editor.m_Mesh->AppendTriangle( Index3i( b, a, d ), NewGroupID );
-                int const tid2 = Editor.m_Mesh->AppendTriangle( Index3i( a, c, d ), NewGroupID );
+                const int tid1 = Editor.m_Mesh->AppendTriangle( Index3i( b, a, d ), NewGroupID );
+                const int tid2 = Editor.m_Mesh->AppendTriangle( Index3i( a, c, d ), NewGroupID );
                 ResultOut.NewQuads.emplace_back( tid1, tid2 );
                 if ( tid1 < 0 || tid2 < 0 )
                 {
@@ -53,7 +53,8 @@ namespace Desert::Geometry
                 if ( Quad.B >= 0 )
                     Triangles.push_back( Quad.B );
             }
-            Editor.RemoveTriangles( Triangles, false );
+            // Best-effort rollback: the stitch has already failed and that failure is what the caller sees.
+            static_cast<void>( Editor.RemoveTriangles( Triangles, false ) );
             return false;
         }
     } // namespace
@@ -70,7 +71,7 @@ namespace Desert::Geometry
     bool DynamicMeshEditor::StitchVertexLoopsMinimal( const std::vector<int>& Loop1, const std::vector<int>& Loop2,
                                                       DynamicMeshEditResult& ResultOut )
     {
-        int const N = static_cast<int32_t>( Loop1.size() );
+        const int N = static_cast<int32_t>( Loop1.size() );
         if ( !Common::EnsureOrWarn( N == static_cast<int32_t>( Loop2.size() ),
                                     "N == static_cast<int32_t>( Loop2.size() )" ) )
             return false;
@@ -90,7 +91,7 @@ namespace Desert::Geometry
                                                                   const std::vector<int>&        VertexLoop,
                                                                   DynamicMeshEditResult&         ResultOut )
     {
-        int const N = static_cast<int32_t>( TriVidPairs.size() );
+        const int N = static_cast<int32_t>( TriVidPairs.size() );
         if ( !Common::EnsureOrWarn( N == static_cast<int32_t>( VertexLoop.size() ),
                                     "N == static_cast<int32_t>( VertexLoop.size() )" ) )
             return false;
@@ -120,7 +121,7 @@ namespace Desert::Geometry
             int32_t const Tid       = Mesh.GetEdgeT( EdgeLoop[QuadIndex] ).A;
             int32_t const FirstVid  = VidLoop[QuadIndex];
             int32_t const SecondVid = VidLoop[( QuadIndex + 1 ) % static_cast<int32_t>( VidLoop.size() )];
-            Index3i const TriVids   = Mesh.GetTriangle( Tid );
+            const Index3i TriVids   = Mesh.GetTriangle( Tid );
             auto const    SubIdx1   = static_cast<int8_t>( IndexUtil::FindTriIndex( FirstVid, TriVids ) );
             auto const    SubIdx2   = static_cast<int8_t>( IndexUtil::FindTriIndex( SecondVid, TriVids ) );
             if ( SubIdx1 < 0 || SubIdx2 < 0 )
@@ -130,7 +131,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool DynamicMeshEditor::RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts )
+    bool DynamicMeshEditor::RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts ) const
     {
         bool bAllOK = true;
         for ( int const tid : Triangles )
@@ -145,14 +146,14 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::DuplicateTriangles( const std::vector<int>&       Triangles,
                                                 std::unordered_map<int, int>& OldToNewVertex,
-                                                DynamicMeshEditResult&        ResultOut )
+                                                DynamicMeshEditResult&        ResultOut ) const
     {
         ResultOut.Reset();
         std::unordered_map<int, int>              GroupMap;
         DynamicMeshAttributeSet*                  Attr = m_Mesh->HasAttributes() ? m_Mesh->Attributes() : nullptr;
         std::vector<std::unordered_map<int, int>> UVMaps;
         std::vector<std::unordered_map<int, int>> NormalMaps;
-        if ( Attr != nullptr )
+        if ( Attr )
         {
             UVMaps.resize( Attr->NumUVLayers() );
             NormalMaps.resize( Attr->NumNormalLayers() );
@@ -219,7 +220,7 @@ namespace Desert::Geometry
 
     bool DynamicMeshEditor::DisconnectTriangles( const std::vector<int>&   Triangles,
                                                  std::vector<LoopPairSet>& LoopSetOut,
-                                                 bool bHandleBoundaryVertices, std::string& FailureOut )
+                                                 bool bHandleBoundaryVertices, std::string& FailureOut ) const
     {
         MeshRegionBoundaryLoops RegionLoops( m_Mesh, Triangles, false );
         if ( !RegionLoops.Compute() )
@@ -227,7 +228,7 @@ namespace Desert::Geometry
             FailureOut = RegionLoops.m_FailureReason;
             return false;
         }
-        std::unordered_set<int> const TriangleSet( Triangles.begin(), Triangles.end() );
+        const std::unordered_set<int> TriangleSet( Triangles.begin(), Triangles.end() );
         return DisconnectTriangles( TriangleSet, RegionLoops.m_Loops, LoopSetOut, bHandleBoundaryVertices,
                                     FailureOut );
     }
@@ -235,9 +236,9 @@ namespace Desert::Geometry
     bool DynamicMeshEditor::DisconnectTriangles( const std::unordered_set<int>& TriangleSet,
                                                  const std::vector<EdgeLoop>&   Loops,
                                                  std::vector<LoopPairSet>&      LoopSetOut,
-                                                 bool bHandleBoundaryVertices, std::string& FailureOut )
+                                                 bool bHandleBoundaryVertices, std::string& FailureOut ) const
     {
-        int const NumLoops = static_cast<int32_t>( Loops.size() );
+        const int NumLoops = static_cast<int32_t>( Loops.size() );
         LoopSetOut.resize( NumLoops );
         std::vector<int>             FilteredTriangles;
         std::unordered_map<int, int> OldVidsToNewVids;
@@ -248,7 +249,7 @@ namespace Desert::Geometry
             LoopPair.OuterVertices         = Loop.Vertices;
             LoopPair.OuterEdges            = Loop.Edges;
             bool        bSawBoundaryInLoop = false;
-            int const        NumVertices        = static_cast<int32_t>( Loop.Vertices.size() );
+            const int        NumVertices        = static_cast<int32_t>( Loop.Vertices.size() );
             std::vector<int> NewVertexLoop;
             NewVertexLoop.resize( NumVertices );
             for ( int vi = 0; vi < NumVertices; ++vi )
@@ -270,7 +271,7 @@ namespace Desert::Geometry
                 }
                 FilteredTriangles.clear();
                 int TriRingCount = 0;
-                for ( int const RingTID : m_Mesh->VtxTrianglesItr( VertID ) )
+                for ( const int RingTID : m_Mesh->VtxTrianglesItr( VertID ) )
                 {
                     if ( TriangleSet.contains( RingTID ) )
                         FilteredTriangles.push_back( RingTID );
@@ -318,7 +319,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    glm::vec3 DynamicMeshEditor::ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar )
+    glm::vec3 DynamicMeshEditor::ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar ) const
     {
         glm::dvec3 Normal = m_Mesh->GetTriNormal( QuadTris.A );
         if ( !bIsPlanar )
@@ -326,16 +327,16 @@ namespace Desert::Geometry
             Normal = Normal + m_Mesh->GetTriNormal( QuadTris.B );
             Normalize( Normal );
         }
-        glm::vec3 const NormalF( static_cast<float>( Normal.x ), static_cast<float>( Normal.y ),
+        const glm::vec3 NormalF( static_cast<float>( Normal.x ), static_cast<float>( Normal.y ),
                                  static_cast<float>( Normal.z ) );
         SetQuadNormals( QuadTris, NormalF );
         return NormalF;
     }
 
-    void DynamicMeshEditor::SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal )
+    void DynamicMeshEditor::SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal ) const
     {
         DynamicMeshNormalOverlay*  Normals   = m_Mesh->Attributes()->PrimaryNormals();
-        Index3i const              Triangle1 = m_Mesh->GetTriangle( QuadTris.A );
+        const Index3i              Triangle1 = m_Mesh->GetTriangle( QuadTris.A );
         Index3i                    NormalTriangle1;
         for ( int j = 0; j < 3; ++j )
             NormalTriangle1[j] = Normals->AppendElement( Normal );
@@ -353,7 +354,7 @@ namespace Desert::Geometry
         }
     }
 
-    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles )
+    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles ) const
     {
         DynamicMeshNormalOverlay*  Normals = m_Mesh->Attributes()->PrimaryNormals();
         std::unordered_set<int>    TriangleSet( Triangles.begin(), Triangles.end() );
@@ -371,7 +372,7 @@ namespace Desert::Geometry
                     ElemTri[j] = *FoundElementID;
                 else
                 {
-                    glm::dvec3 const N =
+                    const glm::dvec3 N =
                          MeshNormals::ComputeVertexNormal( *m_Mesh, BaseTri[j], TrianglePredicate );
                     ElemTri[j] = Normals->AppendElement( glm::vec3(
                          static_cast<float>( N.x ), static_cast<float>( N.y ), static_cast<float>( N.z ) ) );
@@ -384,7 +385,7 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::SetQuadUVsFromProjection( const Index2i& QuadTris, const glm::dvec3& AxisX,
                                                       const glm::dvec3& AxisY, float UVScaleFactor,
-                                                      const glm::vec2& UVTranslation )
+                                                      const glm::vec2& UVTranslation ) const
     {
         DynamicMeshUVOverlay* UVs = m_Mesh->Attributes()->PrimaryUV();
         if ( UVs == nullptr )
@@ -395,8 +396,8 @@ namespace Desert::Geometry
             const int tid = TriIdx == 0 ? QuadTris.A : QuadTris.B;
             if ( !m_Mesh->IsTriangle( tid ) )
                 continue;
-            Index3i Tri = m_Mesh->GetTriangle( tid );
-            Index3i Elems;
+            const Index3i Tri = m_Mesh->GetTriangle( tid );
+            Index3i       Elems;
             for ( int j = 0; j < 3; ++j )
             {
                 if ( const int* Found = FindValue( VertexToElement, Tri[j] ) )
@@ -405,7 +406,7 @@ namespace Desert::Geometry
                     continue;
                 }
                 const glm::dvec3 P = m_Mesh->GetVertex( Tri[j] );
-                glm::vec2 const  UV( static_cast<float>( glm::dot( P, AxisX ) ) * UVScaleFactor + UVTranslation.x,
+                const glm::vec2  UV( static_cast<float>( glm::dot( P, AxisX ) ) * UVScaleFactor + UVTranslation.x,
                                      static_cast<float>( glm::dot( P, AxisY ) ) * UVScaleFactor + UVTranslation.y );
                 Elems[j] = UVs->AppendElement( UV );
                 VertexToElement.insert_or_assign( Tri[j], Elems[j] );
@@ -414,7 +415,8 @@ namespace Desert::Geometry
         }
     }
 
-    void DynamicMeshEditor::ReverseTriangleOrientations( const std::vector<int>& Triangles, bool bInvertNormals )
+    void DynamicMeshEditor::ReverseTriangleOrientations( const std::vector<int>& Triangles,
+                                                         bool                    bInvertNormals ) const
     {
         for ( int const tid : Triangles )
             m_Mesh->ReverseTriOrientation( tid );
@@ -422,7 +424,7 @@ namespace Desert::Geometry
             InvertTriangleNormals( Triangles );
     }
 
-    void DynamicMeshEditor::InvertTriangleNormals( const std::vector<int>& Triangles )
+    void DynamicMeshEditor::InvertTriangleNormals( const std::vector<int>& Triangles ) const
     {
         if ( !m_Mesh->HasAttributes() )
             return;
@@ -441,7 +443,7 @@ namespace Desert::Geometry
                     if ( Done.contains( Elems[j] ) )
                         continue;
                     Done.insert( Elems[j] );
-                    glm::vec3 const N = Normals->GetElement( Elems[j] );
+                    const glm::vec3 N = Normals->GetElement( Elems[j] );
                     Normals->SetElement( Elems[j], glm::vec3( -N.x, -N.y, -N.z ) );
                 }
             }
@@ -450,7 +452,7 @@ namespace Desert::Geometry
 
     // UE DynamicMeshEditor.cpp:553-590
     bool DynamicMeshEditor::AddTriangleFan_OrderedVertexLoop( int CenterVertex, const std::vector<int>& VertexLoop,
-                                                              int GroupID, DynamicMeshEditResult& ResultOut )
+                                                              int GroupID, DynamicMeshEditResult& ResultOut ) const
     {
         if ( GroupID == -1 )
         {
@@ -476,7 +478,7 @@ namespace Desert::Geometry
     }
 
     // UE DynamicMeshEditor.cpp:1231-1263
-    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal )
+    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal ) const
     {
         assert( m_Mesh->HasAttributes() );
         DynamicMeshNormalOverlay*    Normals = m_Mesh->Attributes()->PrimaryNormals();
@@ -508,7 +510,7 @@ namespace Desert::Geometry
     // Quaternion::SetFromTo(UnitZ, Normal) (Quaternion.h:420-460), so its X/Y axes are UnitX/UnitY rotated by it.
     void DynamicMeshEditor::SetTriangleUVsFromProjection( const std::vector<int>& Triangles,
                                                           const glm::dvec3& Origin, const glm::dvec3& Normal,
-                                                          float UVScaleFactor )
+                                                          float UVScaleFactor ) const
     {
         if ( Triangles.empty() )
             return;

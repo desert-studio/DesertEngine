@@ -30,9 +30,9 @@ namespace Desert::Geometry::VectorUtil
     inline glm::vec<3, RealType> Normal( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
                                          const glm::vec<3, RealType>& V2 )
     {
-        glm::vec<3, RealType> edge1( V1 - V0 );
-        glm::vec<3, RealType> edge2( V2 - V0 );
-        glm::vec<3, RealType> vCross( glm::cross( edge2, edge1 ) );
+        const glm::vec<3, RealType> edge1( V1 - V0 );
+        const glm::vec<3, RealType> edge2( V2 - V0 );
+        const glm::vec<3, RealType> vCross( glm::cross( edge2, edge1 ) );
         return Normalized( vCross );
     }
 
@@ -40,19 +40,19 @@ namespace Desert::Geometry::VectorUtil
     inline RealType Area( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
                           const glm::vec<3, RealType>& V2 )
     {
-        glm::vec<3, RealType> Edge1( V1 - V0 );
-        glm::vec<3, RealType> Edge2( V2 - V0 );
-        glm::vec<3, RealType> Cross = glm::cross( Edge2, Edge1 );
-        return (RealType)0.5 * glm::length( Cross );
+        const glm::vec<3, RealType> Edge1( V1 - V0 );
+        const glm::vec<3, RealType> Edge2( V2 - V0 );
+        const glm::vec<3, RealType> Cross = glm::cross( Edge2, Edge1 );
+        return static_cast<RealType>( 0.5 ) * glm::length( Cross );
     }
 
     template <typename RealType>
     inline glm::vec<3, RealType> NormalArea( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
                                              const glm::vec<3, RealType>& V2, RealType& AreaOut )
     {
-        glm::vec<3, RealType> edge1( V1 - V0 );
-        glm::vec<3, RealType> edge2( V2 - V0 );
-        glm::vec<3, RealType> vCross = glm::cross( edge2, edge1 );
+        const glm::vec<3, RealType> edge1( V1 - V0 );
+        const glm::vec<3, RealType> edge2( V2 - V0 );
+        glm::vec<3, RealType>       vCross = glm::cross( edge2, edge1 );
         AreaOut                  = RealType( 0.5 ) * Normalize( vCross );
         return vCross;
     }

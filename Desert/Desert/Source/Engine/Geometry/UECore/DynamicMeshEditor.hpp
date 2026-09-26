@@ -74,33 +74,33 @@ namespace Desert::Geometry
                                                      const std::vector<int>&  EdgeLoop,
                                                      std::vector<TriVidPair>& TriVertPairsOut );
 
-        bool RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts );
+        [[nodiscard]] bool RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts ) const;
 
         // New triangles (vertices, groups, every attribute layer) for @p Triangles; OldToNewVertex maps each
         // duplicated vertex.
         void DuplicateTriangles( const std::vector<int>& Triangles, std::unordered_map<int, int>& OldToNewVertex,
-                                 DynamicMeshEditResult& ResultOut );
+                                 DynamicMeshEditResult& ResultOut ) const;
 
         // Cuts @p Triangles loose along their boundary loops. On failure @p FailureOut names the reason.
         bool DisconnectTriangles( const std::vector<int>& Triangles, std::vector<LoopPairSet>& LoopSetOut,
-                                  bool bHandleBoundaryVertices, std::string& FailureOut );
+                                  bool bHandleBoundaryVertices, std::string& FailureOut ) const;
         bool DisconnectTriangles( const std::unordered_set<int>& TriangleSet, const std::vector<EdgeLoop>& Loops,
                                   std::vector<LoopPairSet>& LoopSetOut, bool bHandleBoundaryVertices,
-                                  std::string& FailureOut );
+                                  std::string& FailureOut ) const;
 
-        glm::vec3 ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar );
-        void      SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal );
-        void      SetTriangleNormals( const std::vector<int>& Triangles );
-        void      SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal );
+        glm::vec3 ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar ) const;
+        void      SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal ) const;
+        void      SetTriangleNormals( const std::vector<int>& Triangles ) const;
+        void      SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal ) const;
         bool AddTriangleFan_OrderedVertexLoop( int CenterVertex, const std::vector<int>& VertexLoop, int GroupID,
-                                               DynamicMeshEditResult& ResultOut );
+                                               DynamicMeshEditResult& ResultOut ) const;
         /** UE's overload with Frame3d(Origin, Normal), bShiftToOrigin = true, UV layer 0. */
         void SetTriangleUVsFromProjection( const std::vector<int>& Triangles, const glm::dvec3& Origin,
-                                           const glm::dvec3& Normal, float UVScaleFactor );
+                                           const glm::dvec3& Normal, float UVScaleFactor ) const;
         void SetQuadUVsFromProjection( const Index2i& QuadTris, const glm::dvec3& AxisX, const glm::dvec3& AxisY,
-                                       float UVScaleFactor, const glm::vec2& UVTranslation );
-        void ReverseTriangleOrientations( const std::vector<int>& Triangles, bool bInvertNormals );
-        void InvertTriangleNormals( const std::vector<int>& Triangles );
+                                       float UVScaleFactor, const glm::vec2& UVTranslation ) const;
+        void ReverseTriangleOrientations( const std::vector<int>& Triangles, bool bInvertNormals ) const;
+        void InvertTriangleNormals( const std::vector<int>& Triangles ) const;
     };
 
     // Edges[i] joins Vertices[i] and Vertices[(i+1) % N] (UE EdgeLoop::VertexLoopToEdgeLoop).

@@ -28,7 +28,7 @@ namespace Desert::Geometry
             SelectedCornerIDs.clear();
             SelectedEdgeIDs.clear();
         }
-        bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return SelectedGroupIDs.empty() && SelectedCornerIDs.empty() && SelectedEdgeIDs.empty();
         }
@@ -43,7 +43,7 @@ namespace Desert::Geometry
         GroupTopology& operator=( const GroupTopology& ) = default;
         virtual ~GroupTopology()                         = default;
 
-        const DynamicMesh3* GetMesh() const
+        [[nodiscard]] const DynamicMesh3* GetMesh() const
         {
             return m_Mesh;
         }
@@ -51,12 +51,12 @@ namespace Desert::Geometry
         /** Rebuilds groups, corners and group edges. False if a group's boundary could not be walked; see Failure.
          */
         virtual bool       RebuildTopology();
-        const std::string& Failure() const
+        [[nodiscard]] const std::string& Failure() const
         {
             return m_FailureReason;
         }
 
-        virtual int GetGroupID( int TriangleID ) const
+        [[nodiscard]] virtual int GetGroupID( int TriangleID ) const
         {
             return std::max( 0, m_Mesh->GetTriangleGroup( TriangleID ) );
         }
@@ -80,9 +80,9 @@ namespace Desert::Geometry
         struct Group
         {
             int                    GroupID = 0;
-            std::vector<int>            Triangles;
-            std::vector<GroupBoundary>  Boundaries;
-            std::vector<int>            NeighbourGroupIDs;
+            std::vector<int>           Triangles;
+            std::vector<GroupBoundary> Boundaries;
+            std::vector<int>           NeighbourGroupIDs;
         };
         std::vector<Group> m_Groups;
 
@@ -93,25 +93,25 @@ namespace Desert::Geometry
             EdgeSpan Span;
             Index2i  EndpointCorners;
 
-            int OtherGroupID( int GroupID ) const
+            [[nodiscard]] int OtherGroupID( int GroupID ) const
             {
                 assert( Groups.A == GroupID || Groups.B == GroupID );
                 return ( Groups.A == GroupID ) ? Groups.B : Groups.A;
             }
-            bool IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const;
+            [[nodiscard]] bool IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const;
         };
         std::vector<GroupEdge> m_Edges;
 
-        int                GetCornerVertexID( int CornerID ) const;
+        [[nodiscard]] int                     GetCornerVertexID( int CornerID ) const;
         [[nodiscard]] int32_t GetCornerIDFromVertexID( int32_t VertexID ) const;
-        const Group*            FindGroupByID( int GroupID ) const;
-        const std::vector<int>& GetGroupTriangles( int GroupID ) const;
-        const std::vector<int>& GetGroupNbrGroups( int GroupID ) const;
-        int                FindGroupEdgeID( int MeshEdgeID ) const;
-        const std::vector<int>& GetGroupEdgeVertices( int GroupEdgeID ) const;
-        const std::vector<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
-        void                    FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
-        void                    FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
+        [[nodiscard]] const Group*            FindGroupByID( int GroupID ) const;
+        [[nodiscard]] const std::vector<int>& GetGroupTriangles( int GroupID ) const;
+        [[nodiscard]] const std::vector<int>& GetGroupNbrGroups( int GroupID ) const;
+        [[nodiscard]] int                     FindGroupEdgeID( int MeshEdgeID ) const;
+        [[nodiscard]] const std::vector<int>& GetGroupEdgeVertices( int GroupEdgeID ) const;
+        [[nodiscard]] const std::vector<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
+        void                  FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
+        void                  FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
         [[nodiscard]] bool    IsBoundaryEdge( int32_t GroupEdgeID ) const;
         /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
         double GetEdgeArcLength( int32_t GroupEdgeID, std::vector<double>* PerVertexLengthsOut = nullptr ) const;
@@ -135,12 +135,12 @@ namespace Desert::Geometry
         std::unordered_map<int32_t, int32_t> m_VertexIDToCornerIDMap;
         std::string                          m_FailureReason;
 
-        bool     ShouldVertBeCorner( int VertexID ) const;
-        bool     GenerateBoundaryAndGroupEdges( Group&                                Group,
-                                                std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
-                                                std::vector<bool>&                    VertCheckedForCorner );
-        Index2i  MakeEdgeGroupsPair( int MeshEdgeID ) const;
-        void     GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const;
+        [[nodiscard]] bool    ShouldVertBeCorner( int VertexID ) const;
+        bool                  GenerateBoundaryAndGroupEdges( Group&                                Group,
+                                                             std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
+                                                             std::vector<bool>&                    VertCheckedForCorner );
+        [[nodiscard]] Index2i MakeEdgeGroupsPair( int MeshEdgeID ) const;
+        void                  GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const;
     };
 
     /** Every triangle is its own group: corners are all vertices, group edges are all mesh edges. */
@@ -150,7 +150,7 @@ namespace Desert::Geometry
         TriangleGroupTopology() = default;
         TriangleGroupTopology( const DynamicMesh3* Mesh, bool bAutoBuild );
         bool RebuildTopology() override;
-        int  GetGroupID( int TriangleID ) const override
+        [[nodiscard]] int GetGroupID( int TriangleID ) const override
         {
             return TriangleID;
         }

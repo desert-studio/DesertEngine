@@ -7,6 +7,8 @@
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include <Common/Core/Core.hpp>
+#include <memory>
+#include <utility>
 
 namespace Desert::Geometry
 {
@@ -27,7 +29,6 @@ namespace Desert::Geometry
     public:
         virtual ~DynamicAttributeBase() = default;
 
-    public:
         /** Get optional identifier for this attribute set. */
         [[nodiscard]] std::string GetName() const
         {
@@ -37,7 +38,7 @@ namespace Desert::Geometry
         /** Set optional identifier for this attribute set. */
         void SetName( std::string NameIn )
         {
-            m_Name = NameIn;
+            m_Name = std::move( NameIn );
         }
 
     protected:
@@ -46,18 +47,18 @@ namespace Desert::Geometry
 
     public:
         /** Allocate a new copy of the attribute layer, optionally with a different parent */
-        virtual DynamicAttributeBase* MakeCopy( ParentType* ParentIn ) const = 0;
+        [[nodiscard]] virtual std::unique_ptr<DynamicAttributeBase> MakeCopy( ParentType* ParentIn ) const = 0;
         /** Allocate a new empty instance of the same type of attribute layer */
-        virtual DynamicAttributeBase* MakeNew( ParentType* ParentIn ) const = 0;
+        [[nodiscard]] virtual std::unique_ptr<DynamicAttributeBase> MakeNew( ParentType* ParentIn ) const = 0;
         /**
          * Allocate a new compact copy of the attribute layer, optionally with a different parent.
          * Default implementation does a full copy and then compacts it, usually derived class will want to
          * override this with a more efficient direct compact copy implementation
          */
-        virtual DynamicAttributeBase* MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
-                                                       ParentType*                   ParentIn ) const
+        [[nodiscard]] virtual std::unique_ptr<DynamicAttributeBase>
+        MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps, ParentType* ParentIn ) const
         {
-            DynamicAttributeBase* Copy = MakeCopy( ParentIn );
+            std::unique_ptr<DynamicAttributeBase> Copy = MakeCopy( ParentIn );
             Copy->CompactInPlace( CompactMaps );
             return Copy;
         }
@@ -89,23 +90,23 @@ namespace Desert::Geometry
          * of attribute data */
         virtual bool CopyIn( int RawID, void* Buffer, int BufferSize ) = 0;
 
-        virtual void OnNewVertex( int VertexID, bool bInserted )
+        virtual void OnNewVertex( int /*VertexID*/, bool /*bInserted*/ )
         {
         }
 
-        virtual void OnRemoveVertex( int VertexID )
+        virtual void OnRemoveVertex( int /*VertexID*/ )
         {
         }
 
-        virtual void OnNewTriangle( int TriangleID, bool bInserted )
+        virtual void OnNewTriangle( int /*TriangleID*/, bool /*bInserted*/ )
         {
         }
 
-        virtual void OnRemoveTriangle( int TriangleID )
+        virtual void OnRemoveTriangle( int /*TriangleID*/ )
         {
         }
 
-        virtual void OnReverseTriOrientation( int TriangleID )
+        virtual void OnReverseTriOrientation( int /*TriangleID*/ )
         {
         }
 
@@ -116,34 +117,35 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
+        [[nodiscard]] virtual bool CheckValidity( bool /*bAllowNonmanifold*/,
+                                                  ValidityCheckFailMode /*FailMode*/ ) const
         {
             // default impl just doesn't check anything; override with any useful sanity checks
             return true;
         }
 
         /** Update to reflect an edge split in the parent mesh */
-        virtual void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo )
+        virtual void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& /*SplitInfo*/ )
         {
         }
 
         /** Update to reflect an edge flip in the parent mesh */
-        virtual void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo )
+        virtual void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& /*FlipInfo*/ )
         {
         }
 
         /** Update to reflect an edge collapse in the parent mesh */
-        virtual void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo )
+        virtual void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& /*CollapseInfo*/ )
         {
         }
 
         /** Update to reflect a face poke in the parent mesh */
-        virtual void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& PokeInfo )
+        virtual void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& /*PokeInfo*/ )
         {
         }
 
         /** Update to reflect an edge merge in the parent mesh */
-        virtual void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo )
+        virtual void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& /*MergeInfo*/ )
         {
         }
 
@@ -151,13 +153,13 @@ namespace Desert::Geometry
          * Update to reflect a vertex merge that does not resolve as a collapse or edge merge (i.e. a
          *  vertex merge that resolves as bowtie creation).
          */
-        virtual void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo )
+        virtual void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& /*MergeInfo*/ )
         {
         }
 
         /** Update to reflect an edge merge in the parent mesh */
-        virtual void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
-                                    const std::span<const int>&             TrianglesToUpdate )
+        virtual void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& /*SplitInfo*/,
+                                    const std::span<const int>& /*TrianglesToUpdate*/ )
         {
         }
 
@@ -177,7 +179,7 @@ namespace Desert::Geometry
         }
     };
 
-    typedef DynamicAttributeBase<DynamicMesh3> DynamicMeshAttributeBase;
+    using DynamicMeshAttributeBase = DynamicAttributeBase<DynamicMesh3>;
 
     /**
      * Generic base class for managing a set of registered attributes that must all be kept up to date
@@ -212,12 +214,12 @@ namespace Desert::Geometry
     public:
         virtual ~DynamicAttributeSetBase() = default;
 
-        int NumRegisteredAttributes() const
+        [[nodiscard]] int NumRegisteredAttributes() const
         {
             return m_RegisteredAttributes.Num();
         }
 
-        DynamicAttributeBase<ParentType>* GetRegisteredAttribute( int Idx ) const
+        [[nodiscard]] DynamicAttributeBase<ParentType>* GetRegisteredAttribute( int Idx ) const
         {
             return m_RegisteredAttributes[Idx];
         }
@@ -267,7 +269,7 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
+        [[nodiscard]] virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
         {
             bool bValid = true;
             for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
@@ -278,7 +280,7 @@ namespace Desert::Geometry
         }
 
         // mesh-specific on* functions; may be split out
-    public:
+
         virtual void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo )
         {
             for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
@@ -346,6 +348,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef DynamicAttributeSetBase<DynamicMesh3> DynamicMeshAttributeSetBase;
+    using DynamicMeshAttributeSetBase = DynamicAttributeSetBase<DynamicMesh3>;
 
 } // namespace Desert::Geometry

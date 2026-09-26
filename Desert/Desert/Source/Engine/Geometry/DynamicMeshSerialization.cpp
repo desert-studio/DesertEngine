@@ -25,7 +25,7 @@ namespace Desert::Geometry
 
         Index3i Swizzle( const Index3i& in )
         {
-            return Index3i( in[kCorner[0]], in[kCorner[1]], in[kCorner[2]] );
+            return { in[kCorner[0]], in[kCorner[1]], in[kCorner[2]] };
         }
 
         // Elements a live triangle uses, densely renumbered in ascending element ID (-1 = not written).
@@ -213,8 +213,8 @@ namespace Desert::Geometry
                                      sign[e] );
                 }
 
-                DynamicMeshNormalOverlay&          normals    = *attributes.PrimaryNormals();
-                DynamicMeshNormalOverlay&          tangents   = *attributes.PrimaryTangents();
+                const DynamicMeshNormalOverlay&    normals    = *attributes.PrimaryNormals();
+                const DynamicMeshNormalOverlay&    tangents   = *attributes.PrimaryTangents();
                 DynamicMeshNormalOverlay&          bitangents = *attributes.PrimaryBiTangents();
                 std::map<std::pair<int, int>, int> pairs; // (saved tangent, saved normal) -> bitangent element
                 std::vector<bool>                  framed( tangentIds.size(), false );
@@ -381,13 +381,14 @@ namespace Desert::Geometry
             reader.TriangleIds.push_back( t );
         }
 
-        const auto check = [&]( Common::BoolResultStr r ) -> std::optional<std::string>
+        const auto check = [&]( const Common::BoolResultStr& r ) -> std::optional<std::string>
         {
             if ( r.IsSuccess() )
                 return std::nullopt;
             return r.GetError();
         };
-        std::vector<int> normalIds, scratch;
+        std::vector<int> normalIds;
+        std::vector<int> scratch;
         if ( saved.Normals )
             if ( auto e = check(
                       reader.Read( *attributes.PrimaryNormals(), *saved.Normals, "normals", 3, normalIds ) ) )

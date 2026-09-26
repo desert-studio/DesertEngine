@@ -5,6 +5,7 @@
 #include "Engine/Geometry/UECore/UECore.hpp"
 #include "Engine/Geometry/UECore/IndexTypes.hpp"
 
+#include <cstddef>
 #include <memory>
 
 namespace Desert::Geometry
@@ -57,7 +58,7 @@ namespace Desert::Geometry
         DynamicVector( const DynamicVector& Copy )
              : m_CurBlock( Copy.m_CurBlock ), m_CurBlockUsed( Copy.m_CurBlockUsed )
         {
-            const int32_t N = static_cast<int32_t>( Copy.m_Blocks.size() );
+            const auto N = static_cast<int32_t>( Copy.m_Blocks.size() );
             m_Blocks.reserve( N );
             for ( int32_t k = 0; k < N; ++k )
             {
@@ -65,20 +66,21 @@ namespace Desert::Geometry
             }
         }
 
-        DynamicVector( DynamicVector&& Moved )
+        DynamicVector( DynamicVector&& Moved ) noexcept
              : m_CurBlock( Moved.m_CurBlock ), m_CurBlockUsed( Moved.m_CurBlockUsed ),
                m_Blocks( std::move( Moved.m_Blocks ) )
         {
+            // A move steals the blocks and allocates nothing: the source is left holding no block at all, a state
+            // every mutator accepts (Add/Resize/Clear allocate the first block on demand).
             Moved.m_CurBlock     = 0;
             Moved.m_CurBlockUsed = 0;
-            Moved.AddAllocatedBlock();
         }
 
         DynamicVector& operator=( const DynamicVector& Copy )
         {
             if ( this != &Copy )
             {
-                const int32_t N = static_cast<int32_t>( Copy.m_Blocks.size() );
+                const auto N = static_cast<int32_t>( Copy.m_Blocks.size() );
                 Empty( N );
                 m_CurBlock     = Copy.m_CurBlock;
                 m_CurBlockUsed = Copy.m_CurBlockUsed;
@@ -90,7 +92,7 @@ namespace Desert::Geometry
             return *this;
         }
 
-        DynamicVector& operator=( DynamicVector&& Moved )
+        DynamicVector& operator=( DynamicVector&& Moved ) noexcept
         {
             if ( this != &Moved )
             {
@@ -99,10 +101,11 @@ namespace Desert::Geometry
                 m_CurBlock     = Moved.m_CurBlock;
                 m_CurBlockUsed = Moved.m_CurBlockUsed;
                 m_Blocks       = std::move( Moved.m_Blocks );
+                Moved.m_Blocks
+                     .clear(); // move-assignment leaves the source unspecified; make it the blockless state
 
                 Moved.m_CurBlock     = 0;
                 Moved.m_CurBlockUsed = 0;
-                Moved.AddAllocatedBlock();
             }
             return *this;
         }
@@ -140,20 +143,20 @@ namespace Desert::Geometry
         inline void Resize( unsigned int Count, const Type& InitValue );
         /// Resize if Num() is less than Count; returns true if resize occurred
         inline bool SetMinimumSize( unsigned int Count, const Type& InitValue );
-        inline void SetNum( unsigned int Count )
+        void        SetNum( unsigned int Count )
         {
             Resize( Count );
         }
 
-        inline bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return m_CurBlock == 0 && m_CurBlockUsed == 0;
         }
-        inline size_t GetLength() const
+        [[nodiscard]] size_t GetLength() const
         {
             return m_CurBlock * BlockSize + m_CurBlockUsed;
         }
-        inline size_t Num() const
+        [[nodiscard]] size_t Num() const
         {
             return GetLength();
         }
@@ -161,9 +164,10 @@ namespace Desert::Geometry
         {
             return BlockSize;
         }
-        inline size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
-            return static_cast<int32_t>( m_Blocks.size() ) * BlockSize * sizeof( Type );
+            return static_cast<unsigned long>( static_cast<int32_t>( m_Blocks.size() ) * BlockSize ) *
+                   sizeof( Type );
         }
 
         inline void Add( const Type& Data );
@@ -177,13 +181,13 @@ namespace Desert::Geometry
         inline void  InsertAt( const Type& Data, unsigned int Index, const Type& InitValue );
         inline Type& ElementAt( unsigned int Index, Type InitialValue = Type{} );
 
-        inline const Type& Front() const
+        [[nodiscard]] const Type& Front() const
         {
             assert( m_CurBlockUsed > 0 );
             return GetElement( 0, 0 );
         }
 
-        inline const Type& Back() const
+        [[nodiscard]] const Type& Back() const
         {
             assert( m_CurBlockUsed > 0 );
             return GetElement( m_CurBlock, m_CurBlockUsed - 1 );
@@ -210,30 +214,30 @@ namespace Desert::Geometry
         class Iterator
         {
         public:
-            inline const Type& operator*() const
+            const Type& operator*() const
             {
                 return ( *m_DVector )[m_Idx];
             }
-            inline Type& operator*()
+            Type& operator*()
             {
                 return ( *m_DVector )[m_Idx];
             }
-            inline Iterator& operator++() // prefix
+            Iterator& operator++() // prefix
             {
                 m_Idx++;
                 return *this;
             }
-            inline Iterator operator++( int ) // postfix
+            Iterator operator++( int ) // postfix
             {
                 Iterator Copy( *this );
                 m_Idx++;
                 return Copy;
             }
-            inline bool operator==( const Iterator& Itr2 ) const
+            bool operator==( const Iterator& Itr2 ) const
             {
-                return m_DVector == Itr2.DVector && m_Idx == Itr2.Idx;
+                return m_DVector == Itr2.m_DVector && m_Idx == Itr2.m_Idx;
             }
-            inline bool operator!=( const Iterator& Itr2 ) const
+            bool operator!=( const Iterator& Itr2 ) const
             {
                 return m_DVector != Itr2.m_DVector || m_Idx != Itr2.m_Idx;
             }
@@ -255,7 +259,7 @@ namespace Desert::Geometry
         /** @return iterator at end of vector */
         Iterator end()
         {
-            return Iterator{ this, (unsigned int)GetLength() };
+            return Iterator{ this, static_cast<unsigned int>( GetLength() ) };
         }
 
         /*
@@ -264,28 +268,28 @@ namespace Desert::Geometry
         class ConstIterator
         {
         public:
-            inline const Type& operator*() const
+            const Type& operator*() const
             {
                 return ( *m_DVector )[m_Idx];
             }
-            inline ConstIterator& operator++() // prefix
+            ConstIterator& operator++() // prefix
             {
                 m_Idx++;
                 return *this;
             }
-            inline ConstIterator operator++( int ) // postfix
+            ConstIterator operator++( int ) // postfix
             {
                 ConstIterator Copy( *this );
                 m_Idx++;
                 return Copy;
             }
-            inline bool operator==( const ConstIterator& Itr2 ) const
+            bool operator==( const ConstIterator& Itr2 ) const
             {
-                return m_DVector == Itr2.DVector && m_Idx == Itr2.Idx;
+                return m_DVector == Itr2.m_DVector && m_Idx == Itr2.m_Idx;
             }
-            inline bool operator!=( const ConstIterator& Itr2 ) const
+            bool operator!=( const ConstIterator& Itr2 ) const
             {
-                return m_DVector != Itr2.DVector || m_Idx != Itr2.Idx;
+                return m_DVector != Itr2.m_DVector || m_Idx != Itr2.m_Idx;
             }
 
         private:
@@ -299,14 +303,14 @@ namespace Desert::Geometry
         };
 
         /** @return iterator at beginning of vector */
-        ConstIterator begin() const
+        [[nodiscard]] ConstIterator begin() const
         {
             return ConstIterator{ this, 0 };
         }
         /** @return iterator at end of vector */
-        ConstIterator end() const
+        [[nodiscard]] ConstIterator end() const
         {
-            return ConstIterator{ this, (unsigned int)GetLength() };
+            return ConstIterator{ this, static_cast<unsigned int>( GetLength() ) };
         }
 
     private:
@@ -426,35 +430,35 @@ namespace Desert::Geometry
         DynamicVectorN& operator=( const DynamicVectorN& Copy ) = default;
         DynamicVectorN& operator=( DynamicVectorN&& Moved )     = default;
 
-        inline void Clear()
+        void Clear()
         {
             m_Data.Clear();
         }
-        inline void Fill( const Type& Value )
+        void Fill( const Type& Value )
         {
             m_Data.Fill( Value );
         }
-        inline void Resize( unsigned int Count )
+        void Resize( unsigned int Count )
         {
             m_Data.Resize( Count * N );
         }
-        inline void Resize( unsigned int Count, const Type& InitValue )
+        void Resize( unsigned int Count, const Type& InitValue )
         {
             m_Data.Resize( Count * N, InitValue );
         }
-        inline bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return m_Data.IsEmpty();
         }
-        inline size_t GetLength() const
+        [[nodiscard]] size_t GetLength() const
         {
             return m_Data.GetLength() / N;
         }
-        inline int GetBlockSize() const
+        [[nodiscard]] int GetBlockSize() const
         {
             return m_Data.GetBlockSize();
         }
-        inline size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
             return m_Data.GetByteCount();
         }
@@ -466,7 +470,7 @@ namespace Desert::Geometry
             Type Data[N];
         };
 
-        inline void Add( const ElementVectorN& AddData )
+        void Add( const ElementVectorN& AddData )
         {
             for ( int i = 0; i < N; i++ )
             {
@@ -474,7 +478,7 @@ namespace Desert::Geometry
             }
         }
 
-        inline void PopBack()
+        void PopBack()
         {
             // UE calls PopBack() here, recursing into itself forever; the element vector is what must shrink.
             for ( int i = 0; i < N; i++ )
@@ -483,7 +487,7 @@ namespace Desert::Geometry
             }
         }
 
-        inline void InsertAt( const ElementVectorN& AddData, unsigned int Index )
+        void InsertAt( const ElementVectorN& AddData, unsigned int Index )
         {
             for ( int i = 1; i <= N; i++ )
             {
@@ -491,56 +495,56 @@ namespace Desert::Geometry
             }
         }
 
-        inline Type& operator()( unsigned int TopIndex, unsigned int SubIndex )
+        Type& operator()( unsigned int TopIndex, unsigned int SubIndex )
         {
             return m_Data[TopIndex * N + SubIndex];
         }
-        inline const Type& operator()( unsigned int TopIndex, unsigned int SubIndex ) const
+        const Type& operator()( unsigned int TopIndex, unsigned int SubIndex ) const
         {
             return m_Data[TopIndex * N + SubIndex];
         }
-        inline void SetVector2( unsigned int TopIndex, const glm::vec<2, Type>& V )
+        void SetVector2( unsigned int TopIndex, const glm::vec<2, Type>& V )
         {
             assert( N >= 2 );
-            unsigned int i = TopIndex * N;
-            m_Data[i]      = V.x;
-            m_Data[i + 1]  = V.y;
+            const unsigned int i = TopIndex * N;
+            m_Data[i]            = V.x;
+            m_Data[i + 1]        = V.y;
         }
-        inline void SetVector3( unsigned int TopIndex, const glm::vec<3, Type>& V )
+        void SetVector3( unsigned int TopIndex, const glm::vec<3, Type>& V )
         {
             assert( N >= 3 );
-            unsigned int i = TopIndex * N;
-            m_Data[i]      = V.x;
-            m_Data[i + 1]  = V.y;
-            m_Data[i + 2]  = V.z;
+            const unsigned int i = TopIndex * N;
+            m_Data[i]            = V.x;
+            m_Data[i + 1]        = V.y;
+            m_Data[i + 2]        = V.z;
         }
-        inline glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
+        [[nodiscard]] glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
         {
             assert( N >= 2 );
             return glm::vec<2, Type>( m_Data[TopIndex * N + 0], m_Data[TopIndex * N + 1] );
         }
-        inline glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
+        [[nodiscard]] glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
         {
             assert( N >= 3 );
             return glm::vec<3, Type>( m_Data[TopIndex * N + 0], m_Data[TopIndex * N + 1],
                                       m_Data[TopIndex * N + 2] );
         }
-        inline Index2i AsIndex2( unsigned int TopIndex ) const
+        [[nodiscard]] Index2i AsIndex2( unsigned int TopIndex ) const
         {
             assert( N >= 2 );
-            return Index2i( (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1] );
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ) };
         }
-        inline Index3i AsIndex3( unsigned int TopIndex ) const
+        [[nodiscard]] Index3i AsIndex3( unsigned int TopIndex ) const
         {
             assert( N >= 3 );
-            return Index3i( (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1],
-                            (int)m_Data[TopIndex * N + 2] );
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ),
+                     static_cast<int>( m_Data[TopIndex * N + 2] ) };
         }
-        inline Index4i AsIndex4( unsigned int TopIndex ) const
+        [[nodiscard]] Index4i AsIndex4( unsigned int TopIndex ) const
         {
             assert( N >= 4 );
-            return Index4i( (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1],
-                            (int)m_Data[TopIndex * N + 2], (int)m_Data[TopIndex * N + 3] );
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ),
+                     static_cast<int>( m_Data[TopIndex * N + 2] ), static_cast<int>( m_Data[TopIndex * N + 3] ) };
         }
 
     private:
@@ -599,7 +603,7 @@ namespace Desert::Geometry
              std::max( 1, static_cast<int32_t>( Count ) / BlockSize + ( bCountIsNotMultipleOfBlockSize ? 1 : 0 ) );
 
         // Determine how many blocks are currently allocated.
-        int32_t NumBlocksCurrent = static_cast<int32_t>( m_Blocks.size() );
+        auto NumBlocksCurrent = static_cast<int32_t>( m_Blocks.size() );
 
         // Allocate needed additional blocks.
         while ( NumBlocksCurrent < NumBlocksNeeded )
@@ -621,9 +625,9 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     void DynamicVector<Type, BlockSize>::Resize( unsigned int Count, const Type& InitValue )
     {
-        size_t nCurSize = GetLength();
+        const size_t nCurSize = GetLength();
         Resize( Count );
-        for ( unsigned int Index = (unsigned int)nCurSize; Index < Count; ++Index )
+        for ( auto Index = static_cast<unsigned int>( nCurSize ); Index < Count; ++Index )
         {
             ( *this )[Index] = InitValue;
         }
@@ -632,13 +636,13 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     bool DynamicVector<Type, BlockSize>::SetMinimumSize( unsigned int Count, const Type& InitValue )
     {
-        size_t nCurSize = GetLength();
+        const size_t nCurSize = GetLength();
         if ( Count <= nCurSize )
         {
             return false;
         }
         Resize( Count );
-        for ( unsigned int Index = (unsigned int)nCurSize; Index < Count; ++Index )
+        for ( auto Index = static_cast<unsigned int>( nCurSize ); Index < Count; ++Index )
         {
             ( *this )[Index] = InitValue;
         }
@@ -649,7 +653,12 @@ namespace Desert::Geometry
     void DynamicVector<Type, BlockSize>::Add( const Type& Data )
     {
         assert( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
-        if ( m_CurBlockUsed == BlockSize )
+        if ( m_Blocks.empty() )
+        {
+            // Moved-from vector: it gave its blocks away, so the first element needs a fresh one.
+            AddAllocatedBlock();
+        }
+        else if ( m_CurBlockUsed == BlockSize )
         {
             if ( m_CurBlock == static_cast<unsigned int>( static_cast<int32_t>( m_Blocks.size() ) - 1 ) )
             {
@@ -716,7 +725,7 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     Type& DynamicVector<Type, BlockSize>::ElementAt( unsigned int Index, Type InitialValue )
     {
-        size_t s = GetLength();
+        const size_t s = GetLength();
         if ( Index == s )
         {
             Add( InitialValue );
@@ -732,7 +741,7 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     void DynamicVector<Type, BlockSize>::InsertAt( const Type& Data, unsigned int Index )
     {
-        size_t s = GetLength();
+        const size_t s = GetLength();
         if ( Index == s )
         {
             Add( Data );
@@ -751,10 +760,10 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     void DynamicVector<Type, BlockSize>::InsertAt( const Type& AddData, unsigned int Index, const Type& InitValue )
     {
-        size_t nCurSize = GetLength();
+        const size_t nCurSize = GetLength();
         InsertAt( AddData, Index );
         // initialize all new values up to (but not including) the inserted index
-        for ( unsigned int i = (unsigned int)nCurSize; i < Index; ++i )
+        for ( auto i = static_cast<unsigned int>( nCurSize ); i < Index; ++i )
         {
             ( *this )[i] = InitValue;
         }
@@ -764,6 +773,10 @@ namespace Desert::Geometry
     template <typename Func>
     void DynamicVector<Type, BlockSize>::Apply( const Func& ApplyFunc )
     {
+        if ( IsEmpty() )
+        {
+            return; // a moved-from vector holds no block to read
+        }
         for ( uint32_t BlockIndex = 0; BlockIndex <= m_CurBlock; ++BlockIndex )
         {
             Block*         Block       = m_Blocks[BlockIndex].get();

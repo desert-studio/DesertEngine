@@ -41,10 +41,8 @@ namespace Desert::Geometry
             {
                 return bIsDefaultLayer && OtherLayer.bIsDefaultLayer;
             }
-            else
-            {
-                return LayerIndex == OtherLayer.LayerIndex;
-            }
+
+            return LayerIndex == OtherLayer.LayerIndex;
         }
 
         /** @return true if the specified layer (default or extended) exist and is initialized on the given Mesh */
@@ -95,13 +93,13 @@ namespace Desert::Geometry
         explicit PolygroupSet( const PolygroupSet* CopyIn );
 
         /** @return Mesh this PolygroupSet references  */
-        const DynamicMesh3* GetMesh()
+        [[nodiscard]] const DynamicMesh3* GetMesh() const
         {
             return Mesh;
         }
 
         /** @return PolygroupAttribute this PolygroupSet references, or null if no PolygroupAttribute is in use */
-        const DynamicMeshPolygroupAttribute* GetPolygroup()
+        [[nodiscard]] const DynamicMeshPolygroupAttribute* GetPolygroup() const
         {
             return PolygroupAttrib;
         }
@@ -118,8 +116,8 @@ namespace Desert::Geometry
          */
         [[nodiscard]] int32_t GetGroup( int32_t TriangleID ) const
         {
-            return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
-                                       : Mesh->GetTriangleGroup( TriangleID );
+            return ( ( PolygroupAttrib ) != nullptr ) ? PolygroupAttrib->GetValue( TriangleID )
+                                                      : Mesh->GetTriangleGroup( TriangleID );
         }
 
         /**
@@ -127,8 +125,8 @@ namespace Desert::Geometry
          */
         [[nodiscard]] int32_t GetTriangleGroup( int32_t TriangleID ) const
         {
-            return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
-                                       : Mesh->GetTriangleGroup( TriangleID );
+            return ( ( PolygroupAttrib ) != nullptr ) ? PolygroupAttrib->GetValue( TriangleID )
+                                                      : Mesh->GetTriangleGroup( TriangleID );
         }
 
         /**
@@ -139,7 +137,7 @@ namespace Desert::Geometry
             assert( &WritableMesh == this->Mesh ); // require the same mesh
             if ( WritableMesh.IsTriangle( TriangleID ) )
             {
-                if ( PolygroupAttrib )
+                if ( PolygroupAttrib != nullptr )
                 {
                     DynamicMeshPolygroupAttribute* WritableGroupAttrib =
                          WritableMesh.Attributes()->GetPolygroupLayer( GroupLayerIndex );

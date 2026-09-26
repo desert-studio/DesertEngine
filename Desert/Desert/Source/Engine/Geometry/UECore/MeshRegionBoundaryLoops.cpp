@@ -7,6 +7,8 @@
 
 #include "Engine/Geometry/UECore/IndexUtil.hpp"
 
+#include <algorithm>
+
 using namespace Desert::Geometry;
 
 void EdgeSpan::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn )
@@ -80,12 +82,7 @@ bool EdgeLoop::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vect
 
 bool EdgeLoop::IsBoundaryLoop( const DynamicMesh3& Mesh ) const
 {
-    for ( int Eid : Edges )
-    {
-        if ( !Mesh.IsBoundaryEdge( Eid ) )
-            return false;
-    }
-    return true;
+    return std::ranges::all_of( Edges, [&Mesh]( const int Eid ) { return Mesh.IsBoundaryEdge( Eid ); } );
 }
 
 MeshRegionBoundaryLoops::MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
@@ -93,12 +90,12 @@ MeshRegionBoundaryLoops::MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, co
      : m_Mesh( MeshIn )
 {
     m_Triangles.assign( m_Mesh->MaxTriangleID(), false );
-    for ( int Tid : RegionTris )
+    for ( const int Tid : RegionTris )
     {
         m_Triangles[Tid] = true;
     }
     m_Edges.assign( m_Mesh->MaxEdgeID(), false );
-    for ( int Tid : RegionTris )
+    for ( const int Tid : RegionTris )
     {
         const Index3i Te = m_Mesh->GetTriEdges( Tid );
         for ( int j = 0; j < 3; ++j )
@@ -129,7 +126,7 @@ bool MeshRegionBoundaryLoops::Compute()
 
     std::vector<bool> UsedEdge;
     UsedEdge.assign( m_Mesh->MaxEdgeID(), false );
-    for ( int Eid : m_EdgesRoi )
+    for ( const int Eid : m_EdgesRoi )
     {
         if ( UsedEdge[Eid] || !IsEdgeOnBoundary( Eid ) )
         {
@@ -222,13 +219,13 @@ Index2i MeshRegionBoundaryLoops::GetOrientedEdgeVerts( int Eid, int TidIn ) cons
     const Index2i  Ev  = m_Mesh->GetEdgeV( Eid );
     const Index3i  Tri = m_Mesh->GetTriangle( TidIn );
     const int      Ai  = IndexUtil::FindEdgeIndexInTri( Ev.A, Ev.B, Tri );
-    return Index2i( Tri[Ai], Tri[( Ai + 1 ) % 3] );
+    return { Tri[Ai], Tri[( Ai + 1 ) % 3] };
 }
 
 int MeshRegionBoundaryLoops::GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const
 {
     int Count = 0;
-    for ( int Eid : m_Mesh->VtxEdgesItr( Vid ) )
+    for ( const int Eid : m_Mesh->VtxEdgesItr( Vid ) )
     {
         if ( IsEdgeOnBoundary( Eid ) )
         {
@@ -278,7 +275,7 @@ bool MeshRegionBoundaryLoops::GetLoopOverlayMap( const EdgeLoop&                
             return false;
         }
 
-        ElementType Element;
+        ElementType Element{};
         Overlay.GetElement( UVElementID, Element );
         LoopVidsToOverlayElementsOut.insert_or_assign( Vid,
                                                        ElementIDAndValue<ElementType>( UVElementID, Element ) );
