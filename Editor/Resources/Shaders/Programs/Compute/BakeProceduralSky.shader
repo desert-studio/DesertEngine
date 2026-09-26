@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"bfe8d1c7d819b65096435cd960508732","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "BakeProceduralSky"
 {
     Compute

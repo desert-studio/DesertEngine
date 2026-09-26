@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"0fe6bea21ae50de727ac34bee06928ef","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Overdraw"
 {
     // Overdraw accumulation pass. Every opaque mesh is re-drawn with NO depth test and ADDITIVE blend into a

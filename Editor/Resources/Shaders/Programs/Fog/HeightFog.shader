@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"177731dbf442190ecea57129ede8d0e3","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "HeightFog"
 {
     Compute

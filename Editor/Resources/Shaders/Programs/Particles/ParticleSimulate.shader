@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"5194037468f4cb1e73120f7432ee6cf2","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "ParticleSimulate"
 {
     Compute

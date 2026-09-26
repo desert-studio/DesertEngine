@@ -34,6 +34,8 @@
 
 #include "setting_consumers_reader.hpp"
 
+#include <Common/Content/ShaderAssetHeader.hpp>
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -381,8 +383,8 @@ namespace
          // thing to do with a name the runtime cannot use.
          { "DShaderParseResult", "Name", nullptr,
            "CHECKED, NOT CONSUMED: the runtime names a shader by its file stem, so this is validated and "
-           "dropped. TheDeclaredShaderNameIsTheFileStem asserts the two agree; a runtime refusal would "
-           "belong in VulkanShader, which М9 does not own." },
+           "dropped. TheDeclaredShaderNameIsTheFileStem asserts the two agree, and ShaderAsset::LoadFromFile "
+           "refuses a file where they do not, through ReadShaderDeclaredName rather than this field." },
 
          { "DShaderParseResult", "Meta", kPreproc, nullptr },
          { "DShaderParseResult", "Stages", kPreproc, nullptr },
@@ -654,24 +656,6 @@ namespace
     }
 
     /// The quoted name of the leading `Shader "…"` declaration, or empty when there is none.
-    std::string DeclaredShaderName( const std::string& source )
-    {
-        for ( std::size_t at = source.find( "Shader" ); at != std::string::npos;
-              at             = source.find( "Shader", at + 1 ) )
-        {
-            if ( !CT::WordAt( source, at, "Shader" ) )
-                continue;
-            std::size_t i = CT::SkipSpace( source, at + 6 );
-            if ( i >= source.size() || source[i] != '"' )
-                continue;
-            const std::size_t end = source.find( '"', i + 1 );
-            if ( end == std::string::npos )
-                continue;
-            return source.substr( i + 1, end - i - 1 );
-        }
-        return {};
-    }
-
     struct PropertiesBlock
     {
         bool        Found     = false;
@@ -753,11 +737,13 @@ TEST( ShaderSchemaConsumers, TheDeclaredShaderNameIsTheFileStem )
 
     for ( const auto& file : shaders )
     {
-        const std::string declared = DeclaredShaderName( ReadAll( file ) );
-        ASSERT_FALSE( declared.empty() ) << file.string() << " has no `Shader \"…\"` declaration";
-        EXPECT_EQ( declared, file.stem().string() )
-             << file.string() << " declares itself `Shader \"" << declared << "\"` and the engine will call it \""
-             << file.stem().string()
+        // The shared reader, the one ShaderAsset's load refusal uses: it skips the `// DesertAsset {...}`
+        // header line, whose JSON also spells "Shader" and was read as the declaration by the old local scan.
+        const auto declared = Common::Content::ReadShaderDeclaredName( ReadAll( file ) );
+        ASSERT_TRUE( declared ) << file.string() << ": " << declared.GetError();
+        EXPECT_EQ( declared.GetValue(), file.stem().string() )
+             << file.string() << " declares itself `Shader \"" << declared.GetValue()
+             << "\"` and the engine will call it \"" << file.stem().string()
              << "\" (VulkanShader takes the file stem). Every material naming the declared spelling "
                 "resolves to nothing.";
     }

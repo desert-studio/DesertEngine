@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"c9a95e12430cebced5d5e4c735cb68ed","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSAO"
 {
     // Screen-space ambient occlusion (fullscreen). Reads the G-buffer world position + normal, writes a

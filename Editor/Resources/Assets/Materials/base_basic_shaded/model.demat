@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "8c72c9c7c64d1367398b8af70ba59284",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
         "Dependencies": ["c6ff26d3abf50030251f7dad63b62142"]
     },
@@ -90,6 +90,5 @@
             "Path": "assets:Meshes/shaded.detex"
         }
     ],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

@@ -355,7 +355,7 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
         out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
             << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
             << R"(","Path":""},{"Name":"u_NormalTexture","Guid":")" << Common::Content::AssetGuidToText( badGuid )
-            << R"(","Path":""}],"CloudAssets":[],"ShaderRefs":[]})";
+            << R"(","Path":""}],"CloudAssets":[]})";
     }
 
     std::string parseError;

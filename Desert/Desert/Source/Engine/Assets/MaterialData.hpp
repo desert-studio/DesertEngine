@@ -11,6 +11,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>
 
 namespace Desert::Assets
 {
@@ -41,15 +42,6 @@ namespace Desert::Assets
         std::string Path;
     };
 
-    // A reference to a SHADER asset (the cloud material's authored `Medium`). Shaders carry no header GUID -
-    // their handle is AssetHandle::FromCookedPath of their file (AssetBase) - so for them the path IS the
-    // identity, and the reference is stated as exactly that rather than as a number derived from it.
-    struct MaterialShaderRef
-    {
-        std::string Name;
-        std::string Path;
-    };
-
     // THE material asset payload (.demat) — the single protocol for every material.
     //
     // A material is a shader + parameter values, nothing else (Unity model). The shader's schema
@@ -62,19 +54,21 @@ namespace Desert::Assets
         // only through MaterialFormat.hpp.
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
-        // Shader driving this material. Absent/empty -> "StaticMeshPBR" (the standard surface
-        // shader with the batched backend).
-        std::optional<std::string> ShaderName;
+        // Shader driving this material, by the shader file's header GUID (MATL 4; `Path` relative to
+        // Editor/Resources is only a locator, see AssetGuidRef). Absent -> "StaticMeshPBR" (the standard
+        // surface shader with the batched backend); an instance states none and draws with its base's shader.
+        // The name the renderer binds is resolved from the GUID by SurfaceMaterialAsset::ResolveDependencies.
+        std::optional<AssetGuidRef> Shader;
 
         std::vector<MaterialShaderParam> Params;
         // Texture2D / TextureCube samplers: TextureAsset (.detex) and SkyboxAsset references, by GUID.
         std::vector<MaterialAssetRef> Textures;
         // The cloud material's non-texture asset slots (CloudType1..4 -> .decloudtype, LayoutPattern and
-        // LayoutMask -> .dclayout), by GUID. A list of their own since MATL 3: they are not samplers, and
-        // sharing Textures made every texture reader skip them by asking the shader schema what a name meant.
+        // LayoutMask -> .dclayout, Medium -> .shader), by GUID. A list of their own since MATL 3: they are not
+        // samplers, and sharing Textures made every texture reader skip them by asking the shader schema what a
+        // name meant. Medium joined in MATL 4, when shaders got a header GUID (T7j) and a path stopped being
+        // the handle a shader registers under.
         std::vector<MaterialAssetRef> CloudAssets;
-        // Shader-asset slots (the authored cloud Medium), by path: see MaterialShaderRef.
-        std::vector<MaterialShaderRef> ShaderRefs;
 
         // MATERIAL INSTANCE (UE model): when set, this asset is a CHILD of the material whose header GUID this
         // names (32 hex digits, AssetGuidToText), and Params/Textures hold ONLY the overridden values - the
@@ -152,17 +146,6 @@ namespace Desert::Assets
         }
 
         // ── Queries ────────────────────────────────────────────────────────────────
-        std::string EffectiveShaderName() const
-        {
-            return ( ShaderName && !ShaderName->empty() ) ? *ShaderName : "StaticMeshPBR";
-        }
-
-        bool UsesCustomShader() const
-        {
-            const auto name = EffectiveShaderName();
-            return name != "StaticMeshPBR" && name != "SkinnedMeshPBR";
-        }
-
         const glm::vec4* FindParam( std::string_view name ) const
         {
             for ( const auto& p : Params )
@@ -242,30 +225,22 @@ namespace Desert::Assets
             SetRef( CloudAssets, name, guid, path );
         }
 
-        /// The shader a ShaderRefs slot names, as the handle that shader asset is registered under; 0 when
-        /// the slot is absent or empty.
-        uint64_t GetShaderRef( std::string_view name ) const
+        /// The GUID `Shader` names; null when the material states no shader or the GUID is malformed.
+        [[nodiscard]] Common::Content::AssetGuid ShaderGuid() const
         {
-            for ( const auto& r : ShaderRefs )
-                if ( r.Name == name )
-                    return r.Path.empty() ? 0
-                                          : static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( r.Path ) );
-            return 0;
+            return Shader.has_value() ? GuidFromText( Shader->Guid ) : Common::Content::AssetGuid{};
         }
 
-        /// Names the shader at `path` (the path its asset was loaded from); an empty path authors an empty slot.
-        void SetShaderRef( std::string_view name, std::string_view path )
+        /// Names the shader by its header GUID and current path; a null GUID states no shader (the default).
+        void SetShader( const Common::Content::AssetGuid& guid, std::string_view path )
         {
-            for ( auto& r : ShaderRefs )
-                if ( r.Name == name )
-                {
-                    r.Path = std::string( path );
-                    return;
-                }
-            ShaderRefs.push_back( { std::string( name ), std::string( path ) } );
+            if ( guid.IsNull() )
+                Shader.reset();
+            else
+                Shader = AssetGuidRef{ Common::Content::AssetGuidToText( guid ), std::string( path ) };
         }
 
-        /// Every slot of all three lists as (name, runtime handle), in list order - the in-memory view a
+        /// Every slot of both lists as (name, runtime handle), in list order - the in-memory view a
         /// consumer that binds by slot name reads (MaterialService::ResolveOverrides). It never carries a
         /// GUID or a path, and it never carries a number the file stated: every handle is folded here.
         template <typename TSink>
@@ -275,11 +250,9 @@ namespace Desert::Assets
                 sink( r.Name, HandleOfRef( &r ) );
             for ( const auto& r : CloudAssets )
                 sink( r.Name, HandleOfRef( &r ) );
-            for ( const auto& r : ShaderRefs )
-                sink( r.Name, GetShaderRef( r.Name ) );
         }
 
-        /// The GUIDs this material references (parent, textures, cloud assets), each once, in that order -
+        /// The GUIDs this material references (parent, shader, textures, cloud assets), each once, in that order -
         /// what the header's Dependencies state (StampMaterialHeader). Malformed and empty ones are skipped.
         [[nodiscard]] std::vector<std::string> ReferencedGuidTexts() const
         {
@@ -295,6 +268,8 @@ namespace Desert::Assets
             };
             if ( const std::string* parent = ParentText() )
                 add( *parent );
+            if ( Shader.has_value() )
+                add( Shader->Guid );
             for ( const auto& r : Textures )
                 add( r.Guid );
             for ( const auto& r : CloudAssets )

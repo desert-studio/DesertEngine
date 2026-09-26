@@ -197,7 +197,13 @@ namespace Desert::Editor
         // the one every future editor run resolves to.
         {
             ::Desert::Assets::MaterialData data;
-            data.ShaderName = "Terrain";
+            if ( const auto stated =
+                      ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName( data, *assetMgr, "Terrain" );
+                 !stated )
+            {
+                LOG_ERROR( "[Landscape] material '{}': {}", path.string(), stated.GetError() );
+                return {};
+            }
             // The second step below is checked carefully and the first was not, even though the whole
             // point of this order is that the asset ADOPTS the GUID out of the file: an unwritten file
             // means CreateAsset loads defaults, the material is not a Terrain material at all, and the
@@ -660,7 +666,13 @@ namespace Desert::Editor
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
         {
             ::Desert::Assets::MaterialData data;
-            data.ShaderName = ::Desert::Graphic::kCloudMaterialShaderName;
+            if ( const auto stated = ::Desert::Assets::SurfaceMaterialAsset::StateShaderByName(
+                      data, *assetMgr, ::Desert::Graphic::kCloudMaterialShaderName );
+                 !stated )
+            {
+                LOG_ERROR( "[Clouds] material '{}': {}", path.string(), stated.GetError() );
+                return {};
+            }
             // Checked for the same reason CreateLandscapeMaterial checks it, one function above. Through the
             // one .demat writer, so the file opens with the header its loader requires.
             if ( const auto written = ::Desert::Assets::WriteMaterialFile( path, data ); !written )

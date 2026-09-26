@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"381f95fd0dff4df68e2105d13bf7df7f","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SkyViewLut"
 {
     Compute

@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "53e7930a82e65578715e5c2659a4ae9f",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["d0265186322d672567a7ed58bbaf7625"]
     },
-    "ShaderName": "UIMatRadialWipe",
+    "Shader": {
+        "Guid": "d0265186322d672567a7ed58bbaf7625",
+        "Path": "engine:Shaders/Programs/UI/UIMatRadialWipe.shader"
+    },
     "Params": [
         {
             "Name": "Tint",
@@ -27,6 +30,5 @@
         }
     ],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

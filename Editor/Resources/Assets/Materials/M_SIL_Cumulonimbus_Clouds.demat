@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "270564bcae4b0950d23c458904da303f",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["a718dc1391ddaa106c14d39239044e01"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a718dc1391ddaa106c14d39239044e01"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -25,6 +28,5 @@
             "Guid": "a718dc1391ddaa106c14d39239044e01",
             "Path": "assets:Clouds/Types/Cumulonimbus.decloudtype"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }

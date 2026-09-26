@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"17a68d0e77119595202bccb63ac5ddc0","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSRComposite"
 {
     // Blends the resolved reflection buffer over the scene target (src-alpha): rgb = blurred reflection,

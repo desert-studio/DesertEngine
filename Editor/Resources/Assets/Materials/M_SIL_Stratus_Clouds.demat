@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "c2b4590ba347366b4b7390aa584b3bd2",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["9804323bb6b3fbf4e88e85bf512d5c81"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "9804323bb6b3fbf4e88e85bf512d5c81"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -25,6 +28,5 @@
             "Guid": "9804323bb6b3fbf4e88e85bf512d5c81",
             "Path": "assets:Clouds/Types/Stratus.decloudtype"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }

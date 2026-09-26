@@ -133,7 +133,7 @@ TEST( LegacyMaterialIds, OneNumberNamingTwoGuidsIsRefused )
     EXPECT_EQ( map.at( 7 ), G( kParent ) ) << "a refused row must not replace the first";
 }
 
-TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To3GivesTheFormTheEngineReads )
+TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To4GivesTheFormTheEngineReads )
 {
     LegacyMaterialIdMap map{ { kParentId, G( kParent ) } };
     MaterialV2Report    report;
@@ -151,8 +151,8 @@ TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To3GivesTheFormTheEngineRe
     ASSERT_EQ( frozen.value().Header->Dependencies.size(), 1u );
     EXPECT_EQ( frozen.value().Header->Dependencies.front(), kParent );
 
-    // The rest of the chain: MATL 2 -> 3 (no slots here) and the engine's own reader.
-    const auto v3 = RaiseMaterialToV3( "inst.demat", frozen.value(), LegacyAssetRefMap{} );
+    // The rest of the chain: MATL 2 -> 4 (no slots, no shader here) and the engine's own reader.
+    const auto v3 = RaiseMaterialV2ToV4( "inst.demat", frozen.value(), LegacyAssetRefMap{} );
     ASSERT_TRUE( v3 ) << v3.GetError();
     const auto text = Desert::Assets::WriteMaterialJson( v3.GetValue() );
     ASSERT_TRUE( text ) << text.GetError();
@@ -170,24 +170,27 @@ TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To3GivesTheFormTheEngineRe
                static_cast<uint64_t>( Content::HandleForGuid( G( kParent ) ) ) );
 }
 
-// MATL 2 -> 3, the pure half: every slot lands in the list its name says, by the GUID the table gives for
-// its number, with the locator beside it; the header then states every GUID as a Dependency.
-TEST( LegacyMaterialIds, RaisingToMatl3RoutesEverySlotByNameAndStatesItsGuid )
+// MATL 2 -> 4, the pure half: every slot lands in the list its name says, by the GUID the table gives for
+// its number, with the locator beside it; the shader name becomes the named file's GUID; the header then states
+// every GUID as a Dependency, the shader's first.
+TEST( LegacyMaterialIds, RaisingToMatl4RoutesEverySlotByNameAndStatesItsGuid )
 {
+    constexpr const char*   kShd   = "44444444444444444444444444444444";
     constexpr const char*   kTex   = "11111111111111111111111111111111";
     constexpr const char*   kType  = "22222222222222222222222222222222";
     constexpr const char*   kPaint = "33333333333333333333333333333333";
     const LegacyAssetRefMap refs{ { 101, { LegacyAssetKind::Texture, kTex, "assets:Textures/T.detex" } },
                                   { 202, { LegacyAssetKind::CloudType, kType, "assets:Clouds/C.decloudtype" } },
                                   { 303, { LegacyAssetKind::CloudLayout, kPaint, "assets:Clouds/L.dclayout" } },
-                                  { 404, { LegacyAssetKind::Shader, "", "engine:Shaders/M.shader" } } };
+                                  { 404, { LegacyAssetKind::Shader, kShd, "engine:Shaders/Programs/M.shader" } } };
     MaterialDataV2          v2;
+    v2.ShaderName = "M";
     v2.Header =
          Content::MakeTextHeader( Content::ContentKind::Material, G( kParent ), MaterialTextSubsystemsV2() );
     v2.Textures = { { "u_AlbedoTexture", 101 }, { "u_NormalTexture", 0 }, { "CloudType1", 202 },
                     { "LayoutPattern", 303 },   { "LayoutMask", 303 },    { "Medium", 404 } };
 
-    const auto raised = RaiseMaterialToV3( "m.demat", v2, refs );
+    const auto raised = RaiseMaterialV2ToV4( "m.demat", v2, refs );
     ASSERT_TRUE( raised ) << raised.GetError();
     const auto text = Desert::Assets::WriteMaterialJson( raised.GetValue() );
     ASSERT_TRUE( text ) << text.GetError();
@@ -199,17 +202,32 @@ TEST( LegacyMaterialIds, RaisingToMatl3RoutesEverySlotByNameAndStatesItsGuid )
     EXPECT_EQ( m.Textures[0].Guid, kTex );
     EXPECT_EQ( m.Textures[0].Path, "assets:Textures/T.detex" );
     EXPECT_TRUE( m.Textures[1].Guid.empty() ) << "a 0 is an authored empty slot";
-    ASSERT_EQ( m.CloudAssets.size(), 3u );
+    const auto& shader = m.Shader;
+    if ( !shader.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no shader";
+        return;
+    }
+    EXPECT_EQ( shader->Guid, kShd );
+    EXPECT_EQ( shader->Path, "engine:Shaders/Programs/M.shader" );
+    ASSERT_EQ( m.CloudAssets.size(), 4u );
     EXPECT_EQ( m.CloudAssets[0].Guid, kType );
     EXPECT_EQ( m.CloudAssets[1].Guid, kPaint );
     EXPECT_EQ( m.CloudAssets[2].Guid, kPaint );
-    ASSERT_EQ( m.ShaderRefs.size(), 1u );
-    EXPECT_EQ( m.ShaderRefs[0].Path, "engine:Shaders/M.shader" );
-    EXPECT_EQ( m.Header->Dependencies, ( std::vector<std::string>{ kTex, kType, kPaint } ) );
+    EXPECT_EQ( m.CloudAssets[3].Name, "Medium" );
+    EXPECT_EQ( m.CloudAssets[3].Guid, kShd );
+    EXPECT_EQ( m.CloudAssets[3].Path, "engine:Shaders/Programs/M.shader" );
+    const auto& header = m.Header;
+    if ( !header.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no header";
+        return;
+    }
+    EXPECT_EQ( header->Dependencies, ( std::vector<std::string>{ kShd, kTex, kType, kPaint } ) );
     EXPECT_EQ( text.GetValue().find( "TextureHandle" ), std::string::npos );
 }
 
-TEST( LegacyMaterialIds, RaisingToMatl3RefusesAnUnknownNumberAndAWrongKindByName )
+TEST( LegacyMaterialIds, RaisingToMatl4RefusesAnUnknownNumberAndAWrongKindByName )
 {
     const LegacyAssetRefMap refs{
          { 303,
@@ -218,16 +236,46 @@ TEST( LegacyMaterialIds, RaisingToMatl3RefusesAnUnknownNumberAndAWrongKindByName
     v2.Header =
          Content::MakeTextHeader( Content::ContentKind::Material, G( kParent ), MaterialTextSubsystemsV2() );
     v2.Textures        = { { "u_AlbedoTexture", 999 } };
-    const auto unknown = RaiseMaterialToV3( "lost.demat", v2, refs );
+    const auto unknown = RaiseMaterialV2ToV4( "lost.demat", v2, refs );
     ASSERT_FALSE( unknown );
     EXPECT_NE( unknown.GetError().find( "lost.demat" ), std::string::npos ) << unknown.GetError();
     EXPECT_NE( unknown.GetError().find( "u_AlbedoTexture" ), std::string::npos ) << unknown.GetError();
     EXPECT_NE( unknown.GetError().find( "999" ), std::string::npos ) << unknown.GetError();
 
     v2.Textures          = { { "CloudType1", 303 } };
-    const auto wrongKind = RaiseMaterialToV3( "swapped.demat", v2, refs );
+    const auto wrongKind = RaiseMaterialV2ToV4( "swapped.demat", v2, refs );
     ASSERT_FALSE( wrongKind );
     EXPECT_NE( wrongKind.GetError().find( "cloud layout" ), std::string::npos ) << wrongKind.GetError();
+}
+
+// The shader name: no file with that stem, two files with it, and a file with no header GUID are each refused
+// naming the material and the shader - never a material left pointing at nothing.
+TEST( LegacyMaterialIds, RaisingToMatl4RefusesAShaderNameNoOneHeaderedFileCarries )
+{
+    constexpr const char* kShd = "44444444444444444444444444444444";
+    LegacyAssetRefMap     refs{ { 404, { LegacyAssetKind::Shader, kShd, "engine:Shaders/Programs/A/M.shader" } },
+                                { 405, { LegacyAssetKind::Shader, "", "engine:Shaders/Programs/Bare.shader" } } };
+    MaterialDataV2        v2;
+    v2.Header =
+         Content::MakeTextHeader( Content::ContentKind::Material, G( kParent ), MaterialTextSubsystemsV2() );
+
+    v2.ShaderName      = "Gone";
+    const auto unknown = RaiseMaterialV2ToV4( "gone.demat", v2, refs );
+    ASSERT_FALSE( unknown );
+    EXPECT_NE( unknown.GetError().find( "gone.demat" ), std::string::npos ) << unknown.GetError();
+    EXPECT_NE( unknown.GetError().find( "'Gone'" ), std::string::npos ) << unknown.GetError();
+
+    v2.ShaderName   = "Bare";
+    const auto bare = RaiseMaterialV2ToV4( "bare.demat", v2, refs );
+    ASSERT_FALSE( bare );
+    EXPECT_NE( bare.GetError().find( "raise the shader first" ), std::string::npos ) << bare.GetError();
+
+    refs.emplace( 406, LegacyAssetRef{ LegacyAssetKind::Shader, kShd, "engine:Shaders/Programs/B/M.shader" } );
+    v2.ShaderName  = "M";
+    const auto two = RaiseMaterialV2ToV4( "two.demat", v2, refs );
+    ASSERT_FALSE( two );
+    EXPECT_NE( two.GetError().find( "A/M.shader" ), std::string::npos ) << two.GetError();
+    EXPECT_NE( two.GetError().find( "B/M.shader" ), std::string::npos ) << two.GetError();
 }
 
 TEST( LegacyMaterialIds, RaisingRefusesAnUnknownParentAndAFileAlreadyRaised )

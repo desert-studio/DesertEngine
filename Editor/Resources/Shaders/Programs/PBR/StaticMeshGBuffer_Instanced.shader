@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"4a47504c1f437ed7a269a9c1ccbbab75","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "StaticMeshGBuffer_Instanced"
 {
     // The (Instanced x GBuffer) cell of MeshShaderFor's table: the deferred G-buffer write, with the

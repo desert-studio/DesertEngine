@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
         "Dependencies": []
     },
@@ -18,6 +18,5 @@
         }
     ],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

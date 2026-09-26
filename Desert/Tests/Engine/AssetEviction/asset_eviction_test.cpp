@@ -697,7 +697,7 @@ namespace
         const char* KeyedOn;
     };
 
-    constexpr std::array<ResolverRow, 4> kDependencyResolvers = {
+    constexpr std::array<ResolverRow, 5> kDependencyResolvers = {
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/AssetBase.hpp",
                       "nothing. The base's empty body, which is what an asset that names no other asset "
                       "inherits." },
@@ -722,6 +722,12 @@ namespace
                       "are exactly the pair a retarget exists to bridge. A signature-keyed lookup could "
                       "therefore bind the TARGET's own rig as the source and the retarget would silently "
                       "become the identity." },
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
+                      "a shader, by the NAME the material's own data states — nothing is looked up in the "
+                      "manager, so no target can be released under it. The name is read from the material's "
+                      "payload, and that is safe for the opposite reason from the skinned mesh: Unload "
+                      "clears the data AND re-resolves the name, and every Load resolves it again, so the "
+                      "name never outlives the data it came from." },
     };
 
     // A DEFINITION, not a call and not a declaration: the name, its parameter list, whatever trailing
