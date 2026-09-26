@@ -20,7 +20,7 @@ namespace Desert::Assets::Serialization::ShaderGraph
         if ( !parsed )
             return Common::MakeError<Document>( std::format( "bad .dgraph: {}", parsed.GetError() ) );
 
-        return Common::MakeSuccess( std::move( parsed.GetValue() ) );
+        return Common::MakeSuccess( parsed.ExtractValue() );
     }
 
 } // namespace Desert::Assets::Serialization::ShaderGraph

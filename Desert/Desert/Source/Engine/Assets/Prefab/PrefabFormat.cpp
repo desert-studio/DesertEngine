@@ -51,20 +51,23 @@ namespace Desert::Assets
                               source, parsed.GetError() ) );
         }
 
-        if ( !PrefabIsAtCurrentVersion( parsed.GetValue() ) )
-            return Common::MakeError<PrefabData>( RefusePrefabVersion( source, parsed.GetValue() ) );
+        PrefabData data = parsed.ExtractValue();
+        // An absent Header states no generation, so it is never current; naming it here as well lets the
+        // reads below dereference the header without a second, unreachable refusal.
+        if ( !PrefabIsAtCurrentVersion( data ) || !data.Header.has_value() )
+            return Common::MakeError<PrefabData>( RefusePrefabVersion( source, data ) );
 
         const Common::Content::AssetHeaderReadContext context{ Core::SceneTextSubsystems() };
-        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.GetValue().Header, context );
+        const auto header = Common::Content::TextHeaderToAssetHeader( *data.Header, context );
         if ( !header )
             return Common::MakeError<PrefabData>(
                  fmt::format( "[PrefabAsset] '{0}': {1}. Nothing was loaded.", source, header.GetError() ) );
         if ( header.GetValue().Kind != Common::Content::ContentKind::Prefab )
             return Common::MakeError<PrefabData>(
                  fmt::format( "[PrefabAsset] '{0}': the header says kind '{1}', not 'Prefab'. Nothing was loaded.",
-                              source, parsed.GetValue().Header->Kind ) );
+                              source, data.Header->Kind ) );
 
-        return Common::MakeSuccess( std::move( parsed.GetValue() ) );
+        return Common::MakeSuccess( std::move( data ) );
     }
 
     Common::ResultStr<std::string> WritePrefabJson( PrefabData prefab )

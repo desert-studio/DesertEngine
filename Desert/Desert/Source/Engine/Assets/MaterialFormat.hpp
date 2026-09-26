@@ -163,6 +163,6 @@ namespace Desert::Assets
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
-        return Common::MakeSuccess( std::move( parsed.GetValue() ) );
+        return Common::MakeSuccess( parsed.ExtractValue() );
     }
 } // namespace Desert::Assets

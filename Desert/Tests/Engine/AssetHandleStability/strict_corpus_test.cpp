@@ -48,8 +48,8 @@ namespace
 
     std::string ReadAll( const fs::path& file )
     {
-        std::ifstream      in( file, std::ios::binary );
-        std::ostringstream text;
+        const std::ifstream in( file, std::ios::binary );
+        std::ostringstream  text;
         text << in.rdbuf();
         return text.str();
     }

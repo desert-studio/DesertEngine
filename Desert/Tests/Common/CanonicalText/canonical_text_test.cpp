@@ -274,8 +274,6 @@ namespace
     constexpr std::array kNotATextAsset{
          NotATextAsset{ "Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
                         ".deproj and the projects registry" },
-         NotATextAsset{ "Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipWrite.hpp",
-                        "nothing: doc comment only" },
          NotATextAsset{ "Desert/Desert/Source/Engine/Assets/ContentRegistry.hpp", "the cooked content registry" },
          NotATextAsset{ "Editor/Source/Editor/Packaging/GamePackager.cpp",
                         "package manifest, ICD json, launcher" },
