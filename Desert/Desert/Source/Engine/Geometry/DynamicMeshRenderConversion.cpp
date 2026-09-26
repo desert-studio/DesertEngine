@@ -138,7 +138,7 @@ namespace Desert::Geometry
             Submesh submesh{};
             submesh.Name         = "MaterialID " + std::to_string( material );
             submesh.VertexOffset = static_cast<uint32_t>( out.Vertices.size() );
-            submesh.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32 units
+            submesh.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32_t units
             submesh.Transform    = glm::mat4( 1.0f );
 
             // (vertex, normal, tangent, bitangent, uv element) -> submesh-local render vertex.

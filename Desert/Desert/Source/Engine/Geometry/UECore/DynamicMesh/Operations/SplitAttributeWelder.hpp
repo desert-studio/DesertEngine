@@ -23,17 +23,17 @@ namespace Desert::Geometry
         float TangentVecDotThreshold = 0.f;
 
         /** Weld the split elements at ParentVID in each overlay that are within the matching threshold. */
-        void WeldSplitElements( FDynamicMesh3& ParentMesh, const int32 ParentVID );
+        void WeldSplitElements( FDynamicMesh3& ParentMesh, const int32_t ParentVID );
         /** Weld split elements across the entire mesh. */
         void WeldSplitElements( FDynamicMesh3& ParentMesh );
 
-        static void WeldSplitUVs( const int32 ParentVID, FDynamicMeshUVOverlay& UVOverlay,
+        static void WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& UVOverlay,
                                   float UVDistSqrdThreshold );
         /** Compares orientation only, not length; vectors too short to normalize weld together when
          *  bMergeZeroVectors. */
-        static void WeldSplitUnitVectors( const int32 ParentVID, FDynamicMeshNormalOverlay& NormalOverlay,
+        static void WeldSplitUnitVectors( const int32_t ParentVID, FDynamicMeshNormalOverlay& NormalOverlay,
                                           float DotThreshold, bool bMergeZeroVectors = true );
-        static void WeldSplitColors( const int32 ParentVID, FDynamicMeshColorOverlay& ColorOverlay,
+        static void WeldSplitColors( const int32_t ParentVID, FDynamicMeshColorOverlay& ColorOverlay,
                                      float ColorDistSqrdThreshold );
     };
 } // namespace Desert::Geometry

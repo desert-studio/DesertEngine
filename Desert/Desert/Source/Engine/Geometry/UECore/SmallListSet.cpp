@@ -5,33 +5,33 @@
 namespace Desert::Geometry
 {
 
-    void FSmallListSet::Resize( int32 NewSize )
+    void FSmallListSet::Resize( int32_t NewSize )
     {
-        int32 CurSize = (int32)ListHeads.GetLength();
+        auto const CurSize = static_cast<int32_t>( ListHeads.GetLength() );
         if ( NewSize > CurSize )
         {
             ListHeads.Resize( NewSize );
-            for ( int32 k = CurSize; k < NewSize; ++k )
+            for ( int32_t k = CurSize; k < NewSize; ++k )
             {
                 ListHeads[k] = NullValue;
             }
         }
     }
 
-    void FSmallListSet::ResizeAndAllocateBlocks( int32 NewSize )
+    void FSmallListSet::ResizeAndAllocateBlocks( int32_t NewSize )
     {
         Reset();
         Resize( NewSize );
         ListBlocks.Resize( NewSize * ( BLOCK_LIST_OFFSET + 1 ) );
-        for ( int32 i( 0 ); i < NewSize; ++i )
+        for ( int32_t i( 0 ); i < NewSize; ++i )
         {
-            int32 ListHead                           = i * ( BLOCK_LIST_OFFSET + 1 );
+            int32_t const ListHead                   = i * ( BLOCK_LIST_OFFSET + 1 );
             ListHeads[i]                             = ListHead;
             ListBlocks[ListHead]                     = 0;
             ListBlocks[ListHead + BLOCK_LIST_OFFSET] = NullValue;
         }
 
-        for ( int32 i( 0 ); i < NewSize; ++i )
+        for ( int32_t i( 0 ); i < NewSize; ++i )
         {
             UE_CHECK_SLOW( ListBlocks[ListHeads[i]] == 0 );
             UE_CHECK_SLOW( ListBlocks[ListHeads[i] + BLOCK_LIST_OFFSET] == NullValue );
@@ -40,12 +40,12 @@ namespace Desert::Geometry
         AllocatedCount = NewSize;
     }
 
-    void FSmallListSet::AllocateAt( int32 ListIndex )
+    void FSmallListSet::AllocateAt( int32_t ListIndex )
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
         if ( ListIndex >= (int)ListHeads.GetLength() )
         {
-            int32 j = (int32)ListHeads.GetLength();
+            auto j = static_cast<int32_t>( ListHeads.GetLength() );
             ListHeads.InsertAt( NullValue, ListIndex );
             // need to set intermediate values to null!
             while ( j < ListIndex )
@@ -60,10 +60,10 @@ namespace Desert::Geometry
         }
     }
 
-    void FSmallListSet::Compact( int32 MaxListIndex )
+    void FSmallListSet::Compact( int32_t MaxListIndex )
     {
         UE_CHECK_SLOW( MaxListIndex >= 0 );
-        int32 CurSize = (int32)ListHeads.GetLength();
+        auto const CurSize = static_cast<int32_t>( ListHeads.GetLength() );
         if ( MaxListIndex < CurSize )
         {
             // We just resize w/out book-keeping what we cleared, since we rebuild the blocks/etc below
@@ -71,12 +71,12 @@ namespace Desert::Geometry
         }
 
         AllocatedCount = 0;
-        TDynamicVector<int32> NewBlocks{};
-        TDynamicVector<int32> NewLinkedListElements{};
-        for ( int32 Idx = 0, Num = (int32)ListHeads.GetLength(), CurBlockIdx = 0; Idx < Num;
+        TDynamicVector<int32_t> NewBlocks{};
+        TDynamicVector<int32_t> NewLinkedListElements{};
+        for ( int32_t Idx = 0, Num = static_cast<int32_t>( ListHeads.GetLength() ), CurBlockIdx = 0; Idx < Num;
               ++Idx, CurBlockIdx += BLOCK_LIST_OFFSET + 1 )
         {
-            int32 OrigHead = ListHeads[Idx];
+            int32_t const OrigHead = ListHeads[Idx];
             if ( OrigHead == NullValue )
             {
                 continue;
@@ -84,19 +84,19 @@ namespace Desert::Geometry
             AllocatedCount++;
             ListHeads[Idx] = CurBlockIdx;
             NewBlocks.InsertAt( NullValue, CurBlockIdx + BLOCK_LIST_OFFSET );
-            for ( int32 SubIdx = 0; SubIdx < BLOCK_LIST_OFFSET; ++SubIdx )
+            for ( int32_t SubIdx = 0; SubIdx < BLOCK_LIST_OFFSET; ++SubIdx )
             {
                 NewBlocks[CurBlockIdx + SubIdx] = ListBlocks[OrigHead + SubIdx];
             }
 
-            int32 OrigLinkStart = ListBlocks[OrigHead + BLOCK_LIST_OFFSET];
+            int32_t const OrigLinkStart = ListBlocks[OrigHead + BLOCK_LIST_OFFSET];
             if ( OrigLinkStart == NullValue )
             {
                 NewBlocks[CurBlockIdx + BLOCK_LIST_OFFSET] = NullValue;
             }
             else
             {
-                int32 CurPtr                               = OrigLinkStart;
+                int32_t CurPtr                             = OrigLinkStart;
                 NewBlocks[CurBlockIdx + BLOCK_LIST_OFFSET] = NewLinkedListElements.GetLength();
                 while ( true )
                 {
@@ -112,38 +112,39 @@ namespace Desert::Geometry
             }
         }
 
-        ListBlocks         = MoveTemp( NewBlocks );
-        LinkedListElements = MoveTemp( NewLinkedListElements );
+        ListBlocks         = std::move( NewBlocks );
+        LinkedListElements = std::move( NewLinkedListElements );
         FreeHeadIndex      = NullValue;
         FreeBlocks.Clear();
     }
 
-    void FSmallListSet::AppendWithElementOffset( const FSmallListSet& Other, int32 ElementOffset )
+    void FSmallListSet::AppendWithElementOffset( const FSmallListSet& Other, int32_t ElementOffset )
     {
-        int32 OrigListBlocksNum         = ListBlocks.Num();
-        int32 OrigListHeadsNum          = ListHeads.Num();
-        int32 OrigLinkedListElementsNum = LinkedListElements.Num();
-        int32 OrigFreeHeadIndex         = FreeHeadIndex;
+        auto const    OrigListBlocksNum         = static_cast<int32_t>( ListBlocks.Num() );
+        auto const    OrigListHeadsNum          = static_cast<int32_t>( ListHeads.Num() );
+        auto const    OrigLinkedListElementsNum = static_cast<int32_t>( LinkedListElements.Num() );
+        int32_t const OrigFreeHeadIndex         = FreeHeadIndex;
 
         // Append ListHeads indices
         ListHeads.Add( Other.ListHeads );
-        for ( int32 Idx = OrigListHeadsNum, N = ListHeads.Num(); Idx < N; ++Idx )
+        for ( int32_t Idx = OrigListHeadsNum, N = static_cast<int32_t>( ListHeads.Num() ); Idx < N; ++Idx )
         {
             // Offset appended non-null indices to point to appended ListBlock indices
             if ( ListHeads[Idx] != NullValue )
             {
-                ListHeads[Idx] += (int32)OrigListBlocksNum;
+                ListHeads[Idx] += OrigListBlocksNum;
             }
         }
 
         // Append LinkedListElements entries
         LinkedListElements.Add( Other.LinkedListElements );
-        for ( int32 Idx = OrigLinkedListElementsNum, N = LinkedListElements.Num(); Idx < N; Idx += 2 )
+        for ( int32_t Idx = OrigLinkedListElementsNum, N = static_cast<int32_t>( LinkedListElements.Num() );
+              Idx < N; Idx += 2 )
         {
             // Offset the element data
             LinkedListElements[Idx] += ElementOffset;
             // Offset appended non-null pointer indices to refer to appended indices
-            int32& Link = LinkedListElements[Idx + 1];
+            int32_t& Link = LinkedListElements[Idx + 1];
             if ( Link != NullValue )
             {
                 Link += OrigLinkedListElementsNum;
@@ -152,10 +153,11 @@ namespace Desert::Geometry
 
         // Append ListBlocks entries
         ListBlocks.Add( Other.ListBlocks );
-        for ( int32 Idx = OrigListBlocksNum, N = ListBlocks.Num(); Idx < N; Idx += BLOCKSIZE + 2 )
+        for ( int32_t Idx = OrigListBlocksNum, N = static_cast<int32_t>( ListBlocks.Num() ); Idx < N;
+              Idx += BLOCKSIZE + 2 )
         {
-            int32 BlockNumEls = ListBlocks[Idx];
-            for ( int32 SubIdx = 0, SubIdxNum = FMath::Min( BLOCKSIZE, BlockNumEls ); SubIdx < SubIdxNum;
+            int32_t const BlockNumEls = ListBlocks[Idx];
+            for ( int32_t SubIdx = 0, SubIdxNum = std::min( BLOCKSIZE, BlockNumEls ); SubIdx < SubIdxNum;
                   ++SubIdx )
             {
                 ListBlocks[Idx + 1 + SubIdx] += ElementOffset;
@@ -173,10 +175,10 @@ namespace Desert::Geometry
             // If both were non-empty, need to walk Other's free list to attach its tail to our original head
             if ( OrigFreeHeadIndex != NullValue )
             {
-                int32 WalkListIndex = FreeHeadIndex;
+                int32_t WalkListIndex = FreeHeadIndex;
                 while ( true )
                 {
-                    int32 NextIndex = LinkedListElements[WalkListIndex + 1];
+                    int32_t const NextIndex = LinkedListElements[WalkListIndex + 1];
                     if ( NextIndex == NullValue )
                     {
                         break;
@@ -191,10 +193,10 @@ namespace Desert::Geometry
         AllocatedCount += Other.AllocatedCount;
     }
 
-    void FSmallListSet::Insert( int32 ListIndex, int32 Value )
+    void FSmallListSet::Insert( int32_t ListIndex, int32_t Value )
     {
-        UE_CHECK_SLOW( 0 <= ListIndex && ListIndex < (int32)ListHeads.Num() );
-        int32 block_ptr = ListHeads[ListIndex];
+        UE_CHECK_SLOW( 0 <= ListIndex && ListIndex < (int32_t)ListHeads.Num() );
+        int32_t block_ptr = ListHeads[ListIndex];
         if ( block_ptr == NullValue )
         {
             block_ptr             = AllocateBlock();
@@ -202,7 +204,7 @@ namespace Desert::Geometry
             ListHeads[ListIndex]  = block_ptr;
         }
 
-        int32 N = ListBlocks[block_ptr];
+        int32_t const N = ListBlocks[block_ptr];
         if ( N < BLOCKSIZE )
         {
             ListBlocks[block_ptr + N + 1] = Value;
@@ -210,12 +212,12 @@ namespace Desert::Geometry
         else
         {
             // spill to linked list
-            int32 cur_head = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+            int32_t const cur_head = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
 
             if ( FreeHeadIndex == NullValue )
             {
                 // allocate linkedlist node
-                int32 new_ptr = (int32)LinkedListElements.GetLength();
+                auto const new_ptr = static_cast<int32_t>( LinkedListElements.GetLength() );
                 LinkedListElements.Add( Value );
                 LinkedListElements.Add( cur_head );
                 ListBlocks[block_ptr + BLOCK_LIST_OFFSET] = new_ptr;
@@ -223,7 +225,7 @@ namespace Desert::Geometry
             else
             {
                 // pull from free list
-                int32 free_ptr                            = FreeHeadIndex;
+                int32_t const free_ptr                    = FreeHeadIndex;
                 FreeHeadIndex                             = LinkedListElements[free_ptr + 1];
                 LinkedListElements[free_ptr]              = Value;
                 LinkedListElements[free_ptr + 1]          = cur_head;
@@ -235,20 +237,20 @@ namespace Desert::Geometry
         ListBlocks[block_ptr] += 1;
     }
 
-    bool FSmallListSet::Remove( int32 ListIndex, int32 Value )
+    bool FSmallListSet::Remove( int32_t ListIndex, int32_t Value )
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
-        int32 block_ptr = ListHeads[ListIndex];
-        int32 N         = ListBlocks[block_ptr];
+        int32_t const block_ptr = ListHeads[ListIndex];
+        int32_t const N         = ListBlocks[block_ptr];
 
-        int32 iEnd = block_ptr + FMath::Min( N, BLOCKSIZE );
-        for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+        int32_t const iEnd = block_ptr + std::min( N, BLOCKSIZE );
+        for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
         {
 
             if ( ListBlocks[i] == Value )
             {
                 // Shifting (rather than moving the last element into the hole) keeps UE's list order.
-                for ( int32 j = i + 1; j <= iEnd; ++j ) // shift left
+                for ( int32_t j = i + 1; j <= iEnd; ++j ) // shift left
                 {
                     ListBlocks[j - 1] = ListBlocks[j];
                 }
@@ -256,7 +258,7 @@ namespace Desert::Geometry
 
                 if ( N > BLOCKSIZE )
                 {
-                    int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                    int32_t const cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                     ListBlocks[block_ptr + BLOCK_LIST_OFFSET] =
                          LinkedListElements[cur_ptr + 1]; // point32 to cur->next
                     ListBlocks[iEnd] = LinkedListElements[cur_ptr];
@@ -281,7 +283,7 @@ namespace Desert::Geometry
         return false;
     }
 
-    void FSmallListSet::Move( int32 FromIndex, int32 ToIndex )
+    void FSmallListSet::Move( int32_t FromIndex, int32_t ToIndex )
     {
         UE_CHECK_SLOW( FromIndex >= 0 );
         UE_CHECK_SLOW( ToIndex >= 0 );
@@ -290,21 +292,21 @@ namespace Desert::Geometry
         ListHeads[FromIndex] = NullValue;
     }
 
-    void FSmallListSet::Clear( int32 ListIndex )
+    void FSmallListSet::Clear( int32_t ListIndex )
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
-        int32 block_ptr = ListHeads[ListIndex];
+        int32_t const block_ptr = ListHeads[ListIndex];
         if ( block_ptr != NullValue )
         {
-            int32 N = ListBlocks[block_ptr];
+            int32_t const N = ListBlocks[block_ptr];
 
             // if we have spilled to linked-list, free nodes
             if ( N > BLOCKSIZE )
             {
-                int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                int32_t cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                 while ( cur_ptr != NullValue )
                 {
-                    int32 free_ptr = cur_ptr;
+                    int32_t const free_ptr = cur_ptr;
                     cur_ptr        = LinkedListElements[cur_ptr + 1];
                     AddFreeLink( free_ptr );
                 }
@@ -318,17 +320,17 @@ namespace Desert::Geometry
         }
     }
 
-    bool FSmallListSet::Contains( int32 ListIndex, int32 Value ) const
+    bool FSmallListSet::Contains( int32_t ListIndex, int32_t Value ) const
     {
         UE_CHECK_SLOW( ListIndex >= 0 );
-        int32 block_ptr = ListHeads[ListIndex];
+        int32_t const block_ptr = ListHeads[ListIndex];
         if ( block_ptr != NullValue )
         {
-            int32 N = ListBlocks[block_ptr];
+            int32_t const N = ListBlocks[block_ptr];
             if ( N < BLOCKSIZE )
             {
-                int32 iEnd = block_ptr + N;
-                for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                int32_t const iEnd = block_ptr + N;
+                for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                 {
                     if ( ListBlocks[i] == Value )
                     {
@@ -339,15 +341,15 @@ namespace Desert::Geometry
             else
             {
                 // we spilled to linked list, have to iterate through it as well
-                int32 iEnd = block_ptr + BLOCKSIZE;
-                for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                int32_t const iEnd = block_ptr + BLOCKSIZE;
+                for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                 {
                     if ( ListBlocks[i] == Value )
                     {
                         return true;
                     }
                 }
-                int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                int32_t cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                 while ( cur_ptr != NullValue )
                 {
                     if ( LinkedListElements[cur_ptr] == Value )
@@ -361,16 +363,17 @@ namespace Desert::Geometry
         return false;
     }
 
-    bool FSmallListSet::EnumerateEarlyOut( int32 ListIndex, TFunctionRef<bool( int32 )> ApplyFunc ) const
+    bool FSmallListSet::EnumerateEarlyOut( int32_t                               ListIndex,
+                                           const std::function<bool( int32_t )>& ApplyFunc ) const
     {
-        int32 block_ptr = ListHeads[ListIndex];
+        int32_t const block_ptr = ListHeads[ListIndex];
         if ( block_ptr != NullValue )
         {
-            int32 N = ListBlocks[block_ptr];
+            int32_t const N = ListBlocks[block_ptr];
             if ( N < BLOCKSIZE )
             {
-                int32 iEnd = block_ptr + N;
-                for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                int32_t const iEnd = block_ptr + N;
+                for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                 {
                     if ( !ApplyFunc( ListBlocks[i] ) )
                     {
@@ -381,15 +384,15 @@ namespace Desert::Geometry
             else
             {
                 // we spilled to linked list, have to iterate through it as well
-                int32 iEnd = block_ptr + BLOCKSIZE;
-                for ( int32 i = block_ptr + 1; i <= iEnd; ++i )
+                int32_t const iEnd = block_ptr + BLOCKSIZE;
+                for ( int32_t i = block_ptr + 1; i <= iEnd; ++i )
                 {
                     if ( !ApplyFunc( ListBlocks[i] ) )
                     {
                         return false;
                     }
                 }
-                int32 cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+                int32_t cur_ptr = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
                 while ( cur_ptr != NullValue )
                 {
                     if ( !ApplyFunc( LinkedListElements[cur_ptr] ) )
@@ -403,31 +406,31 @@ namespace Desert::Geometry
         return true;
     }
 
-    int32 FSmallListSet::AllocateBlock()
+    int32_t FSmallListSet::AllocateBlock()
     {
-        int32 nfree = (int32)FreeBlocks.GetLength();
+        auto const nfree = static_cast<int32_t>( FreeBlocks.GetLength() );
         if ( nfree > 0 )
         {
-            int32 ptr = FreeBlocks[nfree - 1];
+            int32_t const ptr = FreeBlocks[nfree - 1];
             FreeBlocks.PopBack();
             return ptr;
         }
-        int32 nsize = (int32)ListBlocks.GetLength();
+        auto const nsize = static_cast<int32_t>( ListBlocks.GetLength() );
         ListBlocks.InsertAt( NullValue, nsize + BLOCK_LIST_OFFSET );
         ListBlocks[nsize] = 0;
         AllocatedCount++;
         return nsize;
     }
 
-    bool FSmallListSet::RemoveFromLinkedList( int32 block_ptr, int32 val )
+    bool FSmallListSet::RemoveFromLinkedList( int32_t block_ptr, int32_t val )
     {
-        int32 cur_ptr  = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
-        int32 prev_ptr = NullValue;
+        int32_t cur_ptr  = ListBlocks[block_ptr + BLOCK_LIST_OFFSET];
+        int32_t prev_ptr = NullValue;
         while ( cur_ptr != NullValue )
         {
             if ( LinkedListElements[cur_ptr] == val )
             {
-                int32 next_ptr = LinkedListElements[cur_ptr + 1];
+                int32_t const next_ptr = LinkedListElements[cur_ptr + 1];
                 if ( prev_ptr == NullValue )
                 {
                     ListBlocks[block_ptr + BLOCK_LIST_OFFSET] = next_ptr;

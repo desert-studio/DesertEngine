@@ -12,7 +12,7 @@
 
 namespace Desert::Geometry
 {
-    enum class ELocalParamTypes : uint8
+    enum class ELocalParamTypes : uint8_t
     {
         PlanarProjection        = 1,
         ExponentialMap          = 2,
@@ -30,7 +30,7 @@ namespace Desert::Geometry
             Queue.Initialize( PointSet->MaxVertexID() );
         }
 
-        void ComputeToMaxDistance( int32 CenterPointVtxID, const FFrame3d& CenterPointFrame,
+        void ComputeToMaxDistance( int32_t CenterPointVtxID, const FFrame3d& CenterPointFrame,
                                    double ComputeToMaxDistanceIn )
         {
             SeedFrame            = CenterPointFrame;
@@ -42,41 +42,41 @@ namespace Desert::Geometry
             Queue.Insert( CenterPointVtxID, 0 );
             ProcessQueueUntilTermination( ComputeToMaxDistanceIn );
         }
-        [[nodiscard]] bool HasUV( int32 PointID ) const
+        [[nodiscard]] bool HasUV( int32_t PointID ) const
         {
-            const int32* Found = IDToNodeIndexMap.Find( PointID );
+            const int32_t* Found = IDToNodeIndexMap.Find( PointID );
             return Found != nullptr && AllocatedNodes[*Found].bFrozen;
         }
-        [[nodiscard]] FVector2d GetUV( int32 PointID ) const
+        [[nodiscard]] FVector2d GetUV( int32_t PointID ) const
         {
-            const int32* Found = IDToNodeIndexMap.Find( PointID );
+            const int32_t* Found = IDToNodeIndexMap.Find( PointID );
             return ( Found != nullptr && AllocatedNodes[*Found].bFrozen )
                         ? AllocatedNodes[*Found].UV
-                        : FVector2d( TNumericLimits<double>::Max(), TNumericLimits<double>::Max() );
+                        : FVector2d( std::numeric_limits<double>::max(), std::numeric_limits<double>::max() );
         }
 
     private:
         struct FGraphNode
         {
-            int32     PointID       = 0;
-            int32     ParentPointID = 0;
+            int32_t   PointID       = 0;
+            int32_t   ParentPointID = 0;
             double    GraphDistance = 0.0;
             FVector2d UV;
             bool      bFrozen = false;
             FVector3d CachedNormal;
         };
         const PointSetType* PointSet;
-        TMap<int32, int32>  IDToNodeIndexMap;
+        TMap<int32_t, int32_t> IDToNodeIndexMap;
         TArray<FGraphNode>  AllocatedNodes;
         FIndexPriorityQueue Queue;
         FFrame3d            SeedFrame;
         double              MaxGraphDistance = 0.0;
 
-        [[nodiscard]] FVector3d GetPosition( int32 PointID ) const
+        [[nodiscard]] FVector3d GetPosition( int32_t PointID ) const
         {
             return PointSet->GetVertex( PointID );
         }
-        [[nodiscard]] FVector3d GetNormal( int32 PointID ) const
+        [[nodiscard]] FVector3d GetNormal( int32_t PointID ) const
         {
             if ( PointSet->HasVertexNormals() )
             {
@@ -93,7 +93,7 @@ namespace Desert::Geometry
         {
             while ( Queue.GetCount() > 0 )
             {
-                const int32 NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
+                const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
                 MaxGraphDistance =
                      TMathUtil<double>::Max( AllocatedNodes[NodeIndex].GraphDistance, MaxGraphDistance );
                 if ( MaxGraphDistance > MaxDistance )
@@ -150,9 +150,9 @@ namespace Desert::Geometry
             const FVector3d NodePos   = GetPosition( Node.PointID );
             FVector2d       AverageUV = FVector2d::Zero();
             double          WeightSum = 0;
-            for ( const int32 NbrPointID : PointSet->VtxVerticesItr( Node.PointID ) )
+            for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( Node.PointID ) )
             {
-                const int32* Found = IDToNodeIndexMap.Find( NbrPointID );
+                const int32_t* Found = IDToNodeIndexMap.Find( NbrPointID );
                 if ( Found == nullptr || !AllocatedNodes[*Found].bFrozen )
                     continue;
                 const FFrame3d  NbrFrame = GetFrame( AllocatedNodes[*Found] );
@@ -165,23 +165,23 @@ namespace Desert::Geometry
             // the parent is always a frozen neighbour, so WeightSum > 0 (UE check()s NbrCount > 0)
             Node.UV = AverageUV * ( 1.0 / WeightSum );
         }
-        int32 GetNodeIndex( int32 PointSetID, bool bCreateIfMissing )
+        int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
-            if ( const int32* Found = IDToNodeIndexMap.Find( PointSetID ) )
+            if ( const int32_t* Found = IDToNodeIndexMap.Find( PointSetID ) )
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            const int32 NewIndex = AllocatedNodes.Add(
+            const int32_t NewIndex = AllocatedNodes.Add(
                  FGraphNode{ PointSetID, -1, 0.0, FVector2d::Zero(), false, GetNormal( PointSetID ) } );
             IDToNodeIndexMap.Add( PointSetID, NewIndex );
             return NewIndex;
         }
-        void UpdateNeighboursSparse( int32 ParentIndex )
+        void UpdateNeighboursSparse( int32_t ParentIndex )
         {
-            const int32     ParentID   = AllocatedNodes[ParentIndex].PointID;
+            const int32_t   ParentID   = AllocatedNodes[ParentIndex].PointID;
             const double    ParentDist = AllocatedNodes[ParentIndex].GraphDistance;
             const FVector3d ParentPos  = GetPosition( ParentID );
-            for ( const int32 NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
+            for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
             {
                 FGraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )

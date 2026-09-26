@@ -14,7 +14,7 @@ namespace Desert::Geometry
      * For each edge in EdgeList, compute a line offset from the original edge by distance InsetDistance, towards
      * the centroid of the edge's first triangle (each edge is assumed to be a boundary edge, Tri.A "inside").
      */
-    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32>& EdgeList,
+    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32_t>& EdgeList,
                                             double InsetDistance, TArray<FLine3d>& InsetLinesOut );
 
     /**
@@ -29,6 +29,6 @@ namespace Desert::Geometry
      * When bIsLoop is false the two end vertices are projected onto the first/last line instead.
      */
     void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3& Mesh, const TArray<FLine3d>& InsetEdgeLines,
-                                                  const TArray<int32>& VertexIDs,
+                                                  const TArray<int32_t>& VertexIDs,
                                                   TArray<FVector3d>& VertexPositionsOut, bool bIsLoop );
 } // namespace Desert::Geometry

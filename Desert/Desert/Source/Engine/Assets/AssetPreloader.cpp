@@ -496,7 +496,7 @@ namespace Desert::Assets
         return ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ).size();
     }
 
-    void AssetPreloader::PreloadShaders( const ItemProgress& progress )
+    void AssetPreloader::PreloadShaders( const ItemProgress& progress, const StopRequested& stop )
     {
         // Timed as a phase: Register() compiles every stage of every pass, so this line is the whole
         // "shader startup cost" in one number — against it, the per-miss lines ShaderCompiler prints
@@ -514,6 +514,12 @@ namespace Desert::Assets
             const auto shaders = manager->FindAllByType<Assets::ShaderAsset>();
             for ( const auto& [handle, shaderAsset] : shaders )
             {
+                if ( stop && stop() )
+                {
+                    LOG_INFO( "[AssetPreloader] shader preload stopped on request after {} of {} program(s)",
+                              count, shaders.size() );
+                    break;
+                }
                 ReportItem( progress, shaderAsset->GetMetadata().Filepath.filename().string(), count,
                             shaders.size() );
                 Runtime::ResourceRegistry::GetShaderService()->Register( shaderAsset );

@@ -32,13 +32,13 @@ namespace Desert::Geometry
         bool OnlyUniquePairs = false;
         /** Edges are candidates if their midpoints are within this distance; zero means MergeVertexTolerance*2. */
         double MergeSearchTolerance    = 0;
-        int32  InitialNumBoundaryEdges = 0;
-        int32  FinalNumBoundaryEdges   = 0;
+        int32_t InitialNumBoundaryEdges = 0;
+        int32_t FinalNumBoundaryEdges   = 0;
         /** Weld split attributes at the vertices of each merged edge. */
         bool                  bWeldAttrsOnMergedEdges = false;
         FSplitAttributeWelder SplitAttributeWelder;
         /** Edges to merge (a pair qualifies when EITHER edge is in it); null merges across the entire mesh. */
-        TSet<int32>* EdgesToMerge = nullptr;
+        TSet<int32_t>* EdgesToMerge = nullptr;
 
         explicit FMergeCoincidentMeshEdges( FDynamicMesh3* mesh ) : Mesh( mesh )
         {

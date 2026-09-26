@@ -21,7 +21,7 @@ namespace
         return Out;
     }
 
-    std::vector<int> ListOf( const FSmallListSet& Set, int32 ListIndex )
+    std::vector<int> ListOf( const FSmallListSet& Set, int32_t ListIndex )
     {
         std::vector<int> Out;
         for ( int Value : Set.Values( ListIndex ) )
@@ -47,7 +47,7 @@ TEST( UECoreDynamicVector, AddCrossesBlockBoundariesAndKeepsValues )
     for ( int i = 0; i < 11; ++i )
         V.Add( i * 10 );
     ASSERT_EQ( V.Num(), 11u );
-    for ( uint32 i = 0; i < 11; ++i )
+    for ( uint32_t i = 0; i < 11; ++i )
         EXPECT_EQ( V[i], int( i ) * 10 );
     EXPECT_EQ( V.Back(), 100 );
     EXPECT_EQ( V.GetByteCount(), 3u * 4u * sizeof( int ) ); // three blocks of four
@@ -77,7 +77,7 @@ TEST( UECoreDynamicVector, InsertAtPastTheEndGrowsAndInitialisesTheGap )
     V.InsertAt( 9.0, 6, -1.0 );
     ASSERT_EQ( V.Num(), 7u );
     EXPECT_EQ( V[0], 1.0 );
-    for ( uint32 i = 1; i < 6; ++i )
+    for ( uint32_t i = 1; i < 6; ++i )
         EXPECT_EQ( V[i], -1.0 ) << i;
     EXPECT_EQ( V[6], 9.0 );
     V.InsertAt( 5.0, 2 ); // inside: overwrite, no growth
@@ -117,10 +117,11 @@ TEST( UECoreDynamicVector, CopyMoveAndEqualityAcrossBlockSizes )
     for ( int i = 0; i < 9; ++i )
         Other.Add( i );
     EXPECT_TRUE( A == Other );
-    TDynamicVector<int, 4> Moved( MoveTemp( A ) );
+    TDynamicVector<int, 4> const Moved( std::move( A ) );
     EXPECT_EQ( Moved.Num(), 9u );
-    EXPECT_TRUE( A.IsEmpty() );
-    A.Add( 1 ); // moved-from must still be usable
+    // The moved-from state is the contract under test here, so reading A after the move is the point.
+    EXPECT_TRUE( A.IsEmpty() ); // NOLINT(bugprone-use-after-move)
+    A.Add( 1 );                 // moved-from must still be usable
     EXPECT_EQ( A.Num(), 1u );
 }
 
@@ -320,7 +321,7 @@ TEST( UECoreSmallListSet, ClearedListsReturnTheirStorageForReuse )
     Set.Resize( 2 );
     for ( int e = 0; e < 12; ++e )
         Set.Insert( 0, e );
-    const SIZE_T Before = Set.GetByteCount();
+    const size_t Before = Set.GetByteCount();
     Set.Clear( 0 );
     EXPECT_FALSE( Set.IsAllocated( 0 ) );
     EXPECT_EQ( Set.GetCount( 0 ), 0 );
@@ -337,19 +338,19 @@ TEST( UECoreSmallListSet, FindReplaceMoveAndEarlyOut )
     for ( int e = 0; e < 10; ++e )
         Set.Insert( 0, e * 2 );
     // the spill is pushed at its head, so the newest spilled value (18) is found before 16
-    EXPECT_EQ( Set.Find( 0, []( int32 v ) { return v > 15; } ), 18 );
-    EXPECT_EQ( Set.Find( 0, []( int32 v ) { return v > 100; }, -7 ), -7 );
-    EXPECT_TRUE( Set.Replace( 0, []( int32 v ) { return v == 18; }, 99 ) ); // lives in the spill
+    EXPECT_EQ( Set.Find( 0, []( int32_t v ) { return v > 15; } ), 18 );
+    EXPECT_EQ( Set.Find( 0, []( int32_t v ) { return v > 100; }, -7 ), -7 );
+    EXPECT_TRUE( Set.Replace( 0, []( int32_t v ) { return v == 18; }, 99 ) ); // lives in the spill
     EXPECT_TRUE( Set.Contains( 0, 99 ) );
     EXPECT_FALSE( Set.Contains( 0, 18 ) );
     int Visited = 0;
-    EXPECT_FALSE( Set.EnumerateEarlyOut( 0, [&]( int32 ) { return ++Visited < 3; } ) );
+    EXPECT_FALSE( Set.EnumerateEarlyOut( 0, [&]( int32_t ) { return ++Visited < 3; } ) );
     EXPECT_EQ( Visited, 3 );
     Set.Move( 0, 2 );
     EXPECT_FALSE( Set.IsAllocated( 0 ) );
     EXPECT_EQ( Set.GetCount( 2 ), 10 );
     std::vector<int> Mapped;
-    for ( int v : Set.MappedValues( 2, []( int32 v ) { return -v; } ) )
+    for ( int const v : Set.MappedValues( 2, []( int32_t v ) { return -v; } ) )
         Mapped.push_back( v );
     EXPECT_EQ( Mapped.size(), 10u );
 }

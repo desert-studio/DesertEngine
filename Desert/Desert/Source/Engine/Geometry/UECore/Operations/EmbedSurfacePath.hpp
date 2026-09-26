@@ -55,7 +55,7 @@ namespace Desert::Geometry
         }
 
         /** A point on edge EdgeID at LerpParam from the edge's first vertex (GetEdgeV order) to its second. */
-        static FMeshSurfacePoint MakeEdgePoint( int32 EdgeID, double LerpParam )
+        static FMeshSurfacePoint MakeEdgePoint( int32_t EdgeID, double LerpParam )
         {
             return { EdgeID, FVector3d( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge };
         }
