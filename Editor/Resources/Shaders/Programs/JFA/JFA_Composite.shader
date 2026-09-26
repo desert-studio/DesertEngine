@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"26886a6ee6613e93e8cae917eee73023","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "JFA_Composite"
 {
     Vertex

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a4151c46e9a6c08adc882779439b4699","Versions":{"SHDR":1},"Dependencies":[]}
 // Text IN THE WORLD: samples the multi-channel signed-distance font atlas and outputs EMISSIVE HDR
 // colour so the existing bloom pass picks up bright text for free (EmissiveIntensity > ~1 blooms).
 // Alpha-blended over the scene.

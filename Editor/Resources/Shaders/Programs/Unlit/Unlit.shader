@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"68041dd187501b26980a7415a7b882fc","Versions":{"SHDR":1},"Dependencies":[]}
 // Fully data-driven surface shader in the Desert Shader Language (single file: properties,
 // render state and all stages together). The Properties block both drives the Details UI and
 // (via Binding/TextureBinding) auto-generates this material's row of the shared `Materials[]`

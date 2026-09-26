@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"153c47916ea0c4d04785b281a7888c6a","Versions":{"SHDR":1},"Dependencies":[]}
 // Plain fullscreen copy of an (already tonemapped) image into the current framebuffer — used by the
 // standalone runtime to present the scene's final image to the swapchain WITHOUT ImGui. No tonemap here
 // (that already ran); just sample and write.

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"e94b07612049b42f3e565e49d2b0ca1f","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "ProceduralSky"
 {
     Fragment

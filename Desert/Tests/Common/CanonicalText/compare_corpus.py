@@ -17,7 +17,9 @@ it has one, states that GUID. .decloudtype format 3 -> CLTY 4 (AF7v), .destrings
 (T7d) and .skeleton 0 -> SKEL 1 (T7e) gain the header and had no version member to drop; .anim 3 -> ANIM 4 (T7e)
 swaps its top-level `Version` (not FormatVersion) for the header; .retarget RTGT 2 -> 3 (T7f) names its rig by
 {Guid, Path}, normalised back only when the Guid is the one the named cooked rig states; .decloudtype CLTY 4 -> 5 (T7h) names
-its noise volume the same way, the Guid the one the named .dcnv envelope states. The binary .dcnv
+its noise volume the same way, the Guid the one the named .dcnv envelope states. MATL 3 -> 4 (T7k) names the
+shader by {Guid, Path} in place of ShaderName, the Guid the one the named .shader comment header states and a
+header Dependency, and moves ShaderRefs into CloudAssets. The binary .dcnv
 bare DCNV 2 -> envelope DCNV 3 and .dcmv bare DCMV 2 -> envelope DCMV 3 (T7g) must carry the old bytes after
 magic and version as their one payload.
 Scene v29 (T6d) spells each SkyboxHandle as {Guid, Path}; normalised away only when Path is the old key and
@@ -398,6 +400,62 @@ def strip_cloud_type_noise_guid(root, old, new, ext):
     header["Dependencies"] = []
     return True
 
+_SHADER_HEADER_PREFIX = "// DesertAsset "
+
+
+def shader_header_guid(file):
+    """The GUID a `.shader` comment header (`// DesertAsset {...}` on line 1, T7j) states; None for a missing
+    or headerless file."""
+    try:
+        with open(file, "r", encoding="utf-8") as f:
+            line = f.readline()
+    except OSError:
+        return None
+    if not line.startswith(_SHADER_HEADER_PREFIX):
+        return None
+    return json.loads(line[len(_SHADER_HEADER_PREFIX):]).get("Guid")
+
+
+def strip_material_v4(root, old, new, ext):
+    """MATL 3 -> 4 (T7k): `ShaderName` becomes `Shader` {Guid, Path}: Path is `engine:Shaders/...` naming a
+    `.shader` whose file stem is the old name, Guid is the one that file's comment header states, and the
+    header gains that Guid as a Dependency. `ShaderRefs` (the cloud Medium) is dropped and each entry lands, in
+    order, at the end of CloudAssets. A material with no ShaderName gains no Shader. Normalised back to the v3
+    shape only when all of that holds. True when stripped."""
+    if ext != ".demat" or not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    old_h, new_h = old.get("Header", {}), new.get("Header", {})
+    if old_h.get("Versions") != {"MATL": 3} or new_h.get("Versions") != {"MATL": 4}:
+        return False
+    if "ShaderRefs" in new or "ShaderName" in new or not isinstance(old.get("ShaderRefs", []), list):
+        return False
+    moved = old.get("ShaderRefs", [])
+    clouds = new.get("CloudAssets", [])
+    if moved and clouds[len(clouds) - len(moved):] != moved:
+        return False
+    added = []
+    if "ShaderName" in old:
+        shader = new.get("Shader")
+        if not isinstance(shader, dict) or set(shader) != {"Guid", "Path"}:
+            return False
+        path, guid = shader["Path"], shader["Guid"]
+        if not path.startswith("engine:Shaders/") or not path.endswith(f"/{old['ShaderName']}.shader") or \
+                not guid or shader_header_guid(f"{root}/Editor/Resources/{path[len('engine:'):]}") != guid:
+            return False
+        added.append(guid)
+        del new["Shader"]
+        new["ShaderName"] = old["ShaderName"]
+    elif "Shader" in new:
+        return False
+    deps = new_h.get("Dependencies", [])
+    if len(deps) != len(set(deps)) or set(deps) != set(old_h.get("Dependencies", [])) | set(added):
+        return False
+    if moved:
+        new["CloudAssets"] = clouds[:len(clouds) - len(moved)]
+    new["ShaderRefs"] = old.get("ShaderRefs", [])
+    new_h["Versions"], new_h["Dependencies"] = {"MATL": 3}, old_h.get("Dependencies", [])
+    return True
+
 # The binary containers T7g moved into the AF1 envelope: (extension, bare magic = envelope subsystem tag).
 _BINARY_ENVELOPE_ROWS = ((".dcnv", b"DCNV"), (".dcmv", b"DCMV"))
 
@@ -480,6 +538,7 @@ def main():
             strip_material_v3(old, new, ext)
             strip_retarget_rig_guid(root, old, new, ext)
             strip_cloud_type_noise_guid(root, old, new, ext)
+            strip_material_v4(root, old, new, ext)
             if old != new:
                 differ.append(path)
             compared += 1

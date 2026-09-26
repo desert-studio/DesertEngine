@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "c2407e5571ff7898af741eafd1abdfeb",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["3facba2f99300a42b32d1af712ab96e9"]
+        "Dependencies": ["9d6d6db70d7f0b397eac782bfb709efd", "3facba2f99300a42b32d1af712ab96e9"]
     },
-    "ShaderName": "Terrain",
+    "Shader": {
+        "Guid": "9d6d6db70d7f0b397eac782bfb709efd",
+        "Path": "engine:Shaders/Programs/Terrain/Terrain.shader"
+    },
     "Params": [
         {
             "Name": "Tint",
@@ -25,6 +28,5 @@
             "Path": "assets:Textures/T_Checker.detex"
         }
     ],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

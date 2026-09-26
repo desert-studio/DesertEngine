@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"6ad853a043fe5bd0b7648f4d24d54bec","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SMAAEdges"
 {
     Fragment

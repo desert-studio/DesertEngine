@@ -26,7 +26,7 @@ namespace Desert::Editor::ThumbnailSubject
         if ( shaders == nullptr )
             return Common::MakeFormattedError<Preview>( "there is no shader service, so no domain to ask" );
 
-        const std::string shaderName = asset.Data().EffectiveShaderName();
+        const std::string shaderName = asset.GetShaderName();
         const auto        shader     = shaders->GetByName( shaderName );
         if ( !shader )
         {
@@ -76,7 +76,7 @@ namespace Desert::Editor::ThumbnailSubject
         // used to sit inside the create branch above, so a material the PRELOADER had already registered
         // never got one — and `AssetPreloader::PreloadCookedAssetsAndMaterials` registers every `.demat`
         // under MATERIAL_PATH with `loadAfterCreate=false`, i.e. as an unparsed shell. A shell states no
-        // ShaderName, `MaterialData::EffectiveShaderName()` answers "StaticMeshPBR", and every question
+        // ShaderName, `SurfaceMaterialAsset::GetShaderName()` answers "StaticMeshPBR", and every question
         // below was then answered about a material that does not exist.
         //
         // MEASURED, because this is what it cost: on a clean start of this repository the sweep resolved

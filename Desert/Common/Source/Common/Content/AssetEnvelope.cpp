@@ -1,3 +1,4 @@
+#include "ShaderAssetHeader.hpp"
 #include "AssetEnvelope.hpp"
 #include "TextAssetHeader.hpp"
 #include "MeshBinaryHeader.hpp"
@@ -694,8 +695,9 @@ namespace Common::Content
 
     std::span<const IAssetHeaderFormat* const> AssetHeaderFormats()
     {
-        static const std::array<const IAssetHeaderFormat*, 3> formats = {
-             &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(), &MeshBinaryHeaderFormat() };
+        static const std::array<const IAssetHeaderFormat*, 4> formats = {
+             &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(), &MeshBinaryHeaderFormat(),
+             &ShaderCommentHeaderFormat() };
         return formats;
     }
 

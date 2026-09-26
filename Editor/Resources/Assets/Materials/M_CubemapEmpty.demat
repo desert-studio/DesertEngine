@@ -3,13 +3,15 @@
         "Kind": "Material",
         "Guid": "a905758b34fc48a57331fdd92a087920",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["ff6a2128878c91093023d2e4786d87db"]
     },
-    "ShaderName": "Skybox",
+    "Shader": {
+        "Guid": "ff6a2128878c91093023d2e4786d87db",
+        "Path": "engine:Shaders/Programs/Skybox/Skybox.shader"
+    },
     "Params": [],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

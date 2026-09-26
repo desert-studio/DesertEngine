@@ -243,6 +243,9 @@ TEST( ProceduralEnvironmentCube, NoOneElseNamesTheRadianceCube )
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp",
          "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp",
          "Editor/Source/Editor/Panels/SceneProperties/ScenePropertiesPanel.cpp",
+         // The skybox viewer shows one .hdr FILE: it reads the SkyboxService's own MaterialSkybox for that
+         // asset, never a scene's composed environment, so the cube it samples is the one that is kept.
+         "Editor/Source/Editor/Panels/SkyboxViewer/SkyboxViewerDocument.cpp",
     };
 
     std::vector<std::string> sources;

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"34600f1a65791f76b91b3cb96781a18c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "StaticMeshPBR_Instanced"
 {
     // Instanced variant of StaticMeshPBR: same fragment (PBR.glsl.frag), but the vertex reads the per-instance

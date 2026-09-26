@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"0b8c0b888307fc59733a35328241c38c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "FXAA"
 {
     Fragment

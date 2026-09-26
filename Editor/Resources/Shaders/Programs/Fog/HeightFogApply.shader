@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"9f6026a483d3b89154b2785ba5c094df","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "HeightFogApply"
 {
     Fragment

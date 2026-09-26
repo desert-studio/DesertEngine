@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"2cd21e52ff88b0c7a42c25d9a6ab4238","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "StaticMeshGlass"
 {
     // Forward transparent (glass) pass for static meshes: shares Static.glsl.vert + the Materials[] SSBO with

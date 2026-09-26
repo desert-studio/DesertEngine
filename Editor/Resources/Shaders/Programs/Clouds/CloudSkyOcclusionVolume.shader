@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"d253a17d785feff199efb2b680ace87c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "CloudSkyOcclusionVolume"
 {
     Compute

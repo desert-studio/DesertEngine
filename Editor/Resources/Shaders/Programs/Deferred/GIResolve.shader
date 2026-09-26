@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"203f89c9e5810dbffdb218d62826b69d","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "GIResolve"
 {
     // One-bounce RSM indirect light resolved into its OWN buffer (rgb = indirect radiance), so the

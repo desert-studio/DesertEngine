@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "b6df26e549dc159e9ecd291422db4cc9",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["a210ced5741f721e9e8fb6a007fd6b76", "d94e908187d8af1402f059c246ca3844"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a210ced5741f721e9e8fb6a007fd6b76", "d94e908187d8af1402f059c246ca3844"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -134,6 +137,5 @@
             "Guid": "d94e908187d8af1402f059c246ca3844",
             "Path": "assets:Clouds/Layouts/O4_Bands.dclayout"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }

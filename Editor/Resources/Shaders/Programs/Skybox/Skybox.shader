@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"ff6a2128878c91093023d2e4786d87db","Versions":{"SHDR":1},"Dependencies":[]}
 // THE cubemap-domain program: colour per DIRECTION, geometry synthesized from gl_VertexIndex.
 //
 // Two consumers, one program:
