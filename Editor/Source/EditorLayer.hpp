@@ -241,7 +241,7 @@ namespace Desert::Editor
         // does NOT cache it — the palette is rebuilt only while it is open or when the control channel
         // asks, which is exactly when a fresh answer is wanted.
         static std::vector<Common::Filepath> CollectAvailableScenes();
-        void LoadScene( const Common::Filepath& path );
+        void                                 LoadScene( const Common::Filepath& path );
         void                                 LoadSceneInternal( const Common::Filepath& requested );
 
         void NewSceneInternal(); // clears the current scene to a fresh empty one (File -> New Scene / Ctrl+N)
@@ -486,12 +486,12 @@ namespace Desert::Editor
         // was garbage. It is read by the state snapshot the control channel publishes and by
         // CloseSceneView, which discards a play snapshot on the strength of it.
         EditorState m_EditorState = EditorState::Paused;
-        std::string m_PlaySnapshot;        // serialized scene captured on Play, restored on Stop
+        std::string m_PlaySnapshot; // serialized scene captured on Play, restored on Stop
         // A partitioned world in Play keeps only the camera's neighbourhood in the ECS (WorldStreamer.hpp);
         // null in Edit and for a world without a WorldPartition block. Ended before Stop restores the snapshot.
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
         double                                       m_WorldStreamClock = 0.0; // seconds of Play, for retries
-        bool        m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
+        bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 
     private:
         const Engine::Application* m_Application;
@@ -558,8 +558,8 @@ namespace Desert::Editor
         // ONE id source for documents AND viewports. They share the ImGui window-id space and the
         // authoring-context owner space, so two surfaces holding the same number would dock into one
         // window and fight over the selected bone.
-        SceneViewIdSource                           m_SceneViewIds;
-        uint64_t m_ActiveSceneId = kPrimarySceneViewId; // which document the editor is bound to
+        SceneViewIdSource m_SceneViewIds;
+        uint64_t          m_ActiveSceneId = kPrimarySceneViewId; // which document the editor is bound to
 
         // AssetTypeID -> the editor that opens it. Holds factories only; the documents it builds are owned by
         // m_OpenDocuments below.
@@ -667,25 +667,25 @@ namespace Desert::Editor
         // Bottom drawer (Assets / Logs / Shader Code). Collapsing SHRINKS the dock node to its tab bar
         // instead of closing the panels: a closed panel has to be rediscovered from a menu, a collapsed
         // one is still right there. m_BottomHeight remembers the expanded size across toggles.
-        ImGuiID m_BottomDockId    = 0;
-        bool    m_BottomCollapsed = false;
-        float   m_BottomHeight    = 0.0f;
-        void    DrawBottomDrawerToggle();
+        ImGuiID                                 m_BottomDockId    = 0;
+        bool                                    m_BottomCollapsed = false;
+        float                                   m_BottomHeight    = 0.0f;
+        void                                    DrawBottomDrawerToggle();
         char                                    m_LayoutNameBuf[64] = {};
         std::unique_ptr<Graphic::SceneRenderer> m_SceneRenderer;
-        bool                                    m_OpenScenePopup        = false;
-        bool                                    m_SaveSceneRequested    = false;
+        bool                                    m_OpenScenePopup     = false;
+        bool                                    m_SaveSceneRequested = false;
         // Set when "Save and Open" could not write the scene: the modal STAYS OPEN and shows this, so
         // the choice the user is making ("throw this scene away") is made knowing the save did not
         // happen. Cleared whenever the modal is dismissed.
-        std::string                             m_SaveAndOpenError;
-        bool                                    m_NewSceneRequested     = false;
-        bool                                    m_AddSceneViewRequested = false; // Scenes -> New Scene View
+        std::string m_SaveAndOpenError;
+        bool        m_NewSceneRequested     = false;
+        bool        m_AddSceneViewRequested = false; // Scenes -> New Scene View
         // Deferred for the same reason as the flag above: opening a viewport leases a renderer slot and
         // builds GPU resources, neither of which may happen inside the ImGui pass.
-        bool                                    m_AddSceneViewportRequested = false;
+        bool m_AddSceneViewportRequested = false;
         // Scene -> Four-Up Viewports. Deferred like the two above, and for the same reason.
-        bool                                    m_ViewportGridRequested = false;
+        bool m_ViewportGridRequested = false;
 
         // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
         // frame from OnUpdate, each announced on the splash, with the main window still hidden.
@@ -734,6 +734,8 @@ namespace Desert::Editor
         bool                                  m_Revealed = false;
         // The pending count the splash last showed during the settle, so the label is pushed on change only.
         size_t m_SplashOutstandingShown = SIZE_MAX;
+        // The splash's close was acted on (Application::Close asked once, not every frame until it lands).
+        bool m_QuitFromSplash = false;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // WHERE THE ELAPSED TOTAL LIVES NOW. It used to be a `long long` accumulated here with the
@@ -742,7 +744,7 @@ namespace Desert::Editor
         // alongside the line format, so that the shipping runtime's boot numbers and this one mean the
         // same thing. Nothing about the per-frame scheduler above moved.
         ::Desert::Core::BootTimeline m_Boot{ "Editor" };
-        bool                      StartupLoading() const
+        bool                         StartupLoading() const
         {
             return m_StartupNext < m_StartupStages.size();
         }

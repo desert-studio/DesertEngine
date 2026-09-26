@@ -1,6 +1,7 @@
 #include "WindowChrome.hpp"
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Widgets/WindowButtonStyle.hpp>
 #include <Editor/Widgets/WindowResizeMath.hpp>
 
 #include <Engine/Core/Window.hpp>
@@ -19,27 +20,27 @@ namespace Desert::Editor::UI
         // 4px invisible margin, which is where the number comes from.
         constexpr float kGripThickness = 6.0f;
 
-        // Every window button is one square of the bar's height, so the three of them read as one group
-        // and the hit target is the whole square rather than the glyph.
-        constexpr float kButtonWidth = 46.0f;
+        ImVec4 ToImGui( const ButtonColour& colour )
+        {
+            return ImVec4( colour.R, colour.G, colour.B, colour.A );
+        }
 
         /// One window button. Its own colours rather than the shared ToolbarButton, because close must go
-        /// red on hover and nothing else in the editor does that: a button that ends the session should not
-        /// look like the button that toggles a gizmo.
+        /// red on hover and nothing else in the editor does that. The colours, width and glyphs are the
+        /// ones the start-up splash draws with too (WindowButtonStyle.hpp).
         bool WindowButton( const char* id, const char* icon, const char* tooltip, bool danger )
         {
-            const ImVec4 hovered =
-                 danger ? ImVec4( 0.77f, 0.16f, 0.16f, 1.0f ) : ImVec4( 1.0f, 1.0f, 1.0f, 0.12f );
-            const ImVec4 active = danger ? ImVec4( 0.62f, 0.12f, 0.12f, 1.0f ) : ImVec4( 1.0f, 1.0f, 1.0f, 0.20f );
+            const ImVec4 hovered = ToImGui( danger ? kCloseButtonHovered : kWindowButtonHovered );
+            const ImVec4 active  = ToImGui( danger ? kCloseButtonPressed : kWindowButtonPressed );
 
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.0f, 0.0f, 0.0f, 0.0f ) );
             ImGui::PushStyleColor( ImGuiCol_ButtonHovered, hovered );
             ImGui::PushStyleColor( ImGuiCol_ButtonActive, active );
             ImGui::PushStyleVar( ImGuiStyleVar_FrameRounding, 0.0f );
 
-            const float height = ImGui::GetFrameHeight();
-            const bool  clicked =
-                 ImGui::Button( ( std::string( icon ) + "##" + id ).c_str(), ImVec2( kButtonWidth, height ) );
+            const float height  = ImGui::GetFrameHeight();
+            const bool  clicked = ImGui::Button( ( std::string( icon ) + "##" + id ).c_str(),
+                                                 ImVec2( kWindowButtonWidth, height ) );
 
             ImGui::PopStyleVar();
             ImGui::PopStyleColor( 3 );
@@ -53,7 +54,7 @@ namespace Desert::Editor::UI
 
     float WindowChrome::WindowButtonsWidth()
     {
-        return kButtonWidth * 3.0f;
+        return kWindowButtonWidth * 3.0f;
     }
 
     float WindowChrome::DrawWindowButtons()
@@ -66,7 +67,7 @@ namespace Desert::Editor::UI
         // between them would read as three unrelated controls.
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 0.0f, 0.0f ) );
 
-        if ( WindowButton( "min", ICON_MDI_WINDOW_MINIMIZE, "Minimize", false ) )
+        if ( WindowButton( "min", kMinimizeGlyph, "Minimize", false ) )
             m_Window.Minimize();
         ImGui::SameLine();
 
@@ -84,7 +85,7 @@ namespace Desert::Editor::UI
         }
         ImGui::SameLine();
 
-        if ( WindowButton( "close", ICON_MDI_WINDOW_CLOSE, "Close the editor", true ) && m_OnCloseRequested )
+        if ( WindowButton( "close", kCloseGlyph, "Close the editor", true ) && m_OnCloseRequested )
             m_OnCloseRequested();
 
         ImGui::PopStyleVar();
