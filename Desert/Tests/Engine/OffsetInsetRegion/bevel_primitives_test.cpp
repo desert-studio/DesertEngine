@@ -111,6 +111,7 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
     std::vector<int32_t> Corners;
     const DynamicMesh3   Mesh = Square( Corners );
     std::vector<int32_t> Edges;
+    Edges.reserve( 4 );
     for ( int32_t i = 0; i < 4; ++i )
         Edges.push_back( Mesh.FindEdge( Corners[i], Corners[( i + 1 ) % 4] ) );
 

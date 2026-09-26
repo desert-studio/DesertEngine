@@ -32,7 +32,8 @@ namespace Desert::Geometry
             {
                 const glm::dvec3 Lo( QueryPoint.x - Radius, QueryPoint.y - Radius, QueryPoint.z - Radius );
                 const glm::dvec3 Hi( QueryPoint.x + Radius, QueryPoint.y + Radius, QueryPoint.z + Radius );
-                const auto      MinIdx = ToGrid( Lo ), MaxIdx = ToGrid( Hi );
+                const auto       MinIdx        = ToGrid( Lo );
+                const auto       MaxIdx        = ToGrid( Hi );
                 const double    RadiusSquared = Radius * Radius;
                 for ( int64_t zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
                     for ( int64_t yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
@@ -49,7 +50,7 @@ namespace Desert::Geometry
 
         private:
             using Key = std::array<int64_t, 3>;
-            Key ToGrid( const glm::dvec3& P ) const
+            [[nodiscard]] Key ToGrid( const glm::dvec3& P ) const
             {
                 return { static_cast<int64_t>( std::floor( P.x / m_CellSize ) ),
                          static_cast<int64_t>( std::floor( P.y / m_CellSize ) ),
@@ -96,7 +97,10 @@ namespace Desert::Geometry
         PointHashGrid3          MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
-        glm::dvec3           A{}, B{}, C{}, D{};
+        glm::dvec3           A{};
+        glm::dvec3           B{};
+        glm::dvec3           C{};
+        glm::dvec3           D{};
         std::vector<int>     equivBuffer;
         std::vector<int32_t> SearchMatches;
 
@@ -105,7 +109,7 @@ namespace Desert::Geometry
         using EdgesList = std::vector<int>;
         std::vector<std::unique_ptr<EdgesList>> EquivalenceSets( static_cast<size_t>( m_Mesh->MaxEdgeID() ) );
         std::unordered_set<int>                 RemainingEdges;
-        for ( int eid : m_Mesh->BoundaryEdgeIndicesItr() )
+        for ( int const eid : m_Mesh->BoundaryEdgeIndicesItr() )
         {
             const glm::dvec3 midpt = BoundaryMidPoints[ToMidPt[eid]];
             SearchMatches.clear();
@@ -145,7 +149,7 @@ namespace Desert::Geometry
         // potential duplicates, fewest possible matches first
         IndexPriorityQueue DuplicatesQueue;
         DuplicatesQueue.Initialize( m_Mesh->MaxEdgeID() );
-        for ( int eid : std::vector( RemainingEdges.begin(), RemainingEdges.end() ) )
+        for ( int const eid : std::vector( RemainingEdges.begin(), RemainingEdges.end() ) )
         {
             if ( m_OnlyUniquePairs )
             {
@@ -157,7 +161,8 @@ namespace Desert::Geometry
                      ( *EquivalenceSets[other_eid] )[0] != eid )
                     continue;
             }
-            DuplicatesQueue.Insert( eid, static_cast<int32_t>( (float)EquivalenceSets[eid]->size() ) );
+            DuplicatesQueue.Insert( eid,
+                                    static_cast<int32_t>( static_cast<float>( EquivalenceSets[eid]->size() ) ) );
         }
 
         // greedy merge
@@ -208,7 +213,7 @@ namespace Desert::Geometry
         }
 
         m_FinalNumBoundaryEdges = 0;
-        for ( int eid : m_Mesh->BoundaryEdgeIndicesItr() )
+        for ( int const eid : m_Mesh->BoundaryEdgeIndicesItr() )
         {
             (void)eid;
             m_FinalNumBoundaryEdges++;

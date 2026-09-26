@@ -14,7 +14,7 @@ namespace Desert::Geometry::PolygonTriangulation
     {
         PlaneNormalOut            = glm::vec<3, T>( 0 );
         PlanePointOut             = glm::vec<3, T>( 0 );
-        const int32_t NumVertices = static_cast<int32_t>( VertexPositions.size() );
+        const auto NumVertices    = static_cast<int32_t>( VertexPositions.size() );
         // Newell's method: the sum over edges gives twice the projected area on each axis plane.
         for ( int32_t VertexNumberI = NumVertices - 1, VertexNumberJ = 0; VertexNumberJ < NumVertices;
               VertexNumberI = VertexNumberJ++ )
@@ -69,7 +69,7 @@ namespace Desert::Geometry::PolygonTriangulation
 
         OutTriangles.clear();
 
-        const int32_t PolygonVertexCount = static_cast<int32_t>( VertexPositions.size() );
+        const auto PolygonVertexCount = static_cast<int32_t>( VertexPositions.size() );
         if ( PolygonVertexCount < 3 )
         {
             return;

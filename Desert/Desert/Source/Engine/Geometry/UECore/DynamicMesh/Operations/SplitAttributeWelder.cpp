@@ -19,7 +19,7 @@ namespace Desert::Geometry
             Overlay.GetVertexElements( ParentVID, ElementIDs );
 
             // the number of elements at one vertex is small: simple O(n^2), as UE
-            const int32_t    NumElements = static_cast<int32_t>( ElementIDs.size() );
+            const auto       NumElements = static_cast<int32_t>( ElementIDs.size() );
             std::vector<int> ConsumedMask;
             ConsumedMask.resize( NumElements );
             for ( int32_t i = 0; i < NumElements; ++i )
@@ -35,7 +35,7 @@ namespace Desert::Geometry
                     if ( !ShouldWeld( eid, oeid ) )
                         continue;
                     ConsumedMask[j] = 1;
-                    for ( int TID : ParentMesh->VtxTrianglesItr( ParentVID ) )
+                    for ( int const TID : ParentMesh->VtxTrianglesItr( ParentVID ) )
                     {
                         if ( !Overlay.IsSetTriangle( TID ) )
                             continue;
@@ -60,7 +60,7 @@ namespace Desert::Geometry
     void SplitAttributeWelder::WeldSplitElements( DynamicMesh3& ParentMesh, const int32_t ParentVID )
     {
         DynamicMeshAttributeSet* Attributes = ParentMesh.Attributes();
-        if ( !Attributes || !ParentMesh.IsVertex( ParentVID ) )
+        if ( ( Attributes == nullptr ) || !ParentMesh.IsVertex( ParentVID ) )
             return;
         for ( int32_t i = 0, I = Attributes->NumUVLayers(); i < I; ++i )
             WeldSplitUVs( ParentVID, *Attributes->GetUVLayer( i ), m_UVDistSqrdThreshold );
@@ -75,7 +75,7 @@ namespace Desert::Geometry
 
     void SplitAttributeWelder::WeldSplitElements( DynamicMesh3& ParentMesh )
     {
-        for ( int vid : ParentMesh.VertexIndicesItr() )
+        for ( int const vid : ParentMesh.VertexIndicesItr() )
             WeldSplitElements( ParentMesh, vid );
     }
 
@@ -86,7 +86,8 @@ namespace Desert::Geometry
         const float          Threshold  = std::max( UVDistSqrdThreshold, 0.f );
         auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
-            const glm::vec2 UV = Overlay.GetElement( eid ), otherUV = Overlay.GetElement( oeid );
+            const glm::vec2 UV      = Overlay.GetElement( eid );
+            const glm::vec2 otherUV = Overlay.GetElement( oeid );
             const float     dx = UV.x - otherUV.x;
             const float     dy = UV.y - otherUV.y;
             return dx * dx + dy * dy <= Threshold;
@@ -116,7 +117,8 @@ namespace Desert::Geometry
                 }
                 return V;
             };
-            bool            bVecNormalized = false, bOtherVecNormalized = false;
+            bool            bVecNormalized      = false;
+            bool            bOtherVecNormalized = false;
             const glm::vec3 Vec      = Unit( Overlay.GetElement( eid ), bVecNormalized );
             const glm::vec3 otherVec = Unit( Overlay.GetElement( oeid ), bOtherVecNormalized );
             if ( bVecNormalized && bOtherVecNormalized )
@@ -136,7 +138,8 @@ namespace Desert::Geometry
         const float          Threshold  = std::max( ColorDistSqrdThreshold, 0.f );
         auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
-            const glm::vec4 A = Overlay.GetElement( eid ), B = Overlay.GetElement( oeid );
+            const glm::vec4 A    = Overlay.GetElement( eid );
+            const glm::vec4 B    = Overlay.GetElement( oeid );
             const float     d[4] = { A.x - B.x, A.y - B.y, A.z - B.z, A.w - B.w };
             return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] + d[3] * d[3] <= Threshold;
         };

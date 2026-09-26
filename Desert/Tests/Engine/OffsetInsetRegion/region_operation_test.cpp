@@ -41,7 +41,9 @@ namespace
     // UVs; face f's triangles are 2f and 2f+1. Faces: +X, -X, +Y, -Y, +Z, -Z.
     RenderMeshData HardCube( float half )
     {
-        const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
+        const glm::vec3 X( 1, 0, 0 );
+        const glm::vec3 Y( 0, 1, 0 );
+        const glm::vec3 Z( 0, 0, 1 );
         struct Face
         {
             glm::vec3 N{}, U{}, V{};
@@ -52,7 +54,7 @@ namespace
         for ( const Face& face : faces )
         {
             const glm::vec3 c    = face.N * half;
-            const uint32_t  base = static_cast<uint32_t>( vertices.size() );
+            const auto      base = static_cast<uint32_t>( vertices.size() );
             vertices.push_back( MakeVertex( c - face.U * half - face.V * half, face.N, face.U, { 0, 0 } ) );
             vertices.push_back( MakeVertex( c + face.U * half - face.V * half, face.N, face.U, { 1, 0 } ) );
             vertices.push_back( MakeVertex( c + face.U * half + face.V * half, face.N, face.U, { 1, 1 } ) );
@@ -81,7 +83,7 @@ namespace
         DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
         EXPECT_TRUE( mesh.Attributes()->HasTangentSpace() );
         mesh.EnableTriangleGroups();
-        for ( int t : mesh.TriangleIndicesItr() )
+        for ( int const t : mesh.TriangleIndicesItr() )
             mesh.SetTriangleGroup( t, 1 + t / 2 );
         return mesh;
     }
@@ -89,7 +91,7 @@ namespace
     ElementSelection Groups( const DynamicMesh3& mesh, std::initializer_list<int> faces )
     {
         ElementSelection selection( ElementMode::PolyGroup );
-        for ( int f : faces )
+        for ( int const f : faces )
             EXPECT_TRUE( selection.Add( mesh, f + 1 ).IsSuccess() ) << "face " << f;
         return selection;
     }
@@ -113,8 +115,8 @@ TEST( RegionOperation, TangentCubeImportsWithTheTopFaceWhereTheTestSaysItIs )
 // orthogonal to the normal at every render vertex, and return its region in PolyGroup mode.
 TEST( RegionOperation, EveryOperationOnATangentCubeRendersBack )
 {
-    for ( RegionOperation operation : { RegionOperation::Extrude, RegionOperation::PushPull,
-                                        RegionOperation::Inset, RegionOperation::Outset } )
+    for ( RegionOperation const operation : { RegionOperation::Extrude, RegionOperation::PushPull,
+                                              RegionOperation::Inset, RegionOperation::Outset } )
     {
         SCOPED_TRACE( ToString( operation ) );
         const DynamicMesh3  before = TangentCube();
@@ -146,7 +148,7 @@ TEST( RegionOperation, ExtrudeLiftsTheTopFaceByTheDistance )
     const ElementSelection triangles =
          ConvertSelection( *done.Mesh, topology, done.Selection, ElementMode::Triangle );
     ASSERT_EQ( triangles.Size(), 2u );
-    for ( int t : triangles.Ids() )
+    for ( int const t : triangles.Ids() )
     {
         const Index3i tri = done.Mesh->GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
@@ -169,7 +171,7 @@ TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
     ASSERT_EQ( triangles.Size(), 4u );
     const double    step = 20.0 / std::sqrt( 2.0 );
     const glm::dvec3 move( step, 0.0, step );
-    for ( int t : triangles.Ids() )
+    for ( int const t : triangles.Ids() )
     {
         const Index3i tri = done.Mesh->GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
@@ -219,7 +221,7 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
     DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
     ASSERT_EQ( mesh.VertexCount(), 36 ); // no corner is shared: 12 loose triangles
     int openBefore = 0;
-    for ( int e : mesh.BoundaryEdgeIndicesItr() )
+    for ( int const e : mesh.BoundaryEdgeIndicesItr() )
         openBefore += e >= 0 ? 1 : 0;
     ASSERT_EQ( openBefore, 36 );
 
@@ -269,10 +271,10 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
     EXPECT_EQ( static_cast<int32_t>( filler.m_NewTriangles.size() ), 4 );
     EXPECT_TRUE( mesh.IsClosed() );
     int open = 0;
-    for ( int e : mesh.BoundaryEdgeIndicesItr() )
+    for ( int const e : mesh.BoundaryEdgeIndicesItr() )
         open += e >= 0 ? 1 : 0;
     EXPECT_EQ( open, 0 );
-    for ( int t : filler.m_NewTriangles )
+    for ( int const t : filler.m_NewTriangles )
         EXPECT_NEAR( mesh.GetTriNormal( t ).z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
 
     DynamicMeshEditor editor( &mesh );

@@ -11,7 +11,7 @@ namespace Desert::Geometry
     void ComputeInsetLineSegmentsFromEdges( const DynamicMesh3& Mesh, const std::vector<int32_t>& EdgeList,
                                             double InsetDistance, std::vector<Line3d>& InsetLinesOut )
     {
-        const int32_t NumEdges = static_cast<int32_t>( EdgeList.size() );
+        const auto NumEdges = static_cast<int32_t>( EdgeList.size() );
         InsetLinesOut.resize( NumEdges );
         for ( int32_t k = 0; k < NumEdges; ++k )
         {
@@ -61,7 +61,7 @@ namespace Desert::Geometry
                                                   const std::vector<int32_t>& VertexIDs,
                                                   std::vector<glm::dvec3>& VertexPositionsOut, bool bIsLoop )
     {
-        const int32_t NumVertices = static_cast<int32_t>( VertexIDs.size() );
+        const auto NumVertices = static_cast<int32_t>( VertexIDs.size() );
         VertexPositionsOut.resize( NumVertices );
 
         int32_t StartIndex = 0;

@@ -79,7 +79,7 @@ namespace
             {
                 ASSERT_GT( static_cast<int32_t>( Boundary.GroupEdges.size() ), 0 );
                 std::map<int, int> EndpointUses;
-                for ( int E : Boundary.GroupEdges )
+                for ( int const E : Boundary.GroupEdges )
                 {
                     const auto& V = Topo.GetGroupEdgeVertices( E );
                     ASSERT_GE( static_cast<int32_t>( V.size() ), 2 );
@@ -104,12 +104,12 @@ namespace
     {
         std::map<int, int> Owner;
         for ( int G = 0; G < static_cast<int32_t>( Topo.m_Edges.size() ); ++G )
-            for ( int Eid : Topo.GetGroupEdgeEdges( G ) )
+            for ( int const Eid : Topo.GetGroupEdgeEdges( G ) )
             {
                 EXPECT_EQ( Owner.count( Eid ), 0u ) << "mesh edge " << Eid << " in two group edges";
                 Owner[Eid] = G;
             }
-        for ( int Eid : Mesh.EdgeIndicesItr() )
+        for ( int const Eid : Mesh.EdgeIndicesItr() )
         {
             const Index2i Et = Mesh.GetEdgeT( Eid );
             const bool    bOnG =
@@ -146,7 +146,9 @@ TEST( GroupTopology, CubeHasSixGroupsEightCornersTwelveEdges )
     }
     for ( int C = 0; C < static_cast<int32_t>( Topo.m_Corners.size() ); ++C )
     {
-        std::vector<int> NbrEdges, NbrCorners, NbrGroups;
+        std::vector<int> NbrEdges;
+        std::vector<int> NbrCorners;
+        std::vector<int> NbrGroups;
         Topo.FindCornerNbrEdges( C, NbrEdges );
         Topo.FindCornerNbrCorners( C, NbrCorners );
         Topo.FindCornerNbrGroups( C, NbrGroups );
@@ -212,7 +214,7 @@ TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
 {
     const int           Groups[6] = { 0, 7, 0, 0, 0, 0 }; // face 1 (z = Side) is group 7
     const DynamicMesh3  Mesh      = MakeCube( Groups );
-    GroupTopology       Topo( &Mesh, true );
+    GroupTopology const Topo( &Mesh, true );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 2 );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 0 );
     ASSERT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 1 );
@@ -234,7 +236,7 @@ TEST( GroupTopology, TriangleTopologyIsTheMeshItself )
 {
     const int              Groups[6] = { 0, 1, 2, 3, 4, 5 };
     const DynamicMesh3     Mesh      = MakeCube( Groups );
-    TriangleGroupTopology  Topo( &Mesh, true );
+    TriangleGroupTopology const Topo( &Mesh, true );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 12 );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 8 );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 18 );

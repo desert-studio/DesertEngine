@@ -61,7 +61,9 @@ namespace
     // A cube with one quad per face (24 render vertices), faces 0-2 material 0, faces 3-5 material 1.
     RenderMeshData HardCube( float half )
     {
-        const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
+        const glm::vec3 X( 1, 0, 0 );
+        const glm::vec3 Y( 0, 1, 0 );
+        const glm::vec3 Z( 0, 0, 1 );
         struct Face
         {
             glm::vec3 N{}, U{}, V{};
@@ -76,7 +78,7 @@ namespace
             {
                 const Face&     face = faces[f];
                 const glm::vec3 c    = face.N * half;
-                const uint32_t  base = static_cast<uint32_t>( vertices.size() );
+                const auto      base = static_cast<uint32_t>( vertices.size() );
                 vertices.push_back( MakeVertex( c - face.U * half - face.V * half, face.N, face.U, { 0, 0 } ) );
                 vertices.push_back( MakeVertex( c + face.U * half - face.V * half, face.N, face.U, { 1, 0 } ) );
                 vertices.push_back( MakeVertex( c + face.U * half + face.V * half, face.N, face.U, { 1, 1 } ) );
@@ -137,7 +139,8 @@ namespace
         {
             std::vector<Vertex> vertices;
             std::vector<Index>  indices;
-            const int           x0 = half * cells / 2, x1 = ( half + 1 ) * cells / 2;
+            const int           x0 = half * cells / 2;
+            const int           x1 = ( half + 1 ) * cells / 2;
             const int           w = x1 - x0 + 1;
             for ( int z = 0; z <= cells; ++z )
                 for ( int x = x0; x <= x1; ++x )
@@ -147,7 +150,10 @@ namespace
             for ( int z = 0; z < cells; ++z )
                 for ( int x = 0; x < w - 1; ++x )
                 {
-                    const uint32_t a = z * w + x, b = a + 1, c = a + w, d = c + 1;
+                    const uint32_t a = z * w + x;
+                    const uint32_t b = a + 1;
+                    const uint32_t c = a + w;
+                    const uint32_t d = c + 1;
                     indices.push_back( { a, c, b } );
                     indices.push_back( { b, c, d } );
                 }
@@ -341,8 +347,9 @@ TEST( DynamicMesh3Render, NewCoreMatchesEditMeshToRenderMesh )
         int bitangentDiffers = 0;
         for ( size_t i = 0; i < expected.Vertices.size(); ++i )
         {
-            const glm::vec3 a = expected.Vertices[i].Bitangent, b = actual.Vertices[i].Bitangent;
-            bitangentDiffers += std::memcmp( &a, &b, sizeof( a ) ) != 0;
+            const glm::vec3 a = expected.Vertices[i].Bitangent;
+            const glm::vec3 b = actual.Vertices[i].Bitangent;
+            bitangentDiffers += static_cast<int>( std::memcmp( &a, &b, sizeof( a ) ) != 0 );
             EXPECT_LT( glm::length( a - b ), 1e-6f );
             expected.Vertices[i].Bitangent = actual.Vertices[i].Bitangent = glm::vec3( 0.0f );
         }

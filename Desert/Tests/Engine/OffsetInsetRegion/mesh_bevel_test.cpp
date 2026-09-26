@@ -1417,6 +1417,7 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
     const DynamicMesh3   base = TangentCube( 1 );
     const GroupTopology  baseTopology( &base, true );
     std::vector<int32_t> allEdges;
+    allEdges.reserve( static_cast<int32_t>( baseTopology.m_Edges.size() ) );
     for ( int e = 0; e < static_cast<int32_t>( baseTopology.m_Edges.size() ); ++e )
         allEdges.push_back( e );
     ASSERT_EQ( static_cast<int32_t>( allEdges.size() ), 12 );
@@ -1541,6 +1542,7 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
         const DynamicMesh3   base = Pyramid( n );
         const GroupTopology  topology( &base, true );
         std::vector<int32_t> lateral;
+        lateral.reserve( n );
         for ( int i = 0; i < n; ++i )
             lateral.push_back( GroupEdgeBetween( topology, 1 + i, 1 + ( i + 1 ) % n ) );
         const double original = SignedVolume( base );
@@ -1654,6 +1656,7 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
     }
     const GroupTopology  topology( &fan, true );
     std::vector<int32_t> groupEdges;
+    groupEdges.reserve( 5 );
     for ( int s = 0; s < 5; ++s )
         groupEdges.push_back( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
     FRoundRun run{ fan };

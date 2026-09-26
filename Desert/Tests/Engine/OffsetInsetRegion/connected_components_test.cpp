@@ -27,7 +27,10 @@ namespace
         }
         for ( int q = 0; q < 4; ++q )
         {
-            const int a = 2 * q, b = 2 * q + 2, c = 2 * q + 3, d = 2 * q + 1;
+            const int a     = 2 * q;
+            const int b     = 2 * q + 2;
+            const int c     = 2 * q + 3;
+            const int d     = 2 * q + 1;
             const int group = q < 2 ? 1 : 2;
             EXPECT_EQ( mesh.AppendTriangle( a, b, c, group ), 2 * q );
             EXPECT_EQ( mesh.AppendTriangle( a, c, d, group ), 2 * q + 1 );
@@ -115,15 +118,17 @@ namespace
         for ( int v = 0; v < 14; ++v )
         {
             const glm::dvec3 p = mesh.GetVertex( v );
-            shared.push_back( uv->AppendElement( glm::vec2( float( p.x ), float( p.y ) ) ) );
+            shared.push_back(
+                 uv->AppendElement( glm::vec2( static_cast<float>( p.x ), static_cast<float>( p.y ) ) ) );
         }
         std::vector<int> own( 14, -1 );
-        for ( int v : { 2, 3, 4, 5 } )
+        for ( int const v : { 2, 3, 4, 5 } )
         {
             const glm::dvec3 p = mesh.GetVertex( v );
-            own[v]             = uv->AppendElement( glm::vec2( float( p.x ) + 10.0f, float( p.y ) + 10.0f ) );
+            own[v]             = uv->AppendElement(
+                 glm::vec2( static_cast<float>( p.x ) + 10.0f, static_cast<float>( p.y ) + 10.0f ) );
         }
-        for ( int t : mesh.TriangleIndicesItr() )
+        for ( int const t : mesh.TriangleIndicesItr() )
         {
             const Index3i  tri      = mesh.GetTriangle( t );
             const bool     inRegion = bSeamAroundRegion && ( t == 2 || t == 3 );
@@ -147,7 +152,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
     MeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     ASSERT_TRUE( loops.GetLoopOverlayMap( loops.m_Loops[0], uv, map ) );
     ASSERT_EQ( static_cast<int32_t>( map.size() ), 4 );
-    for ( int v : { 2, 3, 4, 5 } )
+    for ( int const v : { 2, 3, 4, 5 } )
     {
         const auto* entry = FindValue( map, v );
         ASSERT_NE( entry, nullptr ) << "vertex " << v;
@@ -161,7 +166,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
     ASSERT_EQ( mesh.RemoveTriangle( 2 ), MeshResult::Ok );
     ASSERT_EQ( mesh.RemoveTriangle( 3 ), MeshResult::Ok );
     MeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity( map, uv );
-    for ( int v : { 2, 3, 4, 5 } )
+    for ( int const v : { 2, 3, 4, 5 } )
         EXPECT_EQ( map[v].first, IndexConstants::InvalidID ) << "vertex " << v;
 }
 
@@ -178,7 +183,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheEl
     ASSERT_EQ( mesh.RemoveTriangle( 3 ), MeshResult::Ok );
     MeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity( map, uv );
     ASSERT_EQ( static_cast<int32_t>( map.size() ), 4 );
-    for ( int v : { 2, 3, 4, 5 } )
+    for ( int const v : { 2, 3, 4, 5 } )
     {
         EXPECT_TRUE( uv.IsElement( map[v].first ) ) << "vertex " << v;
         EXPECT_FLOAT_EQ( map[v].second.x, float( mesh.GetVertex( v ).x ) ) << "vertex " << v;
@@ -188,7 +193,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheEl
 TEST( MeshRegionBoundaryLoops, LoopOverlayMapRefusesALoopOfAnotherRegion )
 {
     const DynamicMesh3            mesh = StripWithUVs( false );
-    MeshRegionBoundaryLoops       quad0( &mesh, { 0, 1 } );
+    MeshRegionBoundaryLoops const quad0( &mesh, { 0, 1 } );
     const MeshRegionBoundaryLoops quad3( &mesh, { 6, 7 } );
     ASSERT_EQ( static_cast<int32_t>( quad3.m_Loops.size() ), 1 );
     MeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;

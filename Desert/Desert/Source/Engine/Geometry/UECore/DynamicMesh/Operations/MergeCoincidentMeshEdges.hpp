@@ -52,14 +52,17 @@ namespace Desert::Geometry
         double m_MergeVtxDistSqr = 0; // cached
 
         // the endpoint order is unknown, so both combinations are tried
-        bool IsSameEdge( const glm::dvec3& a, const glm::dvec3& b, const glm::dvec3& c, const glm::dvec3& d ) const
+        [[nodiscard]] bool IsSameEdge( const glm::dvec3& a, const glm::dvec3& b, const glm::dvec3& c,
+                                       const glm::dvec3& d ) const
         {
             return ( DistSq( a, c ) < m_MergeVtxDistSqr && DistSq( b, d ) < m_MergeVtxDistSqr ) ||
                    ( DistSq( a, d ) < m_MergeVtxDistSqr && DistSq( b, c ) < m_MergeVtxDistSqr );
         }
         static double DistSq( const glm::dvec3& a, const glm::dvec3& b )
         {
-            const double x = a.x - b.x, y = a.y - b.y, z = a.z - b.z;
+            const double x = a.x - b.x;
+            const double y = a.y - b.y;
+            const double z = a.z - b.z;
             return x * x + y * y + z * z;
         }
     };

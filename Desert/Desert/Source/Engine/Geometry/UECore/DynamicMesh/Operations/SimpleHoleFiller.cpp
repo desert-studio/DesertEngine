@@ -47,7 +47,7 @@ bool SimpleHoleFiller::Fill( int GroupID )
 
 bool SimpleHoleFiller::Fill_Fan( int GroupID )
 {
-    glm::dvec3 C = glm::dvec3( 0 );
+    auto C = glm::dvec3( 0 );
     for ( int i = 0; i < m_Loop.GetVertexCount(); ++i )
         C += m_Mesh->GetVertex( m_Loop.Vertices[i] );
     C *= 1.0 / m_Loop.GetVertexCount();

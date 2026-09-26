@@ -21,7 +21,8 @@ namespace
         M.EnableAttributes();
         const double S = 100;
         for ( int i = 0; i < 8; ++i )
-            M.AppendVertex( glm::dvec3( ( i & 1 ) ? S : 0, ( i & 2 ) ? S : 0, ( i & 4 ) ? S : 0 ) );
+            M.AppendVertex( glm::dvec3( ( ( i & 1 ) != 0 ) ? S : 0, ( ( i & 2 ) != 0 ) ? S : 0,
+                                        ( ( i & 4 ) != 0 ) ? S : 0 ) );
         // Quads a,b,c,d counter-clockwise seen from outside (the render winding); DynamicMesh3 keeps UE's
         // clockwise front (see DynamicMeshRenderConversion.hpp), so each triangle takes corners 0, 2, 1.
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
@@ -38,15 +39,15 @@ namespace
     int CountGroups( const DynamicMesh3& M )
     {
         std::set<int> G;
-        for ( int t : M.TriangleIndicesItr() )
+        for ( int const t : M.TriangleIndicesItr() )
             G.insert( M.GetTriangleGroup( t ) );
-        return (int)G.size();
+        return static_cast<int>( G.size() );
     }
 
     int CountBoundaryEdges( const DynamicMesh3& M )
     {
         int N = 0;
-        for ( int e : M.EdgeIndicesItr() )
+        for ( int const e : M.EdgeIndicesItr() )
             N += M.IsBoundaryEdge( e ) ? 1 : 0;
         return N;
     }

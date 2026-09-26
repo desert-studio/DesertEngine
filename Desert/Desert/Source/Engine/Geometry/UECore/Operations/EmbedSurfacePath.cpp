@@ -178,14 +178,14 @@ namespace Desert::Geometry
                                            double SnapElementThresholdSq )
     {
         // used to track where the new vertices for *this* path start; used for bDoNotDuplicateFirstVertexID
-        const int32_t InitialPathIdx = static_cast<int32_t>( PathVertices.size() );
+        const auto InitialPathIdx = static_cast<int32_t>( PathVertices.size() );
 
         if ( m_Path.empty() )
         {
             return true;
         }
 
-        const int32_t           PathNum   = static_cast<int32_t>( m_Path.size() );
+        const auto              PathNum   = static_cast<int32_t>( m_Path.size() );
         const MeshSurfacePoint& OrigEndPt = m_Path[PathNum - 1].first;
         // If FinalTri is split or poked, we will need to re-locate the last point in the path
         int  StartProcessIdx         = 0;

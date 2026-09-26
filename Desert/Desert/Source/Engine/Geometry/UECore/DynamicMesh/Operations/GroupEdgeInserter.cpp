@@ -587,7 +587,7 @@ namespace Desert::Geometry
             // different point from the one the loop continues from on the other side.
             std::unordered_set<int32_t>   DisallowedVids;
             const GroupTopology::Group*   Group = Topology.FindGroupByID( GroupID );
-            if ( Common::EnsureOrWarn( Group, "Group" ) )
+            if ( Common::EnsureOrWarn( Group != nullptr, "Group" ) )
             {
                 for ( const GroupTopology::GroupBoundary& Boundary : Group->Boundaries )
                 {

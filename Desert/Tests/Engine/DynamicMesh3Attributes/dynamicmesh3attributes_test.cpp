@@ -59,16 +59,21 @@ namespace
         DynamicMeshUVOverlay*      UV = Attr->PrimaryUV();
         DynamicMeshNormalOverlay*  Nm = Attr->PrimaryNormals();
         DynamicMeshColorOverlay*   Cl = Attr->PrimaryColors();
-        std::vector<int>           UVLeft, UVRight, NmE, ClE;
+        std::vector<int>           UVLeft;
+        std::vector<int>           UVRight;
+        std::vector<int>           NmE;
+        std::vector<int>           ClE;
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
             {
-                UVLeft.push_back( UV->AppendElement( glm::vec2( x / float( N ), y / float( N ) ) ) );
-                UVRight.push_back( x == Seam
-                                        ? UV->AppendElement( glm::vec2( 1.0f + x / float( N ), y / float( N ) ) )
-                                        : UVLeft.back() );
+                UVLeft.push_back(
+                     UV->AppendElement( glm::vec2( x / static_cast<float>( N ), y / static_cast<float>( N ) ) ) );
+                UVRight.push_back( x == Seam ? UV->AppendElement( glm::vec2( 1.0f + x / static_cast<float>( N ),
+                                                                             y / static_cast<float>( N ) ) )
+                                             : UVLeft.back() );
                 NmE.push_back( Nm->AppendElement( glm::vec3( 0, 0, 1 ) ) );
-                ClE.push_back( Cl->AppendElement( glm::vec4( x / float( N ), y / float( N ), 0, 1 ) ) );
+                ClE.push_back( Cl->AppendElement(
+                     glm::vec4( x / static_cast<float>( N ), y / static_cast<float>( N ), 0, 1 ) ) );
             }
 
         for ( int y = 0; y < N; ++y )
@@ -136,7 +141,8 @@ TEST( DynamicMesh3Attributes, SplitOnTheSeamKeepsTwoElements )
 TEST( DynamicMesh3Attributes, SplitOffTheSeamSharesOneInterpolatedElement )
 {
     DynamicMesh3                  Mesh = MakeAttributedPlane();
-    const int                     A = GridV( 1, 1 ), B = GridV( 1, 2 );
+    const int                     A    = GridV( 1, 1 );
+    const int                     B    = GridV( 1, 2 );
     DynamicMesh3::EdgeSplitInfo   Info;
     ASSERT_EQ( Mesh.SplitEdge( A, B, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
@@ -192,7 +198,7 @@ TEST( DynamicMesh3Attributes, MergeEdgesWeldsOverlaysValid )
     const int              T0 = Mesh.AppendTriangle( 0, 1, 2 );
     const int              T1 = Mesh.AppendTriangle( 4, 3, 5 );
     DynamicMeshUVOverlay*  UV = Mesh.Attributes()->PrimaryUV();
-    for ( int Tid : { T0, T1 } )
+    for ( int const Tid : { T0, T1 } )
     {
         const Index3i T = Mesh.GetTriangle( Tid );
         UV->SetTriangle( Tid, Index3i( UV->AppendElement( glm::vec2( P[T.A].x, P[T.A].y ) ),
@@ -221,7 +227,7 @@ TEST( DynamicMesh3Attributes, CompactInPlaceRemapsEveryLayer )
     ASSERT_FALSE( Mesh.IsCompact() );
 
     int MaterialSum = 0;
-    for ( int Tid : Mesh.TriangleIndicesItr() )
+    for ( int const Tid : Mesh.TriangleIndicesItr() )
         MaterialSum += Material( Mesh, Tid );
 
     DynamicMeshCompactMaps Maps;
@@ -229,7 +235,7 @@ TEST( DynamicMesh3Attributes, CompactInPlaceRemapsEveryLayer )
     ASSERT_TRUE( Mesh.IsCompact() );
     ASSERT_TRUE( Valid( Mesh ) );
     int MaterialSumAfter = 0;
-    for ( int Tid : Mesh.TriangleIndicesItr() )
+    for ( int const Tid : Mesh.TriangleIndicesItr() )
         MaterialSumAfter += Material( Mesh, Tid );
     EXPECT_EQ( MaterialSumAfter, MaterialSum );
     // the seam survived the remap
@@ -284,16 +290,16 @@ TEST( DynamicMesh3Attributes, SetTriangleRefusesAttributedMeshes )
 // compaction. Three seeds, 150 edits each.
 TEST( DynamicMesh3Attributes, RandomEditSequenceKeepsEveryLayerValid )
 {
-    for ( unsigned Seed : { 1u, 7u, 42u } )
+    for ( unsigned const Seed : { 1u, 7u, 42u } )
     {
         DynamicMesh3  Mesh = MakeAttributedPlane();
         std::mt19937  Rng( Seed );
         int           Accepted = 0;
         for ( int Step = 0; Step < 150; ++Step )
         {
-            const int   Op     = int( Rng() % 4 );
-            const int   Eid    = int( Rng() % unsigned( Mesh.MaxEdgeID() ) );
-            const int   Tid    = int( Rng() % unsigned( Mesh.MaxTriangleID() ) );
+            const int   Op     = static_cast<int>( Rng() % 4 );
+            const int   Eid    = static_cast<int>( Rng() % static_cast<unsigned>( Mesh.MaxEdgeID() ) );
+            const int   Tid    = static_cast<int>( Rng() % static_cast<unsigned>( Mesh.MaxTriangleID() ) );
             MeshResult  Result = MeshResult::Failed_NotAnEdge;
             if ( Op == 0 && Mesh.IsEdge( Eid ) )
             {
@@ -332,12 +338,12 @@ TEST( DynamicMesh3Attributes, RandomEditSequenceKeepsEveryLayerValid )
 
 TEST( DynamicMesh3Attributes, PolygroupSetReadsTheLayer )
 {
-    DynamicMesh3 Mesh = MakeAttributedPlane();
-    PolygroupSet Default( &Mesh );
+    DynamicMesh3 const Mesh = MakeAttributedPlane();
+    PolygroupSet const Default( &Mesh );
     EXPECT_EQ( Default.GetPolygroupIndex(), -1 );
     PolygroupSet Layer( &Mesh, 0 );
     EXPECT_EQ( Layer.GetPolygroupIndex(), 0 );
-    for ( int Tid : Mesh.TriangleIndicesItr() )
+    for ( int const Tid : Mesh.TriangleIndicesItr() )
         EXPECT_EQ( Layer.GetGroup( Tid ), Group( Mesh, Tid ) );
     // UE's layer-index constructor returns before RecalculateMaxGroupID (MaxGroupID stays 0); ported as is.
     EXPECT_EQ( Layer.MaxGroupID, 0 );

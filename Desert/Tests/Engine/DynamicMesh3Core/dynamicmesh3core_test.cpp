@@ -56,7 +56,7 @@ namespace
     DynamicMesh3 MakeTorus( int NU, int NV, double R, double r )
     {
         DynamicMesh3  Mesh;
-        const double  TwoPi = glm::two_pi<double>();
+        const auto    TwoPi = glm::two_pi<double>();
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
             {
@@ -88,7 +88,7 @@ namespace
     int BoundaryEdges( const DynamicMesh3& Mesh )
     {
         int Count = 0;
-        for ( int EID : Mesh.EdgeIndicesItr() )
+        for ( int const EID : Mesh.EdgeIndicesItr() )
             Count += Mesh.IsBoundaryEdge( EID ) ? 1 : 0;
         return Count;
     }
@@ -96,7 +96,7 @@ namespace
     int BoundaryVertices( const DynamicMesh3& Mesh )
     {
         int Count = 0;
-        for ( int VID : Mesh.VertexIndicesItr() )
+        for ( int const VID : Mesh.VertexIndicesItr() )
             Count += Mesh.IsBoundaryVertex( VID ) ? 1 : 0;
         return Count;
     }
@@ -104,7 +104,7 @@ namespace
     double TotalArea( const DynamicMesh3& Mesh )
     {
         double Area = 0.0;
-        for ( int TID : Mesh.TriangleIndicesItr() )
+        for ( int const TID : Mesh.TriangleIndicesItr() )
             Area += Mesh.GetTriArea( TID );
         return Area;
     }
@@ -115,7 +115,7 @@ namespace
                                const DynamicMeshCompactMaps& Maps )
     {
         int Seen = 0;
-        for ( int TID : Before.TriangleIndicesItr() )
+        for ( int const TID : Before.TriangleIndicesItr() )
         {
             const int NewTID = Maps.GetTriangleMapping( TID );
             ASSERT_TRUE( After.IsTriangle( NewTID ) ) << "old triangle " << TID;
@@ -156,7 +156,7 @@ TEST( DynamicMesh3Core, CubeNormalsFollowUEWinding )
     // UE's triangle normal is (V2-V0)x(V1-V0): a triangle counter-clockwise from outside faces inward.
     const DynamicMesh3  Mesh = MakeCube();
     const glm::dvec3    Center( Side / 2, Side / 2, Side / 2 );
-    for ( int TID : Mesh.TriangleIndicesItr() )
+    for ( int const TID : Mesh.TriangleIndicesItr() )
     {
         const glm::dvec3 N = Mesh.GetTriNormal( TID );
         EXPECT_NEAR( glm::length( N ), 1.0, 1e-12 );
@@ -174,7 +174,7 @@ TEST( DynamicMesh3Core, CubeAdjacency )
 {
     const DynamicMesh3  Mesh       = MakeCube();
     int                 ValenceSum = 0;
-    for ( int VID : Mesh.VertexIndicesItr() )
+    for ( int const VID : Mesh.VertexIndicesItr() )
     {
         std::set<int> FromEdges;
         Mesh.EnumerateVertexEdges( VID, [&]( int32_t EID ) { FromEdges.insert( EID ); } );
@@ -184,11 +184,11 @@ TEST( DynamicMesh3Core, CubeAdjacency )
         std::set<int> Tris;
         Mesh.EnumerateVertexTriangles( VID, [&]( int32_t TID ) { Tris.insert( TID ); } );
         EXPECT_EQ( static_cast<int>( Tris.size() ), Mesh.GetVtxTriangleCount( VID ) );
-        for ( int TID : Tris )
+        for ( int const TID : Tris )
             EXPECT_GE( IndexUtil::FindTriIndex( VID, Mesh.GetTriangle( TID ) ), 0 );
 
         // one-ring neighbours are exactly the other ends of the vertex's edges, and FindEdge finds each
-        for ( int Nbr : Mesh.VtxVerticesItr( VID ) )
+        for ( int const Nbr : Mesh.VtxVerticesItr( VID ) )
         {
             const int EID = Mesh.FindEdge( VID, Nbr );
             ASSERT_NE( EID, DynamicMesh3::InvalidID );
@@ -200,13 +200,13 @@ TEST( DynamicMesh3Core, CubeAdjacency )
     EXPECT_EQ( ValenceSum, 2 * Mesh.EdgeCount() );
     EXPECT_EQ( Mesh.FindEdge( 0, 7 ), DynamicMesh3::InvalidID ); // body diagonal is not an edge
 
-    for ( int EID : Mesh.EdgeIndicesItr() )
+    for ( int const EID : Mesh.EdgeIndicesItr() )
     {
         const Index2i T = Mesh.GetEdgeT( EID );
         EXPECT_TRUE( Mesh.IsTriangle( T.A ) && Mesh.IsTriangle( T.B ) );
         EXPECT_EQ( Mesh.FindEdgeFromTriPair( T.A, T.B ), EID );
     }
-    for ( int TID : Mesh.TriangleIndicesItr() )
+    for ( int const TID : Mesh.TriangleIndicesItr() )
     {
         const Index3i Nbrs = Mesh.GetTriNeighbourTris( TID );
         for ( int k = 0; k < 3; ++k )
@@ -237,7 +237,7 @@ TEST( DynamicMesh3Core, PlaneBoundaryAndValence )
     EXPECT_EQ( Mesh.GetVtxBoundaryEdges( 0, e0, e1 ), 2 );
     EXPECT_TRUE( Mesh.IsBoundaryEdge( e0 ) && Mesh.IsBoundaryEdge( e1 ) );
     int BoundaryTris = 0;
-    for ( int TID : Mesh.TriangleIndicesItr() )
+    for ( int const TID : Mesh.TriangleIndicesItr() )
         BoundaryTris += Mesh.IsBoundaryTriangle( TID ) ? 1 : 0;
     EXPECT_EQ( BoundaryTris, 4 * N - 2 ); // two corner triangles each own two boundary edges
 }
@@ -249,7 +249,7 @@ TEST( DynamicMesh3Core, PlaneGroupsAndGroupBoundaries )
     ASSERT_TRUE( Mesh.HasTriangleGroups() );
     EXPECT_EQ( Mesh.MaxGroupID(), 3 );
     int GroupBoundary = 0;
-    for ( int EID : Mesh.EdgeIndicesItr() )
+    for ( int const EID : Mesh.EdgeIndicesItr() )
         GroupBoundary += Mesh.IsGroupBoundaryEdge( EID ) ? 1 : 0;
     EXPECT_EQ( GroupBoundary, N ); // the vertical line x = N/2
     const int OnSeam = 1 * ( N + 1 ) + N / 2;
@@ -266,7 +266,7 @@ TEST( DynamicMesh3Core, TorusIsClosedGenusOne )
     EXPECT_EQ( Mesh.EdgeCount(), 144 );
     EXPECT_EQ( Euler( Mesh ), 0 );
     EXPECT_TRUE( Mesh.IsClosed() );
-    for ( int VID : Mesh.VertexIndicesItr() )
+    for ( int const VID : Mesh.VertexIndicesItr() )
         EXPECT_EQ( Mesh.GetVtxEdgeCount( VID ), 6 );
 }
 
@@ -282,7 +282,7 @@ TEST( DynamicMesh3Core, RejectsNonManifoldAndDuplicateTriangles )
     // a duplicate is only detectable while its edges are still boundary edges
     DynamicMesh3 Single;
     for ( int i = 0; i < 3; ++i )
-        Single.AppendVertex( glm::dvec3( i * 10.0, ( i == 2 ) * 10.0, 0.0 ) );
+        Single.AppendVertex( glm::dvec3( i * 10.0, static_cast<double>( i == 2 ) * 10.0, 0.0 ) );
     EXPECT_EQ( Single.AppendTriangle( 0, 1, 2 ), 0 );
     EXPECT_EQ( Single.AppendTriangle( 0, 1, 2 ), DynamicMesh3::DuplicateTriangleID );
     EXPECT_EQ( Single.TriangleCount(), 1 );
@@ -334,7 +334,7 @@ TEST( DynamicMesh3Core, CompactCopyEqualsSourceGeometry )
     Source.SetVertexNormal( 7, glm::vec3( 1.0f, 0.0f, 0.0f ) );
     // Boundary triangles chosen so no vertex becomes a bowtie (7 instead of 6 would pinch vertex 3 and
     // CheckValidity rightly fails); removing all of quad 0 and corner triangle 6 also frees vertices 0 and 4.
-    for ( int TID : { 0, 1, 6, 31 } )
+    for ( int const TID : { 0, 1, 6, 31 } )
         ASSERT_EQ( Source.RemoveTriangle( TID ), MeshResult::Ok );
     ASSERT_FALSE( Source.IsCompact() );
     ASSERT_TRUE( Valid( Source ) );
@@ -352,9 +352,9 @@ TEST( DynamicMesh3Core, CompactCopyEqualsSourceGeometry )
     EXPECT_EQ( BoundaryEdges( Copy ), BoundaryEdges( Source ) );
     ExpectMappedGeometry( Source, Copy, Maps );
     ASSERT_TRUE( Copy.HasVertexNormals() && Copy.HasTriangleGroups() );
-    for ( int VID : Source.VertexIndicesItr() )
+    for ( int const VID : Source.VertexIndicesItr() )
         EXPECT_EQ( Copy.GetVertexNormal( Maps.GetVertexMapping( VID ) ), Source.GetVertexNormal( VID ) );
-    for ( int TID : Source.TriangleIndicesItr() )
+    for ( int const TID : Source.TriangleIndicesItr() )
         EXPECT_EQ( Copy.GetTriangleGroup( Maps.GetTriangleMapping( TID ) ), Source.GetTriangleGroup( TID ) );
     EXPECT_EQ( Copy.GetBounds().Min, Source.GetBounds().Min );
     EXPECT_EQ( Copy.GetBounds().Max, Source.GetBounds().Max );

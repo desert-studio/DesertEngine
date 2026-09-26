@@ -122,7 +122,7 @@ namespace
     struct FCounts
     {
         int V, E, T;
-        int Euler() const
+        [[nodiscard]] int Euler() const
         {
             return V - E + T;
         }
@@ -144,7 +144,7 @@ namespace
 
     int FirstInteriorEdge( const DynamicMesh3& Mesh )
     {
-        for ( int EID : Mesh.EdgeIndicesItr() )
+        for ( int const EID : Mesh.EdgeIndicesItr() )
             if ( !Mesh.IsBoundaryEdge( EID ) && !Mesh.IsBoundaryVertex( Mesh.GetEdgeV( EID ).A ) &&
                  !Mesh.IsBoundaryVertex( Mesh.GetEdgeV( EID ).B ) )
                 return EID;
@@ -159,7 +159,9 @@ TEST( DynamicMesh3Edits, SplitInteriorEdgeKeepsEulerAndNamesTheNewElements )
     for ( DynamicMesh3 Mesh : { MakeCube(), MakeTorus( 6, 4 ) } )
     {
         const FCounts  Before  = Counts( Mesh );
-        const int      OldMaxV = Mesh.MaxVertexID(), OldMaxT = Mesh.MaxTriangleID(), OldMaxE = Mesh.MaxEdgeID();
+        const int      OldMaxV = Mesh.MaxVertexID();
+        const int      OldMaxT = Mesh.MaxTriangleID();
+        const int      OldMaxE = Mesh.MaxEdgeID();
         const int      EID = 0;
         const Index2i  AB  = Mesh.GetEdgeV( EID );
         const Index2i  OV  = Mesh.GetEdgeOpposingV( EID );
@@ -181,7 +183,11 @@ TEST( DynamicMesh3Edits, SplitInteriorEdgeKeepsEulerAndNamesTheNewElements )
         EXPECT_EQ( Info.NewVertex, OldMaxV );
         EXPECT_GE( Info.NewTriangles.A, OldMaxT );
         EXPECT_GE( Info.NewTriangles.B, OldMaxT );
-        const int f = Info.NewVertex, a = AB.A, b = AB.B, c = OV.A, d = OV.B;
+        const int f = Info.NewVertex;
+        const int a = AB.A;
+        const int b = AB.B;
+        const int c = OV.A;
+        const int d = OV.B;
         // Header contract: t2=[f,b,c], t3=[f,d,b]; new edges [f,b],[f,c],[f,d]; the original edge becomes [a,f].
         EXPECT_TRUE( SameTri( Mesh.GetTriangle( Info.NewTriangles.A ), f, b, c ) );
         EXPECT_TRUE( SameTri( Mesh.GetTriangle( Info.NewTriangles.B ), f, d, b ) );
@@ -201,7 +207,7 @@ TEST( DynamicMesh3Edits, SplitBoundaryEdgeAddsOneTriangle )
 {
     DynamicMesh3 Mesh = MakePlane( 3 );
     int          EID  = DynamicMesh3::InvalidID;
-    for ( int E : Mesh.EdgeIndicesItr() )
+    for ( int const E : Mesh.EdgeIndicesItr() )
         if ( Mesh.IsBoundaryEdge( E ) )
         {
             EID = E;
@@ -257,7 +263,8 @@ TEST( DynamicMesh3Edits, FlipRotatesTheEdgeAndKeepsEveryCount )
         EXPECT_EQ( Mesh.FindEdge( CD.A, CD.B ), EID );
         EXPECT_EQ( Mesh.FindEdge( AB.A, AB.B ), DynamicMesh3::InvalidID );
         // InfoTypes contract: shared edge at index 0 of both new triangles, which are [c,d,b] and [d,c,a].
-        const Index2i O = Info.OriginalVerts, P = Info.OpposingVerts;
+        const Index2i O = Info.OriginalVerts;
+        const Index2i P = Info.OpposingVerts;
         EXPECT_EQ( Mesh.GetTriEdge( Info.Triangles.A, 0 ), EID );
         EXPECT_EQ( Mesh.GetTriEdge( Info.Triangles.B, 0 ), EID );
         EXPECT_TRUE( SameTri( Mesh.GetTriangle( Info.Triangles.A ), P.A, P.B, O.B ) );
@@ -269,7 +276,7 @@ TEST( DynamicMesh3Edits, FlipRefusesBoundaryAndExistingEdges )
 {
     DynamicMesh3  Plane  = MakePlane( 2 );
     const FCounts Before = Counts( Plane );
-    for ( int EID : Plane.EdgeIndicesItr() )
+    for ( int const EID : Plane.EdgeIndicesItr() )
     {
         DynamicMesh3::EdgeFlipInfo Info;
         if ( Plane.IsBoundaryEdge( EID ) )
@@ -292,9 +299,11 @@ TEST( DynamicMesh3Edits, CollapseInteriorEdgeRemovesOneVertexThreeEdgesTwoTriang
     DynamicMesh3 Mesh = MakeTorus( 8, 6 );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts   Before = Counts( Mesh );
-    const int       Keep = TorusV( 8, 6, 2, 2 ), Remove = TorusV( 8, 6, 3, 2 );
+    const int        Keep    = TorusV( 8, 6, 2, 2 );
+    const int        Remove  = TorusV( 8, 6, 3, 2 );
     const int       EID   = Mesh.FindEdge( Keep, Remove );
-    const glm::dvec3 KeepP = Mesh.GetVertex( Keep ), RemoveP = Mesh.GetVertex( Remove );
+    const glm::dvec3 KeepP   = Mesh.GetVertex( Keep );
+    const glm::dvec3 RemoveP = Mesh.GetVertex( Remove );
     ASSERT_NE( EID, DynamicMesh3::InvalidID );
     EXPECT_EQ( Mesh.CanCollapseEdge( Keep, Remove ), MeshResult::Ok );
 
@@ -382,7 +391,8 @@ TEST( DynamicMesh3Edits, MergeEdgesWeldsTwoComponentsIntoOne )
     DynamicMesh3 Mesh = MakeSeam( true );
     ASSERT_TRUE( Valid( Mesh ) );
     EXPECT_EQ( Counts( Mesh ).Euler(), 2 ); // two discs
-    const int Keep = Mesh.FindEdge( 1, 2 ), Discard = Mesh.FindEdge( 3, 4 );
+    const int Keep    = Mesh.FindEdge( 1, 2 );
+    const int Discard = Mesh.FindEdge( 3, 4 );
 
     DynamicMesh3::MergeEdgesInfo Info;
     ASSERT_EQ( Mesh.MergeEdges( Keep, Discard, Info ), MeshResult::Ok );
@@ -411,8 +421,9 @@ TEST( DynamicMesh3Edits, MergeEdgesRefusesInteriorAndSameOrientation )
     EXPECT_EQ( Same.VertexCount(), 6 );
 
     DynamicMesh3 Plane = MakePlane( 2 );
-    int          Inner = DynamicMesh3::InvalidID, Outer = DynamicMesh3::InvalidID;
-    for ( int E : Plane.EdgeIndicesItr() )
+    int          Inner = DynamicMesh3::InvalidID;
+    int          Outer = DynamicMesh3::InvalidID;
+    for ( int const E : Plane.EdgeIndicesItr() )
         ( Plane.IsBoundaryEdge( E ) ? Outer : Inner ) = E;
     ASSERT_NE( Inner, DynamicMesh3::InvalidID );
     EXPECT_EQ( Plane.MergeEdges( Outer, Inner, Info ), MeshResult::Failed_NotABoundaryEdge );
@@ -451,7 +462,8 @@ TEST( DynamicMesh3Edits, PokeSplitsOneTriangleIntoThree )
     for ( DynamicMesh3 Mesh : { MakeCube(), MakePlane( 2 ), MakeTorus( 6, 4 ) } )
     {
         const FCounts   Before  = Counts( Mesh );
-        const int       OldMaxV = Mesh.MaxVertexID(), OldMaxT = Mesh.MaxTriangleID();
+        const int        OldMaxV = Mesh.MaxVertexID();
+        const int        OldMaxT = Mesh.MaxTriangleID();
         const int       TID = 1;
         const Index3i    Tri = Mesh.GetTriangle( TID );
         const glm::dvec3 Centroid =
