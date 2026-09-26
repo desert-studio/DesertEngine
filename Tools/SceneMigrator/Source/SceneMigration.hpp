@@ -356,12 +356,21 @@ namespace Desert::Migration
     //                   <the .desce header GUID>, "Path": "assets:Scenes/X.desce"}`; an empty path becomes no
     //                   key, and a path naming no Scene with a GUID REFUSES the file, naming the entity.
     inline constexpr int kSceneVersionShaderGuids = 31;
+    //  32             - A PATH-ONLY MESH BLOCK STATES ITS GUID (MSH1). The v28 step rewrote MeshGuid VALUES and
+    //                   skipped a block with no MeshGuid key at all, so a block written as `{"MeshPath": ...}`
+    //                   alone (M10_MeshSlot, from the era when the path WAS the identity) crossed v28-v31 as it
+    //                   was, and the loader leaves it an empty slot: the path is a locator, not an identity.
+    //                   Each StaticMesh / SkinnedMesh / InstancedStaticMesh block with a MeshPath and a missing
+    //                   or "" MeshGuid gains the GUID the file's v3 header states; a missing file or a file
+    //                   stating no GUID REFUSES the file, naming the block - in entity records AND in
+    //                   prefab-override records (MigratePathOnlyMeshGuidsV31ToV32).
+    inline constexpr int kSceneVersionPathOnlyMeshGuids = 32;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionShaderGuids == kSceneVersion,
+    static_assert( kSceneVersionPathOnlyMeshGuids == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1472,6 +1481,14 @@ namespace Desert::Migration
     MeshGuidsMigrationReport MigrateMeshGuidsV27ToV28( std::vector<Assets::EntityData>& entities,
                                                        const std::filesystem::path&     assetsRoot );
 
+    // Gives every StaticMesh / SkinnedMesh / InstancedStaticMesh block that names a MeshPath but states no
+    // MeshGuid (key missing or "") the GUID the mesh file's v3 header states, in entity records and in their
+    // prefab-override records; a block that already states a GUID is left alone. The file is found as in the
+    // v28 step. `Rewritten` counts the blocks that gained a GUID; UnknownNames REFUSES the file.
+    // SHELF LIFE: deleted once no v31 file remains.
+    MeshGuidsMigrationReport MigratePathOnlyMeshGuidsV31ToV32( std::vector<Assets::EntityData>& entities,
+                                                               const std::filesystem::path&     assetsRoot );
+
     // What MigrateTextureGuidsV28ToV29 did to one file.
     struct TextureGuidsMigrationReport
     {
@@ -1680,6 +1697,8 @@ namespace Desert::Migration
         TextureGuidsMigrationReport      SpriteGuids;
         bool                             ShaderSceneGuidsRaised = false; // below kSceneVersionShaderGuids
         TextureGuidsMigrationReport      ShaderSceneGuids;
+        bool                             PathOnlyMeshGuidsRaised = false; // below kSceneVersionPathOnlyMeshGuids
+        MeshGuidsMigrationReport         PathOnlyMeshGuids;
 
         bool Changed() const
         {
@@ -1690,7 +1709,7 @@ namespace Desert::Migration
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
                    TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
                    MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised || SpriteGuidsRaised ||
-                   ShaderSceneGuidsRaised;
+                   ShaderSceneGuidsRaised || PathOnlyMeshGuidsRaised;
         }
     };
 

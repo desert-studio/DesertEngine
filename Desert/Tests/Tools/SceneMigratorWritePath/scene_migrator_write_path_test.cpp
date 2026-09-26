@@ -380,12 +380,15 @@ TEST( SceneMigratorWritePath, ACloudTypeGainsAHeaderGuidOnceAndASecondRunChanges
         out << R"({"FormatVersion":2,"Shape":{}})";
     }
     const std::string staleBytes = ReadRaw( stale );
+    const std::string fileBytes  = ReadRaw( file );
 
     std::string report, errors;
     EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 1 ) << "the v2 file was not a failure";
     EXPECT_NE( errors.find( "Old.decloudtype" ), std::string::npos ) << errors;
     EXPECT_EQ( ReadRaw( stale ), staleBytes ) << "a refused file was rewritten";
+    EXPECT_EQ( ReadRaw( file ), fileBytes ) << "a run with a refusal writes nothing";
     fs::remove( stale );
+    EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
 
     const std::string raised = ReadRaw( file );
     EXPECT_EQ( raised.find( "FormatVersion" ), std::string::npos ) << raised;
@@ -430,14 +433,17 @@ namespace
             std::ofstream out( stale, std::ios::binary );
             out << R"({"FormatVersion":7,)" << bodyText << "}";
         }
-        const std::string staleBytes = ReadRaw( stale );
+        const std::string staleBytes  = ReadRaw( stale );
+        const std::string statedBytes = ReadRaw( stated );
 
         std::string report;
         std::string errors;
         EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 1 ) << "the v7 file was not a failure";
         EXPECT_NE( errors.find( stale.filename().string() ), std::string::npos ) << errors;
         EXPECT_EQ( ReadRaw( stale ), staleBytes ) << "a refused file was rewritten";
+        EXPECT_EQ( ReadRaw( stated ), statedBytes ) << "a run with a refusal writes nothing";
         fs::remove( stale );
+        EXPECT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << report << errors;
 
         const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
         std::vector<std::string>                      guids;
@@ -1316,5 +1322,40 @@ TEST( SceneMigratorWritePath, AMeshSourceAssetIsReadByTheEnginesReaderNotRefused
     EXPECT_NE( errors.find( "FAIL   " + file.string() + " — neither a cooked DESTMESH mesh nor a readable mesh" ),
                std::string::npos )
          << errors;
+    fs::remove_all( dir );
+}
+
+// ALL OR NOTHING. A write run over a set in which ONE file refuses must write NONE of them: over
+// Editor/Resources/Assets the tool once rewrote 147 files around the one it refused, leaving the tree in
+// two generations. Here the first scene has real work (v1, every step runs) and the second refuses at
+// the path-only mesh step (its mesh file does not exist). Both must be byte-identical afterwards, the
+// refusal named, and the exit code non-zero; a second run with the refusal removed then writes.
+TEST( SceneMigratorWritePath, OneRefusedFileLeavesEveryFileOfTheRunUnwritten )
+{
+    const fs::path dir  = MakeTempDir( "desert_migrator_all_or_nothing" );
+    const fs::path good = dir / "a_good.desce";
+    const fs::path bad  = dir / "b_bad.desce";
+    WriteSceneAtV1( good );
+    std::ofstream( bad, std::ios::binary )
+         << R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000007",)"
+            R"("Versions":{"SCNE":31,"UNIT":1},"Dependencies":[]},"SceneName":"Bad","Entities":[)"
+            R"({"id":1,"Tag":"Probe","StaticMesh":{"MeshPath":"Meshes/Gone.stmesh"}}]})";
+    const std::string goodBefore = ReadRaw( good );
+    const std::string badBefore  = ReadRaw( bad );
+
+    std::string report;
+    std::string errors;
+    const int   code = RunTool( { good.string(), bad.string() }, report, errors );
+
+    EXPECT_EQ( code, 1 ) << report << errors;
+    EXPECT_NE( errors.find( bad.string() ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "NOTHING was written" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( good ), goodBefore ) << "a file of a refused run was written";
+    EXPECT_EQ( ReadRaw( bad ), badBefore );
+
+    fs::remove( bad );
+    EXPECT_EQ( RunTool( { good.string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( ReadRaw( good ), goodBefore ) << "with the refusal gone the run must write";
+
     fs::remove_all( dir );
 }
