@@ -205,7 +205,9 @@ namespace
         Common::Constants::Path::ProjectRootState m_Saved;
     };
 
-    // A file that exists for the duration of one test and is removed afterwards.
+    // A file that exists for the duration of one test and is removed afterwards — together with every
+    // directory it had to create, so a run from the tree root leaves no empty `Assets/Library/` or
+    // `RegistryProbe/Content/` behind (handoff_check's tree gate names the suite that does).
     //
     // WHY THE REGISTRY TESTS NEED ONE. SkyboxAsset::Load used to be `m_ReadyForUse = true; return
     // BOOLSUCCESS;` — it never opened the file it named, so a skybox whose .hdr had been moved or left
@@ -222,6 +224,15 @@ namespace
         explicit ScratchFile( const std::filesystem::path& path ) : m_Path( path )
         {
             std::error_code ec;
+            // The outermost directory that does not exist yet is the one this file creates; the destructor
+            // removes up to it and no further, so a directory another file or the tree already owned stays.
+            for ( auto dir = m_Path.parent_path(); !dir.empty() && !std::filesystem::exists( dir, ec );
+                  dir      = dir.parent_path() )
+            {
+                m_CreatedTop = dir;
+                if ( dir == dir.parent_path() )
+                    break;
+            }
             std::filesystem::create_directories( m_Path.parent_path(), ec );
             const std::vector<std::byte> source( 4, std::byte{ 0x7F } );
             const auto asset   = Desert::Assets::MakeTextureSourceAsset( Common::Content::ContentKind::Skybox,
@@ -237,6 +248,15 @@ namespace
         {
             std::error_code ec;
             std::filesystem::remove( m_Path, ec );
+            if ( m_CreatedTop.empty() )
+                return;
+            // Only EMPTY directories go (remove() refuses a non-empty one): a sibling ScratchFile still alive
+            // in the same directory keeps it, and the last one out takes it.
+            for ( auto dir = m_Path.parent_path(); !dir.empty(); dir = dir.parent_path() )
+            {
+                if ( !std::filesystem::remove( dir, ec ) || dir == m_CreatedTop )
+                    break;
+            }
         }
 
         ScratchFile( const ScratchFile& )            = delete;
@@ -244,6 +264,7 @@ namespace
 
     private:
         std::filesystem::path m_Path;
+        std::filesystem::path m_CreatedTop;
     };
 
     uint64_t HandleValue( const std::filesystem::path& path )
