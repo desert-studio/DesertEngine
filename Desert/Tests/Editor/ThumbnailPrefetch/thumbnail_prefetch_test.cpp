@@ -77,7 +77,7 @@ namespace
             fs::create_directories( Dir );
             Source = Dir / "M_Test.demat";
             Png    = Dir / "M_Test.png";
-            std::ofstream( Source ) << "{ \"material\": 1 }";
+            std::ofstream( Source ) << R"({ "material": 1 })";
             ThumbnailPrefetch::Get().Clear();
         }
         ~Fixture()

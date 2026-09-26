@@ -7,10 +7,9 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -237,10 +236,10 @@ namespace Common::Content
                  Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
             if ( !text )
                 return {};
-            const auto document = rfl::json::read<rfl::Generic::Object>( text.GetValue() );
+            const auto document = Json::Read<Json::Object>( text.GetValue() );
             if ( !document )
                 return {};
-            const auto value = document.value().get( std::string( member ) );
+            const auto value = document.GetValue().get( std::string( member ) );
             if ( !value )
                 return {};
             const auto name = value.value().to_string();

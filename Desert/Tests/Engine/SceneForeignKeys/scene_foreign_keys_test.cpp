@@ -76,7 +76,7 @@ namespace
     // small numbers, so each call carries them across as text and back.
     Common::Json::TextDocument AsText( const Common::Json::Object& object )
     {
-        auto document = Common::Json::TextDocument::Parse( rfl::json::write( object ) );
+        auto document = Common::Json::TextDocument::Parse( Common::Json::Write( object ) );
         EXPECT_TRUE( static_cast<bool>( document ) );
         return document.ExtractValue();
     }
@@ -497,7 +497,7 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoaders
     }
 }
 
-// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (rfl::Generic) has no
+// An entity id at or above 2^63 is a uint64 the typed writer spells unsigned. Json::Value (the generic tree) has no
 // unsigned 64-bit number, and the pre-fix save re-read the scene as a Value before the merge, so every save of a
 // loaded scene wrote such an id NEGATIVE (the same bits, different text: 9365333062700381311 came out as
 // -9081411011009170305). Pinned on the committed scene that showed it, through the loader's parse and the
@@ -508,7 +508,7 @@ TEST( ForeignKeysCorpus, AnIdAtOrAbove2To63SurvivesLoadAndSaveUnsigned )
     const std::filesystem::path path =
          std::filesystem::path( RepoRoot() ) / "Editor/Resources/Assets/Scenes/UI_OverScene.desce";
     const std::string bytes = ReadAll( path );
-    ASSERT_NE( bytes.find( "\"id\": 9365333062700381311" ), std::string::npos ) << "the fixture id moved";
+    ASSERT_NE( bytes.find( R"("id": 9365333062700381311)" ), std::string::npos ) << "the fixture id moved";
 
     const auto loadable = Desert::Core::ParseLoadableScene( path.string(), bytes );
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
@@ -518,7 +518,7 @@ TEST( ForeignKeysCorpus, AnIdAtOrAbove2To63SurvivesLoadAndSaveUnsigned )
     ASSERT_TRUE( static_cast<bool>( composed ) ) << composed.GetError();
     const auto written = Common::Json::WriteCanonical( composed.GetValue() );
     ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
-    EXPECT_NE( written.GetValue().find( "\"id\": 9365333062700381311" ), std::string::npos );
+    EXPECT_NE( written.GetValue().find( R"("id": 9365333062700381311)" ), std::string::npos );
     EXPECT_EQ( written.GetValue().find( "-9081411011009170305" ), std::string::npos )
          << "the id was written negative";
     EXPECT_TRUE( written.GetValue() == bytes ) << FirstDifference( written.GetValue(), bytes );
