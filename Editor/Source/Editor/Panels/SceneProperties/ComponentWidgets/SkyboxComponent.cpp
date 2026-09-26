@@ -85,10 +85,10 @@ namespace Desert::Editor
                   constexpr float kPreview = 96.0f;
                   const bool      drewLive = ctx.Preview && ctx.Preview->HasContent() &&
                                         ctx.Preview->GetFill() == PreviewViewport::Fill::Cubemap &&
-                                        ctx.DrawPreview( ImVec2( kPreview, kPreview ),
+                                        ctx.DrawPreview( ImVec2( kPreview, kPreview ), DetailsPreviewKind::Skybox,
                                                          static_cast<uint64_t>( skybox.SkyboxHandle ) );
-                  // The live ball is Static (DrawPreview): it keeps one angle and its double-click opens the
-                  // skybox, with its own "Double-click to open" tooltip.
+                  // The live ball is Static (DetailsPreviewInteraction): it keeps the one angle the Rotation
+                  // slider is read against, and its double-click opens the skybox.
                   if ( !drewLive )
                   {
                       // THREE STATES, NOT TWO. "no asset", "the panel was lent no renderer" and "the

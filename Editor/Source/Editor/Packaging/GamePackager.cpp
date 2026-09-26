@@ -20,8 +20,12 @@
 
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
+#include <Common/Utilities/PeImports.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -238,6 +242,122 @@ namespace Desert::Editor
                         "pointed at";
             return text.str();
         }
+
+        // THE VISUAL C++ RUNTIME THE WINDOWS GAME CARRIES (PK-W1). The workspace builds with the DLL CRT
+        // (/MD) — the Vulkan SDK's prebuilt shaderc and spirv-cross libraries are stamped
+        // RuntimeLibrary=MD_DynamicRelease, so the static CRT cannot link — and a Windows install that
+        // never ran the Visual C++ Redistributable refuses to start an /MD executable with a system
+        // dialog the game cannot catch. Microsoft permits app-local deployment of the redistributable
+        // files, so the package carries them next to Runtime.exe.
+        //
+        // THE REDIST OF THE VISUAL STUDIO THAT BUILT THE GAME, found in this order, each a real source:
+        //   1. %VCToolsRedistDir% — set by the Developer Command Prompt (vcvarsall), naming exactly the
+        //      toolset that shell builds with;
+        //   2. vswhere (installed with every Visual Studio 2017+) → the newest install with the x64 VC
+        //      tools → its VC\Auxiliary\Build\Microsoft.VCRedistVersion.default.txt → VC\Redist\MSVC\<ver>.
+        //      That is the install msbuild uses on the CI runner (microsoft/setup-msbuild picks the same
+        //      "latest") and on a single-VS machine.
+        // Neither found is a refusal naming both, never a package without the runtime.
+        //
+        // Returns <redist>\x64\Microsoft.VC<toolset>.CRT.
+        // A process environment variable, empty when unset. The packager reads it once, on its own
+        // thread, before any job starts, and nothing in the editor ever calls setenv.
+        std::string EnvironmentVariable( const char* name )
+        {
+            const char* value = std::getenv( name ); // NOLINT(concurrency-mt-unsafe) - see above
+            return value != nullptr ? std::string( value ) : std::string();
+        }
+
+        Common::ResultStr<fs::path> FindVcCrtRedistDir()
+        {
+            using Found = fs::path;
+            fs::path    redist;
+            std::string tried;
+            if ( const std::string env = EnvironmentVariable( "VCToolsRedistDir" ); !env.empty() )
+            {
+                redist = env;
+                tried  = "%VCToolsRedistDir% = " + redist.string();
+            }
+            else
+            {
+                const std::string programFiles = EnvironmentVariable( "ProgramFiles(x86)" );
+                if ( programFiles.empty() )
+                    return Common::MakeError<Found>(
+                         "%VCToolsRedistDir% is not set (not a Developer Command Prompt) "
+                         "and %ProgramFiles(x86)% is not set either, so vswhere.exe "
+                         "cannot be located" );
+                const fs::path vswhere =
+                     fs::path( programFiles ) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe";
+                std::error_code ec;
+                if ( !fs::exists( vswhere, ec ) )
+                    return Common::MakeFormattedError<Found>(
+                         "%VCToolsRedistDir% is not set (not a Developer Command Prompt) and {} does not exist",
+                         vswhere.string() );
+
+                // cmd strips the OUTER pair of quotes of a /c line, so the quoted path needs one more pair.
+                const std::string command = "\"\"" + vswhere.string() +
+                                            "\" -latest -products * -requires "
+                                            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property "
+                                            "installationPath\"";
+#ifdef _WIN32
+                FILE* pipe = _popen( command.c_str(), "r" );
+#else
+                FILE* pipe = popen( command.c_str(), "r" );
+#endif
+                if ( pipe == nullptr )
+                    return Common::MakeFormattedError<Found>( "{} could not be started", vswhere.string() );
+                std::string           output;
+                std::array<char, 512> chunk{};
+                while ( std::fgets( chunk.data(), static_cast<int>( chunk.size() ), pipe ) != nullptr )
+                    output += chunk.data();
+#ifdef _WIN32
+                _pclose( pipe );
+#else
+                pclose( pipe );
+#endif
+                while ( !output.empty() && std::isspace( static_cast<unsigned char>( output.back() ) ) != 0 )
+                    output.pop_back();
+                if ( const auto newline = output.find_first_of( "\r\n" ); newline != std::string::npos )
+                    output.resize( newline );
+                if ( output.empty() )
+                    return Common::MakeFormattedError<Found>(
+                         "{} found no Visual Studio with the x64 VC tools "
+                         "(Microsoft.VisualStudio.Component.VC.Tools.x86.x64)",
+                         vswhere.string() );
+
+                const fs::path versionFile =
+                     fs::path( output ) / "VC" / "Auxiliary" / "Build" / "Microsoft.VCRedistVersion.default.txt";
+                auto version = Common::Utils::FileSystem::ReadFileContent( versionFile );
+                if ( !version )
+                    return Common::MakeFormattedError<Found>( "the redist version of {} is unknown: {}", output,
+                                                              version.GetError() );
+                std::string ver = version.ExtractValue();
+                std::erase_if( ver, []( unsigned char c ) { return std::isspace( c ); } );
+                redist = fs::path( output ) / "VC" / "Redist" / "MSVC" / ver;
+                tried  = "vswhere → " + redist.string();
+            }
+
+            // Microsoft.VC143.CRT for Visual Studio 2022; the toolset number is the install's, not ours.
+            std::vector<fs::path> crtDirs;
+            std::error_code       ec;
+            for ( fs::directory_iterator it( redist / "x64", ec ), end; !ec && it != end; it.increment( ec ) )
+            {
+                const std::string name = it->path().filename().string();
+                if ( it->is_directory( ec ) && name.starts_with( "Microsoft.VC" ) && name.ends_with( ".CRT" ) )
+                    crtDirs.push_back( it->path() );
+            }
+            if ( crtDirs.empty() )
+                return Common::MakeFormattedError<Found>( "no x64\\Microsoft.VC*.CRT directory under the VC++ "
+                                                          "redistributable ({})",
+                                                          tried );
+            // Two toolsets side by side: the newer runtime is backwards-compatible with the older
+            // compiler's output (Microsoft's binary-compatibility guarantee for v14x), never the reverse.
+            std::sort( crtDirs.begin(), crtDirs.end() );
+            if ( crtDirs.size() > 1 )
+                LOG_INFO( "[Package] {} VC++ runtime directories under {}; shipping the newest, {}",
+                          crtDirs.size(), ( redist / "x64" ).string(), crtDirs.back().filename().string() );
+            return Common::MakeSuccess( fs::path( crtDirs.back() ) );
+        }
     } // namespace
 
     // THE PACKAGE SHIPS THE REGISTRY OF THE DISK IT PACKS, by construction: the registry is gathered
@@ -331,6 +451,26 @@ namespace Desert::Editor
                           "). Build it first: " + host.BuildScript + " " + options.Config,
                      "" };
 
+        // The Visual C++ runtime DLLs the Windows player needs beside it (FindVcCrtRedistDir says why),
+        // decided by Runtime.exe's own import table and resolved BEFORE the output directory exists: a
+        // package without them is one that does not start, and a Debug Runtime (debug CRT, not
+        // redistributable) is refused here by name.
+        std::vector<fs::path> appLocalRuntime;
+        if ( host.Platform == TargetPlatform::Windows )
+        {
+            auto crtDir = FindVcCrtRedistDir();
+            if ( !crtDir )
+                return { false,
+                         "The Visual C++ runtime DLLs the game needs could not be found, so the package would not "
+                         "start on a machine without the redistributable: " +
+                              crtDir.GetError(),
+                         "" };
+            auto closure = Common::Utils::AppLocalRuntimeClosure( runtimeBin, crtDir.GetValue() );
+            if ( !closure )
+                return { false, "Cannot decide the app-local C++ runtime: " + closure.GetError(), "" };
+            appLocalRuntime = closure.ExtractValue();
+        }
+
         // Layout: a macOS .app bundle (default there) or a plain folder. Same content either way — the
         // pak keys are mount-root-relative, so whatever directory holds Content.dpak becomes the content
         // root the VFS serves from.
@@ -381,6 +521,24 @@ namespace Desert::Editor
             return { false, "Cannot copy the Runtime binary: " + ec.message(), "" };
         makeExecutable( gameDir / binName );
         ++stats.Files;
+
+        // 2b) Windows: the app-local C++ runtime, beside the binary — the first directory the loader
+        // searches, ahead of System32, so the game uses the copy it was tested with.
+        for ( const fs::path& dll : appLocalRuntime )
+        {
+            fs::copy_file( dll, gameDir / dll.filename(), fs::copy_options::overwrite_existing, ec );
+            if ( ec )
+                return { false, "Cannot copy the C++ runtime " + dll.string() + ": " + ec.message(), "" };
+            ++stats.Files;
+        }
+        if ( !appLocalRuntime.empty() )
+        {
+            std::string names;
+            for ( const fs::path& dll : appLocalRuntime )
+                names += ( names.empty() ? "" : ", " ) + dll.filename().string();
+            LOG_INFO( "[Package] app-local C++ runtime from {}: {}",
+                      appLocalRuntime.front().parent_path().string(), names );
+        }
 
         // 3) The cook ran first, above the registry check — see there.
 

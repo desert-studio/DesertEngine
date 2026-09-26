@@ -10,11 +10,10 @@ namespace Desert::Editor
     //
     // Two kinds of preview live in the editor and they want opposite gestures. An asset's own window (the
     // material editor, a viewer) is where you LOOK at the asset, so dragging orbits and double-click
-    // re-frames. A Details row is a summary of a field: it is small, it sits in a scrolling panel where a
-    // stray drag should scroll rather than spin the ball, and its double-click means what double-click
-    // means on every other asset field in Details — open the asset (UE's SPropertyEditorAsset gesture,
-    // Editor/Widgets/AssetFieldOpen.hpp). So a Static preview keeps one angle and turns double-click into
-    // "open"; an Interactive one keeps the full camera.
+    // re-frames. A Static preview keeps one angle and turns double-click into "open" (UE's
+    // SPropertyEditorAsset gesture, Editor/Widgets/AssetFieldOpen.hpp) — for a Details row whose picture
+    // must stay at one angle to mean anything. Which Details row gets which is DetailsPreviewInteraction
+    // below; a Details row may be Interactive too (the Static Mesh one is).
     //
     // A pure function because the decision is the whole feature and ImGui cannot be driven from a test:
     // PreviewViewport::Draw gathers the events, hands them here, and applies what comes back.
@@ -23,6 +22,32 @@ namespace Desert::Editor
         Interactive,
         Static,
     };
+
+    // WHICH MODE EACH DETAILS PREVIEW GETS. Not one answer for all of Details, because the reason a row
+    // would be Static differs by what it shows:
+    //  - StaticMesh is Interactive. A model is read by turning it; one fixed angle hides most of it, and
+    //    the "double-click opens" gesture it used to carry duplicates the Open button every asset field in
+    //    Details already has (AssetFieldOpen), so Static cost the row its point and bought nothing.
+    //  - Skybox stays Static. Its ball answers "where is the sun at this rotation?" for the Rotation slider
+    //    beside it, and that answer only holds while the ball keeps the one angle the slider is read
+    //    against — an orbited ball would make the picture depend on where the mouse last wandered.
+    enum class DetailsPreviewKind : uint8_t
+    {
+        StaticMesh,
+        Skybox,
+    };
+
+    [[nodiscard]] constexpr PreviewInteraction DetailsPreviewInteraction( DetailsPreviewKind kind )
+    {
+        switch ( kind )
+        {
+            case DetailsPreviewKind::StaticMesh:
+                return PreviewInteraction::Interactive;
+            case DetailsPreviewKind::Skybox:
+                return PreviewInteraction::Static;
+        }
+        return PreviewInteraction::Static;
+    }
 
     // One frame of mouse and keyboard over the preview, as ImGui reported it.
     struct PreviewInputEvents
@@ -98,24 +123,26 @@ namespace Desert::Editor
         return result;
     }
 
-    // WHO THE WHEEL BELONGS TO over a preview. An Interactive preview (the Material Editor, the asset viewers)
-    // zooms with it and must CLAIM it, or ImGui also scrolls the window the preview sits in: the model zooms
-    // while the whole panel slides away under the cursor. A Static preview (a Details row) never zooms, so the
-    // wheel passes through and keeps scrolling the Details panel exactly as it did.
+    // WHO THE WHEEL BELONGS TO over a preview: the preview, exactly when the wheel zooms it. An Interactive
+    // preview (the Material Editor, the asset viewers) zooms with it and must CLAIM it, or ImGui also scrolls
+    // the window the preview sits in: the model zooms while the whole panel slides away under the cursor. A
+    // Static preview (a Details row) never zooms, and neither does a pane with nothing to zoom (empty, or the
+    // sky dome fill), so there the wheel passes through and keeps scrolling the panel as over any other row.
     enum class PreviewWheelOwner : uint8_t
     {
         PassThrough, // the parent window scrolls; the preview ignores the wheel
         Zoom,        // the preview zooms and the caller claims the wheel from the parent (SetItemUsingMouseWheel)
     };
 
-    [[nodiscard]] inline PreviewWheelOwner WheelOwner( const PreviewInteraction mode, const bool hovered,
-                                                       const float wheel ) noexcept
+    // `zoomable`: the pane has content and it is not the sky dome fill (the dome orbits but never dollies).
+    // Claimed on every hovered frame, not only on a frame the wheel moves: this ImGui (1.89 WIP) reads
+    // SetItemUsingMouseWheel in the NEXT frame's wheel routing, so a claim taken on the notch's own frame
+    // arrives after the parent has already scrolled.
+    [[nodiscard]] constexpr PreviewWheelOwner WheelOwner( const PreviewInteraction mode, const bool zoomable,
+                                                          const bool hovered ) noexcept
     {
-        if ( mode != PreviewInteraction::Interactive || !hovered )
+        if ( mode != PreviewInteraction::Interactive || !zoomable || !hovered )
             return PreviewWheelOwner::PassThrough;
-        // Claimed while hovered even on a frame with no wheel: ImGui routes the wheel by key ownership, and an
-        // owner taken only on the frame the wheel moves is taken after the parent has already scrolled.
-        static_cast<void>( wheel );
         return PreviewWheelOwner::Zoom;
     }
 } // namespace Desert::Editor

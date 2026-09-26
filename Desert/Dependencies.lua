@@ -105,13 +105,17 @@ local function getVulkanLibs(config)
         table.insert(libs, vulkan.lib .. "/vulkan-1.lib")
 
         table.insert(libs, vulkan.lib .. "/shaderc" .. suffix .. ".lib")
-        table.insert(libs, vulkan.lib .. "/shaderc_shared" .. suffix .. ".lib")
         table.insert(libs, vulkan.lib .. "/shaderc_combined" .. suffix .. ".lib")
         table.insert(libs, vulkan.lib .. "/shaderc_util" .. suffix .. ".lib")
 
         table.insert(libs, vulkan.lib .. "/spirv-cross-core" .. suffix .. ".lib")
         table.insert(libs, vulkan.lib .. "/spirv-cross-glsl" .. suffix .. ".lib")
 
+        -- shaderc_shared.lib is deliberately NOT here either: it is the IMPORT library of
+        -- shaderc_shared.dll, and a static library (Desert) that merges it can hand the linker an
+        -- import thunk for the very symbols shaderc_combined provides — making the packaged game
+        -- depend on a DLL nobody ships. scripts/CI/CheckWindowsDlls.sh would refuse that binary.
+        --
         -- OGLCompiler.lib is deliberately NOT here. It was a legacy glslang shim (OGLCompilersDLL,
         -- two process-attach stubs) that glslang 14 folded into the main library and stopped shipping,
         -- so the SDK this build pins to — 1.3.290 — has no such file and the link died on it. What it
