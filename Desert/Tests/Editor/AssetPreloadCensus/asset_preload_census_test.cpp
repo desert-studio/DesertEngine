@@ -232,7 +232,8 @@ namespace
         const char* Spelling;
     };
     constexpr SkyboxBindSite kSkyboxBindSites[] = {
-         { "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp", "GetSkyboxService()->Register(" },
+         { "Desert/Desert/Source/Engine/Runtime/Services/AssetServiceRegistration.cpp",
+           "service->Register( skybox )" },
          { "Editor/Source/Editor/Panels/SceneProperties/ComponentWidgets/SkyboxComponent.cpp", "svc.Register(" },
          { "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp", "svc->Register(" },
     };
@@ -445,6 +446,36 @@ TEST( AssetPreloadCensus, EverySkyboxBindSiteCanBuildItsOwnEnvironment )
                 "AssetPreloadCensus.TheSkyboxStageScansWithoutBaking), so this site is now the only "
                 "thing standing between a bound handle and a scene with no sky and no log line. If the "
                 "call was renamed, name the new spelling in kSkyboxBindSites.";
+    }
+}
+
+// THE SCENE PARSE RESOLVES A SKYBOX BY TWO SPELLINGS, and each has to build the environment. The census
+// above held ComponentRegistry.cpp to "reaches the skybox service somewhere in the file", which the PATH
+// branch satisfied while the GUID branch — the only one a SCNE 31 scene takes — returned the scanned
+// record's handle and registered nothing: black sky, no ambient, and no log line (RSKY3). So the
+// relation is asserted per branch: every `"SkyboxAsset"` arm of both resolvers calls the one helper.
+TEST( AssetPreloadCensus, BothSceneSkyboxResolversBuildTheEnvironment )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    const char*       file   = "Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp";
+    const std::string source = WithoutComments( ReadFile( root + file ) );
+    ASSERT_FALSE( source.empty() ) << "could not read " << file;
+
+    for ( const char* resolver : { "r.FromPath = ", "r.FromGuid = " } )
+    {
+        const std::string lambda = BodyOf( source, resolver );
+        ASSERT_FALSE( lambda.empty() ) << file << " has no '" << resolver << "' lambda where this suite expects it";
+
+        const std::string branch = BodyOf( lambda, "type == \"SkyboxAsset\"" );
+        ASSERT_FALSE( branch.empty() ) << "the '" << resolver << "' lambda has no \"SkyboxAsset\" branch";
+
+        EXPECT_NE( branch.find( "EnsureSkyboxRegistered(" ), std::string::npos )
+             << "the \"SkyboxAsset\" branch of '" << resolver << "' in " << file
+             << " returns a skybox handle without registering it. The boot only SCANS skyboxes, so the "
+                "SkyboxService stays empty, the SkyboxCommand carries no cube and DeferredLighting logs "
+                "'irradiance cube MISSING' — a black sky. Call Runtime::EnsureSkyboxRegistered.";
     }
 }
 

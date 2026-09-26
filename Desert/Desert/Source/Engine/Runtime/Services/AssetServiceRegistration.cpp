@@ -3,6 +3,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -57,6 +58,24 @@ namespace Desert::Runtime
             return;
         if ( auto texture = registry.FindByHandle<Assets::TextureAsset>( Common::UUID( handle ) ) )
             service->RegisterAsset( texture );
+    }
+
+    void EnsureSkyboxRegistered( const Assets::Asset<Assets::SkyboxAsset>& skybox )
+    {
+        auto* service = ResourceRegistry::GetSkyboxService();
+        if ( !service || !skybox || service->Get( skybox->GetMetadata().Handle ) )
+            return;
+
+        // Load() is the file-existence check (SkyboxAsset::LoadFromFile) and logs its own refusal by name;
+        // registering a skybox whose panorama is gone would bake nothing and say so less clearly.
+        if ( !skybox->IsReadyForUse() )
+            skybox->Load();
+
+        if ( const auto registered = service->Register( skybox ); !registered )
+        {
+            LOG_ERROR( "[Skybox] '{}' could not be registered, so the scene has no environment from it: {}",
+                       skybox->GetMetadata().Filepath.string(), registered.GetError() );
+        }
     }
 
     MeshReadiness EnsureMeshDrawable( const Assets::Asset<Assets::MeshAsset>& mesh,

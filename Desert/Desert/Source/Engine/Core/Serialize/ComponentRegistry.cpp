@@ -556,10 +556,7 @@ namespace Desert::Core::Serialize
                     a = m.CreateAsset<Assets::SkyboxAsset>( Assets::AssetPriority::Medium, path );
                 if ( a )
                 {
-                    if ( !a->IsReadyForUse() )
-                        a->Load();
-                    if ( !Runtime::ResourceRegistry::GetSkyboxService()->Get( a->GetMetadata().Handle ) )
-                        Runtime::ResourceRegistry::GetSkyboxService()->Register( a );
+                    Runtime::EnsureSkyboxRegistered( a );
                     return static_cast<uint64_t>( a->GetMetadata().Handle );
                 }
                 return 0;
@@ -895,7 +892,21 @@ namespace Desert::Core::Serialize
             }
             if ( type == "SkyboxAsset" )
             {
-                return mgr.FindByHandle<Assets::SkyboxAsset>( handle ) ? guid : 0;
+                auto a = mgr.FindByHandle<Assets::SkyboxAsset>( handle );
+                if ( !a )
+                {
+                    LOG_ERROR( "[Skybox] Skybox GUID handle {0} named by a component resolves to no scanned "
+                               "skybox, so the scene has NO environment: the sky draws black and the lit "
+                               "materials get no ambient. Skyboxes are scanned from '{1}' and keyed by their "
+                               ".detex header GUID; re-point the Skybox component.",
+                               guid, Common::Constants::Path::ASSETS_PATH.string() );
+                    return 0;
+                }
+                // The SAME registration the path branch performs. It was absent here: the branch found the
+                // record the boot had scanned and returned its handle, and since the boot no longer bakes
+                // skyboxes, nothing did — every scene saved after SCNE 31 (skybox by GUID) lost its sky.
+                Runtime::EnsureSkyboxRegistered( a );
+                return guid;
             }
             return 0;
         };

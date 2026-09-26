@@ -13,6 +13,7 @@ namespace Desert::Assets
     class AssetManager;
     class MaterialAsset;
     class MeshAsset;
+    class SkyboxAsset;
 } // namespace Desert::Assets
 
 namespace Desert::Runtime
@@ -79,6 +80,17 @@ namespace Desert::Runtime
     /// zero handle, or one the registry does not hold, is a no-op. The GPU upload stays deferred to the
     /// first draw — building here would move every texture in a scene onto the load.
     void EnsureTextureRegistered( const Assets::AssetManager& registry, uint64_t handle );
+
+    /// Register @p skybox with the SkyboxService if it is not already there, loading it first. Idempotent.
+    ///
+    /// UNLIKE THE OTHER THREE THIS IS EAGER: `SkyboxService::Register` constructs the MaterialSkybox, whose
+    /// constructor runs `EnvironmentManager::Create` — the panorama upload and the radiance, irradiance and
+    /// prefilter bakes. The boot does not do it for every `.hdr` (AssetPreloader::PreloadSkyboxes only
+    /// scans), so a scene reference that resolves WITHOUT coming through here leaves the service empty,
+    /// the SkyboxCommand carries no cube and DeferredLighting shades with the black EMPTY environment.
+    /// That is what the GUID spelling of a skybox reference did from SCNE 31 on: it found the scanned
+    /// record and returned its handle, and nothing ever baked the sky. A refusal is logged with the file.
+    void EnsureSkyboxRegistered( const Assets::Asset<Assets::SkyboxAsset>& skybox );
 
     /// WHAT A MESH IS ONCE SOMEBODY HAS ASKED FOR IT — the four states, told apart in one place.
     ///
