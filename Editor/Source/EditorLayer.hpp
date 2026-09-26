@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Import/BackgroundCook.hpp>
 #include <Engine/Assets/ContentGate.hpp>
 
 #include <Engine/Core/BootTimeline.hpp>
