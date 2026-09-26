@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"75fb91a1185f5eb76af600b723aa6746","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SkyDistantLight"
 {
     Compute

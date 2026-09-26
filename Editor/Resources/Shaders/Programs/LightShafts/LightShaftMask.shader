@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"c1dc048173848862fd9bd20e7717d0eb","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "LightShaftMask"
 {
     Compute

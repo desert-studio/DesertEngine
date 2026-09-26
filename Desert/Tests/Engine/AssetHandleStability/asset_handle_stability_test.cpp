@@ -30,6 +30,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Engine/Assets/AssetBase.hpp>
@@ -50,6 +51,7 @@
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -58,10 +60,12 @@
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 #include <vector>
@@ -500,7 +504,7 @@ TEST( AssetHandleStability, AMaterialsExternalIdIsItsHandleWhenTheFileCarriesNoG
     {
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
-        out << R"({"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})";
+        out << R"({"Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
     Desert::Assets::SurfaceMaterialAsset material( AssetPriority::Medium, Common::Filepath( scratch ) );
@@ -953,7 +957,7 @@ TEST( AssetHandleStability, AMaterialsIdComesFromItsFileAndSurvivesTheProjectMov
         std::ofstream out( scratch );
         ASSERT_TRUE( out.is_open() ) << "could not write the fixture at " << scratch.string();
         out << R"({"Header":{"Kind":"Material","Guid":"45d579b03cc0d0a8df2e4cb025d6bea5",)"
-               R"("Versions":{"MATL":3},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[],"ShaderRefs":[]})";
+               R"("Versions":{"MATL":4},"Dependencies":[]},"Params":[],"Textures":[],"CloudAssets":[]})";
     }
 
     ProjectRootGuard guard;
@@ -1539,6 +1543,19 @@ namespace
     {
         return CopyCorpus( "Editor/Cooked/Meshes/IKProbe_Swing.anim", file );
     }
+    // A .shader states its GUID in a first-line comment, not a JSON header (T7j). It declares the name of the
+    // file it is moved TO, because the load refuses a declared name that differs from the stem it opens.
+    bool WriteShader( const std::filesystem::path& file )
+    {
+        namespace CC                                       = Common::Content;
+        const std::array<CC::SubsystemVersion, 1> versions = {
+             CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+        std::ofstream out( file, std::ios::binary );
+        out << CC::WriteShaderHeaderLine(
+                    CC::MakeTextHeader( CC::ContentKind::Shader, CC::AssetGuid::Generate(), versions ) )
+            << "Shader \"After\"\n{\n}\n";
+        return static_cast<bool>( out );
+    }
 
     // gtest names the kind in a failure instead of dumping the struct's bytes.
     [[maybe_unused]] void PrintTo( const OldPathKind& kind, std::ostream* out )
@@ -1615,5 +1632,193 @@ INSTANTIATE_TEST_SUITE_P(
                       OldPathKind{ "Skeleton", Common::Content::ContentKind::Skeleton, &WriteSkeleton,
                                    &OpenAs<Desert::Assets::SkeletonAsset> },
                       OldPathKind{ "Animation", Common::Content::ContentKind::Animation, &WriteAnimation,
-                                   &OpenAs<Desert::Assets::AnimationAsset> } ),
+                                   &OpenAs<Desert::Assets::AnimationAsset> },
+                      OldPathKind{ "Shader", Common::Content::ContentKind::Shader, &WriteShader,
+                                   &OpenAs<Desert::Assets::ShaderAsset> } ),
      OldPathKindName );
+
+// T7j: a shader's handle is the GUID its first-line comment header states, and a headerless (SHDR 0) shader is
+// refused by name at load.
+
+TEST( ShaderAssetIdentity, TheHandleIsTheCommentHeadersGuidAndAHeaderlessShaderIsRefusedByName )
+{
+    namespace CC   = Common::Content;
+    const auto dir = std::filesystem::temp_directory_path() / "DesertShaderIdentityTest";
+    std::filesystem::create_directories( dir );
+    const std::string body = "Shader \"Probe\"\n{\n}\n";
+
+    const CC::AssetGuid                       guid     = CC::AssetGuid::Generate();
+    const std::array<CC::SubsystemVersion, 1> versions = {
+         CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+    const auto headed = dir / "Probe.shader";
+    std::ofstream( headed, std::ios::binary )
+         << CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) << body;
+    Desert::Assets::ShaderAsset asset( Desert::Assets::AssetPriority::Medium, headed );
+    EXPECT_TRUE( asset.GetMetadata().Handle ==
+                 Common::UUID( static_cast<uint64_t>( CC::HandleForGuid( guid ) ) ) );
+    const auto loaded = asset.LoadFromFile();
+    ASSERT_FALSE( !loaded ) << loaded.GetError();
+
+    const auto bare = dir / "Bare.shader";
+    std::ofstream( bare, std::ios::binary ) << body;
+    Desert::Assets::ShaderAsset old( Desert::Assets::AssetPriority::Medium, bare );
+    const auto                  refused = old.LoadFromFile();
+    ASSERT_TRUE( !refused );
+    EXPECT_NE( refused.GetError().find( "Bare.shader" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "SHDR 1" ), std::string::npos ) << refused.GetError();
+    EXPECT_FALSE( old.IsReadyForUse() );
+}
+
+// T7j step 2: the shader graph's Compile overwrites <Name>.shader through ShaderSourceKeepingFileGuid. A
+// recompile keeps the GUID (and so the handle every material names), a first compile mints one, and what it
+// writes is a shader ShaderAsset loads rather than refuses.
+TEST( ShaderAssetIdentity, AGraphRecompileKeepsTheShadersGuidAndAFirstCompileMintsOne )
+{
+    namespace CC   = Common::Content;
+    const auto dir = std::filesystem::temp_directory_path() / "DesertShaderRecompileTest";
+    std::filesystem::remove_all( dir );
+    std::filesystem::create_directories( dir );
+    const std::string body = "Shader \"Probe\"\n{\n}\n";
+
+    const auto target = dir / "Probe.shader";
+    const auto first  = Desert::Assets::ShaderSourceKeepingFileGuid( target, body );
+    const auto minted = CC::ReadShaderHeader( first );
+    ASSERT_FALSE( !minted ) << minted.GetError();
+    std::ofstream( target, std::ios::binary ) << first;
+    Desert::Assets::ShaderAsset firstAsset( Desert::Assets::AssetPriority::Medium, target );
+    const auto                  firstLoad = firstAsset.LoadFromFile();
+    ASSERT_FALSE( !firstLoad ) << firstLoad.GetError();
+
+    const auto second = Desert::Assets::ShaderSourceKeepingFileGuid( target, body + "// edited\n" );
+    const auto kept   = CC::ReadShaderHeader( second );
+    ASSERT_FALSE( !kept ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue().Guid, minted.GetValue().Guid );
+    std::ofstream( target, std::ios::binary | std::ios::trunc ) << second;
+    Desert::Assets::ShaderAsset secondAsset( Desert::Assets::AssetPriority::Medium, target );
+    EXPECT_TRUE( secondAsset.GetMetadata().Handle == firstAsset.GetMetadata().Handle );
+    const auto secondLoad = secondAsset.LoadFromFile();
+    ASSERT_FALSE( !secondLoad ) << secondLoad.GetError();
+
+    const auto other =
+         CC::ReadShaderHeader( Desert::Assets::ShaderSourceKeepingFileGuid( dir / "New.shader", body ) );
+    ASSERT_FALSE( !other ) << other.GetError();
+    EXPECT_NE( other.GetValue().Guid, minted.GetValue().Guid );
+    std::filesystem::remove_all( dir );
+}
+
+// Every committed graph's .shader is already stamped, and recompiling it over itself keeps that GUID.
+TEST( ShaderAssetIdentity, EveryCommittedGraphShaderKeepsItsGuidOnRecompile )
+{
+    namespace CC = Common::Content;
+    std::filesystem::path graphShaders;
+    for ( auto at = std::filesystem::current_path(); !at.empty(); at = at.parent_path() )
+    {
+        if ( std::filesystem::is_directory( at / "Editor/Resources/Shaders/Programs/Graph" ) )
+        {
+            graphShaders = at / "Editor/Resources/Shaders/Programs/Graph";
+            break;
+        }
+        if ( at == at.parent_path() )
+            break;
+    }
+    ASSERT_FALSE( graphShaders.empty() )
+         << "no Editor/Resources/Shaders/Programs/Graph above " << std::filesystem::current_path();
+    int seen = 0;
+    for ( const auto& entry : std::filesystem::directory_iterator( graphShaders ) )
+    {
+        if ( entry.path().extension() != ".shader" )
+            continue;
+        ++seen;
+        std::ifstream     in( entry.path(), std::ios::binary );
+        const std::string text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+        const auto        stated = CC::ReadShaderHeader( text );
+        ASSERT_FALSE( !stated ) << entry.path() << ": " << stated.GetError();
+        const auto rewritten = CC::ReadShaderHeader(
+             Desert::Assets::ShaderSourceKeepingFileGuid( entry.path(), "Shader \"X\" {}\n" ) );
+        ASSERT_FALSE( !rewritten ) << rewritten.GetError();
+        EXPECT_EQ( rewritten.GetValue().Guid, stated.GetValue().Guid ) << entry.path();
+    }
+    EXPECT_GE( seen, 5 );
+}
+
+// ─── T7k: the shader a material names, by GUID; the name the renderer binds is the file stem ───────────
+#include <Engine/Assets/MaterialFormat.hpp>
+
+#include <optional>
+#include <sstream>
+
+namespace
+{
+    std::filesystem::path WriteHeadedShader( const std::filesystem::path& file, std::string_view declared,
+                                             const Common::Content::AssetGuid& guid )
+    {
+        namespace CC                                       = Common::Content;
+        const std::array<CC::SubsystemVersion, 1> versions = {
+             CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+        std::filesystem::create_directories( file.parent_path() );
+        std::ofstream( file, std::ios::binary )
+             << CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) )
+             << "Shader \"" << declared << "\"\n{\n}\n";
+        return file;
+    }
+} // namespace
+
+TEST( ShaderAssetIdentity, AShaderDeclaringAnotherNameThanItsFileIsRefusedByName )
+{
+    const auto dir  = std::filesystem::temp_directory_path() / "DesertShaderDeclaredName";
+    const auto file = WriteHeadedShader( dir / "Bravo.shader", "Alpha", Common::Content::AssetGuid::Generate() );
+    Desert::Assets::ShaderAsset asset( Desert::Assets::AssetPriority::Medium, file );
+    const auto                  refused = asset.LoadFromFile();
+    ASSERT_TRUE( !refused );
+    EXPECT_NE( refused.GetError().find( "Bravo" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "Alpha" ), std::string::npos ) << refused.GetError();
+    std::filesystem::remove_all( dir );
+}
+
+// ResolveDependencies finds the shader by the GUID the material states - a moved shader keeps its GUID, so
+// the stated Path is only a locator - and names it by the file stem; an unknown GUID resolves to no name
+// (logged), an absent shader to the standard surface.
+TEST( ShaderAssetIdentity, AMaterialResolvesItsShaderNameByGuidAndNotByPath )
+{
+    namespace CC   = Common::Content;
+    const auto dir = std::filesystem::temp_directory_path() / "DesertMaterialShaderByGuid";
+    std::filesystem::remove_all( dir );
+    const CC::AssetGuid shaderGuid = CC::AssetGuid::Generate();
+    const auto          shaderFile = WriteHeadedShader( dir / "Moved" / "Unlit.shader", "Unlit", shaderGuid );
+
+    Desert::Assets::AssetManager manager;
+    manager.CreateAsset<Desert::Assets::ShaderAsset>( AssetPriority::Medium, Common::Filepath( shaderFile ) );
+
+    const auto materialAt = [&]( const char* name, const std::optional<CC::AssetGuid>& shader )
+    {
+        Desert::Assets::MaterialData data;
+        if ( shader )
+            data.SetShader( *shader, "engine:Shaders/Programs/Unlit.shader" ); // a stale locator on purpose
+        const auto text = Desert::Assets::WriteMaterialJson( data );
+        EXPECT_TRUE( text ) << text.GetError();
+        const auto file = dir / name;
+        std::ofstream( file, std::ios::binary ) << ( text ? text.GetValue() : std::string() );
+        return file;
+    };
+
+    Desert::Assets::SurfaceMaterialAsset named( AssetPriority::Medium, materialAt( "named.demat", shaderGuid ) );
+    ASSERT_TRUE( named.Load().IsSuccess() );
+    EXPECT_TRUE( named.GetShaderName().empty() ) << "resolved without a manager";
+    named.ResolveDependencies( manager );
+    EXPECT_EQ( named.GetShaderName(), "Unlit" );
+    EXPECT_TRUE( named.UsesCustomShader() );
+    EXPECT_EQ( Desert::Assets::SurfaceMaterialAsset::CreateWorkingCopy( named )->GetShaderName(), "Unlit" );
+
+    Desert::Assets::SurfaceMaterialAsset lost( AssetPriority::Medium,
+                                               materialAt( "lost.demat", CC::AssetGuid::Generate() ) );
+    ASSERT_TRUE( lost.Load().IsSuccess() );
+    lost.ResolveDependencies( manager );
+    EXPECT_TRUE( lost.GetShaderName().empty() ) << "an unknown GUID must not fall back to a shader by name";
+
+    Desert::Assets::SurfaceMaterialAsset plain( AssetPriority::Medium, materialAt( "plain.demat", std::nullopt ) );
+    ASSERT_TRUE( plain.Load().IsSuccess() );
+    plain.ResolveDependencies( manager );
+    EXPECT_EQ( plain.GetShaderName(), "StaticMeshPBR" );
+    EXPECT_FALSE( plain.UsesCustomShader() );
+    std::filesystem::remove_all( dir );
+}

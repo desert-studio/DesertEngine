@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"367fecbc7338d8efc9d3dbd1f92fa6f2","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "ParticleBillboard"
 {
     Vertex

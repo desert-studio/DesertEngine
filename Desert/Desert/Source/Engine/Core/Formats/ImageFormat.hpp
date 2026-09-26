@@ -11,6 +11,13 @@
 
 namespace Desert::Core::Formats
 {
+    // See Image2DSpecification::InitialContent.
+    enum class ImageInitialContent : uint8_t
+    {
+        Undefined, // written before its first read; the backend leaves the memory as the driver hands it out
+        Zero,      // read in frames that do not write it; cleared to zero (colour) / 0.0 (depth) at creation
+    };
+
     enum class Image2DUsage
     {
         Image2D,
@@ -533,6 +540,14 @@ namespace Desert::Core::Formats
         // the dead knob §3 forbids, and it would have become a lie the day a block-compressed format arrived:
         // `blitDst=0` for BC1/BC4/BC5/BC7 on this device, so there is no blit chain to ask for.
         std::vector<MipLevelSpan> MipLevels;
+
+        // WHAT A DATA-LESS IMAGE HOLDS BEFORE ITS FIRST WRITE. Vulkan leaves new memory undefined: MoltenVK
+        // happens to hand out zeroes, Windows drivers hand out whatever the allocation held last, so an image
+        // that is SAMPLED in frames nobody writes it (a post effect that is switched off, whose intensity of
+        // zero is meant to make it inert — but NaN * 0 is NaN) showed garbage only on Windows. Such an image
+        // declares `Zero` here and the backend clears it once at creation; every other data-less image must
+        // be written before it is read, which DESERT_POISON_NEW_MEMORY checks. Refused together with `Data`.
+        ImageInitialContent InitialContent = ImageInitialContent::Undefined;
     };
 
     // Length of the full mip chain for a texture whose largest dimension is @p dim

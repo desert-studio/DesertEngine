@@ -40,9 +40,18 @@ namespace Desert::Editor::Render
             m_Radius      = radiusWorldUnits;
         }
 
+        // Draw the cube as the BACKDROP as well — every ray that misses the ball samples it by its own
+        // direction (the skybox viewer). Off by default: the Details and Material Editor balls sit in front of
+        // the preview scene's own sky. Cleared with the source, so the next content does not inherit it.
+        void SetBackdrop( bool cubeIsBackdrop )
+        {
+            m_Backdrop = cubeIsBackdrop;
+        }
+
         void ClearSource()
         {
             m_ResolveCube = nullptr;
+            m_Backdrop    = false;
         }
 
     private:
@@ -50,6 +59,7 @@ namespace Desert::Editor::Render
         std::shared_ptr<Graphic::GraphicsPipeline>      m_Pipeline;
         std::unique_ptr<Graphic::MaterialCubemapSphere> m_Material;
         std::function<Graphic::SampledCube()>           m_ResolveCube;
-        float                                           m_Radius = 50.0f;
+        float                                           m_Radius   = 50.0f;
+        bool                                            m_Backdrop = false;
     };
 } // namespace Desert::Editor::Render

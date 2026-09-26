@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "3a694efc0e834f76822205c934681465",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["40293d62f22f46a49912f44c6c024d06"]
     },
-    "ShaderName": "MatProbe",
+    "Shader": {
+        "Guid": "40293d62f22f46a49912f44c6c024d06",
+        "Path": "engine:Shaders/Programs/Graph/MatProbe.shader"
+    },
     "Params": [
         {
             "Name": "Blend",
@@ -15,6 +18,5 @@
         }
     ],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"e5f5868d2f307814ec90df16057f3698","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "CloudRaymarch"
 {
     // THE CLOUD LOOK IS A MATERIAL (O1, D-35): everything below describes the MEDIUM and the FIELD —

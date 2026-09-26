@@ -19,9 +19,11 @@ namespace Desert::Assets
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset
     // slot names its asset by header GUID + a path locator (MaterialAssetRef), the cloud slots in a list of
-    // their own, and each GUID is a header Dependency too.
+    // their own, and each GUID is a header Dependency too. v4 (T7k): the shader is named by its header GUID
+    // + a path locator (`Shader`, was `ShaderName`), and the cloud Medium joins CloudAssets (was ShaderRefs,
+    // by path); both are header Dependencies.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 3;
+    inline constexpr uint32_t kMaterialSchemaVersion = 4;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
@@ -54,6 +56,10 @@ namespace Desert::Assets
     // absent meaning 0, and no header). The number continues the clip's own sequence (kAnimationVersion).
     inline constexpr uint32_t kAnimationSchemaTag     = Common::Content::FourCC( "ANIM" );
     inline constexpr uint32_t kAnimationSchemaVersion = 4;
+    // A .shader: stated since v1 (T7j) on the source's first line (ShaderAssetHeader.hpp). The files before it
+    // stated nothing - that generation is 0, and a file of it is refused by name.
+    inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );
+    inline constexpr uint32_t kShaderSchemaVersion = 1;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

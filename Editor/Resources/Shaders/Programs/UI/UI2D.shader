@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"4450da2582658b2b6f4214c5d2031c08","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "UI2D"
 {
     // Screen-space 2D batcher shader (UI, sprites, text). One dynamic vertex+index buffer is filled by the

@@ -80,6 +80,8 @@ namespace Desert::Graphic::System
                  .Mips       = mips,
                  .Usage      = Core::Formats::Image2DUsage::Image2D,
                  .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 // Sampled by the tonemap in frames this effect is off (intensity 0), so it must not be garbage.
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
             };
             return Image2D::Create( spec );
         };

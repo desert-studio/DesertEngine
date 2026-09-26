@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"d0265186322d672567a7ed58bbaf7625","Versions":{"SHDR":1},"Dependencies":[]}
 // A UI-domain material: the radial wipe (cooldown sweep / masked reveal / radial gauge).
 //
 // It ships because a domain with no material in it is a domain nobody can check. This is the shape the

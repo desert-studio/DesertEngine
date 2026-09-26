@@ -285,6 +285,9 @@ namespace Desert::Runtime
                 LOG_ERROR( "[HotReload] Failed to re-parse material '{}': {}", key, res.GetError() );
                 continue;
             }
+            // Load leaves a stated shader unresolved: its GUID is looked up in the manager, here, because the
+            // edit may have been the shader itself.
+            asset->ResolveDependencies( assetManager );
 
             LOG_INFO( "[HotReload] Material '{}' reloaded", key );
 
@@ -305,7 +308,7 @@ namespace Desert::Runtime
             // re-apply their overrides.
             const auto variants = materialService->GetBuiltVariants( handle );
 
-            const bool custom       = asset->Data().UsesCustomShader();
+            const bool custom       = asset->UsesCustomShader();
             bool       classMatches = !variants.empty();
             for ( auto* runtime : variants )
                 classMatches =

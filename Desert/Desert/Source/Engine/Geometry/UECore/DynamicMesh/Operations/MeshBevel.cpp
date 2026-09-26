@@ -11,12 +11,17 @@
 #include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
+#include "Engine/Geometry/UECore/FrameTypes.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingUVUtil.hpp"
+#include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 #include "Engine/Geometry/UECore/MathUtil.hpp"
 #include "Engine/Geometry/UECore/MeshBoundaryLoops.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
+#include <limits>
 #include <string>
 
 namespace Desert::Geometry
@@ -144,7 +149,7 @@ namespace Desert::Geometry
 
         const FIndex2i EdgeCornerIDs = Topology.Edges[GroupEdgeID].EndpointCorners;
 
-        FBevelEdge  Edge;
+        FBevelEdge    Edge;
         const int32_t NewBevelEdgeIndex = Edges.Num();
 
         // Find the mesh vertices at either end of the group edge; create a new bevel vertex or add to an existing
@@ -538,7 +543,7 @@ namespace Desert::Geometry
         struct FVertexSplit
         {
             int32_t         VertexID = -1;
-            bool          bOK      = false;
+            bool            bOK      = false;
             TArray<int32_t> TriSets[2];
         };
 
@@ -607,8 +612,8 @@ namespace Desert::Geometry
             if ( !BevelEdge.bEndpointBoundaryFlag[j] )
                 continue;
             const int32_t SplitEdge = BevelEdge.MeshEdges[EndEdge[j]];
-            Split.bOK             = SplitBoundaryVertexTrianglesIntoSubsets( &Mesh, Split.VertexID, SplitEdge,
-                                                                             Split.TriSets[0], Split.TriSets[1] );
+            Split.bOK               = SplitBoundaryVertexTrianglesIntoSubsets( &Mesh, Split.VertexID, SplitEdge,
+                                                                               Split.TriSets[0], Split.TriSets[1] );
             if ( !Split.bOK )
                 Refuse( Where + ": boundary end vertex " + std::to_string( Split.VertexID ) +
                         " cannot be split along edge " + std::to_string( SplitEdge ) );
@@ -803,8 +808,8 @@ namespace Desert::Geometry
                 int32_t&      V1       = Edge.NewMeshVertices[vi];
                 const int32_t E0       = Edge.MeshEdges[ei];
                 const int32_t E1       = Edge.NewMeshEdges[ei];
-                bool        bFoundV0 = false;
-                bool        bFoundV1 = false;
+                bool          bFoundV0 = false;
+                bool          bFoundV1 = false;
                 for ( const FOneRingWedge& Wedge : BevelVertex->Wedges )
                 {
                     for ( const int32_t tid : Wedge.Triangles )
@@ -1099,7 +1104,7 @@ namespace Desert::Geometry
             // written those partners into NewMeshEdges (or refused), so the fallback is not ported.
             const int32_t EdgeID0 = Edge.MeshEdges[k];
             const int32_t EdgeID1 = Edge.NewMeshEdges[k];
-            FIndex2i    QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
+            FIndex2i      QuadTris( IndexConstants::InvalidID, IndexConstants::InvalidID );
             if ( EdgeID0 == EdgeID1 || !Mesh.IsEdge( EdgeID1 ) )
             {
                 Refuse( Where + ": mesh edge " + std::to_string( EdgeID0 ) + " has no unlinked partner (" +
@@ -1114,7 +1119,7 @@ namespace Desert::Geometry
                 // The pair still shares one end, so only a triangle fits between them (UE-157531 hits this in
                 // complex geometry scripts).
                 const int32_t OtherV = EdgeV0.Contains( EdgeV1.A ) ? EdgeV1.B : EdgeV1.A;
-                QuadTris.A         = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, OtherV, Edge.NewGroupID, Where );
+                QuadTris.A           = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, OtherV, Edge.NewGroupID, Where );
             }
             else
             {
@@ -1214,11 +1219,19 @@ namespace Desert::Geometry
         // thing the bevel asks of it is to split every edge of a small polygon patch into TessellationNum + 1
         // equal segments and fill each triangle with the matching barycentric lattice. Input vertex IDs are kept
         // (the junction code finds its corners by ID) and every sub-triangle keeps its parent's winding.
-        FDynamicMesh3 UniformTessellatePatch( const FDynamicMesh3& Mesh, int32_t TessellationNum )
+        // OutBarycentrics, for a 3-vertex input, gets every output vertex's weights of input vertices 0, 1, 2,
+        // taken from its lattice indices (UE carries them through its tessellator in vertex colours instead).
+        FDynamicMesh3 UniformTessellatePatch( const FDynamicMesh3& Mesh, int32_t TessellationNum,
+                                              TArray<FVector3d>* OutBarycentrics = nullptr )
         {
-            FDynamicMesh3 Out;
+            FDynamicMesh3     Out;
+            TArray<FVector3d> Bary;
             for ( int32_t VertexID = 0; VertexID < Mesh.MaxVertexID(); ++VertexID )
+            {
                 Out.AppendVertex( Mesh.GetVertex( VertexID ) );
+                Bary.Add( FVector3d( VertexID == 0 ? 1.0 : 0.0, VertexID == 1 ? 1.0 : 0.0,
+                                     VertexID == 2 ? 1.0 : 0.0 ) );
+            }
             const int32_t N = TessellationNum + 1;
             // interior vertices of each input edge, ordered from its lower to its higher vertex ID
             TMap<FIndex2i, TArray<int32_t>> EdgeVertices;
@@ -1228,10 +1241,14 @@ namespace Desert::Geometry
                 if ( !EdgeVertices.Contains( Key ) )
                 {
                     TArray<int32_t>& Span = EdgeVertices.Add( Key, TArray<int32_t>() );
-                    const FVector3d Lo   = Out.GetVertex( Key.A );
-                    const FVector3d Hi   = Out.GetVertex( Key.B );
+                    const FVector3d  Lo   = Out.GetVertex( Key.A );
+                    const FVector3d  Hi   = Out.GetVertex( Key.B );
                     for ( int32_t s = 1; s < N; ++s )
-                        Span.Add( Out.AppendVertex( Lerp( Lo, Hi, static_cast<double>( s ) / N ) ) );
+                    {
+                        const double T = static_cast<double>( s ) / N;
+                        Span.Add( Out.AppendVertex( Lerp( Lo, Hi, T ) ) );
+                        Bary.Add( Lerp( Bary[Key.A], Bary[Key.B], T ) );
+                    }
                 }
                 const TArray<int32_t>& Span = EdgeVertices[Key];
                 return ( From < To ) ? Span[Step - 1] : Span[N - 1 - Step];
@@ -1264,9 +1281,13 @@ namespace Desert::Geometry
                         else if ( k == 0 )
                             At( i, j ) = EdgePoint( Tri.B, Tri.C, j );
                         else
-                            At( i, j ) = Out.AppendVertex( ( static_cast<double>( k ) / N ) * A +
-                                                           ( static_cast<double>( i ) / N ) * B +
-                                                           ( static_cast<double>( j ) / N ) * C );
+                        {
+                            const double WA = static_cast<double>( k ) / N;
+                            const double WB = static_cast<double>( i ) / N;
+                            const double WC = static_cast<double>( j ) / N;
+                            At( i, j )      = Out.AppendVertex( WA * A + WB * B + WC * C );
+                            Bary.Add( WA * Bary[Tri.A] + WB * Bary[Tri.B] + WC * Bary[Tri.C] );
+                        }
                     }
                 }
                 for ( int32_t j = 0; j < N; ++j )
@@ -1279,6 +1300,8 @@ namespace Desert::Geometry
                     }
                 }
             }
+            if ( OutBarycentrics != nullptr )
+                *OutBarycentrics = std::move( Bary );
             return Out;
         }
     } // namespace
@@ -1554,6 +1577,70 @@ namespace Desert::Geometry
                     " quads do not form a quad grid" );
     }
 
+    namespace
+    {
+        double Dot2( const FVector2d& A, const FVector2d& B )
+        {
+            return A.X * B.X + A.Y * B.Y;
+        }
+        double Length2( const FVector2d& V )
+        {
+            return std::sqrt( Dot2( V, V ) );
+        }
+        FVector2d Normalized2( const FVector2d& V )
+        {
+            const double Length = Length2( V );
+            return Length > FMathd::ZeroTolerance ? V * ( 1.0 / Length ) : FVector2d( 0.0, 0.0 );
+        }
+        // VectorUtil::VectorTanHalfAngle: tan of half the angle between two unit vectors
+        double TanHalfAngle( const FVector2d& A, const FVector2d& B )
+        {
+            const double CosAngle = Dot2( A, B );
+            return std::sqrt(
+                 std::clamp( ( 1.0 - CosAngle ) / ( 1.0 + CosAngle ), 0.0, std::numeric_limits<double>::max() ) );
+        }
+
+        // UE B:2931-2968: per border vertex k, the offset of UVPosition in k's frame (X along the border's central
+        // difference, Y = PerpCW(X)) and its polygon mean-value weight (Floater), the weights normalized to sum 1.
+        TArray<FVector3d> MeanValueFrameWeights( const FVector2d&         UVPosition,
+                                                 const TArray<FVector2d>& BorderPolygon )
+        {
+            const int32_t     NumLoopVerts = BorderPolygon.Num();
+            TArray<FVector3d> Weights;
+            Weights.Reserve( NumLoopVerts );
+            double WeightSum = 0.0;
+            for ( int32_t k = 0; k < NumLoopVerts; ++k )
+            {
+                const FVector2d BoundaryUVPosition = BorderPolygon[k];
+                const FVector2d Prev               = BorderPolygon[( k - 1 + NumLoopVerts ) % NumLoopVerts];
+                const FVector2d Next               = BorderPolygon[( k + 1 ) % NumLoopVerts];
+                const FVector2d BoundaryFrameX     = Normalized2( Next - Prev );
+                const FVector2d BoundaryFrameY( BoundaryFrameX.Y, -BoundaryFrameX.X );
+                const FVector2d DeltaUV = UVPosition - BoundaryUVPosition;
+                const double    Dist    = Length2( DeltaUV );
+                double          Weight  = 1.0;
+                if ( Dist > FMathd::ZeroTolerance )
+                {
+                    const FVector2d DeltaP = Normalized2( BoundaryUVPosition - UVPosition );
+                    const double    T1     = TanHalfAngle( Normalized2( Prev - UVPosition ), DeltaP );
+                    const double    T2     = TanHalfAngle( Normalized2( Next - UVPosition ), DeltaP );
+                    Weight                 = ( T1 + T2 ) / Dist;
+                }
+                Weights.Add(
+                     FVector3d( Dot2( BoundaryFrameX, DeltaUV ), Dot2( BoundaryFrameY, DeltaUV ), Weight ) );
+                WeightSum += Weight;
+            }
+            for ( FVector3d& Weight : Weights )
+                Weight.Z /= WeightSum;
+            return Weights;
+        }
+    } // namespace
+
+    bool FMeshBevel::HasRoundProfile() const
+    {
+        return std::abs( RoundWeight ) > FMathf::ZeroTolerance;
+    }
+
     void FMeshBevel::AppendJunctionVertexPolygon_Multi( FDynamicMesh3& Mesh, FBevelVertex& Vertex )
     {
         // UnlinkJunctionVertex() split the junction vertex into one vertex per wedge, ordered so the wedge
@@ -1637,6 +1724,10 @@ namespace Desert::Geometry
             const FVector3d V10 = Mesh.GetVertex( At( NumEdgeVerts - 1, 0 ) );
             const FVector3d V01 = Mesh.GetVertex( At( 0, NumEdgeVerts - 1 ) );
             const FVector3d V11 = Mesh.GetVertex( At( NumEdgeVerts - 1, NumEdgeVerts - 1 ) );
+            // only the four corners go into InteriorBorderLoop; the round profile blends the curves between them
+            Vertex.InteriorBorderLoop =
+                 TArray<int32_t>( { At( 0, 0 ), At( NumEdgeVerts - 1, 0 ), At( 0, NumEdgeVerts - 1 ),
+                                    At( NumEdgeVerts - 1, NumEdgeVerts - 1 ) } );
             for ( int32_t yi = 1; yi < NumEdgeVerts - 1; ++yi )
             {
                 const double    ty   = static_cast<double>( yi ) / static_cast<double>( NumEdgeVerts - 1 );
@@ -1646,6 +1737,10 @@ namespace Desert::Geometry
                 {
                     const double tx = static_cast<double>( xi ) / static_cast<double>( NumEdgeVerts - 1 );
                     At( xi, yi )    = Mesh.AppendVertex( Lerp( RowA, RowB, tx ) );
+                    FBevelVertex_InteriorVertex InteriorVertex;
+                    InteriorVertex.VertexID = At( xi, yi );
+                    InteriorVertex.BorderFrameWeight.Add( FVector3d( tx, ty, 0.0 ) );
+                    Vertex.InteriorVertices.Add( InteriorVertex );
                 }
             }
             for ( int32_t y0 = 0; y0 < NumEdgeVerts - 1; ++y0 )
@@ -1665,10 +1760,10 @@ namespace Desert::Geometry
             return;
         }
 
-        // Triangle, or a centroid fan for 5+ corners, tessellated uniformly. UE's valence-3 path tessellates a
-        // reference triangle to carry barycentric weights for the round profile; for the flat profile the
-        // tessellated corner triangle itself gives the same positions, so both cases share UE's general-case
-        // boundary matching (B:2860-2903).
+        // Triangle, or a centroid fan for 5+ corners, tessellated uniformly. UE's valence-3 path (B:2654-2740)
+        // tessellates a reference triangle to carry barycentric weights in vertex colours; here the tessellator
+        // emits them from its lattice indices, and the tessellated corner triangle itself gives UE's positions,
+        // so both cases share UE's general-case boundary matching (B:2860-2903).
         FDynamicMesh3 TmpMesh;
         for ( int32_t k = 0; k < NCorners; ++k )
             TmpMesh.AppendVertex( PolygonCorners[k] );
@@ -1686,7 +1781,9 @@ namespace Desert::Geometry
             for ( int32_t i = 0; i < NCorners; ++i )
                 TmpMesh.AppendTriangle( i, ( i + 1 ) % NCorners, CentroidID );
         }
-        FDynamicMesh3 Tess = UniformTessellatePatch( TmpMesh, NumEdgeVerts - 2 );
+        TArray<FVector3d> Barycentrics;
+        FDynamicMesh3     Tess =
+             UniformTessellatePatch( TmpMesh, NumEdgeVerts - 2, NCorners == 3 ? &Barycentrics : nullptr );
 
         // Walk the patch border from corner 0 alongside PolygonVertices; corner 1 must be NumEdgeVerts - 1 steps
         // on.
@@ -1694,10 +1791,12 @@ namespace Desert::Geometry
         FMeshBoundaryLoops BoundaryLoops( &Tess, true );
         TArray<int32_t>    VertexMap;
         VertexMap.Init( -1, Tess.MaxVertexID() );
-        bool bMapped = false;
+        bool            bMapped = false;
+        TArray<int32_t> BoundaryLoopVerts;
         for ( int32_t k = 0; k < BoundaryLoops.GetLoopCount() && !bMapped; ++k )
         {
-            TArray<int32_t> LoopVerts = BoundaryLoops.Loops[k].Vertices;
+            TArray<int32_t>& LoopVerts = BoundaryLoopVerts;
+            LoopVerts                  = BoundaryLoops.Loops[k].Vertices;
             if ( LoopVerts.Num() != NV )
                 continue;
             auto IndexOf = [&LoopVerts]( int32_t VertexID )
@@ -1726,16 +1825,69 @@ namespace Desert::Geometry
                     std::to_string( NV ) + " vertices matching its corners" );
             return;
         }
+        // 5+ corners, round: the patch flattened conformally (UE B:2840-2853) gives each interior vertex its
+        // offsets in the border frames and its mean-value coordinates (B:2905-2968). Only the round profile reads
+        // them, so a flat bevel does not run (or depend on) the spectral solve UE always runs.
+        const bool        bMeanValuePatch = NCorners >= 5 && HasRoundProfile();
+        TArray<FVector2d> PatchUVs;
+        if ( bMeanValuePatch )
+        {
+            Tess.EnableAttributes();
+            FDynamicMeshUVOverlay* UVOverlay = Tess.Attributes()->PrimaryUV();
+            FDynamicMeshUVEditor   UVEditor( &Tess, UVOverlay );
+            TArray<int32_t>        AllTriangles;
+            for ( const int32_t TriangleID : Tess.TriangleIndicesItr() )
+                AllTriangles.Add( TriangleID );
+            TArray<int32_t> TessToUV;
+            bool            bIdentityMap = false;
+            UVEditor.SetToPerVertexUVs( TessToUV, bIdentityMap );
+            if ( !UVEditor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles, true, true ) ||
+                 !UVEditor.ScaleUVAreaTo3DArea( AllTriangles, true ) )
+            {
+                Refuse( Where + ": the spectral conformal flattening of its " + std::to_string( NCorners ) +
+                        "-gon round patch failed" );
+                return;
+            }
+            PatchUVs.Init( FVector2d( 0.0, 0.0 ), Tess.MaxVertexID() );
+            for ( const int32_t VertexID : Tess.VertexIndicesItr() )
+            {
+                const FVector2f UV = UVOverlay->GetElement( TessToUV[VertexID] );
+                PatchUVs[VertexID] = FVector2d( UV.X, UV.Y );
+            }
+        }
+        TArray<FVector2d> BorderPolygon;
+        for ( const int32_t VertexID : BoundaryLoopVerts )
+            BorderPolygon.Add( PatchUVs.IsEmpty() ? FVector2d( 0.0, 0.0 ) : PatchUVs[VertexID] );
+
+        // a triangle keeps its three corners and its interior vertices' barycentrics for the round profile
+        if ( NCorners == 3 )
+            Vertex.InteriorBorderLoop = PolygonCornerVIDs;
         for ( const int32_t VertexID : Tess.VertexIndicesItr() )
         {
-            if ( VertexMap[VertexID] == -1 )
-                VertexMap[VertexID] = Mesh.AppendVertex( Tess.GetVertex( VertexID ) );
+            if ( VertexMap[VertexID] != -1 )
+                continue;
+            VertexMap[VertexID] = Mesh.AppendVertex( Tess.GetVertex( VertexID ) );
+            if ( NCorners == 3 || bMeanValuePatch )
+            {
+                FBevelVertex_InteriorVertex InteriorVertex;
+                InteriorVertex.VertexID = VertexMap[VertexID];
+                if ( NCorners == 3 )
+                    InteriorVertex.BorderFrameWeight.Add( Barycentrics[VertexID] );
+                else
+                    InteriorVertex.BorderFrameWeight = MeanValueFrameWeights( PatchUVs[VertexID], BorderPolygon );
+                Vertex.InteriorVertices.Add( InteriorVertex );
+            }
+        }
+        if ( bMeanValuePatch )
+        {
+            for ( const int32_t VertexID : BoundaryLoopVerts )
+                Vertex.InteriorBorderLoop.Add( VertexMap[VertexID] );
         }
         // PolygonVertices is always constructed in reversed orientation, so patch will be flipped otherwise
         Tess.ReverseOrientation();
         for ( const int32_t TriangleID : Tess.TriangleIndicesItr() )
         {
-            const FIndex3i Tri        = Tess.GetTriangle( TriangleID );
+            const FIndex3i Tri           = Tess.GetTriangle( TriangleID );
             const int32_t  NewTriangleID = AppendOrRefuse( Mesh, VertexMap[Tri.A], VertexMap[Tri.B],
                                                            VertexMap[Tri.C], Vertex.NewGroupID, Where );
             if ( Mesh.IsTriangle( NewTriangleID ) )
@@ -1787,9 +1939,9 @@ namespace Desert::Geometry
             Refuse( Where + ": ring-split edge " + std::to_string( RingSplitEdgeID ) + " no longer exists" );
             return;
         }
-        const FBevelEdge&   IncomingEdge = Edges[Vertex.IncomingBevelEdgeIndices[0]];
+        const FBevelEdge&     IncomingEdge = Edges[Vertex.IncomingBevelEdgeIndices[0]];
         const int32_t         FarVertexID  = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
-        std::string         Error;
+        std::string           Error;
         const TArray<int32_t> QuadStripEdgeVerts =
              TerminatorColumn( Mesh, IncomingEdge.StripQuadPatch, Vertex.Wedges[0].WedgeVertex,
                                Vertex.Wedges[1].WedgeVertex, Error );
@@ -1814,7 +1966,7 @@ namespace Desert::Geometry
         // Two directly connected terminators: their strips' end columns face each other; join them with quads.
         const std::string Where = "terminator vertices " + std::to_string( Vertex0.VertexID ) + " and " +
                                   std::to_string( Vertex1.VertexID );
-        std::string         Error;
+        std::string           Error;
         const TArray<int32_t> QuadStripEdgeVerts0 =
              TerminatorColumn( Mesh, Edges[Vertex0.IncomingBevelEdgeIndices[0]].StripQuadPatch,
                                Vertex0.Wedges[0].WedgeVertex, Vertex0.Wedges[1].WedgeVertex, Error );
@@ -1851,6 +2003,29 @@ namespace Desert::Geometry
 
     void FMeshBevel::CreateBevelMeshing_Multi( FDynamicMesh3& Mesh )
     {
+        // The round profile's arcs are tangent to the faces on either side of the strip: take those normals now,
+        // while each unlinked side vertex still touches only its own faces.
+        const bool bRound = HasRoundProfile();
+        if ( bRound )
+        {
+            auto FillNormals = [&Mesh]( const TArray<int32_t>& MeshVertices,
+                                        const TArray<int32_t>& NewMeshVertices, TArray<FVector3d>& NormalsA,
+                                        TArray<FVector3d>& NormalsB )
+            {
+                NormalsA.SetNum( MeshVertices.Num() );
+                NormalsB.SetNum( MeshVertices.Num() );
+                for ( int32_t k = 0; k < MeshVertices.Num(); ++k )
+                {
+                    NormalsA[k] = FMeshNormals::ComputeVertexNormal( Mesh, MeshVertices[k] );
+                    NormalsB[k] = FMeshNormals::ComputeVertexNormal( Mesh, NewMeshVertices[k] );
+                }
+            };
+            for ( FBevelEdge& Edge : Edges )
+                FillNormals( Edge.MeshVertices, Edge.NewMeshVertices, Edge.NormalsA, Edge.NormalsB );
+            for ( FBevelLoop& Loop : Loops )
+                FillNormals( Loop.MeshVertices, Loop.NewMeshVertices, Loop.NormalsA, Loop.NormalsB );
+        }
+
         // Strips first: the junction polygons take their sides from the strips' end columns.
         for ( FBevelEdge& Edge : Edges )
             AppendEdgeQuads_Multi( Mesh, Edge );
@@ -1885,13 +2060,347 @@ namespace Desert::Geometry
                 AppendTerminatorVertexTriangles_Multi( Mesh, Vertex );
             }
         }
+        // All topology is final; the round profile only moves vertices.
+        if ( bRound && FailureReason.empty() )
+            ApplyProfileShape_Round( Mesh );
+    }
+
+    FVector3d FMeshBevel::FArcSplineCurve::Eval( double T ) const
+    {
+        // FMath::CubicInterp, the CIM_CurveUser segment between parameters 0 and 1
+        const double T2 = T * T;
+        const double T3 = T2 * T;
+        return ( 2.0 * T3 - 3.0 * T2 + 1.0 ) * Pos0 + ( T3 - 2.0 * T2 + T ) * Tangent0 + ( T3 - T2 ) * Tangent1 +
+               ( -2.0 * T3 + 3.0 * T2 ) * Pos1;
+    }
+
+    FMeshBevel::FArcSplineCurve FMeshBevel::MakeArcSplineCurve( const FVector3d& PosA, const FVector3d& NormalA,
+                                                                const FVector3d& PosB,
+                                                                const FVector3d& NormalB ) const
+    {
+        // A and B with their surface normals: B projected onto A's tangent plane gives the direction of the
+        // tangent at A, and the other way round. For a planar right angle these tangents are the sides of the
+        // square spanned by the arc; a cubic Hermite with them is too flat, so they are scaled by sqrt(2) (UE's
+        // default; the arc midpoint then lies at 0.957 of the radius). A curve rather than an exact arc keeps
+        // non-planar inputs reasonable.
+        const FVector3d AB       = PosB - PosA;
+        const FVector3d TangentA = AB - AB.Dot( NormalA ) * NormalA;
+        const FVector3d BA       = PosA - PosB;
+        const FVector3d TangentB = BA - BA.Dot( NormalB ) * NormalB;
+
+        FArcSplineCurve Curve;
+        Curve.Pos0                = PosA;
+        Curve.Pos1                = PosB;
+        const double TangentScale = std::abs( RoundWeight ) * std::numbers::sqrt2;
+        if ( RoundWeight >= 0 )
+        {
+            Curve.Tangent0 = TangentScale * TangentA;
+            Curve.Tangent1 = -TangentScale * TangentB;
+        }
+        else
+        {
+            Curve.Tangent0 = -TangentScale * TangentB;
+            Curve.Tangent1 = TangentScale * TangentA;
+        }
+        return Curve;
+    }
+
+    void FMeshBevel::ApplyProfileShape_Round( FDynamicMesh3& Mesh )
+    {
+        // Each strip column (a vertex pair split by the unlink, joined by the subdivided column) is bent onto the
+        // arc between its end vertices; the 4-sided junction patches then blend their four curved borders.
+        // A column's normals are taken by its end vertices: UE indexes them by column, which assumes the patch
+        // columns run in MeshVertices order (it detects only a reversed edge patch).
+        struct FColumnSide
+        {
+            int32_t Index    = -1;
+            bool    bSwapped = false; // column starts on the NewMeshVertices side
+        };
+        auto ColumnSide = []( const TArray<int32_t>& MeshVertices, const TArray<int32_t>& NewMeshVertices,
+                              int32_t A, int32_t B ) -> FColumnSide
+        {
+            for ( int32_t k = 0; k < MeshVertices.Num(); ++k )
+            {
+                if ( MeshVertices[k] == A && NewMeshVertices[k] == B )
+                    return { k, false };
+                if ( NewMeshVertices[k] == A && MeshVertices[k] == B )
+                    return { k, true };
+            }
+            return {};
+        };
+        auto ProjectToPlane = []( const FVector3d& V, const FVector3d& PlaneNormal )
+        { return Normalized( V - V.Dot( PlaneNormal ) * PlaneNormal ); };
+        auto BendColumn = [&Mesh]( const TArray<int32_t>& ColVerts, const FArcSplineCurve& Curve )
+        {
+            const int32_t NV = ColVerts.Num();
+            for ( int32_t k = 1; k < NV - 1; ++k )
+                Mesh.SetVertex( ColVerts[k],
+                                Curve.Eval( static_cast<double>( k ) / static_cast<double>( NV - 1 ) ) );
+        };
+
+        // Loops have no junctions: every column gets its own arc (the last column repeats the first).
+        for ( FBevelLoop& Loop : Loops )
+        {
+            const FQuadGridPatch& Patch = Loop.StripQuadPatch;
+            for ( int32_t Col = 0; Col < Patch.NumVertexCols() - 1; ++Col )
+            {
+                TArray<int32_t> ColVerts;
+                Patch.GetVertexColumn( Col, ColVerts );
+                const int32_t     A    = ColVerts[0];
+                const int32_t     B    = ColVerts.Last();
+                const FColumnSide Side = ColumnSide( Loop.MeshVertices, Loop.NewMeshVertices, A, B );
+                if ( Side.Index < 0 )
+                {
+                    Refuse( "bevel loop: strip column " + std::to_string( Col ) + " from vertex " +
+                            std::to_string( A ) + " to " + std::to_string( B ) + " is no unlinked vertex pair" );
+                    return;
+                }
+                const FVector3d PosA = Mesh.GetVertex( A );
+                const FVector3d PosB = Mesh.GetVertex( B );
+                // the section plane through the original vertex and its two inset positions
+                const FVector3d InitialPosition = Loop.InitialPositions[Side.Index];
+                const FVector3d PlaneNormal     = Normalized(
+                     Normalized( PosA - InitialPosition ).Cross( Normalized( PosB - InitialPosition ) ) );
+                const FVector3d NormalA = ProjectToPlane(
+                     Side.bSwapped ? Loop.NormalsB[Side.Index] : Loop.NormalsA[Side.Index], PlaneNormal );
+                const FVector3d NormalB = ProjectToPlane(
+                     Side.bSwapped ? Loop.NormalsA[Side.Index] : Loop.NormalsB[Side.Index], PlaneNormal );
+                BendColumn( ColVerts, MakeArcSplineCurve( PosA, NormalA, PosB, NormalB ) );
+            }
+        }
+
+        // Edges likewise, keeping each column's curve by its end-vertex pair for the junction patches, and summing
+        // the surface normal at every column vertex (UE's DeformNormals, B:3377-3518) for the 5+-sided patches.
+        TMap<FIndex2i, FArcSplineCurve> BorderCurves;
+        TArray<FVector3d>               DeformNormals;
+        DeformNormals.Init( FVector3d::Zero(), Mesh.MaxVertexID() );
+        for ( FBevelEdge& Edge : Edges )
+        {
+            const FQuadGridPatch& Patch  = Edge.StripQuadPatch;
+            const int32_t         NumVtx = Edge.MeshVertices.Num();
+            for ( int32_t Col = 0; Col < Patch.NumVertexCols(); ++Col )
+            {
+                TArray<int32_t> ColVerts;
+                Patch.GetVertexColumn( Col, ColVerts );
+                const int32_t     A    = ColVerts[0];
+                const int32_t     B    = ColVerts.Last();
+                const FColumnSide Side = ColumnSide( Edge.MeshVertices, Edge.NewMeshVertices, A, B );
+                if ( Side.Index < 0 )
+                {
+                    Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": strip column " +
+                            std::to_string( Col ) + " from vertex " + std::to_string( A ) + " to " +
+                            std::to_string( B ) + " is no unlinked vertex pair" );
+                    return;
+                }
+                const FVector3d PosA               = Mesh.GetVertex( A );
+                const FVector3d PosB               = Mesh.GetVertex( B );
+                const FVector3d InitialPosition    = Edge.InitialPositions[Side.Index];
+                FVector3d       SectionPlaneNormal = Normalized(
+                     Normalized( PosA - InitialPosition ).Cross( Normalized( PosB - InitialPosition ) ) );
+                // At a junction of 3+ edges the corner was inset along every edge, so the original vertex and the
+                // two inset positions no longer span the section: it is the plane through A and B that contains
+                // the original edge direction.
+                const bool bIsEndpoint = Side.Index == 0 || Side.Index == NumVtx - 1;
+                if ( bIsEndpoint )
+                {
+                    const FBevelVertex& BevelVtx =
+                         Vertices[Side.Index == 0 ? Edge.BevelVertices.A : Edge.BevelVertices.B];
+                    if ( BevelVtx.VertexType == EBevelVertexType::JunctionVertex &&
+                         BevelVtx.IncomingBevelEdgeIndices.Num() > 2 )
+                    {
+                        FVector3d InitialEdgeDirection =
+                             Side.Index == 0 ? Edge.InitialPositions[1] - InitialPosition
+                                             : InitialPosition - Edge.InitialPositions[NumVtx - 2];
+                        if ( Normalize( InitialEdgeDirection ) > 0.0 )
+                        {
+                            FFrame3d TempFrame( PosA, Normalized( PosB - PosA ) );
+                            TempFrame.ConstrainedAlignAxis( 1, InitialEdgeDirection, TempFrame.Z() );
+                            SectionPlaneNormal = TempFrame.Y();
+                        }
+                    }
+                }
+                const FVector3d NormalA = ProjectToPlane(
+                     Side.bSwapped ? Edge.NormalsB[Side.Index] : Edge.NormalsA[Side.Index], SectionPlaneNormal );
+                const FVector3d NormalB = ProjectToPlane(
+                     Side.bSwapped ? Edge.NormalsA[Side.Index] : Edge.NormalsB[Side.Index], SectionPlaneNormal );
+                const FArcSplineCurve Curve = MakeArcSplineCurve( PosA, NormalA, PosB, NormalB );
+                DeformNormals[A] += NormalA;
+                DeformNormals[B] += NormalB;
+                BorderCurves.Add( FIndex2i( A, B ), Curve );
+                BendColumn( ColVerts, Curve );
+                // the bent column's normals within its own strip
+                for ( int32_t k = 1; k < ColVerts.Num() - 1; ++k )
+                    DeformNormals[ColVerts[k]] += FMeshNormals::ComputeVertexNormal(
+                         Mesh, ColVerts[k], [&Mesh, &Edge]( int32_t TriangleID )
+                         { return Mesh.GetTriangleGroup( TriangleID ) == Edge.NewGroupID; }, true, true );
+            }
+        }
+        for ( FVector3d& Normal : DeformNormals )
+            Normalize( Normal );
+
+        // a border curve keyed (P, Q) or, reversed, (Q, P)
+        auto BorderCurve = [&BorderCurves]( int32_t P, int32_t Q, bool& bReversed ) -> const FArcSplineCurve*
+        {
+            bReversed                    = false;
+            const FArcSplineCurve* Found = BorderCurves.Find( FIndex2i( P, Q ) );
+            if ( Found == nullptr )
+            {
+                Found     = BorderCurves.Find( FIndex2i( Q, P ) );
+                bReversed = true;
+            }
+            return Found;
+        };
+
+        // Junction patches: 3 corners (PN triangle), 4 (blended curves), 5+ (mean-value blend of border frames).
+        for ( const FBevelVertex& Vertex : Vertices )
+        {
+            if ( Vertex.InteriorVertices.IsEmpty() )
+                continue;
+            const std::string Where = "junction vertex " + std::to_string( Vertex.VertexID );
+            if ( Vertex.InteriorBorderLoop.Num() == 3 )
+            {
+                // PN triangle (UE B:3527-3585): the cubic Bezier triangle whose edge control points come from
+                // the three border curves' end tangents (a Hermite tangent is 3x the Bezier leg, hence 1/3) and
+                // whose centre point b111 is pushed out of the corner plane by RoundWeight.
+                const int32_t          i300       = Vertex.InteriorBorderLoop[0];
+                const int32_t          i030       = Vertex.InteriorBorderLoop[1];
+                const int32_t          i003       = Vertex.InteriorBorderLoop[2];
+                const FVector3d        b300       = Mesh.GetVertex( i300 );
+                const FVector3d        b030       = Mesh.GetVertex( i030 );
+                const FVector3d        b003       = Mesh.GetVertex( i003 );
+                bool                   bReversedA = false;
+                bool                   bReversedB = false;
+                bool                   bReversedC = false;
+                const FArcSplineCurve* CurveA     = BorderCurve( i300, i030, bReversedA );
+                const FArcSplineCurve* CurveB     = BorderCurve( i030, i003, bReversedB );
+                const FArcSplineCurve* CurveC     = BorderCurve( i003, i300, bReversedC );
+                if ( CurveA == nullptr || CurveB == nullptr || CurveC == nullptr )
+                {
+                    Refuse( Where + ": a side of its 3-sided patch is no bevel strip end column" );
+                    return;
+                }
+                // the control point next to the curve's start P and the one next to its end Q
+                auto NearStart = []( const FArcSplineCurve& Curve, bool bReversed )
+                { return ( bReversed ? -Curve.Tangent1 : Curve.Tangent0 ) / 3.0; };
+                auto NearEnd = []( const FArcSplineCurve& Curve, bool bReversed )
+                { return ( bReversed ? Curve.Tangent0 : -Curve.Tangent1 ) / 3.0; };
+                const FVector3d b210 = b300 + NearStart( *CurveA, bReversedA );
+                const FVector3d b120 = b030 + NearEnd( *CurveA, bReversedA );
+                const FVector3d b021 = b030 + NearStart( *CurveB, bReversedB );
+                const FVector3d b012 = b003 + NearEnd( *CurveB, bReversedB );
+                const FVector3d b102 = b003 + NearStart( *CurveC, bReversedC );
+                const FVector3d b201 = b300 + NearEnd( *CurveC, bReversedC );
+                const FVector3d E    = ( b210 + b120 + b021 + b012 + b102 + b201 ) / 6.0;
+                const FVector3d V    = ( b300 + b030 + b003 ) / 3.0;
+                const FVector3d b111 = E + RoundWeight * ( E - V ) / 2.0;
+                for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
+                {
+                    const double w = InteriorVtx.BorderFrameWeight[0].X;
+                    const double u = InteriorVtx.BorderFrameWeight[0].Y;
+                    const double v = InteriorVtx.BorderFrameWeight[0].Z;
+                    Mesh.SetVertex( InteriorVtx.VertexID,
+                                    b300 * ( w * w * w ) + b030 * ( u * u * u ) + b003 * ( v * v * v ) +
+                                         b210 * ( 3 * w * w * u ) + b120 * ( 3 * w * u * u ) +
+                                         b201 * ( 3 * w * w * v ) + b021 * ( 3 * u * u * v ) +
+                                         b102 * ( 3 * w * v * v ) + b012 * ( 3 * u * v * v ) +
+                                         b111 * ( 6 * w * u * v ) );
+                }
+                continue;
+            }
+            const int32_t LoopN = Vertex.InteriorBorderLoop.Num();
+            if ( LoopN >= 5 )
+            {
+                // UE B:3697-3735: rebuild the vertex from its flattened offset in every border vertex's frame (X
+                // along the border, Y = N x X across the rounded surface) and blend those by its mean-value
+                // weights. Smooth inside, not tangent-continuous with the border (UE's own caveat).
+                for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
+                {
+                    if ( InteriorVtx.BorderFrameWeight.Num() != LoopN )
+                    {
+                        Refuse( Where + ": interior vertex " + std::to_string( InteriorVtx.VertexID ) + " has " +
+                                std::to_string( InteriorVtx.BorderFrameWeight.Num() ) +
+                                " border frame weights for a border loop of " + std::to_string( LoopN ) );
+                        return;
+                    }
+                    FVector3d BlendedPos = FVector3d::Zero();
+                    double    WeightSum  = 0.0;
+                    for ( int32_t k = 0; k < LoopN; ++k )
+                    {
+                        const int32_t   BorderVID = Vertex.InteriorBorderLoop[k];
+                        const FVector3d BorderFrameX =
+                             Normalized( Mesh.GetVertex( Vertex.InteriorBorderLoop[( k + 1 ) % LoopN] ) -
+                                         Mesh.GetVertex( Vertex.InteriorBorderLoop[( k - 1 + LoopN ) % LoopN] ) );
+                        FVector3d BorderFrameN = DeformNormals[BorderVID];
+                        if ( RoundWeight < 0 )
+                        {
+                            // FQuaterniond(BorderFrameX, -45, true) * N, as Rodrigues' rotation
+                            const double Angle = -0.78539816339744830962;
+                            BorderFrameN =
+                                 BorderFrameN * std::cos( Angle ) +
+                                 BorderFrameX.Cross( BorderFrameN ) * std::sin( Angle ) +
+                                 BorderFrameX * ( BorderFrameX.Dot( BorderFrameN ) * ( 1.0 - std::cos( Angle ) ) );
+                        }
+                        const FVector3d BorderFrameY     = BorderFrameN.Cross( BorderFrameX );
+                        const FVector3d FrameDeltaWeight = InteriorVtx.BorderFrameWeight[k];
+                        const FVector3d ReconstructedPos = Mesh.GetVertex( BorderVID ) +
+                                                           FrameDeltaWeight.X * BorderFrameX +
+                                                           FrameDeltaWeight.Y * BorderFrameY;
+                        BlendedPos += FrameDeltaWeight.Z * ReconstructedPos;
+                        WeightSum += FrameDeltaWeight.Z;
+                    }
+                    Mesh.SetVertex( InteriorVtx.VertexID, BlendedPos * ( 1.0 / WeightSum ) );
+                }
+                continue;
+            }
+            if ( LoopN != 4 )
+            {
+                Refuse( Where + ": the round profile has no patch for its " + std::to_string( LoopN ) +
+                        "-corner polygon" );
+                return;
+            }
+            // 4-sided: blend the two "X" border curves along the two "Y" ones.
+            //   c01  X2   c11      ty = 1
+            //    Y1 |  XInterp | Y2
+            //   c00  X1   c10      ty = 0;   tx = 0 at Y1, 1 at Y2
+            const int32_t          c00         = Vertex.InteriorBorderLoop[0];
+            const int32_t          c10         = Vertex.InteriorBorderLoop[1];
+            const int32_t          c01         = Vertex.InteriorBorderLoop[2];
+            const int32_t          c11         = Vertex.InteriorBorderLoop[3];
+            bool                   bReversedY1 = false;
+            bool                   bReversedY2 = false;
+            bool                   bReversedX1 = false;
+            bool                   bReversedX2 = false;
+            const FArcSplineCurve* CurveY1     = BorderCurve( c00, c01, bReversedY1 );
+            const FArcSplineCurve* CurveY2     = BorderCurve( c10, c11, bReversedY2 );
+            const FArcSplineCurve* CurveX1     = BorderCurve( c00, c10, bReversedX1 );
+            const FArcSplineCurve* CurveX2     = BorderCurve( c01, c11, bReversedX2 );
+            if ( CurveY1 == nullptr || CurveY2 == nullptr || CurveX1 == nullptr || CurveX2 == nullptr )
+            {
+                Refuse( Where + ": a side of its 4-sided patch is no bevel strip end column" );
+                return;
+            }
+            // the X curves' end tangents, pointing out of the patch at tx = 0 and along +tx at tx = 1
+            const FVector3d Tangent00 = bReversedX1 ? CurveX1->Tangent1 : -CurveX1->Tangent0;
+            const FVector3d Tangent10 = bReversedX1 ? -CurveX1->Tangent0 : CurveX1->Tangent1;
+            const FVector3d Tangent01 = bReversedX2 ? CurveX2->Tangent1 : -CurveX2->Tangent0;
+            const FVector3d Tangent11 = bReversedX2 ? -CurveX2->Tangent0 : CurveX2->Tangent1;
+            for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
+            {
+                const double    tx = InteriorVtx.BorderFrameWeight[0].X;
+                const double    ty = InteriorVtx.BorderFrameWeight[0].Y;
+                FArcSplineCurve InterpolatedXCurve;
+                InterpolatedXCurve.Pos0     = CurveY1->Eval( bReversedY1 ? 1.0 - ty : ty );
+                InterpolatedXCurve.Pos1     = CurveY2->Eval( bReversedY2 ? 1.0 - ty : ty );
+                InterpolatedXCurve.Tangent0 = -Lerp( Tangent00, Tangent01, ty );
+                InterpolatedXCurve.Tangent1 = Lerp( Tangent10, Tangent11, ty );
+                Mesh.SetVertex( InteriorVtx.VertexID, InterpolatedXCurve.Eval( tx ) );
+            }
+        }
     }
 
     bool FMeshBevel::Apply( FDynamicMesh3& Mesh )
     {
         // UE's FixBowties is RefuseBowties at initialization; each phase below may Refuse.
-        if ( !FailureReason.empty() )
-            return false;
         UnlinkEdges( Mesh );
         if ( !FailureReason.empty() )
             return false;

@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "a4b66e17d0a34557c73e89c23a46b9f8",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["a210ced5741f721e9e8fb6a007fd6b76", "286d565c30b22afa2cf0549879f3aebc"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a210ced5741f721e9e8fb6a007fd6b76", "286d565c30b22afa2cf0549879f3aebc"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -63,6 +66,5 @@
             "Guid": "286d565c30b22afa2cf0549879f3aebc",
             "Path": "assets:Clouds/Layouts/Layout_LetterD.dclayout"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }

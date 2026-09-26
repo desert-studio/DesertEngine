@@ -47,6 +47,14 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
+    -- Common: ReadShaderDeclaredName, the ONE reader of a shader's `Shader "X"` line (it skips the
+    -- `// DesertAsset {...}` header the load path also skips), so the census and ShaderAsset's load-time
+    -- refusal cannot disagree about which line is the declaration. Optick: Common's JobSystem.
+    links { "Common", "Optick" }
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
+
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

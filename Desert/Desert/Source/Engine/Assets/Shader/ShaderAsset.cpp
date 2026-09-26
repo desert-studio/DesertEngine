@@ -1,22 +1,67 @@
 #include "ShaderAsset.hpp"
 
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextAssetHeaderCheck.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
+
+#include <array>
+#include <format>
 
 namespace Desert::Assets
 {
     ShaderAsset::ShaderAsset( AssetPriority priority, const Common::Filepath& filepath )
          : AssetBase( priority, filepath, GetTypeID() )
     {
+        // THE SHADER'S IDENTITY IS ITS HEADER GUID (SHDR 1, T7j), adopted here for AnimGraphAsset's reason: the
+        // asset manager keys its handle lookup at creation. A file with no readable header keeps the
+        // path-derived handle - the load refuses it by name, so none is ever READY under it. Read through
+        // ReadTextAssetIdentity like every header-GUID kind, so an old path after a move is the moved shader.
+        const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath, &ReadShaderHeaderGuid );
+        if ( !identity.Guid.IsNull() )
+            AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
     Common::BoolResultStr ShaderAsset::LoadFromFile()
     {
         // A missing .shader file used to "load" as empty content and fail later, inside the
         // compiler, with a message that no longer named the file. Refuse here, with the path.
-        auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
+        // The file the constructor took the identity from (ReadTextAssetIdentity): past a move's redirector.
+        const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
+        auto                        raw  = Common::Utils::FileSystem::ReadFileContent( file );
         if ( !raw )
             return Common::MakeError( raw.GetError() );
         m_ShaderContent = raw.ExtractValue();
+
+        // A shader of generation 0 states no header: it has no identity to reference, so it is refused, not
+        // compiled anyway. The comment line stays in the source the compiler sees - the DSL skips it.
+        const std::string path   = file.string();
+        const auto        header = Common::Content::ReadShaderHeader( m_ShaderContent );
+        if ( !header )
+            return Common::MakeError(
+                 std::format( "shader '{}' ({}): this build reads SHDR {}, a first-line header "
+                              "with a GUID - run scripts/Dev/migrate.sh --write over it once",
+                              path, header.GetError(), kShaderSchemaVersion ) );
+        const std::array<Common::Content::SubsystemVersion, 1> subsystems = {
+             Common::Content::SubsystemVersion{ kShaderSchemaTag, kShaderSchemaVersion } };
+        if ( const auto checked = CheckStatedHeader( header.GetValue(), Common::Content::ContentKind::Shader,
+                                                     kShaderSchemaTag, kShaderSchemaVersion, subsystems );
+             !checked )
+            return Common::MakeError( std::format( "shader '{}': {}", path, checked.GetError() ) );
+
+        // The runtime names this shader by its file stem, and a material's shader GUID resolves to that stem
+        // (SurfaceMaterialAsset::ResolveDependencies). A DSL name that differs would make the file say one
+        // name and the engine bind another, so it is refused here rather than resolved either way.
+        const auto declared = Common::Content::ReadShaderDeclaredName( m_ShaderContent );
+        if ( !declared )
+            return Common::MakeError( std::format( "shader '{}': {}", path, declared.GetError() ) );
+        if ( const std::string stem = file.stem().string(); declared.GetValue() != stem )
+            return Common::MakeError(
+                 std::format( "shader '{}' declares Shader \"{}\" but its file is named '{}': "
+                              "rename one so they agree",
+                              path, declared.GetValue(), stem ) );
 
         m_ReadyForUse = true;
         return BOOLSUCCESS;

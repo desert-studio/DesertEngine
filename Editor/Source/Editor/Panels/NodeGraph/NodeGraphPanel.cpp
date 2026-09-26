@@ -9,6 +9,7 @@
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -436,8 +437,10 @@ namespace Desert::Editor
         std::error_code ec;
         std::filesystem::create_directories( path.parent_path(), ec );
         // A compile that produced correct source and could not store it is still a failed compile: the
-        // status line below promises "hot reload applies it", and hot reload reads this file.
-        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, source.GetValue() );
+        // status line below promises "hot reload applies it", and hot reload reads this file. The file states
+        // the GUID it already had, so a recompile keeps the shader's handle (ShaderSourceKeepingFileGuid).
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic(
+                  path, Assets::ShaderSourceKeepingFileGuid( path, source.GetValue() ) );
              !written )
         {
             m_Status        = "Compiled, but NOT written: " + written.GetError();
@@ -501,9 +504,16 @@ namespace Desert::Editor
             return Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         }
 
-        // ShaderName is the ONLY thing that makes this material the graph's; a material left over from an
-        // earlier compile keeps whatever shader it had, so set it every time.
-        asset->Data().ShaderName = m_Doc.Name;
+        // Shader is the ONLY thing that makes this material the graph's; a material left over from an
+        // earlier compile keeps whatever shader it had, so state it every time (by GUID, MATL 4).
+        if ( const auto stated =
+                  Assets::SurfaceMaterialAsset::StateShaderByName( asset->Data(), *m_AssetManager, m_Doc.Name );
+             !stated )
+        {
+            LOG_ERROR( "[NodeGraph] preview material '{}': {}", path.string(), stated.GetError() );
+            return {};
+        }
+        asset->ResolveDependencies( *m_AssetManager );
         // Stamped in memory, so the GUID a first write mints is the one every later write states.
         asset->Data() = Assets::StampMaterialHeader( std::move( asset->Data() ) );
         // Logged, and then carried on with deliberately: the preview material lives in memory for this

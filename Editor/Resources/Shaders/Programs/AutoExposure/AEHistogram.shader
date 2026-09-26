@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"b0caa987ff4d7feb3a44bae8779e5731","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "AEHistogram"
 {
     Compute

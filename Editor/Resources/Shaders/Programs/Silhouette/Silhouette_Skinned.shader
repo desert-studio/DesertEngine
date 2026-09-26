@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"3aaf4d331cc05e4f9f58669726b859c7","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Silhouette_Skinned"
 {
     // Skinned variant of the silhouette mask: same flat-white fragment, but the vertex skins by the Bones SSBO

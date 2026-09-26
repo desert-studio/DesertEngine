@@ -5,6 +5,8 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
+#include <cstdlib>
+
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
@@ -84,7 +86,51 @@ namespace Desert::Graphic::API::Vulkan
                  bufferCreateInfo.size, (int)res, VkResultToString( res ) );
         }
 
+        if ( PoisonNewMemory() )
+        {
+            // Only memory the CPU can reach: a GPU-only buffer is written by a staging copy before any
+            // shader sees it, and poisoning it would need a command buffer this primitive does not own.
+            VkMemoryPropertyFlags props = 0;
+            vmaGetAllocationMemoryProperties( s_VmaAllocator, allocation, &props );
+            if ( ( props & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) != 0 )
+            {
+                MappedMemory mapped = MapMemory( allocation );
+                if ( auto filled = mapped.Fill( 0xCD, mapped.GetSize() ); !filled.IsSuccess() )
+                {
+                    LOG_WARN( "[VmaAllocator] poisoning '{}' was refused: {}", tag, filled.GetError() );
+                }
+                else if ( const VkResult flushed =
+                               vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
+                          flushed != VK_SUCCESS )
+                {
+                    LOG_WARN( "[VmaAllocator] flushing the poisoned '{}' failed: {}", tag,
+                              VkResultToString( flushed ) );
+                }
+            }
+        }
+
         return Common::MakeSuccess( allocation );
+    }
+
+    bool VulkanAllocator::PoisonNewMemory()
+    {
+#if defined( DESERT_CONFIG_DEBUG )
+        static const bool s_Poison = []
+        {
+            // Read once, from a function-local static, before any render thread exists; nothing sets the
+            // environment afterwards.
+            // NOLINTNEXTLINE(concurrency-mt-unsafe)
+            const char* value  = std::getenv( "DESERT_POISON_NEW_MEMORY" );
+            const bool  poison = value != nullptr && value[0] != '\0' && value[0] != '0';
+            if ( poison )
+                LOG_WARN( "[VmaAllocator] DESERT_POISON_NEW_MEMORY is set: new host-visible buffers are filled "
+                          "with 0xCD and new 2D images without data are cleared to NaN / 0xCD" );
+            return poison;
+        }();
+        return s_Poison;
+#else
+        return false;
+#endif
     }
 
     Common::ResultStr<VmaAllocation> VulkanAllocator::RT_AllocateImage( const std::string& tag, const VkImageCreateInfo& imageCreateInfo,

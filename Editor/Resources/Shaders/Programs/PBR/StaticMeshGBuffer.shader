@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"e2095f403cbb2ba2eb81325b0cab2bb1","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "StaticMeshGBuffer"
 {
     // Deferred G-buffer geometry pass for static meshes (writes Albedo+Metallic / Normal+Roughness MRT).

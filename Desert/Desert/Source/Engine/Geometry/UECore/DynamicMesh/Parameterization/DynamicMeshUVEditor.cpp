@@ -5,6 +5,8 @@
 // normals (UE's QuickComputeVertexNormals), TMeshLocalParam computes the area-weighted normal per vertex instead;
 // a triangle the submesh cannot append counts as failed. SetTriangleUVsFromFreeBoundarySpectralConformal is
 // DynamicMeshUVEditor.cpp:754-988 with Options.bUseSpectral fixed true (the other branch is not ported).
+// SetToPerVertexUVs is :198-222 without the FUVEditResult; ScaleUVAreaTo3DArea is :1461-1497 with
+// DetermineAreaFromUVs (:1743-1768) and GetVolumeArea's area written out.
 #include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
@@ -13,8 +15,14 @@
 #include "Engine/Geometry/UECore/Parameterization/MeshDijkstra.hpp"
 #include "Engine/Geometry/UECore/Parameterization/MeshLocalParam.hpp"
 #include "Engine/Geometry/UECore/Solvers/MeshUVSolver.hpp"
+#include "Engine/Geometry/UECore/VectorUtil.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Desert::Geometry
 {
@@ -161,7 +169,7 @@ namespace Desert::Geometry
         if ( !bUseExistingUVTopology )
             ResetUVs( Triangles );
 
-        FDynamicMesh3                    Submesh;
+        FDynamicMesh3                        Submesh;
         std::unordered_map<int32_t, int32_t> BaseToSubmeshV;
         TArray<int32_t>                      SubmeshToBaseV;
         TArray<int32_t>                      SubmeshToBaseT;
@@ -232,6 +240,77 @@ namespace Desert::Geometry
         }
         if ( Result != nullptr )
             Result->NewUVElements = std::move( NewElementIDs );
+        return true;
+    }
+
+    void FDynamicMeshUVEditor::SetToPerVertexUVs( TArray<int32_t>& VertexToUVOut, bool& bIsIdentityMapOut )
+    {
+        bIsIdentityMapOut = true;
+        VertexToUVOut.Init( FDynamicMesh3::InvalidID, Mesh->MaxVertexID() );
+        UVOverlay->ClearElements();
+        for ( const int32_t VertexID : Mesh->VertexIndicesItr() )
+        {
+            const int32_t UVID      = UVOverlay->AppendElement( FVector2f( 0.0f, 0.0f ) );
+            VertexToUVOut[VertexID] = UVID;
+            bIsIdentityMapOut       = bIsIdentityMapOut && UVID == VertexID;
+        }
+        for ( const int32_t TriangleID : Mesh->TriangleIndicesItr() )
+        {
+            const FIndex3i Tri = Mesh->GetTriangle( TriangleID );
+            UVOverlay->SetTriangle( TriangleID,
+                                    FIndex3i( VertexToUVOut[Tri.A], VertexToUVOut[Tri.B], VertexToUVOut[Tri.C] ) );
+        }
+    }
+
+    bool FDynamicMeshUVEditor::ScaleUVAreaTo3DArea( const TArray<int32_t>& Triangles, bool bRecenterAtOrigin,
+                                                    float ScaleFactor )
+    {
+        double Area3D = 0.0;
+        for ( const int32_t tid : Triangles )
+        {
+            if ( !Mesh->IsTriangle( tid ) )
+                continue;
+            const FIndex3i Tri = Mesh->GetTriangle( tid );
+            Area3D +=
+                 VectorUtil::Area( Mesh->GetVertex( Tri.A ), Mesh->GetVertex( Tri.B ), Mesh->GetVertex( Tri.C ) );
+        }
+        if ( std::abs( Area3D ) < FMathf::Epsilon || !std::isfinite( Area3D ) )
+            return false;
+
+        std::unordered_set<int32_t> Elements;
+        double                      Area2D = 0.0;
+        FVector2f BoundsMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
+        FVector2f BoundsMax( -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() );
+        for ( const int32_t tid : Triangles )
+        {
+            if ( !UVOverlay->IsSetTriangle( tid ) )
+                continue;
+            const FIndex3i                 UVTri = UVOverlay->GetTriangle( tid );
+            const std::array<FVector2f, 3> UV    = { UVOverlay->GetElement( UVTri.A ),
+                                                     UVOverlay->GetElement( UVTri.B ),
+                                                     UVOverlay->GetElement( UVTri.C ) };
+            for ( int32_t j = 0; j < 3; ++j )
+            {
+                Elements.insert( UVTri[j] );
+                BoundsMin = FVector2f( std::min( BoundsMin.X, UV[j].X ), std::min( BoundsMin.Y, UV[j].Y ) );
+                BoundsMax = FVector2f( std::max( BoundsMax.X, UV[j].X ), std::max( BoundsMax.Y, UV[j].Y ) );
+            }
+            const FVector2f E1 = UV[1] - UV[0];
+            const FVector2f E2 = UV[2] - UV[0];
+            Area2D += 0.5 * std::abs( static_cast<double>( E1.X ) * E2.Y - static_cast<double>( E1.Y ) * E2.X );
+        }
+        if ( Elements.empty() || std::abs( Area2D ) < FMathf::Epsilon || !std::isfinite( Area2D ) )
+            return false;
+
+        const double UVScale = ScaleFactor * std::sqrt( Area3D ) / std::sqrt( Area2D );
+        if ( !std::isfinite( UVScale ) )
+            return false;
+        const FVector2f ScaleOrigin = ( BoundsMin + BoundsMax ) * 0.5f;
+        const FVector2f Translation = bRecenterAtOrigin ? FVector2f( 0.0f, 0.0f ) : ScaleOrigin;
+        for ( const int32_t eid : Elements )
+            UVOverlay->SetElement( eid,
+                                   ( UVOverlay->GetElement( eid ) - ScaleOrigin ) * static_cast<float>( UVScale ) +
+                                        Translation );
         return true;
     }
 } // namespace Desert::Geometry

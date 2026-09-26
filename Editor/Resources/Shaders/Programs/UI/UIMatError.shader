@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"cd0bd94d209f27d8576346de2fd1d52b","Versions":{"SHDR":1},"Dependencies":[]}
 // THE UI MATERIAL ERROR FILL — what an element draws when the material slot names something the UI
 // path cannot execute: a handle that resolves to no `.demat`, a `.demat` whose shader is not
 // registered, or a shader whose Domain is not UI.
