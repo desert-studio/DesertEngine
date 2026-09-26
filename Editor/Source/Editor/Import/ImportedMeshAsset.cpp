@@ -34,9 +34,9 @@ namespace Desert::Editor
         return { name.substr( 0, pos ), std::stoi( digits ) };
     }
 
-    Common::ResultStr<ImportedMeshSource>
-    MeshSourceFromImport( const Ser::MeshAssetData& imported, std::span<const Assets::MeshMaterialSlot> named,
-                          const std::string& name )
+    Common::ResultStr<ImportedMeshSource> MeshSourceFromImport( const Ser::MeshAssetData&                 imported,
+                                                                std::span<const Assets::MeshMaterialSlot> named,
+                                                                const std::string&                        name )
     {
         using Result = ImportedMeshSource;
         if ( imported.IsSkinned )

@@ -242,13 +242,14 @@ TEST( ImportedMeshAsset, ExportDebrisIsSkippedAndTheRestKeepsItsGroups )
     EXPECT_NE( warning.find( "detached 1" ), std::string::npos ) << warning;
     EXPECT_EQ( warning.find( '\n' ), std::string::npos ) << warning;
 
-    const auto clean = Editor::MeshSourceFromImport( []
-                                                     {
-                                                         Ser::MeshAssetData d;
-                                                         AddPlane( d, "Clean", 2, 0.0f, {} );
-                                                         return d;
-                                                     }(),
-                                                     {}, "Clean" );
+    const auto clean = Editor::MeshSourceFromImport(
+         []
+         {
+             Ser::MeshAssetData d;
+             AddPlane( d, "Clean", 2, 0.0f, {} );
+             return d;
+         }(),
+         {}, "Clean" );
     ASSERT_TRUE( clean.IsSuccess() ) << clean.GetError();
     EXPECT_TRUE( Editor::SkippedFacesWarning( clean.GetValue(), "Clean" ).empty() );
 }
