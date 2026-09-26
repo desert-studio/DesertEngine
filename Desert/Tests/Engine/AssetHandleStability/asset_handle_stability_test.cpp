@@ -42,6 +42,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/StringTableAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
@@ -1468,4 +1469,59 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
          CopyCorpusFile( "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", "T7cRetargetHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::RetargetAsset>( file, Common::Content::ContentKind::Retarget );
     std::filesystem::remove_all( file.parent_path() );
+}
+
+// AF10d: a string table still named by its OLD path after a rename (a scene's UIText, a saved slot) opens
+// the moved table - the loader follows the registry past the redirector the move left - and it is the SAME
+// asset: the handle is the table's header GUID, not the redirector's, so the two spellings cannot publish
+// one table twice under two identities.
+TEST( AssetHandleStability, AStringTableOpenedByItsOldPathAfterAMoveIsTheMovedTable )
+{
+    namespace fs = std::filesystem;
+    namespace CR = Desert::Assets::ContentRegistry;
+    const ProjectRootGuard restore;
+    fs::path               root = fs::temp_directory_path() / "AF10dStringTableMove";
+    fs::remove_all( root );
+    fs::create_directories( root );
+    root = fs::canonical( root );
+    Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
+    const fs::path& spec = *Common::Content::KindSpec( Common::Content::ContentKind::StringTable ).Root;
+    const fs::path  dir  = spec.is_absolute() ? spec : root / spec;
+    fs::create_directories( dir );
+    const fs::path oldFile = dir / "Menu.destrings";
+    const fs::path newFile = dir / "MainMenu.destrings";
+
+    Desert::Localization::StringTableData data;
+    Desert::Localization::LocalizedEntry  entry;
+    entry.Key         = "af10d.play";
+    entry.Forms["en"] = { { "other", "PLAY" } };
+    data.Entries.push_back( entry );
+    ASSERT_TRUE( Desert::Assets::StringTableAsset::Save( oldFile, data ) );
+
+    Common::Utils::AssetRegistry registry;
+    const std::string            oldKey = Common::AssetHandle::StableKeyForPath( oldFile );
+    auto row = Common::Content::RegistryRowFor(
+         oldKey, Common::Content::DescribeContentFile( oldFile, Common::Content::ContentKind::StringTable ) );
+    ASSERT_TRUE( row ) << row.GetError();
+    ASSERT_TRUE( registry.Insert( row.GetValue() ) );
+    CR::ResetForTest();
+    static_cast<void>( CR::Detail::Publish( registry ) );
+    const auto moved = CR::MoveAsset( oldFile, newFile );
+    ASSERT_TRUE( moved ) << moved.GetError();
+
+    const uint64_t tableHandle =
+         static_cast<uint64_t>( Desert::Assets::StringTableAsset( Desert::Assets::AssetPriority{}, newFile )
+                                     .GetMetadata()
+                                     .Handle );
+    Desert::Assets::StringTableAsset byOldPath( Desert::Assets::AssetPriority{}, oldFile );
+    EXPECT_EQ( static_cast<uint64_t>( byOldPath.GetMetadata().Handle ), tableHandle )
+         << "the old path took the redirector's identity, not the table's";
+    const auto loaded = byOldPath.LoadFromFile();
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    ASSERT_EQ( byOldPath.GetData().Entries.size(), 1u );
+    EXPECT_EQ( byOldPath.GetData().Entries.front().Key, "af10d.play" );
+    static_cast<void>( byOldPath.Unload() );
+
+    CR::ResetForTest();
+    fs::remove_all( root );
 }
