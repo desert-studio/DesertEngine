@@ -36,10 +36,11 @@ namespace Desert::Editor
      * site either: it is a column of Editor/Widgets/ThumbnailFormats.hpp, the census that also makes a
      * format with NO producer a red test rather than a silent grey icon.
      *
-     * NOBODY HAS TO PRESS ANYTHING. Requests arrive from the panels that draw a tile, and — for every
-     * asset in the project, whether or not a panel has ever walked past it — from the background sweep
-     * (Editor/Widgets/ThumbnailSweep.hpp), which is what makes a cold cache fill itself after a scene is
-     * opened and makes a file dropped into the content directory acquire a picture on its own.
+     * ONLY WHAT IS ON SCREEN IS CAPTURED, as in UE's content browser. Requests arrive from the panels
+     * that draw a tile and from nowhere else: there is no project-wide sweep any more (owner decision В4,
+     * TH2), because a capture costs a renderer slot and ~370 ms, and a picture for an asset nobody is
+     * looking at is work bought for a screen that does not exist. A cached PNG is a different matter — it
+     * is decoded ahead on a worker by Editor/Widgets/ThumbnailPrefetch.hpp, even while the splash is up.
      *
      * Requests are deduplicated across panels and across frames:
      *   - a PNG on disk that is still a picture OF its asset is never re-rendered (that is the persistent
@@ -89,9 +90,9 @@ namespace Desert::Editor
                                      ThumbnailSubject::Preview how );
 
         // Queue a mesh preview, optionally with the material to apply to every slot.
-        std::string RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
-                                 const Assets::AssetHandle& material = Assets::AssetHandle(
-                                      static_cast<uint64_t>( 0 ) ) );
+        std::string
+        RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
+                     const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -114,9 +115,16 @@ namespace Desert::Editor
          */
         std::string RequestPainted( const std::string& assetPath );
 
-        // Drive the capture state machine. Called ONCE per frame by EditorLayer — not by panels, so a
-        // hidden or closed panel neither starves nor double-ticks it.
-        void Tick();
+        // Called ONCE per frame by EditorLayer — not by panels, so a hidden or closed panel neither
+        // starves nor double-ticks either half. TWO halves because they answer to different gates:
+        //
+        // TickDiskAndDecode — collect and start worker decodes of PNGs already in the disk cache
+        //   (ThumbnailPrefetch). No renderer, no device: allowed while the splash is up
+        //   (Splash::ThumbnailDiskDecodeAllowed), so the first frame after the window is shown only uploads.
+        // TickCapture — the renderer capture queue and the CPU cloud paint. Waits for the window
+        //   (Splash::ThumbnailCaptureAllowed): a capture takes a renderer slot and the settle's frames.
+        static void TickDiskAndDecode();
+        void        TickCapture();
 
         // Forget a cached/failed result, e.g. after the asset was edited.
         void Invalidate( const std::string& assetPath );
@@ -191,7 +199,7 @@ namespace Desert::Editor
         /**
          * @brief Build the renderer — but only if a background job is entitled to a slot right now.
          *
-         * The whole reason this is a function and not two lines in Tick(): the rule that a capture must
+         * The whole reason this is a function and not two lines in TickCapture(): the rule that a capture must
          * never take the LAST free renderer slot is a standing condition, and a condition written at the
          * one call site it happens to have today is a condition the second call site will not have. False
          * means "not now"; the queue is left standing and the refusal is logged, because a queue that
@@ -199,7 +207,7 @@ namespace Desert::Editor
          */
         bool AcquireRenderer();
 
-        /// Dispatch and collect the CPU-painted queue. Split from Tick() so the two queues' state
+        /// Dispatch and collect the CPU-painted queue. Split from TickCapture() so the two queues' state
         /// machines cannot come to share an early return — the renderer's `HasPending`/`AcquireRenderer`
         /// guards are about a device, and every one of them would silently stall the paint queue too.
         void TickPainted();
@@ -214,12 +222,12 @@ namespace Desert::Editor
         std::vector<Request>                    m_Queue;
         // Keyed on ThumbnailKey::Identity, not on a path spelling, so two panels naming one asset
         // differently cannot each hold their own entry (see Invalidate).
-        std::unordered_set<std::string>         m_Queued;  // asset identities currently queued or in flight
-        std::unordered_set<std::string>         m_Failed;  // gave up: do not retry every frame
+        std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
+        std::unordered_set<std::string> m_Failed; // gave up: do not retry every frame
         // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
-        ThumbnailFreshness::Capture                    m_Capture;
-        int                                            m_InFlightTicks = 0;
-        int                                            m_IdleTicks     = 0; // consecutive frames with no work
+        ThumbnailFreshness::Capture m_Capture;
+        int                         m_InFlightTicks = 0;
+        int                         m_IdleTicks     = 0; // consecutive frames with no work
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
         // stretch of scarcity rather than one per frame, and cleared — with its own line — the moment one
         // comes free, because "it is running again" is as much news as "it stopped".
