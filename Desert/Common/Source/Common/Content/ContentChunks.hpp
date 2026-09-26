@@ -85,14 +85,24 @@ namespace Common::Content
         std::vector<std::string> AlwaysBase;
     };
 
-    // Parses the scheme from its JSON form (reflect-cpp). An EMPTY text is not an error and yields an
-    // empty scheme: a project that has not been divided into chunks ships one archive, which is the
-    // behaviour every project had before this file existed.
+    // Parses the scheme from its JSON form (reflect-cpp). Both fields are REQUIRED and an empty text is
+    // refused: "one archive" is a choice the file states (no chunks declared), never what a missing,
+    // blank or half-written scheme silently turns into (owner, 2026-09-25).
     ResultStr<ChunkScheme> ParseChunkScheme( std::string_view json );
     std::string            WriteChunkScheme( const ChunkScheme& scheme );
 
     // The file a project keeps its scheme in, beside the project descriptor.
     std::filesystem::path ChunkSchemePath();
+
+    // Reads and parses the scheme at @p path. An ABSENT file is a refusal that names the path and the
+    // way out (WriteDefaultChunkScheme) — packaging never invents a division the project did not state.
+    ResultStr<ChunkScheme> LoadChunkScheme( const std::filesystem::path& path );
+
+    // THE ONE WAY a default scheme comes into existence: the explicit single-archive scheme (no chunks,
+    // so everything ships in the base), written atomically to @p path. Refuses to overwrite an existing
+    // file — a default must never replace a division somebody authored. The packaging panel's button,
+    // the palette command and the tests all go through this function.
+    BoolResultStr WriteDefaultChunkScheme( const std::filesystem::path& path );
 
     // THE ANSWER: a total function from a stable key to the archive it ships in.
     class ChunkPlan
