@@ -67,6 +67,10 @@ namespace
     constexpr const char* kPanelHeader = "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.hpp";
     constexpr const char* kPanelSource = "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp";
     constexpr const char* kPackager    = "Editor/Source/Editor/Packaging/GamePackager.cpp";
+    // PK2: the chunk panel is the second half of the packaging UI and is censused as one with the first —
+    // its members are read into the same Header/Panel texts, so every test below covers both panels.
+    constexpr const char* kChunksHeader = "Editor/Source/Editor/Panels/Build/ContentChunksPanel.hpp";
+    constexpr const char* kChunksSource = "Editor/Source/Editor/Panels/Build/ContentChunksPanel.cpp";
 
     // ------------------------------------------------------------------------------------------------
     // The table. One row per thing the panel can put in front of a person.
@@ -91,6 +95,10 @@ namespace
         // leave by another door, adding the kind back is three lines and the census will demand it.
         const char* Option    = nullptr;
         const char* Machinery = nullptr;
+        // Scheme    — the ChunkSchemeSession method the text is HANDED to (PK2). The choice leaves by the
+        //             chunk scheme file, not PackageOptions: the panel must pass the member to that method,
+        //             and GamePackager.cpp must read the file (LoadChunkScheme). Both are checked.
+        const char* Scheme = nullptr;
     };
 
     constexpr Row kRows[] = {
@@ -129,9 +137,18 @@ namespace
            "goes straight into the .deproj through ProjectContext::SetDefaultScene, where "
            "Desert/Tests/Engine/ConfigOwnership censuses it as DefaultScene." },
          { "m_ScenesScanned", nullptr, "whether that list has been filled yet." },
-         { "m_SchemeMessage", nullptr,
-           "what the last \"Create default ContentChunks.json\" click did, displayed and nothing else. The "
-           "scheme itself is a committed file beside the project, never a panel member." },
+
+         // ---- The Content Chunks panel (PK2) --------------------------------------------------------
+         { "m_ChunkNameInput", nullptr, nullptr, "AddChunk" },
+         { "m_KeyInput", nullptr, nullptr, "AddRoot" },
+         { "m_PreviewRevision", nullptr,
+           "the session revision the preview below was derived at, so it is re-derived when that moves. "
+           "Not a choice." },
+         { "m_PreviewNames", nullptr, "the derived plan's chunk names, drawn as the table's columns only." },
+         { "m_PreviewFolders", nullptr,
+           "SummarizeChunkFolders' answer for the draft — the packager's ChunkFor, displayed only." },
+         { "m_PreviewUnresolved", nullptr, "how many dependency handles named no registry row, displayed only." },
+         { "m_PreviewError", nullptr, "BuildChunkPlan's refusal of the draft, displayed only. Not a choice." },
     };
 
     // The ImGui calls through which a person CHANGES something. A member or preference named inside one
@@ -351,8 +368,8 @@ namespace
         const std::string root = RepoRoot();
         if ( root.empty() )
             return {};
-        return { StripCommentsAndLiterals( ReadAll( root + kPanelHeader ) ),
-                 StripCommentsAndLiterals( ReadAll( root + kPanelSource ) ),
+        return { StripCommentsAndLiterals( ReadAll( root + kPanelHeader ) + "\n" + ReadAll( root + kChunksHeader ) ),
+                 StripCommentsAndLiterals( ReadAll( root + kPanelSource ) + "\n" + ReadAll( root + kChunksSource ) ),
                  StripCommentsAndLiterals( ReadAll( root + kPackager ) ) };
     }
 } // namespace
@@ -461,7 +478,7 @@ TEST( BuildSettingsConsumers, EveryRowNamesExactlyOneKindOfConsumer )
     for ( const Row& r : kRows )
     {
         SCOPED_TRACE( r.Name );
-        const int kinds = ( r.Option != nullptr ) + ( r.Machinery != nullptr );
+        const int kinds = ( r.Option != nullptr ) + ( r.Machinery != nullptr ) + ( r.Scheme != nullptr );
         EXPECT_EQ( kinds, 1 ) << "a row must name exactly one of: the PackageOptions field it fills, or "
                                  "the reason it is not a setting at all";
 
@@ -585,6 +602,38 @@ TEST( BuildSettingsConsumers, EveryPackagingPreferenceIsOfferedByThePanel )
 // using one this list does not know, the derivation quietly sees fewer choices — the census would then
 // shrink and stay green, which is the failure mode §1.4 of the contract is about, applied to the checker
 // itself. So the panel's ImGui calls are enumerated and each is required to be classified.
+// ---------------------------------------------------------------------------------------------------
+// 3b. THE OTHER DOOR: A TEXT HANDED TO THE CHUNK SCHEME SESSION (PK2)
+// ---------------------------------------------------------------------------------------------------
+//
+// A Scheme row claims its member reaches the packager through ContentChunks.json. Checked from both
+// ends: the panel passes the member as an argument of that session method, and the packager reads the
+// file. A row naming a method the member never reaches fails here.
+TEST( BuildSettingsConsumers, EveryTextHandedToTheChunkSchemeReachesTheSessionAndThePackagerReadsTheFile )
+{
+    const Sources src = ReadSources();
+    ASSERT_FALSE( src.Panel.empty() );
+    ASSERT_FALSE( WordPositions( src.Packager, "LoadChunkScheme" ).empty() )
+         << kPackager << " no longer reads the chunk scheme, so nothing the Content Chunks panel edits reaches a package";
+
+    int schemeRows = 0;
+    for ( const Row& r : kRows )
+    {
+        if ( r.Scheme == nullptr )
+            continue;
+        ++schemeRows;
+        bool handed = false;
+        for ( std::size_t at : WordPositions( src.Panel, r.Scheme ) )
+        {
+            const std::string args = ArgumentsAt( src.Panel, at + std::string( r.Scheme ).size() );
+            handed = handed || !WordPositions( args, r.Name ).empty();
+        }
+        EXPECT_TRUE( handed ) << r.Name << " is censused as handed to ChunkSchemeSession::" << r.Scheme
+                              << ", and no call of it in the panel takes that member";
+    }
+    EXPECT_GE( schemeRows, 2 );
+}
+
 TEST( BuildSettingsConsumers, EveryEditingWidgetInThePanelIsOneThisSuiteKnows )
 {
     const Sources src = ReadSources();
@@ -596,7 +645,8 @@ TEST( BuildSettingsConsumers, EveryEditingWidgetInThePanelIsOneThisSuiteKnows )
          "TextUnformatted", "TextDisabled",     "TextColored",     "Text",           "Separator",     "Spacing",
          "SameLine",        "BeginDisabled",    "EndDisabled",     "Button",         "SmallButton",   "BeginCombo",
          "EndCombo",        "SetNextItemWidth", "PushTextWrapPos", "PopTextWrapPos", "IsItemHovered", "SetTooltip",
-         "BulletText",      "TextWrapped",
+         "BulletText",      "TextWrapped",      "BeginTable",      "EndTable",       "TableSetupColumn",
+         "TableSetupScrollFreeze", "TableHeadersRow", "TableNextRow", "TableNextColumn", "PushID", "PopID",
     };
 
     // Every `ImGui::<Name>` the panel calls — and every `ImGuiUtilities::<Name>` too, because the
