@@ -16,6 +16,12 @@
 
 #include <gtest/gtest.h>
 
+#include <Editor/Panels/StaticMeshViewer/StaticMeshStats.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
 #include <filesystem>
 #include <random>
 #include <set>
@@ -227,6 +233,63 @@ TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )
     const fs::path& folder = target.GetValue();
     EXPECT_FALSE( Editor::WriteStaticMeshAsset( *Dyn( coloured ), kSlots, folder, "Box" ).IsSuccess() );
     EXPECT_FALSE( fs::exists( folder / "Box.stmesh" ) );
+}
+
+// --- The static mesh viewer's statistics (AV1f) ------------------------------------------------------------
+//
+// The window prints DescribeStaticMesh of the bytes the engine loads; asserted here against the committed probe,
+// read through the engine's own reader, so the numbers on screen are the numbers in the file.
+namespace
+{
+    std::filesystem::path ProbeMeshFile()
+    {
+        std::filesystem::path here = std::filesystem::current_path();
+        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Cooked" / "Meshes" ); ++up )
+            here = here.parent_path();
+        return here / "Editor" / "Cooked" / "Meshes" / "StaticProbe.stmesh";
+    }
+} // namespace
+
+TEST( StaticMeshViewerStats, TheProbeReportsFortyEightVerticesTwentyFourTrianglesTwoSections )
+{
+    std::ifstream in( ProbeMeshFile(), std::ios::binary );
+    ASSERT_TRUE( in ) << "no probe at " << ProbeMeshFile().string();
+    std::ostringstream bytes;
+    bytes << in.rdbuf();
+    const auto data = Desert::Assets::Serialization::ReadMeshAssetData( bytes.str(), ProbeMeshFile().string() );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+
+    const auto stats = Desert::Editor::DescribeStaticMesh( data.GetValue() );
+    EXPECT_EQ( stats.Vertices, 48u );
+    EXPECT_EQ( stats.Triangles, 24u );
+    EXPECT_EQ( stats.Sections, 2u );
+    ASSERT_GE( stats.LODs(), 1u );
+    EXPECT_EQ( stats.TrianglesPerLOD[0], stats.Triangles )
+         << "LOD 0 summed over the sections disagrees with the triangle array: IndexCount is in index units";
+    ASSERT_TRUE( stats.Bounds.has_value() );
+    const auto expected = Desert::Assets::Serialization::MeshDataBounds( data.GetValue() );
+    EXPECT_EQ( stats.Bounds->Min, expected->Min );
+    EXPECT_EQ( stats.Bounds->Max, expected->Max );
+    EXPECT_GT( stats.Bounds->Max.y - stats.Bounds->Min.y, 0.0f );
+}
+
+TEST( StaticMeshViewerStats, AShorterChainCountsItsCoarsestLevelAtDeeperLODs )
+{
+    Desert::Assets::Serialization::MeshAssetData data;
+    data.Indices.resize( 5 );
+    Desert::Assets::Serialization::SubmeshData a{};
+    a.IndexCount = 9; // 3 triangles
+    a.LODs       = { std::vector<Desert::Assets::Serialization::IndexData>( 2 ),
+                     std::vector<Desert::Assets::Serialization::IndexData>( 1 ) };
+    Desert::Assets::Serialization::SubmeshData b{};
+    b.IndexCount   = 6; // 2 triangles, no chain
+    data.Submeshes = { a, b };
+
+    const auto stats = Desert::Editor::DescribeStaticMesh( data );
+    ASSERT_EQ( stats.LODs(), 3u );
+    EXPECT_EQ( stats.TrianglesPerLOD[0], 5u );
+    EXPECT_EQ( stats.TrianglesPerLOD[1], 4u );
+    EXPECT_EQ( stats.TrianglesPerLOD[2], 3u );
 }
 
 int main( int argc, char** argv )

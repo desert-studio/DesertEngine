@@ -19,6 +19,7 @@
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Core/OpenDocuments.hpp>
 #include <Editor/Panels/IPanel.hpp>
+#include <Editor/Panels/StaticMeshViewer/StaticMeshViewerIdentity.hpp>
 
 #include <gtest/gtest.h>
 
@@ -411,6 +412,55 @@ TEST( PendingRendererSlotDemand, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
 
     EXPECT_TRUE( static_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsRendererSlot() );
     EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+}
+
+// --- The static mesh viewer (AV1f) ---------------------------------------------------------------------
+namespace
+{
+    class TestStaticMeshViewer final : public Desert::Editor::StaticMeshViewerBase
+    {
+    public:
+        explicit TestStaticMeshViewer( uint64_t handle )
+             : StaticMeshViewerBase( "probe.stmesh", AssetHandle( handle ) )
+        {
+        }
+        void OnUIRender() override
+        {
+        }
+        [[nodiscard]] bool IsSubjectAlive() const override
+        {
+            return true;
+        }
+        void BuildPreview()
+        {
+            m_PreviewLive = true;
+        }
+    };
+} // namespace
+
+TEST( AssetDocumentIdentity, AStaticMeshViewerIsFoundByItsHandleUnderTheMeshType )
+{
+    OpenDocuments well;
+    well.Open( std::make_unique<TestStaticMeshViewer>( 910 ) );
+
+    auto* found = well.Find( Asset( 910, AssetTypeID::Mesh ) );
+    ASSERT_NE( found, nullptr )
+         << "A second Open of the same mesh would open a second viewer (and a second slot).";
+    EXPECT_EQ( found->Subject(), Desert::Editor::StaticMeshViewerSubject( AssetHandle( 910 ) ) );
+    EXPECT_EQ( well.Find( Asset( 910, AssetTypeID::Material ) ), nullptr );
+    EXPECT_EQ( well.Find( Asset( 911, AssetTypeID::Mesh ) ), nullptr );
+}
+
+TEST( PendingRendererSlotDemand, AStaticMeshViewerIsAClaimantUntilItsPreviewHoldsTheSlot )
+{
+    std::vector<std::unique_ptr<IPanel>> panels;
+    auto                                 viewer = std::make_unique<TestStaticMeshViewer>( 912 );
+    auto*                                raw    = viewer.get();
+    panels.push_back( std::move( viewer ) );
+
+    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+    raw->BuildPreview();
+    EXPECT_EQ( PendingRendererSlotDemand( panels ), 0u );
 }
 
 int main( int argc, char** argv )
