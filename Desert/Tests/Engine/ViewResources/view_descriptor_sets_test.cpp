@@ -254,7 +254,7 @@ TEST( DescriptorBudget, TheSetCOUNTRunsOutIndependentlyOfTheDescriptors )
 // satisfied, and saying so by name is what stops it becoming a per-draw failure inside the driver.
 TEST( DescriptorBudget, ATypeThePoolWasNotCreatedWithHasNoRoom )
 {
-    DescriptorBudget        budget( 8, { { kUniform, 8 } } );
+    const DescriptorBudget  budget( 8, { { kUniform, 8 } } );
     const DescriptorRequest storageImage{ 1, { { kUniform + 1, 1 } } };
     EXPECT_FALSE( budget.CanHold( storageImage ) );
     EXPECT_EQ( budget.Remaining( kUniform + 1 ), 0U );

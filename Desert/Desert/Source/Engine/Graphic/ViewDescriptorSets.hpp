@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
@@ -213,13 +214,12 @@ namespace Desert::Graphic
         {
             if ( request.Sets > m_Sets )
                 return false;
-            for ( const auto& [type, count] : request.Descriptors )
-            {
-                const auto room = m_Descriptors.find( type );
-                if ( room == m_Descriptors.end() || count > room->second )
-                    return false;
-            }
-            return true;
+            return std::ranges::all_of( request.Descriptors,
+                                        [this]( const auto& entry )
+                                        {
+                                            const auto room = m_Descriptors.find( entry.first );
+                                            return room != m_Descriptors.end() && entry.second <= room->second;
+                                        } );
         }
 
         // Takes the request out of the budget, or leaves the budget UNTOUCHED and answers false. All or

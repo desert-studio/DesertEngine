@@ -70,7 +70,7 @@ namespace Desert::Graphic::API::Vulkan
             std::map<uint32_t, uint32_t> descriptors;
             for ( const auto& size : kBlockSizes )
                 descriptors[static_cast<uint32_t>( size.type )] += size.descriptorCount;
-            return Graphic::DescriptorBudget( kSetsPerBlock, std::move( descriptors ) );
+            return { kSetsPerBlock, std::move( descriptors ) };
         }
 
         Common::BoolResultStr CreateBlock( const std::string& viewName, const uint32_t ordinal,
