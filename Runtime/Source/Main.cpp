@@ -30,10 +30,12 @@
 
 #include <Common/Utilities/VFS.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Version.hpp>
 
 #include <filesystem>
+#include <optional>
 
 #include "PackagedContent.hpp"
 #include "RuntimeLayer.hpp"
@@ -87,12 +89,15 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     namespace fs = std::filesystem;
 
     std::string projectArg;
+    std::string crashTestArg;
     for ( int i = 1; i + 1 < argc; ++i )
     {
         if ( std::strcmp( argv[i], "--project" ) == 0 )
             projectArg = argv[++i];
         else if ( std::strcmp( argv[i], "--scene" ) == 0 )
             Desert::Player::s_SceneOverride = argv[++i];
+        else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
+            crashTestArg = argv[++i];
     }
 
     // THE ONLY WAY TO PHOTOGRAPH THE PROCESS A PLAYER STARTS. Parsed from a vector rather than from
@@ -125,6 +130,33 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     const fs::path baseDir = Desert::Project::ProjectContext::HasProject()
                                   ? fs::path( Desert::Project::ProjectContext::Directory() )
                                   : ( exePath.empty() ? fs::current_path() : exePath.parent_path() );
+
+    // THE CRASH HANDLER, INSTALLED AS SOON AS THERE IS A PLACE TO PUT A REPORT. `baseDir` is the
+    // project folder in dev and the installed game's folder when packaged, so a player's crash lands
+    // in <game>/Saved/Crashes — beside the game, where a support request can ask for it by name —
+    // rather than in a per-user folder the player cannot find. Before the archives mount, because a
+    // corrupt .dpak is one of the faults worth a report.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName    = "Runtime";
+        crashOptions.projectRoot = baseDir;
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            FailStartup( "Crash handler: " + installed.GetError(), 1 );
+        }
+    }
+
+    if ( !crashTestArg.empty() )
+    {
+        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
+        if ( !kind.has_value() )
+        {
+            FailStartup( "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall",
+                         2 );
+        }
+        Common::Crash::TriggerTestCrash( *kind );
+    }
 
     // Mount the base archive (skipped in dev if there is none — reads stay plain disk reads), then any
     // Patch*.dpak ON TOP in name order (later overrides earlier), so shipping a fix = dropping one pak.

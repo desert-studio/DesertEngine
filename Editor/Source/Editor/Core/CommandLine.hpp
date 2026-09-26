@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
@@ -9,6 +10,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -95,6 +97,7 @@ namespace Desert::Editor
          { "--gpu-profile-frame-only", false, nullptr },
          { "--play", false, nullptr },
          { "--console", false, nullptr }, // Windows: opens a console window (Engine/EntryPoint.hpp)
+         { "--crash-test", true, "segv" },
          { "--ui-pointer", true, "640,360" },
          { "--ui-press", true, "right", "--ui-pointer 640,360" },
          { "--flight", true, "line:0,200,0:1000,200,0",
@@ -141,6 +144,15 @@ namespace Desert::Editor
         /// means the driver's budget. It exists because a low-memory refusal cannot otherwise be reproduced
         /// on a machine with a large device: the refusal, its numbers and its modal are only reachable here.
         uint64_t ViewBudgetMiB = 0;
+
+        /// `--crash-test <segv|abort|purecall>`: crash on purpose, immediately after the crash handler is
+        /// installed and before any subsystem exists. Empty — the default — means no crash test.
+        ///
+        /// IT IS A FLAG AND NOT ONLY A MENU ENTRY because the thing being proven is the HANDLER, and a
+        /// handler can only be proven by a process that actually dies: a test has to be able to start the
+        /// editor, have it fault, and then read the report off disk. The palette entry
+        /// ("Debug > Crash (test)") covers the same ground for a human with the editor already open.
+        std::optional<Common::Crash::TestKind> CrashTest;
     };
 
     namespace CommandLineDetail
@@ -334,6 +346,18 @@ namespace Desert::Editor
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
                 options.ControlSocket = value;
+            else if ( arg == "--crash-test" )
+            {
+                // Named here rather than accepted and interpreted later: an unrecognised word would
+                // otherwise pick a kind, crash in a way nobody asked for, and the report would describe
+                // the wrong fault. Same rule as --language above.
+                options.CrashTest = Common::Crash::ParseTestKind( value );
+                if ( !options.CrashTest.has_value() )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--crash-test '{}' is not a crash kind; it knows: segv, abort, purecall", value );
+                }
+            }
             else if ( arg == "--language" )
             {
                 // Checked HERE, against the compiled locale table, rather than at the point of use. The

@@ -26,6 +26,7 @@
 
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Editor/Import/MeshDnD.hpp>
 
@@ -4106,6 +4107,23 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+
+        // DELIBERATE CRASH. It is here and not behind a build flag because the thing it proves — that a
+        // crash leaves a report on the machine it happened on — has to be provable on a developer's or a
+        // QA machine with the editor they are already running, not only on a build that was compiled for
+        // the purpose. It refuses when the handler is not installed, rather than killing the process and
+        // leaving nothing: that refusal IS the useful answer.
+        commands.push_back( { "Debug", "Crash (test)",
+                              []
+                              {
+                                  if ( !Common::Crash::IsInstalled() )
+                                  {
+                                      return Common::MakeFormattedError(
+                                           "the crash handler is not installed in this process, so a "
+                                           "deliberate crash would leave no report" );
+                                  }
+                                  Common::Crash::TriggerTestCrash( Common::Crash::TestKind::Segv );
+                              } } );
 
         // Switching a world on (UE's "Convert Level to World Partition"). Offered UNCONDITIONALLY, unlike
         // the panel's button: a command that vanishes from the palette cannot tell the user WHY it is not

@@ -107,6 +107,11 @@ endif
 
     filter { "system:windows" }
         defines { "DESERT_PLATFORM_WINDOWS" }
+        -- dbghelp is the Windows crash handler's only extra dependency (MiniDumpWriteDump,
+        -- StackWalk64, SymFromAddr — Common/Core/CrashHandler.cpp). Declared HERE and not in each
+        -- host for the same reason reflect-cpp is declared here: the reference lives in Common, and a
+        -- tool that links Common must not have to know what Common needs underneath it.
+        links { "dbghelp" }
         files {
             "Source/Common/Platform/Windows/**.cpp",
             "Source/Common/Platform/Windows/**.hpp",
