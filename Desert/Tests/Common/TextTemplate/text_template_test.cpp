@@ -167,7 +167,8 @@ TEST( TextTemplate, SyntaxErrorsNamePosition )
     EXPECT_EQ( Expand( "{% for x of xs %}{% endfor %}" ), "ERROR: t:1:10: expected 'in', found 'of'" );
     EXPECT_EQ( Expand( "{{ }}" ), "ERROR: t:1:1: empty output tag" );
     EXPECT_EQ( Expand( "{{ 'open }}" ), "ERROR: t:1:4: unterminated string literal" );
-    EXPECT_EQ( Expand( "{% if x %}{% else %}{% elif y %}{% endif %}" ), "ERROR: t:1:21: 'elif' without a matching opening tag" );
+    EXPECT_EQ( Expand( "{% if x %}{% else %}{% elif y %}{% endif %}" ), "ERROR: t:1:21: 'elif' after 'else'" );
+    EXPECT_EQ( Expand( "{% if x %}{% else %}{% else %}{% endif %}" ), "ERROR: t:1:21: 'else' after 'else'" );
     EXPECT_EQ( Expand( "{{ s | join }}" ),
                "ERROR: t:1:13: filter 'join' takes one argument, expected '(', found end of tag" );
 }

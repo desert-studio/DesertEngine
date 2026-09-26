@@ -821,7 +821,10 @@ namespace Common::Text
                         return end;
                     if ( m_Stop == "else" )
                     {
-                        if ( auto parsed = ParseBlocks( b.Else, { "endif" } ); !parsed.IsSuccess() )
+                        // 'elif' and 'else' stop the else-body too, so they are named as misplaced here instead
+                        // of surfacing as tags without an opening one.
+                        if ( auto parsed = ParseBlocks( b.Else, { "elif", "else", "endif" } );
+                             !parsed.IsSuccess() )
                             return parsed;
                         if ( m_Stop.empty() )
                             return MakeError( Located( m_Name, where, "'if' is never closed, expected 'endif'" ) );

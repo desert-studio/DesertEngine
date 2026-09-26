@@ -1,4 +1,8 @@
--- DesertHeaderTool — standalone codegen utility (no engine dependencies).
+-- DesertHeaderTool — reflection codegen. The emitted text lives in Templates/*.tpl, rendered by
+-- Common::Text (Common/Json/Template.hpp); the tool links Common alone, like AssetRegistryTool, so it
+-- still builds before the engine it generates for (Desert dependson this project).
+local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
+
 project "DesertHeaderTool"
     kind "ConsoleApp"
     language "C++"
@@ -11,11 +15,32 @@ project "DesertHeaderTool"
 
     includedirs {
         "%{wks.location}/Tools/Shared",
+        "%{wks.location}/Desert/Common/Source",
     }
 
-    -- Keep the tool self-contained: it links nothing from the engine and uses only the STL.
+    for name, path in pairs(deps.Common.IncludeDir) do
+        externalincludedirs { path }
+    end
+
+    -- CommonSpecific carries reflect-cpp: the template data model is a Common::Json value tree.
+    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
+        externalincludedirs { path }
+    end
+
+    links { "Common", "ReflectCpp" }
+
     filter "configurations:Debug"
         symbols "On"
 
     filter "configurations:Release"
         optimize "On"
+
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+        -- Common contains Objective-C (file dialog); linking it needs AppKit + the ObjC runtime.
+        links { "Cocoa.framework", "Foundation.framework" }
+
+    filter {}
