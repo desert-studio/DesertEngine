@@ -75,9 +75,10 @@ namespace Desert::Editor
             return;
 
         // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
-        // current. A source produces either a static mesh asset beside it (fresh by its IMPT content hash) or
-        // a skinned cook under Cooked/ (fresh by mtime until AF4f moves it), so accept either. `force`
-        // (Rebuild Cooked Assets) bypasses this.
+        // current. A source produces either a static mesh envelope in the DDC (fresh by its IMPT content
+        // hash - AF4h moved that envelope out from beside the source) or a skinned cook under Cooked/
+        // (fresh by mtime until AF4f moves it), so accept either. `force` (Rebuild Cooked Assets)
+        // bypasses this.
         if ( !force &&
              ( ImportedMeshAssetIsFresh( path ) || CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
             return;
