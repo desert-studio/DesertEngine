@@ -5671,9 +5671,8 @@ namespace Desert::Editor
 
         // The Build Settings panel's "Create default ContentChunks.json", reachable by a script: the
         // packager refuses a project with no chunk scheme, and the way out must not need a mouse.
-        commands.push_back(
-             { "Build", "Create Default ContentChunks.json", []() -> Common::BoolResultStr
-               { return Editor::ProjectChunkScheme().CreateDefault(); } } );
+        commands.push_back( { "Build", "Create Default ContentChunks.json", []() -> Common::BoolResultStr
+                              { return Editor::ProjectChunkScheme().CreateDefault(); } } );
         // Re-reads the file into the one session, for a scheme edited outside the editor.
         commands.push_back( { "Build", "Reload ContentChunks.json", []() -> Common::BoolResultStr
                               {

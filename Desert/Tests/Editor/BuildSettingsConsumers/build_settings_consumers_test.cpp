@@ -368,9 +368,10 @@ namespace
         const std::string root = RepoRoot();
         if ( root.empty() )
             return {};
-        return { StripCommentsAndLiterals( ReadAll( root + kPanelHeader ) + "\n" + ReadAll( root + kChunksHeader ) ),
-                 StripCommentsAndLiterals( ReadAll( root + kPanelSource ) + "\n" + ReadAll( root + kChunksSource ) ),
-                 StripCommentsAndLiterals( ReadAll( root + kPackager ) ) };
+        return {
+             StripCommentsAndLiterals( ReadAll( root + kPanelHeader ) + "\n" + ReadAll( root + kChunksHeader ) ),
+             StripCommentsAndLiterals( ReadAll( root + kPanelSource ) + "\n" + ReadAll( root + kChunksSource ) ),
+             StripCommentsAndLiterals( ReadAll( root + kPackager ) ) };
     }
 } // namespace
 
@@ -614,7 +615,8 @@ TEST( BuildSettingsConsumers, EveryTextHandedToTheChunkSchemeReachesTheSessionAn
     const Sources src = ReadSources();
     ASSERT_FALSE( src.Panel.empty() );
     ASSERT_FALSE( WordPositions( src.Packager, "LoadChunkScheme" ).empty() )
-         << kPackager << " no longer reads the chunk scheme, so nothing the Content Chunks panel edits reaches a package";
+         << kPackager
+         << " no longer reads the chunk scheme, so nothing the Content Chunks panel edits reaches a package";
 
     int schemeRows = 0;
     for ( const Row& r : kRows )
@@ -626,7 +628,7 @@ TEST( BuildSettingsConsumers, EveryTextHandedToTheChunkSchemeReachesTheSessionAn
         for ( std::size_t at : WordPositions( src.Panel, r.Scheme ) )
         {
             const std::string args = ArgumentsAt( src.Panel, at + std::string( r.Scheme ).size() );
-            handed = handed || !WordPositions( args, r.Name ).empty();
+            handed                 = handed || !WordPositions( args, r.Name ).empty();
         }
         EXPECT_TRUE( handed ) << r.Name << " is censused as handed to ChunkSchemeSession::" << r.Scheme
                               << ", and no call of it in the panel takes that member";
@@ -642,11 +644,14 @@ TEST( BuildSettingsConsumers, EveryEditingWidgetInThePanelIsOneThisSuiteKnows )
     // The calls this panel makes that are NOT editing widgets. Named one by one rather than by a rule,
     // because "does this widget change a value" is a judgement and the judgement is the point.
     static const char* kKnownDisplayOrLayout[] = {
-         "TextUnformatted", "TextDisabled",     "TextColored",     "Text",           "Separator",     "Spacing",
-         "SameLine",        "BeginDisabled",    "EndDisabled",     "Button",         "SmallButton",   "BeginCombo",
-         "EndCombo",        "SetNextItemWidth", "PushTextWrapPos", "PopTextWrapPos", "IsItemHovered", "SetTooltip",
-         "BulletText",      "TextWrapped",      "BeginTable",      "EndTable",       "TableSetupColumn",
-         "TableSetupScrollFreeze", "TableHeadersRow", "TableNextRow", "TableNextColumn", "PushID", "PopID",
+         "TextUnformatted", "TextDisabled",     "TextColored",      "Text",
+         "Separator",       "Spacing",          "SameLine",         "BeginDisabled",
+         "EndDisabled",     "Button",           "SmallButton",      "BeginCombo",
+         "EndCombo",        "SetNextItemWidth", "PushTextWrapPos",  "PopTextWrapPos",
+         "IsItemHovered",   "SetTooltip",       "BulletText",       "TextWrapped",
+         "BeginTable",      "EndTable",         "TableSetupColumn", "TableSetupScrollFreeze",
+         "TableHeadersRow", "TableNextRow",     "TableNextColumn",  "PushID",
+         "PopID",
     };
 
     // Every `ImGui::<Name>` the panel calls — and every `ImGuiUtilities::<Name>` too, because the
