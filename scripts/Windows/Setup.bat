@@ -40,6 +40,7 @@ REM perfectly good Visual Studio 2022 — see :require_msvc.
 set "PREMAKE_ACTION=vs2022"
 
 set "NO_INSTALL=0"
+set "PREMAKE_EXTRA="
 REM THE PARENTHESES ARE LOAD-BEARING. cmd splits on `&` at PARSE time, so
 REM `if COND set X & shift & goto L` is read as `(if COND set X) & shift & goto L` — the shift and the
 REM goto run for EVERY argument, whatever the condition. Without them this loop silently swallowed
@@ -48,6 +49,7 @@ REM same "empty successful answer" shape the contract forbids, wearing cmd's syn
 :parse_args
 if "%~1"=="" goto args_done
 if /I "%~1"=="--no-install" (set "NO_INSTALL=1" & shift & goto parse_args)
+if /I "%~1"=="--unity" (set "PREMAKE_EXTRA=--unity" & shift & goto parse_args)
 if /I "%~1"=="--help" goto usage
 if /I "%~1"=="-h" goto usage
 echo [ERROR] unknown argument "%~1"
@@ -160,8 +162,8 @@ REM Generating it is now Common.vcxproj's PreBuildEvent, which runs on every bui
 REM well would hide a PreBuildEvent that had stopped firing: a missing header is a compile error, a
 REM stale one is a lie.
 REM ---------------------------------------------------------------------------
-echo --- Generating project files ^(premake5 %PREMAKE_ACTION%^)
-"%PREMAKE%" %PREMAKE_ACTION%
+echo --- Generating project files ^(premake5 %PREMAKE_ACTION% %PREMAKE_EXTRA%^)
+"%PREMAKE%" %PREMAKE_ACTION% %PREMAKE_EXTRA%
 if errorlevel 1 call :fail "premake5 %PREMAKE_ACTION%"
 
 REM ---------------------------------------------------------------------------
@@ -267,13 +269,15 @@ REM ===========================================================================
 
 :usage
 echo.
-echo   scripts\Windows\Setup.bat [--no-install]
+echo   scripts\Windows\Setup.bat [--no-install] [--unity]
 echo.
 echo   Installs the Windows build dependencies, fetches the non-submodule third-party sources
 echo   and generates Desert.sln. Re-runnable.
 echo.
 echo   --no-install   Report what is missing and do not install anything. Everything that is a
 echo                  clone rather than an installer still runs.
+echo   --unity        Generate Common, Desert and Editor as MSBuild unity builds. For the CI job;
+echo                  a developer build leaves it off ^(see BuildScripts\UnityBuild.lua^).
 echo.
 exit /b 2
 

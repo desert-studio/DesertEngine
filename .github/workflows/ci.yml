@@ -664,9 +664,16 @@ jobs:
       # and generates the VS solution. (It no longer writes Version.gen.hpp — the build does, through
       # Common.vcxproj's PreBuildEvent.) Running it here means the documented
       # setup path is itself under test — a broken Setup.bat fails CI instead of the next new machine.
+      #
+      # --unity (task CI10): Common, Desert and Editor compile as MSBuild unity files, groups of 12
+      # sources (BuildScripts/UnityBuild.lua; the test suites stay one source per compile so their
+      # shared sources keep hitting ccache). ONLY HERE -- a developer's Setup.bat run leaves it off.
+      # BEFORE, the numbers to compare the first unity run against (ccache + MultiToolTask, run
+      # 35863890019): Build step Release 74.7 min, Debug 36.0, Shipping 26.2; whole job Release 80.2,
+      # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
       - name: Setup dependencies + generate projects
         shell: cmd
-        run: scripts\Windows\Setup.bat
+        run: scripts\Windows\Setup.bat --unity
 
       # ── THE COMPILER CACHE, WITHIN ONE BUILD ────────────────────────────────────────────────────
       #
