@@ -19,6 +19,7 @@
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Core/OpenDocuments.hpp>
 #include <Editor/Panels/IPanel.hpp>
+#include <Editor/Panels/SkyboxViewer/SkyboxViewerIdentity.hpp>
 
 #include <gtest/gtest.h>
 
@@ -411,6 +412,67 @@ TEST( PendingRendererSlotDemand, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
 
     EXPECT_TRUE( static_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsRendererSlot() );
     EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+}
+
+// --- The skybox viewer (AV1e) --------------------------------------------------------------------------
+//
+// The real SkyboxViewerDocument needs a device; its identity and its slot answers live in SkyboxViewerBase so
+// that THIS suite asserts the viewer's own answers. The subclass below adds only the two pure virtuals a window
+// needs and a way to say "the preview was built" — the one thing the real document does with a device.
+namespace
+{
+    class TestSkyboxViewer final : public Desert::Editor::SkyboxViewerBase
+    {
+    public:
+        explicit TestSkyboxViewer( uint64_t handle ) : SkyboxViewerBase( "sky.detex", AssetHandle( handle ) )
+        {
+        }
+        void OnUIRender() override
+        {
+        }
+        [[nodiscard]] bool IsSubjectAlive() const override
+        {
+            return true;
+        }
+        void BuildPreview()
+        {
+            m_PreviewLive = true;
+        }
+    };
+} // namespace
+
+TEST( AssetDocumentIdentity, ASkyboxViewerIsFoundByItsHandleUnderTheSkyboxType )
+{
+    OpenDocuments well;
+    well.Open( std::make_unique<TestSkyboxViewer>( 900 ) );
+
+    auto* found = well.Find( Asset( 900, AssetTypeID::Skybox ) );
+    ASSERT_NE( found, nullptr ) << "An open skybox viewer was not found by its handle, so a second double-click "
+                                   "would open a second window (and spend a second renderer slot) on one sky.";
+    EXPECT_EQ( found->Subject(), Desert::Editor::SkyboxViewerSubject( AssetHandle( 900 ) ) );
+    EXPECT_EQ( well.Find( Asset( 900, AssetTypeID::Texture2D ) ), nullptr )
+         << "The same number under the texture type is a different window.";
+}
+
+TEST( AssetDocumentIdentity, TwoSkyboxesGiveTwoDifferentWindowIds )
+{
+    const TestSkyboxViewer a( 901 );
+    const TestSkyboxViewer b( 902 );
+    EXPECT_NE( WindowId( a.GetName() ), WindowId( b.GetName() ) );
+}
+
+TEST( PendingRendererSlotDemand, ASkyboxViewerIsAClaimantUntilItsPreviewHoldsTheSlot )
+{
+    std::vector<std::unique_ptr<IPanel>> panels;
+    auto                                 viewer = std::make_unique<TestSkyboxViewer>( 903 );
+    auto*                                raw    = viewer.get();
+    panels.push_back( std::move( viewer ) );
+
+    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u )
+         << "A skybox viewer that has not drawn yet was not counted, so the census would admit a document "
+            "there is no renderer slot for.";
+    raw->BuildPreview();
+    EXPECT_EQ( PendingRendererSlotDemand( panels ), 0u ) << "A viewer holding its slot was counted twice.";
 }
 
 int main( int argc, char** argv )

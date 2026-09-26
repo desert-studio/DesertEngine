@@ -134,6 +134,7 @@
 #include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
+#include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
@@ -961,6 +962,21 @@ namespace Desert::Editor
                                                              Assets::AssetHandle( subject.Owner ) ) != nullptr;
                            } } );
 
+        // THE SKYBOX VIEWER. Claims a renderer slot (a PreviewViewport), so it lives under the slot census below.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Skybox ) ),
+             Registration{ "Skybox", ICON_MDI_IMAGE_FILTER_HDR,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::SkyboxViewerDocument>(
+                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
         // THE FOUR CLOUD DOCUMENTS. Each takes the raw AssetManager pointer the panels already held, so the
         // move from singleton to document changed the panels' ownership of their subject and nothing about
         // how they reach their assets.
@@ -1176,8 +1192,16 @@ namespace Desert::Editor
                                                  return SubjectEditorRegistry::PathOpenOutcome::NotMine;
                                              } );
         m_SubjectEditors.RegisterPathOpener(
-             { std::string( Assets::kTextureAssetExtension ) }, [this]( const std::string& path )
-             { return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
+             { std::string( Assets::kTextureAssetExtension ) },
+             [this]( const std::string& path )
+             {
+                 // ONE opener per extension (OpenPath's rule), so the `.detex` split is made here: a panorama
+                 // whose header says Skybox opens the skybox viewer, every other `.detex` the texture viewer.
+                 if ( const auto sky = RequestSkyboxDocument( m_AssetManager.get(), path, m_SubjectEditors );
+                      sky != SubjectEditorRegistry::PathOpenOutcome::NotMine )
+                     return sky;
+                 return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors );
+             } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [this]( const std::string& path )
