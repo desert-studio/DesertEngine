@@ -198,7 +198,7 @@ namespace Common::LocalSocket
         return static_cast<Handle>( ::socket( AF_UNIX, SOCK_STREAM, 0 ) );
     }
 
-    inline void Close( Handle handle )
+    inline void Close( Handle handle ) noexcept
     {
 #if defined( _WIN32 )
         (void)::closesocket( Raw( handle ) );
@@ -276,6 +276,17 @@ namespace Common::LocalSocket
             return ErrnoText();
 #endif
         return {};
+    }
+
+    /// RemoveFile for a caller that cannot use the reason — a destructor. No text is built, so nothing can
+    /// throw on the way out.
+    inline bool TryRemoveFile( const std::string& path ) noexcept
+    {
+#if defined( _WIN32 )
+        return ::DeleteFileA( path.c_str() ) != 0;
+#else
+        return ::unlink( path.c_str() ) == 0;
+#endif
     }
 
     /// OWNER ONLY. Empty on success, the reason otherwise — and a caller that cannot get this must REFUSE

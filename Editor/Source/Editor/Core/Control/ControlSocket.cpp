@@ -162,7 +162,7 @@ namespace Desert::Editor::Control
         return Common::MakeSuccess( true );
     }
 
-    void ControlSocket::DropClient()
+    void ControlSocket::DropClient() noexcept
     {
         if ( m_ClientFd >= 0 )
         {
@@ -173,7 +173,7 @@ namespace Desert::Editor::Control
         m_Outgoing.clear();
     }
 
-    void ControlSocket::Close()
+    void ControlSocket::Close() noexcept
     {
         DropClient();
         if ( m_ListenFd >= 0 )
@@ -185,7 +185,7 @@ namespace Desert::Editor::Control
         {
             // NEITHER platform removes the socket file when the socket closes, so the next run would meet
             // its own leftover and have to probe it.
-            (void)Socket::RemoveFile( m_Path );
+            (void)Socket::TryRemoveFile( m_Path );
             m_Path.clear();
         }
     }

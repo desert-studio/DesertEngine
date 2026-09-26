@@ -46,7 +46,7 @@ namespace Desert::Editor::Control
         /// editor is holding: an existing path is PROBED, and only a dead one is cleared away.
         [[nodiscard]] Common::BoolResultStr Listen( const std::string& path );
 
-        void Close();
+        void Close() noexcept;
 
         [[nodiscard]] bool IsListening() const noexcept;
         [[nodiscard]] bool HasClient() const noexcept;
@@ -96,7 +96,7 @@ namespace Desert::Editor::Control
         /// is false before honouring a `quit`, so the last answer is not lost to the exit.
         [[nodiscard]] bool HasUnsentOutput() const noexcept;
 
-        void DropClient();
+        void DropClient() noexcept;
 
     private:
         void FlushOutput();
