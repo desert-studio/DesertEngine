@@ -740,13 +740,13 @@ namespace Desert::Editor
         // THE ROW WRAPS, IT NEVER CLIPS: the pane is as narrow as the divider leaves it, and a control cut off
         // at the edge is a control the person cannot reach. Each item asks PreviewPane::WrapsToNextLine
         // (tested in PreviewInput) whether it still fits after the ones before it; if not, it starts a line.
-        const ImGuiStyle& style     = ImGui::GetStyle();
-        const float       available = std::max( ImGui::GetContentRegionAvail().x, 1.0f );
+        const ImGuiStyle& style      = ImGui::GetStyle();
+        const float       available  = std::max( ImGui::GetContentRegionAvail().x, 1.0f );
         float             usedOnLine = 0.0f;
         const auto        place      = [&]( const float itemWidth )
         {
-            if ( usedOnLine > 0.0f && !PreviewPane::WrapsToNextLine( usedOnLine, itemWidth, style.ItemSpacing.x,
-                                                                    available ) )
+            if ( usedOnLine > 0.0f &&
+                 !PreviewPane::WrapsToNextLine( usedOnLine, itemWidth, style.ItemSpacing.x, available ) )
             {
                 ImGui::SameLine();
                 usedOnLine += style.ItemSpacing.x + itemWidth;
@@ -755,7 +755,7 @@ namespace Desert::Editor
                 usedOnLine = itemWidth;
         };
         // A combo narrower than its preferred width rather than wider than the whole pane.
-        const auto comboWidth = [&]( const float preferred ) { return std::min( preferred, available ); };
+        const auto comboWidth  = [&]( const float preferred ) { return std::min( preferred, available ); };
         const auto buttonWidth = [&]( const char* label )
         { return ImGui::CalcTextSize( label, nullptr, true ).x + style.FramePadding.x * 2.0f; };
 

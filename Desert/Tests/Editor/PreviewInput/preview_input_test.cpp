@@ -359,15 +359,15 @@ TEST( PreviewPaneLayout, ACardIsNeverFramedFromInsideItsOwnSphere )
 {
     // A flat card's corners allow a distance shorter than its radius; the camera must not stand in it.
     const PaneLayout::FramedSubject card{ false, 50.0f, glm::vec3( 50.0f, 0.0f, 0.0f ) };
-    const float d = PaneLayout::FitDistance( card, PaneLayout::kFramingYaw, PaneLayout::kFramingPitch,
-                                             kPreviewFov, 1.0f );
+    const float                     d =
+         PaneLayout::FitDistance( card, PaneLayout::kFramingYaw, PaneLayout::kFramingPitch, kPreviewFov, 1.0f );
     EXPECT_GE( d, card.Radius );
 }
 
 TEST( PreviewPaneLayout, AnUndrawableAspectIsFittedAsASquareNotAtInfinity )
 {
     const PaneLayout::FramedSubject ball{ true, 50.0f, glm::vec3( 50.0f ) };
-    const float square = PaneLayout::FitDistance( ball, 0.0f, 0.0f, kPreviewFov, 1.0f );
+    const float                     square = PaneLayout::FitDistance( ball, 0.0f, 0.0f, kPreviewFov, 1.0f );
     for ( const float aspect : { 0.0f, -1.0f, std::nanf( "" ), INFINITY } )
         EXPECT_FLOAT_EQ( PaneLayout::FitDistance( ball, 0.0f, 0.0f, kPreviewFov, aspect ), square ) << aspect;
 }
