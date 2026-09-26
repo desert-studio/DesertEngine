@@ -89,9 +89,10 @@ namespace Desert::WorldGen
             if ( !parsed )
                 return Common::MakeError<MaterialRef>( "material '" + relative +
                                                        "' states no readable header: " + parsed.GetError() );
-            if ( !parsed.GetValue().Header )
+            const auto& header = parsed.GetValue().Header;
+            if ( !header )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "' has no header" );
-            const auto guid = Common::Content::AssetGuidFromText( parsed.GetValue().Header.value().Guid );
+            const auto guid = Common::Content::AssetGuidFromText( header->Guid );
             if ( !guid || guid.GetValue().IsNull() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "' states no GUID" );
 

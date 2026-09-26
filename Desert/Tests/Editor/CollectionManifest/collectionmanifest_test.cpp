@@ -140,12 +140,17 @@ TEST_F( CollectionManifestFile, WhatTheSplitterWritesThePanelReadsBackUnchanged 
 
     EXPECT_EQ( back.Name, written.Name );
     EXPECT_EQ( back.Author, written.Author );
-    ASSERT_TRUE( back.Materials.has_value() );
-    ASSERT_EQ( back.Materials.value().size(), 2u );
+    // An explicit early return rather than ASSERT_TRUE: clang-tidy's optional-access analysis does not see
+    // through gtest's macro, and FAIL() is a plain return it does see.
+    if ( !written.Materials.has_value() || !back.Materials.has_value() )
+        FAIL() << "a manifest with materials read back without them";
+    const auto& writtenMaterials = *written.Materials;
+    const auto& backMaterials    = *back.Materials;
+    ASSERT_EQ( backMaterials.size(), 2u );
     for ( std::size_t i = 0; i < 2; ++i )
     {
-        const auto& a = written.Materials.value()[i];
-        const auto& b = back.Materials.value()[i];
+        const auto& a = writtenMaterials[i];
+        const auto& b = backMaterials[i];
         EXPECT_EQ( b.Name, a.Name ) << i;
         EXPECT_EQ( b.Albedo, a.Albedo ) << i;
         EXPECT_EQ( b.Opacity, a.Opacity ) << i;

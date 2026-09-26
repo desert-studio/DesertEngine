@@ -646,7 +646,10 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 {
     std::string plain;
     ASSERT_EQ( GenerateSmoke( Scratch() / "unpartitioned.desce", plain ), 0 ) << plain;
-    EXPECT_FALSE( ReadScene( plain ).value().WorldPartition.has_value() );
+    const auto unpartitioned = ReadScene( plain );
+    if ( !unpartitioned.has_value() )
+        FAIL() << "the generated scene did not read back";
+    EXPECT_FALSE( unpartitioned->WorldPartition.has_value() );
 
     const auto               out = Scratch() / "partitioned.desce";
     const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),

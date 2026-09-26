@@ -145,11 +145,12 @@ TEST( LegacyMaterialIds, RaisingAnInstanceThroughMatl2To4GivesTheFormTheEngineRe
     EXPECT_EQ( v2.find( "MaterialId" ), std::string::npos ) << v2;
     const auto frozen = Common::Json::Read<MaterialDataV2>( v2 );
     ASSERT_TRUE( frozen ) << v2;
-    ASSERT_TRUE( frozen.GetValue().Header.has_value() );
-    EXPECT_EQ( Content::TextHeaderVersion( frozen.GetValue().Header.value(), Desert::Assets::kMaterialSchemaTag ),
-               2u );
-    ASSERT_EQ( frozen.GetValue().Header.value().Dependencies.size(), 1u );
-    EXPECT_EQ( frozen.GetValue().Header.value().Dependencies.front(), kParent );
+    const auto& header = frozen.GetValue().Header;
+    if ( !header.has_value() )
+        FAIL() << "the frozen v2 material has no header";
+    EXPECT_EQ( Content::TextHeaderVersion( *header, Desert::Assets::kMaterialSchemaTag ), 2u );
+    ASSERT_EQ( header->Dependencies.size(), 1u );
+    EXPECT_EQ( header->Dependencies.front(), kParent );
 
     // The rest of the chain: MATL 2 -> 4 (no slots, no shader here) and the engine's own reader.
     const auto v3 = RaiseMaterialV2ToV4( "inst.demat", frozen.GetValue(), LegacyAssetRefMap{} );

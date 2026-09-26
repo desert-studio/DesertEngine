@@ -354,8 +354,10 @@ TEST( SceneDebugFieldsCorpus, NoSceneOnDiskStatesAnyDebugVisualization )
         if ( settings->GetKind() != Common::Json::Kind::Object )
             continue; // malformed, and SceneVersionGate is the suite that fails on that
 
+        // Bound once, after the checks: inside the loop the optional-access analysis loses them.
+        const Common::Json::Node& settingsNode = *settings;
         for ( const std::string& key : forbidden )
-            EXPECT_FALSE( settings.value().Find( key ).has_value() )
+            EXPECT_FALSE( settingsNode.Find( key ).has_value() )
                  << path.string() << " states Settings." << key
                  << " - a viewport debug flag in a level file. Run Tools/SceneMigrator over it.";
     }

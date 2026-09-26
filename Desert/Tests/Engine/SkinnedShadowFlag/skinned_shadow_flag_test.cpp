@@ -191,8 +191,10 @@ TEST( SkinnedShadowFlag, TheSerMirrorRoundTripsTheFlagAndAbsentMeansDefault )
     off.CastShadows    = false;
     const auto offBack = Common::Json::Read<Desert::Assets::SkinnedMeshComponentSer>( Common::Json::Write( off ) );
     ASSERT_TRUE( offBack.IsSuccess() ) << offBack.GetError();
-    ASSERT_TRUE( offBack.GetValue().CastShadows.has_value() );
-    EXPECT_FALSE( offBack.GetValue().CastShadows.value() );
+    const auto& castShadows = offBack.GetValue().CastShadows;
+    if ( !castShadows.has_value() )
+        FAIL() << "CastShadows=false did not round-trip as a stated value";
+    EXPECT_FALSE( *castShadows );
 
     // A pre-Д24 payload (no key) parses with the optional absent — which value_or turns into the
     // component's own default at load, i.e. casting, exactly what those scenes did before.

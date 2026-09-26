@@ -707,12 +707,12 @@ TEST( SceneStitchCorpus, EveryRecordTheFileHasIsARecordTheStitchSees )
 
             const auto rawId = rawRecord.Find( "id" );
             ASSERT_EQ( rawId.has_value(), typedRecord.id.has_value() ) << path.string();
-            if ( rawId.has_value() )
+            if ( rawId.has_value() && typedRecord.id.has_value() )
             {
                 const auto integer = rawId->AsInteger();
                 ASSERT_TRUE( integer ) << path.string() << ": " << integer.GetError();
                 const auto bits = static_cast<uint64_t>( integer.GetValue() );
-                EXPECT_EQ( bits, static_cast<uint64_t>( typedRecord.id.value() ) ) << path.string();
+                EXPECT_EQ( bits, static_cast<uint64_t>( *typedRecord.id ) ) << path.string();
             }
 
             const auto rawParent = rawRecord.Find( "parent" );
