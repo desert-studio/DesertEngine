@@ -949,8 +949,7 @@ namespace Desert::Editor
             case ImportUnits::Source::StatedByFile:
             case ImportUnits::Source::FixedByFormat:
                 LOG_INFO( "[Import] {}: 1 file unit = {} cm ({}); geometry scaled by {}", fileName,
-                          unit.CentimetresPerUnit, ImportUnits::Describe( unit.From ),
-                          unit.CentimetresPerUnit );
+                          unit.CentimetresPerUnit, ImportUnits::Describe( unit.From ), unit.CentimetresPerUnit );
                 break;
             case ImportUnits::Source::AssumedCentimetres:
                 // Not a silent guess: the file is about to be treated as centimetres and the log says so,
@@ -976,9 +975,9 @@ namespace Desert::Editor
                                       " metres per file unit, which is not a usable scale." );
         }
 
-        importer.SetPropertyFloat( AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY,
-                                   ImportUnits::GlobalScaleFactor( unit.CentimetresPerUnit,
-                                                                   assimpMetresPerUnit ) );
+        importer.SetPropertyFloat(
+             AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY,
+             ImportUnits::GlobalScaleFactor( unit.CentimetresPerUnit, assimpMetresPerUnit ) );
 
         scene = importer.ApplyPostProcessing( aiProcess_GlobalScale );
 

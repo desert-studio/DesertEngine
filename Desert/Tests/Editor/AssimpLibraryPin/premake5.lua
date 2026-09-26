@@ -13,10 +13,14 @@ project(test_name)
     -- artifact, not by the build files that asked for it. The text half is AssimpBoundary next door.
     files {
         test_files,
+        -- The unit RULE itself, compiled in rather than restated: this suite asserts the SIZE a file
+        -- imports at, and a second copy of the rule here would be a second thing to keep in agreement.
+        "%{wks.location}/Editor/Source/Editor/Import/ImportUnits.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
+        "%{wks.location}/Editor/Source",  -- <Editor/Import/ImportUnits.hpp>
     }
 
     externalincludedirs {

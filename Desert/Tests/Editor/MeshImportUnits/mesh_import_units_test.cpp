@@ -69,9 +69,9 @@ namespace
     std::set<std::string> RegisteredExtensions( const std::string& rowName )
     {
         std::set<std::string> extensions;
-        std::istringstream    lines( ReadFile( RepositoryRoot() / "BuildScripts" / "ThirdParty" /
-                                               "AssimpImporters.txt" ) );
-        std::string           line;
+        std::istringstream    lines(
+             ReadFile( RepositoryRoot() / "BuildScripts" / "ThirdParty" / "AssimpImporters.txt" ) );
+        std::string line;
         while ( std::getline( lines, line ) )
         {
             std::istringstream words( line );
@@ -138,8 +138,8 @@ TEST( MeshImportUnits, AFileThatStatesNothingIsTakenAsCentimetresAndTheReasonSay
 
 TEST( MeshImportUnits, AStatedUnitThatIsNotAScaleIsRefusedRatherThanUsed )
 {
-    for ( const float bad : { 0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN(),
-                              std::numeric_limits<float>::infinity() } )
+    for ( const float bad :
+          { 0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity() } )
     {
         const ImportUnits::Scale unit = ImportUnits::Resolve( ".fbx", true, bad );
 
@@ -180,14 +180,14 @@ TEST( MeshImportUnits, TheRuleCoversExactlyTheFormatsTheRegisterShips )
     for ( const std::string& extension : gltfRow )
     {
         EXPECT_EQ( ImportUnits::Resolve( extension, false, 0.0f ).From, ImportUnits::Source::FixedByFormat )
-             << extension << " is in the register's GLTF row but the unit rule does not treat it as "
-                             "glTF, so it would import a hundred times too small.";
+             << extension
+             << " is in the register's GLTF row but the unit rule does not treat it as "
+                "glTF, so it would import a hundred times too small.";
     }
 
     for ( const std::string& extension : RegisteredExtensions( "OBJ" ) )
     {
-        EXPECT_EQ( ImportUnits::Resolve( extension, false, 0.0f ).From,
-                   ImportUnits::Source::AssumedCentimetres )
+        EXPECT_EQ( ImportUnits::Resolve( extension, false, 0.0f ).From, ImportUnits::Source::AssumedCentimetres )
              << extension << " states no unit, so it must be recorded as assumed.";
     }
 }
@@ -201,10 +201,10 @@ TEST( MeshImportUnits, TheFactorHandedToAssimpMakesTheAppliedScaleTheFilesOwnUni
     for ( const float statedCentimetresPerUnit : { 1.0f, 100.0f, 2.54f, 0.1f, 1000.0f } )
     {
         const ImportUnits::Scale unit = ImportUnits::Resolve( ".fbx", true, statedCentimetresPerUnit );
-        const float assimpMetresPerUnit = AssimpMetresPerUnitForFbx( statedCentimetresPerUnit );
+        const float              assimpMetresPerUnit = AssimpMetresPerUnitForFbx( statedCentimetresPerUnit );
 
-        EXPECT_NEAR( AppliedScale( unit.CentimetresPerUnit, assimpMetresPerUnit ),
-                     statedCentimetresPerUnit, statedCentimetresPerUnit * 1e-5f )
+        EXPECT_NEAR( AppliedScale( unit.CentimetresPerUnit, assimpMetresPerUnit ), statedCentimetresPerUnit,
+                     statedCentimetresPerUnit * 1e-5f )
              << "for a file stating " << statedCentimetresPerUnit
              << " cm per unit, the scale that actually reaches the geometry must be that same number.";
     }
@@ -225,7 +225,7 @@ TEST( MeshImportUnits, TheOldBehaviourShrankACentimetreFileByOneHundred )
     // passed aiProcess_GlobalScale with AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY left at its default of 1.0,
     // so the applied scale was assimp's metres-per-unit alone — 0.01 for a centimetre-authored FBX.
     // base.fbx is exactly that file, and it imported 1.8983 units tall instead of 189.83.
-    constexpr float kStatedByBaseFbx = 1.0f; // base.fbx: GlobalSettings::UnitScaleFactor = 1.0
+    constexpr float kStatedByBaseFbx    = 1.0f; // base.fbx: GlobalSettings::UnitScaleFactor = 1.0
     const float     assimpMetresPerUnit = AssimpMetresPerUnitForFbx( kStatedByBaseFbx );
 
     EXPECT_FLOAT_EQ( AppliedScale( kStatedByBaseFbx, assimpMetresPerUnit ), 1.0f );
@@ -235,8 +235,7 @@ TEST( MeshImportUnits, TheOldBehaviourShrankACentimetreFileByOneHundred )
 
     // 189.8341 is the measured height of base.fbx in file units after its node transform is baked.
     constexpr float kHeightInFileUnits = 189.8341f;
-    EXPECT_NEAR( kHeightInFileUnits * AppliedScale( kStatedByBaseFbx, assimpMetresPerUnit ), 189.8341f,
-                 0.01f );
+    EXPECT_NEAR( kHeightInFileUnits * AppliedScale( kStatedByBaseFbx, assimpMetresPerUnit ), 189.8341f, 0.01f );
     EXPECT_NEAR( kHeightInFileUnits * oldAppliedScale, 1.8983f, 0.01f )
          << "if this stops reproducing the old 1.9, the arithmetic this suite is guarding against has "
             "changed and the fix needs re-deriving rather than re-measuring.";
