@@ -389,7 +389,8 @@ namespace Desert::Geometry
                     }
                 }
                 const auto* LhsLast = &Lhs.m_Blocks[LhsCurBlock]->Elements[0];
-                return std::equal( LhsLast, LhsLast + Lhs.m_CurBlockUsed, &Rhs.m_Blocks[LhsCurBlock]->Elements[0] );
+                return std::equal( LhsLast, LhsLast + Lhs.m_CurBlockUsed,
+                                   &Rhs.m_Blocks[LhsCurBlock]->Elements[0] );
             }
             else
             {
@@ -417,9 +418,9 @@ namespace Desert::Geometry
             // This is similar to what happens when computing the indices in operator[], but we additionally
             // account for (1) the vector being empty and (2) that the used item count within the last block needs
             // to be one more than the index of the last item.
-            const auto LastItemIndex  = static_cast<int32_t>( Count - 1 );
-            m_CurBlock                = Count != 0 ? GetBlockIndex( LastItemIndex ) : 0;
-            m_CurBlockUsed            = Count != 0 ? GetIndexInBlock( LastItemIndex ) + 1 : 0;
+            const auto LastItemIndex = static_cast<int32_t>( Count - 1 );
+            m_CurBlock               = Count != 0 ? GetBlockIndex( LastItemIndex ) : 0;
+            m_CurBlockUsed           = Count != 0 ? GetIndexInBlock( LastItemIndex ) + 1 : 0;
         }
     };
 
@@ -601,7 +602,7 @@ namespace Desert::Geometry
         }
 
         // Determine how many blocks we need, but make sure we have at least one block available.
-        const bool  bCountIsNotMultipleOfBlockSize = Count % BlockSize != 0;
+        const bool    bCountIsNotMultipleOfBlockSize = Count % BlockSize != 0;
         const int32_t NumBlocksNeeded =
              std::max( 1, static_cast<int32_t>( Count ) / BlockSize + ( bCountIsNotMultipleOfBlockSize ? 1 : 0 ) );
 

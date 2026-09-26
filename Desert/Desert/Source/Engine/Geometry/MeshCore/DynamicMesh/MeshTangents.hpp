@@ -5,7 +5,6 @@
 // std/glm, namespace Desert::Geometry, instantiated for double only.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 
@@ -60,7 +59,7 @@ namespace Desert::Geometry
         void SetPerTriangleTangent( int TriangleID, int TriVertIdx, const glm::vec<3, RealType>& Tangent,
                                     const glm::vec<3, RealType>& Bitangent )
         {
-            const int k   = TriangleID * 3 + TriVertIdx;
+            const int k     = TriangleID * 3 + TriVertIdx;
             m_Tangents[k]   = Tangent;
             m_Bitangents[k] = Bitangent;
         }

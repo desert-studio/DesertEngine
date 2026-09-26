@@ -12,7 +12,6 @@
 // - Validate(): an IsConnected wrapper for the tool framework; callers here call IsConnected.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/MathUtil.hpp"
 #include "Engine/Geometry/MeshCore/VectorTypes.hpp"
 
@@ -36,9 +35,9 @@ namespace Desert::Geometry
      */
     struct MeshSurfacePoint
     {
-        int               ElementID = -1;
-        glm::dvec3        BaryCoord = glm::dvec3( 0 );
-        SurfacePointType  PointType = SurfacePointType::Vertex;
+        int              ElementID = -1;
+        glm::dvec3       BaryCoord = glm::dvec3( 0 );
+        SurfacePointType PointType = SurfacePointType::Vertex;
 
         MeshSurfacePoint() = default;
 

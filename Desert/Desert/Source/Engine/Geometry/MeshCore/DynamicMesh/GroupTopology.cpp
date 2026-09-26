@@ -48,7 +48,7 @@ bool GroupTopology::RebuildTopology()
         if ( m_GroupIDToGroupIndexMap[GroupID] == -1 )
         {
             Group NewGroup;
-            NewGroup.GroupID                = GroupID;
+            NewGroup.GroupID = GroupID;
             m_Groups.push_back( NewGroup );
             m_GroupIDToGroupIndexMap[GroupID] = static_cast<int32_t>( m_Groups.size() ) - 1;
         }
@@ -71,7 +71,7 @@ bool GroupTopology::RebuildTopology()
             for ( const int EdgeIndex : Boundary.GroupEdges )
             {
                 const GroupEdge& Edge         = m_Edges[EdgeIndex];
-                const int OtherGroupID = ( Edge.Groups.A == Group.GroupID ) ? Edge.Groups.B : Edge.Groups.A;
+                const int        OtherGroupID = ( Edge.Groups.A == Group.GroupID ) ? Edge.Groups.B : Edge.Groups.A;
                 if ( OtherGroupID != DynamicMesh3::InvalidID )
                 {
                     if ( std::find( Boundary.NeighbourGroupIDs.begin(), Boundary.NeighbourGroupIDs.end(),
@@ -230,8 +230,8 @@ bool GroupTopology::GenerateBoundaryAndGroupEdges(
 
 Index2i GroupTopology::MakeEdgeGroupsPair( int MeshEdgeID ) const
 {
-    const Index2i  EdgeTris = m_Mesh->GetEdgeT( MeshEdgeID );
-    const int      G0       = GetGroupID( EdgeTris.A );
+    const Index2i EdgeTris = m_Mesh->GetEdgeT( MeshEdgeID );
+    const int     G0       = GetGroupID( EdgeTris.A );
     if ( EdgeTris.B == IndexConstants::InvalidID )
     {
         return { G0, IndexConstants::InvalidID };
@@ -551,7 +551,7 @@ bool TriangleGroupTopology::RebuildTopology()
             if ( GroupEdgeIndex == IndexConstants::InvalidID )
             {
                 GroupEdge NewGroupEdge;
-                NewGroupEdge.Groups      = MakeEdgeGroupsPair( TriEdges[j] );
+                NewGroupEdge.Groups        = MakeEdgeGroupsPair( TriEdges[j] );
                 const Index2i    EdgeVerts = m_Mesh->GetEdgeV( TriEdges[j] );
                 std::vector<int> SpanVertices;
                 SpanVertices.push_back( EdgeVerts.A );

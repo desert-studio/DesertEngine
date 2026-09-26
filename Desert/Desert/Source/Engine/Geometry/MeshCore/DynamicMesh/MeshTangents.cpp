@@ -83,10 +83,10 @@ namespace Desert::Geometry
             TangentOverlays[Idx]->CreateFromPredicate(
                  [&MeshToSet, &TV]( int ParentVertexIdx, int TriIDA, int TriIDB ) -> bool
                  {
-                     const Index3i  TriA = MeshToSet.GetTriangle( TriIDA );
-                     const Index3i  TriB = MeshToSet.GetTriangle( TriIDB );
-                     const int      SubA = TriA.IndexOf( ParentVertexIdx );
-                     const int      SubB = TriB.IndexOf( ParentVertexIdx );
+                     const Index3i TriA = MeshToSet.GetTriangle( TriIDA );
+                     const Index3i TriB = MeshToSet.GetTriangle( TriIDB );
+                     const int     SubA = TriA.IndexOf( ParentVertexIdx );
+                     const int     SubB = TriB.IndexOf( ParentVertexIdx );
                      assert( SubA > -1 && SubB > -1 );
                      const glm::vec<3, RealType>& A = TV[TriIDA * 3 + SubA];
                      const glm::vec<3, RealType>& B = TV[TriIDB * 3 + SubB];

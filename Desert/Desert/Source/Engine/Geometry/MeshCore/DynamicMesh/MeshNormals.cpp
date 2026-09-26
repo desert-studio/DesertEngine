@@ -296,14 +296,14 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             }
 
             // Otherwise, get neighbors and corresponding squared edge lengths.
-            int32_t  NeighborTids[3];
-            double   SquaredEdgeLengths[3];
-            Index3i  TriEdges = m_Mesh->GetTriEdges( CurrentTid );
+            int32_t NeighborTids[3];
+            double  SquaredEdgeLengths[3];
+            Index3i TriEdges = m_Mesh->GetTriEdges( CurrentTid );
             for ( int i = 0; i < 3; ++i )
             {
                 const Index2i Tids     = m_Mesh->GetEdgeT( TriEdges[i] );
                 int32_t const OtherTid = ( Tids.A == CurrentTid ) ? Tids.B : Tids.A;
-                NeighborTids[i]   = OtherTid;
+                NeighborTids[i]        = OtherTid;
 
                 if ( OtherTid == DynamicMesh3::InvalidID )
                 {
@@ -410,7 +410,7 @@ void MeshNormals::Compute_Overlay_FaceAvg( const DynamicMeshNormalOverlay* Norma
 
         glm::dvec3 TriNormal{};
         double     TriArea = NAN;
-        TriNormal = VectorUtil::NormalArea( V0, V1, V2, TriArea );
+        TriNormal          = VectorUtil::NormalArea( V0, V1, V2, TriArea );
         glm::dvec3 TriNormalWeights =
              GetVertexWeightsOnTriangle( m_Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
 
@@ -467,7 +467,7 @@ void MeshNormals::SmoothVertexNormals( DynamicMesh3& Mesh, int32_t SmoothingRoun
     SmoothingAlpha  = std::clamp<double>( SmoothingAlpha, 0.0, 1.0 );
     if ( SmoothingRounds > 0 && SmoothingAlpha > 0 )
     {
-        int32_t const     NumV = Mesh.MaxVertexID();
+        int32_t const           NumV = Mesh.MaxVertexID();
         std::vector<glm::dvec3> SmoothedNormals;
         SmoothedNormals.resize( NumV );
         for ( int32_t ri = 0; ri < SmoothingRounds; ++ri )
@@ -733,15 +733,15 @@ void MeshNormals::InitializeOverlayToPerVertexNormals( DynamicMeshNormalOverlay*
     {
         const glm::vec3 Normal = ( bUseMeshNormals ) ? Mesh->GetVertexNormal( vid ) : glm::vec3( Normals[vid] );
         const int       nid    = NormalOverlay->AppendElement( Normal );
-        VertToNormalMap[vid] = nid;
+        VertToNormalMap[vid]   = nid;
     }
 
     for ( const int tid : Mesh->TriangleIndicesItr() )
     {
-        Index3i Tri  = Mesh->GetTriangle( tid );
-        Tri.A        = VertToNormalMap[Tri.A];
-        Tri.B        = VertToNormalMap[Tri.B];
-        Tri.C        = VertToNormalMap[Tri.C];
+        Index3i Tri = Mesh->GetTriangle( tid );
+        Tri.A       = VertToNormalMap[Tri.A];
+        Tri.B       = VertToNormalMap[Tri.B];
+        Tri.C       = VertToNormalMap[Tri.C];
         NormalOverlay->SetTriangle( tid, Tri );
     }
 }
@@ -815,21 +815,21 @@ void MeshNormals::InitializeOverlayRegionToPerVertexNormals( DynamicMeshNormalOv
     VertNormals.resize( NumVertices );
     for ( int32_t i = 0; i < NumVertices; ++i )
     {
-        int32_t const   vid    = Vertices[i];
+        int32_t const    vid    = Vertices[i];
         glm::dvec3 const Normal = MeshNormals::ComputeVertexNormal(
              *Mesh, vid, std::function<bool( int32_t )>( TriangleSetFunc ), true, true );
         int32_t const nid = NormalOverlay->AppendElement( glm::vec3( Normal ) );
-        VertNormals[i] = nid;
+        VertNormals[i]    = nid;
 
         TriangleMap.insert_or_assign( vid, i );
     }
 
     for ( int32_t const tid : Triangles )
     {
-        Index3i Tri  = Mesh->GetTriangle( tid );
-        Tri.A        = VertNormals[TriangleMap[Tri.A]];
-        Tri.B        = VertNormals[TriangleMap[Tri.B]];
-        Tri.C        = VertNormals[TriangleMap[Tri.C]];
+        Index3i Tri = Mesh->GetTriangle( tid );
+        Tri.A       = VertNormals[TriangleMap[Tri.A]];
+        Tri.B       = VertNormals[TriangleMap[Tri.B]];
+        Tri.C       = VertNormals[TriangleMap[Tri.C]];
         NormalOverlay->SetTriangle( tid, Tri );
     }
 }

@@ -6,7 +6,6 @@
 // GetEdgeMidpoint) - no Modeling code reads them yet; they arrive with the gizmo port that does.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.hpp"
 
@@ -51,7 +50,7 @@ namespace Desert::Geometry
 
         /** Rebuilds groups, corners and group edges. False if a group's boundary could not be walked; see Failure.
          */
-        virtual bool       RebuildTopology();
+        virtual bool                     RebuildTopology();
         [[nodiscard]] const std::string& Failure() const
         {
             return m_FailureReason;
@@ -65,7 +64,7 @@ namespace Desert::Geometry
         /** A corner is a mesh vertex where three or more group edges meet (a mesh-border edge counts as one). */
         struct Corner
         {
-            int         VertexID = IndexConstants::InvalidID;
+            int              VertexID = IndexConstants::InvalidID;
             std::vector<int> NeighbourGroupIDs;
         };
         std::vector<Corner> m_Corners;
@@ -75,12 +74,12 @@ namespace Desert::Geometry
         {
             std::vector<int> GroupEdges;
             std::vector<int> NeighbourGroupIDs;
-            bool        bIsOnBoundary = false;
+            bool             bIsOnBoundary = false;
         };
 
         struct Group
         {
-            int                    GroupID = 0;
+            int                        GroupID = 0;
             std::vector<int>           Triangles;
             std::vector<GroupBoundary> Boundaries;
             std::vector<int>           NeighbourGroupIDs;
@@ -104,16 +103,16 @@ namespace Desert::Geometry
         std::vector<GroupEdge> m_Edges;
 
         [[nodiscard]] int                     GetCornerVertexID( int CornerID ) const;
-        [[nodiscard]] int32_t GetCornerIDFromVertexID( int32_t VertexID ) const;
+        [[nodiscard]] int32_t                 GetCornerIDFromVertexID( int32_t VertexID ) const;
         [[nodiscard]] const Group*            FindGroupByID( int GroupID ) const;
         [[nodiscard]] const std::vector<int>& GetGroupTriangles( int GroupID ) const;
         [[nodiscard]] const std::vector<int>& GetGroupNbrGroups( int GroupID ) const;
         [[nodiscard]] int                     FindGroupEdgeID( int MeshEdgeID ) const;
         [[nodiscard]] const std::vector<int>& GetGroupEdgeVertices( int GroupEdgeID ) const;
         [[nodiscard]] const std::vector<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
-        void                  FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
-        void                  FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
-        [[nodiscard]] bool    IsBoundaryEdge( int32_t GroupEdgeID ) const;
+        void               FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
+        void               FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
+        [[nodiscard]] bool IsBoundaryEdge( int32_t GroupEdgeID ) const;
         /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
         double GetEdgeArcLength( int32_t GroupEdgeID, std::vector<double>* PerVertexLengthsOut = nullptr ) const;
         [[nodiscard]] bool IsSimpleGroupEdge( int32_t GroupEdgeID ) const;
@@ -150,7 +149,7 @@ namespace Desert::Geometry
     public:
         TriangleGroupTopology() = default;
         TriangleGroupTopology( const DynamicMesh3* Mesh, bool bAutoBuild );
-        bool RebuildTopology() override;
+        bool              RebuildTopology() override;
         [[nodiscard]] int GetGroupID( int TriangleID ) const override
         {
             return TriangleID;

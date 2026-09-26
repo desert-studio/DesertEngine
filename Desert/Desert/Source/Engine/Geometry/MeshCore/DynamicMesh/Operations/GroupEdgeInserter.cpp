@@ -25,7 +25,7 @@ namespace Desert::Geometry
         using OutParams  = GroupEdgeInserter::OptionalOutputParams;
 
         constexpr int32_t InvalidID          = IndexConstants::InvalidID;
-        constexpr double KINDA_SMALL_NUMBER = 1e-4;
+        constexpr double  KINDA_SMALL_NUMBER = 1e-4;
 
         double PointPlaneDist( const glm::dvec3& Point, const glm::dvec3& Origin, const glm::dvec3& Normal )
         {
@@ -162,7 +162,7 @@ namespace Desert::Geometry
             // Walk forward selecting existing vertices or adding new ones. NextIndex is always an index into
             // SpanVids/PerVertexLengths of the next vertex in front of the current one.
             int32_t CurrentVid       = SpanVids[0];
-            double CurrentArcLength = 0;
+            double  CurrentArcLength = 0;
             int32_t NextIndex        = 1;
 
             for ( double TargetLength : ArcLengths )
@@ -398,8 +398,8 @@ namespace Desert::Geometry
                             }
                         }
 
-                        const Index3i  TriangleVids = Mesh.GetTriangle( Tid );
-                        const int32_t  VertA =
+                        const Index3i TriangleVids = Mesh.GetTriangle( Tid );
+                        const int32_t VertA =
                              ( TriangleVids.A == CurrentElementID ) ? TriangleVids.C : TriangleVids.A;
                         const int32_t VertB =
                              ( TriangleVids.B == CurrentElementID ) ? TriangleVids.C : TriangleVids.B;
@@ -452,7 +452,7 @@ namespace Desert::Geometry
                         {
                             // The triangle's opposite edge crosses the plane
                             const int32_t Eid        = Mesh.FindEdgeFromTri( VertA, VertB, Tid );
-                            double      EdgeTValue = PlaneDistanceA / ( PlaneDistanceA - PlaneDistanceB );
+                            double        EdgeTValue = PlaneDistanceA / ( PlaneDistanceA - PlaneDistanceB );
                             if ( VertA != Mesh.GetEdgeV( Eid ).A )
                             {
                                 EdgeTValue = 1 - EdgeTValue;
@@ -534,7 +534,7 @@ namespace Desert::Geometry
                     {
                         // We are cutting through an edge. Figure out which one
                         int32_t SecondVertOfNextEdge = InvalidID;
-                        double SecondPlaneDistance  = 0.0;
+                        double  SecondPlaneDistance  = 0.0;
                         if ( CurrentEdgeVertPlaneDistances[0] * OppositeVertPlaneDistance < 0 )
                         {
                             SecondVertOfNextEdge = Edge.Vert.A;
@@ -712,7 +712,7 @@ namespace Desert::Geometry
                                const std::vector<SplitPoint>& EndPoints, int32_t& NumGroupsCreated,
                                OutParams& OptionalOut )
         {
-            NumGroupsCreated             = 0;
+            NumGroupsCreated = 0;
             const int32_t NumEdgesToInsert =
                  std::min( static_cast<int32_t>( StartPoints.size() ), static_cast<int32_t>( EndPoints.size() ) );
             std::unordered_set<int32_t> PathsEids;
@@ -777,8 +777,8 @@ namespace Desert::Geometry
                 }
 
                 int32_t NumGroupsCreated = 0;
-                bSuccess               = ConnectEndpoints( Params, NextGroupID, *CurrentEndpoints, *NextEndpoints,
-                                                           NumGroupsCreated, OptionalOut );
+                bSuccess = ConnectEndpoints( Params, NextGroupID, *CurrentEndpoints, *NextEndpoints,
+                                             NumGroupsCreated, OptionalOut );
                 AlteredGroups.insert( NextGroupID );
                 NumInserted += ( NumGroupsCreated > 1 ? 1 : 0 );
                 if ( !bSuccess )
@@ -819,7 +819,7 @@ namespace Desert::Geometry
         int32_t       ForwardEdgeID        = InvalidID;
         int32_t       ForwardCornerID      = InvalidID;
         int32_t       ForwardBoundaryIndex = InvalidID;
-        const bool  bHaveForwardEdge     = GetEdgeLoopOpposingEdgeAndCorner(
+        const bool    bHaveForwardEdge     = GetEdgeLoopOpposingEdgeAndCorner(
              *Params.Topology, ForwardGroupID, Params.GroupEdgeID, Params.StartCornerID, ForwardEdgeID,
              ForwardCornerID, ForwardBoundaryIndex, OptionalOut );
 
@@ -827,7 +827,7 @@ namespace Desert::Geometry
         int32_t       BackwardEdgeID        = InvalidID;
         int32_t       BackwardCornerID      = InvalidID;
         int32_t       BackwardBoundaryIndex = InvalidID;
-        const bool  bHaveBackwardEdge     = GetEdgeLoopOpposingEdgeAndCorner(
+        const bool    bHaveBackwardEdge     = GetEdgeLoopOpposingEdgeAndCorner(
              *Params.Topology, BackwardGroupID, Params.GroupEdgeID, Params.StartCornerID, BackwardEdgeID,
              BackwardCornerID, BackwardBoundaryIndex, OptionalOut );
 

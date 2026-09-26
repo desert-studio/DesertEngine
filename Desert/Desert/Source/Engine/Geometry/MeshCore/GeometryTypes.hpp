@@ -5,7 +5,6 @@
 
 #include <unordered_map>
 
-
 namespace Desert::Geometry
 {
 
@@ -90,8 +89,8 @@ namespace Desert::Geometry
     protected:
         std::unordered_map<IntType, IntType> ForwardMap;
         std::unordered_map<IntType, IntType> ReverseMap;
-        bool                   bWantForward;
-        bool                   bWantReverse;
+        bool                                 bWantForward;
+        bool                                 bWantReverse;
 
     public:
         IndexMap()

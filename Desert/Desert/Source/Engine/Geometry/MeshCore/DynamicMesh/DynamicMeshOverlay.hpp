@@ -3,7 +3,6 @@
 // ported.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/GeometryTypes.hpp"
 #include "Engine/Geometry/MeshCore/IndexTypes.hpp"
@@ -139,7 +138,7 @@ namespace Desert::Geometry
                 {
                     continue;
                 }
-                const int ToTID           = CompactMaps.GetTriangleMapping( FromTID );
+                const int     ToTID           = CompactMaps.GetTriangleMapping( FromTID );
                 const Index3i FromTriElements = Copy.GetTriangle( FromTID );
                 SetTriangle(
                      ToTID, Index3i( MapE[FromTriElements.A], MapE[FromTriElements.B], MapE[FromTriElements.C] ) );
@@ -176,17 +175,17 @@ namespace Desert::Geometry
                 }
             }
 
-            DynamicVector<unsigned short>&  ERef = m_ElementsRefCounts.GetRawRefCountsUnsafe();
-            RealType                        Data[ElementSize];
+            DynamicVector<unsigned short>& ERef = m_ElementsRefCounts.GetRawRefCountsUnsafe();
+            RealType                       Data[ElementSize];
             while ( iCurE < iLastE )
             {
                 // remap the element data
                 GetElement( iLastE, Data );
                 SetElement( iCurE, Data );
                 m_ParentVertices[iCurE] = m_ParentVertices[iLastE];
-                ERef[iCurE]           = ERef[iLastE];
+                ERef[iCurE]             = ERef[iLastE];
                 ERef[iLastE]            = RefCountVector::INVALID_REF_COUNT;
-                MapE[iLastE]          = iCurE;
+                MapE[iLastE]            = iCurE;
 
                 // move cur forward one, last back one, and  then search for next valid
                 iLastE--;

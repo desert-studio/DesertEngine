@@ -6,7 +6,6 @@
 // list helpers have no caller here and are not carried.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 
 namespace Desert::Geometry

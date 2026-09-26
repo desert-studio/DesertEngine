@@ -11,7 +11,6 @@
 // region triangle on each loop edge; UE Core as std/glm; a failure names its reason in FailureReason.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.hpp"
 
@@ -54,7 +53,7 @@ namespace Desert::Geometry
         {
             std::vector<int32_t>              OffsetTids;
             std::vector<int32_t>              OffsetGroups;
-            bool                  bIsSolid = false;
+            bool                              bIsSolid = false;
             std::vector<EdgeLoop>             BaseLoops;
             std::vector<EdgeLoop>             OffsetLoops;
             std::vector<std::vector<int32_t>> StitchTriangles;

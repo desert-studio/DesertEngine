@@ -118,15 +118,15 @@ namespace Desert::Geometry
             {
                 iFree = m_FreeIndices.Back();
                 m_FreeIndices.PopBack();
-                }
-                if ( iFree != IndexConstants::InvalidID )
-                {
-                    m_RefCounts[iFree] = 1;
-                    return iFree;
-                }
+            }
+            if ( iFree != IndexConstants::InvalidID )
+            {
+                m_RefCounts[iFree] = 1;
+                return iFree;
+            }
 
-                m_RefCounts.Add( 1 );
-                return static_cast<int>( m_RefCounts.GetLength() ) - 1;
+            m_RefCounts.Add( 1 );
+            return static_cast<int>( m_RefCounts.GetLength() ) - 1;
         }
 
         int Increment( int Index, unsigned short IncrementCount = 1 )
@@ -176,20 +176,20 @@ namespace Desert::Geometry
             if ( IsValidUnsafe( Index ) )
             {
                 return false;
-                }
-                const int N = static_cast<int>( m_FreeIndices.GetLength() );
-                for ( int i = 0; i < N; ++i )
+            }
+            const int N = static_cast<int>( m_FreeIndices.GetLength() );
+            for ( int i = 0; i < N; ++i )
+            {
+                if ( m_FreeIndices[i] == Index )
                 {
-                    if ( m_FreeIndices[i] == Index )
-                    {
-                        m_FreeIndices[i] = m_FreeIndices.Back();
-                        m_FreeIndices.PopBack();
-                        m_RefCounts[Index] = 1;
-                        m_UsedCount++;
-                        return true;
-                    }
+                    m_FreeIndices[i] = m_FreeIndices.Back();
+                    m_FreeIndices.PopBack();
+                    m_RefCounts[Index] = 1;
+                    m_UsedCount++;
+                    return true;
                 }
-                return false;
+            }
+            return false;
         }
 
         /**
@@ -216,10 +216,10 @@ namespace Desert::Geometry
             if ( IsValidUnsafe( Index ) )
             {
                 return false;
-                }
-                m_RefCounts[Index] = 1;
-                m_UsedCount++;
-                return true;
+            }
+            m_RefCounts[Index] = 1;
+            m_UsedCount++;
+            return true;
         }
 
         [[nodiscard]] const DynamicVector<unsigned short>& GetRawRefCounts() const

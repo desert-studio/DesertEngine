@@ -32,9 +32,9 @@ void EdgeSpan::InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<
     Index2i       PrevEv  = StartEv;
     for ( int i = 1; i < NumEdges; ++i )
     {
-        const Index2i NextEv  = Mesh.GetEdgeV( Edges[i] );
-        Vertices[i]           = IndexUtil::FindSharedEdgeVertex( PrevEv, NextEv );
-        PrevEv                = NextEv;
+        const Index2i NextEv = Mesh.GetEdgeV( Edges[i] );
+        Vertices[i]          = IndexUtil::FindSharedEdgeVertex( PrevEv, NextEv );
+        PrevEv               = NextEv;
     }
     Vertices[0]        = IndexUtil::FindEdgeOtherVertex( StartEv, Vertices[1] );
     Vertices[NumEdges] = IndexUtil::FindEdgeOtherVertex( PrevEv, Vertices[NumEdges - 1] );
@@ -59,9 +59,9 @@ void EdgeLoop::InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<
     Index2i       PrevEV  = StartEV;
     for ( int i = 1; i < NumEdges; ++i )
     {
-        const Index2i NextEV  = Mesh.GetEdgeV( Edges[i] );
-        Vertices[i]           = IndexUtil::FindSharedEdgeVertex( PrevEV, NextEV );
-        PrevEV                = NextEV;
+        const Index2i NextEV = Mesh.GetEdgeV( Edges[i] );
+        Vertices[i]          = IndexUtil::FindSharedEdgeVertex( PrevEV, NextEV );
+        PrevEV               = NextEV;
     }
     Vertices[0] = IndexUtil::FindEdgeOtherVertex( StartEV, Vertices[1] );
 }
@@ -148,15 +148,15 @@ bool MeshRegionBoundaryLoops::Compute()
             int CurB = 0;
             if ( EFirstVert == -1 )
             {
-                const Index2i Ev  = GetOrientedEdgeVerts( ECur, TidIn );
-                CurA              = Ev.A;
-                CurB              = Ev.B;
+                const Index2i Ev = GetOrientedEdgeVerts( ECur, TidIn );
+                CurA             = Ev.A;
+                CurB             = Ev.B;
             }
             else
             {
-                const Index2i Ev  = m_Mesh->GetEdgeV( ECur );
-                CurA              = EFirstVert;
-                CurB              = Ev.A == CurA ? Ev.B : Ev.A;
+                const Index2i Ev = m_Mesh->GetEdgeV( ECur );
+                CurA             = EFirstVert;
+                CurB             = Ev.A == CurA ? Ev.B : Ev.A;
             }
             Loop.Vertices.push_back( CurA );
             int       E0       = -1;
@@ -195,9 +195,9 @@ bool MeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut
     {
         return false;
     }
-    TidIn             = IndexConstants::InvalidID;
-    TidOut            = IndexConstants::InvalidID;
-    const Index2i Et  = m_Mesh->GetEdgeT( Eid );
+    TidIn            = IndexConstants::InvalidID;
+    TidOut           = IndexConstants::InvalidID;
+    const Index2i Et = m_Mesh->GetEdgeT( Eid );
     if ( Et.B == IndexConstants::InvalidID )
     {
         TidIn = Et.A;
@@ -216,9 +216,9 @@ bool MeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut
 
 Index2i MeshRegionBoundaryLoops::GetOrientedEdgeVerts( int Eid, int TidIn ) const
 {
-    const Index2i  Ev  = m_Mesh->GetEdgeV( Eid );
-    const Index3i  Tri = m_Mesh->GetTriangle( TidIn );
-    const int      Ai  = IndexUtil::FindEdgeIndexInTri( Ev.A, Ev.B, Tri );
+    const Index2i Ev  = m_Mesh->GetEdgeV( Eid );
+    const Index3i Tri = m_Mesh->GetTriangle( TidIn );
+    const int     Ai  = IndexUtil::FindEdgeIndexInTri( Ev.A, Ev.B, Tri );
     return { Tri[Ai], Tri[( Ai + 1 ) % 3] };
 }
 
@@ -261,15 +261,15 @@ bool MeshRegionBoundaryLoops::GetLoopOverlayMap( const EdgeLoop&                
             return false;
         }
 
-        const Index3i  TriangleVerts = m_Mesh->GetTriangle( TidInside );
-        const int32_t  VidTriIndex   = TriangleVerts.IndexOf( Vid );
+        const Index3i TriangleVerts = m_Mesh->GetTriangle( TidInside );
+        const int32_t VidTriIndex   = TriangleVerts.IndexOf( Vid );
         if ( VidTriIndex < 0 )
         {
             return false;
         }
 
-        const Index3i  TriangleElements = Overlay.GetTriangle( TidInside );
-        const int32_t  UVElementID      = TriangleElements[VidTriIndex];
+        const Index3i TriangleElements = Overlay.GetTriangle( TidInside );
+        const int32_t UVElementID      = TriangleElements[VidTriIndex];
         if ( !Overlay.IsElement( UVElementID ) )
         {
             return false;

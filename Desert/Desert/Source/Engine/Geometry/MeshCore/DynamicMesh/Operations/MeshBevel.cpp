@@ -1,8 +1,8 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Operations/MeshBevel.cpp:47-131, 576-2082,
 // 3740-3812, 3814-3969, adapted: see MeshBevel.hpp. Algo::CountIf / Algo::Reverse are written out, the
-// progress-cancel checks are gone (MeshCore has no FProgressCancel), and every UE path that leaves a vertex Unknown
-// records why. ComputeMaterialIDs fixes three UE slips, see there.
+// progress-cancel checks are gone (MeshCore has no FProgressCancel), and every UE path that leaves a vertex
+// Unknown records why. ComputeMaterialIDs fixes three UE slips, see there.
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshBevel.hpp"
 #include "Engine/Geometry/MeshCore/MapLookup.hpp"
 
@@ -294,8 +294,8 @@ namespace Desert::Geometry
     {
         // Split the sorted one-ring into wedges between the incoming bevel edges. The wedges become separate
         // vertices when the vertex is unlinked, and each is displaced along its two border edges.
-        const auto    NT            = static_cast<int32_t>( Vertex.SortedTriangles.size() );
-        int32_t       StartTriIndex = -1;
+        const auto NT            = static_cast<int32_t>( Vertex.SortedTriangles.size() );
+        int32_t    StartTriIndex = -1;
         for ( int32_t k = 0; k < NT; ++k )
         {
             if ( FindSharedEdgeInTriangles( Mesh, Vertex.SortedTriangles[k],
@@ -314,8 +314,8 @@ namespace Desert::Geometry
             return;
         }
 
-        int32_t       CurTriIndex = StartTriIndex;
-        OneRingWedge  CurWedge;
+        int32_t      CurTriIndex = StartTriIndex;
+        OneRingWedge CurWedge;
         CurWedge.WedgeVertex = Vertex.VertexID;
         CurWedge.Triangles.push_back( Vertex.SortedTriangles[CurTriIndex] );
         CurWedge.BorderEdges.A = Vertex.IncomingBevelMeshEdges[0];
@@ -365,16 +365,16 @@ namespace Desert::Geometry
         Vertex.VertexType       = BevelVertexType::Unknown;
         const std::string Where = "terminator vertex " + std::to_string( Vertex.VertexID );
 
-        const int32_t  IncomingEdgeID  = Vertex.IncomingBevelMeshEdges[0];
-        int32_t        RingSplitEdgeID = -1;
-        const Index2i  IncomingEdgeT   = Mesh.GetEdgeT( IncomingEdgeID );
+        const int32_t IncomingEdgeID  = Vertex.IncomingBevelMeshEdges[0];
+        int32_t       RingSplitEdgeID = -1;
+        const Index2i IncomingEdgeT   = Mesh.GetEdgeT( IncomingEdgeID );
         {
             const Index2i IncomingEdgeGroups( Mesh.GetTriangleGroup( IncomingEdgeT.A ),
                                               Mesh.GetTriangleGroup( IncomingEdgeT.B ) );
 
             // Start at a triangle of one of the incoming groups, so the other-group triangles are contiguous.
-            const auto    NumTriangles = static_cast<int32_t>( Vertex.SortedTriangles.size() );
-            int32_t       StartIndex   = 0;
+            const auto NumTriangles = static_cast<int32_t>( Vertex.SortedTriangles.size() );
+            int32_t    StartIndex   = 0;
             for ( int32_t k = 0; k < NumTriangles; ++k )
             {
                 if ( IncomingEdgeGroups.Contains( Mesh.GetTriangleGroup( Vertex.SortedTriangles[k] ) ) )
@@ -555,8 +555,8 @@ namespace Desert::Geometry
     {
         struct VertexSplit
         {
-            int32_t         VertexID = -1;
-            bool            bOK      = false;
+            int32_t              VertexID = -1;
+            bool                 bOK      = false;
             std::vector<int32_t> TriSets[2];
         };
 
@@ -621,8 +621,8 @@ namespace Desert::Geometry
         const int32_t EndEdge[2]   = { 0, N - 2 };
         for ( int32_t j = 0; j < 2; ++j )
         {
-            VertexSplit& Split  = SplitsToProcess[EndVertex[j]];
-            Split.VertexID      = BevelEdge.MeshVertices[EndVertex[j]];
+            VertexSplit& Split = SplitsToProcess[EndVertex[j]];
+            Split.VertexID     = BevelEdge.MeshVertices[EndVertex[j]];
             if ( !BevelEdge.bEndpointBoundaryFlag[j] )
                 continue;
             const int32_t SplitEdge = BevelEdge.MeshEdges[EndEdge[j]];
@@ -634,8 +634,8 @@ namespace Desert::Geometry
         }
         for ( int32_t k = 1; k < N - 1; ++k )
         {
-            VertexSplit& Split  = SplitsToProcess[k];
-            Split.VertexID      = BevelEdge.MeshVertices[k];
+            VertexSplit& Split = SplitsToProcess[k];
+            Split.VertexID     = BevelEdge.MeshVertices[k];
             // A span vertex on the mesh boundary stays shared by both sides (UE): the strip pinches there.
             if ( Mesh.IsBoundaryVertex( Split.VertexID ) )
                 continue;
@@ -678,8 +678,8 @@ namespace Desert::Geometry
         SplitsToProcess.resize( N );
         for ( int32_t k = 0; k < N; ++k )
         {
-            VertexSplit& Split  = SplitsToProcess[k];
-            Split.VertexID      = BevelLoop.MeshVertices[k];
+            VertexSplit& Split = SplitsToProcess[k];
+            Split.VertexID     = BevelLoop.MeshVertices[k];
             if ( Mesh.IsBoundaryVertex( Split.VertexID ) )
                 continue; // shared by both sides, as on an edge span
             const int32_t PrevEdge = ( k == 0 ) ? BevelLoop.MeshEdges.back() : BevelLoop.MeshEdges[k - 1];
@@ -923,9 +923,9 @@ namespace Desert::Geometry
                     // slide along the wedge mesh edge best aligned with that inset direction instead (UE's own
                     // stop-gap for "which topology edge should this vertex slide along").
                     const glm::dvec3 InsetLinePosition = SolveLines[0].NearestPoint( CurPos );
-                    Wedge.NewPosition                 = InsetLinePosition;
+                    Wedge.NewPosition                  = InsetLinePosition;
                     const glm::dvec3 BaseInsetDir      = Normalized( InsetLinePosition - CurPos );
-                    double          MaxDot            = -1;
+                    double           MaxDot            = -1;
                     Line3d           MaxDotEdgeLine;
                     Mesh.EnumerateVertexVertices(
                          Wedge.WedgeVertex,
@@ -1160,9 +1160,9 @@ namespace Desert::Geometry
         // One new group per pair of input groups the loop runs between.
         auto GetGroupKey = [&Mesh, &Loop]( int32_t k )
         {
-            const Index2i  EdgeTris = Loop.MeshEdgeTris[k];
-            const int32_t  Group0   = Mesh.GetTriangleGroup( EdgeTris.A );
-            const int32_t  Group1   = Mesh.IsTriangle( EdgeTris.B ) ? Mesh.GetTriangleGroup( EdgeTris.B ) : -1;
+            const Index2i EdgeTris = Loop.MeshEdgeTris[k];
+            const int32_t Group0   = Mesh.GetTriangleGroup( EdgeTris.A );
+            const int32_t Group1   = Mesh.IsTriangle( EdgeTris.B ) ? Mesh.GetTriangleGroup( EdgeTris.B ) : -1;
             return Index2i( std::max( Group0, Group1 ), std::min( Group0, Group1 ) );
         };
         std::unordered_map<Index2i, int32_t> NewGroupIDs;
@@ -1185,10 +1185,10 @@ namespace Desert::Geometry
                 Loop.StripQuads.push_back( QuadTris );
                 continue;
             }
-            const int32_t  NewGroupID = NewGroupIDs[GetGroupKey( k )];
-            const Index2i  EdgeV0     = Mesh.GetOrientedBoundaryEdgeV( EdgeID0 );
-            const Index2i  EdgeV1     = Mesh.GetOrientedBoundaryEdgeV( EdgeID1 );
-            QuadTris.A                = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, EdgeV1.B, NewGroupID, Where );
+            const int32_t NewGroupID = NewGroupIDs[GetGroupKey( k )];
+            const Index2i EdgeV0     = Mesh.GetOrientedBoundaryEdgeV( EdgeID0 );
+            const Index2i EdgeV1     = Mesh.GetOrientedBoundaryEdgeV( EdgeID1 );
+            QuadTris.A               = AppendOrRefuse( Mesh, EdgeV0.B, EdgeV0.A, EdgeV1.B, NewGroupID, Where );
             if ( EdgeV1.Contains( EdgeV0.B ) )
                 Refuse( Where + ": the pair still shares vertex " + std::to_string( EdgeV0.B ) );
             else
@@ -1447,12 +1447,12 @@ namespace Desert::Geometry
         // one column of vertices per initial vertex along the bevel edge
         for ( int32_t k = 0; k < NumEdges; ++k )
         {
-            const Index2i  EdgeV0 = SequentialQuadEdges[k].EdgeV0;
-            const Index2i  EdgeV1 = SequentialQuadEdges[k].EdgeV1;
-            const int32_t  QuadA  = EdgeV0.B;
-            const int32_t  QuadB  = EdgeV0.A;
-            const int32_t  QuadC  = EdgeV1.B;
-            const int32_t  QuadD  = EdgeV1.A;
+            const Index2i EdgeV0 = SequentialQuadEdges[k].EdgeV0;
+            const Index2i EdgeV1 = SequentialQuadEdges[k].EdgeV1;
+            const int32_t QuadA  = EdgeV0.B;
+            const int32_t QuadB  = EdgeV0.A;
+            const int32_t QuadC  = EdgeV1.B;
+            const int32_t QuadD  = EdgeV1.A;
             if ( k == 0 && ( PrevQuadPatch == nullptr || !AppendExistingVertColumn( PrevQuadPatch, QuadA ) ) )
                 AppendNewVertColumn( QuadA, QuadD );
             if ( k != NumEdges - 1 || NextQuadPatch == nullptr ||
@@ -1495,9 +1495,9 @@ namespace Desert::Geometry
         // One new group per pair of input groups the loop runs between.
         auto GetGroupKey = [&Mesh, &Loop]( int32_t k )
         {
-            const Index2i  EdgeTris = Loop.MeshEdgeTris[k];
-            const int32_t  Group0   = Mesh.GetTriangleGroup( EdgeTris.A );
-            const int32_t  Group1   = Mesh.IsTriangle( EdgeTris.B ) ? Mesh.GetTriangleGroup( EdgeTris.B ) : -1;
+            const Index2i EdgeTris = Loop.MeshEdgeTris[k];
+            const int32_t Group0   = Mesh.GetTriangleGroup( EdgeTris.A );
+            const int32_t Group1   = Mesh.IsTriangle( EdgeTris.B ) ? Mesh.GetTriangleGroup( EdgeTris.B ) : -1;
             return Index2i( std::max( Group0, Group1 ), std::min( Group0, Group1 ) );
         };
         std::unordered_map<Index2i, int32_t> NewGroupIDs;
@@ -1641,14 +1641,14 @@ namespace Desert::Geometry
                 const glm::dvec2 BoundaryFrameX     = Normalized2( Next - Prev );
                 const glm::dvec2 BoundaryFrameY( BoundaryFrameX.y, -BoundaryFrameX.x );
                 const glm::dvec2 DeltaUV = UVPosition - BoundaryUVPosition;
-                const double    Dist    = Length2( DeltaUV );
-                double          Weight  = 1.0;
+                const double     Dist    = Length2( DeltaUV );
+                double           Weight  = 1.0;
                 if ( Dist > ZeroTolerance<double> )
                 {
                     const glm::dvec2 DeltaP = Normalized2( BoundaryUVPosition - UVPosition );
-                    const double    T1     = TanHalfAngle( Normalized2( Prev - UVPosition ), DeltaP );
-                    const double    T2     = TanHalfAngle( Normalized2( Next - UVPosition ), DeltaP );
-                    Weight                 = ( T1 + T2 ) / Dist;
+                    const double     T1     = TanHalfAngle( Normalized2( Prev - UVPosition ), DeltaP );
+                    const double     T2     = TanHalfAngle( Normalized2( Next - UVPosition ), DeltaP );
+                    Weight                  = ( T1 + T2 ) / Dist;
                 }
                 Weights.emplace_back( Dot2( BoundaryFrameX, DeltaUV ), Dot2( BoundaryFrameY, DeltaUV ), Weight );
                 WeightSum += Weight;
@@ -1674,15 +1674,15 @@ namespace Desert::Geometry
         // Walk the wedges: the end column of the strip running from wedge vertex A to the next one, B, is one side
         // of the polygon. PolygonVertices/Points get each side without its B (the next side starts there);
         // PolygonCornerVIDs gets each A.
-        int32_t           NumEdgeVerts = 0;
+        int32_t                 NumEdgeVerts = 0;
         std::vector<glm::dvec3> PolygonCorners;
         std::vector<int32_t>    PolygonVertices;
         std::vector<int32_t>    PolygonCornerVIDs;
         const auto              NumWedges = static_cast<int32_t>( Vertex.Wedges.size() );
         for ( int32_t wi = 0; wi < NumWedges; ++wi )
         {
-            const int32_t   A = Vertex.Wedges[wi].WedgeVertex;
-            const int32_t   B = Vertex.Wedges[( wi + 1 ) % NumWedges].WedgeVertex;
+            const int32_t        A = Vertex.Wedges[wi].WedgeVertex;
+            const int32_t        B = Vertex.Wedges[( wi + 1 ) % NumWedges].WedgeVertex;
             std::vector<int32_t> Side;
             // UE searches every bevel edge's end columns (IncomingBevelEdgeIndices might do, per its comment)
             for ( const BevelEdge& Span : m_Edges )
@@ -1753,7 +1753,7 @@ namespace Desert::Geometry
                                          At( NumEdgeVerts - 1, NumEdgeVerts - 1 ) } );
             for ( int32_t yi = 1; yi < NumEdgeVerts - 1; ++yi )
             {
-                const double    ty   = static_cast<double>( yi ) / static_cast<double>( NumEdgeVerts - 1 );
+                const double     ty   = static_cast<double>( yi ) / static_cast<double>( NumEdgeVerts - 1 );
                 const glm::dvec3 RowA = Lerp( V00, V01, ty );
                 const glm::dvec3 RowB = Lerp( V10, V11, ty );
                 for ( int32_t xi = 1; xi < NumEdgeVerts - 1; ++xi )
@@ -1814,7 +1814,7 @@ namespace Desert::Geometry
         MeshBoundaryLoops    BoundaryLoops( &Tess, true );
         std::vector<int32_t> VertexMap;
         VertexMap.assign( Tess.MaxVertexID(), -1 );
-        bool            bMapped = false;
+        bool                 bMapped = false;
         std::vector<int32_t> BoundaryLoopVerts;
         for ( int32_t k = 0; k < BoundaryLoops.GetLoopCount() && !bMapped; ++k )
         {
@@ -1851,7 +1851,7 @@ namespace Desert::Geometry
         // 5+ corners, round: the patch flattened conformally (UE B:2840-2853) gives each interior vertex its
         // offsets in the border frames and its mean-value coordinates (B:2905-2968). Only the round profile reads
         // them, so a flat bevel does not run (or depend on) the spectral solve UE always runs.
-        const bool        bMeanValuePatch = NCorners >= 5 && HasRoundProfile();
+        const bool              bMeanValuePatch = NCorners >= 5 && HasRoundProfile();
         std::vector<glm::dvec2> PatchUVs;
         if ( bMeanValuePatch )
         {
@@ -1862,7 +1862,7 @@ namespace Desert::Geometry
             for ( const int32_t TriangleID : Tess.TriangleIndicesItr() )
                 AllTriangles.push_back( TriangleID );
             std::vector<int32_t> TessToUV;
-            bool            bIdentityMap = false;
+            bool                 bIdentityMap = false;
             UVEditor.SetToPerVertexUVs( TessToUV, bIdentityMap );
             if ( !UVEditor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles, true, true ) ||
                  !UVEditor.ScaleUVAreaTo3DArea( AllTriangles, true ) )
@@ -1911,9 +1911,9 @@ namespace Desert::Geometry
         Tess.ReverseOrientation();
         for ( const int32_t TriangleID : Tess.TriangleIndicesItr() )
         {
-            const Index3i  Tri           = Tess.GetTriangle( TriangleID );
-            const int32_t  NewTriangleID = AppendOrRefuse( Mesh, VertexMap[Tri.A], VertexMap[Tri.B],
-                                                           VertexMap[Tri.C], Vertex.NewGroupID, Where );
+            const Index3i Tri           = Tess.GetTriangle( TriangleID );
+            const int32_t NewTriangleID = AppendOrRefuse( Mesh, VertexMap[Tri.A], VertexMap[Tri.B],
+                                                          VertexMap[Tri.C], Vertex.NewGroupID, Where );
             if ( Mesh.IsTriangle( NewTriangleID ) )
                 Vertex.NewTriangles.push_back( NewTriangleID );
         }
@@ -1928,7 +1928,7 @@ namespace Desert::Geometry
                                                int32_t WedgeVertexA, int32_t WedgeVertexB, std::string& Error )
         {
             std::vector<int32_t> Column;
-            const int32_t   ColumnIndex = Patch.FindColumnIndex( WedgeVertexA );
+            const int32_t        ColumnIndex = Patch.FindColumnIndex( WedgeVertexA );
             if ( ColumnIndex != 0 && ColumnIndex != Patch.NumVertexCols() - 1 )
             {
                 Error = "wedge vertex " + std::to_string( WedgeVertexA ) + " is in no end column of its strip";
@@ -1964,8 +1964,8 @@ namespace Desert::Geometry
             return;
         }
         const BevelEdge&           IncomingEdge = m_Edges[Vertex.IncomingBevelEdgeIndices[0]];
-        const int32_t         FarVertexID  = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
-        std::string           Error;
+        const int32_t              FarVertexID  = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
+        std::string                Error;
         const std::vector<int32_t> QuadStripEdgeVerts =
              TerminatorColumn( Mesh, IncomingEdge.StripQuadPatch, Vertex.Wedges[0].WedgeVertex,
                                Vertex.Wedges[1].WedgeVertex, Error );
@@ -1990,7 +1990,7 @@ namespace Desert::Geometry
         // Two directly connected terminators: their strips' end columns face each other; join them with quads.
         const std::string Where = "terminator vertices " + std::to_string( Vertex0.VertexID ) + " and " +
                                   std::to_string( Vertex1.VertexID );
-        std::string           Error;
+        std::string                Error;
         const std::vector<int32_t> QuadStripEdgeVerts0 =
              TerminatorColumn( Mesh, m_Edges[Vertex0.IncomingBevelEdgeIndices[0]].StripQuadPatch,
                                Vertex0.Wedges[0].WedgeVertex, Vertex0.Wedges[1].WedgeVertex, Error );
@@ -2172,9 +2172,9 @@ namespace Desert::Geometry
             {
                 std::vector<int32_t> ColVerts;
                 Patch.GetVertexColumn( Col, ColVerts );
-                const int32_t     A    = ColVerts[0];
-                const int32_t     B    = ColVerts.back();
-                const ColumnSide  Side = FindColumnSide( Loop.MeshVertices, Loop.NewMeshVertices, A, B );
+                const int32_t    A    = ColVerts[0];
+                const int32_t    B    = ColVerts.back();
+                const ColumnSide Side = FindColumnSide( Loop.MeshVertices, Loop.NewMeshVertices, A, B );
                 if ( Side.Index < 0 )
                 {
                     Refuse( "bevel loop: strip column " + std::to_string( Col ) + " from vertex " +
@@ -2208,9 +2208,9 @@ namespace Desert::Geometry
             {
                 std::vector<int32_t> ColVerts;
                 Patch.GetVertexColumn( Col, ColVerts );
-                const int32_t     A    = ColVerts[0];
-                const int32_t     B    = ColVerts.back();
-                const ColumnSide  Side = FindColumnSide( Edge.MeshVertices, Edge.NewMeshVertices, A, B );
+                const int32_t    A    = ColVerts[0];
+                const int32_t    B    = ColVerts.back();
+                const ColumnSide Side = FindColumnSide( Edge.MeshVertices, Edge.NewMeshVertices, A, B );
                 if ( Side.Index < 0 )
                 {
                     Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": strip column " +
@@ -2267,8 +2267,8 @@ namespace Desert::Geometry
         // a border curve keyed (P, Q) or, reversed, (Q, P)
         auto BorderCurve = [&BorderCurves]( int32_t P, int32_t Q, bool& bReversed ) -> const ArcSplineCurve*
         {
-            bReversed                    = false;
-            const ArcSplineCurve* Found  = FindValue( BorderCurves, Index2i( P, Q ) );
+            bReversed                   = false;
+            const ArcSplineCurve* Found = FindValue( BorderCurves, Index2i( P, Q ) );
             if ( Found == nullptr )
             {
                 Found     = FindValue( BorderCurves, Index2i( Q, P ) );
@@ -2288,18 +2288,18 @@ namespace Desert::Geometry
                 // PN triangle (UE B:3527-3585): the cubic Bezier triangle whose edge control points come from
                 // the three border curves' end tangents (a Hermite tangent is 3x the Bezier leg, hence 1/3) and
                 // whose centre point b111 is pushed out of the corner plane by RoundWeight.
-                const int32_t          i300       = Vertex.InteriorBorderLoop[0];
-                const int32_t          i030       = Vertex.InteriorBorderLoop[1];
-                const int32_t          i003       = Vertex.InteriorBorderLoop[2];
-                const glm::dvec3       b300       = Mesh.GetVertex( i300 );
-                const glm::dvec3       b030       = Mesh.GetVertex( i030 );
-                const glm::dvec3       b003       = Mesh.GetVertex( i003 );
-                bool                   bReversedA = false;
-                bool                   bReversedB = false;
-                bool                   bReversedC = false;
-                const ArcSplineCurve*  CurveA     = BorderCurve( i300, i030, bReversedA );
-                const ArcSplineCurve*  CurveB     = BorderCurve( i030, i003, bReversedB );
-                const ArcSplineCurve*  CurveC     = BorderCurve( i003, i300, bReversedC );
+                const int32_t         i300       = Vertex.InteriorBorderLoop[0];
+                const int32_t         i030       = Vertex.InteriorBorderLoop[1];
+                const int32_t         i003       = Vertex.InteriorBorderLoop[2];
+                const glm::dvec3      b300       = Mesh.GetVertex( i300 );
+                const glm::dvec3      b030       = Mesh.GetVertex( i030 );
+                const glm::dvec3      b003       = Mesh.GetVertex( i003 );
+                bool                  bReversedA = false;
+                bool                  bReversedB = false;
+                bool                  bReversedC = false;
+                const ArcSplineCurve* CurveA     = BorderCurve( i300, i030, bReversedA );
+                const ArcSplineCurve* CurveB     = BorderCurve( i030, i003, bReversedB );
+                const ArcSplineCurve* CurveC     = BorderCurve( i003, i300, bReversedC );
                 if ( CurveA == nullptr || CurveB == nullptr || CurveC == nullptr )
                 {
                     Refuse( Where + ": a side of its 3-sided patch is no bevel strip end column" );
@@ -2348,11 +2348,11 @@ namespace Desert::Geometry
                                 " border frame weights for a border loop of " + std::to_string( LoopN ) );
                         return;
                     }
-                    auto      BlendedPos = glm::dvec3( 0 );
-                    double    WeightSum  = 0.0;
+                    auto   BlendedPos = glm::dvec3( 0 );
+                    double WeightSum  = 0.0;
                     for ( int32_t k = 0; k < LoopN; ++k )
                     {
-                        const int32_t   BorderVID = Vertex.InteriorBorderLoop[k];
+                        const int32_t    BorderVID = Vertex.InteriorBorderLoop[k];
                         const glm::dvec3 BorderFrameX =
                              Normalized( Mesh.GetVertex( Vertex.InteriorBorderLoop[( k + 1 ) % LoopN] ) -
                                          Mesh.GetVertex( Vertex.InteriorBorderLoop[( k - 1 + LoopN ) % LoopN] ) );
@@ -2388,18 +2388,18 @@ namespace Desert::Geometry
             //   c01  X2   c11      ty = 1
             //    Y1 |  XInterp | Y2
             //   c00  X1   c10      ty = 0;   tx = 0 at Y1, 1 at Y2
-            const int32_t          c00         = Vertex.InteriorBorderLoop[0];
-            const int32_t          c10         = Vertex.InteriorBorderLoop[1];
-            const int32_t          c01         = Vertex.InteriorBorderLoop[2];
-            const int32_t          c11         = Vertex.InteriorBorderLoop[3];
-            bool                   bReversedY1 = false;
-            bool                   bReversedY2 = false;
-            bool                   bReversedX1 = false;
-            bool                   bReversedX2 = false;
-            const ArcSplineCurve*  CurveY1     = BorderCurve( c00, c01, bReversedY1 );
-            const ArcSplineCurve*  CurveY2     = BorderCurve( c10, c11, bReversedY2 );
-            const ArcSplineCurve*  CurveX1     = BorderCurve( c00, c10, bReversedX1 );
-            const ArcSplineCurve*  CurveX2     = BorderCurve( c01, c11, bReversedX2 );
+            const int32_t         c00         = Vertex.InteriorBorderLoop[0];
+            const int32_t         c10         = Vertex.InteriorBorderLoop[1];
+            const int32_t         c01         = Vertex.InteriorBorderLoop[2];
+            const int32_t         c11         = Vertex.InteriorBorderLoop[3];
+            bool                  bReversedY1 = false;
+            bool                  bReversedY2 = false;
+            bool                  bReversedX1 = false;
+            bool                  bReversedX2 = false;
+            const ArcSplineCurve* CurveY1     = BorderCurve( c00, c01, bReversedY1 );
+            const ArcSplineCurve* CurveY2     = BorderCurve( c10, c11, bReversedY2 );
+            const ArcSplineCurve* CurveX1     = BorderCurve( c00, c10, bReversedX1 );
+            const ArcSplineCurve* CurveX2     = BorderCurve( c01, c11, bReversedX2 );
             if ( CurveY1 == nullptr || CurveY2 == nullptr || CurveX1 == nullptr || CurveX2 == nullptr )
             {
                 Refuse( Where + ": a side of its 4-sided patch is no bevel strip end column" );
@@ -2561,10 +2561,10 @@ namespace Desert::Geometry
             std::vector<int32_t> AmbiguousEdges;
             for ( int32_t k = 0; k < NumEdges; ++k )
             {
-                const Index2i  NbrTris  = EdgeTris[k];
-                const int32_t  MatIDA   = MaterialIDs->GetValue( NbrTris.A );
-                const int32_t  MatIDB   = ( NbrTris.B >= 0 ) ? MaterialIDs->GetValue( NbrTris.B ) : MatIDA;
-                int32_t        SetMatID = MatIDA;
+                const Index2i NbrTris  = EdgeTris[k];
+                const int32_t MatIDA   = MaterialIDs->GetValue( NbrTris.A );
+                const int32_t MatIDB   = ( NbrTris.B >= 0 ) ? MaterialIDs->GetValue( NbrTris.B ) : MatIDA;
+                int32_t       SetMatID = MatIDA;
                 if ( std::find( SawMaterialIDs.begin(), SawMaterialIDs.end(), MatIDA ) == SawMaterialIDs.end() )
                 {
                     SawMaterialIDs.push_back( MatIDA );

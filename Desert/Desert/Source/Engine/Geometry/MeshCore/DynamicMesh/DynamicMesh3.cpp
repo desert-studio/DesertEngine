@@ -342,10 +342,10 @@ void DynamicMesh3::CompactCopy( const DynamicMesh3& copy, bool bNormals, bool bC
     }
     for ( int const FromTID : copy.TriangleIndicesItr() )
     {
-        const Index3i  t      = CompactInfo->GetVertexMapping( copy.GetTriangle( FromTID ) );
-        const int      g      = ( copy.HasTriangleGroups() ) ? copy.GetTriangleGroup( FromTID ) : InvalidID;
-        const int      NewTID = AppendTriangle( t, g );
-        m_GroupIDCounter      = std::max( m_GroupIDCounter, g + 1 );
+        const Index3i t      = CompactInfo->GetVertexMapping( copy.GetTriangle( FromTID ) );
+        const int     g      = ( copy.HasTriangleGroups() ) ? copy.GetTriangleGroup( FromTID ) : InvalidID;
+        const int     NewTID = AppendTriangle( t, g );
+        m_GroupIDCounter     = std::max( m_GroupIDCounter, g + 1 );
         if ( bUseTriangleMap )
         {
             CompactInfo->SetTriangleMapping( FromTID, NewTID );
@@ -752,7 +752,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
     std::vector<int> triToVtxRefs;
     triToVtxRefs.resize( MaxVertexID() );
 
-    bool                    is_ok        = true;
+    bool                        is_ok        = true;
     std::function<void( bool )> CheckOrFailF = [&]( bool b ) { is_ok = is_ok && b; };
     if ( FailMode == ValidityCheckFailMode::Check )
     {
@@ -799,7 +799,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
         {
             int const a = tv[j];
             int const b = tv[( j + 1 ) % 3];
-            e[j] = FindEdge( a, b );
+            e[j]        = FindEdge( a, b );
             CheckOrFailF( e[j] != InvalidID );
             CheckOrFailF( EdgeHasTriangle( e[j], tID ) );
             CheckOrFailF( e[j] == FindEdgeFromTri( a, b, tID ) );
@@ -893,7 +893,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
             CheckOrFailF( EdgeHasVertex( edgeid, vID ) );
 
             int const otherV = GetOtherEdgeVertex( edgeid, vID );
-            int e2     = FindEdge( vID, otherV );
+            int       e2     = FindEdge( vID, otherV );
             CheckOrFailF( e2 != InvalidID );
             CheckOrFailF( e2 == edgeid );
             e2 = FindEdge( otherV, vID );

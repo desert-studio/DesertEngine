@@ -3,7 +3,6 @@
 // InsetMeshRegion and MeshBevel) are ported; ComputeNewGroupIDsAlongEdgeLoop has no caller here.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/LineTypes.hpp"
 

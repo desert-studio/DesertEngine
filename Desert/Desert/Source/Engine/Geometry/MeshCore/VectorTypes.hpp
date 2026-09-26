@@ -3,6 +3,15 @@
 // TVector; component-wise Min/Max come from Core's Math/Vector.h (FVector::Min/Max) as free functions here.
 #pragma once
 
+#include <glm/geometric.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+#ifndef GLM_ENABLE_EXPERIMENTAL
+#define GLM_ENABLE_EXPERIMENTAL
+#endif
+#include <glm/gtx/norm.hpp>
+
 #include "Engine/Geometry/MeshCore/MathUtil.hpp"
 
 #include <algorithm>

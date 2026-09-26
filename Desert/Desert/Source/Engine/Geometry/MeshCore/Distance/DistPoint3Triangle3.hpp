@@ -51,9 +51,9 @@ namespace Desert::Geometry
             glm::vec<2, Real> p0{};
             glm::vec<2, Real> p1{};
             glm::vec<2, Real> p{};
-            Real           dt1;
-            Real           h0;
-            Real           h1;
+            Real              dt1;
+            Real              h0;
+            Real              h1;
 
             // Compute the endpoints p0 and p1 of the segment.  The segment is
             // parameterized by L(z) = (1-z)*p0 + z*p1 for z in [0,1] and the

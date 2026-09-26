@@ -70,8 +70,8 @@ namespace Desert::Geometry
     bool DynamicMeshUVEditor::EstimateGeodesicCenterFrameVertex( const DynamicMesh3& Mesh, Frame3d& FrameOut,
                                                                  int32_t& VertexIDOut, bool bAlignToUnitAxes )
     {
-        VertexIDOut                     = *Mesh.VertexIndicesItr().begin();
-        glm::dvec3              Normal  = MeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
+        VertexIDOut                    = *Mesh.VertexIndicesItr().begin();
+        glm::dvec3              Normal = MeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
         const MeshBoundaryLoops LoopsCalc( &Mesh, true );
         if ( LoopsCalc.GetLoopCount() == 0 )
         {

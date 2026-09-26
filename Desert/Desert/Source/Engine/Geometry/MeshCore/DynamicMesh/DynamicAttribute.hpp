@@ -3,7 +3,6 @@
 // undo/redo change objects and FArchive serialization not ported.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include <Common/Core/Core.hpp>
 #include <memory>

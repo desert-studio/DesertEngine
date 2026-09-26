@@ -28,7 +28,7 @@ namespace Desert::Geometry
         m_ListBlocks.Resize( NewSize * ( BLOCK_LIST_OFFSET + 1 ) );
         for ( int32_t i( 0 ); i < NewSize; ++i )
         {
-            int32_t const ListHead                   = i * ( BLOCK_LIST_OFFSET + 1 );
+            int32_t const ListHead                     = i * ( BLOCK_LIST_OFFSET + 1 );
             m_ListHeads[i]                             = ListHead;
             m_ListBlocks[ListHead]                     = 0;
             m_ListBlocks[ListHead + BLOCK_LIST_OFFSET] = NullValue;
@@ -202,7 +202,7 @@ namespace Desert::Geometry
         int32_t block_ptr = m_ListHeads[ListIndex];
         if ( block_ptr == NullValue )
         {
-            block_ptr             = AllocateBlock();
+            block_ptr               = AllocateBlock();
             m_ListBlocks[block_ptr] = 0;
             m_ListHeads[ListIndex]  = block_ptr;
         }

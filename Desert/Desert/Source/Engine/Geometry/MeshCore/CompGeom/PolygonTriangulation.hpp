@@ -3,7 +3,6 @@
 // junction polygons need them). The 2D TriangulateSimplePolygon and the constrained Delaunay path are not ported.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/IndexTypes.hpp"
 #include "Engine/Geometry/MeshCore/VectorTypes.hpp"
 

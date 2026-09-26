@@ -23,7 +23,7 @@ namespace Desert::Geometry
         {
             int32_t ExternalID    = -1;
             int32_t PointID       = 0;
-            double StartDistance = 0;
+            double  StartDistance = 0;
         };
 
         explicit MeshDijkstra( const PointSetType* PointSetIn ) : m_PointSet( PointSetIn )
@@ -53,7 +53,7 @@ namespace Desert::Geometry
                 m_MaxGraphDistance      = std::max<double>( Node.GraphDistance, m_MaxGraphDistance );
                 if ( m_MaxGraphDistance > ComputeToMaxDistanceIn )
                     return;
-                Node.bFrozen            = true;
+                Node.bFrozen              = true;
                 m_MaxGraphDistancePointID = Node.PointID;
                 UpdateNeighboursSparse( NodeIndex );
             }
@@ -73,8 +73,8 @@ namespace Desert::Geometry
             int32_t PointID;
             int32_t ParentPointID;
             int32_t SeedPointID;
-            double GraphDistance;
-            bool   bFrozen;
+            double  GraphDistance;
+            bool    bFrozen;
         };
         const PointSetType*                  m_PointSet;
         std::unordered_map<int32_t, int32_t> m_IDToNodeIndexMap;

@@ -4,7 +4,6 @@
 // share. TriangleToVertexIDs / VertexToTriangleOneRing / the overlay-element helpers have no caller here.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/IndexTypes.hpp"
 
@@ -38,8 +37,8 @@ namespace Desert::Geometry
         Index3i       TriNbrTris;
         for ( int32_t j = 0; j < 3; ++j )
         {
-            const Index2i EdgeT  = Mesh->GetEdgeT( TriEdges[j] );
-            TriNbrTris[j]        = ( EdgeT.A == FromTriangleID ) ? EdgeT.B : EdgeT.A;
+            const Index2i EdgeT = Mesh->GetEdgeT( TriEdges[j] );
+            TriNbrTris[j]       = ( EdgeT.A == FromTriangleID ) ? EdgeT.B : EdgeT.A;
         }
         for ( int32_t j = 0; j < 3; ++j )
         {

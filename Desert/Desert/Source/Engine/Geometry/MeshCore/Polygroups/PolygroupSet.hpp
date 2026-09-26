@@ -4,7 +4,6 @@
 // std::string.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 
@@ -65,10 +64,10 @@ namespace Desert::Geometry
      */
     struct PolygroupSet
     {
-        const DynamicMesh3*                   Mesh            = nullptr;
-        const DynamicMeshPolygroupAttribute*  PolygroupAttrib = nullptr;
-        int32_t                               GroupLayerIndex = -1;
-        int32_t                               MaxGroupID      = 0; // Note: all group IDs are less than MaxGroupID
+        const DynamicMesh3*                  Mesh            = nullptr;
+        const DynamicMeshPolygroupAttribute* PolygroupAttrib = nullptr;
+        int32_t                              GroupLayerIndex = -1;
+        int32_t                              MaxGroupID      = 0; // Note: all group IDs are less than MaxGroupID
 
         /** Initialize a PolygroupSet for the given Mesh, and standard triangle group layer */
         explicit PolygroupSet( const DynamicMesh3* MeshIn );

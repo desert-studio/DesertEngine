@@ -4,7 +4,6 @@
 
 #include <vector>
 
-
 namespace Desert::Geometry
 {
     class IHoleFiller
@@ -12,7 +11,7 @@ namespace Desert::Geometry
     public:
         std::vector<int> m_NewTriangles;
 
-        virtual ~IHoleFiller()                = default;
-        virtual bool Fill( int GroupID )      = 0;
+        virtual ~IHoleFiller()           = default;
+        virtual bool Fill( int GroupID ) = 0;
     };
 } // namespace Desert::Geometry

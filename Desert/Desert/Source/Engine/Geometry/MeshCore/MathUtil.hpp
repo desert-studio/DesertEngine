@@ -2,7 +2,6 @@
 // survives; the rest of UE's TMathUtil is spelled with <cmath>, <limits> and glm constants at the call sites.
 #pragma once
 
-
 #include <glm/gtc/constants.hpp>
 
 #include <limits>

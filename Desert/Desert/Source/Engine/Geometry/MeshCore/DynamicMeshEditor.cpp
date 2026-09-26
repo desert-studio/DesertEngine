@@ -102,11 +102,11 @@ namespace Desert::Geometry
              [this, N, &TriVidPairs, &VertexLoop]( int32_t Index, int32_t& VertA, int32_t& VertB, int32_t& VertC,
                                                    int32_t& VertD )
              {
-                 Index3i TriVids1  = m_Mesh->GetTriangle( TriVidPairs[Index].first );
-                 VertA             = TriVids1[TriVidPairs[Index].second.first];
-                 VertB             = TriVids1[TriVidPairs[Index].second.second];
-                 VertC             = VertexLoop[Index];
-                 VertD             = VertexLoop[( Index + 1 ) % N];
+                 Index3i TriVids1 = m_Mesh->GetTriangle( TriVidPairs[Index].first );
+                 VertA            = TriVids1[TriVidPairs[Index].second.first];
+                 VertB            = TriVids1[TriVidPairs[Index].second.second];
+                 VertC            = VertexLoop[Index];
+                 VertD            = VertexLoop[( Index + 1 ) % N];
              },
              ResultOut );
     }
@@ -162,8 +162,8 @@ namespace Desert::Geometry
         }
         for ( int TriangleID : Triangles )
         {
-            Index3i  Tri        = m_Mesh->GetTriangle( TriangleID );
-            int      NewGroupID = -1;
+            Index3i Tri        = m_Mesh->GetTriangle( TriangleID );
+            int     NewGroupID = -1;
             if ( m_Mesh->HasTriangleGroups() )
             {
                 const int OldGroup = m_Mesh->GetTriangleGroup( TriangleID );
@@ -248,9 +248,9 @@ namespace Desert::Geometry
         {
             const EdgeLoop& Loop                = Loops[li];
             LoopPairSet&    LoopPair            = LoopSetOut[li];
-            LoopPair.OuterVertices         = Loop.Vertices;
-            LoopPair.OuterEdges            = Loop.Edges;
-            bool        bSawBoundaryInLoop = false;
+            LoopPair.OuterVertices              = Loop.Vertices;
+            LoopPair.OuterEdges                 = Loop.Edges;
+            bool             bSawBoundaryInLoop = false;
             const int        NumVertices        = static_cast<int32_t>( Loop.Vertices.size() );
             std::vector<int> NewVertexLoop;
             NewVertexLoop.resize( NumVertices );

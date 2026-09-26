@@ -185,7 +185,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitEl
         int32_t ElementID = DynamicMesh3::InvalidID;
         if ( bExactMapIDs )
         {
-            ElementID          = VertexID;
+            ElementID               = VertexID;
             const MeshResult Result = InsertElement( VertexID, DefaultElement.data() );
             assert( Result == MeshResult::Ok ); // because we allocate in increasing sequential order,
                                                 // shouldn't be possible InsertElement to return failure
@@ -419,7 +419,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t   
     if ( NumTris > 0 && static_cast<int32_t>( ContiguousGroupLengths.size() ) == 1 )
     {
         int32_t const FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
-        bool  bSingleElement = true;
+        bool          bSingleElement = true;
         for ( int32_t Idx = 1; Idx < static_cast<int32_t>( TrianglesOut.size() ); ++Idx )
         {
             if ( FirstElSeen != ElementIDFromTriangle( TrianglesOut[Idx] ) )
@@ -627,8 +627,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, co
     // If we have to decrement refcounts, we will do it at the end, because Decrement() frees
     // elements as soon as they lose their last reference, so a Decrement followed by Increment
     // can leave things in an invalid state.
-    bool     bNeedToDecrement = false;
-    Index3i  OldTriElements; // only used if need to decrement.
+    bool    bNeedToDecrement = false;
+    Index3i OldTriElements; // only used if need to decrement.
 
     const int i = 3 * tid;
 
@@ -962,7 +962,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Verte
     if ( NumTris > 0 && static_cast<int32_t>( ContiguousGroupLengths.size() ) == 1 )
     {
         int32_t const FirstElSeen    = ElementIDFromTriangle( TrianglesOut[0] );
-        bool  bSingleElement = true;
+        bool          bSingleElement = true;
         for ( int32_t Idx = 1; Idx < static_cast<int32_t>( TrianglesOut.size() ); ++Idx )
         {
             if ( FirstElSeen != ElementIDFromTriangle( TrianglesOut[Idx] ) )
@@ -1278,17 +1278,17 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const DynamicMesh3:
     }
 
     // look up current triangle 0, and infer base triangle 0
-    Index3i  Triangle0( -1, -1, -1 );
-    int      idx_base_a1 = -1;
-    int      idx_base_b1 = -1;
-    int      NewElemID = -1;
+    Index3i Triangle0( -1, -1, -1 );
+    int     idx_base_a1 = -1;
+    int     idx_base_b1 = -1;
+    int     NewElemID   = -1;
     if ( bT0Set )
     {
         Triangle0 = GetTriangle( orig_t0 );
         const Index3i BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
                                      m_ParentVertices[Triangle0.C] );
-        idx_base_a1    = BaseTriangle0.IndexOf( base_a );
-        idx_base_b1    = BaseTriangle0.IndexOf( base_b );
+        idx_base_a1          = BaseTriangle0.IndexOf( base_a );
+        idx_base_b1          = BaseTriangle0.IndexOf( base_b );
         const int idx_base_c = IndexUtil::GetOtherTriIndex( idx_base_a1, idx_base_b1 );
 
         // create new element at lerp position
@@ -1357,7 +1357,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
     const int     orig_t1 = FlipInfo.Triangles.B;
     const bool    bT0Set  = IsSetTriangle( orig_t0 );
     const bool    bT1Set  = IsSetTriangle( orig_t1 );
-    int32_t const NumSet = static_cast<int32_t>( bT0Set ) + static_cast<int32_t>( bT1Set );
+    int32_t const NumSet  = static_cast<int32_t>( bT0Set ) + static_cast<int32_t>( bT1Set );
     if ( NumSet == 0 )
     {
         return; // nothing to do on the overlay if both triangles are unset
@@ -1470,7 +1470,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     int     idx_kept_tri0    = -1;
     if ( bT0Set )
     {
-        Triangle0 = GetTriangle( tid_removed0 );
+        Triangle0        = GetTriangle( tid_removed0 );
         BaseTriangle0    = Index3i( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
                                     m_ParentVertices[Triangle0.C] );
         idx_kept_tri0    = BaseTriangle0.IndexOf( vid_base_kept );
@@ -1484,7 +1484,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
     int     idx_kept_tri1    = -1;
     if ( !collapseInfo.bIsBoundary && bT1Set )
     {
-        Triangle1 = GetTriangle( tid_removed1 );
+        Triangle1     = GetTriangle( tid_removed1 );
         BaseTriangle1 = Index3i( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
                                  m_ParentVertices[Triangle1.C] );
 
@@ -1861,7 +1861,7 @@ template <typename RealType, int ElementSize>
 bool DynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool /*bAllowNonManifoldVertices*/,
                                                                ValidityCheckFailMode FailMode ) const
 {
-    bool                    is_ok        = true;
+    bool                        is_ok        = true;
     std::function<void( bool )> CheckOrFailF = [&]( bool b ) { is_ok = is_ok && b; };
     if ( FailMode == ValidityCheckFailMode::Check )
     {
@@ -1926,8 +1926,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool /*bAllowNonM
     RealRefCounts.assign( MaxElementID(), 0 );
     for ( const int tid : m_ParentMesh->TriangleIndicesItr() )
     {
-        Index3i  Tri        = GetTriangle( tid );
-        int      ValidCount = 0;
+        Index3i Tri        = GetTriangle( tid );
+        int     ValidCount = 0;
         for ( int j = 0; j < 3; ++j )
         {
             if ( Tri[j] != DynamicMesh3::InvalidID )

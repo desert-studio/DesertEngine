@@ -22,7 +22,7 @@ namespace Desert::Geometry
         glm::vec3  Normal{ glm::vec3( 0 ) };
         glm::vec3  Color{ glm::vec3( 0 ) };
         glm::vec2  UV{ glm::vec2( 0 ) };
-        bool      bHaveN{}, bHaveC{}, bHaveUV{};
+        bool       bHaveN{}, bHaveC{}, bHaveUV{};
 
         VertexInfo() = default;
         VertexInfo( const glm::dvec3& PositionIn ) : Position{ PositionIn }

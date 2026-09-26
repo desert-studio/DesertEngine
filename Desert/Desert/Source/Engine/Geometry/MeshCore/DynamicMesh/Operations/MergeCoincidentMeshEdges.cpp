@@ -35,7 +35,7 @@ namespace Desert::Geometry
                 const glm::dvec3 Hi( QueryPoint.x + Radius, QueryPoint.y + Radius, QueryPoint.z + Radius );
                 const auto       MinIdx        = ToGrid( Lo );
                 const auto       MaxIdx        = ToGrid( Hi );
-                const double    RadiusSquared = Radius * Radius;
+                const double     RadiusSquared = Radius * Radius;
                 for ( int64_t zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
                     for ( int64_t yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
                         for ( int64_t xi = MinIdx[0]; xi <= MaxIdx[0]; xi++ )

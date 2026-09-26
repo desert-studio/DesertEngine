@@ -6,7 +6,6 @@
 // bSimplifyAlongPath is not offered either: it needs FLocalPlanarSimplify (582 lines), which is not ported.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
 
@@ -54,7 +53,7 @@ namespace Desert::Geometry
              * As the name suggests, they must already be sorted.
              */
             const std::vector<double>* SortedInputLengths    = nullptr;
-            bool                  bInputsAreProportions = true;
+            bool                       bInputsAreProportions = true;
 
             /**
              * One of the endpoints of the group edge, from which the arc lengths

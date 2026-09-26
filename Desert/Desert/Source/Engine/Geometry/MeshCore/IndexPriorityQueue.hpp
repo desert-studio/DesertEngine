@@ -3,7 +3,6 @@
 // needed); Initialize, Clear, Contains, Insert, Update, Dequeue, GetCount only.
 #pragma once
 
-
 #include <cstdint>
 #include <utility>
 #include <vector>

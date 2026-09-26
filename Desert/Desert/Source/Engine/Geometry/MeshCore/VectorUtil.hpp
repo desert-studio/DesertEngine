@@ -55,7 +55,7 @@ namespace Desert::Geometry::VectorUtil
         const glm::vec<3, RealType> edge1( V1 - V0 );
         const glm::vec<3, RealType> edge2( V2 - V0 );
         glm::vec<3, RealType>       vCross = glm::cross( edge2, edge1 );
-        AreaOut                  = RealType( 0.5 ) * Normalize( vCross );
+        AreaOut                            = RealType( 0.5 ) * Normalize( vCross );
         return vCross;
     }
 

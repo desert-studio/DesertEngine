@@ -7,7 +7,6 @@
 // sets are owned by std::unique_ptr instead of new/delete.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/SplitAttributeWelder.hpp"
 

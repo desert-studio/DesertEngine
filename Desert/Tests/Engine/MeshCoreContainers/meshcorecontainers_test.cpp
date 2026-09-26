@@ -244,8 +244,8 @@ TEST( MeshCoreRefCountVector, AllocateReusesTheMostRecentlyFreedIdFirst )
 TEST( MeshCoreRefCountVector, ReferenceCountingKeepsAnIdAliveUntilTheLastRelease )
 {
     // A vertex id is referenced once by itself and once per incident triangle.
-    RefCountVector  V;
-    const int       Vid = V.Allocate();
+    RefCountVector V;
+    const int      Vid = V.Allocate();
     V.Increment( Vid );
     V.Increment( Vid, 2 );
     EXPECT_EQ( V.GetRefCount( Vid ), 4 );

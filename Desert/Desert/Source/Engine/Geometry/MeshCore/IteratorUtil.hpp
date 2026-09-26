@@ -283,7 +283,7 @@ namespace Desert::Geometry
                     {
                         m_CurValue = m_CurPair.A;
                         m_CurPairI = 1; // want to take second branch
-                        return;       // let caller see value
+                        return;         // let caller see value
                     }
 
                     m_CurPairI = 0;
@@ -295,7 +295,7 @@ namespace Desert::Geometry
                     {
                         m_CurValue = m_CurPair.B;
                         m_CurPairI = 2; // want to take third branch
-                        return;       // let caller see value
+                        return;         // let caller see value
                     }
 
                     m_CurPairI = 0;
@@ -406,9 +406,9 @@ namespace Desert::Geometry
             StartIndex = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), StartIndexIn ) );
             CurIndex   = StartIndex;
 
-            ModuloNum  = std::max( static_cast<uint64_t>( 1 ),
-                                   MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
-                                               // is 0 we will terminate on first iteration anyway
+            ModuloNum = std::max( static_cast<uint64_t>( 1 ),
+                                  MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
+                                              // is 0 we will terminate on first iteration anyway
 
             assert( ModuloPrime > MaxIndex );
         }

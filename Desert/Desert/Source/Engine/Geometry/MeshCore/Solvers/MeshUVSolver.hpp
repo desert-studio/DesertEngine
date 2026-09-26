@@ -22,7 +22,7 @@ namespace Desert::Geometry
         {
             int32_t Row;
             int32_t Col;
-            double Value;
+            double  Value;
         };
 
         SparseMatrixD() = default;

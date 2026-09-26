@@ -3,7 +3,6 @@
 // as std/glm, the overlays are this port's (normal layers are normal, tangent, bitangent as in UE).
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 
 namespace Desert::Geometry

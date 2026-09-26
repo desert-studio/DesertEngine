@@ -84,8 +84,8 @@ bool MeshBoundaryLoops::Compute()
         bool bIsOpenSpan = false;
         while ( !bClosed )
         {
-            const Index2i  Ev    = m_Mesh->GetOrientedBoundaryEdgeV( ECur );
-            int            CureB = Ev.B;
+            const Index2i Ev    = m_Mesh->GetOrientedBoundaryEdgeV( ECur );
+            int           CureB = Ev.B;
             if ( bIsOpenSpan )
                 CureB = Ev.A;
             else
@@ -208,7 +208,7 @@ int MeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std::
     // the normal at the bowtie vertex is the plane the turn angles are measured in
     const glm::dvec3 N      = GetVertexNormal( BowtieV );
     const Index2i    Ev     = m_Mesh->GetEdgeV( IncomingE );
-    const int       OtherV = ( Ev.A == BowtieV ) ? Ev.B : Ev.A;
+    const int        OtherV = ( Ev.A == BowtieV ) ? Ev.B : Ev.A;
     const glm::dvec3 Ab     = m_Mesh->GetVertex( BowtieV ) - m_Mesh->GetVertex( OtherV );
 
     int    BestE     = -1;
@@ -222,7 +222,7 @@ int MeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std::
         if ( BdryEv.A != BowtieV )
             continue; // must chain onto the end of the current edge, orientation-wise
         const glm::dvec3 Bc     = m_Mesh->GetVertex( BdryEv.B ) - m_Mesh->GetVertex( BowtieV );
-        const double    AngleS = -PlaneAngleSignedD( Ab, Bc, N );
+        const double     AngleS = -PlaneAngleSignedD( Ab, Bc, N );
         if ( BestAngle == std::numeric_limits<double>::max() || AngleS < BestAngle )
         {
             BestAngle = AngleS;

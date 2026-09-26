@@ -54,11 +54,11 @@ namespace Desert::Geometry
             Real              a01   = -glm::dot( m_Line1.Direction, m_Line2.Direction );
             Real              b0    = glm::dot( kDiff, m_Line1.Direction );
             Real              c     = glm::length2( kDiff );
-            Real          det   = std::abs( static_cast<Real>( 1 ) - a01 * a01 );
-            Real          b1;
-            Real          s0;
-            Real          s1;
-            Real          sqrDist;
+            Real              det   = std::abs( static_cast<Real>( 1 ) - a01 * a01 );
+            Real              b1;
+            Real              s0;
+            Real              s1;
+            Real              sqrDist;
 
             if ( det >= ZeroTolerance<Real> )
             {

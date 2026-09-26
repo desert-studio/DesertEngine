@@ -8,7 +8,6 @@
 // GetLoopOverlayMap, UpdateLoopOverlayMapValidity; header :76-106) is UE's, instantiated for UV layers as UE does.
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshOverlay.hpp"
 
@@ -102,8 +101,8 @@ namespace Desert::Geometry
         {
             return m_Edges[Eid];
         }
-        bool     IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const;
+        bool                  IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const;
         [[nodiscard]] Index2i GetOrientedEdgeVerts( int Eid, int TidIn ) const;
-        int      GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const;
+        int                   GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const;
     };
 } // namespace Desert::Geometry

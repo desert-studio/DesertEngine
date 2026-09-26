@@ -17,14 +17,14 @@ namespace Desert::Geometry
         {
             if ( Mesh.IsEdge( EdgeList[k] ) )
             {
-                const DynamicMesh3::Edge   EdgeVT   = Mesh.GetEdge( EdgeList[k] );
-                const glm::dvec3           A        = Mesh.GetVertex( EdgeVT.Vert.A );
-                const glm::dvec3           B        = Mesh.GetVertex( EdgeVT.Vert.B );
-                const glm::dvec3           EdgeDir  = Normalized( A - B );
-                const glm::dvec3           Midpoint = ( A + B ) * 0.5;
-                glm::dvec3                 Normal{};
-                glm::dvec3                 Centroid{};
-                double                     Area = 0.0;
+                const DynamicMesh3::Edge EdgeVT   = Mesh.GetEdge( EdgeList[k] );
+                const glm::dvec3         A        = Mesh.GetVertex( EdgeVT.Vert.A );
+                const glm::dvec3         B        = Mesh.GetVertex( EdgeVT.Vert.B );
+                const glm::dvec3         EdgeDir  = Normalized( A - B );
+                const glm::dvec3         Midpoint = ( A + B ) * 0.5;
+                glm::dvec3               Normal{};
+                glm::dvec3               Centroid{};
+                double                   Area = 0.0;
                 Mesh.GetTriInfo( EdgeVT.Tri.A, Normal, Area, Centroid );
 
                 glm::dvec3 InsetDir = glm::cross( Normal, EdgeDir );

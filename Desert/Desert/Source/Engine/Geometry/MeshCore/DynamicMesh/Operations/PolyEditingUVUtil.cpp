@@ -13,8 +13,8 @@ namespace Desert::Geometry
                                            const std::vector<int32_t>& TriangleSet )
     {
         std::vector<int32_t> NbrTriSet;
-        double        NbrUVAreaSum = 0.0;
-        double        Nbr3DAreaSum = 0.0;
+        double               NbrUVAreaSum = 0.0;
+        double               Nbr3DAreaSum = 0.0;
         for ( const int32_t tid : TriangleSet )
         {
             const Index3i NbrTris = Mesh.GetTriNeighbourTris( tid );
@@ -42,9 +42,9 @@ namespace Desert::Geometry
         const double UseUVScale = std::max<double>( std::sqrt( NbrUVAreaSum ), 0.0001 ) /
                                   std::max<double>( std::sqrt( Nbr3DAreaSum ), 0.0001 );
 
-        DynamicMeshUVEditor  UVEditor( &Mesh, &UVOverlay );
-        UVEditResult         UVEditResult;
-        const bool           bOK = UVEditor.SetTriangleUVsFromExpMap( TriangleSet, &UVEditResult );
+        DynamicMeshUVEditor UVEditor( &Mesh, &UVOverlay );
+        UVEditResult        UVEditResult;
+        const bool          bOK = UVEditor.SetTriangleUVsFromExpMap( TriangleSet, &UVEditResult );
         UVEditor.TransformUVElements( UVEditResult.NewUVElements, [UseUVScale]( const glm::vec2& UV )
                                       { return UV * static_cast<float>( UseUVScale ); } );
         return bOK;

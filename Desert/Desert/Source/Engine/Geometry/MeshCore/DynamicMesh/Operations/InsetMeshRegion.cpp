@@ -29,7 +29,7 @@ namespace Desert::Geometry
             {
                 m_FailureReason = fmt::format( "region {} of {}: {}", k, static_cast<int32_t>( Components.size() ),
                                                m_FailureReason );
-                bAllOK        = false;
+                bAllOK          = false;
                 continue;
             }
             m_AllModifiedTriangles.insert( m_AllModifiedTriangles.end(), Region.InitialTriangles.begin(),
@@ -167,15 +167,15 @@ namespace Desert::Geometry
                         // in the quad's plane, Y = Z x X.
                         glm::dvec3 const FirstEdge =
                              m_Mesh->GetVertex( BaseLoopV[1] ) - m_Mesh->GetVertex( BaseLoopV[0] );
-                        AxisX               = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );
-                        AxisY               = glm::cross( Normal, AxisX );
-                        FrameUp             = AxisY;
+                        AxisX   = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );
+                        AxisY   = glm::cross( Normal, AxisX );
+                        FrameUp = AxisY;
                     }
                     else
                     {
                         // ConstrainedAlignAxis(2, Normal, FrameUp): rotate about FrameUp until Z meets Normal.
                         glm::dvec3 const Z = Normalized( Normal - FrameUp * glm::dot( Normal, FrameUp ) );
-                        AxisY       = FrameUp;
+                        AxisY              = FrameUp;
                         AxisX              = glm::cross( AxisY, Z );
                     }
                     if ( k > 0 )

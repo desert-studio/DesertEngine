@@ -9,7 +9,6 @@
 // origin is always zero at the call sites); a failed DisconnectTriangles names its reason instead of ensure().
 #pragma once
 
-
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.hpp"
 
@@ -63,7 +62,7 @@ namespace Desert::Geometry
             std::vector<int> OuterEdges;
             std::vector<int> InnerVertices;
             std::vector<int> InnerEdges;
-            bool        bOuterIncludesIsolatedVertices = false;
+            bool             bOuterIncludesIsolatedVertices = false;
         };
 
         bool        StitchVertexLoopsMinimal( const std::vector<int>& Loop1, const std::vector<int>& Loop2,

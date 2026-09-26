@@ -61,11 +61,11 @@ namespace Desert::Geometry
     private:
         struct GraphNode
         {
-            int32_t   PointID       = 0;
-            int32_t   ParentPointID = 0;
-            double    GraphDistance = 0.0;
+            int32_t    PointID       = 0;
+            int32_t    ParentPointID = 0;
+            double     GraphDistance = 0.0;
             glm::dvec2 UV{};
-            bool      bFrozen = false;
+            bool       bFrozen = false;
             glm::dvec3 CachedNormal{};
         };
         const PointSetType*                  m_PointSet;
@@ -152,7 +152,7 @@ namespace Desert::Geometry
         {
             const glm::dvec3 NodePos   = GetPosition( Node.PointID );
             auto             AverageUV = glm::dvec2( 0 );
-            double          WeightSum = 0;
+            double           WeightSum = 0;
             for ( const int32_t NbrPointID : m_PointSet->VtxVerticesItr( Node.PointID ) )
             {
                 const int32_t* Found = FindValue( m_IDToNodeIndexMap, NbrPointID );

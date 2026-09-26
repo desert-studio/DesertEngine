@@ -48,7 +48,7 @@ namespace Desert::Geometry
             for ( int32_t si = 0; si < 2; ++si )
             {
                 std::vector<int32_t>& CurrentTriangleSet = ( si == 0 ) ? TriangleSet0 : TriangleSet1;
-                const int32_t    StartTri           = StartTris[si];
+                const int32_t         StartTri           = StartTris[si];
                 CurrentTriangleSet.push_back( StartTri );
                 const int32_t EdgeOtherTri = StartTris[si == 0 ? 1 : 0];
                 int32_t       CurTri       = StartTri;

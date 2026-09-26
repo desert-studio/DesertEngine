@@ -8,7 +8,6 @@
 #include <functional>
 #include <limits>
 
-
 namespace Desert::Geometry
 {
     namespace IndexConstants

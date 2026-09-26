@@ -133,7 +133,7 @@ namespace Desert::Geometry
                 {
                     Index3i const Triangle = Mesh.GetTriangle( TriangleID );
                     double const  Angle    = Mesh.GetTriInternalAngleR( TriangleID, Triangle.IndexOf( VertexID ) );
-                    ExtrusionVector   = ExtrusionVector + Mesh.GetTriNormal( TriangleID ) * Angle;
+                    ExtrusionVector        = ExtrusionVector + Mesh.GetTriNormal( TriangleID ) * Angle;
                 }
             Normalize( ExtrusionVector );
             return ExtrusionVector;
@@ -154,7 +154,7 @@ namespace Desert::Geometry
                     Index3i const Triangle = Mesh.GetTriangle( TriangleID );
                     double const  Angle    = Mesh.GetTriInternalAngleR( TriangleID, Triangle.IndexOf( VertexID ) );
                     double        CosTheta = glm::dot( Mesh.GetTriNormal( TriangleID ), InitialExtrusionVector );
-                    CosTheta          = std::max( CosTheta, InvertedMaxScale );
+                    CosTheta               = std::max( CosTheta, InvertedMaxScale );
                     Adjustment += Angle / CosTheta;
                     AngleSum += Angle;
                 }
@@ -177,8 +177,8 @@ namespace Desert::Geometry
                 double const EdgeLength =
                      Distance( Mesh.GetVertex( VertexPath[k] ), Mesh.GetVertex( VertexPath[k + 1] ) );
                 Index2i const EdgeTris = Mesh.GetEdgeT( EdgeID );
-                double   EdgeUV   = 0;
-                int      Count    = 0;
+                double        EdgeUV   = 0;
+                int           Count    = 0;
                 for ( int32_t j = 0; j < 2; ++j )
                 {
                     const int t = j == 0 ? EdgeTris.A : EdgeTris.B;
@@ -225,7 +225,7 @@ namespace Desert::Geometry
             double UVLengthWeight = 0;
             for ( int32_t k = 0; k < 2; ++k )
             {
-                double PathLength = 0;
+                double       PathLength = 0;
                 double const Ratio =
                      UVScaleRatioAlongPath( Mesh, *UVOverlay, k == 0 ? Strip.Outer : Strip.Inner, PathLength );
                 if ( PathLength > 0 )
@@ -239,7 +239,7 @@ namespace Desert::Geometry
             const auto           NumU = static_cast<int32_t>( Strip.Outer.size() );
             std::vector<int32_t> Row0;
             std::vector<int32_t> Row1;
-            double        AccumDistU = 0;
+            double               AccumDistU = 0;
             for ( int32_t k = 0; k < NumU; ++k )
             {
                 double const DistV =
@@ -302,14 +302,14 @@ namespace Desert::Geometry
         m_OffsetRegions.resize( static_cast<int32_t>( Components.size() ) );
         for ( int k = 0; k < static_cast<int32_t>( Components.size() ); ++k )
         {
-            OffsetInfo& Region  = m_OffsetRegions[k];
-            Region.OffsetTids   = Components[k];
+            OffsetInfo& Region = m_OffsetRegions[k];
+            Region.OffsetTids  = Components[k];
             if ( m_bOffsetFullComponentsAsSolids )
             {
                 // GrowToConnectedTriangles: the region is a whole component when no triangle outside it touches
                 // it.
                 std::unordered_set<int32_t> const InRegion( Region.OffsetTids.begin(), Region.OffsetTids.end() );
-                bool        bTouchesOutside = false;
+                bool                              bTouchesOutside = false;
                 for ( int32_t const tid : Region.OffsetTids )
                 {
                     const Index3i Nbrs = m_Mesh->GetTriNeighbourTris( tid );
@@ -322,7 +322,7 @@ namespace Desert::Geometry
             {
                 m_FailureReason = fmt::format( "region {} of {}: {}", k, static_cast<int32_t>( Components.size() ),
                                                m_FailureReason );
-                bAllOK        = false;
+                bAllOK          = false;
             }
         }
         return bAllOK;
@@ -391,10 +391,10 @@ namespace Desert::Geometry
             LoopPairs.resize( static_cast<int32_t>( InitialLoops.m_Loops.size() ) );
             for ( int LoopIndex = 0; LoopIndex < static_cast<int32_t>( InitialLoops.m_Loops.size() ); ++LoopIndex )
             {
-                EdgeLoop const&                 BaseLoop   = InitialLoops.m_Loops[LoopIndex];
-                DynamicMeshEditor::LoopPairSet& LoopPair   = LoopPairs[LoopIndex];
-                LoopPair.InnerVertices                     = BaseLoop.Vertices;
-                LoopPair.InnerEdges                        = BaseLoop.Edges;
+                EdgeLoop const&                 BaseLoop = InitialLoops.m_Loops[LoopIndex];
+                DynamicMeshEditor::LoopPairSet& LoopPair = LoopPairs[LoopIndex];
+                LoopPair.InnerVertices                   = BaseLoop.Vertices;
+                LoopPair.InnerEdges                      = BaseLoop.Edges;
                 if ( !m_bIsPositiveOffset )
                 {
                     std::reverse( LoopPair.InnerVertices.begin(), LoopPair.InnerVertices.end() );

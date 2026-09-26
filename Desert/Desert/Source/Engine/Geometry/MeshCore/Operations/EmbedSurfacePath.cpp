@@ -54,10 +54,10 @@ namespace Desert::Geometry
             {
                 return;
             }
-            const int      TriID             = SurfacePt.ElementID;
-            const Index3i  TriVertIDs        = Mesh->GetTriangle( TriID );
-            int            BestSubIdx        = -1;
-            double         BestElementDistSq = 0;
+            const int     TriID             = SurfacePt.ElementID;
+            const Index3i TriVertIDs        = Mesh->GetTriangle( TriID );
+            int           BestSubIdx        = -1;
+            double        BestElementDistSq = 0;
             for ( int VertSubIdx = 0; VertSubIdx < 3; VertSubIdx++ )
             {
                 const double DistSq = DistanceSquared( Pos, Mesh->GetVertex( TriVertIDs[VertSubIdx] ) );
@@ -75,16 +75,16 @@ namespace Desert::Geometry
             }
 
             // failed to snap to vertex, try snapping to edge
-            const Index3i  TriEdgeIDs    = Mesh->GetTriEdges( TriID );
-            double         BestEdgeParam = 0;
+            const Index3i TriEdgeIDs    = Mesh->GetTriEdges( TriID );
+            double        BestEdgeParam = 0;
             for ( int EdgeSubIdx = 0; EdgeSubIdx < 3; EdgeSubIdx++ )
             {
-                const int EdgeID = TriEdgeIDs[EdgeSubIdx];
+                const int  EdgeID = TriEdgeIDs[EdgeSubIdx];
                 glm::dvec3 EPosA{};
                 glm::dvec3 EPosB{};
                 Mesh->GetEdgeV( EdgeID, EPosA, EPosB );
-                const Segment3d  EdgeSeg( EPosA, EPosB );
-                const double     DistSq = EdgeSeg.DistanceSquared( Pos );
+                const Segment3d EdgeSeg( EPosA, EPosB );
+                const double    DistSq = EdgeSeg.DistanceSquared( Pos );
                 if ( DistSq <= SnapElementThresholdSq && ( BestSubIdx == -1 || DistSq < BestElementDistSq ) )
                 {
                     BestSubIdx        = EdgeSubIdx;
@@ -108,9 +108,9 @@ namespace Desert::Geometry
                                                                const IterableTrisType& TriIDs,
                                                                double                  SnapElementThresholdSq )
         {
-            double    BestTriDistSq = 0;
+            double     BestTriDistSq = 0;
             glm::dvec3 BestBaryCoords{};
-            int       BestTriID = -1;
+            int        BestTriID = -1;
             for ( const int TriID : TriIDs )
             {
                 assert( Mesh->IsTriangle( TriID ) );
@@ -119,8 +119,8 @@ namespace Desert::Geometry
                                       Mesh->GetVertex( TriVertIDs.C ) );
                 // heavy duty way to get barycentric coordinates and check if on triangle; should be robust to
                 // degenerate triangles unlike VectorUtil's barycentric coordinate function
-                DistPoint3Triangle3d  TriDist( Pos, Tri );
-                const double          DistSq = TriDist.GetSquared();
+                DistPoint3Triangle3d TriDist( Pos, Tri );
+                const double         DistSq = TriDist.GetSquared();
                 if ( BestTriID == -1 || DistSq < BestTriDistSq )
                 {
                     BestTriID      = TriID;

@@ -39,8 +39,8 @@ namespace Desert::Geometry
                     {
                         if ( !Overlay.IsSetTriangle( TID ) )
                             continue;
-                        Index3i  TriElements     = Overlay.GetTriangle( TID );
-                        bool     bUpdateTriangle = false;
+                        Index3i TriElements     = Overlay.GetTriangle( TID );
+                        bool    bUpdateTriangle = false;
                         for ( int c = 0; c < 3; ++c )
                         {
                             if ( TriElements[c] == oeid )
@@ -82,9 +82,9 @@ namespace Desert::Geometry
     void SplitAttributeWelder::WeldSplitUVs( const int32_t ParentVID, DynamicMeshUVOverlay& Overlay,
                                              float UVDistSqrdThreshold )
     {
-        const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
-        const float          Threshold  = std::max( UVDistSqrdThreshold, 0.f );
-        auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
+        const DynamicMesh3* ParentMesh = Overlay.GetParentMesh();
+        const float         Threshold  = std::max( UVDistSqrdThreshold, 0.f );
+        auto                ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
             const glm::vec2 UV      = Overlay.GetElement( eid );
             const glm::vec2 otherUV = Overlay.GetElement( oeid );
@@ -98,8 +98,8 @@ namespace Desert::Geometry
     void SplitAttributeWelder::WeldSplitUnitVectors( const int32_t ParentVID, DynamicMeshNormalOverlay& Overlay,
                                                      float DotThreshold, bool bMergeZeroVectors )
     {
-        const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
-        auto                 ShouldWeld = [&Overlay, DotThreshold, bMergeZeroVectors]( const int32_t eid,
+        const DynamicMesh3* ParentMesh = Overlay.GetParentMesh();
+        auto                ShouldWeld = [&Overlay, DotThreshold, bMergeZeroVectors]( const int32_t eid,
                                                                        const int32_t oeid ) -> bool
         {
             // UE's FVector3f::Normalize: false (vector untouched) when the squared length is below
@@ -134,9 +134,9 @@ namespace Desert::Geometry
     void SplitAttributeWelder::WeldSplitColors( const int32_t ParentVID, DynamicMeshColorOverlay& Overlay,
                                                 float ColorDistSqrdThreshold )
     {
-        const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
-        const float          Threshold  = std::max( ColorDistSqrdThreshold, 0.f );
-        auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
+        const DynamicMesh3* ParentMesh = Overlay.GetParentMesh();
+        const float         Threshold  = std::max( ColorDistSqrdThreshold, 0.f );
+        auto                ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
             const glm::vec4 A    = Overlay.GetElement( eid );
             const glm::vec4 B    = Overlay.GetElement( oeid );

@@ -108,8 +108,8 @@ namespace Desert::Geometry
                           const glm::vec<3, RealType>& AxisZIn )
         {
             const glm::vec<3, RealType> Cols[3] = { AxisXIn, AxisYIn, AxisZIn };
-            auto                    M       = [&Cols]( int R, int C ) { return Cols[C][R]; };
-            const RealType          trace   = M( 0, 0 ) + M( 1, 1 ) + M( 2, 2 );
+            auto                        M       = [&Cols]( int R, int C ) { return Cols[C][R]; };
+            const RealType              trace   = M( 0, 0 ) + M( 1, 1 ) + M( 2, 2 );
             if ( trace > 0 )
             {
                 RealType root = std::sqrt( trace + 1 );
@@ -127,9 +127,9 @@ namespace Desert::Geometry
                     i = 1;
                 if ( M( 2, 2 ) > M( i, i ) )
                     i = 2;
-                const int         j    = Next[i];
-                const int         k    = Next[j];
-                RealType          root = std::sqrt( M( i, i ) - M( j, j ) - M( k, k ) + 1 );
+                const int             j    = Next[i];
+                const int             k    = Next[j];
+                RealType              root = std::sqrt( M( i, i ) - M( j, j ) - M( k, k ) + 1 );
                 glm::vec<3, RealType> quat( x, y, z );
                 quat[i] = static_cast<RealType>( 0.5 ) * root;
                 root    = static_cast<RealType>( 0.5 ) / root;

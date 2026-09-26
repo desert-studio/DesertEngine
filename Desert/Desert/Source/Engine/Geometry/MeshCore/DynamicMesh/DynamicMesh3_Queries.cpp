@@ -249,7 +249,7 @@ MeshResult DynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tria
 
         int const StartEID = StartEdgeIDs.back();
         StartEdgeIDs.pop_back();
-        int PrevEID  = StartEID;
+        int PrevEID = StartEID;
         WalkedEdges++;
         int        WalkTri   = m_Edges[StartEID].Tri[0];
         auto const SpanStart = static_cast<int32_t>( TrianglesOut.size() );
@@ -258,11 +258,11 @@ MeshResult DynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tria
         {
             TrianglesOut.push_back( WalkTri );
 
-            int const       TriIdx     = WalkTri;
-            const Index3i&  TriVIDs    = m_Triangles[TriIdx];
-            const Index3i&  TriEIDs    = m_TriangleEdges[TriIdx];
-            int const       VertSubIdx = IndexUtil::FindTriIndex( VertexID, TriVIDs );
-            int             NextEID    = TriEIDs[VertSubIdx];
+            int const      TriIdx     = WalkTri;
+            const Index3i& TriVIDs    = m_Triangles[TriIdx];
+            const Index3i& TriEIDs    = m_TriangleEdges[TriIdx];
+            int const      VertSubIdx = IndexUtil::FindTriIndex( VertexID, TriVIDs );
+            int            NextEID    = TriEIDs[VertSubIdx];
             if ( NextEID == PrevEID )
             {
                 NextEID = TriEIDs[( VertSubIdx + 2 ) % 3];
@@ -727,8 +727,8 @@ glm::dvec3 DynamicMesh3::GetEdgePoint( int eID, double t ) const
     if ( m_EdgeRefCounts.IsValid( eID ) )
     {
         Index2i      Verts = m_Edges[eID].Vert;
-        const int iv0   = Verts[0];
-        const int iv1   = Verts[1];
+        const int    iv0   = Verts[0];
+        const int    iv1   = Verts[1];
         double const mt    = 1.0 - t;
         return mt * m_Vertices[iv0] + t * m_Vertices[iv1];
     }

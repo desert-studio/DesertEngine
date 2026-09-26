@@ -26,9 +26,9 @@ namespace Desert::Geometry
 
         struct CotanTriangleData
         {
-            std::array<double, 3> Cotangent{};    // at each corner
+            std::array<double, 3>  Cotangent{};    // at each corner
             std::array<int32_t, 3> OppositeEdge{}; // edge opposite each corner
-            double                Area = 0.0;
+            double                 Area = 0.0;
 
             CotanTriangleData( const DynamicMesh3& Mesh, int32_t TriID )
             {
@@ -92,18 +92,18 @@ namespace Desert::Geometry
             for ( int32_t i = 0; i < NumVerts; ++i )
             {
                 const int32_t IVertId    = ToVertex[i];
-                const double WeightArea = 1.0;
-                double       WeightII   = 0.;
+                const double  WeightArea = 1.0;
+                double        WeightII   = 0.;
                 for ( const int32_t EdgeId : Mesh.VtxEdgesItr( IVertId ) )
                 {
-                    const Index2i             EdgeV      = Mesh.GetEdgeV( EdgeId );
-                    const Index2i             EdgeT      = Mesh.GetEdgeT( EdgeId );
-                    const int32_t             JVertId    = EdgeV.A == IVertId ? EdgeV.B : EdgeV.A;
-                    const CotanTriangleData&  Tri0Data   = TriData[ToTriIdx[EdgeT.A]];
-                    double                    CotanAlpha = Tri0Data.GetOpposingCotangent( EdgeId );
-                    double                    CotanBeta  = EdgeT.B != DynamicMesh3::InvalidID
-                                                                ? TriData[ToTriIdx[EdgeT.B]].GetOpposingCotangent( EdgeId )
-                                                                : 0.0;
+                    const Index2i            EdgeV      = Mesh.GetEdgeV( EdgeId );
+                    const Index2i            EdgeT      = Mesh.GetEdgeT( EdgeId );
+                    const int32_t            JVertId    = EdgeV.A == IVertId ? EdgeV.B : EdgeV.A;
+                    const CotanTriangleData& Tri0Data   = TriData[ToTriIdx[EdgeT.A]];
+                    double                   CotanAlpha = Tri0Data.GetOpposingCotangent( EdgeId );
+                    double                   CotanBeta  = EdgeT.B != DynamicMesh3::InvalidID
+                                                               ? TriData[ToTriIdx[EdgeT.B]].GetOpposingCotangent( EdgeId )
+                                                               : 0.0;
                     if ( WeightMode == CotangentWeightMode::TriangleArea )
                     {
                         CotanAlpha /= Tri0Data.Area;
@@ -145,8 +145,8 @@ namespace Desert::Geometry
         m_RowStart.assign( m_NumRows + 1, 0 );
         for ( size_t k = 0; k < Triplets.size(); )
         {
-            const Triplet&  T   = Triplets[k];
-            double          Sum = 0.0;
+            const Triplet& T   = Triplets[k];
+            double         Sum = 0.0;
             for ( ; k < Triplets.size() && Triplets[k].Row == T.Row && Triplets[k].Col == T.Col; ++k )
                 Sum += Triplets[k].Value;
             m_ColIndex.push_back( T.Col );
@@ -178,7 +178,7 @@ namespace Desert::Geometry
             Degree[r] = Matrix.m_RowStart[r + 1] - Matrix.m_RowStart[r];
         std::vector<int32_t> Order;
         Order.reserve( N );
-        std::vector<char>  Visited( N, 0 );
+        std::vector<char>    Visited( N, 0 );
         std::vector<int32_t> Seeds( N );
         for ( int32_t r = 0; r < N; ++r )
             Seeds[r] = r;
@@ -370,7 +370,7 @@ namespace Desert::Geometry
         // without forming the dense E E^T
         const double InvSqrtBndr =
              1.0 / std::sqrt( static_cast<double>( static_cast<int32_t>( m_Boundary.size() ) ) );
-        const auto   ApplyB      = [&]( const std::vector<double>& In, std::vector<double>& Out )
+        const auto ApplyB = [&]( const std::vector<double>& In, std::vector<double>& Out )
         {
             double MeanU = 0.0;
             double MeanV = 0.0;

@@ -17,7 +17,7 @@ namespace Desert::Geometry
     {
         glm::vec<3, T> Center    = glm::vec<3, T>( 0 );
         glm::vec<3, T> Direction = glm::vec<3, T>( 1, 0, 0 );
-        T          Extent    = static_cast<T>( 0 );
+        T              Extent    = static_cast<T>( 0 );
 
         Segment3() = default;
 

@@ -615,7 +615,8 @@ namespace Desert::Geometry
          * than VtxTrianglesItr() in many use cases. */
         void EnumerateVertexTriangles( int32_t VertexID, std::function<void( int32_t )> ApplyFunc ) const;
 
-        /** @return a single triangle connected to the given vertex, or IndexConstants::InvalidID if the vertex has no triangles
+        /** @return a single triangle connected to the given vertex, or IndexConstants::InvalidID if the vertex has
+         * no triangles
          */
         int32_t GetSingleVertexTriangle( int32_t VID ) const;
 
@@ -1641,8 +1642,8 @@ namespace Desert::Geometry
             if ( vB < vA )
             {
                 int const t = vB;
-                vB    = vA;
-                vA    = t;
+                vB          = vA;
+                vA          = t;
             }
             int const eid = m_EdgeRefCounts.Allocate();
             m_Edges.InsertAt( Edge{ { vA, vB }, { tA, tB } }, eid );
@@ -1757,7 +1758,7 @@ namespace Desert::Geometry
             if ( EdgeID != InvalidID )
             {
                 m_Edges[EdgeID].Tri[1] = TriangleID;
-                TriEdges[j]          = EdgeID;
+                TriEdges[j]            = EdgeID;
             }
             else
             {
@@ -1774,9 +1775,9 @@ namespace Desert::Geometry
             const Index2i Tris = m_Edges[EdgeID].Tri;
 
             int const vOther = GetOtherEdgeVertex( EdgeID, VertexID );
-            int et1    = Tris[1];
-            et1     = ( et1 != InvalidID && TriHasSequentialVertices( et1, VertexID, vOther ) ) ? et1 : InvalidID;
-            int const et0    = Tris[0];
+            int       et1    = Tris[1];
+            et1 = ( et1 != InvalidID && TriHasSequentialVertices( et1, VertexID, vOther ) ) ? et1 : InvalidID;
+            int const et0 = Tris[0];
             return TriHasSequentialVertices( et0, VertexID, vOther ) ? Index2i( et0, et1 )
                                                                      : Index2i( et1, InvalidID );
         }
