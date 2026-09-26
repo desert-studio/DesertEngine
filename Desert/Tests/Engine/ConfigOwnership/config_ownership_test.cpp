@@ -1112,18 +1112,18 @@ TEST( ConfigOwnershipCorpus, NoSceneOnDiskStatesASettingOfAnotherFilesKind )
     {
         const auto parsed = Common::Json::Parse( ReadAll( path ) );
         ASSERT_TRUE( parsed.IsSuccess() ) << path.string() << " is not readable JSON";
-        const auto root_object = parsed.GetValue().to_object();
-        ASSERT_TRUE( root_object.has_value() ) << path.string() << " is not a JSON object";
+        const Common::Json::Node root_object = Common::Json::Root( parsed.GetValue() );
+        ASSERT_TRUE( root_object.GetKind() == Common::Json::Kind::Object )
+             << path.string() << " is not a JSON object";
 
-        const auto settings = root_object.value().get( "Settings" );
-        if ( !settings.has_value() )
+        const auto settings = root_object.Find( "Settings" );
+        if ( !settings )
             continue;
-        const auto fields = settings.value().to_object();
-        if ( !fields.has_value() )
+        if ( settings->GetKind() != Common::Json::Kind::Object )
             continue;
 
         for ( const std::string& key : forbidden )
-            EXPECT_FALSE( fields.value().get( key ).has_value() )
+            EXPECT_FALSE( settings->Find( key ).has_value() )
                  << path.string() << " states Settings." << key
                  << ", which another config file owns. Run Tools/SceneMigrator over it.";
     }
@@ -1146,8 +1146,8 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
 
     const auto parsed = Common::Json::Parse( text );
     ASSERT_TRUE( parsed.IsSuccess() ) << "Editor/Desert.deproj is not readable JSON";
-    const auto object = parsed.GetValue().to_object();
-    ASSERT_TRUE( object.has_value() );
+    const Common::Json::Node object = Common::Json::Root( parsed.GetValue() );
+    ASSERT_TRUE( object.GetKind() == Common::Json::Kind::Object );
 
     for ( const FileCensus& file : kFiles )
     {
@@ -1157,7 +1157,7 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
         {
             if ( r->Kind != Owner::Machine )
                 continue;
-            EXPECT_FALSE( object.value().get( r->Field ).has_value() )
+            EXPECT_FALSE( object.Find( r->Field ).has_value() )
                  << "Editor/Desert.deproj now states " << r->Field
                  << ", a per-machine value, in a file git tracks and the whole team shares. See К4.";
         }

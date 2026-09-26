@@ -34,10 +34,6 @@ Desert/Tests/Engine/UIOverlays/ui_overlays_test.cpp | JS1d: test fixtures/reader
 Desert/Tests/Engine/UIStyle/ui_style_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/WorldPartitionStreamer/world_partition_streamer_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/WorldPartitionStreaming/world_partition_streaming_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/WriteVerdictCensus/write_verdict_census_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Tools/LegacyMaterialIds/legacy_material_ids_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Editor/Source/Editor/Core/Control/ControlProtocol.hpp | JS1d: editor/tools protocols move to the facade
 Editor/Source/Editor/Core/Control/ControlState.hpp | JS1d: editor/tools protocols move to the facade

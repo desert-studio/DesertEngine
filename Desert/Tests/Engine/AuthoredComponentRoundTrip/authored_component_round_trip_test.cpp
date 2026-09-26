@@ -48,7 +48,7 @@ namespace
     Common::Json::Issues ReadAt( const Common::Json::Object& block, TComponent& read )
     {
         const Common::Json::Value value( block );
-        Common::Json::Issues issues;
+        Common::Json::Issues      issues;
         ReadComponent( Common::Json::Root( value, BlockPath() ), read, issues );
         return issues;
     }
@@ -63,9 +63,14 @@ namespace
         EXPECT_TRUE( parsed.IsSuccess() ) << "what the serializer wrote is not valid JSON: " << text;
         if ( !parsed.IsSuccess() )
             return {};
-        const auto object = parsed.GetValue().to_object();
-        EXPECT_TRUE( object.has_value() );
-        return object.has_value() ? object.value() : Common::Json::Object{};
+        const Common::Json::Node root = Common::Json::Root( parsed.GetValue() );
+        EXPECT_TRUE( root.GetKind() == Common::Json::Kind::Object );
+        if ( root.GetKind() != Common::Json::Kind::Object )
+            return {};
+        Common::Json::Object out;
+        root.ForEachMember( [&]( std::string_view key, const Common::Json::Node& member )
+                            { out[std::string( key )] = member.Raw(); } );
+        return out;
     }
 
     template <class TComponent>

@@ -8,11 +8,7 @@ Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c-S6: cell payloa
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c-S6: BlockOf returns a Node, Read* become Node getters
 Desert/Tests/Editor/ControlProtocol/control_protocol_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Editor/PreferenceOwnership/preference_ownership_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/AssetHandleInverse/asset_handle_inverse_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/AssetReferenceCensus/asset_reference_census_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/AuthoredComponentRoundTrip/authored_component_round_trip_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/CloudProtocolScene/cloud_protocol_scene_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/ConfigOwnership/config_ownership_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/CornellSymmetry/cornell_symmetry_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/LocalizedContentCensus/localized_content_census_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/MaterialRequestAgreement/material_request_agreement_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node

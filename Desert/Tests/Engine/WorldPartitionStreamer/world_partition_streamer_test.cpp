@@ -18,6 +18,7 @@
 //   4. A SCENE WITHOUT A PARTITION BLOCK. No executor, and the world is not touched at all.
 //   5. REFUSALS. A record without an id; a world whose activation fails (named by unit).
 
+#include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
 #include <gtest/gtest.h>
@@ -76,9 +77,9 @@ namespace
 
     void With( EntityData& data, const char* key, const std::string& json )
     {
-        const auto block = rfl::json::read<rfl::Generic>( json );
-        ASSERT_TRUE( block.has_value() ) << json;
-        data.Components[key] = block.value();
+        const auto block = Common::Json::Parse( json );
+        ASSERT_TRUE( block.IsSuccess() ) << json;
+        data.Components[key] = block.GetValue();
     }
 
     glm::vec3 CellCentre( int column, int row )
@@ -253,7 +254,7 @@ TEST( WorldPartitionStreamer, AFlyThroughKeepsOnlyTheNeighbourhoodAlive )
             // NOLINTBEGIN(bugprone-unchecked-optional-access)
             const float cellMin = std::floor( records[record].Translation->x / kCell ) * kCell;
             // NOLINTEND(bugprone-unchecked-optional-access)
-            const float dx      = std::max( { cellMin - x, 0.0f, x - ( cellMin + kCell ) } );
+            const float dx = std::max( { cellMin - x, 0.0f, x - ( cellMin + kCell ) } );
             ASSERT_LE( dx, band ) << "record " << record << " alive " << dx << " cm away at frame " << frame;
         }
         most = std::max( most, world.Live.size() );
