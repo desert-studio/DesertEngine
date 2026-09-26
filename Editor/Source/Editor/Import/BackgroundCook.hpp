@@ -1,60 +1,47 @@
 #pragma once
 
-#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <mutex>
-#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
 // THE STARTUP MESH COOK RUNS AFTER THE WINDOW IS SHOWN (AL1-11, owner decision V2 — UE's DDC/Interchange
-// shape: the editor opens on what the disk already holds and a fresh cook arrives later). The two boot
-// stages "Cooking meshes" / "Cooking collections" used to block the splash for the whole freshness pass
-// (0.40 s warm: a full read of every 10 MB `.stmesh` plus a hash of its source) and for every Assimp
-// re-import (≈3.2 s cold). Nothing on the main thread needs the verdict before the reveal: a cooked asset on
-// the disk is read by the preloader whether it is fresh or not, and a missing one has nothing to read.
+// shape: the editor opens on what the cache already holds and a fresh cook arrives later). The boot stages
+// "Cooking meshes" / "Cooking collections" used to block the splash for the whole freshness pass (0.40 s warm)
+// and for every Assimp import (≈3.2 s cold).
 //
-// So the main thread asks only the cheap question — is a cooked output on the disk at all — and the
-// worker answers the expensive one (fresh or stale) and pays the cook when it is owed. The two tables below
-// are the whole policy; the suite `BackgroundStartupCook` pins every row.
+// WHAT "THE COOK ON THE DISK" MEANS SINCE AF4h. An imported static mesh's envelope is a DDC entry keyed by the
+// source file's own bytes (Assets::kMeshSourceDeriver), and the loader (Assets::LoadMeshSourceAsset) looks
+// only under the CURRENT bytes' key. So there is no "stale but usable" cook to show while a fresh one is
+// built: an entry for the current bytes is fresh by construction, and without one the mesh cannot load. The
+// three startup states therefore collapse into two, decided with no work on the main thread:
+//   fresh            -> the preload reads it now; the worker's check comes back UpToDate
+//   stale or missing -> the load fails loudly and the asset is Pending (not drawn); the worker cooks it
+// The DDC write is content-addressed and atomic (DDC::Put -> WriteContentToFileAtomic): a reader sees an
+// entry whole or not at all, and a recook of changed bytes writes a DIFFERENT key rather than over the old one.
 namespace Desert::Editor
 {
-    // What the worker's cook of one source did. `Cooked` means the output on the disk changed.
+    // What the worker's cook of one source did. `Cooked` means a new entry reached the cache.
     enum class CookVerdict
     {
-        UpToDate, // the output on the disk matched its source; nothing was written
-        Cooked,   // the output was (re)written
-        Failed,   // the source was parsed or read and no complete output reached the disk
+        UpToDate, // the cache already held the entry for the source's current bytes; nothing was built
+        Cooked,   // the entry was built and written
+        Failed,   // the source was parsed or read and no complete entry reached the cache
         NotCookable,
     };
-
-    // What the editor does with a source before the window is shown.
-    enum class StartupCookAction
-    {
-        UseCookedVerifyInBackground, // the old cook is loaded now; the worker checks it and recooks if stale
-        PendingCookInBackground,     // nothing to load: the asset is Pending (not drawn) until the cook lands
-    };
-
-    // Freshness is NOT a startup question: answering it costs the read the background exists to move.
-    constexpr StartupCookAction DecideStartupCook( bool cookedOnDisk )
-    {
-        return cookedOnDisk ? StartupCookAction::UseCookedVerifyInBackground
-                            : StartupCookAction::PendingCookInBackground;
-    }
 
     // What the main thread does when the worker's verdict arrives.
     enum class CookCompletionAction
     {
-        Nothing,       // the loaded cook was fresh
-        Reload,        // a stale cook was loaded; drop it so the next use reads the fresh one
-        Register,      // the asset was Pending; register it so the scene's reference resolves
-        ReportFailure, // logged with the source's path; a stale cook stays loaded, a Pending asset stays Pending
+        Nothing,       // the preload already read the fresh entry
+        Reload,        // the asset was Pending: drop its failed load so the next use reads the new entry
+        ReportFailure, // logged with the source's path; the asset stays Pending — never a silent substitute
     };
 
-    constexpr CookCompletionAction DecideCookCompletion( StartupCookAction started, CookVerdict verdict )
+    constexpr CookCompletionAction DecideCookCompletion( CookVerdict verdict )
     {
         switch ( verdict )
         {
@@ -64,15 +51,14 @@ namespace Desert::Editor
             case CookVerdict::Failed:
                 return CookCompletionAction::ReportFailure;
             case CookVerdict::Cooked:
-                return started == StartupCookAction::UseCookedVerifyInBackground ? CookCompletionAction::Reload
-                                                                                 : CookCompletionAction::Register;
+                return CookCompletionAction::Reload;
         }
         return CookCompletionAction::ReportFailure;
     }
 
-    // One queue of source cooks, run on whatever `submit` hands them to (the JobSystem in the editor, an
-    // inline runner in the suite), drained on the main thread once a frame. Holds no engine state: what a
-    // completion MEANS is the caller's (DecideCookCompletion), so this stays testable without a device.
+    // One queue of source cooks, run on whatever `submit` hands them to (the JobSystem in the editor, a held
+    // list in the suite), drained on the main thread once a frame. Holds no engine state: what a completion
+    // MEANS is DecideCookCompletion's, so this stays testable without a device.
     class BackgroundCookQueue
     {
     public:
@@ -82,7 +68,6 @@ namespace Desert::Editor
         struct Completed
         {
             std::filesystem::path Source;
-            StartupCookAction     Started = StartupCookAction::PendingCookInBackground;
             CookVerdict           Verdict = CookVerdict::Failed;
         };
 
@@ -106,21 +91,20 @@ namespace Desert::Editor
             }
         }
 
-        // Main thread. `cookedOnDisk` is the startup's cheap answer, recorded so the completion can be decided.
-        void Enqueue( const std::filesystem::path& source, bool cookedOnDisk )
+        // Main thread. Returns at once; the freshness check and any cook run on the worker.
+        void Enqueue( const std::filesystem::path& source )
         {
-            const StartupCookAction started = DecideStartupCook( cookedOnDisk );
             {
                 std::lock_guard<std::mutex> lock( m_Mutex );
                 ++m_Running;
                 ++m_Total;
             }
             m_Submit(
-                 [this, source, started]
+                 [this, source]
                  {
                      const CookVerdict           verdict = m_Cooker( source );
                      std::lock_guard<std::mutex> lock( m_Mutex );
-                     m_Completed.push_back( { source, started, verdict } );
+                     m_Completed.push_back( { source, verdict } );
                      --m_Running;
                  } );
         }

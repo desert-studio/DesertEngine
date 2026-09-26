@@ -6657,47 +6657,41 @@ namespace Desert::Editor
         const std::array<std::filesystem::path, 2> roots{ Common::Constants::Path::MESH_PATH,
                                                           Common::Constants::Path::COLLECTIONS_PATH };
         for ( const std::filesystem::path& root : roots )
-        {
             for ( const std::filesystem::path& source : ImportManager::MeshSources( root ) )
-            {
-                std::error_code ec;
-                const bool      onDisk = std::filesystem::exists( CookPaths::MeshAsset( source ), ec ) ||
-                                    std::filesystem::exists( CookPaths::CookedSkinned( source, ".skmesh" ), ec );
-                if ( !onDisk )
-                    LOG_INFO( "[BackgroundCook] '{}' has no cook on the disk; its asset is Pending until the "
-                              "background cook lands",
-                              source.string() );
-                m_BackgroundCook->Enqueue( source, onDisk );
-            }
-        }
-        LOG_INFO( "[BackgroundCook] {} mesh source(s) queued on the JobSystem after the reveal",
+                m_BackgroundCook->Enqueue( source );
+        LOG_INFO( "[BackgroundCook] {} mesh source(s) queued on the JobSystem after the reveal; a source whose "
+                  "cache entry is missing or stale stays Pending until its cook lands",
                   m_BackgroundCook->Total() );
     }
 
     void EditorLayer::ReloadRecookedMesh( const std::filesystem::path& source )
     {
-        const std::array<std::filesystem::path, 2> cooks{ CookPaths::MeshAsset( source ),
-                                                          CookPaths::CookedSkinned( source, ".skmesh" ) };
-        for ( const std::filesystem::path& cooked : cooks )
+        // THE HANDLE IS THE PATH'S (AssetHandle::FromCookedPath), not the envelope's: the Pending asset the
+        // scene already names and the asset the fresh cook resolves to are the same handle, so nothing in the
+        // scene is rewritten. A mismatch would be a scene pointing at a mesh that will never arrive — say so.
+        const std::filesystem::path staticPath = CookPaths::MeshAsset( source );
+        if ( const auto pending = m_AssetManager->FindByPath<Assets::MeshAsset>( staticPath.generic_string() ) )
         {
-            const auto mesh = m_AssetManager->FindByPath<Assets::MeshAsset>( cooked.generic_string() );
-            if ( !mesh )
-                continue;
-            // The eviction path: drop the loaded data and the built GPU mesh, keep the shell, so the next
-            // draw rebuilds from the fresh cook exactly as a first use does.
-            if ( const auto unloaded = mesh->Unload(); !unloaded )
-            {
-                LOG_ERROR( "[BackgroundCook] '{}' was recooked but its stale data could not be unloaded: {}",
-                           cooked.string(), unloaded.GetError() );
-                continue;
-            }
+            // The failed load is dropped with the built GPU mesh; the shell stays, so the next draw reads the
+            // fresh entry through the path a first use takes.
+            if ( const auto unloaded = pending->Unload(); !unloaded )
+                LOG_ERROR( "[BackgroundCook] '{}' was cooked but its Pending asset could not be reset: {}",
+                           staticPath.string(), unloaded.GetError() );
             if ( auto* service = Runtime::ResourceRegistry::GetMeshService() )
-                (void)service->EvictBuilt( mesh->GetMetadata().Handle );
-            LOG_INFO( "[BackgroundCook] '{}' was stale; the next draw reads its fresh cook", cooked.string() );
+                (void)service->EvictBuilt( pending->GetMetadata().Handle );
+        }
+        const auto resolved = MeshDnD::ResolveOrImportMesh( *m_AssetManager, source.string() );
+        if ( resolved.Handle.IsNull() )
+        {
+            LOG_ERROR( "[BackgroundCook] '{}' cooked but its asset did not resolve; it stays Pending",
+                       source.string() );
             return;
         }
-        // Recooked but never loaded: the next request reads the fresh file; there is nothing to drop.
-        (void)MeshDnD::ResolveOrImportMesh( *m_AssetManager, source.string() );
+        const uint64_t named = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( staticPath ) );
+        if ( !resolved.Skinned && static_cast<uint64_t>( resolved.Handle ) != named )
+            LOG_ERROR( "[BackgroundCook] '{}' resolved to handle {} but the scene names it by {}", source.string(),
+                       static_cast<uint64_t>( resolved.Handle ), named );
+        LOG_INFO( "[BackgroundCook] '{}' cooked; its asset now resolves", source.string() );
     }
 
     void EditorLayer::DrainBackgroundCook()
@@ -6706,35 +6700,25 @@ namespace Desert::Editor
             return;
         for ( const BackgroundCookQueue::Completed& done : m_BackgroundCook->Drain() )
         {
-            switch ( DecideCookCompletion( done.Started, done.Verdict ) )
+            switch ( DecideCookCompletion( done.Verdict ) )
             {
                 case CookCompletionAction::Nothing:
                     break;
                 case CookCompletionAction::ReportFailure:
                     ++m_BackgroundCookFailed;
-                    LOG_ERROR( "[BackgroundCook] '{}' did not cook; {}", done.Source.string(),
-                               done.Started == StartupCookAction::UseCookedVerifyInBackground
-                                    ? "its previous cook stays loaded"
-                                    : "its asset stays Pending (not drawn)" );
+                    LOG_ERROR( "[BackgroundCook] '{}' did not cook; its asset stays Pending (not drawn)",
+                               done.Source.string() );
                     break;
                 case CookCompletionAction::Reload:
                     ++m_BackgroundCookChanged;
                     ReloadRecookedMesh( done.Source );
-                    break;
-                case CookCompletionAction::Register:
-                    ++m_BackgroundCookChanged;
-                    if ( MeshDnD::ResolveOrImportMesh( *m_AssetManager, done.Source.string() ).Handle.IsNull() )
-                        LOG_ERROR( "[BackgroundCook] '{}' cooked but its asset did not register; it stays Pending",
-                                   done.Source.string() );
-                    else
-                        LOG_INFO( "[BackgroundCook] '{}' cooked and registered", done.Source.string() );
                     break;
             }
         }
         if ( !m_BackgroundCookReported && m_BackgroundCook->Outstanding() == 0 )
         {
             m_BackgroundCookReported = true;
-            LOG_INFO( "[BackgroundCook] {} mesh source(s) checked after the reveal in {} ms: {} recooked, {} failed",
+            LOG_INFO( "[BackgroundCook] {} mesh source(s) checked after the reveal in {} ms: {} cooked, {} failed",
                       m_BackgroundCook->Total(),
                       std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() -
                                                                              m_BackgroundCookStart )

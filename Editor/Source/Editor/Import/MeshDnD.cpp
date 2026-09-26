@@ -1,6 +1,7 @@
 #include <Common/Content/ContentScan.hpp>
 #include "MeshDnD.hpp"
 #include "ImportManager.hpp"
+#include "ImportedMeshAsset.hpp"
 #include "CookPaths.hpp"
 
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -163,11 +164,15 @@ namespace Desert::Editor::MeshDnD
             return existing->GetMetadata().Handle;
         }
 
-        // Not cooked yet -> cook the source (Assimp parse -> Cooked/Meshes/*.stmesh).
-        if ( !std::filesystem::exists( cookedStr ) )
+        // Not cooked yet -> cook the source (Assimp parse -> Cooked/Meshes/*.stmesh). AF4h: an import
+        // never writes `cookedStr` to disk any more (the source envelope lives in the DDC), so
+        // `exists(cookedStr)` alone answered "not cooked" for every freshly imported mesh forever and the
+        // drop silently placed nothing. StaticMeshCookAvailable also accepts a fresh DDC envelope for
+        // `sourcePath`.
+        if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             Importer().Import( sourcePath );
 
-        if ( !std::filesystem::exists( cookedStr ) )
+        if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             return Common::UUID::Null(); // cook failed / produced a skinned mesh (.skmesh) instead
 
         // Create + register + load the cooked static mesh, return its handle.
@@ -258,11 +263,13 @@ namespace Desert::Editor::MeshDnD
         }
 
         // Cook on demand if neither cooked form exists yet (the cook decides static vs skinned by the rig).
-        if ( !std::filesystem::exists( staticStr ) && !std::filesystem::exists( skinnedStr ) )
-            Importer().Import( sourcePath );
+        // StaticMeshCookAvailable, not exists(): since AF4h an imported static mesh's envelope lives in the DDC
+        // and nothing is written at staticStr, so exists() read every fresh cook as "cook failed".
+        if ( !StaticMeshCookAvailable( staticStr, sourcePath ) && !std::filesystem::exists( skinnedStr ) )
+            (void)Importer().Import( sourcePath );
 
         const bool isSkinned = std::filesystem::exists( skinnedStr );
-        const bool isStatic  = std::filesystem::exists( staticStr );
+        const bool isStatic  = StaticMeshCookAvailable( staticStr, sourcePath );
         if ( !isSkinned && !isStatic )
             return { Common::UUID::Null(), false }; // cook failed
 

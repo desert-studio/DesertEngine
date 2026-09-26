@@ -1,51 +1,47 @@
 #include <Editor/Import/BackgroundCook.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
+
 #include <gtest/gtest.h>
 
 #include <functional>
 #include <vector>
 
-// AL1-11 / owner decision V2: the startup cook never blocks the reveal. Every row of the two tables that decide
-// it is pinned here, together with the queue that carries a source from the startup to its completion.
+// AL1-11 / owner decision V2: the startup cook never blocks the reveal. Since AF4h a static mesh's cook is a DDC
+// entry keyed by the source's bytes, so fresh loads now and stale == missing == Pending until the worker's
+// cook lands. Every row of the completion table is pinned here, with the queue that carries a source there.
 namespace
 {
     using namespace Desert::Editor;
 
-    TEST( BackgroundStartupCook, AFreshOrStaleCookOnTheDiskIsUsedNowAndVerifiedInTheBackground )
+    TEST( BackgroundStartupCook, AFreshCacheEntryNeedsNothingWhenTheCheckReturns )
     {
-        // Fresh and stale look alike at startup on purpose: telling them apart costs the read being moved.
-        EXPECT_EQ( DecideStartupCook( true ), StartupCookAction::UseCookedVerifyInBackground );
+        EXPECT_EQ( DecideCookCompletion( CookVerdict::UpToDate ), CookCompletionAction::Nothing );
+        EXPECT_EQ( DecideCookCompletion( CookVerdict::NotCookable ), CookCompletionAction::Nothing );
     }
 
-    TEST( BackgroundStartupCook, AMissingCookIsPendingUntilTheBackgroundCookLands )
+    TEST( BackgroundStartupCook, AStaleOrMissingEntryThatWasCookedReloadsThePendingAsset )
     {
-        EXPECT_EQ( DecideStartupCook( false ), StartupCookAction::PendingCookInBackground );
-    }
-
-    TEST( BackgroundStartupCook, AFreshCookNeedsNothingWhenItsVerdictArrives )
-    {
-        EXPECT_EQ( DecideCookCompletion( StartupCookAction::UseCookedVerifyInBackground, CookVerdict::UpToDate ),
-                   CookCompletionAction::Nothing );
-    }
-
-    TEST( BackgroundStartupCook, AStaleCookThatWasRecookedIsReloaded )
-    {
-        EXPECT_EQ( DecideCookCompletion( StartupCookAction::UseCookedVerifyInBackground, CookVerdict::Cooked ),
-                   CookCompletionAction::Reload );
-    }
-
-    TEST( BackgroundStartupCook, APendingAssetIsRegisteredWhenItsCookLands )
-    {
-        EXPECT_EQ( DecideCookCompletion( StartupCookAction::PendingCookInBackground, CookVerdict::Cooked ),
-                   CookCompletionAction::Register );
+        EXPECT_EQ( DecideCookCompletion( CookVerdict::Cooked ), CookCompletionAction::Reload );
     }
 
     TEST( BackgroundStartupCook, AFailedCookIsReportedAndNeverSubstitutedSilently )
     {
-        EXPECT_EQ( DecideCookCompletion( StartupCookAction::UseCookedVerifyInBackground, CookVerdict::Failed ),
-                   CookCompletionAction::ReportFailure );
-        EXPECT_EQ( DecideCookCompletion( StartupCookAction::PendingCookInBackground, CookVerdict::Failed ),
-                   CookCompletionAction::ReportFailure );
+        EXPECT_EQ( DecideCookCompletion( CookVerdict::Failed ), CookCompletionAction::ReportFailure );
+    }
+
+    TEST( BackgroundStartupCook, APendingMeshKeepsItsHandleAcrossTheCook )
+    {
+        // The scene names a static mesh by its PATH's handle, not by the envelope the cook mints, so the asset
+        // that was Pending before the cook and the one that resolves after it are the same handle.
+        const std::filesystem::path cooked = "Resources/Assets/Meshes/base.stmesh";
+        const auto                  before = Common::AssetHandle::FromCookedPath( cooked );
+        const auto                  after  = Common::AssetHandle::FromCookedPath( cooked );
+        EXPECT_EQ( static_cast<uint64_t>( before ), static_cast<uint64_t>( after ) );
+        EXPECT_NE( static_cast<uint64_t>( before ), 0u );
+        EXPECT_NE( static_cast<uint64_t>( before ),
+                   static_cast<uint64_t>( Common::AssetHandle::FromCookedPath(
+                        "Resources/Assets/Meshes/base_basic_pbr.stmesh" ) ) );
     }
 
     TEST( BackgroundStartupCook, TheQueueRunsNothingOnTheCallerAndCountsWhatIsOutstanding )
@@ -60,8 +56,8 @@ namespace
              },
              [&held]( std::function<void()> job ) { held.push_back( std::move( job ) ); } );
 
-        queue.Enqueue( "Meshes/stale.fbx", true );
-        queue.Enqueue( "Meshes/missing.fbx", false );
+        queue.Enqueue( "Meshes/stale.fbx" );
+        queue.Enqueue( "Meshes/fresh.fbx" );
         EXPECT_EQ( cooks, 0 ) << "Enqueue must hand the cook to the worker, not run it on the main thread";
         EXPECT_EQ( queue.Outstanding(), 2u );
         EXPECT_TRUE( queue.Drain().empty() );
@@ -73,8 +69,8 @@ namespace
 
         const auto done = queue.Drain();
         ASSERT_EQ( done.size(), 2u );
-        EXPECT_EQ( DecideCookCompletion( done[0].Started, done[0].Verdict ), CookCompletionAction::Reload );
-        EXPECT_EQ( DecideCookCompletion( done[1].Started, done[1].Verdict ), CookCompletionAction::Nothing );
+        EXPECT_EQ( DecideCookCompletion( done[0].Verdict ), CookCompletionAction::Reload );
+        EXPECT_EQ( DecideCookCompletion( done[1].Verdict ), CookCompletionAction::Nothing );
         EXPECT_TRUE( queue.Drain().empty() ) << "a completion is handed out once";
     }
 } // namespace
