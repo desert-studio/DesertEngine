@@ -61,6 +61,9 @@ DynamicMesh3::DynamicMesh3( const DynamicMesh3& Other )
     m_ChangeStampShape.Set( Other.m_ChangeStampShape.GetValue() );
     m_ChangeStampTopology.Set( Other.m_ChangeStampTopology.GetValue() );
 }
+// Not noexcept: DynamicVector's move re-seeds the moved-from vector with a fresh block (AddAllocatedBlock, can
+// throw bad_alloc) and ChangeStamp::Set locks a std::mutex (can throw system_error).
+// NOLINTNEXTLINE(bugprone-exception-escape,*-noexcept-move-*)
 DynamicMesh3::DynamicMesh3( DynamicMesh3&& Other )
      : m_Vertices{ std::move( Other.m_Vertices ) }, m_VertexRefCounts{ std::move( Other.m_VertexRefCounts ) },
        m_VertexNormals{ std::move( Other.m_VertexNormals ) }, m_VertexColors{ std::move( Other.m_VertexColors ) },
@@ -90,6 +93,9 @@ DynamicMesh3& DynamicMesh3::operator=( const DynamicMesh3& CopyMesh )
     return *this;
 }
 
+// Not noexcept: DynamicVector's move assignment empties the target and re-seeds the moved-from vector with a fresh
+// block (AddAllocatedBlock, can throw bad_alloc), and ChangeStamp::Set locks a std::mutex (can throw
+// system_error). NOLINTNEXTLINE(bugprone-exception-escape,*-noexcept-move-*)
 DynamicMesh3& DynamicMesh3::operator=( DynamicMesh3&& Other )
 {
     if ( this != &Other )
@@ -195,9 +201,11 @@ void DynamicMesh3::AppendWithOffsets( const DynamicMesh3& ToAppend, AppendInfo* 
             }
         }
     };
-    MatchOptional( m_VertexNormals, ToAppend.m_VertexNormals, m_Vertices.Num(), glm::vec3( 0, 1, 0 ) );
-    MatchOptional( m_VertexColors, ToAppend.m_VertexColors, m_Vertices.Num(), glm::vec3( 1 ) );
-    MatchOptional( m_VertexUVs, ToAppend.m_VertexUVs, m_Vertices.Num(), glm::vec2( 0 ) );
+    MatchOptional( m_VertexNormals, ToAppend.m_VertexNormals, static_cast<int32_t>( m_Vertices.Num() ),
+                   glm::vec3( 0, 1, 0 ) );
+    MatchOptional( m_VertexColors, ToAppend.m_VertexColors, static_cast<int32_t>( m_Vertices.Num() ),
+                   glm::vec3( 1 ) );
+    MatchOptional( m_VertexUVs, ToAppend.m_VertexUVs, static_cast<int32_t>( m_Vertices.Num() ), glm::vec2( 0 ) );
 
     m_VertexRefCounts.Append( ToAppend.m_VertexRefCounts );
     m_VertexEdgeLists.AppendWithElementOffset( ToAppend.m_VertexEdgeLists, UseAppendInfo->EdgeOffset );
@@ -213,7 +221,7 @@ void DynamicMesh3::AppendWithOffsets( const DynamicMesh3& ToAppend, AppendInfo* 
     // TriangleEdges should be 1:1 with Triangles, so this ensure should not fail ...
     // however due to a now-fixed bug, it is possible that a serialized mesh will
     // have too many TriangleEdges; we can recover by resizing to match before appending
-    if ( !Common::EnsureOrWarn( m_TriangleEdges.Num() == UseAppendInfo->TriangleOffset,
+    if ( !Common::EnsureOrWarn( static_cast<int32_t>( m_TriangleEdges.Num() ) == UseAppendInfo->TriangleOffset,
                                 "TriangleEdges.Num() == UseAppendInfo->TriangleOffset" ) )
     {
         // Resize to recover from a too-large TriangleEdges array
@@ -328,15 +336,15 @@ void DynamicMesh3::CompactCopy( const DynamicMesh3& copy, bool bNormals, bool bC
     {
         CompactInfo->ResetTriangleMap( bUseTriangleMap ? copy.MaxTriangleID() : 0, true );
     }
-    for ( int const tid : copy.TriangleIndicesItr() )
+    for ( int const FromTID : copy.TriangleIndicesItr() )
     {
-        const Index3i  t      = CompactInfo->GetVertexMapping( copy.GetTriangle( tid ) );
-        const int      g      = ( copy.HasTriangleGroups() ) ? copy.GetTriangleGroup( tid ) : InvalidID;
+        const Index3i  t      = CompactInfo->GetVertexMapping( copy.GetTriangle( FromTID ) );
+        const int      g      = ( copy.HasTriangleGroups() ) ? copy.GetTriangleGroup( FromTID ) : InvalidID;
         const int      NewTID = AppendTriangle( t, g );
         m_GroupIDCounter      = std::max( m_GroupIDCounter, g + 1 );
         if ( bUseTriangleMap )
         {
-            CompactInfo->SetTriangleMapping( tid, NewTID );
+            CompactInfo->SetTriangleMapping( FromTID, NewTID );
         }
     }
 
@@ -608,19 +616,19 @@ bool DynamicMesh3::GetVertex( int vID, VertexInfo& vinfo, bool bWantNormals, boo
     }
     vinfo.Position = m_Vertices[vID];
     vinfo.bHaveN = vinfo.bHaveUV = vinfo.bHaveC = false;
-    if ( HasVertexNormals() && bWantNormals )
+    if ( m_VertexNormals.has_value() && bWantNormals )
     {
         vinfo.bHaveN                               = true;
         const DynamicVector<glm::vec3>& NormalVec  = m_VertexNormals.value();
         vinfo.Normal                               = NormalVec[vID];
     }
-    if ( HasVertexColors() && bWantColors )
+    if ( m_VertexColors.has_value() && bWantColors )
     {
         vinfo.bHaveC                              = true;
         const DynamicVector<glm::vec3>& ColorVec  = m_VertexColors.value();
         vinfo.Color                               = ColorVec[vID];
     }
-    if ( HasVertexUVs() && bWantUVs )
+    if ( m_VertexUVs.has_value() && bWantUVs )
     {
         vinfo.bHaveUV                          = true;
         const DynamicVector<glm::vec2>& UVVec  = m_VertexUVs.value();
@@ -829,7 +837,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
     {
         const DynamicVector<int>& Groups = m_TriangleGroups.value();
         // must have a group per triangle ID
-        CheckOrFailF( Groups.Num() == MaxTriangleID() );
+        CheckOrFailF( static_cast<int>( Groups.Num() ) == MaxTriangleID() );
         // group IDs must be in range [0, GroupIDCounter)
         for ( int const TID : TriangleIndicesItr() )
         {
@@ -967,10 +975,7 @@ int DynamicMesh3::ReplaceEdgeVertex( int eID, int vOld, int vNew )
         Verts[1] = std::max( a, vNew );
         return 1;
     }
-    else
-    {
-        return -1;
-    }
+    return -1;
 }
 
 int DynamicMesh3::ReplaceEdgeTriangle( int eID, int tOld, int tNew )
@@ -996,10 +1001,7 @@ int DynamicMesh3::ReplaceEdgeTriangle( int eID, int tOld, int tNew )
         Tris[1] = tNew;
         return 1;
     }
-    else
-    {
-        return -1;
-    }
+    return -1;
 }
 
 int DynamicMesh3::ReplaceTriangleEdge( int tID, int eOld, int eNew )

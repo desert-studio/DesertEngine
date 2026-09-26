@@ -5,6 +5,8 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include <Common/Core/Core.hpp>
+#include <algorithm>
+
 using namespace Desert::Geometry;
 
 int DynamicMesh3::AppendVertex( const VertexInfo& VtxInfo )
@@ -12,19 +14,19 @@ int DynamicMesh3::AppendVertex( const VertexInfo& VtxInfo )
     int const vid = m_VertexRefCounts.Allocate();
     m_Vertices.InsertAt( VtxInfo.Position, vid );
 
-    if ( HasVertexNormals() )
+    if ( m_VertexNormals.has_value() )
     {
         glm::vec3 const n = ( VtxInfo.bHaveN ) ? VtxInfo.Normal : glm::vec3( 0, 1, 0 );
         m_VertexNormals->InsertAt( n, vid );
     }
 
-    if ( HasVertexColors() )
+    if ( m_VertexColors.has_value() )
     {
         glm::vec3 const c = ( VtxInfo.bHaveC ) ? VtxInfo.Color : glm::vec3( 1 );
         m_VertexColors->InsertAt( c, vid );
     }
 
-    if ( HasVertexUVs() )
+    if ( m_VertexUVs.has_value() )
     {
         glm::vec2 const u = ( VtxInfo.bHaveUV ) ? VtxInfo.UV : glm::vec2( 0 );
         m_VertexUVs->InsertAt( u, vid );
@@ -44,9 +46,9 @@ int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
     const int vid = m_VertexRefCounts.Allocate();
     m_Vertices.InsertAt( from.m_Vertices[fromVID], vid );
 
-    if ( HasVertexNormals() )
+    if ( m_VertexNormals.has_value() )
     {
-        if ( from.HasVertexNormals() )
+        if ( from.m_VertexNormals.has_value() )
         {
             const DynamicVector<glm::vec3>& FromNormals = from.m_VertexNormals.value();
             m_VertexNormals->InsertAt( FromNormals[fromVID], vid );
@@ -57,9 +59,9 @@ int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
         }
     }
 
-    if ( HasVertexColors() )
+    if ( m_VertexColors.has_value() )
     {
-        if ( from.HasVertexColors() )
+        if ( from.m_VertexColors.has_value() )
         {
             const DynamicVector<glm::vec3>& FromColors = from.m_VertexColors.value();
             m_VertexColors->InsertAt( FromColors[fromVID], vid );
@@ -70,9 +72,9 @@ int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
         }
     }
 
-    if ( HasVertexUVs() )
+    if ( m_VertexUVs.has_value() )
     {
-        if ( from.HasVertexUVs() )
+        if ( from.m_VertexUVs.has_value() )
         {
             const DynamicVector<glm::vec2>& FromUVs = from.m_VertexUVs.value();
             m_VertexUVs->InsertAt( FromUVs[fromVID], vid );
@@ -107,19 +109,19 @@ MeshResult DynamicMesh3::InsertVertex( int vid, const VertexInfo& info, bool bUn
 
     m_Vertices.InsertAt( info.Position, vid );
 
-    if ( HasVertexNormals() )
+    if ( m_VertexNormals.has_value() )
     {
         glm::vec3 const n = ( info.bHaveN ) ? info.Normal : glm::vec3( 0, 1, 0 );
         m_VertexNormals->InsertAt( n, vid );
     }
 
-    if ( HasVertexColors() )
+    if ( m_VertexColors.has_value() )
     {
         glm::vec3 const c = ( info.bHaveC ) ? info.Color : glm::vec3( 1 );
         m_VertexColors->InsertAt( c, vid );
     }
 
-    if ( HasVertexUVs() )
+    if ( m_VertexUVs.has_value() )
     {
         glm::vec2 const u = ( info.bHaveUV ) ? info.UV : glm::vec2( 0 );
         m_VertexUVs->InsertAt( u, vid );
@@ -572,7 +574,7 @@ void DynamicMesh3::ReverseOrientation( bool bFlipNormals )
     {
         ReverseTriOrientationInternal( tid );
     }
-    if ( bFlipNormals && HasVertexNormals() )
+    if ( bFlipNormals && m_VertexNormals.has_value() )
     {
         for ( int const vid : VertexIndicesItr() )
         {
@@ -898,7 +900,7 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
 
         // add second triangle
         int const t2 = AddTriangleInternal( f, b, c, InvalidID, InvalidID, InvalidID );
-        if ( HasTriangleGroups() )
+        if ( m_TriangleGroups.has_value() )
         {
             int const group0 = m_TriangleGroups.value()[t0];
             m_TriangleGroups->InsertAt( group0, t2 );
@@ -982,7 +984,7 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         // add two triangles to close holes we just created
         int const t2 = AddTriangleInternal( f, b, c, InvalidID, InvalidID, InvalidID );
         int const t3 = AddTriangleInternal( f, d, b, InvalidID, InvalidID, InvalidID );
-        if ( HasTriangleGroups() )
+        if ( m_TriangleGroups.has_value() )
         {
             int const group0 = m_TriangleGroups.value()[t0];
             m_TriangleGroups->InsertAt( group0, t2 );
@@ -1041,7 +1043,7 @@ MeshResult DynamicMesh3::SplitEdge( int vA, int vB, EdgeSplitInfo& SplitInfo )
         SplitInfo = EdgeSplitInfo();
         return MeshResult::Failed_NotAnEdge;
     }
-    return SplitEdge( eid, SplitInfo );
+    return SplitEdge( eid, SplitInfo, 0.5 ); // midpoint, as UE
 }
 
 MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
@@ -1171,7 +1173,7 @@ MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& 
     SplitInfo.OriginalVertex = VertexID;
     SplitInfo.NewVertex      = AppendVertex( *this, VertexID );
 
-    // TODO: consider making a TSet copy of TrianglesToUpdate for membership tests, if TrianglesToUpdate is large
+    // Membership tests below scan TrianglesToUpdate linearly; UE notes a set copy would pay off when it is large.
     auto ProcessEdge =
          [this, &TrianglesToUpdate, &SplitInfo]( int TriID, Index3i& UpdatedTri, Index3i& TriEdges, int SubIdx )
     {
@@ -1228,14 +1230,10 @@ MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& 
 
 bool DynamicMesh3::SplitVertexWouldLeaveIsolated( int VertexID, const std::span<const int>& TrianglesToUpdate )
 {
-    for ( int const TID : VtxTrianglesItr( VertexID ) )
-    {
-        if ( !( std::find( TrianglesToUpdate.begin(), TrianglesToUpdate.end(), TID ) != TrianglesToUpdate.end() ) )
-        {
-            return false; // at least one triangle will keep the old VertexID
-        }
-    }
-    return true; // no triangles founds that keep old VertexID
+    // Isolated only when every triangle around the vertex moves to the new one; any other keeps the old VertexID.
+    auto Triangles = VtxTrianglesItr( VertexID );
+    return std::all_of( Triangles.begin(), Triangles.end(), [&TrianglesToUpdate]( int TID )
+                        { return std::ranges::find( TrianglesToUpdate, TID ) != TrianglesToUpdate.end(); } );
 }
 
 MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double collapse_t,
@@ -1410,7 +1408,8 @@ MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double
 
 MeshResult DynamicMesh3::CanCollapseEdge( int vKeep, int vRemove, double collapse_t ) const
 {
-    return CanCollapseEdgeInternal( vKeep, vRemove, 0, CollapseEdgeOptions(), nullptr );
+    // collapse_t only reaches the (absent) out-info, so passing it through keeps UE's result for every value.
+    return CanCollapseEdgeInternal( vKeep, vRemove, collapse_t, CollapseEdgeOptions(), nullptr );
 }
 
 MeshResult DynamicMesh3::CanCollapseEdge( int vKeep, int vRemove, const CollapseEdgeOptions& Options ) const
@@ -1511,9 +1510,9 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
             //  possible that ob already exists as a boundary edge, and we need to instead weld the triangle
             //  incident to oa to that edge. This situation is only permitted by CanCollapseEdgeInternal if
             //  bAllowHoleCollapse is true and eid is a boundary edge.
-            int32_t ExistingEdge = InvalidID;
-            if ( Options.bAllowHoleCollapse && IsBoundaryEdge( eid ) &&
-                 ( ExistingEdge = FindEdge( o, b ) ) != InvalidID )
+            int32_t const ExistingEdge =
+                 ( Options.bAllowHoleCollapse && IsBoundaryEdge( eid ) ) ? FindEdge( o, b ) : InvalidID;
+            if ( ExistingEdge != InvalidID )
             {
                 int32_t const WeldedTriangle = GetEdgeT( eid ).A;
                 if ( ReplaceTriangleEdge( WeldedTriangle, eid, ExistingEdge ) == -1 ||
@@ -1835,14 +1834,17 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
     int MaxAdjBoundaryMerges[2]{ 0, 0 };
     if ( a != c )
     {
-        int ea      = 0;
-        int ec      = 0;
         int const other_v = ( b == d ) ? b : -1;
         for ( int const cnbr : VtxVerticesItr( c ) )
         {
-            if ( cnbr != other_v && ( ea = FindEdge( a, cnbr ) ) != InvalidID )
+            if ( cnbr == other_v )
             {
-                ec = FindEdge( c, cnbr );
+                continue;
+            }
+            int const ea = FindEdge( a, cnbr );
+            if ( ea != InvalidID )
+            {
+                int const ec = FindEdge( c, cnbr );
                 if ( !IsBoundaryEdge( ea ) || !IsBoundaryEdge( ec ) )
                 {
                     return MeshResult::Failed_InvalidNeighbourhood;
@@ -1854,14 +1856,17 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
     }
     if ( b != d )
     {
-        int eb      = 0;
-        int ed      = 0;
         int const other_v = ( a == c ) ? a : -1;
         for ( int const dnbr : VtxVerticesItr( d ) )
         {
-            if ( dnbr != other_v && ( eb = FindEdge( b, dnbr ) ) != InvalidID )
+            if ( dnbr == other_v )
             {
-                ed = FindEdge( d, dnbr );
+                continue;
+            }
+            int const eb = FindEdge( b, dnbr );
+            if ( eb != InvalidID )
+            {
+                int const ed = FindEdge( d, dnbr );
                 if ( !IsBoundaryEdge( eb ) || !IsBoundaryEdge( ed ) )
                 {
                     return MeshResult::Failed_InvalidNeighbourhood;
@@ -2245,7 +2250,7 @@ MeshResult DynamicMesh3::PokeTriangle( int TriangleID, const glm::dvec3& BaryCoo
     SetEdgeTrianglesInternal( ecC, t1, t2 );
 
     // transfer groups
-    if ( HasTriangleGroups() )
+    if ( m_TriangleGroups.has_value() )
     {
         int const g = m_TriangleGroups.value()[TriangleID];
         m_TriangleGroups->InsertAt( g, t1 );

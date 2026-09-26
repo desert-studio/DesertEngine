@@ -1329,8 +1329,7 @@ namespace Desert::Geometry
          * @todo this function currently does not guarantee that the returned mesh is well-formed. Only call if you
          * know it's OK.
          */
-        virtual MeshResult SetTriangle( int TriangleID, const Index3i& NewVertices,
-                                        bool bRemoveIsolatedVertices = true );
+        virtual MeshResult SetTriangle( int TriangleID, const Index3i& NewVertices, bool bRemoveIsolatedVertices );
 
     public:
         using EdgeFlipInfo      = DynamicMeshInfo::EdgeFlipInfo;
@@ -1354,7 +1353,7 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual MeshResult SplitEdge( int EdgeAB, EdgeSplitInfo& SplitInfo, double SplitParameterT = 0.5 );
+        virtual MeshResult SplitEdge( int EdgeAB, EdgeSplitInfo& SplitInfo, double SplitParameterT );
 
         /**
          * Splits the edge between two vertices at the midpoint, if this edge exists
@@ -1447,7 +1446,7 @@ namespace Desert::Geometry
          * currently affect whether the edge is collapsable.
          * @return Ok if the edge can be collapsed, or enum value indicating why the operation cannot be applied
          */
-        virtual MeshResult CanCollapseEdge( int vKeep, int vRemove, double EdgeParameterT = 0 ) const;
+        virtual MeshResult CanCollapseEdge( int vKeep, int vRemove, double EdgeParameterT ) const;
 
         /**
          * Collapse the edge between the two vertices, if topologically possible.
@@ -1512,14 +1511,14 @@ namespace Desert::Geometry
          * on error.
          */
         virtual MeshResult MergeEdges( int KeepEdgeID, int DiscardEdgeID, double InterpolationT,
-                                       MergeEdgesInfo& MergeInfo, bool bCheckValidOrientation = true );
+                                       MergeEdgesInfo& MergeInfo, bool bCheckValidOrientation );
 
         /**
          * Weld one edge to the other. Equivalent to calling the other overload with 0 for InterpolationT
          *  (i.e. the vertices stay at unmodified kept vertex positions).
          */
         virtual MeshResult MergeEdges( int KeepEdgeID, int DiscardEdgeID, MergeEdgesInfo& MergeInfo,
-                                       bool bCheckValidOrientation = true );
+                                       bool bCheckValidOrientation );
 
         struct MergeVerticesOptions
         {
@@ -1620,8 +1619,7 @@ namespace Desert::Geometry
         /**
          * Checks that the mesh is well-formed, ie all internal data structures are consistent
          */
-        virtual bool CheckValidity( ValidityOptions       Options  = ValidityOptions(),
-                                    ValidityCheckFailMode FailMode = ValidityCheckFailMode::Check ) const;
+        virtual bool CheckValidity( ValidityOptions Options, ValidityCheckFailMode FailMode ) const;
 
         //
         // Internal functions
@@ -1702,7 +1700,7 @@ namespace Desert::Geometry
 
         int ReplaceEdgeVertex( int EdgeID, int vOld, int vNew );
         int ReplaceEdgeTriangle( int EdgeID, int tOld, int tNew );
-        int ReplaceTriangleEdge( int EdgeID, int eOld, int eNew );
+        int ReplaceTriangleEdge( int TriangleID, int eOld, int eNew );
 
         bool TriangleHasVertex( int TriangleID, int VertexID ) const
         {

@@ -125,7 +125,7 @@ TEST( DynamicMesh3Attributes, SplitOnTheSeamKeepsTwoElements )
     ASSERT_TRUE( Mesh.Attributes()->PrimaryUV()->IsSeamEdge( Eid ) );
 
     DynamicMesh3::EdgeSplitInfo Info;
-    ASSERT_EQ( Mesh.SplitEdge( Eid, Info ), MeshResult::Ok );
+    ASSERT_EQ( Mesh.SplitEdge( Eid, Info, 0.5 ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const DynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
     EXPECT_EQ( UV->CountVertexElements( Info.NewVertex ), 2 );
@@ -209,7 +209,7 @@ TEST( DynamicMesh3Attributes, MergeEdgesWeldsOverlaysValid )
     ASSERT_TRUE( Valid( Mesh ) );
 
     DynamicMesh3::MergeEdgesInfo Info;
-    ASSERT_EQ( Mesh.MergeEdges( Mesh.FindEdge( 1, 2 ), Mesh.FindEdge( 3, 4 ), Info ), MeshResult::Ok );
+    ASSERT_EQ( Mesh.MergeEdges( Mesh.FindEdge( 1, 2 ), Mesh.FindEdge( 3, 4 ), Info, true ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     EXPECT_EQ( Mesh.VertexCount(), 4 );
     EXPECT_EQ( Material( Mesh, T1 ), 7 );
@@ -279,10 +279,10 @@ TEST( DynamicMesh3Attributes, CopyCompactCopyAndAppendCarryAttributes )
 TEST( DynamicMesh3Attributes, SetTriangleRefusesAttributedMeshes )
 {
     DynamicMesh3 Mesh = MakeAttributedPlane();
-    EXPECT_EQ( Mesh.SetTriangle( 0, Index3i( GridV( 0, 0 ), GridV( 1, 0 ), GridV( 0, 1 ) ) ),
+    EXPECT_EQ( Mesh.SetTriangle( 0, Index3i( GridV( 0, 0 ), GridV( 1, 0 ), GridV( 0, 1 ) ), true ),
                MeshResult::Failed_Unsupported );
     Mesh.DiscardAttributes();
-    EXPECT_NE( Mesh.SetTriangle( 0, Index3i( GridV( 0, 0 ), GridV( 1, 0 ), GridV( 0, 1 ) ) ),
+    EXPECT_NE( Mesh.SetTriangle( 0, Index3i( GridV( 0, 0 ), GridV( 1, 0 ), GridV( 0, 1 ) ), true ),
                MeshResult::Failed_Unsupported );
 }
 
@@ -304,7 +304,7 @@ TEST( DynamicMesh3Attributes, RandomEditSequenceKeepsEveryLayerValid )
             if ( Op == 0 && Mesh.IsEdge( Eid ) )
             {
                 DynamicMesh3::EdgeSplitInfo Info;
-                Result = Mesh.SplitEdge( Eid, Info );
+                Result = Mesh.SplitEdge( Eid, Info, 0.5 );
             }
             // UE's overlay OnFlipEdge requires the flipped edge not to be a seam (it asserts a shared element
             // edge); its remeshers refuse seam flips before calling FlipEdge, and so does this sequence.

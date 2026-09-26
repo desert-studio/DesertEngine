@@ -255,7 +255,9 @@ TEST( DynamicMeshAsset, FileToMeshToFileIsByteStable )
         const std::string first = Bytes( DynamicMeshToMeshAssetData( NewCore( c ), kSlots ), c.Name );
         auto              read  = DynamicMeshFromMeshAssetData( Decoded( first ) );
         ASSERT_TRUE( read.IsSuccess() ) << c.Name << ": " << read.GetError();
-        EXPECT_TRUE( read.GetValue().CheckValidity() ) << c.Name;
+        EXPECT_TRUE(
+             read.GetValue().CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) )
+             << c.Name;
         const std::string second = Bytes( DynamicMeshToMeshAssetData( read.GetValue(), kSlots ), c.Name );
         // THE ONE BOUNDED DIFFERENCE, shared with the EditMesh reader: a mesh whose MaterialIDs have gaps is read
         // back compacted (MaterialID = submesh index), so its submesh NAMES ("MaterialID <id>") change once and

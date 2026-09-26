@@ -187,7 +187,7 @@ namespace Desert::Geometry
                     continue;
 
                 DynamicMesh3::MergeEdgesInfo MergeInfo;
-                const MeshResult             Result = m_Mesh->MergeEdges( eid, other_eid, MergeInfo );
+                const MeshResult             Result = m_Mesh->MergeEdges( eid, other_eid, MergeInfo, true );
                 if ( Result != MeshResult::Ok )
                 {
                     // a failed pair leaves both equivalence sets

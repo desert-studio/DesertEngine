@@ -368,7 +368,7 @@ TEST( DynamicMesh3Core, SetTriangleRewiresAndDropsIsolatedVertex )
     Mesh.AppendTriangle( 0, 1, 2 );
     const int T = Mesh.AppendTriangle( 3, 4, 5 );
     EXPECT_FALSE( Mesh.IsReferencedVertex( 6 ) );
-    EXPECT_EQ( Mesh.SetTriangle( T, Index3i( 3, 4, 6 ) ), MeshResult::Ok );
+    EXPECT_EQ( Mesh.SetTriangle( T, Index3i( 3, 4, 6 ), true ), MeshResult::Ok );
     EXPECT_TRUE( Valid( Mesh ) );
     EXPECT_EQ( Mesh.GetTriangle( T ), Index3i( 3, 4, 6 ) );
     EXPECT_FALSE( Mesh.IsVertex( 5 ) ); // left isolated, removed

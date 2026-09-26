@@ -217,7 +217,7 @@ TEST( DynamicMesh3Edits, SplitBoundaryEdgeAddsOneTriangle )
     const FCounts Before = Counts( Mesh );
 
     DynamicMesh3::EdgeSplitInfo Info;
-    ASSERT_EQ( Mesh.SplitEdge( EID, Info ), MeshResult::Ok );
+    ASSERT_EQ( Mesh.SplitEdge( EID, Info, 0.5 ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts After = Counts( Mesh );
     EXPECT_EQ( After.V, Before.V + 1 );
@@ -231,7 +231,7 @@ TEST( DynamicMesh3Edits, SplitBoundaryEdgeAddsOneTriangle )
     EXPECT_TRUE( Mesh.IsBoundaryVertex( Info.NewVertex ) );
 
     DynamicMesh3::EdgeSplitInfo Dead;
-    EXPECT_EQ( Mesh.SplitEdge( Mesh.MaxEdgeID() + 5, Dead ), MeshResult::Failed_NotAnEdge );
+    EXPECT_EQ( Mesh.SplitEdge( Mesh.MaxEdgeID() + 5, Dead, 0.5 ), MeshResult::Failed_NotAnEdge );
 }
 
 // ---------------------------------------------------------------- FlipEdge
@@ -305,7 +305,7 @@ TEST( DynamicMesh3Edits, CollapseInteriorEdgeRemovesOneVertexThreeEdgesTwoTriang
     const glm::dvec3 KeepP   = Mesh.GetVertex( Keep );
     const glm::dvec3 RemoveP = Mesh.GetVertex( Remove );
     ASSERT_NE( EID, DynamicMesh3::InvalidID );
-    EXPECT_EQ( Mesh.CanCollapseEdge( Keep, Remove ), MeshResult::Ok );
+    EXPECT_EQ( Mesh.CanCollapseEdge( Keep, Remove, 0.0 ), MeshResult::Ok );
 
     DynamicMesh3::EdgeCollapseInfo Info;
     ASSERT_EQ( Mesh.CollapseEdge( Keep, Remove, 0.5, Info ), MeshResult::Ok );
@@ -395,7 +395,7 @@ TEST( DynamicMesh3Edits, MergeEdgesWeldsTwoComponentsIntoOne )
     const int Discard = Mesh.FindEdge( 3, 4 );
 
     DynamicMesh3::MergeEdgesInfo Info;
-    ASSERT_EQ( Mesh.MergeEdges( Keep, Discard, Info ), MeshResult::Ok );
+    ASSERT_EQ( Mesh.MergeEdges( Keep, Discard, Info, true ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts After = Counts( Mesh );
     EXPECT_EQ( After.V, 4 );
@@ -416,7 +416,7 @@ TEST( DynamicMesh3Edits, MergeEdgesRefusesInteriorAndSameOrientation )
 {
     DynamicMesh3                 Same = MakeSeam( false );
     DynamicMesh3::MergeEdgesInfo Info;
-    EXPECT_EQ( Same.MergeEdges( Same.FindEdge( 1, 2 ), Same.FindEdge( 3, 4 ), Info ),
+    EXPECT_EQ( Same.MergeEdges( Same.FindEdge( 1, 2 ), Same.FindEdge( 3, 4 ), Info, true ),
                MeshResult::Failed_SameOrientation );
     EXPECT_EQ( Same.VertexCount(), 6 );
 
@@ -426,7 +426,7 @@ TEST( DynamicMesh3Edits, MergeEdgesRefusesInteriorAndSameOrientation )
     for ( int const E : Plane.EdgeIndicesItr() )
         ( Plane.IsBoundaryEdge( E ) ? Outer : Inner ) = E;
     ASSERT_NE( Inner, DynamicMesh3::InvalidID );
-    EXPECT_EQ( Plane.MergeEdges( Outer, Inner, Info ), MeshResult::Failed_NotABoundaryEdge );
+    EXPECT_EQ( Plane.MergeEdges( Outer, Inner, Info, true ), MeshResult::Failed_NotABoundaryEdge );
     EXPECT_TRUE( Valid( Plane ) );
 }
 

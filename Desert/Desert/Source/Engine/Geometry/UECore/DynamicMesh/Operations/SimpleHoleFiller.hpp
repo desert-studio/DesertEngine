@@ -30,7 +30,7 @@ namespace Desert::Geometry
         {
         }
 
-        bool Fill( int GroupID = -1 ) override;
+        bool Fill( int GroupID ) override;
 
     protected:
         bool Fill_Fan( int NewGroupID );

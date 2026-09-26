@@ -1292,7 +1292,7 @@ TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
         RunRound( run, groupEdges, N, 1.0 );
         ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
-        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        EXPECT_TRUE( run.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
         const MeshBevel::BevelEdge&   edge  = run.Bevel.m_Edges[0];
         const glm::dvec3              e0    = edge.InitialPositions[0];
         const glm::dvec3              dir   = Normalized( edge.InitialPositions.back() - e0 );
@@ -1338,7 +1338,7 @@ TEST( MeshBevel, RoundTopLoopLiesBetweenChamferAndCube )
         ASSERT_EQ( static_cast<int32_t>( run.Bevel.m_Loops.size() ), 1 );
         ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
-        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        EXPECT_TRUE( run.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
         const double volume = SignedVolume( run.Mesh );
         EXPECT_GT( volume, previous );
         EXPECT_LT( volume, 1.0e6 );
@@ -1371,7 +1371,7 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
         RunRound( run, groupEdges, N, 1.0 );
         ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
-        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        EXPECT_TRUE( run.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
         int patches = 0;
         for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
         {
@@ -1435,7 +1435,7 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
         RunRound( run, allEdges, N, 1.0 );
         ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
-        EXPECT_TRUE( run.Mesh.CheckValidity() );
+        EXPECT_TRUE( run.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
         int patches = 0;
         for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
         {
@@ -1569,7 +1569,7 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
             ASSERT_TRUE( flat.bApplied && tiny.bApplied ) << flat.Bevel.m_FailureReason;
             ExpectSameVertices( flat.Mesh, tiny.Mesh );
             EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
-            EXPECT_TRUE( run.Mesh.CheckValidity() );
+            EXPECT_TRUE( run.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
             const MeshBevel::BevelVertex* apex = nullptr;
             for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
             {
@@ -1675,7 +1675,7 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
     }
     EXPECT_EQ( patches, 1 );
     EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
-    EXPECT_TRUE( run.Mesh.CheckValidity() );
+    EXPECT_TRUE( run.Mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::Check ) );
 
     // The cut pyramid: apex (50, 50, 0), base in z = 50 bounded by the corner, A = (50, 50 - 5 sqrt 2), the end
     // column's Hermite points and B = (50 - 5 sqrt 2, 50). Tangents per MakeArcSplineCurve: A->B with its X part

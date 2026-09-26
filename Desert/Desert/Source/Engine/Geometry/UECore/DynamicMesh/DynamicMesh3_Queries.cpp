@@ -359,7 +359,7 @@ Index2i DynamicMesh3::GetOrientedBoundaryEdgeV( int eID ) const
 
 bool DynamicMesh3::IsGroupBoundaryEdge( int eID ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
     const Edge  Edge = m_Edges[eID];
@@ -376,7 +376,7 @@ bool DynamicMesh3::IsGroupBoundaryEdge( int eID ) const
 
 bool DynamicMesh3::IsGroupBoundaryVertex( int vID ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
     int group_id = InvalidID;
@@ -411,7 +411,7 @@ bool DynamicMesh3::IsGroupBoundaryVertex( int vID ) const
 
 bool DynamicMesh3::IsGroupJunctionVertex( int vID ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
     Index2i groups( InvalidID, InvalidID );
@@ -449,7 +449,7 @@ bool DynamicMesh3::IsGroupJunctionVertex( int vID ) const
 bool DynamicMesh3::GetVertexGroups( int vID, Index4i& groups ) const
 {
     groups = Index4i( InvalidID, InvalidID, InvalidID, InvalidID );
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
     int ng = 0;
 
@@ -487,7 +487,7 @@ bool DynamicMesh3::GetVertexGroups( int vID, Index4i& groups ) const
 template <typename ArrayType>
 bool DynamicMesh3::GetAllVertexGroups( int vID, ArrayType& GroupsOut ) const
 {
-    if ( !HasTriangleGroups() )
+    if ( !m_TriangleGroups.has_value() )
         return false;
 
     for ( int const eID : m_VertexEdgeLists.Values( vID ) )
@@ -633,7 +633,7 @@ AxisAlignedBox3d DynamicMesh3::GetBounds() const
         MinVec = Min( MinVec, m_Vertices[vi] );
         MaxVec = Max( MaxVec, m_Vertices[vi] );
     }
-    return AxisAlignedBox3d( MinVec, MaxVec );
+    return { MinVec, MaxVec };
 }
 
 /**
@@ -655,7 +655,7 @@ AxisAlignedBox3d DynamicMesh3::GetBoundsForVertexSelection( std::span<const int3
         MinVec            = Min( MinVec, m_Vertices[VID] );
         MaxVec            = Max( MaxVec, m_Vertices[VID] );
     }
-    return AxisAlignedBox3d( MinVec, MaxVec );
+    return { MinVec, MaxVec };
 }
 
 AxisAlignedBox3d DynamicMesh3::GetBoundsForTriangleSelection( std::span<const int32_t> TriangleIDs ) const
@@ -790,7 +790,7 @@ glm::dvec3 DynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, d
 glm::dvec3 DynamicMesh3::GetTriBaryNormal( int tID, double bary0, double bary1, double bary2 ) const
 {
     assert( HasVertexNormals() );
-    if ( HasVertexNormals() )
+    if ( m_VertexNormals.has_value() )
     {
         const Index3i&                  tIDs     = m_Triangles[tID];
         const DynamicVector<glm::vec3>& normalsR = m_VertexNormals.value();
@@ -815,26 +815,26 @@ void DynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double 
     vinfo                = VertexInfo();
     const Index3i& tIDs  = m_Triangles[tID];
     vinfo.Position       = bary0 * m_Vertices[tIDs[0]] + bary1 * m_Vertices[tIDs[1]] + bary2 * m_Vertices[tIDs[2]];
-    vinfo.bHaveN         = HasVertexNormals();
-    if ( vinfo.bHaveN )
+    if ( m_VertexNormals.has_value() )
     {
+        vinfo.bHaveN                             = true;
         const DynamicVector<glm::vec3>& normalsR = this->m_VertexNormals.value();
         vinfo.Normal                             = static_cast<float>( bary0 ) * normalsR[tIDs[0]] +
                        static_cast<float>( bary1 ) * normalsR[tIDs[1]] +
                        static_cast<float>( bary2 ) * normalsR[tIDs[2]];
         Normalize( vinfo.Normal );
     }
-    vinfo.bHaveC = HasVertexColors();
-    if ( vinfo.bHaveC )
+    if ( m_VertexColors.has_value() )
     {
+        vinfo.bHaveC                            = true;
         const DynamicVector<glm::vec3>& colorsR = this->m_VertexColors.value();
         vinfo.Color                             = static_cast<float>( bary0 ) * colorsR[tIDs[0]] +
                       static_cast<float>( bary1 ) * colorsR[tIDs[1]] +
                       static_cast<float>( bary2 ) * colorsR[tIDs[2]];
     }
-    vinfo.bHaveUV = HasVertexUVs();
-    if ( vinfo.bHaveUV )
+    if ( m_VertexUVs.has_value() )
     {
+        vinfo.bHaveUV                       = true;
         const DynamicVector<glm::vec2>& uvR = this->m_VertexUVs.value();
         vinfo.UV = static_cast<float>( bary0 ) * uvR[tIDs[0]] + static_cast<float>( bary1 ) * uvR[tIDs[1]] +
                    static_cast<float>( bary2 ) * uvR[tIDs[2]];
@@ -847,7 +847,7 @@ AxisAlignedBox3d DynamicMesh3::GetTriBounds( int tID ) const
     const glm::dvec3& A    = m_Vertices[tIDs.A];
     const glm::dvec3& B    = m_Vertices[tIDs.B];
     const glm::dvec3& C    = m_Vertices[tIDs.C];
-    return AxisAlignedBox3d( A, B, C );
+    return { A, B, C };
 }
 
 double DynamicMesh3::GetTriSolidAngle( int tID, const glm::dvec3& p ) const
@@ -881,10 +881,7 @@ double DynamicMesh3::GetTriInternalAngleR( int tID, int i ) const
     {
         return AngleR( Normalized( TV[0] - TV[1] ), Normalized( TV[2] - TV[1] ) );
     }
-    else
-    {
-        return AngleR( Normalized( TV[0] - TV[2] ), Normalized( TV[1] - TV[2] ) );
-    }
+    return AngleR( Normalized( TV[0] - TV[2] ), Normalized( TV[1] - TV[2] ) );
 }
 
 glm::dvec3 DynamicMesh3::GetTriInternalAnglesR( int tID ) const

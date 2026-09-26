@@ -267,7 +267,7 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
     EXPECT_TRUE( loops.m_Loops[0].IsBoundaryLoop( mesh ) );
 
     SimpleHoleFiller filler( &mesh, loops.m_Loops[0] );
-    ASSERT_TRUE( filler.Fill() ) << filler.m_FailureReason;
+    ASSERT_TRUE( filler.Fill( -1 ) ) << filler.m_FailureReason;
     EXPECT_EQ( static_cast<int32_t>( filler.m_NewTriangles.size() ), 4 );
     EXPECT_TRUE( mesh.IsClosed() );
     int open = 0;

@@ -12,6 +12,6 @@ namespace Desert::Geometry
         std::vector<int> m_NewTriangles;
 
         virtual ~IHoleFiller()                = default;
-        virtual bool Fill( int GroupID = -1 ) = 0;
+        virtual bool Fill( int GroupID )      = 0;
     };
 } // namespace Desert::Geometry
