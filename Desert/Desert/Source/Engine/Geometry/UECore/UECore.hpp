@@ -38,12 +38,6 @@ namespace Desert::Geometry
 {
     inline constexpr int32_t INDEX_NONE = -1;
 
-    enum class EAllowShrinking : uint8_t
-    {
-        No,
-        Yes
-    };
-
     // Templates/MemoryOps.h: element-wise equality of two runs.
     template <typename T>
     bool CompareItems( const T* A, const T* B, size_t Count )

@@ -344,15 +344,15 @@ namespace Desert::Geometry
                  const_cast<const DynamicVector&>( *this ).GetElement( BlockIndex, IndexInBlock ) );
         }
 
-        void TruncateBlocks( int32_t NewBlockCount, EAllowShrinking AllowShrinking )
+        // UE's EAllowShrinking argument is dropped: every caller passed No, and std::vector::erase never shrinks.
+        void TruncateBlocks( int32_t NewBlockCount )
         {
             if ( static_cast<int32_t>( Blocks.size() ) - NewBlockCount <= 0 )
             {
                 return;
             }
 
-            Blocks.erase( Blocks.begin() + NewBlockCount,
-                          Blocks.begin() + NewBlockCount + static_cast<int32_t>( Blocks.size() ) - NewBlockCount );
+            Blocks.erase( Blocks.begin() + NewBlockCount, Blocks.end() );
         }
 
         template <int32_t BlockSizeRhs>
@@ -558,7 +558,7 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     void DynamicVector<Type, BlockSize>::Clear()
     {
-        TruncateBlocks( 1, EAllowShrinking::No );
+        TruncateBlocks( 1 );
         CurBlock     = 0;
         CurBlockUsed = 0;
         if ( Blocks.empty() )
@@ -608,7 +608,7 @@ namespace Desert::Geometry
         // Remove unneeded blocks.
         if ( NumBlocksCurrent > NumBlocksNeeded )
         {
-            TruncateBlocks( NumBlocksNeeded, EAllowShrinking::No );
+            TruncateBlocks( NumBlocksNeeded );
         }
 
         // Set current block.
