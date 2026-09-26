@@ -237,27 +237,35 @@ namespace Desert::Graphic::API::Vulkan
         // EVERY REFUSAL BELOW FREES THE BUFFER. Its row is gone from m_OneShotPools, so nothing else would
         // ever free it: a refusal that only returned would leak the buffer (and the fence, once created)
         // for the life of its pool. A buffer that was never submitted is not pending, so freeing it is legal.
-        const auto refuse = [&]( std::string reason ) -> Common::ResultStr<Submitted>
+        const auto refuse = [&]( const std::string& reason ) -> Common::ResultStr<Submitted>
         {
             if ( submitted.Fence != VK_NULL_HANDLE )
                 vkDestroyFence( m_LogicalDevice, submitted.Fence, nullptr );
             vkFreeCommandBuffers( m_LogicalDevice, submitted.Pool, 1, &submitted.Buffer );
-            return Common::MakeError<Submitted>( std::move( reason ) );
+            return Common::MakeError<Submitted>( reason );
         };
         if ( !Graphic::DeviceLost::AllowWork() )
             return refuse( "the device is lost; the one-off command buffer is dropped rather than submitted." );
 
         if ( const VkResult ended = vkEndCommandBuffer( commandBuffer ); ended != VK_SUCCESS )
             return refuse( std::format( "vkEndCommandBuffer failed: {}", VkResultToString( ended ) ) );
-        const VkFenceCreateInfo fenceInfo = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+        const VkFenceCreateInfo fenceInfo = {
+             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0 };
         if ( const VkResult created = vkCreateFence( m_LogicalDevice, &fenceInfo, nullptr, &submitted.Fence );
              created != VK_SUCCESS )
         {
             submitted.Fence = VK_NULL_HANDLE;
             return refuse( std::format( "vkCreateFence failed: {}", VkResultToString( created ) ) );
         }
-        const VkSubmitInfo submitInfo = {
-             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &commandBuffer };
+        const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                          .pNext                = nullptr,
+                                          .waitSemaphoreCount   = 0,
+                                          .pWaitSemaphores      = nullptr,
+                                          .pWaitDstStageMask    = nullptr,
+                                          .commandBufferCount   = 1,
+                                          .pCommandBuffers      = &commandBuffer,
+                                          .signalSemaphoreCount = 0,
+                                          .pSignalSemaphores    = nullptr };
         if ( const VkResult result = vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
              result != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( result ) ) );

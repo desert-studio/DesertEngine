@@ -650,12 +650,12 @@ namespace Desert::Graphic::API::Vulkan
                 Allocator()->RT_DestroyBuffer( m_Staging, m_Allocation );
             }
 
-            bool IsComplete() const override
+            [[nodiscard]] bool IsComplete() const override
             {
                 return CommandBufferAllocator::GetInstance().IsComplete( m_Submitted );
             }
 
-            Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const override
+            [[nodiscard]] Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const override
             {
                 if ( !IsComplete() )
                     return Common::MakeError<std::vector<uint8_t>>(
@@ -768,6 +768,7 @@ namespace Desert::Graphic::API::Vulkan
         // The fence alone does not make the copy's writes visible to a host read: without this the worker
         // may map the staging buffer and read bytes the transfer has not yet made available to the host.
         const VkBufferMemoryBarrier toHost = { .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                                               .pNext               = nullptr,
                                                .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
                                                .dstAccessMask       = VK_ACCESS_HOST_READ_BIT,
                                                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,

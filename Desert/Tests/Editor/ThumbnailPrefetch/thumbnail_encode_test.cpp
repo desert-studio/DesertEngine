@@ -10,6 +10,7 @@
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -53,8 +54,8 @@ namespace
             budget.EndFrame();
             if ( inFlight > 0 )
             {
-                budget.Spend( first && tick == 0 ? kFirstCaptureTickMs
-                                                 : ( tick < kRenderTicks ? kRenderTickMs : kInFlightTickMs ) );
+                const double renderOrFlight = tick < kRenderTicks ? kRenderTickMs : kInFlightTickMs;
+                budget.Spend( first && tick == 0 ? kFirstCaptureTickMs : renderOrFlight );
                 ++tick;
                 if ( --inFlight == 0 )
                     first = false;
@@ -78,10 +79,11 @@ namespace
 TEST( ThumbnailEncode, DownscaleAveragesEachBlock )
 {
     // 4x4 -> 2x2: each output pixel is the mean of one 2x2 block.
-    std::vector<uint8_t> src( 4 * 4 * 4, 0 );
+    std::vector<uint8_t> src( size_t{ 4 } * 4 * 4, 0 );
     for ( uint32_t y = 0; y < 4; ++y )
         for ( uint32_t x = 0; x < 4; ++x )
-            src[( ( y * 4 ) + x ) * 4] = static_cast<uint8_t>( ( x < 2 && y < 2 ) ? ( ( x + y ) * 40 ) : 200 );
+            src[( ( static_cast<size_t>( y ) * 4 ) + x ) * 4] =
+                 static_cast<uint8_t>( ( x < 2 && y < 2 ) ? ( ( x + y ) * 40 ) : 200 );
     const auto out = Encode::Downscale( src, 4, 2 );
     ASSERT_TRUE( out.IsSuccess() ) << out.GetError();
     EXPECT_EQ( out.GetValue()[0], ( 0 + 40 + 40 + 80 ) / 4 );
@@ -93,7 +95,7 @@ TEST( ThumbnailEncode, DownscaleRefusesAMismatchedBufferByName )
     const auto out = Encode::Downscale( std::vector<uint8_t>( 10 ), 4, 2 );
     ASSERT_FALSE( out.IsSuccess() );
     EXPECT_NE( out.GetError().find( "expected 64" ), std::string::npos ) << out.GetError();
-    EXPECT_FALSE( Encode::Downscale( std::vector<uint8_t>( 3 * 3 * 4 ), 3, 2 ).IsSuccess() );
+    EXPECT_FALSE( Encode::Downscale( std::vector<uint8_t>( size_t{ 3 } * 3 * 4 ), 3, 2 ).IsSuccess() );
 }
 
 TEST( ThumbnailEncode, WritePngLeavesTheFinishedPictureAndNoPart )
@@ -102,7 +104,7 @@ TEST( ThumbnailEncode, WritePngLeavesTheFinishedPictureAndNoPart )
     std::filesystem::remove_all( dir );
     const std::string png = ( dir / "sub" / "a.png" ).string();
 
-    std::vector<uint8_t> rgba( 8 * 8 * 4, 0 );
+    std::vector<uint8_t> rgba( size_t{ 8 } * 8 * 4, 0 );
     for ( std::size_t i = 0; i < rgba.size(); i += 4 )
     {
         rgba[i]     = 10;
