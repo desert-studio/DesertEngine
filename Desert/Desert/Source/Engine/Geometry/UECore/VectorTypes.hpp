@@ -8,90 +8,90 @@
 namespace Desert::Geometry
 {
     template <typename T>
-    TVector2<T> Lerp( const TVector2<T>& A, const TVector2<T>& B, T Alpha )
+    glm::vec<2, T> Lerp( const glm::vec<2, T>& A, const glm::vec<2, T>& B, T Alpha )
     {
         T OneMinusAlpha = (T)1 - Alpha;
-        return TVector2<T>( OneMinusAlpha * A.X + Alpha * B.X, OneMinusAlpha * A.Y + Alpha * B.Y );
+        return glm::vec<2, T>( OneMinusAlpha * A.x + Alpha * B.x, OneMinusAlpha * A.y + Alpha * B.y );
     }
 
     template <typename T>
-    constexpr bool IsNormalized( const TVector<T>& Vector, const T Tolerance = TMathUtil<T>::ZeroTolerance )
+    constexpr bool IsNormalized( const glm::vec<3, T>& Vector, const T Tolerance = TMathUtil<T>::ZeroTolerance )
     {
-        return TMathUtil<T>::Abs( ( Vector.X * Vector.X + Vector.Y * Vector.Y + Vector.Z * Vector.Z ) - 1 ) <
+        return TMathUtil<T>::Abs( ( Vector.x * Vector.x + Vector.y * Vector.y + Vector.z * Vector.z ) - 1 ) <
                Tolerance;
     }
 
     template <typename T>
-    T Normalize( TVector<T>& Vector, const T Epsilon = 0 )
+    T Normalize( glm::vec<3, T>& Vector, const T Epsilon = 0 )
     {
-        T length = Vector.Length();
+        T length = glm::length( Vector );
         if ( length > Epsilon )
         {
             T invLength = ( (T)1 ) / length;
-            Vector.X *= invLength;
-            Vector.Y *= invLength;
-            Vector.Z *= invLength;
+            Vector.x *= invLength;
+            Vector.y *= invLength;
+            Vector.z *= invLength;
             return length;
         }
-        Vector.X = Vector.Y = Vector.Z = (T)0;
+        Vector.x = Vector.y = Vector.z = (T)0;
         return (T)0;
     }
 
     template <typename T>
-    constexpr TVector<T> Normalized( const TVector<T>& Vector, const T Epsilon = 0 )
+    constexpr glm::vec<3, T> Normalized( const glm::vec<3, T>& Vector, const T Epsilon = 0 )
     {
-        T length = Vector.Length();
+        T length = glm::length( Vector );
         if ( length > Epsilon )
         {
             T invLength = ( (T)1 ) / length;
-            return TVector<T>( Vector.X * invLength, Vector.Y * invLength, Vector.Z * invLength );
+            return glm::vec<3, T>( Vector.x * invLength, Vector.y * invLength, Vector.z * invLength );
         }
-        return TVector<T>( (T)0, (T)0, (T)0 );
+        return glm::vec<3, T>( (T)0, (T)0, (T)0 );
     }
 
     template <typename T>
-    T Distance( const TVector<T>& V1, const TVector<T>& V2 )
+    T Distance( const glm::vec<3, T>& V1, const glm::vec<3, T>& V2 )
     {
-        T dx = V2.X - V1.X;
-        T dy = V2.Y - V1.Y;
-        T dz = V2.Z - V1.Z;
+        T dx = V2.x - V1.x;
+        T dy = V2.y - V1.y;
+        T dz = V2.z - V1.z;
         return TMathUtil<T>::Sqrt( dx * dx + dy * dy + dz * dz );
     }
 
     template <typename T>
-    T DistanceSquared( const TVector<T>& V1, const TVector<T>& V2 )
+    T DistanceSquared( const glm::vec<3, T>& V1, const glm::vec<3, T>& V2 )
     {
-        T dx = V2.X - V1.X;
-        T dy = V2.Y - V1.Y;
-        T dz = V2.Z - V1.Z;
+        T dx = V2.x - V1.x;
+        T dy = V2.y - V1.y;
+        T dz = V2.z - V1.z;
         return dx * dx + dy * dy + dz * dz;
     }
 
     template <typename T>
-    T AngleR( const TVector<T>& V1, const TVector<T>& V2 )
+    T AngleR( const glm::vec<3, T>& V1, const glm::vec<3, T>& V2 )
     {
-        T DotVal     = V1.Dot( V2 );
+        T DotVal     = glm::dot( V1, V2 );
         T ClampedDot = ( DotVal < (T)-1 ) ? (T)-1 : ( ( DotVal > (T)1 ) ? (T)1 : DotVal );
         return TMathUtil<T>::ACos( ClampedDot );
     }
 
     template <typename T>
-    TVector<T> Lerp( const TVector<T>& A, const TVector<T>& B, T Alpha )
+    glm::vec<3, T> Lerp( const glm::vec<3, T>& A, const glm::vec<3, T>& B, T Alpha )
     {
         T OneMinusAlpha = (T)1 - Alpha;
-        return TVector<T>( OneMinusAlpha * A.X + Alpha * B.X, OneMinusAlpha * A.Y + Alpha * B.Y,
-                           OneMinusAlpha * A.Z + Alpha * B.Z );
+        return glm::vec<3, T>( OneMinusAlpha * A.x + Alpha * B.x, OneMinusAlpha * A.y + Alpha * B.y,
+                               OneMinusAlpha * A.z + Alpha * B.z );
     }
 
     template <typename T>
-    TVector<T> Min( const TVector<T>& A, const TVector<T>& B )
+    glm::vec<3, T> Min( const glm::vec<3, T>& A, const glm::vec<3, T>& B )
     {
-        return TVector<T>( std::min( A.X, B.X ), std::min( A.Y, B.Y ), std::min( A.Z, B.Z ) );
+        return glm::vec<3, T>( std::min( A.x, B.x ), std::min( A.y, B.y ), std::min( A.z, B.z ) );
     }
 
     template <typename T>
-    TVector<T> Max( const TVector<T>& A, const TVector<T>& B )
+    glm::vec<3, T> Max( const glm::vec<3, T>& A, const glm::vec<3, T>& B )
     {
-        return TVector<T>( std::max( A.X, B.X ), std::max( A.Y, B.Y ), std::max( A.Z, B.Z ) );
+        return glm::vec<3, T>( std::max( A.x, B.x ), std::max( A.y, B.y ), std::max( A.z, B.z ) );
     }
 } // namespace Desert::Geometry

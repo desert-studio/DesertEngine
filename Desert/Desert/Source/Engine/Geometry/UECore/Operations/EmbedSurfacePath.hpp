@@ -35,12 +35,12 @@ namespace Desert::Geometry
     struct FMeshSurfacePoint
     {
         int               ElementID = -1;
-        FVector3d         BaryCoord = FVector3d::Zero();
+        glm::dvec3        BaryCoord = glm::dvec3( 0 );
         ESurfacePointType PointType = ESurfacePointType::Vertex;
 
         FMeshSurfacePoint() = default;
 
-        FMeshSurfacePoint( int TriangleID, const FVector3d& InBaryCoord )
+        FMeshSurfacePoint( int TriangleID, const glm::dvec3& InBaryCoord )
              : ElementID( TriangleID ), BaryCoord( InBaryCoord ), PointType( ESurfacePointType::Triangle )
         {
         }
@@ -49,7 +49,7 @@ namespace Desert::Geometry
         {
         }
 
-        FMeshSurfacePoint( int InElementID, const FVector3d& InBaryCoord, ESurfacePointType InPointType )
+        FMeshSurfacePoint( int InElementID, const glm::dvec3& InBaryCoord, ESurfacePointType InPointType )
              : ElementID( InElementID ), BaryCoord( InBaryCoord ), PointType( InPointType )
         {
         }
@@ -57,7 +57,7 @@ namespace Desert::Geometry
         /** A point on edge EdgeID at LerpParam from the edge's first vertex (GetEdgeV order) to its second. */
         static FMeshSurfacePoint MakeEdgePoint( int32_t EdgeID, double LerpParam )
         {
-            return { EdgeID, FVector3d( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge };
+            return { EdgeID, glm::dvec3( 1 - LerpParam, LerpParam, 0. ), ESurfacePointType::Edge };
         }
 
         /** @return the parameter to pass to FDynamicMesh3::SplitEdge to split the edge at this point */
@@ -67,7 +67,7 @@ namespace Desert::Geometry
             return BaryCoord[1];
         }
 
-        FVector3d Pos( const FDynamicMesh3* Mesh ) const;
+        glm::dvec3 Pos( const FDynamicMesh3* Mesh ) const;
     };
 
     /**

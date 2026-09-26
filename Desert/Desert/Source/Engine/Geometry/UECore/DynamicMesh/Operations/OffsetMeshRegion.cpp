@@ -86,12 +86,12 @@ namespace Desert::Geometry
         {
             FIndex2i         Vids1      = Mesh->GetEdgeV( Eid1 );
             FIndex2i         Vids2      = Mesh->GetEdgeV( Eid2 );
-            FVector3d        Vec1       = Mesh->GetVertex( Vids1.A ) - Mesh->GetVertex( Vids1.B );
-            FVector3d        Vec2       = Mesh->GetVertex( Vids2.A ) - Mesh->GetVertex( Vids2.B );
+            glm::dvec3       Vec1       = Mesh->GetVertex( Vids1.A ) - Mesh->GetVertex( Vids1.B );
+            glm::dvec3       Vec2       = Mesh->GetVertex( Vids2.A ) - Mesh->GetVertex( Vids2.B );
             constexpr double KindaSmall = 1e-4;
             if ( Normalize( Vec1, KindaSmall ) == 0 || Normalize( Vec2, KindaSmall ) == 0 )
                 return true;
-            return std::abs( Vec1.Dot( Vec2 ) ) >= 1 - KindaSmall;
+            return std::abs( glm::dot( Vec1, Vec2 ) ) >= 1 - KindaSmall;
         }
 
         int32_t FindLoopShiftFromGroupIDs( const TArray<int32_t>& GroupIDs )
@@ -118,10 +118,10 @@ namespace Desert::Geometry
             Values = Tmp;
         }
 
-        FVector3d GetAngleWeightedAverageNormal( const FDynamicMesh3& Mesh, int32_t VertexID,
-                                                 const TSet<int32_t>& TriangleList )
+        glm::dvec3 GetAngleWeightedAverageNormal( const FDynamicMesh3& Mesh, int32_t VertexID,
+                                                  const TSet<int32_t>& TriangleList )
         {
-            FVector3d ExtrusionVector( 0, 0, 0 );
+            glm::dvec3 ExtrusionVector( 0, 0, 0 );
             for ( int32_t const TriangleID : Mesh.VtxTrianglesItr( VertexID ) )
                 if ( TriangleList.Contains( TriangleID ) )
                 {
@@ -133,10 +133,10 @@ namespace Desert::Geometry
             return ExtrusionVector;
         }
 
-        FVector3d GetAngleWeightedAdjustedNormal( const FDynamicMesh3& Mesh, int32_t VertexID,
-                                                  const TSet<int32_t>& TriangleList, double MaxAdjustmentScale )
+        glm::dvec3 GetAngleWeightedAdjustedNormal( const FDynamicMesh3& Mesh, int32_t VertexID,
+                                                   const TSet<int32_t>& TriangleList, double MaxAdjustmentScale )
         {
-            FVector3d InitialExtrusionVector = GetAngleWeightedAverageNormal( Mesh, VertexID, TriangleList );
+            glm::dvec3 InitialExtrusionVector = GetAngleWeightedAverageNormal( Mesh, VertexID, TriangleList );
             double    AngleSum = 0, Adjustment = 0;
             double    InvertedMaxScale = std::max( 1e-8, 1.0 / MaxAdjustmentScale );
             for ( int32_t const TriangleID : Mesh.VtxTrianglesItr( VertexID ) )
@@ -144,7 +144,7 @@ namespace Desert::Geometry
                 {
                     FIndex3i Triangle = Mesh.GetTriangle( TriangleID );
                     double   Angle    = Mesh.GetTriInternalAngleR( TriangleID, Triangle.IndexOf( VertexID ) );
-                    double   CosTheta = Mesh.GetTriNormal( TriangleID ).Dot( InitialExtrusionVector );
+                    double   CosTheta = glm::dot( Mesh.GetTriNormal( TriangleID ), InitialExtrusionVector );
                     CosTheta          = std::max( CosTheta, InvertedMaxScale );
                     Adjustment += Angle / CosTheta;
                     AngleSum += Angle;
@@ -177,10 +177,10 @@ namespace Desert::Geometry
                     int32_t const EdgeIdx = Mesh.GetTriEdges( t ).IndexOf( EdgeID );
                     if ( EdgeIdx < 0 )
                         continue;
-                    FVector2f UVs[3];
+                    glm::vec2 UVs[3]{};
                     UVOverlay.GetTriElements( t, UVs[0], UVs[1], UVs[2] );
-                    const FVector2f D = UVs[EdgeIdx] - UVs[( EdgeIdx + 1 ) % 3];
-                    EdgeUV += std::sqrt( (double)D.X * D.X + (double)D.Y * D.Y );
+                    const glm::vec2 D = UVs[EdgeIdx] - UVs[( EdgeIdx + 1 ) % 3];
+                    EdgeUV += std::sqrt( (double)D.x * D.x + (double)D.y * D.y );
                     Count++;
                 }
                 if ( Count > 0 )
@@ -234,8 +234,8 @@ namespace Desert::Geometry
                 double DistV = Distance( Mesh.GetVertex( Strip.Outer[k] ), Mesh.GetVertex( Strip.Inner[k] ) );
                 float  UseU  = (float)( UVLengthScale * AccumDistU * UVScaleFactor );
                 float  EndV  = (float)( UVLengthScale * DistV * UVScaleFactor );
-                Row0.Add( UVOverlay->AppendElement( FVector2f( UseU, 0.0f ) ) );
-                Row1.Add( UVOverlay->AppendElement( FVector2f( UseU, EndV ) ) );
+                Row0.Add( UVOverlay->AppendElement( glm::vec2( UseU, 0.0f ) ) );
+                Row1.Add( UVOverlay->AppendElement( glm::vec2( UseU, EndV ) ) );
                 if ( k < NumU - 1 )
                     AccumDistU +=
                          Distance( Mesh.GetVertex( Strip.Outer[k] ), Mesh.GetVertex( Strip.Outer[k + 1] ) );
@@ -413,14 +413,14 @@ namespace Desert::Geometry
             SelectedVids.Add( v );
         std::sort( SelectedVids.begin(), SelectedVids.end() );
 
-        TArray<FVector3d> VertexExtrudeVectors;
+        TArray<glm::dvec3> VertexExtrudeVectors;
         VertexExtrudeVectors.SetNum( SelectedVids.Num() );
         for ( int32_t i = 0; i < SelectedVids.Num(); ++i )
         {
             switch ( ExtrusionVectorType )
             {
                 case EVertexExtrusionVectorType::Zero:
-                    VertexExtrudeVectors[i] = FVector3d( 0, 0, 0 );
+                    VertexExtrudeVectors[i] = glm::dvec3( 0, 0, 0 );
                     break;
                 case EVertexExtrusionVectorType::VertexNormal:
                     VertexExtrudeVectors[i] = FMeshNormals::ComputeVertexNormal( *Mesh, SelectedVids[i] );

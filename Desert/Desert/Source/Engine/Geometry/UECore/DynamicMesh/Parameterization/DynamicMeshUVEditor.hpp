@@ -28,7 +28,7 @@ namespace Desert::Geometry
 
         void ResetUVs( const TArray<int32_t>& Triangles );
         void TransformUVElements( const TArray<int32_t>&                              ElementIDs,
-                                  const std::function<FVector2f( const FVector2f& )>& TransformFunc );
+                                  const std::function<glm::vec2( const glm::vec2& )>& TransformFunc );
 
         /** Frame at the vertex farthest (Dijkstra) from the longest boundary loop; false without a boundary. */
         static bool EstimateGeodesicCenterFrameVertex( const FDynamicMesh3& Mesh, FFrame3d& FrameOut,

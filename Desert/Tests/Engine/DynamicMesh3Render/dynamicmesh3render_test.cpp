@@ -64,7 +64,7 @@ namespace
         const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
         struct Face
         {
-            glm::vec3 N, U, V;
+            glm::vec3 N{}, U{}, V{};
         };
         const Face faces[6] = { { X, Y, Z }, { -X, Z, Y }, { Y, Z, X }, { -Y, X, Z }, { Z, X, Y }, { -Z, Y, X } };
         RenderMeshData render;
@@ -232,15 +232,15 @@ TEST( DynamicMesh3Render, HardCubeFromFaceGroupsIs24VerticesWithFaceNormals )
     ASSERT_EQ( render.Vertices.size(), 24u );
     for ( size_t k = 0; k < render.Indices.size(); ++k )
     {
-        const FVector3d face   = mesh.GetTriNormal( render.SourceTriangles[k] );
+        const glm::dvec3 face   = mesh.GetTriNormal( render.SourceTriangles[k] );
         const Index&    index  = render.Indices[k];
         const uint32_t  offset = render.Submeshes[k < 6 ? 0 : 1].VertexOffset;
         for ( const uint32_t local : { index.V1, index.V2, index.V3 } )
         {
             const glm::vec3& n = render.Vertices[offset + local].Normal;
-            EXPECT_NEAR( n.x, face.X, 1e-6 );
-            EXPECT_NEAR( n.y, face.Y, 1e-6 );
-            EXPECT_NEAR( n.z, face.Z, 1e-6 );
+            EXPECT_NEAR( n.x, face.x, 1e-6 );
+            EXPECT_NEAR( n.y, face.y, 1e-6 );
+            EXPECT_NEAR( n.z, face.z, 1e-6 );
         }
     }
 }
@@ -265,12 +265,12 @@ TEST( DynamicMesh3Render, SphereSmoothNormalsFollowTheRadius )
     FMeshNormals vertexNormals( &mesh );
     vertexNormals.ComputeVertexNormals();
     for ( const int vid : mesh.VertexIndicesItr() )
-        EXPECT_GT( vertexNormals[vid].Dot( Normalized( mesh.GetVertex( vid ) ) ), 0.995 );
+        EXPECT_GT( glm::dot( vertexNormals[vid], Normalized( mesh.GetVertex( vid ) ) ), 0.995 );
 
     FMeshNormals triangleNormals( &mesh );
     triangleNormals.ComputeTriangleNormals();
     for ( const int tid : mesh.TriangleIndicesItr() )
-        EXPECT_GT( triangleNormals[tid].Dot( Normalized( mesh.GetTriCentroid( tid ) ) ), 0.95 );
+        EXPECT_GT( glm::dot( triangleNormals[tid], Normalized( mesh.GetTriCentroid( tid ) ) ), 0.95 );
 }
 
 TEST( DynamicMesh3Render, AngleWeightingIsSymmetricAtCubeCornersAreaWeightingIsNot )
@@ -281,12 +281,12 @@ TEST( DynamicMesh3Render, AngleWeightingIsSymmetricAtCubeCornersAreaWeightingIsN
     bool                areaLeans = false;
     for ( const int vid : mesh.VertexIndicesItr() )
     {
-        const FVector3d angle = FMeshNormals::ComputeVertexNormal( mesh, vid, false, true );
-        const FVector3d area  = FMeshNormals::ComputeVertexNormal( mesh, vid, true, false );
-        EXPECT_NEAR( std::abs( angle.X ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        EXPECT_NEAR( std::abs( angle.Y ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        EXPECT_NEAR( std::abs( angle.Z ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        areaLeans |= std::abs( std::abs( area.X ) - 1.0 / std::sqrt( 3.0 ) ) > 1e-3;
+        const glm::dvec3 angle = FMeshNormals::ComputeVertexNormal( mesh, vid, false, true );
+        const glm::dvec3 area  = FMeshNormals::ComputeVertexNormal( mesh, vid, true, false );
+        EXPECT_NEAR( std::abs( angle.x ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
+        EXPECT_NEAR( std::abs( angle.y ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
+        EXPECT_NEAR( std::abs( angle.z ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
+        areaLeans |= std::abs( std::abs( area.x ) - 1.0 / std::sqrt( 3.0 ) ) > 1e-3;
     }
     EXPECT_TRUE( areaLeans );
 }

@@ -11,8 +11,8 @@ namespace Desert::Geometry
     template <typename RealType>
     struct TAxisAlignedBox3
     {
-        TVector<RealType> Min;
-        TVector<RealType> Max;
+        glm::vec<3, RealType> Min{};
+        glm::vec<3, RealType> Max{};
 
         TAxisAlignedBox3()
              : Min( TMathUtil<RealType>::MaxReal, TMathUtil<RealType>::MaxReal, TMathUtil<RealType>::MaxReal ),
@@ -20,16 +20,17 @@ namespace Desert::Geometry
         {
         }
 
-        TAxisAlignedBox3( const TVector<RealType>& MinIn, const TVector<RealType>& MaxIn )
+        TAxisAlignedBox3( const glm::vec<3, RealType>& MinIn, const glm::vec<3, RealType>& MaxIn )
              : Min( MinIn ), Max( MaxIn )
         {
         }
 
-        TAxisAlignedBox3( const TVector<RealType>& A, const TVector<RealType>& B, const TVector<RealType>& C )
-             : Min( std::min( A.X, std::min( B.X, C.X ) ), std::min( A.Y, std::min( B.Y, C.Y ) ),
-                    std::min( A.Z, std::min( B.Z, C.Z ) ) ),
-               Max( std::max( A.X, std::max( B.X, C.X ) ), std::max( A.Y, std::max( B.Y, C.Y ) ),
-                    std::max( A.Z, std::max( B.Z, C.Z ) ) )
+        TAxisAlignedBox3( const glm::vec<3, RealType>& A, const glm::vec<3, RealType>& B,
+                          const glm::vec<3, RealType>& C )
+             : Min( std::min( A.x, std::min( B.x, C.x ) ), std::min( A.y, std::min( B.y, C.y ) ),
+                    std::min( A.z, std::min( B.z, C.z ) ) ),
+               Max( std::max( A.x, std::max( B.x, C.x ) ), std::max( A.y, std::max( B.y, C.y ) ),
+                    std::max( A.z, std::max( B.z, C.z ) ) )
         {
         }
 
@@ -38,51 +39,51 @@ namespace Desert::Geometry
             return TAxisAlignedBox3();
         }
 
-        TVector<RealType> Center() const
+        glm::vec<3, RealType> Center() const
         {
-            return TVector<RealType>( ( Min.X + Max.X ) * (RealType)0.5, ( Min.Y + Max.Y ) * (RealType)0.5,
-                                      ( Min.Z + Max.Z ) * (RealType)0.5 );
+            return glm::vec<3, RealType>( ( Min.x + Max.x ) * (RealType)0.5, ( Min.y + Max.y ) * (RealType)0.5,
+                                          ( Min.z + Max.z ) * (RealType)0.5 );
         }
 
-        TVector<RealType> Extents() const
+        glm::vec<3, RealType> Extents() const
         {
             return ( Max - Min ) * (RealType)0.5;
         }
 
         RealType DiagonalLength() const
         {
-            return TMathUtil<RealType>::Sqrt( ( Max - Min ).SquaredLength() );
+            return TMathUtil<RealType>::Sqrt( glm::length2( ( Max - Min ) ) );
         }
 
         bool IsEmpty() const
         {
-            return Max.X < Min.X || Max.Y < Min.Y || Max.Z < Min.Z;
+            return Max.x < Min.x || Max.y < Min.y || Max.z < Min.z;
         }
 
-        void Contain( const TVector<RealType>& V )
+        void Contain( const glm::vec<3, RealType>& V )
         {
-            if ( V.X < Min.X )
-                Min.X = V.X;
-            if ( V.X > Max.X )
-                Max.X = V.X;
-            if ( V.Y < Min.Y )
-                Min.Y = V.Y;
-            if ( V.Y > Max.Y )
-                Max.Y = V.Y;
-            if ( V.Z < Min.Z )
-                Min.Z = V.Z;
-            if ( V.Z > Max.Z )
-                Max.Z = V.Z;
+            if ( V.x < Min.x )
+                Min.x = V.x;
+            if ( V.x > Max.x )
+                Max.x = V.x;
+            if ( V.y < Min.y )
+                Min.y = V.y;
+            if ( V.y > Max.y )
+                Max.y = V.y;
+            if ( V.z < Min.z )
+                Min.z = V.z;
+            if ( V.z > Max.z )
+                Max.z = V.z;
         }
 
         void Contain( const TAxisAlignedBox3<RealType>& Other )
         {
-            Min.X = Min.X < Other.Min.X ? Min.X : Other.Min.X;
-            Min.Y = Min.Y < Other.Min.Y ? Min.Y : Other.Min.Y;
-            Min.Z = Min.Z < Other.Min.Z ? Min.Z : Other.Min.Z;
-            Max.X = Max.X > Other.Max.X ? Max.X : Other.Max.X;
-            Max.Y = Max.Y > Other.Max.Y ? Max.Y : Other.Max.Y;
-            Max.Z = Max.Z > Other.Max.Z ? Max.Z : Other.Max.Z;
+            Min.x = Min.x < Other.Min.x ? Min.x : Other.Min.x;
+            Min.y = Min.y < Other.Min.y ? Min.y : Other.Min.y;
+            Min.z = Min.z < Other.Min.z ? Min.z : Other.Min.z;
+            Max.x = Max.x > Other.Max.x ? Max.x : Other.Max.x;
+            Max.y = Max.y > Other.Max.y ? Max.y : Other.Max.y;
+            Max.z = Max.z > Other.Max.z ? Max.z : Other.Max.z;
         }
     };
 

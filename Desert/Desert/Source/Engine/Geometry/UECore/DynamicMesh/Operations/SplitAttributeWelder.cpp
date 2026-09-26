@@ -86,9 +86,9 @@ namespace Desert::Geometry
         const float          Threshold  = std::max( UVDistSqrdThreshold, 0.f );
         auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
-            const FVector2f UV = Overlay.GetElement( eid ), otherUV = Overlay.GetElement( oeid );
-            const float     dx = UV.X - otherUV.X;
-            const float     dy = UV.Y - otherUV.Y;
+            const glm::vec2 UV = Overlay.GetElement( eid ), otherUV = Overlay.GetElement( oeid );
+            const float     dx = UV.x - otherUV.x;
+            const float     dy = UV.y - otherUV.y;
             return dx * dx + dy * dy <= Threshold;
         };
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
@@ -103,25 +103,25 @@ namespace Desert::Geometry
         {
             // UE's FVector3f::Normalize: false (vector untouched) when the squared length is below
             // SMALL_NUMBER (1e-8)
-            const auto Unit = []( FVector3f V, bool& bOk )
+            const auto Unit = []( glm::vec3 V, bool& bOk )
             {
-                const float LenSq = V.X * V.X + V.Y * V.Y + V.Z * V.Z;
+                const float LenSq = V.x * V.x + V.y * V.y + V.z * V.z;
                 bOk               = LenSq > 1e-8f;
                 if ( bOk )
                 {
                     const float Inv = 1.0f / std::sqrt( LenSq );
-                    V.X *= Inv;
-                    V.Y *= Inv;
-                    V.Z *= Inv;
+                    V.x *= Inv;
+                    V.y *= Inv;
+                    V.z *= Inv;
                 }
                 return V;
             };
             bool            bVecNormalized = false, bOtherVecNormalized = false;
-            const FVector3f Vec      = Unit( Overlay.GetElement( eid ), bVecNormalized );
-            const FVector3f otherVec = Unit( Overlay.GetElement( oeid ), bOtherVecNormalized );
+            const glm::vec3 Vec      = Unit( Overlay.GetElement( eid ), bVecNormalized );
+            const glm::vec3 otherVec = Unit( Overlay.GetElement( oeid ), bOtherVecNormalized );
             if ( bVecNormalized && bOtherVecNormalized )
             {
-                const float CosAngle = Vec.X * otherVec.X + Vec.Y * otherVec.Y + Vec.Z * otherVec.Z;
+                const float CosAngle = Vec.x * otherVec.x + Vec.y * otherVec.y + Vec.z * otherVec.z;
                 return std::abs( 1.f - CosAngle ) <= DotThreshold;
             }
             return bMergeZeroVectors && !bVecNormalized && !bOtherVecNormalized;
@@ -136,8 +136,8 @@ namespace Desert::Geometry
         const float          Threshold  = std::max( ColorDistSqrdThreshold, 0.f );
         auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
-            const FVector4f A = Overlay.GetElement( eid ), B = Overlay.GetElement( oeid );
-            const float     d[4] = { A.X - B.X, A.Y - B.Y, A.Z - B.Z, A.W - B.W };
+            const glm::vec4 A = Overlay.GetElement( eid ), B = Overlay.GetElement( oeid );
+            const float     d[4] = { A.x - B.x, A.y - B.y, A.z - B.z, A.w - B.w };
             return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] + d[3] * d[3] <= Threshold;
         };
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );

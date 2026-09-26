@@ -44,7 +44,7 @@ namespace
         const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
         struct Face
         {
-            glm::vec3 N, U, V;
+            glm::vec3 N{}, U{}, V{};
         };
         const Face faces[6] = { { X, Y, Z }, { -X, Z, Y }, { Y, Z, X }, { -Y, X, Z }, { Z, X, Y }, { -Z, Y, X } };
         std::vector<Vertex> vertices;
@@ -104,8 +104,8 @@ namespace
 TEST( RegionOperation, TangentCubeImportsWithTheTopFaceWhereTheTestSaysItIs )
 {
     const FDynamicMesh3 mesh = TangentCube();
-    EXPECT_NEAR( mesh.GetTriNormal( 2 * kPlusZ ).Z, 1.0, 1e-9 );
-    EXPECT_NEAR( mesh.GetTriNormal( 2 * kPlusZ + 1 ).Z, 1.0, 1e-9 );
+    EXPECT_NEAR( mesh.GetTriNormal( 2 * kPlusZ ).z, 1.0, 1e-9 );
+    EXPECT_NEAR( mesh.GetTriNormal( 2 * kPlusZ + 1 ).z, 1.0, 1e-9 );
 }
 
 // The editor's defect (P11d): every region operation on a Create-Shape mesh was refused with "ToRenderMesh:
@@ -150,7 +150,7 @@ TEST( RegionOperation, ExtrudeLiftsTheTopFaceByTheDistance )
     {
         const FIndex3i tri = done.Mesh->GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
-            EXPECT_NEAR( done.Mesh->GetVertex( tri[j] ).Z, 70.0, 1e-9 );
+            EXPECT_NEAR( done.Mesh->GetVertex( tri[j] ).z, 70.0, 1e-9 );
     }
 }
 
@@ -168,18 +168,18 @@ TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
          ConvertSelection( *done.Mesh, topology, done.Selection, ElementMode::Triangle );
     ASSERT_EQ( triangles.Size(), 4u );
     const double    step = 20.0 / std::sqrt( 2.0 );
-    const FVector3d move( step, 0.0, step );
+    const glm::dvec3 move( step, 0.0, step );
     for ( int t : triangles.Ids() )
     {
         const FIndex3i tri = done.Mesh->GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
         {
             // Back where it came from: a corner of the +X or +Z face of the 100 cm cube.
-            const FVector3d origin = done.Mesh->GetVertex( tri[j] ) - move;
-            EXPECT_NEAR( std::abs( origin.X ), 50.0, 1e-6 );
-            EXPECT_NEAR( std::abs( origin.Y ), 50.0, 1e-6 );
-            EXPECT_NEAR( std::abs( origin.Z ), 50.0, 1e-6 );
-            EXPECT_TRUE( std::abs( origin.X - 50.0 ) < 1e-6 || std::abs( origin.Z - 50.0 ) < 1e-6 )
+            const glm::dvec3 origin = done.Mesh->GetVertex( tri[j] ) - move;
+            EXPECT_NEAR( std::abs( origin.x ), 50.0, 1e-6 );
+            EXPECT_NEAR( std::abs( origin.y ), 50.0, 1e-6 );
+            EXPECT_NEAR( std::abs( origin.z ), 50.0, 1e-6 );
+            EXPECT_TRUE( std::abs( origin.x - 50.0 ) < 1e-6 || std::abs( origin.z - 50.0 ) < 1e-6 )
                  << "vertex of triangle " << t << " came from neither face";
         }
     }
@@ -272,12 +272,12 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
         open += e >= 0 ? 1 : 0;
     EXPECT_EQ( open, 0 );
     for ( int t : filler.NewTriangles )
-        EXPECT_NEAR( mesh.GetTriNormal( t ).Z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
+        EXPECT_NEAR( mesh.GetTriNormal( t ).z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
 
     FDynamicMeshEditor editor( &mesh );
-    editor.SetTriangleNormals( filler.NewTriangles, FVector3f( 0, 0, 1 ) );
+    editor.SetTriangleNormals( filler.NewTriangles, glm::vec3( 0, 0, 1 ) );
     editor.SetTriangleUVsFromProjection( filler.NewTriangles, mesh.GetVertex( filler.NewVertex ),
-                                         FVector3d( 0, 0, 1 ), 1.0f );
+                                         glm::dvec3( 0, 0, 1 ), 1.0f );
     FDynamicMeshAttributeSet* attributes = mesh.Attributes();
     FMeshTangentsd            tangents( &mesh );
     tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), attributes->PrimaryUV() );
@@ -392,8 +392,8 @@ TEST( RegionOperation, InsertEdgeLoopSplitsTheCubeRingIntoTenGroups )
     for ( const int eid : done.Selection.Ids() )
     {
         const FIndex2i v = done.Mesh->GetEdgeV( eid );
-        EXPECT_NEAR( done.Mesh->GetVertex( v.A ).Y, 0.0, 1e-6 );
-        EXPECT_NEAR( done.Mesh->GetVertex( v.B ).Y, 0.0, 1e-6 );
+        EXPECT_NEAR( done.Mesh->GetVertex( v.A ).y, 0.0, 1e-6 );
+        EXPECT_NEAR( done.Mesh->GetVertex( v.B ).y, 0.0, 1e-6 );
     }
     auto render = ToRenderMesh( *done.Mesh );
     ASSERT_TRUE( render.IsSuccess() ) << render.GetError();
@@ -413,7 +413,7 @@ TEST( RegionOperation, InsertEdgeLoopPositionMovesTheLoopAlongTheEdge )
         ASSERT_TRUE( loop.IsSuccess() ) << loop.GetError();
         const RegionOutcome done = loop.ExtractValue();
         ASSERT_FALSE( done.Selection.Empty() );
-        y[i] = done.Mesh->GetVertex( done.Mesh->GetEdgeV( done.Selection.Ids()[0] ).A ).Y;
+        y[i] = done.Mesh->GetVertex( done.Mesh->GetEdgeV( done.Selection.Ids()[0] ).A ).y;
     }
     EXPECT_NEAR( std::abs( y[0] ), 25.0, 1e-6 );
     EXPECT_NEAR( y[0], -y[1], 1e-6 );

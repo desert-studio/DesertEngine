@@ -300,8 +300,8 @@ void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity(
 }
 
 // UV layers are the only overlays these are used for, as in UE; another layer type needs its instantiation here.
-template bool FMeshRegionBoundaryLoops::GetLoopOverlayMap<float, 2, FVector2f>(
+template bool FMeshRegionBoundaryLoops::GetLoopOverlayMap<float, 2, glm::vec2>(
      const FEdgeLoop& LoopIn, const TDynamicMeshOverlay<float, 2>& Overlay,
-     VidOverlayMap<FVector2f>& LoopVidsToOverlayElementsOut ) const;
-template void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity<float, 2, FVector2f>(
-     VidOverlayMap<FVector2f>& LoopVidsToOverlayElements, const TDynamicMeshOverlay<float, 2>& Overlay );
+     VidOverlayMap<glm::vec2>& LoopVidsToOverlayElementsOut ) const;
+template void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity<float, 2, glm::vec2>(
+     VidOverlayMap<glm::vec2>& LoopVidsToOverlayElements, const TDynamicMeshOverlay<float, 2>& Overlay );

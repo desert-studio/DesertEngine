@@ -9,52 +9,54 @@
 namespace Desert::Geometry::PolygonTriangulation
 {
     template <typename T>
-    T ComputePolygonPlane( const TArray<TVector<T>>& VertexPositions, TVector<T>& PlaneNormalOut,
-                           TVector<T>& PlanePointOut )
+    T ComputePolygonPlane( const TArray<glm::vec<3, T>>& VertexPositions, glm::vec<3, T>& PlaneNormalOut,
+                           glm::vec<3, T>& PlanePointOut )
     {
-        PlaneNormalOut          = TVector<T>::Zero();
-        PlanePointOut           = TVector<T>::Zero();
+        PlaneNormalOut            = glm::vec<3, T>( 0 );
+        PlanePointOut             = glm::vec<3, T>( 0 );
         const int32_t NumVertices = VertexPositions.Num();
         // Newell's method: the sum over edges gives twice the projected area on each axis plane.
         for ( int32_t VertexNumberI = NumVertices - 1, VertexNumberJ = 0; VertexNumberJ < NumVertices;
               VertexNumberI = VertexNumberJ++ )
         {
-            const TVector<T>& PositionI = VertexPositions[VertexNumberI];
-            const TVector<T>& PositionJ = VertexPositions[VertexNumberJ];
+            const glm::vec<3, T>& PositionI = VertexPositions[VertexNumberI];
+            const glm::vec<3, T>& PositionJ = VertexPositions[VertexNumberJ];
             PlanePointOut += PositionJ;
-            PlaneNormalOut.X += ( PositionJ.Y - PositionI.Y ) * ( PositionI.Z + PositionJ.Z );
-            PlaneNormalOut.Y += ( PositionJ.Z - PositionI.Z ) * ( PositionI.X + PositionJ.X );
-            PlaneNormalOut.Z += ( PositionJ.X - PositionI.X ) * ( PositionI.Y + PositionJ.Y );
+            PlaneNormalOut.x += ( PositionJ.y - PositionI.y ) * ( PositionI.z + PositionJ.z );
+            PlaneNormalOut.y += ( PositionJ.z - PositionI.z ) * ( PositionI.x + PositionJ.x );
+            PlaneNormalOut.z += ( PositionJ.x - PositionI.x ) * ( PositionI.y + PositionJ.y );
         }
         PlanePointOut /= static_cast<T>( NumVertices );
         return static_cast<T>( 0.5 ) * Normalize( PlaneNormalOut );
     }
 
     template <typename T>
-    void TriangulateSimplePolygon( const TArray<TVector<T>>& VertexPositions, TArray<FIndex3i>& OutTriangles,
+    void TriangulateSimplePolygon( const TArray<glm::vec<3, T>>& VertexPositions, TArray<FIndex3i>& OutTriangles,
                                    bool bOrientAsHoleFill )
     {
         struct Local3
         {
-            static bool IsTriangleFlipped( const TVector<T>& ReferenceNormal, const TVector<T>& VertexPositionA,
-                                           const TVector<T>& VertexPositionB, const TVector<T>& VertexPositionC )
+            static bool IsTriangleFlipped( const glm::vec<3, T>& ReferenceNormal,
+                                           const glm::vec<3, T>& VertexPositionA,
+                                           const glm::vec<3, T>& VertexPositionB,
+                                           const glm::vec<3, T>& VertexPositionC )
             {
-                const TVector<T> TriangleNormal =
+                const glm::vec<3, T> TriangleNormal =
                      VectorUtil::Normal( VertexPositionA, VertexPositionB, VertexPositionC );
-                return TriangleNormal.Dot( ReferenceNormal ) <= static_cast<T>( 0 );
+                return glm::dot( TriangleNormal, ReferenceNormal ) <= static_cast<T>( 0 );
             }
 
-            static bool VectorsOnSameSide( const TVector<T>& Vec, const TVector<T>& A, const TVector<T>& B,
-                                           T SameSideDotProductEpsilon )
+            static bool VectorsOnSameSide( const glm::vec<3, T>& Vec, const glm::vec<3, T>& A,
+                                           const glm::vec<3, T>& B, T SameSideDotProductEpsilon )
             {
-                const TVector<T> CrossA         = Vec.Cross( A );
-                const TVector<T> CrossB         = Vec.Cross( B );
-                const T          DotWithEpsilon = SameSideDotProductEpsilon + CrossA.Dot( CrossB );
+                const glm::vec<3, T> CrossA         = glm::cross( Vec, A );
+                const glm::vec<3, T> CrossB         = glm::cross( Vec, B );
+                const T              DotWithEpsilon = SameSideDotProductEpsilon + glm::dot( CrossA, CrossB );
                 return DotWithEpsilon >= 0;
             }
 
-            static bool PointInTriangle( const TVector<T>& A, const TVector<T>& B, const TVector<T>& C,
-                                         const TVector<T>& P, const T InsideTriangleDotProductEpsilon )
+            static bool PointInTriangle( const glm::vec<3, T>& A, const glm::vec<3, T>& B, const glm::vec<3, T>& C,
+                                         const glm::vec<3, T>& P, const T InsideTriangleDotProductEpsilon )
             {
                 return ( VectorsOnSameSide( B - A, P - A, C - A, InsideTriangleDotProductEpsilon ) &&
                          VectorsOnSameSide( C - B, P - B, A - B, InsideTriangleDotProductEpsilon ) &&
@@ -79,8 +81,8 @@ namespace Desert::Geometry::PolygonTriangulation
         }
 
         // Polygon plane normal, the reference for "not flipped" ears.
-        TVector<T> PolygonNormal;
-        TVector<T> PolygonCentroid;
+        glm::vec<3, T> PolygonNormal{};
+        glm::vec<3, T> PolygonCentroid{};
         ComputePolygonPlane( VertexPositions, PolygonNormal, PolygonCentroid );
 
         // A doubly-linked ring over the vertex numbers; clipping an ear unlinks its tip.
@@ -106,9 +108,9 @@ namespace Desert::Geometry::PolygonTriangulation
             // After a full lap with no ear found (EarTestCount), the polygon is degenerate: clip anyway.
             if ( RemainingVertexCount > 3 && EarTestCount < RemainingVertexCount )
             {
-                const TVector<T>& PrevVertexPosition = VertexPositions[PrevVertexNumbers[EarVertexNumber]];
-                const TVector<T>& EarVertexPosition  = VertexPositions[EarVertexNumber];
-                const TVector<T>& NextVertexPosition = VertexPositions[NextVertexNumbers[EarVertexNumber]];
+                const glm::vec<3, T>& PrevVertexPosition = VertexPositions[PrevVertexNumbers[EarVertexNumber]];
+                const glm::vec<3, T>& EarVertexPosition  = VertexPositions[EarVertexNumber];
+                const glm::vec<3, T>& NextVertexPosition = VertexPositions[NextVertexNumbers[EarVertexNumber]];
 
                 if ( !Local3::IsTriangleFlipped( PolygonNormal, PrevVertexPosition, EarVertexPosition,
                                                  NextVertexPosition ) )
@@ -116,7 +118,7 @@ namespace Desert::Geometry::PolygonTriangulation
                     int32_t TestVertexNumber = NextVertexNumbers[NextVertexNumbers[EarVertexNumber]];
                     do
                     {
-                        const TVector<T>& TestVertexPosition = VertexPositions[TestVertexNumber];
+                        const glm::vec<3, T>& TestVertexPosition = VertexPositions[TestVertexNumber];
                         if ( Local3::PointInTriangle( PrevVertexPosition, EarVertexPosition, NextVertexPosition,
                                                       TestVertexPosition, InsideTriangleEpsilon ) )
                         {
@@ -156,9 +158,10 @@ namespace Desert::Geometry::PolygonTriangulation
         }
     }
 
-    template float  ComputePolygonPlane<float>( const TArray<TVector<float>>&, TVector<float>&, TVector<float>& );
-    template double ComputePolygonPlane<double>( const TArray<TVector<double>>&, TVector<double>&,
-                                                 TVector<double>& );
-    template void   TriangulateSimplePolygon<float>( const TArray<TVector<float>>&, TArray<FIndex3i>&, bool );
-    template void   TriangulateSimplePolygon<double>( const TArray<TVector<double>>&, TArray<FIndex3i>&, bool );
+    template float  ComputePolygonPlane<float>( const TArray<glm::vec<3, float>>&, glm::vec<3, float>&,
+                                                glm::vec<3, float>& );
+    template double ComputePolygonPlane<double>( const TArray<glm::vec<3, double>>&, glm::vec<3, double>&,
+                                                 glm::vec<3, double>& );
+    template void   TriangulateSimplePolygon<float>( const TArray<glm::vec<3, float>>&, TArray<FIndex3i>&, bool );
+    template void TriangulateSimplePolygon<double>( const TArray<glm::vec<3, double>>&, TArray<FIndex3i>&, bool );
 } // namespace Desert::Geometry::PolygonTriangulation

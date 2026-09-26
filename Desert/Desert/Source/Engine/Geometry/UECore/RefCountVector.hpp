@@ -506,7 +506,7 @@ namespace Desert::Geometry
 
         /**
          * returns iteration object over mapping applied to valid indices
-         * eg usage: for (FVector3d v : mapped_indices(fn_that_looks_up_mesh_vtx_from_id)) { ... }
+         * eg usage: for (glm::dvec3 v : mapped_indices(fn_that_looks_up_mesh_vtx_from_id)) { ... }
          */
         template <typename ToType>
         MappedEnumerable<ToType> MappedIndices( std::function<ToType( int )> MapFunc ) const

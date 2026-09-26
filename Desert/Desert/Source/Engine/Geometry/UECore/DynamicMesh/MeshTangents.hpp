@@ -23,9 +23,9 @@ namespace Desert::Geometry
         /** Target Mesh */
         const FDynamicMesh3* Mesh = nullptr;
         /** Set of computed tangents */
-        TArray<TVector<RealType>> Tangents;
+        TArray<glm::vec<3, RealType>> Tangents;
         /** Set of computed bitangents */
-        TArray<TVector<RealType>> Bitangents;
+        TArray<glm::vec<3, RealType>> Bitangents;
 
     public:
         TMeshTangents() = default;
@@ -40,12 +40,12 @@ namespace Desert::Geometry
             this->Mesh = MeshIn;
         }
 
-        const TArray<TVector<RealType>>& GetTangents() const
+        const TArray<glm::vec<3, RealType>>& GetTangents() const
         {
             return Tangents;
         }
 
-        const TArray<TVector<RealType>>& GetBitangents() const
+        const TArray<glm::vec<3, RealType>>& GetBitangents() const
         {
             return Bitangents;
         }
@@ -58,16 +58,16 @@ namespace Desert::Geometry
             SetTangentCount( Mesh->MaxTriangleID() * 3, bClearToZero );
         }
 
-        void SetPerTriangleTangent( int TriangleID, int TriVertIdx, const TVector<RealType>& Tangent,
-                                    const TVector<RealType>& Bitangent )
+        void SetPerTriangleTangent( int TriangleID, int TriVertIdx, const glm::vec<3, RealType>& Tangent,
+                                    const glm::vec<3, RealType>& Bitangent )
         {
             const int k   = TriangleID * 3 + TriVertIdx;
             Tangents[k]   = Tangent;
             Bitangents[k] = Bitangent;
         }
 
-        void GetPerTriangleTangent( int TriangleID, int TriVertIdx, TVector<RealType>& TangentOut,
-                                    TVector<RealType>& BitangentOut ) const
+        void GetPerTriangleTangent( int TriangleID, int TriVertIdx, glm::vec<3, RealType>& TangentOut,
+                                    glm::vec<3, RealType>& BitangentOut ) const
         {
             const int k  = TriangleID * 3 + TriVertIdx;
             TangentOut   = Tangents[k];
@@ -98,10 +98,10 @@ namespace Desert::Geometry
                 Bitangents.SetNum( Count );
             if ( bClearToZero )
             {
-                for ( TVector<RealType>& T : Tangents )
-                    T = TVector<RealType>::Zero();
-                for ( TVector<RealType>& B : Bitangents )
-                    B = TVector<RealType>::Zero();
+                for ( glm::vec<3, RealType>& T : Tangents )
+                    T = glm::vec<3, RealType>( 0 );
+                for ( glm::vec<3, RealType>& B : Bitangents )
+                    B = glm::vec<3, RealType>( 0 );
             }
         }
     };

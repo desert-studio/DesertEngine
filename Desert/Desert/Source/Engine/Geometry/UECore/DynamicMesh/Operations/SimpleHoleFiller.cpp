@@ -47,7 +47,7 @@ bool FSimpleHoleFiller::Fill( int GroupID )
 
 bool FSimpleHoleFiller::Fill_Fan( int GroupID )
 {
-    FVector3d C = FVector3d::Zero();
+    glm::dvec3 C = glm::dvec3( 0 );
     for ( int i = 0; i < Loop.GetVertexCount(); ++i )
         C += Mesh->GetVertex( Loop.Vertices[i] );
     C *= 1.0 / Loop.GetVertexCount();

@@ -21,8 +21,8 @@ namespace
         mesh.EnableTriangleGroups();
         for ( int i = 0; i <= 4; ++i )
         {
-            mesh.AppendVertex( FVector3d( i, 0, 0 ) );
-            mesh.AppendVertex( FVector3d( i, 1, 0 ) );
+            mesh.AppendVertex( glm::dvec3( i, 0, 0 ) );
+            mesh.AppendVertex( glm::dvec3( i, 1, 0 ) );
         }
         for ( int q = 0; q < 4; ++q )
         {
@@ -31,10 +31,10 @@ namespace
             EXPECT_EQ( mesh.AppendTriangle( a, b, c, group ), 2 * q );
             EXPECT_EQ( mesh.AppendTriangle( a, c, d, group ), 2 * q + 1 );
         }
-        const int a = mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        const int b = mesh.AppendVertex( FVector3d( 11, 0, 0 ) );
-        const int c = mesh.AppendVertex( FVector3d( 11, 1, 0 ) );
-        const int d = mesh.AppendVertex( FVector3d( 10, 1, 0 ) );
+        const int a = mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        const int b = mesh.AppendVertex( glm::dvec3( 11, 0, 0 ) );
+        const int c = mesh.AppendVertex( glm::dvec3( 11, 1, 0 ) );
+        const int d = mesh.AppendVertex( glm::dvec3( 10, 1, 0 ) );
         EXPECT_EQ( mesh.AppendTriangle( a, b, c, 3 ), 8 );
         EXPECT_EQ( mesh.AppendTriangle( a, c, d, 3 ), 9 );
         return mesh;
@@ -113,14 +113,14 @@ namespace
         std::vector<int>       shared;
         for ( int v = 0; v < 14; ++v )
         {
-            const FVector3d p = mesh.GetVertex( v );
-            shared.push_back( uv->AppendElement( FVector2f( float( p.X ), float( p.Y ) ) ) );
+            const glm::dvec3 p = mesh.GetVertex( v );
+            shared.push_back( uv->AppendElement( glm::vec2( float( p.x ), float( p.y ) ) ) );
         }
         std::vector<int> own( 14, -1 );
         for ( int v : { 2, 3, 4, 5 } )
         {
-            const FVector3d p = mesh.GetVertex( v );
-            own[v]            = uv->AppendElement( FVector2f( float( p.X ) + 10.0f, float( p.Y ) + 10.0f ) );
+            const glm::dvec3 p = mesh.GetVertex( v );
+            own[v]             = uv->AppendElement( glm::vec2( float( p.x ) + 10.0f, float( p.y ) + 10.0f ) );
         }
         for ( int t : mesh.TriangleIndicesItr() )
         {
@@ -143,17 +143,17 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
     ASSERT_EQ( loops.Loops.Num(), 1 );
     ASSERT_EQ( loops.Loops[0].GetVertexCount(), 4 );
 
-    FMeshRegionBoundaryLoops::VidOverlayMap<FVector2f> map;
+    FMeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     ASSERT_TRUE( loops.GetLoopOverlayMap( loops.Loops[0], uv, map ) );
     ASSERT_EQ( map.Num(), 4 );
     for ( int v : { 2, 3, 4, 5 } )
     {
         const auto* entry = map.Find( v );
         ASSERT_NE( entry, nullptr ) << "vertex " << v;
-        const FVector3d p = mesh.GetVertex( v );
+        const glm::dvec3 p = mesh.GetVertex( v );
         EXPECT_EQ( uv.GetParentVertex( entry->Key ), v );
-        EXPECT_FLOAT_EQ( entry->Value.X, float( p.X ) + 10.0f ) << "vertex " << v << " took the outside element";
-        EXPECT_FLOAT_EQ( entry->Value.Y, float( p.Y ) + 10.0f ) << "vertex " << v;
+        EXPECT_FLOAT_EQ( entry->Value.x, float( p.x ) + 10.0f ) << "vertex " << v << " took the outside element";
+        EXPECT_FLOAT_EQ( entry->Value.y, float( p.y ) + 10.0f ) << "vertex " << v;
     }
 
     // Deleting the region frees its own elements; the map must say so rather than point at a dead element.
@@ -170,7 +170,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheEl
     const FDynamicMeshUVOverlay& uv   = *mesh.Attributes()->GetUVLayer( 0 );
     FMeshRegionBoundaryLoops     loops( &mesh, { 2, 3 } );
     ASSERT_EQ( loops.Loops.Num(), 1 );
-    FMeshRegionBoundaryLoops::VidOverlayMap<FVector2f> map;
+    FMeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     ASSERT_TRUE( loops.GetLoopOverlayMap( loops.Loops[0], uv, map ) );
 
     ASSERT_EQ( mesh.RemoveTriangle( 2 ), EMeshResult::Ok );
@@ -180,7 +180,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheEl
     for ( int v : { 2, 3, 4, 5 } )
     {
         EXPECT_TRUE( uv.IsElement( map[v].Key ) ) << "vertex " << v;
-        EXPECT_FLOAT_EQ( map[v].Value.X, float( mesh.GetVertex( v ).X ) ) << "vertex " << v;
+        EXPECT_FLOAT_EQ( map[v].Value.x, float( mesh.GetVertex( v ).x ) ) << "vertex " << v;
     }
 }
 
@@ -190,6 +190,6 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapRefusesALoopOfAnotherRegion )
     FMeshRegionBoundaryLoops       quad0( &mesh, { 0, 1 } );
     const FMeshRegionBoundaryLoops quad3( &mesh, { 6, 7 } );
     ASSERT_EQ( quad3.Loops.Num(), 1 );
-    FMeshRegionBoundaryLoops::VidOverlayMap<FVector2f> map;
+    FMeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     EXPECT_FALSE( quad0.GetLoopOverlayMap( quad3.Loops[0], *mesh.Attributes()->GetUVLayer( 0 ), map ) );
 }

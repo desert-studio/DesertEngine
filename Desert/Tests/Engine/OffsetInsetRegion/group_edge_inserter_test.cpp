@@ -136,12 +136,12 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     for ( const int eid : newEids )
     {
         const FIndex2i v = mesh.GetEdgeV( eid );
-        EXPECT_NEAR( mesh.GetVertex( v.A ).Y, 0.0, 1e-6 );
-        EXPECT_NEAR( mesh.GetVertex( v.B ).Y, 0.0, 1e-6 );
+        EXPECT_NEAR( mesh.GetVertex( v.A ).y, 0.0, 1e-6 );
+        EXPECT_NEAR( mesh.GetVertex( v.B ).y, 0.0, 1e-6 );
     }
     for ( const int vid : mesh.VertexIndicesItr() )
     {
-        const double y = mesh.GetVertex( vid ).Y;
+        const double y = mesh.GetVertex( vid ).y;
         EXPECT_TRUE( std::abs( y ) < 1e-6 || std::abs( std::abs( y ) - 50.0 ) < 1e-6 ) << "vertex " << vid;
     }
     // +Y and -Y are not crossed: each still has its two triangles.
@@ -175,7 +175,7 @@ TEST( GroupEdgeInserter, GroupEdgeAcrossOneFaceSplitsOnlyThatFace )
     for ( const int ge : group->Boundaries[0].GroupEdges )
     {
         const FIndex2i v = mesh.GetEdgeV( topology.Edges[ge].Span.Edges[0] );
-        if ( std::abs( mesh.GetVertex( v.A ).Y - mesh.GetVertex( v.B ).Y ) < 1e-6 )
+        if ( std::abs( mesh.GetVertex( v.A ).y - mesh.GetVertex( v.B ).y ) < 1e-6 )
             alongX.push_back( topology.Edges[ge].Span.Edges[0] );
     }
     ASSERT_EQ( alongX.size(), 2u );
@@ -234,7 +234,7 @@ TEST( GroupEdgeInserter, EdgeLoopOnAnOpenStripWalksBothWays )
     EXPECT_EQ( topology.Groups.Num(), 8 );
     for ( const int vid : mesh.VertexIndicesItr() )
     {
-        const double y = mesh.GetVertex( vid ).Y;
+        const double y = mesh.GetVertex( vid ).y;
         EXPECT_TRUE( std::abs( y ) < 1e-6 || std::abs( std::abs( y ) - 50.0 ) < 1e-6 ) << "vertex " << vid;
     }
 }

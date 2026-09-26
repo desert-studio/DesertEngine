@@ -31,7 +31,7 @@ namespace
             {
                 const double angle = 0.5 * std::numbers::pi * i / Segments;
                 mesh.AppendVertex(
-                     FVector3d( Radius * std::cos( angle ), Radius * std::sin( angle ), Height * k / Rows ) );
+                     glm::dvec3( Radius * std::cos( angle ), Radius * std::sin( angle ), Height * k / Rows ) );
             }
         }
         const auto id = []( int i, int k ) { return k * ( Segments + 1 ) + i; };
@@ -72,9 +72,9 @@ TEST( DynamicMeshUVEditor, ExpMapUnrollsACylinderStripKeepingEdgeLengths )
         {
             const double length3d =
                  Distance( mesh.GetVertex( vertices[j] ), mesh.GetVertex( vertices[( j + 1 ) % 3] ) );
-            const FVector2f d = uvs.GetElement( elements[( j + 1 ) % 3] ) - uvs.GetElement( elements[j] );
+            const glm::vec2 d = uvs.GetElement( elements[( j + 1 ) % 3] ) - uvs.GetElement( elements[j] );
             const double    lengthUV =
-                 std::sqrt( static_cast<double>( d.X ) * d.X + static_cast<double>( d.Y ) * d.Y );
+                 std::sqrt( static_cast<double>( d.x ) * d.x + static_cast<double>( d.y ) * d.y );
             worst = std::max( worst, std::abs( lengthUV / length3d - 1.0 ) );
         }
     }

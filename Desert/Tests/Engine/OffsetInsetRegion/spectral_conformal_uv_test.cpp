@@ -34,7 +34,7 @@ namespace
                     y += 3.0 * std::cos( 2.9 * i - 1.1 * k );
                 }
                 const double z = Bend > 0.0 ? std::sqrt( Bend * Bend - x * x - y * y ) - Bend : 0.0;
-                mesh.AppendVertex( FVector3d( x, y, z ) );
+                mesh.AppendVertex( glm::dvec3( x, y, z ) );
             }
         }
         const auto id = []( int i, int k ) { return k * ( Cells + 1 ) + i; };
@@ -50,9 +50,9 @@ namespace
         return mesh;
     }
 
-    double Angle3( const FVector3d& a, const FVector3d& b, const FVector3d& c )
+    double Angle3( const glm::dvec3& a, const glm::dvec3& b, const glm::dvec3& c )
     {
-        return std::acos( std::clamp( Normalized( b - a ).Dot( Normalized( c - a ) ), -1.0, 1.0 ) );
+        return std::acos( std::clamp( glm::dot( Normalized( b - a ), Normalized( c - a ) ), -1.0, 1.0 ) );
     }
 
     struct FStats
@@ -74,13 +74,13 @@ namespace
         {
             const FIndex3i v = mesh.GetTriangle( t );
             const FIndex3i e = uvs.GetTriangle( t );
-            FVector3d      p[3];
-            FVector3d      q[3];
+            glm::dvec3     p[3]{};
+            glm::dvec3     q[3]{};
             for ( int j = 0; j < 3; ++j )
             {
                 p[j]               = mesh.GetVertex( v[j] );
-                const FVector2f uv = uvs.GetElement( e[j] );
-                q[j]               = FVector3d( uv.X, uv.Y, 0.0 );
+                const glm::vec2 uv = uvs.GetElement( e[j] );
+                q[j]               = glm::dvec3( uv.x, uv.y, 0.0 );
             }
             for ( int j = 0; j < 3; ++j )
             {
@@ -90,9 +90,9 @@ namespace
                 s.MaxAngleError = std::max( s.MaxAngleError, err );
                 ++count;
             }
-            const double signedUV = ( q[1] - q[0] ).Cross( q[2] - q[0] ).Z;
+            const double signedUV = glm::cross( ( q[1] - q[0] ), q[2] - q[0] ).z;
             ( signedUV > 0.0 ? s.Positive : s.Negative )++;
-            const double ratio = std::abs( signedUV ) / ( p[1] - p[0] ).Cross( p[2] - p[0] ).Length();
+            const double ratio = std::abs( signedUV ) / glm::length( glm::cross( ( p[1] - p[0] ), p[2] - p[0] ) );
             ratios.push_back( ratio );
             sumRatio += ratio;
         }

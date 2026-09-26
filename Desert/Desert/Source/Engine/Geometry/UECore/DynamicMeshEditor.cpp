@@ -308,20 +308,20 @@ namespace Desert::Geometry
         return true;
     }
 
-    FVector3f FDynamicMeshEditor::ComputeAndSetQuadNormal( const FIndex2i& QuadTris, bool bIsPlanar )
+    glm::vec3 FDynamicMeshEditor::ComputeAndSetQuadNormal( const FIndex2i& QuadTris, bool bIsPlanar )
     {
-        FVector3d Normal = Mesh->GetTriNormal( QuadTris.A );
+        glm::dvec3 Normal = Mesh->GetTriNormal( QuadTris.A );
         if ( !bIsPlanar )
         {
             Normal = Normal + Mesh->GetTriNormal( QuadTris.B );
             Normalize( Normal );
         }
-        FVector3f NormalF( (float)Normal.X, (float)Normal.Y, (float)Normal.Z );
+        glm::vec3 NormalF( (float)Normal.x, (float)Normal.y, (float)Normal.z );
         SetQuadNormals( QuadTris, NormalF );
         return NormalF;
     }
 
-    void FDynamicMeshEditor::SetQuadNormals( const FIndex2i& QuadTris, const FVector3f& Normal )
+    void FDynamicMeshEditor::SetQuadNormals( const FIndex2i& QuadTris, const glm::vec3& Normal )
     {
         FDynamicMeshNormalOverlay* Normals   = Mesh->Attributes()->PrimaryNormals();
         FIndex3i                   Triangle1 = Mesh->GetTriangle( QuadTris.A );
@@ -360,8 +360,8 @@ namespace Desert::Geometry
                     ElemTri[j] = *FoundElementID;
                 else
                 {
-                    FVector3d N = FMeshNormals::ComputeVertexNormal( *Mesh, BaseTri[j], TrianglePredicate );
-                    ElemTri[j]  = Normals->AppendElement( FVector3f( (float)N.X, (float)N.Y, (float)N.Z ) );
+                    glm::dvec3 N = FMeshNormals::ComputeVertexNormal( *Mesh, BaseTri[j], TrianglePredicate );
+                    ElemTri[j]   = Normals->AppendElement( glm::vec3( (float)N.x, (float)N.y, (float)N.z ) );
                     Vertices.Add( BaseTri[j], ElemTri[j] );
                 }
             }
@@ -369,9 +369,9 @@ namespace Desert::Geometry
         }
     }
 
-    void FDynamicMeshEditor::SetQuadUVsFromProjection( const FIndex2i& QuadTris, const FVector3d& AxisX,
-                                                       const FVector3d& AxisY, float UVScaleFactor,
-                                                       const FVector2f& UVTranslation )
+    void FDynamicMeshEditor::SetQuadUVsFromProjection( const FIndex2i& QuadTris, const glm::dvec3& AxisX,
+                                                       const glm::dvec3& AxisY, float UVScaleFactor,
+                                                       const glm::vec2& UVTranslation )
     {
         FDynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
         if ( !UVs )
@@ -390,9 +390,9 @@ namespace Desert::Geometry
                     Elems[j] = *Found;
                     continue;
                 }
-                const FVector3d P = Mesh->GetVertex( Tri[j] );
-                FVector2f       UV( (float)P.Dot( AxisX ) * UVScaleFactor + UVTranslation.X,
-                                    (float)P.Dot( AxisY ) * UVScaleFactor + UVTranslation.Y );
+                const glm::dvec3 P = Mesh->GetVertex( Tri[j] );
+                glm::vec2        UV( (float)glm::dot( P, AxisX ) * UVScaleFactor + UVTranslation.x,
+                                     (float)glm::dot( P, AxisY ) * UVScaleFactor + UVTranslation.y );
                 Elems[j] = UVs->AppendElement( UV );
                 VertexToElement.Add( Tri[j], Elems[j] );
             }
@@ -427,8 +427,8 @@ namespace Desert::Geometry
                     if ( Done.Contains( Elems[j] ) )
                         continue;
                     Done.Add( Elems[j] );
-                    FVector3f N = Normals->GetElement( Elems[j] );
-                    Normals->SetElement( Elems[j], FVector3f( -N.X, -N.Y, -N.Z ) );
+                    glm::vec3 N = Normals->GetElement( Elems[j] );
+                    Normals->SetElement( Elems[j], glm::vec3( -N.x, -N.y, -N.z ) );
                 }
             }
         }
@@ -462,7 +462,7 @@ namespace Desert::Geometry
     }
 
     // UE DynamicMeshEditor.cpp:1231-1263
-    void FDynamicMeshEditor::SetTriangleNormals( const TArray<int>& Triangles, const FVector3f& Normal )
+    void FDynamicMeshEditor::SetTriangleNormals( const TArray<int>& Triangles, const glm::vec3& Normal )
     {
         UE_CHECK( Mesh->HasAttributes() );
         FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
@@ -492,8 +492,8 @@ namespace Desert::Geometry
 
     // UE DynamicMeshEditor.cpp:1494-1549 with FFrame3d(Origin, Normal).ToPlaneUV(P, 2): the frame is
     // TQuaternion::SetFromTo(UnitZ, Normal) (Quaternion.h:420-460), so its X/Y axes are UnitX/UnitY rotated by it.
-    void FDynamicMeshEditor::SetTriangleUVsFromProjection( const TArray<int>& Triangles, const FVector3d& Origin,
-                                                           const FVector3d& Normal, float UVScaleFactor )
+    void FDynamicMeshEditor::SetTriangleUVsFromProjection( const TArray<int>& Triangles, const glm::dvec3& Origin,
+                                                           const glm::dvec3& Normal, float UVScaleFactor )
     {
         if ( Triangles.Num() == 0 )
             return;
@@ -502,29 +502,29 @@ namespace Desert::Geometry
 
         // SetFromTo(UnitZ, Normal): W = from.bisector, XYZ = from x bisector; an antiparallel Normal takes UE's
         // first W == 0 branch (|from.X| >= |from.Y| holds for UnitZ): X = -1, Y = Z = 0.
-        const FVector3d From( 0, 0, 1 );
-        FVector3d       To = Normal;
+        const glm::dvec3 From( 0, 0, 1 );
+        glm::dvec3       To = Normal;
         Normalize( To );
-        FVector3d    Bisector       = From + To;
+        glm::dvec3   Bisector       = From + To;
         const double BisectorLength = Normalize( Bisector );
         double       QW             = 0;
-        FVector3d    QV( -1, 0, 0 );
+        glm::dvec3   QV( -1, 0, 0 );
         if ( BisectorLength > FMathd::ZeroTolerance )
         {
-            QW = From.Dot( Bisector );
-            QV = From.Cross( Bisector );
+            QW = glm::dot( From, Bisector );
+            QV = glm::cross( From, Bisector );
         }
-        const auto Rotate = [&]( const FVector3d& V ) -> FVector3d
+        const auto Rotate = [&]( const glm::dvec3& V ) -> glm::dvec3
         {
-            const FVector3d T = 2.0 * QV.Cross( V );
-            return V + QW * T + QV.Cross( T );
+            const glm::dvec3 T = 2.0 * glm::cross( QV, V );
+            return V + QW * T + glm::cross( QV, T );
         };
-        const FVector3d AxisX = Rotate( FVector3d( 1, 0, 0 ) );
-        const FVector3d AxisY = Rotate( FVector3d( 0, 1, 0 ) );
+        const glm::dvec3 AxisX = Rotate( glm::dvec3( 1, 0, 0 ) );
+        const glm::dvec3 AxisY = Rotate( glm::dvec3( 0, 1, 0 ) );
 
         TMap<int, int> BaseToOverlay;
         TArray<int>    AllUVIndices;
-        FVector2f      UVMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
+        glm::vec2      UVMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
         for ( int Tid : Triangles )
         {
             if ( UVs->IsSetTriangle( Tid ) )
@@ -536,10 +536,10 @@ namespace Desert::Geometry
                 const int* Found = BaseToOverlay.Find( BaseTri[j] );
                 if ( Found == nullptr )
                 {
-                    const FVector3d Local = Mesh->GetVertex( BaseTri[j] ) - Origin;
-                    const FVector2f UV( (float)Local.Dot( AxisX ), (float)Local.Dot( AxisY ) );
-                    UVMin.X    = std::min( UVMin.X, UV.X );
-                    UVMin.Y    = std::min( UVMin.Y, UV.Y );
+                    const glm::dvec3 Local = Mesh->GetVertex( BaseTri[j] ) - Origin;
+                    const glm::vec2  UV( (float)glm::dot( Local, AxisX ), (float)glm::dot( Local, AxisY ) );
+                    UVMin.x    = std::min( UVMin.x, UV.x );
+                    UVMin.y    = std::min( UVMin.y, UV.y );
                     ElemTri[j] = UVs->AppendElement( UV );
                     AllUVIndices.Add( ElemTri[j] );
                     BaseToOverlay.Add( BaseTri[j], ElemTri[j] );

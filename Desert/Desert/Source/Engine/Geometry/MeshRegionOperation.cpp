@@ -56,20 +56,20 @@ namespace Desert::Geometry
 
         // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
         // (ComputePolygonPlane, Newell's method), adapted: the loop's vertex IDs in, no area returned.
-        void ComputeLoopPlane( const FDynamicMesh3& mesh, const TArray<int>& loopVertices, FVector3d& normal,
-                               FVector3d& origin )
+        void ComputeLoopPlane( const FDynamicMesh3& mesh, const TArray<int>& loopVertices, glm::dvec3& normal,
+                               glm::dvec3& origin )
         {
-            normal          = FVector3d( 0, 0, 0 );
-            origin          = FVector3d( 0, 0, 0 );
+            normal          = glm::dvec3( 0, 0, 0 );
+            origin          = glm::dvec3( 0, 0, 0 );
             const int count = loopVertices.Num();
             for ( int i = count - 1, j = 0; j < count; i = j++ )
             {
-                const FVector3d pi = mesh.GetVertex( loopVertices[i] );
-                const FVector3d pj = mesh.GetVertex( loopVertices[j] );
+                const glm::dvec3 pi = mesh.GetVertex( loopVertices[i] );
+                const glm::dvec3 pj = mesh.GetVertex( loopVertices[j] );
                 origin += pj;
-                normal.X += ( pj.Y - pi.Y ) * ( pi.Z + pj.Z );
-                normal.Y += ( pj.Z - pi.Z ) * ( pi.X + pj.X );
-                normal.Z += ( pj.X - pi.X ) * ( pi.Y + pj.Y );
+                normal.x += ( pj.y - pi.y ) * ( pi.z + pj.z );
+                normal.y += ( pj.z - pi.z ) * ( pi.x + pj.x );
+                normal.z += ( pj.x - pi.x ) * ( pi.y + pj.y );
             }
             origin /= static_cast<double>( count );
             Normalize( normal );
@@ -113,8 +113,8 @@ namespace Desert::Geometry
                 loopIndices.Add( i );
 
         // UE's MaxDim: the largest side of the bounds (Extents are half sides).
-        const FVector3d extents = mesh->GetBounds().Extents();
-        const double    uvScale = 1.0 / ( 2.0 * std::max( extents.X, std::max( extents.Y, extents.Z ) ) );
+        const glm::dvec3 extents = mesh->GetBounds().Extents();
+        const double     uvScale = 1.0 / ( 2.0 * std::max( extents.x, std::max( extents.y, extents.z ) ) );
         TArray<int32_t> newTriangles;
         for ( const int index : loopIndices )
         {
@@ -123,8 +123,8 @@ namespace Desert::Geometry
                 return Common::MakeFormattedError<RegionOutcome>(
                      "Mesh Fill Hole: loop {} ({} edges) is no longer a boundary loop", index,
                      loop.GetEdgeCount() );
-            FVector3d planeNormal;
-            FVector3d planeOrigin;
+            glm::dvec3 planeNormal{};
+            glm::dvec3 planeOrigin{};
             ComputeLoopPlane( *mesh, loop.Vertices, planeNormal, planeOrigin );
             planeNormal *= -1.0; // UE: ComputePolygonPlane orients opposite to what the fill expects
             FSimpleHoleFiller filler( mesh.get(), loop );
@@ -134,9 +134,9 @@ namespace Desert::Geometry
             if ( mesh->HasAttributes() )
             {
                 FDynamicMeshEditor editor( mesh.get() );
-                editor.SetTriangleNormals( filler.NewTriangles, FVector3f( static_cast<float>( planeNormal.X ),
-                                                                           static_cast<float>( planeNormal.Y ),
-                                                                           static_cast<float>( planeNormal.Z ) ) );
+                editor.SetTriangleNormals( filler.NewTriangles, glm::vec3( static_cast<float>( planeNormal.x ),
+                                                                           static_cast<float>( planeNormal.y ),
+                                                                           static_cast<float>( planeNormal.z ) ) );
                 editor.SetTriangleUVsFromProjection( filler.NewTriangles, planeOrigin, planeNormal,
                                                      static_cast<float>( uvScale ) );
             }
@@ -278,17 +278,17 @@ namespace Desert::Geometry
             extruder.DefaultOffsetDistance = distance;
             if ( operation == RegionOperation::PushPull )
             {
-                FVector3d direction( 0.0, 0.0, 0.0 );
+                glm::dvec3 direction( 0.0, 0.0, 0.0 );
                 for ( const int t : triangles.Ids() )
                     direction += before.GetTriNormal( t ) * before.GetTriArea( t );
-                if ( direction.Length() <= 0.0 )
+                if ( glm::length( direction ) <= 0.0 )
                     return Common::MakeFormattedError<RegionOutcome>(
                          "Mesh {}: the {} selected triangles have no average normal (they cancel out)", name,
                          triangles.Size() );
                 Normalize( direction );
                 const double signedDistance = distance;
                 extruder.OffsetPositionFunc =
-                     [direction, signedDistance]( const FVector3d& position, const FVector3d&, int )
+                     [direction, signedDistance]( const glm::dvec3& position, const glm::dvec3&, int )
                 { return position + direction * signedDistance; };
             }
             extruder.bIsPositiveOffset = distance > 0.0f;

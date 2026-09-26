@@ -49,7 +49,7 @@ namespace
         FDynamicMesh3 Mesh;
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
-                Mesh.AppendVertex( FVector3d( x * 10.0, y * 10.0, 0.0 ) );
+                Mesh.AppendVertex( glm::dvec3( x * 10.0, y * 10.0, 0.0 ) );
         Mesh.EnableAttributes();
         FDynamicMeshAttributeSet* Attr = Mesh.Attributes();
         Attr->EnablePrimaryColors();
@@ -63,12 +63,12 @@ namespace
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
             {
-                UVLeft.push_back( UV->AppendElement( FVector2f( x / float( N ), y / float( N ) ) ) );
+                UVLeft.push_back( UV->AppendElement( glm::vec2( x / float( N ), y / float( N ) ) ) );
                 UVRight.push_back( x == Seam
-                                        ? UV->AppendElement( FVector2f( 1.0f + x / float( N ), y / float( N ) ) )
+                                        ? UV->AppendElement( glm::vec2( 1.0f + x / float( N ), y / float( N ) ) )
                                         : UVLeft.back() );
-                NmE.push_back( Nm->AppendElement( FVector3f( 0, 0, 1 ) ) );
-                ClE.push_back( Cl->AppendElement( FVector4f( x / float( N ), y / float( N ), 0, 1 ) ) );
+                NmE.push_back( Nm->AppendElement( glm::vec3( 0, 0, 1 ) ) );
+                ClE.push_back( Cl->AppendElement( glm::vec4( x / float( N ), y / float( N ), 0, 1 ) ) );
             }
 
         for ( int y = 0; y < N; ++y )
@@ -142,10 +142,10 @@ TEST( DynamicMesh3Attributes, SplitOffTheSeamSharesOneInterpolatedElement )
     ASSERT_TRUE( Valid( Mesh ) );
     const FDynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
     ASSERT_EQ( UV->CountVertexElements( Info.NewVertex ), 1 );
-    FVector2f Mid;
+    glm::vec2 Mid{};
     UV->GetElementAtVertex( Info.NewTriangles.A, Info.NewVertex, Mid );
-    EXPECT_NEAR( Mid.X, 0.25f, 1e-6f );
-    EXPECT_NEAR( Mid.Y, 0.375f, 1e-6f );
+    EXPECT_NEAR( Mid.x, 0.25f, 1e-6f );
+    EXPECT_NEAR( Mid.y, 0.375f, 1e-6f );
     ExpectInherited( Mesh, Info.OriginalTriangles.A, Info.NewTriangles.A );
     ExpectInherited( Mesh, Info.OriginalTriangles.B, Info.NewTriangles.B );
 }
@@ -184,8 +184,8 @@ TEST( DynamicMesh3Attributes, MergeEdgesWeldsOverlaysValid )
 {
     // Two separate triangles whose edges (1,2) and (3,4) coincide with opposite orientation.
     FDynamicMesh3   Mesh;
-    const FVector3d P[6] = { { 0, 0, 0 }, { 10, 0, 0 }, { 0, 10, 0 }, { 10, 0, 0 }, { 0, 10, 0 }, { 10, 10, 0 } };
-    for ( const FVector3d& Pos : P )
+    const glm::dvec3 P[6] = { { 0, 0, 0 }, { 10, 0, 0 }, { 0, 10, 0 }, { 10, 0, 0 }, { 0, 10, 0 }, { 10, 10, 0 } };
+    for ( const glm::dvec3& Pos : P )
         Mesh.AppendVertex( Pos );
     Mesh.EnableAttributes();
     Mesh.Attributes()->EnableMaterialID();
@@ -195,9 +195,9 @@ TEST( DynamicMesh3Attributes, MergeEdgesWeldsOverlaysValid )
     for ( int Tid : { T0, T1 } )
     {
         const FIndex3i T = Mesh.GetTriangle( Tid );
-        UV->SetTriangle( Tid, FIndex3i( UV->AppendElement( FVector2f( P[T.A].X, P[T.A].Y ) ),
-                                        UV->AppendElement( FVector2f( P[T.B].X, P[T.B].Y ) ),
-                                        UV->AppendElement( FVector2f( P[T.C].X, P[T.C].Y ) ) ) );
+        UV->SetTriangle( Tid, FIndex3i( UV->AppendElement( glm::vec2( P[T.A].x, P[T.A].y ) ),
+                                        UV->AppendElement( glm::vec2( P[T.B].x, P[T.B].y ) ),
+                                        UV->AppendElement( glm::vec2( P[T.C].x, P[T.C].y ) ) ) );
     }
     Mesh.Attributes()->GetMaterialID()->SetValue( T1, 7 );
     ASSERT_TRUE( Valid( Mesh ) );

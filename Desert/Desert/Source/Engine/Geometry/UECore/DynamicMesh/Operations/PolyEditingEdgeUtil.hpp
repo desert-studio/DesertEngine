@@ -21,8 +21,8 @@ namespace Desert::Geometry
      * Solve for a new inset position by intersecting a pair of inset-lines (the midpoint of their closest points),
      * or the nearest point on the first line when the lines are parallel.
      */
-    FVector3d SolveInsetVertexPositionFromLinePair( const FVector3d& Position, const FLine3d& InsetEdgeLine1,
-                                                    const FLine3d& InsetEdgeLine2 );
+    glm::dvec3 SolveInsetVertexPositionFromLinePair( const glm::dvec3& Position, const FLine3d& InsetEdgeLine1,
+                                                     const FLine3d& InsetEdgeLine2 );
 
     /**
      * Solve new inset vertex positions from consecutive inset-lines: vertex vi sits between line vi-1 and line vi.
@@ -30,5 +30,5 @@ namespace Desert::Geometry
      */
     void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3& Mesh, const TArray<FLine3d>& InsetEdgeLines,
                                                   const TArray<int32_t>& VertexIDs,
-                                                  TArray<FVector3d>& VertexPositionsOut, bool bIsLoop );
+                                                  TArray<glm::dvec3>& VertexPositionsOut, bool bIsLoop );
 } // namespace Desert::Geometry

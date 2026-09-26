@@ -87,7 +87,7 @@ namespace Desert::Geometry
 
         glm::vec3 Element3( const FDynamicMeshNormalOverlay& overlay, int e )
         {
-            glm::vec3 v;
+            glm::vec3 v{};
             static_cast<const FDynamicMeshNormalOverlay::BaseType&>( overlay ).GetElement( e, &v.x );
             return v;
         }
@@ -276,9 +276,9 @@ namespace Desert::Geometry
         for ( const int v : mesh.VertexIndicesItr() )
         {
             denseVertex[v]    = next++;
-            const FVector3d p = mesh.GetVertex( v );
-            out.Positions.insert( out.Positions.end(), { static_cast<float>( p.X ), static_cast<float>( p.Y ),
-                                                         static_cast<float>( p.Z ) } );
+            const glm::dvec3 p = mesh.GetVertex( v );
+            out.Positions.insert( out.Positions.end(), { static_cast<float>( p.x ), static_cast<float>( p.y ),
+                                                         static_cast<float>( p.z ) } );
         }
 
         const FDynamicMeshAttributeSet*      attributes = mesh.Attributes();
@@ -351,7 +351,7 @@ namespace Desert::Geometry
 
         for ( size_t v = 0; v < vertexCount; ++v )
             (void)mesh.AppendVertex(
-                 FVector3d( saved.Positions[v * 3], saved.Positions[v * 3 + 1], saved.Positions[v * 3 + 2] ) );
+                 glm::dvec3( saved.Positions[v * 3], saved.Positions[v * 3 + 1], saved.Positions[v * 3 + 2] ) );
 
         Reader reader{ saved, owner, mesh, {}, {} };
         reader.SavedTriangles.reserve( triangleCount );

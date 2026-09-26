@@ -84,7 +84,7 @@ namespace Desert::Geometry
             const TArray<int32_t>& LoopVids = LoopPair.InnerVertices;
             TArray<FLine3d>      InsetLines;
             ComputeInsetLineSegmentsFromEdges( *Mesh, LoopPair.InnerEdges, InsetDistance, InsetLines );
-            TArray<FVector3d> NewPositions;
+            TArray<glm::dvec3> NewPositions;
             SolveInsetVertexPositionsFromInsetLines( *Mesh, InsetLines, LoopVids, NewPositions, true );
             const int32_t N = LoopVids.Num();
             for ( int32_t k = 0; k < N; ++k )
@@ -147,33 +147,33 @@ namespace Desert::Geometry
             {
                 const TArray<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
                 float                AccumUVTranslation = 0;
-                FVector3d            FirstAxisX, FrameUp;
+                glm::dvec3             FirstAxisX{}, FrameUp{};
                 for ( int32_t k = 0; k < QuadStrips[StripIndex].Num(); k++ )
                 {
-                    const FVector3f NF = Editor.ComputeAndSetQuadNormal( QuadStrips[StripIndex][k], true );
-                    const FVector3d Normal( NF.X, NF.Y, NF.Z );
-                    FVector3d       AxisX, AxisY;
+                    const glm::vec3  NF = Editor.ComputeAndSetQuadNormal( QuadStrips[StripIndex][k], true );
+                    const glm::dvec3 Normal( NF.x, NF.y, NF.z );
+                    glm::dvec3       AxisX{}, AxisY{};
                     if ( k == 0 )
                     {
                         // FFrame3d(0, Normal).ConstrainedAlignAxis(0, FirstEdge, Normal): X is the first edge
                         // in the quad's plane, Y = Z x X.
-                        FVector3d FirstEdge = Mesh->GetVertex( BaseLoopV[1] ) - Mesh->GetVertex( BaseLoopV[0] );
-                        AxisX               = Normalized( FirstEdge - Normal * FirstEdge.Dot( Normal ) );
-                        AxisY               = Normal.Cross( AxisX );
+                        glm::dvec3 FirstEdge = Mesh->GetVertex( BaseLoopV[1] ) - Mesh->GetVertex( BaseLoopV[0] );
+                        AxisX                = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );
+                        AxisY                = glm::cross( Normal, AxisX );
                         FrameUp             = AxisY;
                     }
                     else
                     {
                         // ConstrainedAlignAxis(2, Normal, FrameUp): rotate about FrameUp until Z meets Normal.
-                        FVector3d Z = Normalized( Normal - FrameUp * Normal.Dot( FrameUp ) );
+                        glm::dvec3 Z = Normalized( Normal - FrameUp * glm::dot( Normal, FrameUp ) );
                         AxisY       = FrameUp;
-                        AxisX       = AxisY.Cross( Z );
+                        AxisX        = glm::cross( AxisY, Z );
                     }
                     if ( k > 0 )
                         AccumUVTranslation += (float)Distance( Mesh->GetVertex( BaseLoopV[k] ),
                                                                Mesh->GetVertex( BaseLoopV[k - 1] ) );
                     Editor.SetQuadUVsFromProjection( QuadStrips[StripIndex][k], AxisX, AxisY, UVScaleFactor,
-                                                     FVector2f( UVScaleFactor * AccumUVTranslation, 0.0f ) );
+                                                     glm::vec2( UVScaleFactor * AccumUVTranslation, 0.0f ) );
                 }
             }
         return true;

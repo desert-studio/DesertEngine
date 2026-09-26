@@ -92,7 +92,7 @@ namespace Desert::Geometry
             const int32_t   ParentID   = AllocatedNodes[ParentIndex].PointID;
             const int32_t   ParentSeed = AllocatedNodes[ParentIndex].SeedPointID;
             const double    ParentDist = AllocatedNodes[ParentIndex].GraphDistance;
-            const FVector3d ParentPos  = PointSet->GetVertex( ParentID );
+            const glm::dvec3 ParentPos  = PointSet->GetVertex( ParentID );
             for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
             {
                 FGraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];

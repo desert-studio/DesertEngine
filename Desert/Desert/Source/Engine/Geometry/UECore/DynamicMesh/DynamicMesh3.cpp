@@ -6,7 +6,7 @@
 using namespace Desert::Geometry;
 
 // NB: These have to be here until C++17 allows inline variables
-const FVector3d FDynamicMesh3::InvalidVertex = FVector3d( std::numeric_limits<double>::max(), 0.0, 0.0 );
+const glm::dvec3 FDynamicMesh3::InvalidVertex = glm::dvec3( std::numeric_limits<double>::max(), 0.0, 0.0 );
 
 FDynamicMesh3::FDynamicMesh3() : FDynamicMesh3( false, false, false, false )
 {
@@ -16,15 +16,15 @@ FDynamicMesh3::FDynamicMesh3( bool bWantNormals, bool bWantColors, bool bWantUVs
 {
     if ( bWantNormals )
     {
-        VertexNormals = TDynamicVector<FVector3f>{};
+        VertexNormals = TDynamicVector<glm::vec3>{};
     }
     if ( bWantColors )
     {
-        VertexColors = TDynamicVector<FVector3f>{};
+        VertexColors = TDynamicVector<glm::vec3>{};
     }
     if ( bWantUVs )
     {
-        VertexUVs = TDynamicVector<FVector2f>{};
+        VertexUVs = TDynamicVector<glm::vec2>{};
     }
     if ( bWantTriGroups )
     {
@@ -123,9 +123,9 @@ void FDynamicMesh3::Copy( const FDynamicMesh3& copy, bool bNormals, bool bColors
     if ( this != &copy )
     {
         Vertices        = copy.Vertices;
-        VertexNormals   = bNormals ? copy.VertexNormals : TOptional<TDynamicVector<FVector3f>>{};
-        VertexColors    = bColors ? copy.VertexColors : TOptional<TDynamicVector<FVector3f>>{};
-        VertexUVs       = bUVs ? copy.VertexUVs : TOptional<TDynamicVector<FVector2f>>{};
+        VertexNormals   = bNormals ? copy.VertexNormals : TOptional<TDynamicVector<glm::vec3>>{};
+        VertexColors    = bColors ? copy.VertexColors : TOptional<TDynamicVector<glm::vec3>>{};
+        VertexUVs       = bUVs ? copy.VertexUVs : TOptional<TDynamicVector<glm::vec2>>{};
         VertexRefCounts = copy.VertexRefCounts;
         VertexEdgeLists = copy.VertexEdgeLists;
 
@@ -192,9 +192,9 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
             }
         }
     };
-    MatchOptional( VertexNormals, ToAppend.VertexNormals, Vertices.Num(), FVector3f::UnitY() );
-    MatchOptional( VertexColors, ToAppend.VertexColors, Vertices.Num(), FVector3f::One() );
-    MatchOptional( VertexUVs, ToAppend.VertexUVs, Vertices.Num(), FVector2f::Zero() );
+    MatchOptional( VertexNormals, ToAppend.VertexNormals, Vertices.Num(), glm::vec3( 0, 1, 0 ) );
+    MatchOptional( VertexColors, ToAppend.VertexColors, Vertices.Num(), glm::vec3( 1 ) );
+    MatchOptional( VertexUVs, ToAppend.VertexUVs, Vertices.Num(), glm::vec2( 0 ) );
 
     VertexRefCounts.Append( ToAppend.VertexRefCounts );
     VertexEdgeLists.AppendWithElementOffset( ToAppend.VertexEdgeLists, UseAppendInfo->EdgeOffset );
@@ -278,15 +278,15 @@ void FDynamicMesh3::CompactCopy( const FDynamicMesh3& copy, bool bNormals, bool 
     Clear();
     if ( bNormals && copy.HasVertexNormals() )
     {
-        EnableVertexNormals( FVector3f::UnitY() );
+        EnableVertexNormals( glm::vec3( 0, 1, 0 ) );
     }
     if ( bColors && copy.HasVertexColors() )
     {
-        EnableVertexColors( FVector3f::One() );
+        EnableVertexColors( glm::vec3( 1 ) );
     }
     if ( bUVs && copy.HasVertexUVs() )
     {
-        EnableVertexUVs( FVector2f::Zero() );
+        EnableVertexUVs( glm::vec2( 0 ) );
     }
 
     // Use a triangle map if we have a CompactInfo.
@@ -382,7 +382,7 @@ void FDynamicMesh3::EnableMatchingAttributes( const FDynamicMesh3& ToMatch, bool
     }
     if ( bWantVertexNormals )
     {
-        EnableVertexNormals( FVector3f::UnitZ() );
+        EnableVertexNormals( glm::vec3( 0, 0, 1 ) );
     }
 
     bool bWantVertexColors = ( bClearExisting || bDiscardExtraAttributes )
@@ -394,7 +394,7 @@ void FDynamicMesh3::EnableMatchingAttributes( const FDynamicMesh3& ToMatch, bool
     }
     if ( bWantVertexColors )
     {
-        EnableVertexColors( FVector3f::Zero() );
+        EnableVertexColors( glm::vec3( 0 ) );
     }
 
     bool bWantVertexUVs = ( bClearExisting || bDiscardExtraAttributes )
@@ -406,7 +406,7 @@ void FDynamicMesh3::EnableMatchingAttributes( const FDynamicMesh3& ToMatch, bool
     }
     if ( bWantVertexUVs )
     {
-        EnableVertexUVs( FVector2f::Zero() );
+        EnableVertexUVs( glm::vec2( 0 ) );
     }
 
     bool bWantTriangleGroups = ( bClearExisting || bDiscardExtraAttributes )
@@ -486,7 +486,7 @@ void FDynamicMesh3::EnableMeshComponents( int MeshComponentsFlags )
     }
     if ( int( EMeshComponents::VertexColors ) & MeshComponentsFlags )
     {
-        EnableVertexColors( FVector3f( 1, 1, 1 ) );
+        EnableVertexColors( glm::vec3( 1, 1, 1 ) );
     }
     else
     {
@@ -494,7 +494,7 @@ void FDynamicMesh3::EnableMeshComponents( int MeshComponentsFlags )
     }
     if ( int( EMeshComponents::VertexNormals ) & MeshComponentsFlags )
     {
-        EnableVertexNormals( FVector3f::UnitY() );
+        EnableVertexNormals( glm::vec3( 0, 1, 0 ) );
     }
     else
     {
@@ -502,7 +502,7 @@ void FDynamicMesh3::EnableMeshComponents( int MeshComponentsFlags )
     }
     if ( int( EMeshComponents::VertexUVs ) & MeshComponentsFlags )
     {
-        EnableVertexUVs( FVector2f( 0, 0 ) );
+        EnableVertexUVs( glm::vec2( 0, 0 ) );
     }
     else
     {
@@ -510,14 +510,14 @@ void FDynamicMesh3::EnableMeshComponents( int MeshComponentsFlags )
     }
 }
 
-void FDynamicMesh3::EnableVertexNormals( const FVector3f& InitialNormal )
+void FDynamicMesh3::EnableVertexNormals( const glm::vec3& InitialNormal )
 {
     if ( HasVertexNormals() )
     {
         return;
     }
 
-    TDynamicVector<FVector3f> NewNormals;
+    TDynamicVector<glm::vec3> NewNormals;
     int                       NV = MaxVertexID();
     NewNormals.Resize( NV );
     for ( int i = 0; i < NV; ++i )
@@ -532,13 +532,13 @@ void FDynamicMesh3::DiscardVertexNormals()
     VertexNormals.Reset();
 }
 
-void FDynamicMesh3::EnableVertexColors( const FVector3f& InitialColor )
+void FDynamicMesh3::EnableVertexColors( const glm::vec3& InitialColor )
 {
     if ( HasVertexColors() )
     {
         return;
     }
-    VertexColors = TDynamicVector<FVector3f>();
+    VertexColors = TDynamicVector<glm::vec3>();
     int NV       = MaxVertexID();
     VertexColors->Resize( NV );
     for ( int i = 0; i < NV; ++i )
@@ -552,13 +552,13 @@ void FDynamicMesh3::DiscardVertexColors()
     VertexColors.Reset();
 }
 
-void FDynamicMesh3::EnableVertexUVs( const FVector2f& InitialUV )
+void FDynamicMesh3::EnableVertexUVs( const glm::vec2& InitialUV )
 {
     if ( HasVertexUVs() )
     {
         return;
     }
-    VertexUVs = TDynamicVector<FVector2f>();
+    VertexUVs = TDynamicVector<glm::vec2>();
     int NV    = MaxVertexID();
     VertexUVs->Resize( NV );
     for ( int i = 0; i < NV; ++i )
@@ -607,19 +607,19 @@ bool FDynamicMesh3::GetVertex( int vID, FVertexInfo& vinfo, bool bWantNormals, b
     if ( HasVertexNormals() && bWantNormals )
     {
         vinfo.bHaveN                               = true;
-        const TDynamicVector<FVector3f>& NormalVec = VertexNormals.GetValue();
+        const TDynamicVector<glm::vec3>& NormalVec = VertexNormals.GetValue();
         vinfo.Normal                               = NormalVec[vID];
     }
     if ( HasVertexColors() && bWantColors )
     {
         vinfo.bHaveC                              = true;
-        const TDynamicVector<FVector3f>& ColorVec = VertexColors.GetValue();
+        const TDynamicVector<glm::vec3>& ColorVec = VertexColors.GetValue();
         vinfo.Color                               = ColorVec[vID];
     }
     if ( HasVertexUVs() && bWantUVs )
     {
         vinfo.bHaveUV                          = true;
-        const TDynamicVector<FVector2f>& UVVec = VertexUVs.GetValue();
+        const TDynamicVector<glm::vec2>& UVVec = VertexUVs.GetValue();
         vinfo.UV                               = UVVec[vID];
     }
     return true;
@@ -867,9 +867,9 @@ bool FDynamicMesh3::CheckValidity( FValidityOptions ValidityOptions, EValidityCh
     {
         CheckOrFailF( IsVertex( vID ) );
 
-        FVector3d v = GetVertex( vID );
-        CheckOrFailF( FMathd::IsNaN( v.SquaredLength() ) == false );
-        CheckOrFailF( FMathd::IsFinite( v.SquaredLength() ) );
+        glm::dvec3 v = GetVertex( vID );
+        CheckOrFailF( FMathd::IsNaN( glm::length2( v ) ) == false );
+        CheckOrFailF( FMathd::IsFinite( glm::length2( v ) ) );
 
         for ( int edgeid : VertexEdgeLists.Values( vID ) )
         {

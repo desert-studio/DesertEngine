@@ -25,17 +25,17 @@ namespace Desert::Geometry
                 NbrTriSet.Add( NbrTris[j] );
                 if ( !UVOverlay.IsSetTriangle( NbrTris[j] ) )
                     continue;
-                FVector3d A;
-                FVector3d B;
-                FVector3d C;
+                glm::dvec3 A{};
+                glm::dvec3 B{};
+                glm::dvec3 C{};
                 Mesh.GetTriVertices( NbrTris[j], A, B, C );
                 Nbr3DAreaSum += VectorUtil::Area( A, B, C );
-                FVector2f U;
-                FVector2f V;
-                FVector2f W;
+                glm::vec2 U{};
+                glm::vec2 V{};
+                glm::vec2 W{};
                 UVOverlay.GetTriElements( NbrTris[j], U, V, W );
-                NbrUVAreaSum += 0.5 * std::abs( static_cast<double>( V.X - U.X ) * ( W.Y - U.Y ) -
-                                                static_cast<double>( V.Y - U.Y ) * ( W.X - U.X ) );
+                NbrUVAreaSum += 0.5 * std::abs( static_cast<double>( V.x - U.x ) * ( W.y - U.y ) -
+                                                static_cast<double>( V.y - U.y ) * ( W.x - U.x ) );
             }
         }
         const double UseUVScale = TMathUtil<double>::Max( std::sqrt( NbrUVAreaSum ), 0.0001 ) /
@@ -44,7 +44,7 @@ namespace Desert::Geometry
         FDynamicMeshUVEditor UVEditor( &Mesh, &UVOverlay );
         FUVEditResult        UVEditResult;
         const bool           bOK = UVEditor.SetTriangleUVsFromExpMap( TriangleSet, &UVEditResult );
-        UVEditor.TransformUVElements( UVEditResult.NewUVElements, [UseUVScale]( const FVector2f& UV )
+        UVEditor.TransformUVElements( UVEditResult.NewUVElements, [UseUVScale]( const glm::vec2& UV )
                                       { return UV * static_cast<float>( UseUVScale ); } );
         return bOK;
     }

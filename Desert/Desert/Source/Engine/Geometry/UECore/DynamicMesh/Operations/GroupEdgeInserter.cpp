@@ -25,9 +25,9 @@ namespace Desert::Geometry
         constexpr int32_t InvalidID          = IndexConstants::InvalidID;
         constexpr double KINDA_SMALL_NUMBER = 1e-4;
 
-        double PointPlaneDist( const FVector3d& Point, const FVector3d& Origin, const FVector3d& Normal )
+        double PointPlaneDist( const glm::dvec3& Point, const glm::dvec3& Origin, const glm::dvec3& Normal )
         {
-            return ( Point - Origin ).Dot( Normal );
+            return glm::dot( ( Point - Origin ), Normal );
         }
 
         bool GetEdgeLoopOpposingEdgeAndCorner( const FGroupTopology& Topology, int32_t GroupID,
@@ -191,8 +191,8 @@ namespace Desert::Geometry
                     }
                     else
                     {
-                        const FVector3d VertexPosition = Params.Mesh->GetVertex( Vid );
-                        SplitPoint.Tangent             = FVector3d::Zero();
+                        const glm::dvec3 VertexPosition = Params.Mesh->GetVertex( Vid );
+                        SplitPoint.Tangent              = glm::dvec3( 0 );
                         if ( NextIndex > 1 )
                         {
                             SplitPoint.Tangent +=
@@ -276,40 +276,41 @@ namespace Desert::Geometry
             TSet<int32_t> CrossedVids;
             TSet<int32_t> CrossedEids;
 
-            const FVector3d StartPosition =
+            const glm::dvec3 StartPosition =
                  StartPoint.bIsVertex ? Mesh.GetVertex( StartPoint.ElementID )
                                       : Mesh.GetEdgePoint( StartPoint.ElementID, StartPoint.EdgeTValue );
-            const FVector3d EndPosition = EndPoint.bIsVertex
-                                               ? Mesh.GetVertex( EndPoint.ElementID )
-                                               : Mesh.GetEdgePoint( EndPoint.ElementID, EndPoint.EdgeTValue );
+            const glm::dvec3 EndPosition = EndPoint.bIsVertex
+                                                ? Mesh.GetVertex( EndPoint.ElementID )
+                                                : Mesh.GetEdgePoint( EndPoint.ElementID, EndPoint.EdgeTValue );
 
-            const FVector3d InPlaneVector = Normalized( EndPosition - StartPosition );
+            const glm::dvec3 InPlaneVector = Normalized( EndPosition - StartPosition );
 
             // Components of the two tangents that are orthogonal to the vector between the points.
-            const FVector3d NormalA =
-                 Normalized( StartPoint.Tangent - StartPoint.Tangent.Dot( InPlaneVector ) * InPlaneVector,
+            const glm::dvec3 NormalA =
+                 Normalized( StartPoint.Tangent - glm::dot( StartPoint.Tangent, InPlaneVector ) * InPlaneVector,
                              KINDA_SMALL_NUMBER );
-            FVector3d NormalB = Normalized(
-                 EndPoint.Tangent - EndPoint.Tangent.Dot( InPlaneVector ) * InPlaneVector, KINDA_SMALL_NUMBER );
+            glm::dvec3 NormalB =
+                 Normalized( EndPoint.Tangent - glm::dot( EndPoint.Tangent, InPlaneVector ) * InPlaneVector,
+                             KINDA_SMALL_NUMBER );
 
-            if ( NormalA == FVector3d::Zero() || NormalB == FVector3d::Zero() )
+            if ( NormalA == glm::dvec3( 0 ) || NormalB == glm::dvec3( 0 ) )
             {
                 // A tangent pointed directly toward the destination: the plane would be nonsense.
                 return false;
             }
 
             // Same half space, so that the average represents the closer average of the corresponding lines.
-            if ( NormalA.Dot( NormalB ) < 0 )
+            if ( glm::dot( NormalA, NormalB ) < 0 )
             {
                 NormalB = -NormalB;
             }
 
-            const FVector3d CutPlaneNormal = Normalized( NormalA + NormalB );
-            if ( !UE_ENSURE( CutPlaneNormal != FVector3d::Zero() ) )
+            const glm::dvec3 CutPlaneNormal = Normalized( NormalA + NormalB );
+            if ( !UE_ENSURE( CutPlaneNormal != glm::dvec3( 0 ) ) )
             {
                 return false;
             }
-            const FVector3d CutPlaneOrigin = StartPosition;
+            const glm::dvec3 CutPlaneOrigin = StartPosition;
 
             // Distances of the current edge's vertices from the plane.
             double CurrentEdgeVertPlaneDistances[2] = { 0, 0 };
@@ -362,7 +363,7 @@ namespace Desert::Geometry
                 if ( bCurrentPointIsVertex )
                 {
                     FMeshSurfacePoint NextPoint( InvalidID );
-                    const FVector3d   CurrentPosition = OutputPath.Last().Key.Pos( &Mesh );
+                    const glm::dvec3  CurrentPosition = OutputPath.Last().Key.Pos( &Mesh );
 
                     // Find a surrounding triangle of our group that intersects the plane
                     int32_t CandidateTraversedTid = InvalidID;
@@ -418,8 +419,9 @@ namespace Desert::Geometry
                                 return false; // the same point, seen from an adjacent triangle
                             }
                             if ( NextPoint.ElementID == InvalidID ||
-                                 ( InPlaneVector.Dot( NextPoint.Pos( &Mesh ) - CurrentPosition ) <
-                                   InPlaneVector.Dot( CandidateSurfacePoint.Pos( &Mesh ) - CurrentPosition ) ) )
+                                 ( glm::dot( InPlaneVector, NextPoint.Pos( &Mesh ) - CurrentPosition ) <
+                                   glm::dot( InPlaneVector,
+                                             CandidateSurfacePoint.Pos( &Mesh ) - CurrentPosition ) ) )
                             {
                                 NextPoint = CandidateSurfacePoint;
                                 return true;

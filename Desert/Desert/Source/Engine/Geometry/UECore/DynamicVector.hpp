@@ -495,30 +495,30 @@ namespace Desert::Geometry
         {
             return Data[TopIndex * N + SubIndex];
         }
-        inline void SetVector2( unsigned int TopIndex, const TVector2<Type>& V )
+        inline void SetVector2( unsigned int TopIndex, const glm::vec<2, Type>& V )
         {
             UE_CHECK( N >= 2 );
             unsigned int i = TopIndex * N;
-            Data[i]        = V.X;
-            Data[i + 1]    = V.Y;
+            Data[i]        = V.x;
+            Data[i + 1]    = V.y;
         }
-        inline void SetVector3( unsigned int TopIndex, const TVector<Type>& V )
+        inline void SetVector3( unsigned int TopIndex, const glm::vec<3, Type>& V )
         {
             UE_CHECK( N >= 3 );
             unsigned int i = TopIndex * N;
-            Data[i]        = V.X;
-            Data[i + 1]    = V.Y;
-            Data[i + 2]    = V.Z;
+            Data[i]        = V.x;
+            Data[i + 1]    = V.y;
+            Data[i + 2]    = V.z;
         }
-        inline TVector2<Type> AsVector2( unsigned int TopIndex ) const
+        inline glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
         {
             UE_CHECK( N >= 2 );
-            return TVector2<Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1] );
+            return glm::vec<2, Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1] );
         }
-        inline TVector<Type> AsVector3( unsigned int TopIndex ) const
+        inline glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
         {
             UE_CHECK( N >= 3 );
-            return TVector<Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1], Data[TopIndex * N + 2] );
+            return glm::vec<3, Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1], Data[TopIndex * N + 2] );
         }
         inline FIndex2i AsIndex2( unsigned int TopIndex ) const
         {

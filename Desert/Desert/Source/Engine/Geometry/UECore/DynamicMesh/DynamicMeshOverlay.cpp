@@ -1631,8 +1631,8 @@ void TDynamicMeshOverlay<RealType, ElementSize>::OnPokeTriangle( const FDynamicM
 
     // create new element at barycentric position
     int       CenterElemID = AppendElement( (RealType)0 );
-    FVector3d BaryCoords( (double)PokeInfo.BaryCoords.X, (double)PokeInfo.BaryCoords.Y,
-                          (double)PokeInfo.BaryCoords.Z );
+    glm::dvec3 BaryCoords( (double)PokeInfo.BaryCoords.x, (double)PokeInfo.BaryCoords.y,
+                           (double)PokeInfo.BaryCoords.z );
     SetElementFromBary( CenterElemID, Triangle[0], Triangle[1], Triangle[2], BaryCoords );
 
     // update orig triangle and two new ones. Winding orders here mirror FDynamicMesh3::PokeTriangle
@@ -1761,7 +1761,7 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromLerp( int SetElem
 
 template <typename RealType, int ElementSize>
 void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetElement, int ElementA, int ElementB,
-                                                                     int ElementC, const FVector3d& BaryCoords )
+                                                                     int ElementC, const glm::dvec3& BaryCoords )
 {
     int IndexSet = ElementSize * SetElement;
     int IndexA   = ElementSize * ElementA;
@@ -1769,9 +1769,9 @@ void TDynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetElem
     int IndexC   = ElementSize * ElementC;
     for ( int i = 0; i < ElementSize; ++i )
     {
-        double BaryValue = BaryCoords.X * (double)Elements[IndexA + i] +
-                           BaryCoords.Y * (double)Elements[IndexB + i] +
-                           BaryCoords.Z * (double)Elements[IndexC + i];
+        double BaryValue = BaryCoords.x * (double)Elements[IndexA + i] +
+                           BaryCoords.y * (double)Elements[IndexB + i] +
+                           BaryCoords.z * (double)Elements[IndexC + i];
         Elements[IndexSet + i] = (RealType)BaryValue;
     }
 }
@@ -2049,10 +2049,10 @@ namespace Desert::Geometry
     template class TDynamicMeshOverlay<float, 4>;
     template class TDynamicMeshOverlay<double, 4>;
 
-    template class TDynamicMeshVectorOverlay<float, 2, FVector2f>;
-    template class TDynamicMeshVectorOverlay<double, 2, FVector2d>;
-    template class TDynamicMeshVectorOverlay<float, 3, FVector3f>;
-    template class TDynamicMeshVectorOverlay<double, 3, FVector3d>;
-    template class TDynamicMeshVectorOverlay<float, 4, FVector4f>;
+    template class TDynamicMeshVectorOverlay<float, 2, glm::vec2>;
+    template class TDynamicMeshVectorOverlay<double, 2, glm::dvec2>;
+    template class TDynamicMeshVectorOverlay<float, 3, glm::vec3>;
+    template class TDynamicMeshVectorOverlay<double, 3, glm::dvec3>;
+    template class TDynamicMeshVectorOverlay<float, 4, glm::vec4>;
 
 } // namespace Desert::Geometry

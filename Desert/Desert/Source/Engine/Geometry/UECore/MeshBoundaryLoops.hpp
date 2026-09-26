@@ -46,7 +46,7 @@ namespace Desert::Geometry
         };
         TArray<int> VerticesTemp;
 
-        FVector3d GetVertexNormal( int Vid ) const;
+        glm::dvec3 GetVertexNormal( int Vid ) const;
         int       FindLeftTurnEdge( int IncomingE, int BowtieV, const TArray<int>& BdryEdges, int BdryEdgesCount,
                                     const TArray<bool>& UsedEdges ) const;
         bool      ExtractSubloops( TArray<int>& LoopV, TArray<int>& LoopE, TArray<int>& Bowties,

@@ -23,7 +23,7 @@ namespace Desert::Geometry
              : X( XIn ), Y( YIn ), Z( ZIn ), W( WIn )
         {
         }
-        TQuaternion( const TVector<RealType>& From, const TVector<RealType>& To )
+        TQuaternion( const glm::vec<3, RealType>& From, const glm::vec<3, RealType>& To )
         {
             SetFromTo( From, To );
         }
@@ -43,71 +43,71 @@ namespace Desert::Geometry
             X = Y = Z = W = 0;
             return 0;
         }
-        TVector<RealType> AxisX() const
+        glm::vec<3, RealType> AxisX() const
         {
             const RealType twoY = 2 * Y;
             const RealType twoZ = 2 * Z;
-            return TVector<RealType>( 1 - ( twoY * Y + twoZ * Z ), twoY * X + twoZ * W, twoZ * X - twoY * W );
+            return glm::vec<3, RealType>( 1 - ( twoY * Y + twoZ * Z ), twoY * X + twoZ * W, twoZ * X - twoY * W );
         }
-        TVector<RealType> AxisY() const
-        {
-            const RealType twoX = 2 * X;
-            const RealType twoY = 2 * Y;
-            const RealType twoZ = 2 * Z;
-            return TVector<RealType>( twoY * X - twoZ * W, 1 - ( twoX * X + twoZ * Z ), twoZ * Y + twoX * W );
-        }
-        TVector<RealType> AxisZ() const
+        glm::vec<3, RealType> AxisY() const
         {
             const RealType twoX = 2 * X;
             const RealType twoY = 2 * Y;
             const RealType twoZ = 2 * Z;
-            return TVector<RealType>( twoZ * X + twoY * W, twoZ * Y - twoX * W, 1 - ( twoX * X + twoY * Y ) );
+            return glm::vec<3, RealType>( twoY * X - twoZ * W, 1 - ( twoX * X + twoZ * Z ), twoZ * Y + twoX * W );
         }
-        void SetAxisAngleR( const TVector<RealType>& Axis, RealType AngleRad )
+        glm::vec<3, RealType> AxisZ() const
+        {
+            const RealType twoX = 2 * X;
+            const RealType twoY = 2 * Y;
+            const RealType twoZ = 2 * Z;
+            return glm::vec<3, RealType>( twoZ * X + twoY * W, twoZ * Y - twoX * W, 1 - ( twoX * X + twoY * Y ) );
+        }
+        void SetAxisAngleR( const glm::vec<3, RealType>& Axis, RealType AngleRad )
         {
             const RealType Half = static_cast<RealType>( 0.5 ) * AngleRad;
             const RealType Sn   = std::sin( Half );
             W                   = std::cos( Half );
-            X                   = Sn * Axis.X;
-            Y                   = Sn * Axis.Y;
-            Z                   = Sn * Axis.Z;
+            X                   = Sn * Axis.x;
+            Y                   = Sn * Axis.y;
+            Z                   = Sn * Axis.z;
         }
-        void SetFromTo( const TVector<RealType>& From, const TVector<RealType>& To )
+        void SetFromTo( const glm::vec<3, RealType>& From, const glm::vec<3, RealType>& To )
         {
-            const TVector<RealType> from     = Normalized( From );
-            const TVector<RealType> to       = Normalized( To );
-            const TVector<RealType> bisector = Normalized( from + to, TMathUtil<RealType>::ZeroTolerance );
-            W                                = from.Dot( bisector );
+            const glm::vec<3, RealType> from     = Normalized( From );
+            const glm::vec<3, RealType> to       = Normalized( To );
+            const glm::vec<3, RealType> bisector = Normalized( from + to, TMathUtil<RealType>::ZeroTolerance );
+            W                                    = glm::dot( from, bisector );
             if ( W != 0 )
             {
-                const TVector<RealType> cross = from.Cross( bisector );
-                X                             = cross.X;
-                Y                             = cross.Y;
-                Z                             = cross.Z;
+                const glm::vec<3, RealType> cross = glm::cross( from, bisector );
+                X                                 = cross.x;
+                Y                                 = cross.y;
+                Z                                 = cross.z;
             }
-            else if ( std::abs( from.X ) >= std::abs( from.Y ) )
+            else if ( std::abs( from.x ) >= std::abs( from.y ) )
             {
                 const RealType invLength =
-                     static_cast<RealType>( 1 ) / std::sqrt( from.X * from.X + from.Z * from.Z );
-                X = -from.Z * invLength;
+                     static_cast<RealType>( 1 ) / std::sqrt( from.x * from.x + from.z * from.z );
+                X = -from.z * invLength;
                 Y = 0;
-                Z = +from.X * invLength;
+                Z = +from.x * invLength;
             }
             else
             {
                 const RealType invLength =
-                     static_cast<RealType>( 1 ) / std::sqrt( from.Y * from.Y + from.Z * from.Z );
+                     static_cast<RealType>( 1 ) / std::sqrt( from.y * from.y + from.z * from.z );
                 X = 0;
-                Y = +from.Z * invLength;
-                Z = -from.Y * invLength;
+                Y = +from.z * invLength;
+                Z = -from.y * invLength;
             }
             Normalize();
         }
         /** UE SetFromRotationMatrix of TMatrix3(AxisX, AxisY, AxisZ, bRows = false): M(r, c) = Axis[c][r]. */
-        void SetFromAxes( const TVector<RealType>& AxisXIn, const TVector<RealType>& AxisYIn,
-                          const TVector<RealType>& AxisZIn )
+        void SetFromAxes( const glm::vec<3, RealType>& AxisXIn, const glm::vec<3, RealType>& AxisYIn,
+                          const glm::vec<3, RealType>& AxisZIn )
         {
-            const TVector<RealType> Cols[3] = { AxisXIn, AxisYIn, AxisZIn };
+            const glm::vec<3, RealType> Cols[3] = { AxisXIn, AxisYIn, AxisZIn };
             auto                    M       = [&Cols]( int R, int C ) { return Cols[C][R]; };
             const RealType          trace   = M( 0, 0 ) + M( 1, 1 ) + M( 2, 2 );
             if ( trace > 0 )
@@ -130,15 +130,15 @@ namespace Desert::Geometry
                 const int         j    = Next[i];
                 const int         k    = Next[j];
                 RealType          root = std::sqrt( M( i, i ) - M( j, j ) - M( k, k ) + 1 );
-                TVector<RealType> quat( X, Y, Z );
+                glm::vec<3, RealType> quat( X, Y, Z );
                 quat[i] = static_cast<RealType>( 0.5 ) * root;
                 root    = static_cast<RealType>( 0.5 ) / root;
                 W       = ( M( k, j ) - M( j, k ) ) * root;
                 quat[j] = ( M( j, i ) + M( i, j ) ) * root;
                 quat[k] = ( M( k, i ) + M( i, k ) ) * root;
-                X       = quat.X;
-                Y       = quat.Y;
-                Z       = quat.Z;
+                X       = quat.x;
+                Y       = quat.y;
+                Z       = quat.z;
             }
             Normalize();
         }
@@ -155,36 +155,36 @@ namespace Desert::Geometry
     template <typename RealType>
     struct TFrame3
     {
-        TVector<RealType>     Origin = TVector<RealType>::Zero();
+        glm::vec<3, RealType> Origin = glm::vec<3, RealType>( 0 );
         TQuaternion<RealType> Rotation;
 
         TFrame3() = default;
-        TFrame3( const TVector<RealType>& OriginIn, const TVector<RealType>& SetZ ) : Origin( OriginIn )
+        TFrame3( const glm::vec<3, RealType>& OriginIn, const glm::vec<3, RealType>& SetZ ) : Origin( OriginIn )
         {
-            Rotation.SetFromTo( TVector<RealType>::UnitZ(), SetZ );
+            Rotation.SetFromTo( glm::vec<3, RealType>( 0, 0, 1 ), SetZ );
         }
-        TFrame3( const TVector<RealType>& OriginIn, const TVector<RealType>& XIn, const TVector<RealType>& YIn,
-                 const TVector<RealType>& ZIn )
+        TFrame3( const glm::vec<3, RealType>& OriginIn, const glm::vec<3, RealType>& XIn,
+                 const glm::vec<3, RealType>& YIn, const glm::vec<3, RealType>& ZIn )
              : Origin( OriginIn )
         {
             Rotation.SetFromAxes( XIn, YIn, ZIn );
         }
 
-        TVector<RealType> GetAxis( int AxisIndex ) const
+        glm::vec<3, RealType> GetAxis( int AxisIndex ) const
         {
             if ( AxisIndex == 0 )
                 return Rotation.AxisX();
             return AxisIndex == 1 ? Rotation.AxisY() : Rotation.AxisZ();
         }
-        TVector<RealType> X() const
+        glm::vec<3, RealType> X() const
         {
             return Rotation.AxisX();
         }
-        TVector<RealType> Y() const
+        glm::vec<3, RealType> Y() const
         {
             return Rotation.AxisY();
         }
-        TVector<RealType> Z() const
+        glm::vec<3, RealType> Z() const
         {
             return Rotation.AxisZ();
         }
@@ -194,31 +194,32 @@ namespace Desert::Geometry
             if ( NewRotation.Normalize() > 0 )
                 Rotation = NewRotation;
         }
-        void AlignAxis( int AxisIndex, const TVector<RealType>& ToDirection )
+        void AlignAxis( int AxisIndex, const glm::vec<3, RealType>& ToDirection )
         {
             Rotate( TQuaternion<RealType>( GetAxis( AxisIndex ), ToDirection ) );
         }
-        void ConstrainedAlignAxis( int AxisIndex, const TVector<RealType>& ToDirection,
-                                   const TVector<RealType>& AroundVector )
+        void ConstrainedAlignAxis( int AxisIndex, const glm::vec<3, RealType>& ToDirection,
+                                   const glm::vec<3, RealType>& AroundVector )
         {
-            const TVector<RealType> N    = Normalized( AroundVector );
-            TVector<RealType>       From = GetAxis( AxisIndex );
-            TVector<RealType>       To   = ToDirection;
-            From                         = Normalized( From - N * From.Dot( N ) );
-            To                           = Normalized( To - N * To.Dot( N ) );
+            const glm::vec<3, RealType> N    = Normalized( AroundVector );
+            glm::vec<3, RealType>       From = GetAxis( AxisIndex );
+            glm::vec<3, RealType>       To   = ToDirection;
+            From                             = Normalized( From - N * glm::dot( From, N ) );
+            To                               = Normalized( To - N * glm::dot( To, N ) );
             TQuaternion<RealType> RelRotation;
-            RelRotation.SetAxisAngleR( AroundVector, std::atan2( From.Cross( To ).Dot( N ), From.Dot( To ) ) );
+            RelRotation.SetAxisAngleR( AroundVector,
+                                       std::atan2( glm::dot( glm::cross( From, To ), N ), glm::dot( From, To ) ) );
             Rotate( RelRotation );
         }
         void ConstrainedAlignPerpAxes( int PerpAxis1, int PerpAxis2, int NormalAxis,
-                                       const TVector<RealType>& UpAxis, const TVector<RealType>& FallbackAxis,
-                                       RealType UpDotTolerance )
+                                       const glm::vec<3, RealType>& UpAxis,
+                                       const glm::vec<3, RealType>& FallbackAxis, RealType UpDotTolerance )
         {
-            const TVector<RealType>  NormalVec = GetAxis( NormalAxis );
-            const TVector<RealType>& TargetAxis =
-                 ( std::abs( NormalVec.Dot( UpAxis ) ) > UpDotTolerance ) ? FallbackAxis : UpAxis;
-            const RealType DotA    = GetAxis( PerpAxis1 ).Dot( TargetAxis );
-            const RealType DotB    = GetAxis( PerpAxis2 ).Dot( TargetAxis );
+            const glm::vec<3, RealType>  NormalVec = GetAxis( NormalAxis );
+            const glm::vec<3, RealType>& TargetAxis =
+                 ( std::abs( glm::dot( NormalVec, UpAxis ) ) > UpDotTolerance ) ? FallbackAxis : UpAxis;
+            const RealType DotA    = glm::dot( GetAxis( PerpAxis1 ), TargetAxis );
+            const RealType DotB    = glm::dot( GetAxis( PerpAxis2 ), TargetAxis );
             const int      UseAxis = ( std::abs( DotA ) > std::abs( DotB ) ) ? 0 : 1;
             const RealType UseSign = ( UseAxis == 0 ? DotA : DotB ) < 0 ? -1 : 1;
             // UE passes UseAxis (0/1), not PerpAxis1/2; equal for the (0, 1, 2) the ExpMap uses.

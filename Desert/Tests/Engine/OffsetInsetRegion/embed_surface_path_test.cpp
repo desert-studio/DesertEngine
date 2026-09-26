@@ -21,10 +21,10 @@ namespace
         FDynamicMesh3 mesh;
         for ( int z = 0; z < 2; ++z )
         {
-            mesh.AppendVertex( FVector3d( 0, 0, z * Size ) );
-            mesh.AppendVertex( FVector3d( Size, 0, z * Size ) );
-            mesh.AppendVertex( FVector3d( Size, Size, z * Size ) );
-            mesh.AppendVertex( FVector3d( 0, Size, z * Size ) );
+            mesh.AppendVertex( glm::dvec3( 0, 0, z * Size ) );
+            mesh.AppendVertex( glm::dvec3( Size, 0, z * Size ) );
+            mesh.AppendVertex( glm::dvec3( Size, Size, z * Size ) );
+            mesh.AppendVertex( glm::dvec3( 0, Size, z * Size ) );
         }
         const int tris[12][3] = { { 0, 2, 1 }, { 0, 3, 2 }, { 4, 5, 6 }, { 4, 6, 7 }, { 0, 1, 5 }, { 0, 5, 4 },
                                   { 3, 7, 6 }, { 3, 6, 2 }, { 0, 4, 7 }, { 0, 7, 3 }, { 1, 2, 6 }, { 1, 6, 5 } };
@@ -37,18 +37,18 @@ namespace
     }
 
     // Surface point on the edge a-b at world position p, with the lerp parameter in the edge's own vertex order.
-    FMeshSurfacePoint EdgePoint( const FDynamicMesh3& mesh, int a, int b, const FVector3d& p )
+    FMeshSurfacePoint EdgePoint( const FDynamicMesh3& mesh, int a, int b, const glm::dvec3& p )
     {
         const int eid = mesh.FindEdge( a, b );
         EXPECT_NE( eid, FDynamicMesh3::InvalidID );
-        FVector3d ea;
-        FVector3d eb;
+        glm::dvec3 ea{};
+        glm::dvec3 eb{};
         mesh.GetEdgeV( eid, ea, eb );
         return FMeshSurfacePoint::MakeEdgePoint( eid, Distance( ea, p ) / Distance( ea, eb ) );
     }
 
     void ExpectEmbedded( const FDynamicMesh3& mesh, const TArray<int>& pathVertices,
-                         const std::vector<FVector3d>& expected )
+                         const std::vector<glm::dvec3>& expected )
     {
         ASSERT_EQ( pathVertices.Num(), (int)expected.size() );
         for ( int i = 0; i < pathVertices.Num(); ++i )
@@ -69,9 +69,9 @@ TEST( EmbedSurfacePath, StraightEdgePathAcrossAQuadBecomesMeshEdges )
 {
     FDynamicMesh3    mesh = Cube();
     FMeshSurfacePath path( &mesh );
-    const FVector3d  p0( 50, 0, Size );
-    const FVector3d  p1( 50, 50, Size );
-    const FVector3d  p2( 50, Size, Size );
+    const glm::dvec3 p0( 50, 0, Size );
+    const glm::dvec3 p1( 50, 50, Size );
+    const glm::dvec3 p2( 50, Size, Size );
     path.Path.Emplace( EdgePoint( mesh, 4, 5, p0 ), 2 );
     path.Path.Emplace( EdgePoint( mesh, 4, 6, p1 ), 3 );
     path.Path.Emplace( EdgePoint( mesh, 7, 6, p2 ), FDynamicMesh3::InvalidID );
@@ -92,12 +92,12 @@ TEST( EmbedSurfacePath, TriangleEndPointsArePokedAndTheEndIsRelocatedAfterTheSpl
     // (60,20) inside triangle 2 = (4,5,6); (40,80) inside triangle 3 = (4,6,7); the line crosses the diagonal at
     // (50,50). Splitting the diagonal cuts triangle 3 in two, so the end point must be found again before the
     // poke.
-    const FVector3d start( 60, 20, Size );
-    const FVector3d cross( 50, 50, Size );
-    const FVector3d end( 40, 80, Size );
-    path.Path.Emplace( FMeshSurfacePoint( 2, FVector3d( 0.4, 0.4, 0.2 ) ), 2 );
+    const glm::dvec3 start( 60, 20, Size );
+    const glm::dvec3 cross( 50, 50, Size );
+    const glm::dvec3 end( 40, 80, Size );
+    path.Path.Emplace( FMeshSurfacePoint( 2, glm::dvec3( 0.4, 0.4, 0.2 ) ), 2 );
     path.Path.Emplace( EdgePoint( mesh, 4, 6, cross ), 3 );
-    path.Path.Emplace( FMeshSurfacePoint( 3, FVector3d( 0.2, 0.4, 0.4 ) ), FDynamicMesh3::InvalidID );
+    path.Path.Emplace( FMeshSurfacePoint( 3, glm::dvec3( 0.2, 0.4, 0.4 ) ), FDynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
     ASSERT_LT( Distance( path.Path[0].Key.Pos( &mesh ), start ), 1e-9 );
     ASSERT_LT( Distance( path.Path[2].Key.Pos( &mesh ), end ), 1e-9 );
@@ -114,9 +114,9 @@ TEST( EmbedSurfacePath, PathStartingInsideATriangleGetsItsFirstVertexAtThatExact
     FMeshSurfacePath path( &mesh );
     // Triangle 2 = (4,5,6) = (0,0), (100,0), (100,100) at z = 100. Three unequal weights, so the point is neither
     // a vertex, nor on an edge, nor the centroid a poke without its barycentric coordinate would land on.
-    const FVector3d start( 50, 20, Size );
-    const FVector3d corner( Size, 0, Size ); // vertex 5
-    path.Path.Emplace( FMeshSurfacePoint( 2, FVector3d( 0.5, 0.3, 0.2 ) ), 2 );
+    const glm::dvec3 start( 50, 20, Size );
+    const glm::dvec3 corner( Size, 0, Size ); // vertex 5
+    path.Path.Emplace( FMeshSurfacePoint( 2, glm::dvec3( 0.5, 0.3, 0.2 ) ), 2 );
     path.Path.Emplace( FMeshSurfacePoint( 5 ), FDynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
     ASSERT_LT( Distance( path.Path[0].Key.Pos( &mesh ), start ), 1e-9 );
@@ -155,21 +155,21 @@ TEST( EmbedSurfacePath, PathThatLeavesItsWalkingTriangleIsNotConnected )
 {
     FDynamicMesh3    mesh = Cube();
     FMeshSurfacePath path( &mesh );
-    path.Path.Emplace( EdgePoint( mesh, 4, 5, FVector3d( 50, 0, Size ) ), 0 ); // triangle 0 is the bottom face
-    path.Path.Emplace( EdgePoint( mesh, 4, 6, FVector3d( 50, 50, Size ) ), FDynamicMesh3::InvalidID );
+    path.Path.Emplace( EdgePoint( mesh, 4, 5, glm::dvec3( 50, 0, Size ) ), 0 ); // triangle 0 is the bottom face
+    path.Path.Emplace( EdgePoint( mesh, 4, 6, glm::dvec3( 50, 50, Size ) ), FDynamicMesh3::InvalidID );
     EXPECT_FALSE( path.IsConnected() );
 }
 
 TEST( DistPoint3Triangle3, BarycentricCoordinatesOfTheClosestPoint )
 {
-    const FTriangle3d     tri( FVector3d( 0, 0, 0 ), FVector3d( 100, 0, 0 ), FVector3d( 0, 100, 0 ) );
-    FDistPoint3Triangle3d above( FVector3d( 20, 30, 7 ), tri );
+    const FTriangle3d     tri( glm::dvec3( 0, 0, 0 ), glm::dvec3( 100, 0, 0 ), glm::dvec3( 0, 100, 0 ) );
+    FDistPoint3Triangle3d above( glm::dvec3( 20, 30, 7 ), tri );
     EXPECT_NEAR( above.GetSquared(), 49.0, 1e-9 );
     EXPECT_NEAR( above.TriangleBaryCoords[0], 0.5, 1e-12 );
     EXPECT_NEAR( above.TriangleBaryCoords[1], 0.2, 1e-12 );
     EXPECT_NEAR( above.TriangleBaryCoords[2], 0.3, 1e-12 );
     // Outside across the hypotenuse: the closest point is (50,50,0) on edge 1-2.
-    FDistPoint3Triangle3d outside( FVector3d( 60, 60, 0 ), tri );
+    FDistPoint3Triangle3d outside( glm::dvec3( 60, 60, 0 ), tri );
     EXPECT_NEAR( outside.GetSquared(), 200.0, 1e-9 );
     EXPECT_NEAR( outside.TriangleBaryCoords[0], 0.0, 1e-12 );
     EXPECT_NEAR( outside.TriangleBaryCoords[1], 0.5, 1e-12 );

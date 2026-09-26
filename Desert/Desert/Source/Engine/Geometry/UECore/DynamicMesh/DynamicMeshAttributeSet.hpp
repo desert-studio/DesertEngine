@@ -21,11 +21,11 @@ namespace Desert::Geometry
 {
 
     /** Standard UV overlay type - 2-element float */
-    typedef TDynamicMeshVectorOverlay<float, 2, FVector2f> FDynamicMeshUVOverlay;
+    typedef TDynamicMeshVectorOverlay<float, 2, glm::vec2> FDynamicMeshUVOverlay;
     /** Standard Normal overlay type - 3-element float */
-    typedef TDynamicMeshVectorOverlay<float, 3, FVector3f> FDynamicMeshNormalOverlay;
+    typedef TDynamicMeshVectorOverlay<float, 3, glm::vec3> FDynamicMeshNormalOverlay;
     /** Standard Color overlay type - 4-element float (rbga) */
-    typedef TDynamicMeshVectorOverlay<float, 4, FVector4f> FDynamicMeshColorOverlay;
+    typedef TDynamicMeshVectorOverlay<float, 4, glm::vec4> FDynamicMeshColorOverlay;
     /** Standard per-triangle integer material ID */
     using FDynamicMeshMaterialAttribute = TDynamicMeshScalarTriangleAttribute<int32_t>;
 

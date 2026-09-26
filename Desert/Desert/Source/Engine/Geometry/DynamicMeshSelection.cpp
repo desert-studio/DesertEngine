@@ -58,8 +58,8 @@ namespace Desert::Geometry
         }
         [[nodiscard]] glm::vec3 GetPosition( int v ) const
         {
-            const FVector3d p = m_Mesh.GetVertex( v );
-            return { static_cast<float>( p.X ), static_cast<float>( p.Y ), static_cast<float>( p.Z ) };
+            const glm::dvec3 p = m_Mesh.GetVertex( v );
+            return { static_cast<float>( p.x ), static_cast<float>( p.y ), static_cast<float>( p.z ) };
         }
         [[nodiscard]] std::array<int, 3> GetTriangle( int t ) const
         {
@@ -134,8 +134,8 @@ namespace Desert::Geometry
         bool WithinTolerance( const PickView& view, const glm::vec3& rayPoint, const glm::vec3& geoPoint,
                               float& outPixels )
         {
-            glm::vec2 a;
-            glm::vec2 b;
+            glm::vec2 a{};
+            glm::vec2 b{};
             if ( !ProjectToViewport( rayPoint, view.ViewProj, view.ViewportPos, view.ViewportSize, a ) ||
                  !ProjectToViewport( geoPoint, view.ViewProj, view.ViewportPos, view.ViewportSize, b ) )
                 return false;
@@ -234,7 +234,7 @@ namespace Desert::Geometry
             {
                 const auto ev = mesh.GetEdgeVertices( e );
                 float      rayT;
-                glm::vec3  curvePoint;
+                glm::vec3  curvePoint{};
                 RaySegmentClosest( view.RayOrigin, view.RayDirection, WorldPosition( mesh, view, ev[0] ),
                                    WorldPosition( mesh, view, ev[1] ), rayT, curvePoint );
                 const glm::vec3 rayPoint = view.RayOrigin + rayT * view.RayDirection;

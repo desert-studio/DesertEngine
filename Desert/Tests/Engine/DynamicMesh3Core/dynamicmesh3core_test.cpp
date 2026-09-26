@@ -22,7 +22,7 @@ namespace
         FDynamicMesh3 Mesh;
         for ( int i = 0; i < 8; ++i )
             Mesh.AppendVertex(
-                 FVector3d( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
+                 glm::dvec3( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
         for ( const auto& Q : Quads )
@@ -41,7 +41,7 @@ namespace
             Mesh.EnableTriangleGroups();
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
-                Mesh.AppendVertex( FVector3d( x * 10.0, y * 10.0, 0.0 ) );
+                Mesh.AppendVertex( glm::dvec3( x * 10.0, y * 10.0, 0.0 ) );
         auto V = [N]( int x, int y ) { return y * ( N + 1 ) + x; };
         for ( int y = 0; y < N; ++y )
             for ( int x = 0; x < N; ++x )
@@ -62,8 +62,8 @@ namespace
             {
                 const double a = TwoPi * u / NU;
                 const double b = TwoPi * v / NV;
-                Mesh.AppendVertex( FVector3d( ( R + r * std::cos( b ) ) * std::cos( a ),
-                                              ( R + r * std::cos( b ) ) * std::sin( a ), r * std::sin( b ) ) );
+                Mesh.AppendVertex( glm::dvec3( ( R + r * std::cos( b ) ) * std::cos( a ),
+                                               ( R + r * std::cos( b ) ) * std::sin( a ), r * std::sin( b ) ) );
             }
         auto V = [NU, NV]( int u, int v ) { return ( u % NU ) * NV + ( v % NV ); };
         for ( int u = 0; u < NU; ++u )
@@ -146,25 +146,25 @@ TEST( DynamicMesh3Core, CubeIsClosedGenusZero )
     EXPECT_NEAR( TotalArea( Mesh ), 6.0 * Side * Side, 1e-6 );
 
     const FAxisAlignedBox3d Bounds = Mesh.GetBounds();
-    EXPECT_EQ( Bounds.Min, FVector3d::Zero() );
-    EXPECT_EQ( Bounds.Max, FVector3d( Side, Side, Side ) );
+    EXPECT_EQ( Bounds.Min, glm::dvec3( 0 ) );
+    EXPECT_EQ( Bounds.Max, glm::dvec3( Side, Side, Side ) );
 }
 
 TEST( DynamicMesh3Core, CubeNormalsFollowUEWinding )
 {
     // UE's triangle normal is (V2-V0)x(V1-V0): a triangle counter-clockwise from outside faces inward.
     const FDynamicMesh3 Mesh = MakeCube();
-    const FVector3d     Center( Side / 2, Side / 2, Side / 2 );
+    const glm::dvec3    Center( Side / 2, Side / 2, Side / 2 );
     for ( int TID : Mesh.TriangleIndicesItr() )
     {
-        const FVector3d N = Mesh.GetTriNormal( TID );
-        EXPECT_NEAR( N.Length(), 1.0, 1e-12 );
-        const FVector3d Out = Normalized( Mesh.GetTriCentroid( TID ) - Center );
-        EXPECT_LT( N.Dot( Out ), -0.5 ) << "triangle " << TID;
+        const glm::dvec3 N = Mesh.GetTriNormal( TID );
+        EXPECT_NEAR( glm::length( N ), 1.0, 1e-12 );
+        const glm::dvec3 Out = Normalized( Mesh.GetTriCentroid( TID ) - Center );
+        EXPECT_LT( glm::dot( N, Out ), -0.5 ) << "triangle " << TID;
         const FAxisAlignedBox3d TB = Mesh.GetTriBounds( TID );
-        const FVector3d         C  = Mesh.GetTriCentroid( TID );
-        EXPECT_TRUE( C.X >= TB.Min.X && C.X <= TB.Max.X && C.Y >= TB.Min.Y && C.Y <= TB.Max.Y && C.Z >= TB.Min.Z &&
-                     C.Z <= TB.Max.Z );
+        const glm::dvec3        C  = Mesh.GetTriCentroid( TID );
+        EXPECT_TRUE( C.x >= TB.Min.x && C.x <= TB.Max.x && C.y >= TB.Min.y && C.y <= TB.Max.y && C.z >= TB.Min.z &&
+                     C.z <= TB.Max.z );
         EXPECT_NEAR( Mesh.GetTriArea( TID ), Side * Side / 2, 1e-9 );
     }
 }
@@ -272,7 +272,7 @@ TEST( DynamicMesh3Core, TorusIsClosedGenusOne )
 TEST( DynamicMesh3Core, RejectsNonManifoldAndDuplicateTriangles )
 {
     FDynamicMesh3 Mesh = MakePlane( 1 ); // two triangles sharing the diagonal 0-3
-    const int     Apex = Mesh.AppendVertex( FVector3d( 5.0, 5.0, 10.0 ) );
+    const int     Apex = Mesh.AppendVertex( glm::dvec3( 5.0, 5.0, 10.0 ) );
     EXPECT_EQ( Mesh.AppendTriangle( 0, 3, Apex ), FDynamicMesh3::NonManifoldID );
     EXPECT_EQ( Mesh.TriangleCount(), 2 );
     EXPECT_TRUE( Valid( Mesh ) );
@@ -281,7 +281,7 @@ TEST( DynamicMesh3Core, RejectsNonManifoldAndDuplicateTriangles )
     // a duplicate is only detectable while its edges are still boundary edges
     FDynamicMesh3 Single;
     for ( int i = 0; i < 3; ++i )
-        Single.AppendVertex( FVector3d( i * 10.0, ( i == 2 ) * 10.0, 0.0 ) );
+        Single.AppendVertex( glm::dvec3( i * 10.0, ( i == 2 ) * 10.0, 0.0 ) );
     EXPECT_EQ( Single.AppendTriangle( 0, 1, 2 ), 0 );
     EXPECT_EQ( Single.AppendTriangle( 0, 1, 2 ), FDynamicMesh3::DuplicateTriangleID );
     EXPECT_EQ( Single.TriangleCount(), 1 );
@@ -329,8 +329,8 @@ TEST( DynamicMesh3Core, RemoveVertexThenCompactInPlaceKeepsGeometry )
 TEST( DynamicMesh3Core, CompactCopyEqualsSourceGeometry )
 {
     FDynamicMesh3 Source = MakePlane( 4, true );
-    Source.EnableVertexNormals( FVector3f::UnitZ() );
-    Source.SetVertexNormal( 7, FVector3f( 1.0f, 0.0f, 0.0f ) );
+    Source.EnableVertexNormals( glm::vec3( 0, 0, 1 ) );
+    Source.SetVertexNormal( 7, glm::vec3( 1.0f, 0.0f, 0.0f ) );
     // Boundary triangles chosen so no vertex becomes a bowtie (7 instead of 6 would pinch vertex 3 and
     // CheckValidity rightly fails); removing all of quad 0 and corner triangle 6 also frees vertices 0 and 4.
     for ( int TID : { 0, 1, 6, 31 } )
@@ -363,7 +363,7 @@ TEST( DynamicMesh3Core, SetTriangleRewiresAndDropsIsolatedVertex )
 {
     FDynamicMesh3 Mesh;
     for ( int i = 0; i < 7; ++i )
-        Mesh.AppendVertex( FVector3d( i * 10.0, ( i % 2 ) * 10.0, 0.0 ) );
+        Mesh.AppendVertex( glm::dvec3( i * 10.0, ( i % 2 ) * 10.0, 0.0 ) );
     Mesh.AppendTriangle( 0, 1, 2 );
     const int T = Mesh.AppendTriangle( 3, 4, 5 );
     EXPECT_FALSE( Mesh.IsReferencedVertex( 6 ) );

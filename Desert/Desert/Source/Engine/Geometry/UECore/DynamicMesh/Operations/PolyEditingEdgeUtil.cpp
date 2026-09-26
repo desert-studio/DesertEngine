@@ -18,17 +18,17 @@ namespace Desert::Geometry
             if ( Mesh.IsEdge( EdgeList[k] ) )
             {
                 const FDynamicMesh3::FEdge EdgeVT   = Mesh.GetEdge( EdgeList[k] );
-                const FVector3d            A        = Mesh.GetVertex( EdgeVT.Vert.A );
-                const FVector3d            B        = Mesh.GetVertex( EdgeVT.Vert.B );
-                const FVector3d            EdgeDir  = Normalized( A - B );
-                const FVector3d            Midpoint = ( A + B ) * 0.5;
-                FVector3d                  Normal;
-                FVector3d                  Centroid;
+                const glm::dvec3           A        = Mesh.GetVertex( EdgeVT.Vert.A );
+                const glm::dvec3           B        = Mesh.GetVertex( EdgeVT.Vert.B );
+                const glm::dvec3           EdgeDir  = Normalized( A - B );
+                const glm::dvec3           Midpoint = ( A + B ) * 0.5;
+                glm::dvec3                 Normal{};
+                glm::dvec3                 Centroid{};
                 double                     Area = 0.0;
                 Mesh.GetTriInfo( EdgeVT.Tri.A, Normal, Area, Centroid );
 
-                FVector3d InsetDir = Normal.Cross( EdgeDir );
-                if ( ( Centroid - Midpoint ).Dot( InsetDir ) < 0 )
+                glm::dvec3 InsetDir = glm::cross( Normal, EdgeDir );
+                if ( glm::dot( ( Centroid - Midpoint ), InsetDir ) < 0 )
                 {
                     InsetDir = InsetDir * -1.0;
                 }
@@ -42,10 +42,10 @@ namespace Desert::Geometry
         }
     }
 
-    FVector3d SolveInsetVertexPositionFromLinePair( const FVector3d& Position, const FLine3d& InsetEdgeLine1,
-                                                    const FLine3d& InsetEdgeLine2 )
+    glm::dvec3 SolveInsetVertexPositionFromLinePair( const glm::dvec3& Position, const FLine3d& InsetEdgeLine1,
+                                                     const FLine3d& InsetEdgeLine2 )
     {
-        if ( std::abs( InsetEdgeLine1.Direction.Dot( InsetEdgeLine2.Direction ) ) > 0.999 )
+        if ( std::abs( glm::dot( InsetEdgeLine1.Direction, InsetEdgeLine2.Direction ) ) > 0.999 )
         {
             // The lines are parallel, so their intersection is not useful: use the nearest point on either line.
             return InsetEdgeLine1.NearestPoint( Position );
@@ -58,7 +58,7 @@ namespace Desert::Geometry
 
     void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3& Mesh, const TArray<FLine3d>& InsetEdgeLines,
                                                   const TArray<int32_t>& VertexIDs,
-                                                  TArray<FVector3d>& VertexPositionsOut, bool bIsLoop )
+                                                  TArray<glm::dvec3>& VertexPositionsOut, bool bIsLoop )
     {
         const int32_t NumVertices = VertexIDs.Num();
         VertexPositionsOut.SetNum( NumVertices );

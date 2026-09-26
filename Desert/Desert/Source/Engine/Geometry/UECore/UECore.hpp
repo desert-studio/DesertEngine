@@ -1,13 +1,19 @@
 // UE Core shim for the ported GeometryCore (FDynamicMesh3 and its containers).
 // Not a port of a single UE file: it re-expresses, over std and glm, the subset of UE Core
-// (Runtime/Core: Containers/Array.h, ArrayView.h, Set.h, Map.h, Math/Vector.h, Math/Vector2D.h,
+// (Runtime/Core: Containers/Array.h, ArrayView.h, Set.h, Map.h,
 // Misc/AssertionMacros.h) that the ported sources still call under UE names. It is being retired step by
 // step (GC1: the integer aliases, FName, TFunction, FMath, MoveTemp and TNumericLimits are gone -- the sources
-// spell std directly); do not grow it.
+// spell std directly; GC2: the vectors are glm, members .x/.y/.z/.w); do not grow it.
 #pragma once
 
+#include <glm/geometric.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+#ifndef GLM_ENABLE_EXPERIMENTAL
+#define GLM_ENABLE_EXPERIMENTAL
+#endif
+#include <glm/gtx/norm.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -474,8 +480,6 @@ namespace Desert::Geometry
         }
     };
 
-    // UE::Math::TVector / TVector2 with UE's member names (X, Y, Z); positions are double
-    // (FVector3d), as in UE's FDynamicMesh3. glm conversions sit at the boundary to the engine.
     // TOptional over std::optional (Misc/Optional.h names).
     template <typename T>
     class TOptional
@@ -534,225 +538,5 @@ namespace Desert::Geometry
 
     template <typename T>
     using TConstArrayView = TArrayView<const T>;
-
-    template <typename T>
-    struct TVector2
-    {
-        T X{};
-        T Y{};
-
-        constexpr TVector2() = default;
-        constexpr TVector2( T InX, T InY ) : X( InX ), Y( InY )
-        {
-        }
-        explicit TVector2( const glm::vec<2, T>& V ) : X( V.x ), Y( V.y )
-        {
-        }
-        explicit operator glm::vec<2, T>() const
-        {
-            return { X, Y };
-        }
-
-        static constexpr TVector2 Zero()
-        {
-            return { T( 0 ), T( 0 ) };
-        }
-        T& operator[]( int Index )
-        {
-            return Index == 0 ? X : Y;
-        }
-        const T& operator[]( int Index ) const
-        {
-            return Index == 0 ? X : Y;
-        }
-        TVector2 operator+( const TVector2& O ) const
-        {
-            return { X + O.X, Y + O.Y };
-        }
-        TVector2 operator-( const TVector2& O ) const
-        {
-            return { X - O.X, Y - O.Y };
-        }
-        TVector2 operator*( T S ) const
-        {
-            return { X * S, Y * S };
-        }
-        bool operator==( const TVector2& O ) const
-        {
-            return X == O.X && Y == O.Y;
-        }
-        bool operator!=( const TVector2& O ) const
-        {
-            return !( *this == O );
-        }
-    };
-
-    template <typename T>
-    struct TVector
-    {
-        T X{};
-        T Y{};
-        T Z{};
-
-        constexpr TVector() = default;
-        constexpr TVector( T InX, T InY, T InZ ) : X( InX ), Y( InY ), Z( InZ )
-        {
-        }
-        explicit TVector( const glm::vec<3, T>& V ) : X( V.x ), Y( V.y ), Z( V.z )
-        {
-        }
-        explicit operator glm::vec<3, T>() const
-        {
-            return { X, Y, Z };
-        }
-
-        static constexpr TVector Zero()
-        {
-            return { T( 0 ), T( 0 ), T( 0 ) };
-        }
-        static constexpr TVector One()
-        {
-            return { T( 1 ), T( 1 ), T( 1 ) };
-        }
-        static constexpr TVector UnitX()
-        {
-            return { T( 1 ), T( 0 ), T( 0 ) };
-        }
-        static constexpr TVector UnitY()
-        {
-            return { T( 0 ), T( 1 ), T( 0 ) };
-        }
-        static constexpr TVector UnitZ()
-        {
-            return { T( 0 ), T( 0 ), T( 1 ) };
-        }
-        // UE converts between FVector3f and FVector3d explicitly (vertex normals/colours are float).
-        template <typename U>
-        explicit constexpr TVector( const TVector<U>& V ) : X( T( V.X ) ), Y( T( V.Y ) ), Z( T( V.Z ) )
-        {
-        }
-        T& operator[]( int Index )
-        {
-            return Index == 0 ? X : ( Index == 1 ? Y : Z );
-        }
-        const T& operator[]( int Index ) const
-        {
-            return Index == 0 ? X : ( Index == 1 ? Y : Z );
-        }
-        TVector operator+( const TVector& O ) const
-        {
-            return { X + O.X, Y + O.Y, Z + O.Z };
-        }
-        TVector operator-( const TVector& O ) const
-        {
-            return { X - O.X, Y - O.Y, Z - O.Z };
-        }
-        TVector operator-() const
-        {
-            return { -X, -Y, -Z };
-        }
-        TVector operator*( T S ) const
-        {
-            return { X * S, Y * S, Z * S };
-        }
-        TVector operator/( T S ) const
-        {
-            return { X / S, Y / S, Z / S };
-        }
-        TVector& operator+=( const TVector& O )
-        {
-            return *this = *this + O;
-        }
-        TVector& operator-=( const TVector& O )
-        {
-            return *this = *this - O;
-        }
-        TVector& operator*=( T S )
-        {
-            return *this = *this * S;
-        }
-        TVector& operator/=( T S )
-        {
-            return *this = *this / S;
-        }
-        bool operator==( const TVector& O ) const
-        {
-            return X == O.X && Y == O.Y && Z == O.Z;
-        }
-        bool operator!=( const TVector& O ) const
-        {
-            return !( *this == O );
-        }
-
-        T Dot( const TVector& O ) const
-        {
-            return X * O.X + Y * O.Y + Z * O.Z;
-        }
-        TVector Cross( const TVector& O ) const
-        {
-            return { Y * O.Z - Z * O.Y, Z * O.X - X * O.Z, X * O.Y - Y * O.X };
-        }
-        T SquaredLength() const
-        {
-            return Dot( *this );
-        }
-        T Length() const
-        {
-            return std::sqrt( SquaredLength() );
-        }
-    };
-
-    // Scalar on the left, any arithmetic type (UE: `double * FVector3f` compiles and keeps the vector's type).
-    template <typename T, typename S>
-        requires std::is_arithmetic_v<S>
-    TVector<T> operator*( S Scale, const TVector<T>& V )
-    {
-        return V * T( Scale );
-    }
-    template <typename T, typename S>
-        requires std::is_arithmetic_v<S>
-    TVector2<T> operator*( S Scale, const TVector2<T>& V )
-    {
-        return V * T( Scale );
-    }
-
-    // UE::Math::TVector4 (Math/Vector4.h): the colour overlay's element type; only what the overlay reads.
-    template <typename T>
-    struct TVector4
-    {
-        T X{};
-        T Y{};
-        T Z{};
-        T W{};
-
-        constexpr TVector4() = default;
-        constexpr TVector4( T InX, T InY, T InZ, T InW ) : X( InX ), Y( InY ), Z( InZ ), W( InW )
-        {
-        }
-        T& operator[]( int Index )
-        {
-            UE_CHECK_SLOW( Index >= 0 && Index < 4 );
-            return Index == 0 ? X : Index == 1 ? Y : Index == 2 ? Z : W;
-        }
-        const T& operator[]( int Index ) const
-        {
-            UE_CHECK_SLOW( Index >= 0 && Index < 4 );
-            return Index == 0 ? X : Index == 1 ? Y : Index == 2 ? Z : W;
-        }
-        bool operator==( const TVector4& O ) const
-        {
-            return X == O.X && Y == O.Y && Z == O.Z && W == O.W;
-        }
-        bool operator!=( const TVector4& O ) const
-        {
-            return !( *this == O );
-        }
-    };
-
-    using FVector2f = TVector2<float>;
-    using FVector2d = TVector2<double>;
-    using FVector3f = TVector<float>;
-    using FVector3d = TVector<double>;
-    using FVector4f = TVector4<float>;
 
 } // namespace Desert::Geometry

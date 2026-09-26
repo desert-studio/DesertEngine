@@ -34,8 +34,8 @@ namespace Desert::Geometry
         FDynamicMesh3* Mesh;
         TArray<int32_t> Triangles;
 
-        std::function<FVector3d( const FVector3d& Position, const FVector3d& VertexVector, int Vid )>
-             OffsetPositionFunc = [this]( const FVector3d& Position, const FVector3d& VertexVector, int )
+        std::function<glm::dvec3( const glm::dvec3& Position, const glm::dvec3& VertexVector, int Vid )>
+             OffsetPositionFunc = [this]( const glm::dvec3& Position, const glm::dvec3& VertexVector, int )
         { return Position + VertexVector * this->DefaultOffsetDistance; };
         double                                    DefaultOffsetDistance        = 1.0;
         EVertexExtrusionVectorType                ExtrusionVectorType          = EVertexExtrusionVectorType::Zero;

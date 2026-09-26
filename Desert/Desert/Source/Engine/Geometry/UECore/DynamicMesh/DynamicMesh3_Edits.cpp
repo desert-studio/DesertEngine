@@ -12,19 +12,19 @@ int FDynamicMesh3::AppendVertex( const FVertexInfo& VtxInfo )
 
     if ( HasVertexNormals() )
     {
-        FVector3f n = ( VtxInfo.bHaveN ) ? VtxInfo.Normal : FVector3f::UnitY();
+        glm::vec3 n = ( VtxInfo.bHaveN ) ? VtxInfo.Normal : glm::vec3( 0, 1, 0 );
         VertexNormals->InsertAt( n, vid );
     }
 
     if ( HasVertexColors() )
     {
-        FVector3f c = ( VtxInfo.bHaveC ) ? VtxInfo.Color : FVector3f::One();
+        glm::vec3 c = ( VtxInfo.bHaveC ) ? VtxInfo.Color : glm::vec3( 1 );
         VertexColors->InsertAt( c, vid );
     }
 
     if ( HasVertexUVs() )
     {
-        FVector2f u = ( VtxInfo.bHaveUV ) ? VtxInfo.UV : FVector2f::Zero();
+        glm::vec2 u = ( VtxInfo.bHaveUV ) ? VtxInfo.UV : glm::vec2( 0 );
         VertexUVs->InsertAt( u, vid );
     }
 
@@ -46,7 +46,7 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexNormals() )
         {
-            const TDynamicVector<FVector3f>& FromNormals = from.VertexNormals.GetValue();
+            const TDynamicVector<glm::vec3>& FromNormals = from.VertexNormals.GetValue();
             VertexNormals->InsertAt( FromNormals[fromVID], vid );
         }
         else
@@ -59,7 +59,7 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexColors() )
         {
-            const TDynamicVector<FVector3f>& FromColors = from.VertexColors.GetValue();
+            const TDynamicVector<glm::vec3>& FromColors = from.VertexColors.GetValue();
             VertexColors->InsertAt( FromColors[fromVID], vid );
         }
         else
@@ -72,7 +72,7 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexUVs() )
         {
-            const TDynamicVector<FVector2f>& FromUVs = from.VertexUVs.GetValue();
+            const TDynamicVector<glm::vec2>& FromUVs = from.VertexUVs.GetValue();
             VertexUVs->InsertAt( FromUVs[fromVID], vid );
         }
         else
@@ -107,19 +107,19 @@ EMeshResult FDynamicMesh3::InsertVertex( int vid, const FVertexInfo& info, bool 
 
     if ( HasVertexNormals() )
     {
-        FVector3f n = ( info.bHaveN ) ? info.Normal : FVector3f::UnitY();
+        glm::vec3 n = ( info.bHaveN ) ? info.Normal : glm::vec3( 0, 1, 0 );
         VertexNormals->InsertAt( n, vid );
     }
 
     if ( HasVertexColors() )
     {
-        FVector3f c = ( info.bHaveC ) ? info.Color : FVector3f::One();
+        glm::vec3 c = ( info.bHaveC ) ? info.Color : glm::vec3( 1 );
         VertexColors->InsertAt( c, vid );
     }
 
     if ( HasVertexUVs() )
     {
-        FVector2f u = ( info.bHaveUV ) ? info.UV : FVector2f::Zero();
+        glm::vec2 u = ( info.bHaveUV ) ? info.UV : glm::vec2( 0 );
         VertexUVs->InsertAt( u, vid );
     }
 
@@ -343,17 +343,17 @@ void FDynamicMesh3::CompactInPlace( FCompactMaps* CompactInfo )
         // const int kl = iLastV * 3;
         if ( HasVertexNormals() )
         {
-            TDynamicVector<FVector3f>& Normals = VertexNormals.GetValue();
+            TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
             Normals[iCurV]                     = Normals[iLastV];
         }
         if ( HasVertexColors() )
         {
-            TDynamicVector<FVector3f>& Colors = VertexColors.GetValue();
+            TDynamicVector<glm::vec3>& Colors = VertexColors.GetValue();
             Colors[iCurV]                     = Colors[iLastV];
         }
         if ( HasVertexUVs() )
         {
-            TDynamicVector<FVector2f>& UVs = VertexUVs.GetValue();
+            TDynamicVector<glm::vec2>& UVs = VertexUVs.GetValue();
             UVs[iCurV]                     = UVs[iLastV];
         }
 
@@ -568,7 +568,7 @@ void FDynamicMesh3::ReverseOrientation( bool bFlipNormals )
     {
         for ( int vid : VertexIndicesItr() )
         {
-            TDynamicVector<FVector3f>& Normals = VertexNormals.GetValue();
+            TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
             Normals[vid]                       = -Normals[vid];
         }
     }
@@ -863,7 +863,7 @@ EMeshResult FDynamicMesh3::SplitEdge( int eab, FEdgeSplitInfo& SplitInfo, double
     if ( IsBoundaryEdge( eab ) )
     {
         // create vertex
-        FVector3d vNew = Lerp( GetVertex( a ), GetVertex( b ), split_t );
+        glm::dvec3 vNew = Lerp( GetVertex( a ), GetVertex( b ), split_t );
         int       f    = AppendVertex( vNew );
         if ( HasVertexNormals() )
         {
@@ -942,7 +942,7 @@ EMeshResult FDynamicMesh3::SplitEdge( int eab, FEdgeSplitInfo& SplitInfo, double
         }
 
         // create vertex
-        FVector3d vNew = Lerp( GetVertex( a ), GetVertex( b ), split_t );
+        glm::dvec3 vNew = Lerp( GetVertex( a ), GetVertex( b ), split_t );
         int       f    = AppendVertex( vNew );
         if ( HasVertexNormals() )
         {
@@ -1435,19 +1435,19 @@ EMeshResult FDynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse
     int ebd = InvalidID;
 
     // save vertex positions before we delete removed (can defer kept?)
-    FVector3d KeptPos    = GetVertex( vKeep );
-    FVector3d RemovedPos = GetVertex( vRemove );
-    FVector2f RemovedUV;
+    glm::dvec3 KeptPos    = GetVertex( vKeep );
+    glm::dvec3 RemovedPos = GetVertex( vRemove );
+    glm::vec2  RemovedUV{};
     if ( HasVertexUVs() )
     {
         RemovedUV = GetVertexUV( vRemove );
     }
-    FVector3f RemovedNormal;
+    glm::vec3 RemovedNormal{};
     if ( HasVertexNormals() )
     {
         RemovedNormal = GetVertexNormal( vRemove );
     }
-    FVector3f RemovedColor;
+    glm::vec3 RemovedColor{};
     if ( HasVertexColors() )
     {
         RemovedColor = GetVertexColor( vRemove );
@@ -1768,9 +1768,9 @@ EMeshResult FDynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpola
     int x        = c;
     c            = d;
     d            = x; // joinable bdry edges have opposing orientations, so flip to get ac and b/d correspondences
-    FVector3d Va = GetVertex( a ), Vb = GetVertex( b ), Vc = GetVertex( c ), Vd = GetVertex( d );
-    if ( bCheckValidOrientation && ( ( Va - Vc ).SquaredLength() + ( Vb - Vd ).SquaredLength() ) >
-                                        ( ( Va - Vd ).SquaredLength() + ( Vb - Vc ).SquaredLength() ) )
+    glm::dvec3 Va = GetVertex( a ), Vb = GetVertex( b ), Vc = GetVertex( c ), Vd = GetVertex( d );
+    if ( bCheckValidOrientation && ( glm::length2( ( Va - Vc ) ) + glm::length2( ( Vb - Vd ) ) ) >
+                                        ( glm::length2( ( Va - Vd ) ) + glm::length2( ( Vb - Vc ) ) ) )
     {
         return EMeshResult::Failed_SameOrientation;
     }
@@ -2178,7 +2178,7 @@ EMeshResult FDynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double In
     return EMeshResult::Ok;
 }
 
-EMeshResult FDynamicMesh3::PokeTriangle( int TriangleID, const FVector3d& BaryCoordinates,
+EMeshResult FDynamicMesh3::PokeTriangle( int TriangleID, const glm::dvec3& BaryCoordinates,
                                          FPokeTriangleInfo& PokeResult )
 {
     PokeResult = FPokeTriangleInfo();

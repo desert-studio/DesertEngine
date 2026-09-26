@@ -33,20 +33,20 @@ namespace Desert::Geometry
             FCotanTriangleData( const FDynamicMesh3& Mesh, int32_t TriID )
             {
                 const FIndex3i EdgeIds = Mesh.GetTriEdges( TriID );
-                FVector3d      VertA;
-                FVector3d      VertB;
-                FVector3d      VertC;
+                glm::dvec3     VertA{};
+                glm::dvec3     VertB{};
+                glm::dvec3     VertC{};
                 Mesh.GetTriVertices( TriID, VertA, VertB, VertC );
-                const FVector3d EdgeAB( VertB - VertA );
-                const FVector3d EdgeAC( VertC - VertA );
-                const FVector3d EdgeBC( VertC - VertB );
+                const glm::dvec3 EdgeAB( VertB - VertA );
+                const glm::dvec3 EdgeAC( VertC - VertA );
+                const glm::dvec3 EdgeBC( VertC - VertB );
                 OppositeEdge           = { EdgeIds[1], EdgeIds[2], EdgeIds[0] };
-                const double TwiceArea = EdgeAB.Cross( EdgeAC ).Length();
+                const double TwiceArea = glm::length( glm::cross( EdgeAB, EdgeAC ) );
                 if ( TwiceArea > 2. * SmallTriangleArea )
                 {
-                    Cotangent[0] = EdgeAB.Dot( EdgeAC ) / TwiceArea;
-                    Cotangent[1] = -EdgeAB.Dot( EdgeBC ) / TwiceArea;
-                    Cotangent[2] = EdgeAC.Dot( EdgeBC ) / TwiceArea;
+                    Cotangent[0] = glm::dot( EdgeAB, EdgeAC ) / TwiceArea;
+                    Cotangent[1] = -glm::dot( EdgeAB, EdgeBC ) / TwiceArea;
+                    Cotangent[2] = glm::dot( EdgeAC, EdgeBC ) / TwiceArea;
                     Area         = 0.5 * TwiceArea;
                 }
                 else
@@ -312,11 +312,11 @@ namespace Desert::Geometry
             Boundary.Add( Index );
     }
 
-    bool FSpectralConformalMeshUVSolver::SolveUVs( TArray<FVector2d>& OutUVs )
+    bool FSpectralConformalMeshUVSolver::SolveUVs( TArray<glm::dvec2>& OutUVs )
     {
         const int32_t NumVerts = ToVertex.Num();
         const int32_t N        = 2 * NumVerts;
-        OutUVs.Init( FVector2d::Zero(), Mesh.MaxVertexID() );
+        OutUVs.Init( glm::dvec2( 0 ), Mesh.MaxVertexID() );
         if ( NumVerts == 0 || Boundary.Num() == 0 )
             return false;
 
@@ -433,7 +433,7 @@ namespace Desert::Geometry
             // UE lets a not-converged result through as usable (it only logs), and so does this port
         }
         for ( int32_t Idx = 0; Idx < NumVerts; ++Idx )
-            OutUVs[ToVertex[Idx]] = FVector2d( X[Idx], X[Idx + NumVerts] );
+            OutUVs[ToVertex[Idx]] = glm::dvec2( X[Idx], X[Idx + NumVerts] );
         return true;
     }
 } // namespace Desert::Geometry

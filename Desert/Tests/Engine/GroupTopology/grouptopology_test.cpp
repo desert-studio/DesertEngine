@@ -27,7 +27,7 @@ namespace
         Mesh.EnableTriangleGroups();
         for ( int i = 0; i < 8; ++i )
             Mesh.AppendVertex(
-                 FVector3d( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
+                 glm::dvec3( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
         for ( int f = 0; f < 6; ++f )
@@ -48,7 +48,7 @@ namespace
             for ( int i = 0; i < N; ++i )
             {
                 const double A = 2.0 * 3.14159265358979 * i / N;
-                Mesh.AppendVertex( FVector3d( 50.0 * std::cos( A ), 50.0 * std::sin( A ), Ring * 200.0 ) );
+                Mesh.AppendVertex( glm::dvec3( 50.0 * std::cos( A ), 50.0 * std::sin( A ), Ring * 200.0 ) );
             }
         auto B = [N]( int i ) { return i % N; };
         auto T = [N]( int i ) { return N + i % N; };
@@ -59,8 +59,8 @@ namespace
         }
         if ( bCaps )
         {
-            const int Bc = Mesh.AppendVertex( FVector3d( 0.0, 0.0, 0.0 ) );
-            const int Tc = Mesh.AppendVertex( FVector3d( 0.0, 0.0, 200.0 ) );
+            const int Bc = Mesh.AppendVertex( glm::dvec3( 0.0, 0.0, 0.0 ) );
+            const int Tc = Mesh.AppendVertex( glm::dvec3( 0.0, 0.0, 200.0 ) );
             for ( int i = 0; i < N; ++i )
             {
                 EXPECT_GE( Mesh.AppendTriangle( Tc, T( i ), T( i + 1 ), 2 ), 0 );

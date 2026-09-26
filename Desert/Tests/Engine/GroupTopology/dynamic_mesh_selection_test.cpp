@@ -97,7 +97,7 @@ namespace
         p->New.EnableTriangleGroups();
         for ( const glm::vec3& v : s.Positions )
         {
-            EXPECT_EQ( p->Old.AppendVertex( v ), p->New.AppendVertex( FVector3d( v.x, v.y, v.z ) ) );
+            EXPECT_EQ( p->Old.AppendVertex( v ), p->New.AppendVertex( glm::dvec3( v.x, v.y, v.z ) ) );
         }
         for ( size_t t = 0; t < s.Triangles.size(); ++t )
         {
@@ -312,8 +312,8 @@ TEST( DynamicMeshSelection, CornerPickPrefersNearerAlongTheRay )
     float nearest = std::numeric_limits<float>::infinity();
     for ( const int v : p->New.VertexIndicesItr() )
     {
-        const FVector3d q = p->New.GetVertex( v );
-        nearest           = std::min( nearest, glm::dot( glm::vec3( q.X, q.Y, q.Z ) - eye, view.RayDirection ) );
+        const glm::dvec3 q = p->New.GetVertex( v );
+        nearest            = std::min( nearest, glm::dot( glm::vec3( q.x, q.y, q.z ) - eye, view.RayDirection ) );
     }
     EXPECT_FLOAT_EQ( n.RayT, nearest );
 }
@@ -376,8 +376,8 @@ namespace
 
     glm::vec3 At( const FDynamicMesh3& mesh, int v )
     {
-        const FVector3d p = mesh.GetVertex( v );
-        return { static_cast<float>( p.X ), static_cast<float>( p.Y ), static_cast<float>( p.Z ) };
+        const glm::dvec3 p = mesh.GetVertex( v );
+        return { static_cast<float>( p.x ), static_cast<float>( p.y ), static_cast<float>( p.z ) };
     }
 } // namespace
 

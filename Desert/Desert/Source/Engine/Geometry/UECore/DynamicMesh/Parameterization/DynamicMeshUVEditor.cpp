@@ -28,10 +28,10 @@ namespace Desert::Geometry
 {
     namespace
     {
-        FFrame3d GetVertexFrame( const FDynamicMesh3& Mesh, int32_t VertexID, const FVector3d& UseNormal )
+        FFrame3d GetVertexFrame( const FDynamicMesh3& Mesh, int32_t VertexID, const glm::dvec3& UseNormal )
         {
-            const FVector3d v      = Mesh.GetVertex( VertexID );
-            const FVector3d normal = Normalized( UseNormal );
+            const glm::dvec3 v      = Mesh.GetVertex( VertexID );
+            const glm::dvec3 normal = Normalized( UseNormal );
             int32_t         eid    = FDynamicMesh3::InvalidID;
             for ( const int32_t VtxEdge : Mesh.VtxEdgesItr( VertexID ) )
             {
@@ -39,15 +39,15 @@ namespace Desert::Geometry
                 break;
             }
             const FIndex2i  ev    = Mesh.GetEdgeV( eid );
-            FVector3d       edge  = Normalized( Mesh.GetVertex( ev.A == VertexID ? ev.B : ev.A ) - v );
-            const FVector3d other = normal.Cross( edge );
-            edge                  = other.Cross( normal );
+            glm::dvec3       edge  = Normalized( Mesh.GetVertex( ev.A == VertexID ? ev.B : ev.A ) - v );
+            const glm::dvec3 other = glm::cross( normal, edge );
+            edge                   = glm::cross( other, normal );
             return { v, edge, other, normal };
         }
 
-        FVector2f ToFloat( const FVector2d& UV )
+        glm::vec2 ToFloat( const glm::dvec2& UV )
         {
-            return { static_cast<float>( UV.X ), static_cast<float>( UV.Y ) };
+            return { static_cast<float>( UV.x ), static_cast<float>( UV.y ) };
         }
     } // namespace
 
@@ -58,7 +58,7 @@ namespace Desert::Geometry
 
     void
     FDynamicMeshUVEditor::TransformUVElements( const TArray<int32_t>&                              ElementIDs,
-                                               const std::function<FVector2f( const FVector2f& )>& TransformFunc )
+                                               const std::function<glm::vec2( const glm::vec2& )>& TransformFunc )
     {
         for ( const int32_t elemid : ElementIDs )
         {
@@ -71,7 +71,7 @@ namespace Desert::Geometry
                                                                   int32_t& VertexIDOut, bool bAlignToUnitAxes )
     {
         VertexIDOut                     = *Mesh.VertexIndicesItr().begin();
-        FVector3d                Normal = FMeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
+        glm::dvec3               Normal = FMeshNormals::ComputeVertexNormal( Mesh, VertexIDOut );
         const FMeshBoundaryLoops LoopsCalc( &Mesh, true );
         if ( LoopsCalc.GetLoopCount() == 0 )
         {
@@ -100,7 +100,7 @@ namespace Desert::Geometry
         Normal      = FMeshNormals::ComputeVertexNormal( Mesh, MaxDistVID );
         FrameOut    = GetVertexFrame( Mesh, MaxDistVID, Normal );
         if ( bAlignToUnitAxes ) // try to generate consistent frame alignment
-            FrameOut.ConstrainedAlignPerpAxes( 0, 1, 2, FVector3d::UnitX(), FVector3d::UnitY(), 0.95 );
+            FrameOut.ConstrainedAlignPerpAxes( 0, 1, 2, glm::dvec3( 1, 0, 0 ), glm::dvec3( 0, 1, 0 ), 0.95 );
         return true;
     }
 
@@ -133,9 +133,9 @@ namespace Desert::Geometry
         {
             if ( !Param.HasUV( vid ) )
                 continue;
-            const FVector2d UVd = Param.GetUV( vid );
-            const FVector2f UV( static_cast<float>( UVd.X > MaxFloat ? MaxFloat : UVd.X ),
-                                static_cast<float>( UVd.Y > MaxFloat ? MaxFloat : UVd.Y ) );
+            const glm::dvec2 UVd = Param.GetUV( vid );
+            const glm::vec2  UV( static_cast<float>( UVd.x > MaxFloat ? MaxFloat : UVd.x ),
+                                 static_cast<float>( UVd.y > MaxFloat ? MaxFloat : UVd.y ) );
             VtxElementIDs[vid] = UVOverlay->AppendElement( UV );
             NewElementIDs.Add( VtxElementIDs[vid] );
         }
@@ -188,7 +188,7 @@ namespace Desert::Geometry
                     NewTriangle[j] = Found->second;
                     continue;
                 }
-                const FVector3d Position = Mesh->GetVertex(
+                const glm::dvec3 Position = Mesh->GetVertex(
                      bUseExistingUVTopology ? UVOverlay->GetParentVertex( Triangle[j] ) : Triangle[j] );
                 NewTriangle[j] = Submesh.AppendVertex( Position );
                 SubmeshToBaseV.Add( Triangle[j] );
@@ -211,7 +211,7 @@ namespace Desert::Geometry
         FSpectralConformalMeshUVSolver Solver( Submesh, bPreserveIrregularity );
         for ( const int32_t vid : Longest->Vertices )
             Solver.AddBoundaryVertex( vid );
-        TArray<FVector2d> UVBuffer;
+        TArray<glm::dvec2> UVBuffer;
         if ( !Solver.SolveUVs( UVBuffer ) )
             return false;
 
@@ -250,7 +250,7 @@ namespace Desert::Geometry
         UVOverlay->ClearElements();
         for ( const int32_t VertexID : Mesh->VertexIndicesItr() )
         {
-            const int32_t UVID      = UVOverlay->AppendElement( FVector2f( 0.0f, 0.0f ) );
+            const int32_t UVID      = UVOverlay->AppendElement( glm::vec2( 0.0f, 0.0f ) );
             VertexToUVOut[VertexID] = UVID;
             bIsIdentityMapOut       = bIsIdentityMapOut && UVID == VertexID;
         }
@@ -279,25 +279,25 @@ namespace Desert::Geometry
 
         std::unordered_set<int32_t> Elements;
         double                      Area2D = 0.0;
-        FVector2f BoundsMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
-        FVector2f BoundsMax( -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() );
+        glm::vec2 BoundsMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
+        glm::vec2 BoundsMax( -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() );
         for ( const int32_t tid : Triangles )
         {
             if ( !UVOverlay->IsSetTriangle( tid ) )
                 continue;
             const FIndex3i                 UVTri = UVOverlay->GetTriangle( tid );
-            const std::array<FVector2f, 3> UV    = { UVOverlay->GetElement( UVTri.A ),
+            const std::array<glm::vec2, 3> UV    = { UVOverlay->GetElement( UVTri.A ),
                                                      UVOverlay->GetElement( UVTri.B ),
                                                      UVOverlay->GetElement( UVTri.C ) };
             for ( int32_t j = 0; j < 3; ++j )
             {
                 Elements.insert( UVTri[j] );
-                BoundsMin = FVector2f( std::min( BoundsMin.X, UV[j].X ), std::min( BoundsMin.Y, UV[j].Y ) );
-                BoundsMax = FVector2f( std::max( BoundsMax.X, UV[j].X ), std::max( BoundsMax.Y, UV[j].Y ) );
+                BoundsMin = glm::vec2( std::min( BoundsMin.x, UV[j].x ), std::min( BoundsMin.y, UV[j].y ) );
+                BoundsMax = glm::vec2( std::max( BoundsMax.x, UV[j].x ), std::max( BoundsMax.y, UV[j].y ) );
             }
-            const FVector2f E1 = UV[1] - UV[0];
-            const FVector2f E2 = UV[2] - UV[0];
-            Area2D += 0.5 * std::abs( static_cast<double>( E1.X ) * E2.Y - static_cast<double>( E1.Y ) * E2.X );
+            const glm::vec2 E1 = UV[1] - UV[0];
+            const glm::vec2 E2 = UV[2] - UV[0];
+            Area2D += 0.5 * std::abs( static_cast<double>( E1.x ) * E2.y - static_cast<double>( E1.y ) * E2.x );
         }
         if ( Elements.empty() || std::abs( Area2D ) < FMathf::Epsilon || !std::isfinite( Area2D ) )
             return false;
@@ -305,8 +305,8 @@ namespace Desert::Geometry
         const double UVScale = ScaleFactor * std::sqrt( Area3D ) / std::sqrt( Area2D );
         if ( !std::isfinite( UVScale ) )
             return false;
-        const FVector2f ScaleOrigin = ( BoundsMin + BoundsMax ) * 0.5f;
-        const FVector2f Translation = bRecenterAtOrigin ? FVector2f( 0.0f, 0.0f ) : ScaleOrigin;
+        const glm::vec2 ScaleOrigin = ( BoundsMin + BoundsMax ) * 0.5f;
+        const glm::vec2 Translation = bRecenterAtOrigin ? glm::vec2( 0.0f, 0.0f ) : ScaleOrigin;
         for ( const int32_t eid : Elements )
             UVOverlay->SetElement( eid,
                                    ( UVOverlay->GetElement( eid ) - ScaleOrigin ) * static_cast<float>( UVScale ) +

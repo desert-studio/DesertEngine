@@ -52,12 +52,10 @@ namespace Desert::Geometry
                         const auto [it, fresh] = made.emplace( std::array<int, 3>{ en[j], et[j], sign }, 0 );
                         if ( fresh )
                         {
-                            const FVector3f n = normals.GetElement( en[j] );
-                            const FVector3f g = tangents.GetElement( et[j] );
-                            const glm::vec3 b =
-                                 glm::cross( glm::vec3( n.X, n.Y, n.Z ), glm::vec3( g.X, g.Y, g.Z ) ) *
-                                 static_cast<float>( sign );
-                            it->second = bitangents.AppendElement( FVector3f( b.x, b.y, b.z ) );
+                            const glm::vec3 n = normals.GetElement( en[j] );
+                            const glm::vec3 g = tangents.GetElement( et[j] );
+                            const glm::vec3 b = glm::cross( n, g ) * static_cast<float>( sign );
+                            it->second        = bitangents.AppendElement( b );
                         }
                         eb[j] = it->second;
                     }

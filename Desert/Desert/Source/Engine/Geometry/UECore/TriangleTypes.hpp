@@ -10,11 +10,12 @@ namespace Desert::Geometry
     template <typename RealType>
     struct TTriangle3
     {
-        TVector<RealType> V[3];
+        glm::vec<3, RealType> V[3]{};
 
         TTriangle3() = default;
 
-        TTriangle3( const TVector<RealType>& V0, const TVector<RealType>& V1, const TVector<RealType>& V2 )
+        TTriangle3( const glm::vec<3, RealType>& V0, const glm::vec<3, RealType>& V1,
+                    const glm::vec<3, RealType>& V2 )
         {
             V[0] = V0;
             V[1] = V1;

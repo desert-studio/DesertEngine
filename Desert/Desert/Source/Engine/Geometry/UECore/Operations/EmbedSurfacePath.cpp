@@ -15,7 +15,7 @@
 
 namespace Desert::Geometry
 {
-    FVector3d FMeshSurfacePoint::Pos( const FDynamicMesh3* Mesh ) const
+    glm::dvec3 FMeshSurfacePoint::Pos( const FDynamicMesh3* Mesh ) const
     {
         if ( PointType == ESurfacePointType::Vertex )
         {
@@ -23,16 +23,16 @@ namespace Desert::Geometry
         }
         if ( PointType == ESurfacePointType::Edge )
         {
-            FVector3d EA;
-            FVector3d EB;
+            glm::dvec3 EA{};
+            glm::dvec3 EB{};
             Mesh->GetEdgeV( ElementID, EA, EB );
             // Note this is equivalent to Lerp(EA, EB, BaryCoord[1])
             return BaryCoord[0] * EA + BaryCoord[1] * EB;
         }
         // PointType == ESurfacePointType::Triangle
-        FVector3d TA;
-        FVector3d TB;
-        FVector3d TC;
+        glm::dvec3 TA{};
+        glm::dvec3 TB{};
+        glm::dvec3 TC{};
         Mesh->GetTriVertices( ElementID, TA, TB, TC );
         return BaryCoord[0] * TA + BaryCoord[1] * TB + BaryCoord[2] * TC;
     }
@@ -43,7 +43,7 @@ namespace Desert::Geometry
          * Helper function to snap a triangle surface point to the triangle vertices or edges if it's close enough.
          * Input SurfacePt must be a triangle.
          */
-        void RefineSurfacePtFromTriangleToSubElement( const FDynamicMesh3* Mesh, const FVector3d& Pos,
+        void RefineSurfacePtFromTriangleToSubElement( const FDynamicMesh3* Mesh, const glm::dvec3& Pos,
                                                       FMeshSurfacePoint& SurfacePt, double SnapElementThresholdSq )
         {
             // expect this to only be called on SurfacePoints with PointType == Triangle; otherwise indicative of
@@ -78,8 +78,8 @@ namespace Desert::Geometry
             for ( int EdgeSubIdx = 0; EdgeSubIdx < 3; EdgeSubIdx++ )
             {
                 const int EdgeID = TriEdgeIDs[EdgeSubIdx];
-                FVector3d EPosA;
-                FVector3d EPosB;
+                glm::dvec3 EPosA{};
+                glm::dvec3 EPosB{};
                 Mesh->GetEdgeV( EdgeID, EPosA, EPosB );
                 const FSegment3d EdgeSeg( EPosA, EPosB );
                 const double     DistSq = EdgeSeg.DistanceSquared( Pos );
@@ -102,12 +102,12 @@ namespace Desert::Geometry
         // For when a triangle is replaced by multiple triangles, create a new surface point for the point's new
         // location among the smaller triangles.
         template <typename TIterableTrisType>
-        FMeshSurfacePoint RelocateTrianglePointAfterRefinement( const FDynamicMesh3* Mesh, const FVector3d& Pos,
+        FMeshSurfacePoint RelocateTrianglePointAfterRefinement( const FDynamicMesh3* Mesh, const glm::dvec3& Pos,
                                                                 const TIterableTrisType& TriIDs,
                                                                 double                   SnapElementThresholdSq )
         {
             double    BestTriDistSq = 0;
-            FVector3d BestBaryCoords;
+            glm::dvec3 BestBaryCoords{};
             int       BestTriID = -1;
             for ( const int TriID : TriIDs )
             {
@@ -195,7 +195,7 @@ namespace Desert::Geometry
             bEndPointSpecialProcess = true;
         }
         FMeshSurfacePoint EndPtUpdated = Path.Last().Key;
-        const FVector3d   EndPtPos     = OrigEndPt.Pos( Mesh );
+        const glm::dvec3  EndPtPos     = OrigEndPt.Pos( Mesh );
 
         if ( Path[0].Key.PointType == ESurfacePointType::Triangle )
         {

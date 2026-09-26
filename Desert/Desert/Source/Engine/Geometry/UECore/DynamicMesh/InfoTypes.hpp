@@ -14,26 +14,26 @@ namespace Desert::Geometry
      */
     struct FVertexInfo
     {
-        FVector3d Position{ FVector3d::Zero() };
-        FVector3f Normal{ FVector3f::Zero() };
-        FVector3f Color{ FVector3f::Zero() };
-        FVector2f UV{ FVector2f::Zero() };
+        glm::dvec3 Position{ glm::dvec3( 0 ) };
+        glm::vec3  Normal{ glm::vec3( 0 ) };
+        glm::vec3  Color{ glm::vec3( 0 ) };
+        glm::vec2  UV{ glm::vec2( 0 ) };
         bool      bHaveN{}, bHaveC{}, bHaveUV{};
 
         FVertexInfo() = default;
-        FVertexInfo( const FVector3d& PositionIn ) : Position{ PositionIn }
+        FVertexInfo( const glm::dvec3& PositionIn ) : Position{ PositionIn }
         {
         }
-        FVertexInfo( const FVector3d& PositionIn, const FVector3f& NormalIn )
+        FVertexInfo( const glm::dvec3& PositionIn, const glm::vec3& NormalIn )
              : Position{ PositionIn }, Normal{ NormalIn }, bHaveN{ true }
         {
         }
-        FVertexInfo( const FVector3d& PositionIn, const FVector3f& NormalIn, const FVector3f& ColorIn )
+        FVertexInfo( const glm::dvec3& PositionIn, const glm::vec3& NormalIn, const glm::vec3& ColorIn )
              : Position{ PositionIn }, Normal{ NormalIn }, Color{ ColorIn }, bHaveN{ true }, bHaveC{ true }
         {
         }
-        FVertexInfo( const FVector3d& PositionIn, const FVector3f& NormalIn, const FVector3f& ColorIn,
-                     const FVector2f& UVIn )
+        FVertexInfo( const glm::dvec3& PositionIn, const glm::vec3& NormalIn, const glm::vec3& ColorIn,
+                     const glm::vec2& UVIn )
              : Position{ PositionIn }, Normal{ NormalIn }, Color{ ColorIn }, UV{ UVIn }, bHaveN{ true },
                bHaveC{ true }, bHaveUV{ true }
         {
@@ -244,7 +244,7 @@ namespace Desert::Geometry
                                    // for vertex orders)
             FIndex3i NewEdges;     // the three new edges connected to NewVertex
 
-            FVector3d BaryCoords; // barycentric coords that NewVertex was inserted at
+            glm::dvec3 BaryCoords{}; // barycentric coords that NewVertex was inserted at
         };
 
         /** Information about mesh elements modified/created by SplitVertex() */

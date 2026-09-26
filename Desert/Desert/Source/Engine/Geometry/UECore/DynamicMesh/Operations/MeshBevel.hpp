@@ -88,18 +88,18 @@ namespace Desert::Geometry
             TArray<int32_t>   MeshVertices;     // sequential list of mesh vertex IDs along edge loop
             TArray<int32_t>   MeshEdges;        // sequential list of mesh edge IDs along edge loop
             TArray<FIndex2i>  MeshEdgeTris;     // the one or two triangles of each MeshEdges element in the input
-            TArray<FVector3d> InitialPositions; // initial vertex positions
+            TArray<glm::dvec3> InitialPositions; // initial vertex positions
             TArray<int32_t>
                  NewMeshVertices; // vertices on the "other" side of the unlinked edge, 1-1 w/ MeshVertices
             TArray<int32_t>   NewMeshEdges;  // edges on the "other" side of the unlinked edge, 1-1 with MeshEdges
-            TArray<FVector3d> NewPositions0; // new positions for MeshVertices
-            TArray<FVector3d> NewPositions1; // new positions for NewMeshVertices
+            TArray<glm::dvec3> NewPositions0; // new positions for MeshVertices
+            TArray<glm::dvec3> NewPositions1; // new positions for NewMeshVertices
             TArray<int32_t>   NewGroupIDs;
             TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
             FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
             // normals at NewPositions0 / NewPositions1 before the strips are added (the arc's tangent-plane
             // boundary condition); only filled for a round profile
-            TArray<FVector3d> NormalsA, NormalsB;
+            TArray<glm::dvec3> NormalsA, NormalsB;
         };
 
         struct FBevelEdge
@@ -109,19 +109,19 @@ namespace Desert::Geometry
             TArray<int32_t>   MeshEdges;      // sequential list of mesh edge IDs along edge
             TArray<FIndex2i> MeshEdgeTris;   // the one or two triangles of each MeshEdges element in the input
             bool             bEndpointBoundaryFlag[2] = { false, false }; // start/end vertex was a boundary vertex
-            TArray<FVector3d> InitialPositions;                           // initial vertex positions
+            TArray<glm::dvec3> InitialPositions;                            // initial vertex positions
             FIndex2i          BevelVertices; // indices of the Bevel Vertices at either end of the Bevel Edge
             TArray<int32_t>
                  NewMeshVertices; // vertices on the "other" side of the unlinked edge, 1-1 w/ MeshVertices
             TArray<int32_t>   NewMeshEdges;  // edges on the "other" side of the unlinked edge, 1-1 with MeshEdges
-            TArray<FVector3d> NewPositions0; // new positions for MeshVertices
-            TArray<FVector3d> NewPositions1; // new positions for NewMeshVertices
+            TArray<glm::dvec3> NewPositions0; // new positions for MeshVertices
+            TArray<glm::dvec3> NewPositions1; // new positions for NewMeshVertices
             int32_t           NewGroupID = -1;
             TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
             FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
             // normals at NewPositions0 / NewPositions1 before the strips are added (the arc's tangent-plane
             // boundary condition); only filled for a round profile
-            TArray<FVector3d> NormalsA, NormalsB;
+            TArray<glm::dvec3> NormalsA, NormalsB;
         };
 
         struct FOneRingWedge
@@ -130,7 +130,7 @@ namespace Desert::Geometry
             FIndex2i        BorderEdges; // first and last edges of Triangles (connected to the vertex)
             FIndex2i        BorderEdgeTriEdgeIndices; // index 0/1/2 of BorderEdges[j] in the start/end Triangles
             int32_t         WedgeVertex = -1; // central vertex of this wedge (updated by the unlink functions)
-            FVector3d       NewPosition;      // new calculated position for the vertex of this wedge
+            glm::dvec3      NewPosition{};    // new calculated position for the vertex of this wedge
             bool            bHaveNewPosition = false; // NewPosition is valid
         };
 
@@ -150,7 +150,7 @@ namespace Desert::Geometry
             // (w, u, v), its barycentrics of InteriorBorderLoop[0..2]; 5+-sided: one per InteriorBorderLoop
             // vertex, (DeltaX, DeltaY, MVC weight): its flattened offset in that border vertex's frame and its
             // normalized mean-value coordinate
-            TArray<FVector3d> BorderFrameWeight;
+            TArray<glm::dvec3> BorderFrameWeight;
         };
 
         struct FBevelVertex
@@ -225,14 +225,15 @@ namespace Desert::Geometry
         /** UE's FInterpCurveVector with two CIM_CurveUser points at parameters 0 and 1: a cubic Hermite. */
         struct FArcSplineCurve
         {
-            FVector3d               Pos0, Pos1;         // points at T = 0 and T = 1
-            FVector3d               Tangent0, Tangent1; // their (arrive == leave) tangents
-            [[nodiscard]] FVector3d Eval( double T ) const;
+            glm::dvec3               Pos0{}, Pos1{};         // points at T = 0 and T = 1
+            glm::dvec3               Tangent0{}, Tangent1{}; // their (arrive == leave) tangents
+            [[nodiscard]] glm::dvec3 Eval( double T ) const;
         };
         /** Hermite approximation of the arc from PosA to PosB tangent to the planes (PosA, NormalA) and (PosB,
          *  NormalB); tangents scaled by |RoundWeight| * sqrt(2), and swapped for a negative RoundWeight. */
-        [[nodiscard]] FArcSplineCurve MakeArcSplineCurve( const FVector3d& PosA, const FVector3d& NormalA,
-                                                          const FVector3d& PosB, const FVector3d& NormalB ) const;
+        [[nodiscard]] FArcSplineCurve MakeArcSplineCurve( const glm::dvec3& PosA, const glm::dvec3& NormalA,
+                                                          const glm::dvec3& PosB,
+                                                          const glm::dvec3& NormalB ) const;
         /** Deform the finished multi-segment topology into the round profile: each strip column onto its arc,
          *  then each 4-sided junction patch by blending its four border arcs, each 3-sided one as the PN
          *  triangle of its three and each larger one by mean-value blending of its border frames. */

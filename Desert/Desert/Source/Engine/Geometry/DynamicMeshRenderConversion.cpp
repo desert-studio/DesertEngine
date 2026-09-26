@@ -20,31 +20,14 @@ namespace Desert::Geometry
         // corners 1 and 2, the one place the conventions meet. The map is its own inverse.
         constexpr int kRenderCorner[3] = { 0, 2, 1 };
 
-        glm::vec3 ToGlm( const FVector3f& v )
+        bool Within( const glm::vec3& a, const glm::vec3& b, float tolerance )
         {
-            return { v.X, v.Y, v.Z };
+            return std::abs( a.x - b.x ) <= tolerance && std::abs( a.y - b.y ) <= tolerance &&
+                   std::abs( a.z - b.z ) <= tolerance;
         }
-        glm::vec2 ToGlm( const FVector2f& v )
+        bool Within( const glm::vec2& a, const glm::vec2& b, float tolerance )
         {
-            return { v.X, v.Y };
-        }
-        FVector3f ToUE( const glm::vec3& v )
-        {
-            return FVector3f( v.x, v.y, v.z );
-        }
-        FVector2f ToUE( const glm::vec2& v )
-        {
-            return FVector2f( v.x, v.y );
-        }
-
-        bool Within( const FVector3f& a, const glm::vec3& b, float tolerance )
-        {
-            return std::abs( a.X - b.x ) <= tolerance && std::abs( a.Y - b.y ) <= tolerance &&
-                   std::abs( a.Z - b.z ) <= tolerance;
-        }
-        bool Within( const FVector2f& a, const glm::vec2& b, float tolerance )
-        {
-            return std::abs( a.X - b.x ) <= tolerance && std::abs( a.Y - b.y ) <= tolerance;
+            return std::abs( a.x - b.x ) <= tolerance && std::abs( a.y - b.y ) <= tolerance;
         }
 
         // The EditMesh conversion's weld (EditMeshConversion.cpp), on FDynamicMesh3: a uniform grid of cells
@@ -67,7 +50,7 @@ namespace Desert::Geometry
                             if ( it == m_Cells.end() )
                                 continue;
                             for ( const int v : it->second )
-                                if ( Within( FVector3f( mesh.GetVertex( v ) ), p, m_Tolerance ) )
+                                if ( Within( glm::vec3( mesh.GetVertex( v ) ), p, m_Tolerance ) )
                                     return v;
                         }
                 return FDynamicMesh3::InvalidID;
@@ -162,15 +145,15 @@ namespace Desert::Geometry
                     if ( found == corners.end() )
                     {
                         Vertex vertex{};
-                        vertex.Position = ToGlm( FVector3f( mesh.GetVertex( tri[c] ) ) );
-                        vertex.Normal   = ToGlm( normals->GetElement( en[c] ) );
+                        vertex.Position = glm::vec3( mesh.GetVertex( tri[c] ) );
+                        vertex.Normal   = normals->GetElement( en[c] );
                         if ( tangentSpace )
                         {
-                            vertex.Tangent   = ToGlm( tangents->GetElement( et[c] ) );
-                            vertex.Bitangent = ToGlm( bitangents->GetElement( eb[c] ) );
+                            vertex.Tangent   = tangents->GetElement( et[c] );
+                            vertex.Bitangent = bitangents->GetElement( eb[c] );
                         }
                         if ( uvs )
-                            vertex.TexCoord = ToGlm( uvs->GetElement( eu[c] ) );
+                            vertex.TexCoord = uvs->GetElement( eu[c] );
                         const auto local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
                         out.SourceVertices.push_back( tri[c] );
@@ -249,7 +232,7 @@ namespace Desert::Geometry
             int v = welder.Find( mesh, p );
             if ( v == FDynamicMesh3::InvalidID )
             {
-                v = mesh.AppendVertex( FVector3d( ToUE( p ) ) );
+                v = mesh.AppendVertex( glm::dvec3( p ) );
                 welder.Add( p, v );
             }
             return v;
@@ -264,7 +247,7 @@ namespace Desert::Geometry
             for ( const int e : at[v] )
                 if ( Within( overlay.GetElement( e ), value, options.AttributeTolerance ) )
                     return e;
-            const int e = overlay.AppendElement( ToUE( value ) );
+            const int e = overlay.AppendElement( value );
             at[v].push_back( e );
             return e;
         };
@@ -317,7 +300,7 @@ namespace Desert::Geometry
                     // accepts an opposite winding across an edge, so only this case detaches.
                     for ( int j = 0; j < 3; ++j )
                         if ( mesh.GetVtxEdgeCount( corners[j] ) > 0 )
-                            corners[j] = mesh.AppendVertex( FVector3d( ToUE( source[j]->Position ) ) );
+                            corners[j] = mesh.AppendVertex( glm::dvec3( source[j]->Position ) );
                     t = mesh.AppendTriangle( corners );
                     ++result.DetachedTriangles;
                 }

@@ -75,7 +75,7 @@ namespace Desert::Geometry
 
         /** OutUVs is indexed by vertex ID (size MaxVertexID). False if the factorization or the iteration failed.
          */
-        bool SolveUVs( TArray<FVector2d>& OutUVs );
+        bool SolveUVs( TArray<glm::dvec2>& OutUVs );
 
     private:
         const FDynamicMesh3& Mesh;

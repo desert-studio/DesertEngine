@@ -602,8 +602,8 @@ FAxisAlignedBox3d FDynamicMesh3::GetBounds() const
         return FAxisAlignedBox3d::Empty();
     }
 
-    FVector3d MinVec = Vertices[*( VertexIndicesItr().begin() )];
-    FVector3d MaxVec = MinVec;
+    glm::dvec3 MinVec = Vertices[*( VertexIndicesItr().begin() )];
+    glm::dvec3 MaxVec = MinVec;
     for ( int vi : VertexIndicesItr() )
     {
         MinVec = Min( MinVec, Vertices[vi] );
@@ -623,8 +623,8 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<in
         return FAxisAlignedBox3d::Empty();
     }
 
-    FVector3d MinVec = Vertices[VertexIDs[0]];
-    FVector3d MaxVec = MinVec;
+    glm::dvec3 MinVec = Vertices[VertexIDs[0]];
+    glm::dvec3 MaxVec = MinVec;
     for ( int Idx = 1; Idx < VertexIDs.Num(); ++Idx )
     {
         int32_t const VID = VertexIDs[Idx];
@@ -678,12 +678,12 @@ bool FDynamicMesh3::IsClosed() const
 }
 
 // average of 1 or 2 face normals
-FVector3d FDynamicMesh3::GetEdgeNormal( int eID ) const
+glm::dvec3 FDynamicMesh3::GetEdgeNormal( int eID ) const
 {
     if ( EdgeRefCounts.IsValid( eID ) )
     {
         const FIndex2i Tris = Edges[eID].Tri;
-        FVector3d      n    = GetTriNormal( Tris[0] );
+        glm::dvec3     n    = GetTriNormal( Tris[0] );
         if ( Tris[1] != InvalidID )
         {
             n += GetTriNormal( Tris[1] );
@@ -692,10 +692,10 @@ FVector3d FDynamicMesh3::GetEdgeNormal( int eID ) const
         return n;
     }
     UE_CHECK_SLOW( false );
-    return FVector3d::Zero();
+    return glm::dvec3( 0 );
 }
 
-FVector3d FDynamicMesh3::GetEdgePoint( int eID, double t ) const
+glm::dvec3 FDynamicMesh3::GetEdgePoint( int eID, double t ) const
 {
     t = VectorUtil::Clamp( t, 0.0, 1.0 );
     if ( EdgeRefCounts.IsValid( eID ) )
@@ -707,12 +707,12 @@ FVector3d FDynamicMesh3::GetEdgePoint( int eID, double t ) const
         return mt * Vertices[iv0] + t * Vertices[iv1];
     }
     UE_CHECK_SLOW( false );
-    return FVector3d::Zero();
+    return glm::dvec3( 0 );
 }
 
-void FDynamicMesh3::GetVtxOneRingCentroid( int vID, FVector3d& centroid ) const
+void FDynamicMesh3::GetVtxOneRingCentroid( int vID, glm::dvec3& centroid ) const
 {
-    centroid = FVector3d::Zero();
+    centroid = glm::dvec3( 0 );
     if ( VertexRefCounts.IsValid( vID ) )
     {
         int n = 0;
@@ -729,50 +729,50 @@ void FDynamicMesh3::GetVtxOneRingCentroid( int vID, FVector3d& centroid ) const
     }
 }
 
-FVector3d FDynamicMesh3::GetTriNormal( int tID ) const
+glm::dvec3 FDynamicMesh3::GetTriNormal( int tID ) const
 {
-    FVector3d v0, v1, v2;
+    glm::dvec3 v0{}, v1{}, v2{};
     GetTriVertices( tID, v0, v1, v2 );
     return VectorUtil::Normal( v0, v1, v2 );
 }
 
 double FDynamicMesh3::GetTriArea( int tID ) const
 {
-    FVector3d v0, v1, v2;
+    glm::dvec3 v0{}, v1{}, v2{};
     GetTriVertices( tID, v0, v1, v2 );
     return VectorUtil::Area( v0, v1, v2 );
 }
 
-void FDynamicMesh3::GetTriInfo( int tID, FVector3d& Normal, double& Area, FVector3d& Centroid ) const
+void FDynamicMesh3::GetTriInfo( int tID, glm::dvec3& Normal, double& Area, glm::dvec3& Centroid ) const
 {
-    FVector3d v0, v1, v2;
+    glm::dvec3 v0{}, v1{}, v2{};
     GetTriVertices( tID, v0, v1, v2 );
     Centroid = ( v0 + v1 + v2 ) * ( 1.0 / 3.0 );
     Normal   = VectorUtil::NormalArea( v0, v1, v2, Area );
 }
 
-FVector3d FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double bary2 ) const
+glm::dvec3 FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double bary2 ) const
 {
     const FIndex3i& tIDs = Triangles[tID];
     return bary0 * Vertices[tIDs[0]] + bary1 * Vertices[tIDs[1]] + bary2 * Vertices[tIDs[2]];
 }
 
-FVector3d FDynamicMesh3::GetTriBaryNormal( int tID, double bary0, double bary1, double bary2 ) const
+glm::dvec3 FDynamicMesh3::GetTriBaryNormal( int tID, double bary0, double bary1, double bary2 ) const
 {
     UE_CHECK_SLOW( HasVertexNormals() );
     if ( HasVertexNormals() )
     {
         const FIndex3i&                  tIDs     = Triangles[tID];
-        const TDynamicVector<FVector3f>& normalsR = VertexNormals.GetValue();
-        FVector3d                        n =
-             FVector3d( bary0 * normalsR[tIDs[0]] + bary1 * normalsR[tIDs[1]] + bary2 * normalsR[tIDs[2]] );
+        const TDynamicVector<glm::vec3>& normalsR = VertexNormals.GetValue();
+        glm::dvec3 n = glm::dvec3( float( bary0 ) * normalsR[tIDs[0]] + float( bary1 ) * normalsR[tIDs[1]] +
+                                   float( bary2 ) * normalsR[tIDs[2]] );
         Normalize( n );
         return n;
     }
-    return FVector3d::Zero();
+    return glm::dvec3( 0 );
 }
 
-FVector3d FDynamicMesh3::GetTriCentroid( int tID ) const
+glm::dvec3 FDynamicMesh3::GetTriCentroid( int tID ) const
 {
     const FIndex3i& tIDs = Triangles[tID];
     double          f    = ( 1.0 / 3.0 );
@@ -787,7 +787,7 @@ void FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double
     vinfo.bHaveN         = HasVertexNormals();
     if ( vinfo.bHaveN )
     {
-        const TDynamicVector<FVector3f>& normalsR = this->VertexNormals.GetValue();
+        const TDynamicVector<glm::vec3>& normalsR = this->VertexNormals.GetValue();
         vinfo.Normal = (float)bary0 * normalsR[tIDs[0]] + (float)bary1 * normalsR[tIDs[1]] +
                        (float)bary2 * normalsR[tIDs[2]];
         Normalize( vinfo.Normal );
@@ -795,14 +795,14 @@ void FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double
     vinfo.bHaveC = HasVertexColors();
     if ( vinfo.bHaveC )
     {
-        const TDynamicVector<FVector3f>& colorsR = this->VertexColors.GetValue();
+        const TDynamicVector<glm::vec3>& colorsR = this->VertexColors.GetValue();
         vinfo.Color =
              (float)bary0 * colorsR[tIDs[0]] + (float)bary1 * colorsR[tIDs[1]] + (float)bary2 * colorsR[tIDs[2]];
     }
     vinfo.bHaveUV = HasVertexUVs();
     if ( vinfo.bHaveUV )
     {
-        const TDynamicVector<FVector2f>& uvR = this->VertexUVs.GetValue();
+        const TDynamicVector<glm::vec2>& uvR = this->VertexUVs.GetValue();
         vinfo.UV = (float)bary0 * uvR[tIDs[0]] + (float)bary1 * uvR[tIDs[1]] + (float)bary2 * uvR[tIDs[2]];
     }
 }
@@ -810,23 +810,24 @@ void FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double
 FAxisAlignedBox3d FDynamicMesh3::GetTriBounds( int tID ) const
 {
     const FIndex3i&  tIDs = Triangles[tID];
-    const FVector3d& A    = Vertices[tIDs.A];
-    const FVector3d& B    = Vertices[tIDs.B];
-    const FVector3d& C    = Vertices[tIDs.C];
+    const glm::dvec3& A    = Vertices[tIDs.A];
+    const glm::dvec3& B    = Vertices[tIDs.B];
+    const glm::dvec3& C    = Vertices[tIDs.C];
     return FAxisAlignedBox3d( A, B, C );
 }
 
-double FDynamicMesh3::GetTriSolidAngle( int tID, const FVector3d& p ) const
+double FDynamicMesh3::GetTriSolidAngle( int tID, const glm::dvec3& p ) const
 {
     // inlined version of GetTriVertices & VectorUtil::TriSolidAngle
     const FIndex3i& Triangle = Triangles[tID];
-    const FVector3d TV[3]    = { Vertices[Triangle[0]] - p, Vertices[Triangle[1]] - p, Vertices[Triangle[2]] - p };
+    const glm::dvec3 TV[3] = { Vertices[Triangle[0]] - p, Vertices[Triangle[1]] - p, Vertices[Triangle[2]] - p };
 
-    double la = TV[0].Length(), lb = TV[1].Length(), lc = TV[2].Length();
-    double top    = ( la * lb * lc ) + TV[0].Dot( TV[1] ) * lc + TV[1].Dot( TV[2] ) * la + TV[2].Dot( TV[0] ) * lb;
-    double bottom = TV[0].X * ( TV[1].Y * TV[2].Z - TV[2].Y * TV[1].Z ) -
-                    TV[0].Y * ( TV[1].X * TV[2].Z - TV[2].X * TV[1].Z ) +
-                    TV[0].Z * ( TV[1].X * TV[2].Y - TV[2].X * TV[1].Y );
+    double la = glm::length( TV[0] ), lb = glm::length( TV[1] ), lc = glm::length( TV[2] );
+    double top = ( la * lb * lc ) + glm::dot( TV[0], TV[1] ) * lc + glm::dot( TV[1], TV[2] ) * la +
+                 glm::dot( TV[2], TV[0] ) * lb;
+    double bottom = TV[0].x * ( TV[1].y * TV[2].z - TV[2].y * TV[1].z ) -
+                    TV[0].y * ( TV[1].x * TV[2].z - TV[2].x * TV[1].z ) +
+                    TV[0].z * ( TV[1].x * TV[2].y - TV[2].x * TV[1].y );
     // -2 instead of 2 to account for UE winding
     return -2.0 * atan2( bottom, top );
 }
@@ -834,7 +835,7 @@ double FDynamicMesh3::GetTriSolidAngle( int tID, const FVector3d& p ) const
 double FDynamicMesh3::GetTriInternalAngleR( int tID, int i ) const
 {
     const FIndex3i& Triangle = Triangles[tID];
-    const FVector3d TV[3]    = { Vertices[Triangle[0]], Vertices[Triangle[1]], Vertices[Triangle[2]] };
+    const glm::dvec3 TV[3]    = { Vertices[Triangle[0]], Vertices[Triangle[1]], Vertices[Triangle[2]] };
     if ( i == 0 )
     {
         return AngleR( Normalized( TV[1] - TV[0] ), Normalized( TV[2] - TV[0] ) );
@@ -849,14 +850,14 @@ double FDynamicMesh3::GetTriInternalAngleR( int tID, int i ) const
     }
 }
 
-FVector3d FDynamicMesh3::GetTriInternalAnglesR( int tID ) const
+glm::dvec3 FDynamicMesh3::GetTriInternalAnglesR( int tID ) const
 {
     const FIndex3i& Triangle = Triangles[tID];
     return VectorUtil::TriangleInternalAngles( Vertices[Triangle[0]], Vertices[Triangle[1]],
                                                Vertices[Triangle[2]] );
 }
 
-double FDynamicMesh3::CalculateWindingNumber( const FVector3d& QueryPoint ) const
+double FDynamicMesh3::CalculateWindingNumber( const glm::dvec3& QueryPoint ) const
 {
     double sum = 0;
     for ( int tid : TriangleIndicesItr() )

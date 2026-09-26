@@ -23,7 +23,7 @@ namespace
         FDynamicMesh3 Mesh;
         for ( int i = 0; i < 8; ++i )
             Mesh.AppendVertex(
-                 FVector3d( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
+                 glm::dvec3( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
         for ( const auto& Q : Quads )
@@ -40,7 +40,7 @@ namespace
         FDynamicMesh3 Mesh;
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
-                Mesh.AppendVertex( FVector3d( x * 10.0, y * 10.0, 0.0 ) );
+                Mesh.AppendVertex( glm::dvec3( x * 10.0, y * 10.0, 0.0 ) );
         auto V = [N]( int x, int y ) { return y * ( N + 1 ) + x; };
         for ( int y = 0; y < N; ++y )
             for ( int x = 0; x < N; ++x )
@@ -64,9 +64,9 @@ namespace
             {
                 const double a = FMathd::TwoPi * u / NU;
                 const double b = FMathd::TwoPi * v / NV;
-                Mesh.AppendVertex( FVector3d( ( 50.0 + 20.0 * std::cos( b ) ) * std::cos( a ),
-                                              ( 50.0 + 20.0 * std::cos( b ) ) * std::sin( a ),
-                                              20.0 * std::sin( b ) ) );
+                Mesh.AppendVertex( glm::dvec3( ( 50.0 + 20.0 * std::cos( b ) ) * std::cos( a ),
+                                               ( 50.0 + 20.0 * std::cos( b ) ) * std::sin( a ),
+                                               20.0 * std::sin( b ) ) );
             }
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
@@ -82,10 +82,10 @@ namespace
     FDynamicMesh3 MakeTetrahedron()
     {
         FDynamicMesh3 Mesh;
-        Mesh.AppendVertex( FVector3d( 0, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 10, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 0, 10 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 0, 10 ) );
         Mesh.AppendTriangle( 0, 2, 1 );
         Mesh.AppendTriangle( 0, 1, 3 );
         Mesh.AppendTriangle( 0, 3, 2 );
@@ -98,12 +98,12 @@ namespace
     FDynamicMesh3 MakeSeam( bool bOpposite )
     {
         FDynamicMesh3 Mesh;
-        Mesh.AppendVertex( FVector3d( 0, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 10, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 10, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 10, 0 ) );
         Mesh.AppendTriangle( 0, 1, 2 );
         if ( bOpposite )
             Mesh.AppendTriangle( 3, 5, 4 );
@@ -192,7 +192,7 @@ TEST( DynamicMesh3Edits, SplitInteriorEdgeKeepsEulerAndNamesTheNewElements )
             EXPECT_GE( Info.NewEdges[k], OldMaxE );
         EXPECT_EQ( Mesh.FindEdge( a, f ), EID );
         EXPECT_EQ( Mesh.FindEdge( a, b ), FDynamicMesh3::InvalidID );
-        const FVector3d Expected = Mesh.GetVertex( a ) * 0.75 + Mesh.GetVertex( b ) * 0.25;
+        const glm::dvec3 Expected = Mesh.GetVertex( a ) * 0.75 + Mesh.GetVertex( b ) * 0.25;
         EXPECT_NEAR( Distance( Mesh.GetVertex( f ), Expected ), 0.0, 1e-9 );
     }
 }
@@ -294,7 +294,7 @@ TEST( DynamicMesh3Edits, CollapseInteriorEdgeRemovesOneVertexThreeEdgesTwoTriang
     const FCounts   Before = Counts( Mesh );
     const int       Keep = TorusV( 8, 6, 2, 2 ), Remove = TorusV( 8, 6, 3, 2 );
     const int       EID   = Mesh.FindEdge( Keep, Remove );
-    const FVector3d KeepP = Mesh.GetVertex( Keep ), RemoveP = Mesh.GetVertex( Remove );
+    const glm::dvec3 KeepP = Mesh.GetVertex( Keep ), RemoveP = Mesh.GetVertex( Remove );
     ASSERT_NE( EID, FDynamicMesh3::InvalidID );
     EXPECT_EQ( Mesh.CanCollapseEdge( Keep, Remove ), EMeshResult::Ok );
 
@@ -348,9 +348,9 @@ TEST( DynamicMesh3Edits, CollapseRefusesEditsThatBreakManifoldness )
     EXPECT_EQ( Quad.CollapseEdge( 0, 3, Info ), EMeshResult::Failed_InvalidNeighbourhood );
 
     FDynamicMesh3 Tri;
-    Tri.AppendVertex( FVector3d( 0, 0, 0 ) );
-    Tri.AppendVertex( FVector3d( 10, 0, 0 ) );
-    Tri.AppendVertex( FVector3d( 0, 10, 0 ) );
+    Tri.AppendVertex( glm::dvec3( 0, 0, 0 ) );
+    Tri.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+    Tri.AppendVertex( glm::dvec3( 0, 10, 0 ) );
     Tri.AppendTriangle( 0, 1, 2 );
     EXPECT_EQ( Tri.CollapseEdge( 0, 1, Info ), EMeshResult::Failed_CollapseTriangle );
     EXPECT_EQ( Tri.TriangleCount(), 1 );
@@ -454,7 +454,7 @@ TEST( DynamicMesh3Edits, PokeSplitsOneTriangleIntoThree )
         const int       OldMaxV = Mesh.MaxVertexID(), OldMaxT = Mesh.MaxTriangleID();
         const int       TID = 1;
         const FIndex3i  Tri = Mesh.GetTriangle( TID );
-        const FVector3d Centroid =
+        const glm::dvec3 Centroid =
              ( Mesh.GetVertex( Tri.A ) + Mesh.GetVertex( Tri.B ) + Mesh.GetVertex( Tri.C ) ) / 3.0;
 
         FDynamicMesh3::FPokeTriangleInfo Info;

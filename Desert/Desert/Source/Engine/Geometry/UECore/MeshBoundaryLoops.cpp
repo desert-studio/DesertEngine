@@ -12,18 +12,18 @@ namespace
 {
     // UE VectorUtil::PlaneAngleSignedD: signed angle in degrees between the projections of From and To onto the
     // plane with normal PlaneN.
-    double PlaneAngleSignedD( const FVector3d& VFrom, const FVector3d& VTo, const FVector3d& PlaneN )
+    double PlaneAngleSignedD( const glm::dvec3& VFrom, const glm::dvec3& VTo, const glm::dvec3& PlaneN )
     {
-        FVector3d From = VFrom - VFrom.Dot( PlaneN ) * PlaneN;
-        FVector3d To   = VTo - VTo.Dot( PlaneN ) * PlaneN;
+        glm::dvec3 From = VFrom - glm::dot( VFrom, PlaneN ) * PlaneN;
+        glm::dvec3 To   = VTo - glm::dot( VTo, PlaneN ) * PlaneN;
         Normalize( From );
         Normalize( To );
-        const FVector3d C = From.Cross( To );
-        if ( C.SquaredLength() < FMathd::ZeroTolerance )
-            return From.Dot( To ) < 0 ? 180.0 : 0.0;
-        const double Sign = C.Dot( PlaneN ) < 0 ? -1.0 : 1.0;
+        const glm::dvec3 C = glm::cross( From, To );
+        if ( glm::length2( C ) < FMathd::ZeroTolerance )
+            return glm::dot( From, To ) < 0 ? 180.0 : 0.0;
+        const double Sign = glm::dot( C, PlaneN ) < 0 ? -1.0 : 1.0;
         const double Angle =
-             std::acos( std::clamp( From.Dot( To ), -1.0, 1.0 ) ) * ( 180.0 / 3.14159265358979323846 );
+             std::acos( std::clamp( glm::dot( From, To ), -1.0, 1.0 ) ) * ( 180.0 / 3.14159265358979323846 );
         return Sign * Angle;
     }
 
@@ -190,9 +190,9 @@ bool FMeshBoundaryLoops::Compute()
     return true;
 }
 
-FVector3d FMeshBoundaryLoops::GetVertexNormal( int Vid ) const
+glm::dvec3 FMeshBoundaryLoops::GetVertexNormal( int Vid ) const
 {
-    FVector3d N = FVector3d::Zero();
+    glm::dvec3 N = glm::dvec3( 0 );
     for ( int Ti : Mesh->VtxTrianglesItr( Vid ) )
         N += Mesh->GetTriNormal( Ti );
     Normalize( N );
@@ -203,10 +203,10 @@ int FMeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const TArr
                                           int BdryEdgesCount, const TArray<bool>& UsedEdges ) const
 {
     // the normal at the bowtie vertex is the plane the turn angles are measured in
-    const FVector3d N      = GetVertexNormal( BowtieV );
+    const glm::dvec3 N      = GetVertexNormal( BowtieV );
     const FIndex2i  Ev     = Mesh->GetEdgeV( IncomingE );
     const int       OtherV = ( Ev.A == BowtieV ) ? Ev.B : Ev.A;
-    const FVector3d Ab     = Mesh->GetVertex( BowtieV ) - Mesh->GetVertex( OtherV );
+    const glm::dvec3 Ab     = Mesh->GetVertex( BowtieV ) - Mesh->GetVertex( OtherV );
 
     int    BestE     = -1;
     double BestAngle = std::numeric_limits<double>::max();
@@ -218,7 +218,7 @@ int FMeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const TArr
         const FIndex2i BdryEv = Mesh->GetOrientedBoundaryEdgeV( BdryEid );
         if ( BdryEv.A != BowtieV )
             continue; // must chain onto the end of the current edge, orientation-wise
-        const FVector3d Bc     = Mesh->GetVertex( BdryEv.B ) - Mesh->GetVertex( BowtieV );
+        const glm::dvec3 Bc     = Mesh->GetVertex( BdryEv.B ) - Mesh->GetVertex( BowtieV );
         const double    AngleS = -PlaneAngleSignedD( Ab, Bc, N );
         if ( BestAngle == std::numeric_limits<double>::max() || AngleS < BestAngle )
         {

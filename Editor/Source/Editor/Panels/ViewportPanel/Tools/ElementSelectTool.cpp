@@ -65,7 +65,7 @@ namespace Desert::Editor::Tools
             {
                 glm::vec2 px;
                 const auto q = Mesh.GetVertex( v );
-                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.X, q.Y, q.Z, 1.0f ) ), ViewProj,
+                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.x, q.y, q.z, 1.0f ) ), ViewProj,
                                                    Pos, Size, px ) )
                     return false;
                 out = ImVec2( px.x, px.y );

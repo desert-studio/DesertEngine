@@ -21,7 +21,7 @@ namespace
         M.EnableAttributes();
         const double S = 100;
         for ( int i = 0; i < 8; ++i )
-            M.AppendVertex( FVector3d( ( i & 1 ) ? S : 0, ( i & 2 ) ? S : 0, ( i & 4 ) ? S : 0 ) );
+            M.AppendVertex( glm::dvec3( ( i & 1 ) ? S : 0, ( i & 2 ) ? S : 0, ( i & 4 ) ? S : 0 ) );
         // Quads a,b,c,d counter-clockwise seen from outside (the render winding); FDynamicMesh3 keeps UE's
         // clockwise front (see DynamicMeshRenderConversion.hpp), so each triangle takes corners 0, 2, 1.
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
@@ -64,7 +64,7 @@ namespace
 TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
 {
     FDynamicMesh3 M = MakeCube();
-    ASSERT_EQ( M.GetTriNormal( 2 ).Z, 1.0 );
+    ASSERT_EQ( M.GetTriNormal( 2 ).z, 1.0 );
     FOffsetMeshRegion Op( &M );
     Op.Triangles = TopFace();
     Op.ExtrusionVectorType =
@@ -82,8 +82,8 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     {
         FIndex3i Tri = M.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
-            EXPECT_DOUBLE_EQ( M.GetVertex( Tri[j] ).Z, 150.0 );
-        EXPECT_NEAR( M.GetTriNormal( t ).Z, 1.0, 1e-9 );
+            EXPECT_DOUBLE_EQ( M.GetVertex( Tri[j] ).z, 150.0 );
+        EXPECT_NEAR( M.GetTriNormal( t ).z, 1.0, 1e-9 );
     }
     // Four walls, two triangles each, each its own new group, facing outwards (horizontal normals).
     ASSERT_EQ( Op.OffsetRegions[0].StitchTriangles.Num(), 1 );
@@ -91,10 +91,10 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     EXPECT_EQ( Op.OffsetRegions[0].StitchPolygonIDs[0].Num(), 4 );
     for ( int32_t const t : Op.OffsetRegions[0].StitchTriangles[0] )
     {
-        const FVector3d N = M.GetTriNormal( t );
-        const FVector3d C = M.GetTriCentroid( t ) - FVector3d( 50, 50, 125 );
-        EXPECT_NEAR( N.Z, 0.0, 1e-9 );
-        EXPECT_GT( N.Dot( C ), 0.0 ) << "wall triangle " << t << " faces inwards";
+        const glm::dvec3 N = M.GetTriNormal( t );
+        const glm::dvec3 C = M.GetTriCentroid( t ) - glm::dvec3( 50, 50, 125 );
+        EXPECT_NEAR( N.z, 0.0, 1e-9 );
+        EXPECT_GT( glm::dot( N, C ), 0.0 ) << "wall triangle " << t << " faces inwards";
         EXPECT_TRUE( M.Attributes()->PrimaryNormals()->IsSetTriangle( t ) );
         EXPECT_TRUE( M.Attributes()->PrimaryUV()->IsSetTriangle( t ) );
     }
@@ -134,14 +134,14 @@ TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
         FIndex3i Tri = M.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
         {
-            const FVector3d P = M.GetVertex( Tri[j] );
-            EXPECT_DOUBLE_EQ( P.Z, 100.0 );
-            EXPECT_NEAR( std::min( P.X, 100 - P.X ), 10.0, 1e-9 );
-            EXPECT_NEAR( std::min( P.Y, 100 - P.Y ), 10.0, 1e-9 );
+            const glm::dvec3 P = M.GetVertex( Tri[j] );
+            EXPECT_DOUBLE_EQ( P.z, 100.0 );
+            EXPECT_NEAR( std::min( P.x, 100 - P.x ), 10.0, 1e-9 );
+            EXPECT_NEAR( std::min( P.y, 100 - P.y ), 10.0, 1e-9 );
         }
     }
     for ( int32_t const t : Op.InsetRegions[0].StitchTriangles[0] )
-        EXPECT_NEAR( M.GetTriNormal( t ).Z, 1.0, 1e-9 ) << "ring triangle " << t << " is not in the face's plane";
+        EXPECT_NEAR( M.GetTriNormal( t ).z, 1.0, 1e-9 ) << "ring triangle " << t << " is not in the face's plane";
 }
 
 TEST( InsetMeshRegion, RegionWithInteriorVertexIsRefused )

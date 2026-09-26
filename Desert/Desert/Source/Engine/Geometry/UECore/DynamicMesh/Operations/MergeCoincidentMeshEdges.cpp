@@ -22,16 +22,16 @@ namespace Desert::Geometry
             explicit FPointHashGrid3( double CellSize ) : CellSize( CellSize )
             {
             }
-            void InsertPointUnsafe( int32_t Value, const FVector3d& Pos )
+            void InsertPointUnsafe( int32_t Value, const glm::dvec3& Pos )
             {
                 Hash[ToGrid( Pos )].Add( Value );
             }
             template <typename DistanceSqFn>
-            void FindPointsInBall( const FVector3d& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
+            void FindPointsInBall( const glm::dvec3& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
                                    TArray<int32_t>& ResultsOut ) const
             {
-                const FVector3d Lo( QueryPoint.X - Radius, QueryPoint.Y - Radius, QueryPoint.Z - Radius );
-                const FVector3d Hi( QueryPoint.X + Radius, QueryPoint.Y + Radius, QueryPoint.Z + Radius );
+                const glm::dvec3 Lo( QueryPoint.x - Radius, QueryPoint.y - Radius, QueryPoint.z - Radius );
+                const glm::dvec3 Hi( QueryPoint.x + Radius, QueryPoint.y + Radius, QueryPoint.z + Radius );
                 const auto      MinIdx = ToGrid( Lo ), MaxIdx = ToGrid( Hi );
                 const double    RadiusSquared = Radius * Radius;
                 for ( int64_t zi = MinIdx[2]; zi <= MaxIdx[2]; zi++ )
@@ -49,11 +49,11 @@ namespace Desert::Geometry
 
         private:
             using Key = std::array<int64_t, 3>;
-            Key ToGrid( const FVector3d& P ) const
+            Key ToGrid( const glm::dvec3& P ) const
             {
-                return { static_cast<int64_t>( std::floor( P.X / CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.Y / CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.Z / CellSize ) ) };
+                return { static_cast<int64_t>( std::floor( P.x / CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.y / CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.z / CellSize ) ) };
             }
             double                       CellSize;
             std::map<Key, TArray<int32_t>> Hash;
@@ -69,7 +69,7 @@ namespace Desert::Geometry
         double UseMergeSearchTol = ( MergeSearchTolerance > 0 ) ? MergeSearchTolerance : 2 * MergeVertexTolerance;
 
         // hash table of the boundary edge midpoints
-        TArray<FVector3d> BoundaryMidPoints;
+        TArray<glm::dvec3> BoundaryMidPoints;
         TArray<int32_t>   ToMidPt;
         ToMidPt.Init( -1, Mesh->MaxEdgeID() );
         for ( int32_t const EID : Mesh->BoundaryEdgeIndicesItr() )
@@ -86,13 +86,13 @@ namespace Desert::Geometry
             hashN = 512;
 
         const FAxisAlignedBox3d Bounds   = Mesh->GetBounds();
-        const double            MaxDim   = std::max( Bounds.Max.X - Bounds.Min.X,
-                                                     std::max( Bounds.Max.Y - Bounds.Min.Y, Bounds.Max.Z - Bounds.Min.Z ) );
+        const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
+                                                     std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
         const double CellSize = std::max( FMathd::ZeroTolerance, MaxDim / static_cast<double>( hashN ) );
         FPointHashGrid3         MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
-        FVector3d     A, B, C, D;
+        glm::dvec3      A{}, B{}, C{}, D{};
         TArray<int>   equivBuffer;
         TArray<int32_t> SearchMatches;
 
@@ -103,7 +103,7 @@ namespace Desert::Geometry
         TSet<int>                               RemainingEdges;
         for ( int eid : Mesh->BoundaryEdgeIndicesItr() )
         {
-            const FVector3d midpt = BoundaryMidPoints[ToMidPt[eid]];
+            const glm::dvec3 midpt = BoundaryMidPoints[ToMidPt[eid]];
             SearchMatches.Reset();
             MidpointsHash.FindPointsInBall(
                  midpt, UseMergeSearchTol, [&]( const int32_t& PtIdx )

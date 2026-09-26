@@ -125,22 +125,22 @@ namespace Desert::Geometry
          * in the mesh, and was ignored because we do not support duplicate triangles */
         constexpr static int DuplicateTriangleID = -3;
 
-        const static FVector3d    InvalidVertex;
+        const static glm::dvec3   InvalidVertex;
         constexpr static FIndex3i InvalidTriangle{ InvalidID, InvalidID, InvalidID };
         constexpr static FIndex2i InvalidEdge{ InvalidID, InvalidID };
 
     protected:
         /** List of vertex positions */
-        TDynamicVector<FVector3d> Vertices{};
+        TDynamicVector<glm::dvec3> Vertices{};
         /** Reference counts of vertex indices. For vertices that exist, the count is 1 +
          * num_triangle_using_vertex. Iterate over this to find out which vertex indices are valid. */
         FRefCountVector VertexRefCounts{};
         /** (optional) List of per-vertex normals */
-        TOptional<TDynamicVector<FVector3f>> VertexNormals{};
+        TOptional<TDynamicVector<glm::vec3>> VertexNormals{};
         /** (optional) List of per-vertex colors */
-        TOptional<TDynamicVector<FVector3f>> VertexColors{};
+        TOptional<TDynamicVector<glm::vec3>> VertexColors{};
         /** (optional) List of per-vertex uv's */
-        TOptional<TDynamicVector<FVector2f>> VertexUVs{};
+        TOptional<TDynamicVector<glm::vec2>> VertexUVs{};
         /** List of per-vertex edge one-rings */
         FSmallListSet VertexEdgeLists;
 
@@ -542,10 +542,10 @@ namespace Desert::Geometry
         }
 
         /** Enumerate positions of all vertices in mesh */
-        value_iteration<FVector3d> VerticesItr() const
+        value_iteration<glm::dvec3> VerticesItr() const
         {
-            return VertexRefCounts.MappedIndices<FVector3d>( [this]( int VertexID )
-                                                             { return Vertices[VertexID]; } );
+            return VertexRefCounts.MappedIndices<glm::dvec3>( [this]( int VertexID )
+                                                              { return Vertices[VertexID]; } );
         }
 
         /** Enumerate all triangles in the mesh */
@@ -624,7 +624,7 @@ namespace Desert::Geometry
         int AppendVertex( const FVertexInfo& VertInfo );
 
         /** Append vertex at position, returns vid */
-        int AppendVertex( const FVector3d& Position )
+        int AppendVertex( const glm::dvec3& Position )
         {
             return AppendVertex( FVertexInfo( Position ) );
         }
@@ -693,14 +693,14 @@ namespace Desert::Geometry
         //
     public:
         /** @return the vertex position */
-        inline FVector3d GetVertex( int VertexID ) const
+        inline glm::dvec3 GetVertex( int VertexID ) const
         {
             UE_CHECK_SLOW( IsVertex( VertexID ) );
             return Vertices[VertexID];
         }
 
         /** @return the vertex position */
-        inline const FVector3d& GetVertexRef( int VertexID ) const
+        inline const glm::dvec3& GetVertexRef( int VertexID ) const
         {
             UE_CHECK_SLOW( IsVertex( VertexID ) );
             return Vertices[VertexID];
@@ -710,7 +710,7 @@ namespace Desert::Geometry
          * Set vertex position
          * @param bTrackChange if true, ShapeChangeStamp will be incremented (if enabled)
          */
-        inline void SetVertex( int VertexID, const FVector3d& vNewPos, bool bTrackChange = true )
+        inline void SetVertex( int VertexID, const glm::dvec3& vNewPos, bool bTrackChange = true )
         {
             UE_CHECK_SLOW( VectorUtil::IsFinite( vNewPos ) );
             UE_CHECK_SLOW( IsVertex( VertexID ) );
@@ -802,7 +802,7 @@ namespace Desert::Geometry
         }
 
         /** Get the position of one of the vertices of a triangle */
-        inline FVector3d GetTriVertex( int TriangleID, int j ) const
+        inline glm::dvec3 GetTriVertex( int TriangleID, int j ) const
         {
             return Vertices[Triangles[TriangleID][j]];
         }
@@ -829,7 +829,7 @@ namespace Desert::Geometry
         }
 
         /** Get the vertex positions of an edge */
-        inline bool GetEdgeV( int EdgeID, FVector3d& a, FVector3d& b ) const
+        inline bool GetEdgeV( int EdgeID, glm::dvec3& a, glm::dvec3& b ) const
         {
             UE_CHECK_SLOW( IsEdge( EdgeID ) );
 
@@ -904,75 +904,75 @@ namespace Desert::Geometry
          */
         void EnableMeshComponents( int MeshComponentsFlags );
 
-        void EnableVertexNormals( const FVector3f& InitialNormal );
+        void EnableVertexNormals( const glm::vec3& InitialNormal );
         void DiscardVertexNormals();
 
-        FVector3f GetVertexNormal( int vID ) const
+        glm::vec3 GetVertexNormal( int vID ) const
         {
             if ( HasVertexNormals() == false )
             {
-                return FVector3f::UnitY();
+                return glm::vec3( 0, 1, 0 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
-            const TDynamicVector<FVector3f>& Normals = VertexNormals.GetValue();
+            const TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
             return Normals[vID];
         }
 
-        void SetVertexNormal( int vID, const FVector3f& vNewNormal )
+        void SetVertexNormal( int vID, const glm::vec3& vNewNormal )
         {
             if ( HasVertexNormals() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<FVector3f>& Normals = VertexNormals.GetValue();
+                TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
                 Normals[vID]                       = vNewNormal;
             }
         }
 
-        void EnableVertexColors( const FVector3f& InitialColor );
+        void EnableVertexColors( const glm::vec3& InitialColor );
         void DiscardVertexColors();
 
-        FVector3f GetVertexColor( int vID ) const
+        glm::vec3 GetVertexColor( int vID ) const
         {
             if ( HasVertexColors() == false )
             {
-                return FVector3f::One();
+                return glm::vec3( 1 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
 
-            const TDynamicVector<FVector3f>& Colors = VertexColors.GetValue();
+            const TDynamicVector<glm::vec3>& Colors = VertexColors.GetValue();
             return Colors[vID];
         }
 
-        void SetVertexColor( int vID, const FVector3f& vNewColor )
+        void SetVertexColor( int vID, const glm::vec3& vNewColor )
         {
             if ( HasVertexColors() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<FVector3f>& Colors = VertexColors.GetValue();
+                TDynamicVector<glm::vec3>& Colors = VertexColors.GetValue();
                 Colors[vID]                       = vNewColor;
             }
         }
 
-        void EnableVertexUVs( const FVector2f& InitialUV );
+        void EnableVertexUVs( const glm::vec2& InitialUV );
         void DiscardVertexUVs();
 
-        FVector2f GetVertexUV( int vID ) const
+        glm::vec2 GetVertexUV( int vID ) const
         {
             if ( HasVertexUVs() == false )
             {
-                return FVector2f::Zero();
+                return glm::vec2( 0 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
-            const TDynamicVector<FVector2f>& UVs = VertexUVs.GetValue();
+            const TDynamicVector<glm::vec2>& UVs = VertexUVs.GetValue();
             return UVs[vID];
         }
 
-        void SetVertexUV( int vID, const FVector2f& vNewUV )
+        void SetVertexUV( int vID, const glm::vec2& vNewUV )
         {
             if ( HasVertexUVs() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<FVector2f>& UVs = VertexUVs.GetValue();
+                TDynamicVector<glm::vec2>& UVs = VertexUVs.GetValue();
                 UVs[vID]                       = vNewUV;
             }
         }
@@ -1158,7 +1158,7 @@ namespace Desert::Geometry
         FAxisAlignedBox3d GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const;
 
         /** Calculate face normal of triangle */
-        FVector3d GetTriNormal( int TriangleID ) const;
+        glm::dvec3 GetTriNormal( int TriangleID ) const;
 
         /** Calculate area triangle */
         double GetTriArea( int TriangleID ) const;
@@ -1168,16 +1168,16 @@ namespace Desert::Geometry
          * lookups and computes normal & area simultaneously. *However* does not produce
          * the same normal/area as separate calls, because of this.
          */
-        void GetTriInfo( int TriangleID, FVector3d& Normal, double& Area, FVector3d& Centroid ) const;
+        void GetTriInfo( int TriangleID, glm::dvec3& Normal, double& Area, glm::dvec3& Centroid ) const;
 
         /** Compute centroid of triangle */
-        FVector3d GetTriCentroid( int TriangleID ) const;
+        glm::dvec3 GetTriCentroid( int TriangleID ) const;
 
         /** Interpolate vertex positions of triangle using barycentric coordinates */
-        FVector3d GetTriBaryPoint( int TriangleID, double Bary0, double Bary1, double Bary2 ) const;
+        glm::dvec3 GetTriBaryPoint( int TriangleID, double Bary0, double Bary1, double Bary2 ) const;
 
         /** Interpolate vertex normals of triangle using barycentric coordinates */
-        FVector3d GetTriBaryNormal( int TriangleID, double Bary0, double Bary1, double Bary2 ) const;
+        glm::dvec3 GetTriBaryNormal( int TriangleID, double Bary0, double Bary1, double Bary2 ) const;
 
         /** Compute interpolated vertex attributes at point of triangle */
         void GetTriBaryPoint( int TriangleID, double Bary0, double Bary1, double Bary2,
@@ -1187,25 +1187,25 @@ namespace Desert::Geometry
         FAxisAlignedBox3d GetTriBounds( int TriangleID ) const;
 
         /** Compute solid angle of oriented triangle tID relative to point p - see WindingNumber() */
-        double GetTriSolidAngle( int TriangleID, const FVector3d& p ) const;
+        double GetTriSolidAngle( int TriangleID, const glm::dvec3& p ) const;
 
         /** Compute internal angle at vertex i of triangle (where i is 0,1,2); */
         double GetTriInternalAngleR( int TriangleID, int i ) const;
 
         /** Compute internal angles at all vertices of triangle */
-        FVector3d GetTriInternalAnglesR( int TriangleID ) const;
+        glm::dvec3 GetTriInternalAnglesR( int TriangleID ) const;
 
         /** Returns average normal of connected face normals */
-        FVector3d GetEdgeNormal( int EdgeID ) const;
+        glm::dvec3 GetEdgeNormal( int EdgeID ) const;
 
         /** Get point along edge, t clamped to range [0,1] */
-        FVector3d GetEdgePoint( int EdgeID, double ParameterT ) const;
+        glm::dvec3 GetEdgePoint( int EdgeID, double ParameterT ) const;
 
         /**
          * Fastest possible one-ring centroid. This is used inside many other algorithms
          * so it helps to have it be maximally efficient
          */
-        void GetVtxOneRingCentroid( int VertexID, FVector3d& CentroidOut ) const;
+        void GetVtxOneRingCentroid( int VertexID, glm::dvec3& CentroidOut ) const;
 
         /**
          * Compute mesh winding number, from Jacobson et. al., Robust Inside-Outside Segmentation using Generalized
@@ -1213,13 +1213,13 @@ namespace Desert::Geometry
          * consistently oriented mesh, and a positive or negative integer for points inside, with value > 1
          * depending on how many "times" the point inside the mesh (like in 2D polygon winding)
          */
-        double CalculateWindingNumber( const FVector3d& QueryPoint ) const;
+        double CalculateWindingNumber( const glm::dvec3& QueryPoint ) const;
 
         //
         // direct buffer access
         //
     public:
-        const TDynamicVector<FVector3d>& GetVerticesBuffer() const
+        const TDynamicVector<glm::dvec3>& GetVerticesBuffer() const
         {
             return Vertices;
         }
@@ -1227,15 +1227,15 @@ namespace Desert::Geometry
         {
             return VertexRefCounts;
         }
-        const TDynamicVector<FVector3f>* GetNormalsBuffer() const
+        const TDynamicVector<glm::vec3>* GetNormalsBuffer() const
         {
             return HasVertexNormals() ? &VertexNormals.GetValue() : nullptr;
         }
-        const TDynamicVector<FVector3f>* GetColorsBuffer() const
+        const TDynamicVector<glm::vec3>* GetColorsBuffer() const
         {
             return HasVertexColors() ? &VertexColors.GetValue() : nullptr;
         }
-        const TDynamicVector<FVector2f>* GetUVBuffer() const
+        const TDynamicVector<glm::vec2>* GetUVBuffer() const
         {
             return HasVertexUVs() ? &VertexUVs.GetValue() : nullptr;
         }
@@ -1571,13 +1571,13 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult PokeTriangle( int TriangleID, const FVector3d& BaryCoordinates,
+        virtual EMeshResult PokeTriangle( int TriangleID, const glm::dvec3& BaryCoordinates,
                                           FPokeTriangleInfo& PokeInfo );
 
         /** Call PokeTriangle at the centroid of the triangle */
         virtual EMeshResult PokeTriangle( int TriangleID, FPokeTriangleInfo& PokeInfo )
         {
-            return PokeTriangle( TriangleID, FVector3d::One() / 3.0, PokeInfo );
+            return PokeTriangle( TriangleID, glm::dvec3( 1 ) / 3.0, PokeInfo );
         }
 
     public:

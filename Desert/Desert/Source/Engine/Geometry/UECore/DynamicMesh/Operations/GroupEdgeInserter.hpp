@@ -89,7 +89,7 @@ namespace Desert::Geometry
              * Tangent that is used to help position the cutting plane. For edges, it is just an edge vector, but
              * for vertices, it is the average of the adjacent edge vectors of the group boundary.
              */
-            FVector3d Tangent = FVector3d::Zero();
+            glm::dvec3 Tangent = glm::dvec3( 0 );
 
             /**
              * Only relevant for edges. The range (0,1) parameter that determines where the edge

@@ -729,7 +729,7 @@ namespace Desert::Geometry
         void SetElementFromLerp( int SetElement, int ElementA, int ElementB, double Alpha );
         /** Set the value at an Element to be a barycentric interpolation of three other Elements */
         void SetElementFromBary( int SetElement, int ElementA, int ElementB, int ElementC,
-                                 const FVector3d& BaryCoords );
+                                 const glm::dvec3& BaryCoords );
 
         /** updates the triangles array and optionally the element reference counts */
         void InternalSetTriangle( int TriangleID, const FIndex3i& TriElements, bool bUpdateRefCounts,
@@ -765,7 +765,7 @@ namespace Desert::Geometry
             // Cannot use cast operator here because Core Vector types do not define it.
             // However assuming that vector has .X member is also not good...
             // return BaseType::AppendElement((const RealType*)Value);
-            return BaseType::AppendElement( &Value.X );
+            return BaseType::AppendElement( &Value.x );
         }
 
         /**
@@ -875,11 +875,11 @@ namespace Desert::Geometry
     extern template class TDynamicMeshOverlay<float, 4>;
     extern template class TDynamicMeshOverlay<double, 4>;
 
-    extern template class TDynamicMeshVectorOverlay<float, 2, FVector2f>;
-    extern template class TDynamicMeshVectorOverlay<double, 2, FVector2d>;
-    extern template class TDynamicMeshVectorOverlay<float, 3, FVector3f>;
-    extern template class TDynamicMeshVectorOverlay<double, 3, FVector3d>;
-    extern template class TDynamicMeshVectorOverlay<float, 4, FVector4f>;
+    extern template class TDynamicMeshVectorOverlay<float, 2, glm::vec2>;
+    extern template class TDynamicMeshVectorOverlay<double, 2, glm::dvec2>;
+    extern template class TDynamicMeshVectorOverlay<float, 3, glm::vec3>;
+    extern template class TDynamicMeshVectorOverlay<double, 3, glm::dvec3>;
+    extern template class TDynamicMeshVectorOverlay<float, 4, glm::vec4>;
 #endif
 
 #undef UE_EXTERN_TEMPLATE_API

@@ -21,7 +21,7 @@ namespace Desert::Geometry
         /** Target Mesh */
         const FDynamicMesh3* Mesh;
         /** Set of computed normals */
-        TArray<FVector3d> Normals;
+        TArray<glm::dvec3> Normals;
 
     public:
         FMeshNormals()
@@ -39,7 +39,7 @@ namespace Desert::Geometry
             this->Mesh = MeshIn;
         }
 
-        const TArray<FVector3d>& GetNormals() const
+        const TArray<glm::dvec3>& GetNormals() const
         {
             return Normals;
         }
@@ -47,16 +47,16 @@ namespace Desert::Geometry
         /*
          * @return the normals array by a move
          */
-        TArray<FVector3d>&& MoveNormals()
+        TArray<glm::dvec3>&& MoveNormals()
         {
             return std::move( Normals );
         }
 
-        FVector3d& operator[]( int i )
+        glm::dvec3& operator[]( int i )
         {
             return Normals[i];
         }
-        const FVector3d& operator[]( int i ) const
+        const glm::dvec3& operator[]( int i ) const
         {
             return Normals[i];
         }
@@ -163,8 +163,8 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @return the vertex normal at vertex VertIdx of Mesh.
          */
-        static FVector3d ComputeVertexNormal( const FDynamicMesh3& Mesh, int VertIdx, bool bWeightByArea = true,
-                                              bool bWeightByAngle = true );
+        static glm::dvec3 ComputeVertexNormal( const FDynamicMesh3& Mesh, int VertIdx, bool bWeightByArea = true,
+                                               bool bWeightByAngle = true );
 
         /**
          * Compute normal at mesh vertex by weighted sum of subset of one-ring triangle normals. Can optionally
@@ -174,9 +174,9 @@ namespace Desert::Geometry
          * @param bWeightByAngle weight neighbor triangles by angle
          * @return the vertex normal at vertex VertIdx of Mesh.
          */
-        static FVector3d ComputeVertexNormal( const FDynamicMesh3& Mesh, int32_t VertIdx,
-                                              std::function<bool( int32_t )> TriangleFilterFunc,
-                                              bool bWeightByArea = true, bool bWeightByAngle = true );
+        static glm::dvec3 ComputeVertexNormal( const FDynamicMesh3& Mesh, int32_t VertIdx,
+                                               std::function<bool( int32_t )> TriangleFilterFunc,
+                                               bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
          * @return the computed overlay normal at an element of the overlay (ie based on normals of triangles
@@ -184,9 +184,9 @@ namespace Desert::Geometry
          * @param bWeightByArea weight neighbor triangles by area
          * @param bWeightByAngle weight neighbor triangles by angle
          */
-        static FVector3d ComputeOverlayNormal( const FDynamicMesh3&             Mesh,
-                                               const FDynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
-                                               bool bWeightByArea = true, bool bWeightByAngle = true );
+        static glm::dvec3 ComputeOverlayNormal( const FDynamicMesh3&             Mesh,
+                                                const FDynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
+                                                bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
          * Initialize the given NormalOverlay with per-vertex normals, ie single overlay element for each mesh
@@ -252,8 +252,8 @@ namespace Desert::Geometry
          * @param bWeightByArea if true, include weighting by the area of the triangle
          * @param bWeightByAngle if true, include weighting by the interior angles of the triangle
          */
-        static FVector3d GetVertexWeightsOnTriangle( const FDynamicMesh3* Mesh, int TriID, double TriArea,
-                                                     bool bWeightByArea, bool bWeightByAngle );
+        static glm::dvec3 GetVertexWeightsOnTriangle( const FDynamicMesh3* Mesh, int TriID, double TriArea,
+                                                      bool bWeightByArea, bool bWeightByAngle );
 
     protected:
         /** Compute per-vertex normals using area-weighted averaging of one-ring triangle normals */

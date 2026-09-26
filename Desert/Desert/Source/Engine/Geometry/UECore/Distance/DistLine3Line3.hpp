@@ -23,9 +23,9 @@ namespace Desert::Geometry
         // Results
         Real          DistanceSquared = -1.0;
         bool          bIsParallel     = false;
-        TVector<Real> Line1ClosestPoint;
+        glm::vec<3, Real> Line1ClosestPoint{};
         Real          Line1Parameter = 0;
-        TVector<Real> Line2ClosestPoint;
+        glm::vec<3, Real> Line2ClosestPoint{};
         Real          Line2Parameter = 0;
 
         TDistLine3Line3( const TLine3<Real>& Line1In, const TLine3<Real>& Line2In )
@@ -50,10 +50,10 @@ namespace Desert::Geometry
                 return DistanceSquared;
             }
 
-            TVector<Real> kDiff = Line1.Origin - Line2.Origin;
-            Real          a01   = -Line1.Direction.Dot( Line2.Direction );
-            Real          b0    = kDiff.Dot( Line1.Direction );
-            Real          c     = kDiff.SquaredLength();
+            glm::vec<3, Real> kDiff = Line1.Origin - Line2.Origin;
+            Real              a01   = -glm::dot( Line1.Direction, Line2.Direction );
+            Real              b0    = glm::dot( kDiff, Line1.Direction );
+            Real              c     = glm::length2( kDiff );
             Real          det   = std::abs( static_cast<Real>( 1 ) - a01 * a01 );
             Real          b1;
             Real          s0;
@@ -62,7 +62,7 @@ namespace Desert::Geometry
 
             if ( det >= TMathUtil<Real>::ZeroTolerance )
             {
-                b1 = -kDiff.Dot( Line2.Direction );
+                b1 = -glm::dot( kDiff, Line2.Direction );
                 s1 = a01 * b0 - b1;
 
                 // Two interior points are closest.
