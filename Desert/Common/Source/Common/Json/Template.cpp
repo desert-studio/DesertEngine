@@ -306,14 +306,14 @@ namespace Common::Text
                     }
                     else if ( std::isdigit( static_cast<unsigned char>( c ) ) ||
                               ( c == '-' && i + 1 < m_Source.size() &&
-                                std::isdigit( static_cast<unsigned char>( m_Source[i + 1] ) )) )
+                                std::isdigit( static_cast<unsigned char>( m_Source[i + 1] ) ) ) )
                     {
                         std::size_t j    = i + 1;
                         bool        real = false;
                         while ( j < m_Source.size() &&
                                 ( std::isdigit( static_cast<unsigned char>( m_Source[j] ) ) ||
                                   ( m_Source[j] == '.' && !real ) ) )
-                            {
+                        {
                             real = real || m_Source[j] == '.';
                             ++j;
                         }

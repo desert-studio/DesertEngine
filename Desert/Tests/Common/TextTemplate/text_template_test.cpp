@@ -67,8 +67,8 @@ TEST( TextTemplate, ForOverArrayWithLoopVariables )
 {
     const char* json = R"({"xs":["a","b","c"]})";
     EXPECT_EQ( Expand( "{% for x in xs %}{{ loop.index }}{{ loop.index0 }}{{ x }}"
-                    "{% if loop.first %}F{% endif %}{% if loop.last %}L{% endif %};{% endfor %}",
-                    json ),
+                       "{% if loop.first %}F{% endif %}{% if loop.last %}L{% endif %};{% endfor %}",
+                       json ),
                "10aF;21b;32cL;" );
     EXPECT_EQ(
          Expand( "{% for x in xs %}{% if not loop.last %}{{ x }},{% else %}{{ x }}{% endif %}{% endfor %}", json ),
@@ -88,8 +88,8 @@ TEST( TextTemplate, NestedLoopsSeeTheirOwnLoopAndOuterVariables )
 {
     const char* json = R"({"rows":[{"n":"r1","cells":[1,2]},{"n":"r2","cells":[3]}]})";
     EXPECT_EQ( Expand( "{% for r in rows %}{{ r.n }}:{% for c in r.cells %}{{ loop.index }}/{{ c }}@{{ r.n }} "
-                    "{% endfor %}{{ loop.index }}|{% endfor %}",
-                    json ),
+                       "{% endfor %}{{ loop.index }}|{% endfor %}",
+                       json ),
                "r1:1/1@r1 2/2@r1 1|r2:1/3@r2 2|" );
 }
 
@@ -135,11 +135,11 @@ TEST( TextTemplate, WhitespaceControlStripsExactlyItsSide )
     EXPECT_EQ( Expand( "x  \n  {{- v -}}  \n  y", json ), "xVy" );
     // The code-generation idiom: every statement on its own line, no stray blank lines left behind.
     EXPECT_EQ( Expand( "list:\n"
-                    "{%- for x in xs %}\n"
-                    "  - {{ x }}\n"
-                    "{%- endfor %}\n"
-                    "end\n",
-                    json ),
+                       "{%- for x in xs %}\n"
+                       "  - {{ x }}\n"
+                       "{%- endfor %}\n"
+                       "end\n",
+                       json ),
                "list:\n  - a\n  - b\nend\n" );
     // Without the dashes every tag leaves its line's newline behind, as in Jinja without trim_blocks.
     EXPECT_EQ( Expand( "{% for x in xs %}\n{{ x }}\n{% endfor %}\n", json ), "\na\n\nb\n\n" );
@@ -147,10 +147,13 @@ TEST( TextTemplate, WhitespaceControlStripsExactlyItsSide )
 
 TEST( TextTemplate, UnknownVariableNamesTemplateLineColumnAndPath )
 {
-    EXPECT_EQ( Expand( "line one\n  {{ a.b.c }}", R"({"a":{"b":{}}})" ), "ERROR: t:2:6: unknown variable 'a.b.c'" );
-    EXPECT_EQ( Expand( "{{ items[3].name }}", R"({"items":[]})" ), "ERROR: t:1:4: unknown variable 'items[3].name'" );
+    EXPECT_EQ( Expand( "line one\n  {{ a.b.c }}", R"({"a":{"b":{}}})" ),
+               "ERROR: t:2:6: unknown variable 'a.b.c'" );
+    EXPECT_EQ( Expand( "{{ items[3].name }}", R"({"items":[]})" ),
+               "ERROR: t:1:4: unknown variable 'items[3].name'" );
     EXPECT_EQ( Expand( "{% for x in nope %}{% endfor %}" ), "ERROR: t:1:13: unknown variable 'nope'" );
-    EXPECT_EQ( Expand( "{{ s.member }}", R"({"s":"text"})" ), "ERROR: t:1:4: 's.member': member 'member' of string" );
+    EXPECT_EQ( Expand( "{{ s.member }}", R"({"s":"text"})" ),
+               "ERROR: t:1:4: 's.member': member 'member' of string" );
     EXPECT_EQ( Expand( "{{ o }}", R"({"o":{}})" ), "ERROR: t:1:4: cannot print object 'o'" );
     EXPECT_EQ( Expand( "{{ z }}", R"({"z":null})" ), "ERROR: t:1:4: cannot print null 'z'" );
 }
@@ -214,8 +217,8 @@ TEST( TextTemplate, CompileOnceRenderMany )
     ASSERT_TRUE( compiled.IsSuccess() );
     for ( int i = 0; i < 3; ++i )
     {
-        const Json::Value data = Json::Value( Json::ObjectBuilder().Set( "v", i ).Build() );
-        const auto rendered = Render( compiled.GetValue(), Json::Root( data ) );
+        const Json::Value data     = Json::Value( Json::ObjectBuilder().Set( "v", i ).Build() );
+        const auto        rendered = Render( compiled.GetValue(), Json::Root( data ) );
         EXPECT_EQ( rendered.GetValue(), std::to_string( i ) );
     }
     const Json::Value empty = Data( "{}" );
@@ -228,19 +231,20 @@ TEST( TextTemplate, TenThousandLinesRenderWithinABound )
     // guard against quadratic behaviour (it runs in milliseconds), not a benchmark.
     Json::Value::Array rows;
     for ( int i = 0; i < 10000; ++i )
-        rows.emplace_back( Json::ObjectBuilder().Set( "name", "row" + std::to_string( i ) ).Set( "n", i ).Build() );
+        rows.emplace_back(
+             Json::ObjectBuilder().Set( "name", "row" + std::to_string( i ) ).Set( "n", i ).Build() );
     const Json::Value data( Json::ObjectBuilder().Set( "rows", Json::Value( std::move( rows ) ) ).Build() );
-    TemplateSet set;
+    TemplateSet       set;
     ASSERT_TRUE( set.Add( "cell", "{{ r.n }}" ).IsSuccess() );
-    const auto start  = std::chrono::steady_clock::now();
-    auto compiled = Compile( "{%- for r in rows %}\n{{ r.name | upper }}{% if r.n > 4999 %} high{% endif %} "
-                             "{% include \"cell\" %}\n{%- endfor %}",
-                             "rows" );
+    const auto start    = std::chrono::steady_clock::now();
+    auto       compiled = Compile( "{%- for r in rows %}\n{{ r.name | upper }}{% if r.n > 4999 %} high{% endif %} "
+                                         "{% include \"cell\" %}\n{%- endfor %}",
+                                   "rows" );
     ASSERT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
     const auto rendered = Render( compiled.GetValue(), Json::Root( data ), set.Loader() );
     ASSERT_TRUE( rendered.IsSuccess() ) << rendered.GetError();
     const std::string& output = rendered.GetValue();
-    const auto elapsed =
+    const auto         elapsed =
          std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - start ).count();
     EXPECT_EQ( std::count( output.begin(), output.end(), '\n' ), 10000 );
     EXPECT_EQ( output.substr( 0, 13 ), "\nROW0 0\nROW1 " );
