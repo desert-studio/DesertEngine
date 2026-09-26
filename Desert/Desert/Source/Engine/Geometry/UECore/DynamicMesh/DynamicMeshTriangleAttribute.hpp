@@ -72,16 +72,16 @@ namespace Desert::Geometry
             return m_ParentMesh;
         }
 
-        DynamicMeshAttributeBase* MakeNew( DynamicMesh3* ParentMeshIn ) const override
+        std::unique_ptr<DynamicMeshAttributeBase> MakeNew( DynamicMesh3* ParentMeshIn ) const override
         {
-            auto* Matching = new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
+            auto Matching = std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
             Matching->Initialize();
             return Matching;
         }
 
-        DynamicMeshAttributeBase* MakeCopy( DynamicMesh3* ParentMeshIn ) const override
+        std::unique_ptr<DynamicMeshAttributeBase> MakeCopy( DynamicMesh3* ParentMeshIn ) const override
         {
-            auto* ToFill = new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
+            auto ToFill = std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
             ToFill->Copy( *this );
             return ToFill;
         }
@@ -93,10 +93,10 @@ namespace Desert::Geometry
             m_AttribValues = Copy.m_AttribValues;
         }
 
-        DynamicMeshAttributeBase* MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
+        std::unique_ptr<DynamicMeshAttributeBase> MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
                                                    DynamicMesh3*                 ParentMeshIn ) const override
         {
-            auto* ToFill = new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
+            auto ToFill = std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
             ToFill->Initialize();
             ToFill->CompactCopy( CompactMaps, *this );
             return ToFill;
@@ -316,13 +316,13 @@ namespace Desert::Geometry
         }
 
         /** Update the overlay to reflect an edge flip in the parent mesh */
-        void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo ) override
+        void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& /*FlipInfo*/ ) override
         {
             // yikes! triangles did not actually change so we will leave attrib unmodified
         }
 
         /** Update the overlay to reflect an edge collapse in the parent mesh */
-        void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo ) override
+        void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& /*CollapseInfo*/ ) override
         {
             // nothing to do here, triangles were only deleted
         }
@@ -335,20 +335,20 @@ namespace Desert::Geometry
         }
 
         /** Update the overlay to reflect an edge merge in the parent mesh */
-        void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo ) override
+        void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& /*MergeInfo*/ ) override
         {
             // nothing to do here because triangles did not change
         }
 
-        void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo ) override
+        void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& /*MergeInfo*/ ) override
         {
             // This resolves as either an edge collapse, edge weld, or merge of disconnected vertices.
             //  The triangles either get removed or unchanged- nothing more to do here.
         }
 
         /** Update the overlay to reflect a vertex split in the parent */
-        void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
-                            const std::span<const int>&             TrianglesToUpdate ) override
+        void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& /*SplitInfo*/,
+                            const std::span<const int>& /*TrianglesToUpdate*/ ) override
         {
             // nothing to do here because triangles did not change
         }

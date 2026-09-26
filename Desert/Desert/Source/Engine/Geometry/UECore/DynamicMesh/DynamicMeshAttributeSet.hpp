@@ -115,7 +115,7 @@ namespace Desert::Geometry
                                  bool& bIsTangentSeamOut ) const;
 
         /** @return true if the given vertex is a seam vertex in any overlay */
-        [[nodiscard]] virtual bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
+        [[nodiscard]] virtual bool IsSeamVertex( int VID, bool bBoundaryIsSeam = true ) const;
 
         /** @return true if the given vertex is a seam intersection vertex in any overlay */
         [[nodiscard]] virtual bool IsSeamIntersectionVertex( int32_t VertexID ) const;
@@ -290,14 +290,15 @@ namespace Desert::Geometry
         // Generic attributes
         //
 
-        void AttachAttribute( const std::string& AttribName, DynamicMeshAttributeBase* Attribute )
+        void AttachAttribute( const std::string& AttribName, std::unique_ptr<DynamicMeshAttributeBase> Attribute )
         {
             if ( m_GenericAttributes.contains( AttribName ) )
             {
                 UnregisterExternalAttribute( m_GenericAttributes[AttribName].get() );
             }
-            m_GenericAttributes[AttribName] = std::unique_ptr<DynamicMeshAttributeBase>( Attribute );
-            RegisterExternalAttribute( Attribute );
+            DynamicMeshAttributeBase* const Registered = Attribute.get();
+            m_GenericAttributes[AttribName]            = std::move( Attribute );
+            RegisterExternalAttribute( Registered );
         }
 
         void RemoveAttribute( const std::string& AttribName )

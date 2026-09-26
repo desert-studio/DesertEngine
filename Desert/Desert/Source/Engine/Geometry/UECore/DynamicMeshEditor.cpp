@@ -130,7 +130,7 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool DynamicMeshEditor::RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts )
+    bool DynamicMeshEditor::RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts ) const
     {
         bool bAllOK = true;
         for ( int tid : Triangles )
@@ -145,7 +145,7 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::DuplicateTriangles( const std::vector<int>&       Triangles,
                                                 std::unordered_map<int, int>& OldToNewVertex,
-                                                DynamicMeshEditResult&        ResultOut )
+                                                DynamicMeshEditResult&        ResultOut ) const
     {
         ResultOut.Reset();
         std::unordered_map<int, int>              GroupMap;
@@ -233,7 +233,7 @@ namespace Desert::Geometry
     bool DynamicMeshEditor::DisconnectTriangles( const std::unordered_set<int>& TriangleSet,
                                                  const std::vector<EdgeLoop>&   Loops,
                                                  std::vector<LoopPairSet>&      LoopSetOut,
-                                                 bool bHandleBoundaryVertices, std::string& FailureOut )
+                                                 bool bHandleBoundaryVertices, std::string& FailureOut ) const
     {
         int NumLoops = static_cast<int32_t>( Loops.size() );
         LoopSetOut.resize( NumLoops );
@@ -329,7 +329,7 @@ namespace Desert::Geometry
         return NormalF;
     }
 
-    void DynamicMeshEditor::SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal )
+    void DynamicMeshEditor::SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal ) const
     {
         DynamicMeshNormalOverlay*  Normals   = m_Mesh->Attributes()->PrimaryNormals();
         Index3i                    Triangle1 = m_Mesh->GetTriangle( QuadTris.A );
@@ -350,7 +350,7 @@ namespace Desert::Geometry
         }
     }
 
-    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles )
+    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles ) const
     {
         DynamicMeshNormalOverlay*  Normals = m_Mesh->Attributes()->PrimaryNormals();
         std::unordered_set<int>    TriangleSet( Triangles.begin(), Triangles.end() );
@@ -379,7 +379,7 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::SetQuadUVsFromProjection( const Index2i& QuadTris, const glm::dvec3& AxisX,
                                                       const glm::dvec3& AxisY, float UVScaleFactor,
-                                                      const glm::vec2& UVTranslation )
+                                                      const glm::vec2& UVTranslation ) const
     {
         DynamicMeshUVOverlay* UVs = m_Mesh->Attributes()->PrimaryUV();
         if ( !UVs )
@@ -416,7 +416,7 @@ namespace Desert::Geometry
             InvertTriangleNormals( Triangles );
     }
 
-    void DynamicMeshEditor::InvertTriangleNormals( const std::vector<int>& Triangles )
+    void DynamicMeshEditor::InvertTriangleNormals( const std::vector<int>& Triangles ) const
     {
         if ( !m_Mesh->HasAttributes() )
             return;
@@ -470,7 +470,7 @@ namespace Desert::Geometry
     }
 
     // UE DynamicMeshEditor.cpp:1231-1263
-    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal )
+    void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal ) const
     {
         assert( m_Mesh->HasAttributes() );
         DynamicMeshNormalOverlay*    Normals = m_Mesh->Attributes()->PrimaryNormals();
@@ -502,7 +502,7 @@ namespace Desert::Geometry
     // Quaternion::SetFromTo(UnitZ, Normal) (Quaternion.h:420-460), so its X/Y axes are UnitX/UnitY rotated by it.
     void DynamicMeshEditor::SetTriangleUVsFromProjection( const std::vector<int>& Triangles,
                                                           const glm::dvec3& Origin, const glm::dvec3& Normal,
-                                                          float UVScaleFactor )
+                                                          float UVScaleFactor ) const
     {
         if ( Triangles.empty() )
             return;

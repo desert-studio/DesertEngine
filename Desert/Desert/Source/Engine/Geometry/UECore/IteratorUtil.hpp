@@ -174,11 +174,11 @@ namespace Desert::Geometry
 
         ExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
                         const ExpandFunctionT& ExpandFuncIn )
-             : m_Cur( CurItr ), m_End( EndItr )
+             : m_Cur( CurItr ), m_End( EndItr ), m_CurExpandI(-1), m_ExpandFunc(ExpandFuncIn)
         {
 
-            m_ExpandFunc = ExpandFuncIn;
-            m_CurExpandI = -1;
+            
+            
             goto_next();
         }
 
@@ -309,11 +309,11 @@ namespace Desert::Geometry
 
         PairExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
                             const PairExpandFunctionT& PairFuncIn )
-             : m_Cur( CurItr ), m_End( EndItr )
+             : m_Cur( CurItr ), m_End( EndItr ),  m_PairFunc(PairFuncIn)
         {
 
-            m_PairFunc = PairFuncIn;
-            m_CurPairI = 0;
+            
+            
             goto_next();
         }
 
@@ -398,7 +398,7 @@ namespace Desert::Geometry
         uint64_t Count       = 0;
         uint64_t ModuloNum   = 1;
 
-        ModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
+        ModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 ) : ModuloPrime(ModuloPrimeIn)
 
         {
             MaxIndex   = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), MaxIndexIn ) );
@@ -408,7 +408,7 @@ namespace Desert::Geometry
             ModuloNum  = std::max( static_cast<uint64_t>( 1 ),
                                    MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
                                                // is 0 we will terminate on first iteration anyway
-            ModuloPrime = ModuloPrimeIn;
+            
             assert( ModuloPrime > MaxIndex );
         }
 

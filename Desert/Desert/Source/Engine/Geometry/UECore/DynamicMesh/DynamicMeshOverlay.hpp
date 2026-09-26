@@ -71,8 +71,7 @@ namespace Desert::Geometry
     public:
         /** Create an empty overlay */
         DynamicMeshOverlay()
-        {
-        }
+        = default;
 
         /** Create an overlay for the given parent mesh */
         DynamicMeshOverlay( DynamicMesh3* ParentMeshIn ) : m_ParentMesh( ParentMeshIn )
@@ -163,7 +162,7 @@ namespace Desert::Geometry
             }
 
             // make a map to track element index changes, to use to update element triangles later
-            // TODO: it may be faster to not construct this and to do the remapping per element as we go (by
+            // Possible speed-up (as in UE): it may be faster to not construct this and to do the remapping per element as we go (by
             // iterating the one ring of each parent vertex for each element)
             std::vector<int> MapE;
             MapE.resize( MaxElementID() );
@@ -239,8 +238,8 @@ namespace Desert::Geometry
             }
             // ElementTriangles should never grow during a compaction, so just resizing is ok
             // (i.e., we shouldn't need to set InvalidID on any added triangles)
-            assert( m_ElementTriangles.Num() >= ( MaxNewTID + 1 ) * 3 );
-            m_ElementTriangles.Resize( ( MaxNewTID + 1 ) * 3 );
+            assert( m_ElementTriangles.Num() >= static_cast<size_t>( MaxNewTID + 1 ) * 3 );
+            m_ElementTriangles.Resize( static_cast<size_t>( MaxNewTID + 1 ) * 3 );
 
             assert( IsCompact() );
         }
@@ -249,12 +248,12 @@ namespace Desert::Geometry
         {
             // We expect to be appending s.t. the intial ElementTriangles map to the pre-append triangles
             if ( !Common::EnsureOrWarn( m_ElementTriangles.Num() ==
-                                             static_cast<size_t>( AppendInfo.TriangleOffset * 3 ),
+                                             static_cast<size_t>( AppendInfo.TriangleOffset ) * 3,
                                         "ElementTriangles.Num() == AppendInfo.TriangleOffset * 3" ) )
             {
                 m_ElementTriangles.SetNum( AppendInfo.TriangleOffset * 3 );
             }
-            assert( ToAppend.m_ElementTriangles.Num() == AppendInfo.NumTriangle * 3 );
+            assert( ToAppend.m_ElementTriangles.Num() == static_cast<size_t>( AppendInfo.NumTriangle ) * 3 );
 
             const int32_t ElementIDOffset        = m_ElementsRefCounts.GetMaxIndex();
             const int32_t ElementTrianglesOffset = m_ElementTriangles.Num();
@@ -285,8 +284,8 @@ namespace Desert::Geometry
         {
             // Note: ElementRefCounts, Elements and ParentVertices remain unchanged, since the new triangles are
             // unset
-            assert( m_ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 );
-            m_ElementTriangles.Resize( 3 * ( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
+            assert( m_ElementTriangles.Num() == static_cast<size_t>( AppendInfo.TriangleOffset ) * 3 );
+            m_ElementTriangles.Resize( 3 * static_cast<size_t>( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
                                        IndexConstants::InvalidID );
         }
 
@@ -315,7 +314,7 @@ namespace Desert::Geometry
             return (int)m_ElementsRefCounts.GetMaxIndex();
         }
         /** @return true if this element index is in use */
-        [[nodiscard]] inline bool IsElement( int vID ) const
+        [[nodiscard]] bool IsElement( int vID ) const
         {
             return m_ElementsRefCounts.IsValid( vID );
         }
@@ -355,7 +354,7 @@ namespace Desert::Geometry
          *  when remeshing across existing elements to avoid them being freed while temporarily unreferenced,
          *  but then it should eventually be followed by a call to FreeUnusedElements().
          */
-        MeshResult SetTriangle( int TriangleID, const Index3i& TriElements, bool bAllowElementFreeing = true );
+        MeshResult SetTriangle( int tid, const Index3i& tv, bool bAllowElementFreeing = true );
 
         /**
          * Goes through elements and frees any whose reference counts indicate that they are not being used. This
@@ -466,7 +465,7 @@ namespace Desert::Geometry
          * creating a new array for each call.
          * @return the ID of the newly created element
          */
-        int SplitElementWithNewParent( int ElementID, int SplitParentVertexID,
+        int SplitElementWithNewParent( int ElementID, int NewParentID,
                                        const std::span<const int>& TrianglesToUpdate );
 
         /**
@@ -555,13 +554,13 @@ namespace Desert::Geometry
         }
 
         /** Get the parent vertex id for the element at a given index */
-        [[nodiscard]] inline int GetParentVertex( int ElementID ) const
+        [[nodiscard]] int GetParentVertex( int ElementID ) const
         {
             return m_ParentVertices[ElementID];
         }
 
         /** Get the element index tuple for a triangle */
-        [[nodiscard]] inline Index3i GetTriangle( int TriangleID ) const
+        [[nodiscard]] Index3i GetTriangle( int TriangleID ) const
         {
             const int i = 3 * TriangleID;
             return { m_ElementTriangles[i], m_ElementTriangles[i + 1], m_ElementTriangles[i + 2] };
@@ -604,7 +603,7 @@ namespace Desert::Geometry
         }
 
         /** @return true if triangle contains element */
-        [[nodiscard]] inline bool TriangleHasElement( int TriangleID, int ElementID ) const
+        [[nodiscard]] bool TriangleHasElement( int TriangleID, int ElementID ) const
         {
             const int i = 3 * TriangleID;
             return ( m_ElementTriangles[i] == ElementID || m_ElementTriangles[i + 1] == ElementID ||
@@ -620,7 +619,7 @@ namespace Desert::Geometry
          * triangles share one element, not two */
         [[nodiscard]] bool IsSeamEndEdge( int EdgeID ) const;
         /** Returns true if the parent-mesh vertex is connected to any seam edges */
-        [[nodiscard]] bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
+        [[nodiscard]] bool IsSeamVertex( int vid, bool bBoundaryIsSeam = true ) const;
         /** Returns true if the parent-mesh vertex is at a seam 'intersection' -- i.e., the end of a seam, or the
          * intersection w/ another seam. */
         [[nodiscard]] bool IsSeamIntersectionVertex( int32_t VertexID ) const;
@@ -637,9 +636,9 @@ namespace Desert::Geometry
         [[nodiscard]] bool AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const;
 
         /** find the elements associated with a given parent-mesh vertex */
-        void GetVertexElements( int VertexID, std::vector<int>& OutElements ) const;
+        void GetVertexElements( int vid, std::vector<int>& OutElements ) const;
         /** Count the number of unique elements for a given parent-mesh vertex */
-        [[nodiscard]] int CountVertexElements( int VertexID, bool bBruteForce = false ) const;
+        [[nodiscard]] int CountVertexElements( int vid, bool bBruteForce = false ) const;
 
         /** find the triangles connected to an element */
         void GetElementTriangles( int ElementID, std::vector<int>& OutTriangles ) const;
@@ -678,9 +677,9 @@ namespace Desert::Geometry
             int32_t       ElemIndex0 = m_ElementTriangles[TriIndex] * ElementSize;
             int32_t       ElemIndex1 = m_ElementTriangles[TriIndex + 1] * ElementSize;
             int32_t       ElemIndex2 = m_ElementTriangles[TriIndex + 2] * ElementSize;
-            const AsType  Bary0      = (AsType)BaryCoords[0];
-            const AsType  Bary1      = (AsType)BaryCoords[1];
-            const AsType  Bary2      = (AsType)BaryCoords[2];
+            const auto  Bary0      = (AsType)BaryCoords[0];
+            const auto  Bary1      = (AsType)BaryCoords[1];
+            const auto  Bary2      = (AsType)BaryCoords[2];
             for ( int32_t i = 0; i < ElementSize; ++i )
             {
                 DataOut[i] = Bary0 * (AsType)m_Elements[ElemIndex0 + i] +
@@ -708,7 +707,7 @@ namespace Desert::Geometry
         }
 
         /** Set a triangle's element indices to InvalidID */
-        void InitializeNewTriangle( int TriangleID );
+        void InitializeNewTriangle( int tid );
         /** Remove a triangle from the overlay */
         void OnRemoveTriangle( int TriangleID );
         /** Reverse the orientation of a triangle's elements */
@@ -737,7 +736,7 @@ namespace Desert::Geometry
                                  const glm::dvec3& BaryCoords );
 
         /** updates the triangles array and optionally the element reference counts */
-        void InternalSetTriangle( int TriangleID, const Index3i& TriElements, bool bUpdateRefCounts,
+        void InternalSetTriangle( int tid, const Index3i& tv, bool bUpdateRefCounts,
                                   bool bAllowElementFreeing = true );
     };
 
@@ -784,7 +783,7 @@ namespace Desert::Geometry
         /**
          * Get Element at a specific ID
          */
-        [[nodiscard]] inline VectorType GetElement( int ElementID ) const
+        [[nodiscard]] VectorType GetElement( int ElementID ) const
         {
             VectorType V;
             BaseType::GetElement( ElementID, V );
@@ -802,7 +801,7 @@ namespace Desert::Geometry
         /**
          * Get the Element value associated with a vertex of a triangle.
          */
-        [[nodiscard]] inline VectorType GetElementAtVertex( int TriangleID, int VertexID ) const
+        [[nodiscard]] VectorType GetElementAtVertex( int TriangleID, int VertexID ) const
         {
             VectorType V;
             BaseType::GetElementAtVertex( TriangleID, VertexID, V );

@@ -148,15 +148,15 @@ namespace Desert::Geometry
             Resize( Count );
         }
 
-        [[nodiscard]] inline bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return m_CurBlock == 0 && m_CurBlockUsed == 0;
         }
-        [[nodiscard]] inline size_t GetLength() const
+        [[nodiscard]] size_t GetLength() const
         {
             return m_CurBlock * BlockSize + m_CurBlockUsed;
         }
-        [[nodiscard]] inline size_t Num() const
+        [[nodiscard]] size_t Num() const
         {
             return GetLength();
         }
@@ -164,7 +164,7 @@ namespace Desert::Geometry
         {
             return BlockSize;
         }
-        [[nodiscard]] inline size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
             return static_cast<unsigned long>( static_cast<int32_t>( m_Blocks.size() ) * BlockSize ) *
                    sizeof( Type );
@@ -181,13 +181,13 @@ namespace Desert::Geometry
         inline void  InsertAt( const Type& Data, unsigned int Index, const Type& InitValue );
         inline Type& ElementAt( unsigned int Index, Type InitialValue = Type{} );
 
-        [[nodiscard]] const inline Type& Front() const
+        [[nodiscard]] const Type& Front() const
         {
             assert( m_CurBlockUsed > 0 );
             return GetElement( 0, 0 );
         }
 
-        [[nodiscard]] const inline Type& Back() const
+        [[nodiscard]] const Type& Back() const
         {
             assert( m_CurBlockUsed > 0 );
             return GetElement( m_CurBlock, m_CurBlockUsed - 1 );
@@ -446,19 +446,19 @@ namespace Desert::Geometry
         {
             m_Data.Resize( Count * N, InitValue );
         }
-        [[nodiscard]] inline bool IsEmpty() const
+        [[nodiscard]] bool IsEmpty() const
         {
             return m_Data.IsEmpty();
         }
-        [[nodiscard]] inline size_t GetLength() const
+        [[nodiscard]] size_t GetLength() const
         {
             return m_Data.GetLength() / N;
         }
-        [[nodiscard]] inline int GetBlockSize() const
+        [[nodiscard]] int GetBlockSize() const
         {
             return m_Data.GetBlockSize();
         }
-        [[nodiscard]] inline size_t GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
             return m_Data.GetByteCount();
         }
@@ -518,28 +518,28 @@ namespace Desert::Geometry
             m_Data[i + 1]        = V.y;
             m_Data[i + 2]        = V.z;
         }
-        [[nodiscard]] inline glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
+        [[nodiscard]] glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
         {
             assert( N >= 2 );
             return glm::vec<2, Type>( m_Data[TopIndex * N + 0], m_Data[TopIndex * N + 1] );
         }
-        [[nodiscard]] inline glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
+        [[nodiscard]] glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
         {
             assert( N >= 3 );
             return glm::vec<3, Type>( m_Data[TopIndex * N + 0], m_Data[TopIndex * N + 1],
                                       m_Data[TopIndex * N + 2] );
         }
-        [[nodiscard]] inline Index2i AsIndex2( unsigned int TopIndex ) const
+        [[nodiscard]] Index2i AsIndex2( unsigned int TopIndex ) const
         {
             assert( N >= 2 );
             return { (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1] };
         }
-        [[nodiscard]] inline Index3i AsIndex3( unsigned int TopIndex ) const
+        [[nodiscard]] Index3i AsIndex3( unsigned int TopIndex ) const
         {
             assert( N >= 3 );
             return { (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1], (int)m_Data[TopIndex * N + 2] };
         }
-        [[nodiscard]] inline Index4i AsIndex4( unsigned int TopIndex ) const
+        [[nodiscard]] Index4i AsIndex4( unsigned int TopIndex ) const
         {
             assert( N >= 4 );
             return { (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1], (int)m_Data[TopIndex * N + 2],

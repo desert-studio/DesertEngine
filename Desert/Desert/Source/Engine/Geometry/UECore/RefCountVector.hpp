@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "Engine/Geometry/UECore/DynamicVector.hpp"
 #include "Engine/Geometry/UECore/IteratorUtil.hpp"
 
@@ -121,7 +123,7 @@ namespace Desert::Geometry
                 }
 
                 m_RefCounts.Add( 1 );
-                return (int)m_RefCounts.GetLength() - 1;
+                return static_cast<int>(m_RefCounts.GetLength()) - 1;
         }
 
         int Increment( int Index, unsigned short IncrementCount = 1 )
@@ -369,10 +371,10 @@ namespace Desert::Geometry
             }
 
             BaseIterator( const RefCountVector* VectorIn, int IndexIn, int LastIn )
-                 : m_Vector( VectorIn ), m_Index( IndexIn )
+                 : m_Vector( VectorIn ), m_Index( IndexIn ), m_LastIndex(LastIn)
             {
 
-                m_LastIndex = LastIn;
+                
                 if ( m_Index != m_LastIndex && !m_Vector->IsValidUnsafe( m_Index ) )
                 {
                     goto_next(); // initialize
@@ -507,7 +509,7 @@ namespace Desert::Geometry
             std::function<bool( int )> m_FilterFunc;
             IndexEnumerable            m_enumerable;
             FilteredEnumerable( const IndexEnumerable& enumerable, std::function<bool( int )> FilterFuncIn )
-                 : m_FilterFunc( FilterFuncIn ), m_enumerable( enumerable )
+                 : m_FilterFunc( std::move(FilterFuncIn) ), m_enumerable( enumerable )
             {
             }
 

@@ -94,8 +94,6 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
     DynamicMesh3::LocalBoolArray GroupIsLoop;
     for ( const int VertexID : m_ParentMesh->VertexIndicesItr() )
     {
-
-        const bool bActiveSubGroupBroken = false;
         m_ParentMesh->GetVtxContiguousTriangles( VertexID, TriangleIDs, TriangleContigGroupLens, GroupIsLoop );
         int GroupStart = 0;
         for ( int GroupIdx = 0; GroupIdx < static_cast<int32_t>( TriangleContigGroupLens.size() ); GroupIdx++ )
@@ -112,8 +110,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
             TrisActiveSubGroup.clear();
             AppendedElements.clear();
             TrisActiveSubGroup.resize( GroupNum );
-            int CurrentGroupID        = 0;
-            int CurrentGroupRefSubIdx = 0;
+            int CurrentGroupID = 0;
             for ( int TriSubIdx = 0; TriSubIdx + 1 < GroupNum; TriSubIdx++ )
             {
                 const int  TriIDA    = TriangleIDs[GroupStart + TriSubIdx];
@@ -122,7 +119,6 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
                 if ( !bCanShare )
                 {
                     CurrentGroupID++;
-                    CurrentGroupRefSubIdx = TriSubIdx + 1;
                 }
 
                 TrisActiveSubGroup[TriSubIdx + 1] = CurrentGroupID;
@@ -137,7 +133,6 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
                 {
                     const int EndGroupID   = TrisActiveSubGroup[GroupNum - 1];
                     const int StartGroupID = TrisActiveSubGroup[0];
-                    const int TriID0       = TriangleIDs[GroupStart];
 
                     for ( int Idx = GroupNum - 1; Idx >= 0 && TrisActiveSubGroup[Idx] == EndGroupID; Idx-- )
                     {
@@ -622,7 +617,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, co
                                                                      bool bUpdateRefCounts,
                                                                      bool bAllowElementFreeing )
 {
-    if ( !Common::EnsureOrWarn( m_ParentMesh, "ParentMesh" ) )
+    if ( !Common::EnsureOrWarn( m_ParentMesh != nullptr, "ParentMesh" ) )
     {
         return;
     }
@@ -727,11 +722,11 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsNo
     }
 
     const Index2i ev     = m_ParentMesh->GetEdgeV( eid );
-    int           base_a = ev.A;
-    int           base_b = ev.B;
+    const int base_a = ev.A;
+    const int base_b = ev.B;
 
-    bool bASet = IsSetTriangle( et.A );
-    bool bBSet = IsSetTriangle( et.B );
+    const bool bASet = IsSetTriangle( et.A );
+    const bool bBSet = IsSetTriangle( et.B );
     if ( !bASet || !bBSet ) // if either triangle is unset, need different logic for checking if this is a seam
     {
         return ( bASet || bBSet ); // consider it a seam if only one is unset
@@ -811,11 +806,11 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
     }
 
     const Index2i ev     = m_ParentMesh->GetEdgeV( eid );
-    int           base_a = ev.A;
-    int           base_b = ev.B;
+    const int base_a = ev.A;
+    const int base_b = ev.B;
 
-    bool bASet = IsSetTriangle( et.A );
-    bool bBSet = IsSetTriangle( et.B );
+    const bool bASet = IsSetTriangle( et.A );
+    const bool bBSet = IsSetTriangle( et.B );
     if ( !bASet || !bBSet )
     {
         return false;
@@ -862,8 +857,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
         const Index2i et = m_ParentMesh->GetEdgeT( eid );
         if ( et.B != DynamicMesh3::InvalidID )
         {
-            bool bASet = IsSetTriangle( et.A );
-            bool bBSet = IsSetTriangle( et.B );
+            const bool bASet = IsSetTriangle( et.A );
+            const bool bBSet = IsSetTriangle( et.B );
             if ( bASet != bBSet )
             {
                 // seam between triangles with elements and triangles without
@@ -875,8 +870,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
                 continue;
             }
             const Index2i ev     = m_ParentMesh->GetEdgeV( eid );
-            int           base_a = ev.A;
-            int           base_b = ev.B;
+            const int base_a = ev.A;
+            const int base_b = ev.B;
 
             Index3i       Triangle0 = GetTriangle( et.A );
             const Index3i BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
@@ -1043,7 +1038,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Verte
             SubGroupElementIDs.pop_back();
         }
 
-        for ( int ElementID : SubGroupElementIDs )
+        for ( const int ElementID : SubGroupElementIDs )
         {
             if ( ElementID < 0 )
             {
@@ -1263,8 +1258,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const DynamicMesh3:
     const int base_b  = splitInfo.OriginalVertices.B;
 
     // special handling if either triangle is unset
-    bool bT0Set = IsSetTriangle( orig_t0 );
-    bool bT1Set = orig_t1 >= 0 && IsSetTriangle( orig_t1 );
+    const bool bT0Set = IsSetTriangle( orig_t0 );
+    const bool bT1Set = orig_t1 >= 0 && IsSetTriangle( orig_t1 );
     // insert invalid triangle as needed
     if ( !bT0Set )
     {
@@ -1359,8 +1354,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
 {
     const int     orig_t0 = FlipInfo.Triangles.A;
     const int     orig_t1 = FlipInfo.Triangles.B;
-    bool          bT0Set  = IsSetTriangle( orig_t0 );
-    bool          bT1Set  = IsSetTriangle( orig_t1 );
+    const bool bT0Set  = IsSetTriangle( orig_t0 );
+    const bool bT1Set  = IsSetTriangle( orig_t1 );
     int32_t const NumSet = static_cast<int32_t>( bT0Set ) + static_cast<int32_t>( bT1Set );
     if ( NumSet == 0 )
     {
@@ -1459,14 +1454,13 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
 
     const int tid_removed0 = collapseInfo.RemovedTris.A;
     const int tid_removed1 = collapseInfo.RemovedTris.B;
-    bool      bT0Set       = IsSetTriangle( tid_removed0 );
-    bool      bT1Set       = tid_removed1 >= 0 && IsSetTriangle( tid_removed1 );
+    const bool bT0Set       = IsSetTriangle( tid_removed0 );
+    const bool bT1Set       = tid_removed1 >= 0 && IsSetTriangle( tid_removed1 );
 
     const int vid_base_kept    = collapseInfo.KeptVertex;
     const int vid_base_removed = collapseInfo.RemovedVertex;
 
-    bool bIsSeam    = false;
-    bool bIsSeamEnd = false;
+    bool bIsSeam = false;
 
     // look up triangle 0
     Index3i Triangle0( -1, -1, -1 );
@@ -1506,21 +1500,11 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
             // is this a seam?
             bIsSeam =
                  !IndexUtil::SamePairUnordered( el_kept_tri0, el_removed_tri0, el_kept_tri1, el_removed_tri1 );
-
-            if ( bIsSeam )
-            {
-                // is only one of elements split?
-                if ( ( el_kept_tri0 == el_kept_tri1 || el_kept_tri0 == el_removed_tri1 ) ||
-                     ( el_removed_tri0 == el_kept_tri1 || el_removed_tri0 == el_removed_tri1 ) )
-                {
-                    bIsSeamEnd = true;
-                }
-            }
         }
     }
 
-    // this should be protected against by calling code.
-    // UE_CHECK_SLOW(!bIsSeamEnd);
+    // A seam END (only one of the two elements split) must not reach here: the calling code protects against it,
+    // and UE checks it only in slow-check builds, so it is not re-tested here.
 
     // need to find the elementid for the "kept" and "removed" vertices that are connected by the edges of T0 and
     // T1. If this edge is :
