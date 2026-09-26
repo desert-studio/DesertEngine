@@ -91,7 +91,12 @@ status=0
 checkBinary() {
     local bin="$1" gameDir="$2"
     local listing deps refused="" missing="" count flag
-    listing="$("$dumpbin" /nologo /dependents "$bin" | tr -d '\r')"
+    # `-nologo -dependents` AND NOT `/nologo /dependents`. This is a bash script, so on Windows it runs
+    # under MSYS (Git Bash, and `shell: bash` on a GitHub windows runner), which rewrites any argument
+    # that looks like a POSIX path: `/nologo` was handed to dumpbin as `C:\Program Files\Git\nologo`, so
+    # it dumped the Git installation instead of the binary and exited 157 with no output on either
+    # stream — a check that printed nothing and failed. Every MSVC tool takes `-` for `/`.
+    listing="$("$dumpbin" -nologo -dependents "$bin" | tr -d '\r')"
     deps="$(printf '%s\n' "$listing" | parseDependents | sort -u -f)"
     if [ -z "$deps" ]; then
         echo "CheckWindowsDlls: '$bin' — parsed ZERO imported DLLs; the dumpbin output was not understood:" >&2

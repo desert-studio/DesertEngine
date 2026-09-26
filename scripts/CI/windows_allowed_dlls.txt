@@ -15,15 +15,29 @@
 #
 # Format: NAME [app-local]  # reason. NAME is case-insensitive and may be a glob (`*`). A new entry names
 # the code that imports it; "the check went red" is not a reason.
+#
+# EVERY LINE BELOW IS A DLL A PACKAGED Runtime.exe (or a DLL shipped beside it) WAS OBSERVED TO IMPORT,
+# read with dumpbin from the packages built on 2026-09-26 in both shipped configurations. The list
+# started out longer and carried guesses -- MSVCP140_1, MSVCP140_2, MSVCP140_ATOMIC_WAIT,
+# MSVCP140_CODECVT_IDS and CONCRT140 were listed `app-local`, which asserts "the package carries this
+# file", and GamePackager ships none of them: it copies what the import table names, which is three
+# DLLs. dwmapi, DbgHelp and PSAPI were listed as system imports and are not imported either (GLFW
+# reaches dwmapi through LoadLibrary, which leaves no import to read). Entries for imports that do not
+# exist are not free: they pre-approve a DLL nobody has checked the licensing or the provenance of.
+#
+# WHEN THE CHECK REFUSES A NAME THAT IS NOT HERE, that is the mechanism working. Find what imports it,
+# add ONE line with that reason, and -- if it is app-local -- confirm GamePackager copies it, because
+# the check also fails an app-local DLL that is allowed but missing from the package.
+#
+# The two configurations do not import the same set, which is why both are read: Release imports
+# WS2_32 (Optick's capture server) and Shipping does not, the development instruments being compiled
+# out there.
 
 KERNEL32.dll   # the Win32 base; every executable imports it (and the CRT sits on it)
 USER32.dll     # GLFW's win32 backend: windows, messages, input (ThirdParty/GLFW/src/win32_*.c)
 GDI32.dll      # GLFW's win32 backend: pixel formats, device contexts
 SHELL32.dll    # GLFW's win32 backend: DragAcceptFiles / DragQueryFileW for file drops
-dwmapi.dll     # GLFW links Dwmapi.lib (BuildScripts/ThirdParty/GLFW.lua): composition / transparency
 WS2_32.dll     # Optick's capture server socket (#pragma comment(lib, "ws2_32.lib") in optick_server.cpp)
-DbgHelp.dll    # Optick's symbol resolver (#pragma comment(lib, "DbgHelp.Lib") in optick_core.win.h)
-PSAPI.DLL      # process memory readout (#pragma comment(lib, "psapi.lib") in Common/Utilities/ProcessMemory.cpp)
 vulkan-1.dll   # the Vulkan loader: installed by every Vulkan-capable GPU driver, never shipped by a game
 
 # The Universal CRT: an OS component since Windows 10 (System32); /MD code imports it through these apisets.
@@ -33,8 +47,3 @@ api-ms-win-crt-*.dll   # UCRT apisets, part of Windows 10+ (the /MD CRT's C half
 VCRUNTIME140.dll            app-local  # shipped app-local by GamePackager (PK-W1): every /MD image
 VCRUNTIME140_1.dll          app-local  # shipped app-local by GamePackager (PK-W1): x64 C++ exception handling (__CxxFrameHandler4)
 MSVCP140.dll                app-local  # shipped app-local by GamePackager (PK-W1): the C++ standard library
-MSVCP140_1.dll              app-local  # shipped app-local by GamePackager (PK-W1): <memory_resource>
-MSVCP140_2.dll              app-local  # shipped app-local by GamePackager (PK-W1): C++17 special maths
-MSVCP140_ATOMIC_WAIT.dll    app-local  # shipped app-local by GamePackager (PK-W1): C++20 atomic wait / <stop_token> / <semaphore>
-MSVCP140_CODECVT_IDS.dll    app-local  # shipped app-local by GamePackager (PK-W1): <codecvt> facet ids
-CONCRT140.dll               app-local  # shipped app-local by GamePackager (PK-W1): Concurrency Runtime (only if <ppl.h>/<concrt.h> is reached)
