@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -67,5 +68,50 @@ namespace Desert::Assets
                  static_cast<uint64_t>( created->GetMetadata().Handle ), guid );
 
         return Common::MakeSuccess( std::move( created ) );
+    }
+
+    // The registry row of `kind` whose header states @p guid, created as an (unread) asset when the
+    // manager does not hold it yet. What a reference by GUID resolves through: the row, not the set of
+    // assets somebody happened to create first.
+    template <typename AssetType>
+    Asset<AssetType> CreateFromRegistryGuid( AssetManager& manager, const Common::Content::AssetGuid& guid,
+                                             const Common::Content::ContentKind kind )
+    {
+        for ( const auto& row : ContentRegistry::Rows( kind ) )
+        {
+            if ( row.Guid && *row.Guid == guid )
+                return manager.CreateAsset<AssetType>( AssetPriority::Medium, row.Path, /*loadAfterCreate=*/false );
+        }
+        return nullptr;
+    }
+
+    // Plan 2.4(b)/(c): a caller that must have @p asset read before it returns (opening a scene, an
+    // editor the user is waiting on). It still goes through the loader - `Request` + `FlushOne` - so
+    // SyncLoadLedger sees the read, and a read a worker already started is waited for, not repeated.
+    // Dependencies are resolved against @p manager once the body is in.
+    template <typename AssetType>
+    Common::BoolResultStr LoadThroughLoader( AssetManager& manager, const Asset<AssetType>& asset )
+    {
+        if ( !asset )
+            return Common::MakeError<bool>( "no asset to load" );
+        if ( asset->IsReadyForUse() )
+            return BOOLSUCCESS;
+
+        std::string failure = "the loader delivered nothing";
+        bool        loaded  = false;
+        LoadRequest request = AsyncAssetLoader::Get().Request(
+             asset,
+             [&]( const Asset<AssetBase>&, const LoadOutcome outcome, const std::string& error )
+             {
+                 loaded  = outcome == LoadOutcome::Loaded;
+                 failure = error;
+             },
+             [&] { failure = "the request was cancelled"; } );
+        AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle );
+        if ( !loaded || !asset->IsReadyForUse() )
+            return Common::MakeFormattedError<bool>( "'{}' could not be read: {}",
+                                                     asset->GetMetadata().Filepath.string(), failure );
+        asset->ResolveDependencies( manager );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Assets

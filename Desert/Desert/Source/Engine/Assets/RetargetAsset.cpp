@@ -1,4 +1,5 @@
 #include <Engine/Assets/RetargetAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -93,6 +94,10 @@ namespace Desert::Assets
         auto       skeleton = guid ? manager.FindByHandle<SkeletonAsset>( Common::AssetHandle(
                                     static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) )
                                    : Asset<SkeletonAsset>{};
+        // Not created yet is not "not in the project": the rig is resolved through its registry row by GUID.
+        if ( !skeleton && guid )
+            skeleton = CreateFromRegistryGuid<SkeletonAsset>( manager, guid.GetValue(),
+                                                              Common::Content::ContentKind::Skeleton );
         if ( !skeleton )
         {
             // NOT a silent fall-through to "no retarget": the file names a rig, the rig is not there, and

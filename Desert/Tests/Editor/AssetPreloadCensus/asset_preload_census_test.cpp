@@ -570,3 +570,41 @@ TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
         }
     }
 }
+
+
+TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStageButSkeletonsStillDo )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+
+    constexpr const char* kRemovedStages[] = { "PreloadControlRigs", "PreloadAnimGraphs", "PreloadRetargets" };
+
+    const std::vector<std::string> declared = DeclaredPreloads( ReadFile( root + kPreloaderHeader ) );
+    ASSERT_FALSE( declared.empty() );
+
+    std::vector<std::string> files = { kPreloaderHeader, kPreloaderSource };
+    for ( const char* layer : kLayers )
+        files.emplace_back( layer );
+
+    for ( const char* stage : kRemovedStages )
+    {
+        EXPECT_EQ( std::count( declared.begin(), declared.end(), std::string( stage ) ), 0 )
+             << kPreloaderHeader << " declares AssetPreloader::" << stage
+             << " again; rigs, graphs and retargets are created from their registry row when named (AL1-6).";
+        for ( const std::string& file : files )
+        {
+            const std::string source = WithoutComments( ReadFile( root + file ) );
+            ASSERT_FALSE( source.empty() ) << "could not read " << file;
+            EXPECT_EQ( source.find( std::string( stage ) + "(" ), std::string::npos )
+                 << file << " names " << stage << "(); that kind has no boot stage since AL1-6.";
+        }
+    }
+
+    // THE ONE ANIMATION KIND STILL CREATED AT BOOT, deliberately: a skinned mesh binds its skeleton by
+    // scanning every created SkeletonAsset for its signature (SkinnedMeshAsset::ResolveDependencies), so
+    // skeletons go on demand only with the meshes (AL1-5). When that lands this pin is expected to flip.
+    const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
+    EXPECT_NE( preloader.find( "ProcessAssetKind<SkeletonAsset>" ), std::string::npos )
+         << "skeletons stopped being created at boot while skinned meshes still bind theirs among the "
+            "created ones; every skinned character would lose its rig";
+}
