@@ -206,9 +206,9 @@ void DynamicMeshAttributeSet::Append( const DynamicMeshAttributeSet&  ToAppend,
     }
     for ( const auto& AttribPair : GenericAttributes )
     {
-        const std::unique_ptr<FDynamicMeshAttributeBase>* AppendAttr =
+        const std::unique_ptr<DynamicMeshAttributeBase>* AppendAttr =
              FindValue( ToAppend.GenericAttributes, AttribPair.first );
-        FDynamicMeshAttributeBase& Target = *AttribPair.second;
+        DynamicMeshAttributeBase& Target = *AttribPair.second;
         if ( AppendAttr && *AppendAttr )
         {
             Target.Append( **AppendAttr, AppendInfo );
@@ -270,7 +270,7 @@ void DynamicMeshAttributeSet::CompactInPlace( const DynamicMeshCompactMaps& Comp
     {
         PolygroupLayers[GroupIdx]->CompactInPlace( CompactMaps );
     }
-    for ( FDynamicMeshAttributeBase* RegAttrib : RegisteredAttributes )
+    for ( DynamicMeshAttributeBase* RegAttrib : RegisteredAttributes )
     {
         RegAttrib->CompactInPlace( CompactMaps );
     }
@@ -415,7 +415,7 @@ void DynamicMeshAttributeSet::SetNumUVLayers( int Num )
     SetNumLayers( UVLayers, Num,
                   [this]()
                   {
-                      auto NewUVLayer = std::make_unique<FDynamicMeshUVOverlay>( ParentMesh );
+                      auto NewUVLayer = std::make_unique<DynamicMeshUVOverlay>( ParentMesh );
                       NewUVLayer->InitializeTriangles( ParentMesh->MaxTriangleID() );
                       return NewUVLayer;
                   } );
@@ -436,7 +436,7 @@ void DynamicMeshAttributeSet::SetNumNormalLayers( int Num )
     SetNumLayers( NormalLayers, Num,
                   [this]()
                   {
-                      auto NewNormalLayer = std::make_unique<FDynamicMeshNormalOverlay>( ParentMesh );
+                      auto NewNormalLayer = std::make_unique<DynamicMeshNormalOverlay>( ParentMesh );
                       NewNormalLayer->InitializeTriangles( ParentMesh->MaxTriangleID() );
                       return NewNormalLayer;
                   } );
@@ -446,7 +446,7 @@ void DynamicMeshAttributeSet::EnablePrimaryColors()
 {
     if ( HasPrimaryColors() == false )
     {
-        ColorLayer = std::make_unique<FDynamicMeshColorOverlay>( ParentMesh );
+        ColorLayer = std::make_unique<DynamicMeshColorOverlay>( ParentMesh );
         ColorLayer->InitializeTriangles( ParentMesh->MaxTriangleID() );
     }
 }
@@ -623,17 +623,17 @@ bool DynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
 
 void DynamicMeshAttributeSet::OnNewVertex( int VertexID, bool bInserted )
 {
-    FDynamicMeshAttributeSetBase::OnNewVertex( VertexID, bInserted );
+    DynamicMeshAttributeSetBase::OnNewVertex( VertexID, bInserted );
 }
 
 void DynamicMeshAttributeSet::OnRemoveVertex( int VertexID )
 {
-    FDynamicMeshAttributeSetBase::OnRemoveVertex( VertexID );
+    DynamicMeshAttributeSetBase::OnRemoveVertex( VertexID );
 }
 
 void DynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
 {
-    FDynamicMeshAttributeSetBase::OnNewTriangle( TriangleID, bInserted );
+    DynamicMeshAttributeSetBase::OnNewTriangle( TriangleID, bInserted );
 
     for ( const auto& UVLayer : UVLayers )
     {
@@ -661,7 +661,7 @@ void DynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
 
 void DynamicMeshAttributeSet::OnRemoveTriangle( int TriangleID )
 {
-    FDynamicMeshAttributeSetBase::OnRemoveTriangle( TriangleID );
+    DynamicMeshAttributeSetBase::OnRemoveTriangle( TriangleID );
 
     for ( const auto& UVLayer : UVLayers )
     {
@@ -680,7 +680,7 @@ void DynamicMeshAttributeSet::OnRemoveTriangle( int TriangleID )
 
 void DynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
 {
-    FDynamicMeshAttributeSetBase::OnReverseTriOrientation( TriangleID );
+    DynamicMeshAttributeSetBase::OnReverseTriOrientation( TriangleID );
 
     for ( const auto& UVLayer : UVLayers )
     {
@@ -699,7 +699,7 @@ void DynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
 // The eight topology handlers below share one shape in UE: the registered (generic) attributes first, then every
 // overlay, then the per-triangle attributes.
 #define DESERT_ATTRIBUTE_SET_FORWARD( Handler, ... )                                                              \
-    FDynamicMeshAttributeSetBase::Handler( __VA_ARGS__ );                                                         \
+    DynamicMeshAttributeSetBase::Handler( __VA_ARGS__ );                                                          \
     for ( const auto& UVLayer : UVLayers )                                                                        \
     {                                                                                                             \
         UVLayer->Handler( __VA_ARGS__ );                                                                          \
@@ -789,7 +789,7 @@ size_t DynamicMeshAttributeSet::GetByteCount() const
 
 bool DynamicMeshAttributeSet::CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
 {
-    bool bValid = FDynamicMeshAttributeSetBase::CheckValidity( bAllowNonmanifold, FailMode );
+    bool bValid = DynamicMeshAttributeSetBase::CheckValidity( bAllowNonmanifold, FailMode );
     for ( int UVLayerIndex = 0; UVLayerIndex < NumUVLayers(); UVLayerIndex++ )
     {
         bValid = GetUVLayer( UVLayerIndex )->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;

@@ -110,7 +110,7 @@ namespace
     {
         DynamicMesh3 mesh = Strip();
         mesh.EnableAttributes();
-        FDynamicMeshUVOverlay* uv = mesh.Attributes()->GetUVLayer( 0 );
+        DynamicMeshUVOverlay*  uv = mesh.Attributes()->GetUVLayer( 0 );
         std::vector<int>       shared;
         for ( int v = 0; v < 14; ++v )
         {
@@ -138,7 +138,7 @@ namespace
 TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcrossASeam )
 {
     DynamicMesh3                 mesh = StripWithUVs( true );
-    const FDynamicMeshUVOverlay& uv   = *mesh.Attributes()->GetUVLayer( 0 );
+    const DynamicMeshUVOverlay&  uv   = *mesh.Attributes()->GetUVLayer( 0 );
     MeshRegionBoundaryLoops      loops( &mesh, { 2, 3 } );
     ASSERT_FALSE( loops.bFailed ) << loops.FailureReason;
     ASSERT_EQ( static_cast<int32_t>( loops.Loops.size() ), 1 );
@@ -168,7 +168,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
 TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheElement )
 {
     DynamicMesh3                 mesh = StripWithUVs( false );
-    const FDynamicMeshUVOverlay& uv   = *mesh.Attributes()->GetUVLayer( 0 );
+    const DynamicMeshUVOverlay&  uv   = *mesh.Attributes()->GetUVLayer( 0 );
     MeshRegionBoundaryLoops      loops( &mesh, { 2, 3 } );
     ASSERT_EQ( static_cast<int32_t>( loops.Loops.size() ), 1 );
     MeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;

@@ -64,7 +64,7 @@ namespace
         double MinAreaRatio   = 1e30; // UV area / 3D area, normalized by the mean ratio
     };
 
-    FStats Measure( const DynamicMesh3& mesh, const FDynamicMeshUVOverlay& uvs )
+    FStats Measure( const DynamicMesh3& mesh, const DynamicMeshUVOverlay& uvs )
     {
         FStats              s;
         int                 count    = 0;
@@ -116,7 +116,7 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
     for ( const bool preserveIrregularity : { false, true } )
     {
         DynamicMesh3           mesh = Grid( 0.0 );
-        FDynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
+        DynamicMeshUVOverlay&  uvs  = *mesh.Attributes()->PrimaryUV();
         DynamicMeshUVEditor    editor( &mesh, &uvs );
         UVEditResult           result;
         ASSERT_TRUE( editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), false,
@@ -135,7 +135,7 @@ TEST( SpectralConformalUV, SphericalCapInPlaceKeepsOrientationAndAngles )
 {
     // the bevel's call: existing UV topology, irregularity preserved
     DynamicMesh3           mesh = Grid( 120.0 );
-    FDynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
+    DynamicMeshUVOverlay&  uvs  = *mesh.Attributes()->PrimaryUV();
     DynamicMeshUVEditor    editor( &mesh, &uvs );
     ASSERT_TRUE( editor.SetTriangleUVsFromExpMap( AllTriangles( mesh ) ) );
     const int     elementsBefore = uvs.ElementCount();

@@ -85,23 +85,23 @@ namespace Desert::Geometry
                                  } );
         }
 
-        glm::vec3 Element3( const FDynamicMeshNormalOverlay& overlay, int e )
+        glm::vec3 Element3( const DynamicMeshNormalOverlay& overlay, int e )
         {
             glm::vec3 v{};
-            static_cast<const FDynamicMeshNormalOverlay::BaseType&>( overlay ).GetElement( e, &v.x );
+            static_cast<const DynamicMeshNormalOverlay::BaseType&>( overlay ).GetElement( e, &v.x );
             return v;
         }
 
         // The handedness of each tangent element, recovered as UE's VectorUtil::BinormalSign.
         std::vector<float> TangentSigns( const DynamicMesh3& mesh, const DynamicMeshAttributeSet& attributes )
         {
-            const FDynamicMeshNormalOverlay& tangents = *attributes.PrimaryTangents();
+            const DynamicMeshNormalOverlay&  tangents = *attributes.PrimaryTangents();
             std::vector<float>               sign( static_cast<size_t>( tangents.MaxElementID() ), 1.0f );
             std::vector<bool>                decided( sign.size(), false );
             if ( !attributes.HasTangentSpace() )
                 return sign;
-            const FDynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
-            const FDynamicMeshNormalOverlay& bitangents = *attributes.PrimaryBiTangents();
+            const DynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
+            const DynamicMeshNormalOverlay& bitangents = *attributes.PrimaryBiTangents();
             for ( const int t : mesh.TriangleIndicesItr() )
             {
                 if ( !tangents.IsSetTriangle( t ) || !normals.IsSetTriangle( t ) ||
@@ -213,9 +213,9 @@ namespace Desert::Geometry
                                      sign[e] );
                 }
 
-                FDynamicMeshNormalOverlay&         normals    = *attributes.PrimaryNormals();
-                FDynamicMeshNormalOverlay&         tangents   = *attributes.PrimaryTangents();
-                FDynamicMeshNormalOverlay&         bitangents = *attributes.PrimaryBiTangents();
+                DynamicMeshNormalOverlay&          normals    = *attributes.PrimaryNormals();
+                DynamicMeshNormalOverlay&          tangents   = *attributes.PrimaryTangents();
+                DynamicMeshNormalOverlay&          bitangents = *attributes.PrimaryBiTangents();
                 std::map<std::pair<int, int>, int> pairs; // (saved tangent, saved normal) -> bitangent element
                 std::vector<bool>                  framed( tangentIds.size(), false );
                 const std::vector<int>&            normalRows = Saved.Normals->Triangles;
@@ -298,7 +298,7 @@ namespace Desert::Geometry
             out.Normals = WritePlain<3>( mesh, *attributes->PrimaryNormals() );
         if ( attributes->NumNormalLayers() >= 2 )
         {
-            const FDynamicMeshNormalOverlay& tangents = *attributes->PrimaryTangents();
+            const DynamicMeshNormalOverlay&  tangents = *attributes->PrimaryTangents();
             const std::vector<float>         sign     = TangentSigns( mesh, *attributes );
             out.Tangents                              = WriteOverlay( mesh, tangents,
                                                                       [&]( int e, std::vector<float>& values )

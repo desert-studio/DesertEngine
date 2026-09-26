@@ -27,13 +27,13 @@ namespace Desert::Geometry
         /** Weld split elements across the entire mesh. */
         void WeldSplitElements( DynamicMesh3& ParentMesh );
 
-        static void WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& UVOverlay,
+        static void WeldSplitUVs( const int32_t ParentVID, DynamicMeshUVOverlay& UVOverlay,
                                   float UVDistSqrdThreshold );
         /** Compares orientation only, not length; vectors too short to normalize weld together when
          *  bMergeZeroVectors. */
-        static void WeldSplitUnitVectors( const int32_t ParentVID, FDynamicMeshNormalOverlay& NormalOverlay,
+        static void WeldSplitUnitVectors( const int32_t ParentVID, DynamicMeshNormalOverlay& NormalOverlay,
                                           float DotThreshold, bool bMergeZeroVectors = true );
-        static void WeldSplitColors( const int32_t ParentVID, FDynamicMeshColorOverlay& ColorOverlay,
+        static void WeldSplitColors( const int32_t ParentVID, DynamicMeshColorOverlay& ColorOverlay,
                                      float ColorDistSqrdThreshold );
     };
 } // namespace Desert::Geometry

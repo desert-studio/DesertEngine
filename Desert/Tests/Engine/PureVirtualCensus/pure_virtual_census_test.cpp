@@ -311,7 +311,7 @@ namespace
     }
 
     // A base clause may name an ALIAS of the abstract base, not the base itself: the UE geometry port
-    // derives from `FDynamicMeshAttributeBase`, which is `typedef DynamicAttributeBase<DynamicMesh3>`.
+    // derives from `DynamicMeshAttributeBase`, which is `typedef DynamicAttributeBase<DynamicMesh3>`.
     // Without resolving the alias the census reads that base as having no derived class at all. Returns
     // alias -> aliased class (last `::` component, template arguments dropped) for both spellings.
     std::map<std::string, std::string> TypeAliases( const std::string& code )

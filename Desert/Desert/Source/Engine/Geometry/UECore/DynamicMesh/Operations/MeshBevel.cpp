@@ -1854,7 +1854,7 @@ namespace Desert::Geometry
         if ( bMeanValuePatch )
         {
             Tess.EnableAttributes();
-            FDynamicMeshUVOverlay* UVOverlay = Tess.Attributes()->PrimaryUV();
+            DynamicMeshUVOverlay*  UVOverlay = Tess.Attributes()->PrimaryUV();
             DynamicMeshUVEditor    UVEditor( &Tess, UVOverlay );
             std::vector<int32_t>   AllTriangles;
             for ( const int32_t TriangleID : Tess.TriangleIndicesItr() )
@@ -2467,7 +2467,7 @@ namespace Desert::Geometry
     {
         if ( !Mesh.HasAttributes() || Mesh.Attributes()->NumUVLayers() == 0 )
             return;
-        FDynamicMeshUVOverlay* UVOverlay = Mesh.Attributes()->PrimaryUV();
+        DynamicMeshUVOverlay* UVOverlay = Mesh.Attributes()->PrimaryUV();
 
         auto SetUVsOnTriRegion = [this, &Mesh, UVOverlay]( const std::vector<int32_t>& Triangles )
         {
@@ -2496,7 +2496,7 @@ namespace Desert::Geometry
     {
         if ( !Mesh.HasAttributes() )
             return;
-        FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
+        DynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
 
         auto SetNormalsOnTriRegion = [NormalOverlay]( const std::vector<int32_t>& Triangles )
         {

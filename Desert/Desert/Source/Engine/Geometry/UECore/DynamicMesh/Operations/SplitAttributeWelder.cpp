@@ -69,7 +69,7 @@ namespace Desert::Geometry
             const float DotThreshold = ( i == 0 ) ? NormalVecDotThreshold : TangentVecDotThreshold;
             WeldSplitUnitVectors( ParentVID, *Attributes->GetNormalLayer( i ), DotThreshold );
         }
-        if ( FDynamicMeshColorOverlay* Overlay = Attributes->PrimaryColors() )
+        if ( DynamicMeshColorOverlay* Overlay = Attributes->PrimaryColors() )
             WeldSplitColors( ParentVID, *Overlay, ColorDistSqrdThreshold );
     }
 
@@ -79,7 +79,7 @@ namespace Desert::Geometry
             WeldSplitElements( ParentMesh, vid );
     }
 
-    void SplitAttributeWelder::WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& Overlay,
+    void SplitAttributeWelder::WeldSplitUVs( const int32_t ParentVID, DynamicMeshUVOverlay& Overlay,
                                              float UVDistSqrdThreshold )
     {
         const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
@@ -94,7 +94,7 @@ namespace Desert::Geometry
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
     }
 
-    void SplitAttributeWelder::WeldSplitUnitVectors( const int32_t ParentVID, FDynamicMeshNormalOverlay& Overlay,
+    void SplitAttributeWelder::WeldSplitUnitVectors( const int32_t ParentVID, DynamicMeshNormalOverlay& Overlay,
                                                      float DotThreshold, bool bMergeZeroVectors )
     {
         const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();
@@ -129,7 +129,7 @@ namespace Desert::Geometry
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
     }
 
-    void SplitAttributeWelder::WeldSplitColors( const int32_t ParentVID, FDynamicMeshColorOverlay& Overlay,
+    void SplitAttributeWelder::WeldSplitColors( const int32_t ParentVID, DynamicMeshColorOverlay& Overlay,
                                                 float ColorDistSqrdThreshold )
     {
         const DynamicMesh3*  ParentMesh = Overlay.GetParentMesh();

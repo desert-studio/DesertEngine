@@ -68,8 +68,8 @@ namespace Desert::Geometry
         }
 
         // Set aliases to make iterating over tangents and bitangents easier
-        FDynamicMeshNormalOverlay*       TangentOverlays[2] = { MeshToSet.Attributes()->PrimaryTangents(),
-                                                                MeshToSet.Attributes()->PrimaryBiTangents() };
+        DynamicMeshNormalOverlay*                 TangentOverlays[2] = { MeshToSet.Attributes()->PrimaryTangents(),
+                                                                         MeshToSet.Attributes()->PrimaryBiTangents() };
         const std::vector<glm::vec<3, RealType>>* TangentValues[2]   = { &Tangents, &Bitangents };
 
         for ( int Idx = 0; Idx < 2; Idx++ )
@@ -105,9 +105,8 @@ namespace Desert::Geometry
     }
 
     template <typename RealType>
-    void
-    MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const FDynamicMeshNormalOverlay* NormalOverlay,
-                                                                const FDynamicMeshUVOverlay*     UVOverlay )
+    void MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                                     const DynamicMeshUVOverlay*     UVOverlay )
     {
         const int32_t MaxTriangleID = Mesh->MaxTriangleID();
         InitializeTriVertexTangents( false );

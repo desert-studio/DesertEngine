@@ -79,8 +79,8 @@ namespace Desert::Geometry
          * plane of the corner's overlay normal. The same triangle vertex may have different tangents on
          * different triangles. Triangles unset in UVOverlay are left unwritten.
          */
-        void ComputeSeparatePerTriangleTangents( const FDynamicMeshNormalOverlay* NormalOverlay,
-                                                 const FDynamicMeshUVOverlay*     UVOverlay );
+        void ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                 const DynamicMeshUVOverlay*     UVOverlay );
 
         /**
          * Write the computed tangents and bitangents into MeshToSet's PrimaryTangents / PrimaryBiTangents

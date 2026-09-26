@@ -195,9 +195,9 @@ namespace
 
     // Reaches the protected element-triangle table of an overlay, so a test can corrupt it the way a missed
     // attribute update in an edit operator would.
-    struct OverlayAccess : FDynamicMeshNormalOverlay
+    struct OverlayAccess : DynamicMeshNormalOverlay
     {
-        static DynamicVector<int>& Triangles( FDynamicMeshNormalOverlay& overlay )
+        static DynamicVector<int>& Triangles( DynamicMeshNormalOverlay& overlay )
         {
             return overlay.*( &OverlayAccess::ElementTriangles );
         }
@@ -212,7 +212,7 @@ TEST( DynamicMesh3Render, HardCubeFromFaceGroupsIs24VerticesWithFaceNormals )
     DynamicMeshAttributeSet& attributes = *mesh.Attributes();
     attributes.SetNumUVLayers( 0 );
     attributes.DisableTangents();
-    FDynamicMeshNormalOverlay* normals = attributes.PrimaryNormals();
+    DynamicMeshNormalOverlay* normals = attributes.PrimaryNormals();
 
     // Per-vertex first: one element per vertex, so the only split left is the material one (every corner is
     // used by both submeshes, 2 x 8).
@@ -249,7 +249,7 @@ TEST( DynamicMesh3Render, SphereSmoothNormalsFollowTheRadius )
 {
     DynamicMesh3 mesh = Import( UVSphere( 100.0f, 12, 24 ) );
     ASSERT_TRUE( Valid( mesh ) );
-    FDynamicMeshNormalOverlay* normals = mesh.Attributes()->PrimaryNormals();
+    DynamicMeshNormalOverlay* normals = mesh.Attributes()->PrimaryNormals();
     // Wipe what the import carried, so the values come from MeshNormals and not from the render input.
     MeshNormals::InitializeOverlayToPerVertexNormals( normals, false );
     ASSERT_TRUE( Valid( mesh ) );
@@ -357,7 +357,7 @@ TEST( DynamicMesh3Render, CorruptedOverlayIsCaughtByCheckValidity )
     // element whose parent is another vertex.
     DynamicMesh3 mesh = Import( HardCube( 50.0f ) );
     ASSERT_TRUE( Valid( mesh ) );
-    FDynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
+    DynamicMeshNormalOverlay&  normals = *mesh.Attributes()->PrimaryNormals();
     const Index3i              tri     = normals.GetTriangle( 0 );
     ASSERT_NE( normals.GetParentVertex( tri.A ), normals.GetParentVertex( tri.B ) );
     OverlayAccess::Triangles( normals )[0] = tri.B;

@@ -56,9 +56,9 @@ namespace
         Attr->EnableMaterialID();
         Attr->SetNumPolygroupLayers( 1 );
 
-        FDynamicMeshUVOverlay*     UV = Attr->PrimaryUV();
-        FDynamicMeshNormalOverlay* Nm = Attr->PrimaryNormals();
-        FDynamicMeshColorOverlay*  Cl = Attr->PrimaryColors();
+        DynamicMeshUVOverlay*      UV = Attr->PrimaryUV();
+        DynamicMeshNormalOverlay*  Nm = Attr->PrimaryNormals();
+        DynamicMeshColorOverlay*   Cl = Attr->PrimaryColors();
         std::vector<int>           UVLeft, UVRight, NmE, ClE;
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
@@ -104,7 +104,7 @@ TEST( DynamicMesh3Attributes, FixtureIsValidAndHasItsSeam )
 {
     DynamicMesh3 Mesh = MakeAttributedPlane();
     ASSERT_TRUE( Valid( Mesh ) );
-    const FDynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
+    const DynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
     EXPECT_TRUE( UV->IsSeamEdge( Mesh.FindEdge( GridV( Seam, 1 ), GridV( Seam, 2 ) ) ) );
     EXPECT_FALSE( UV->IsSeamEdge( Mesh.FindEdge( GridV( 1, 1 ), GridV( 1, 2 ) ) ) );
     EXPECT_EQ( UV->CountVertexElements( GridV( Seam, 2 ) ), 2 );
@@ -122,7 +122,7 @@ TEST( DynamicMesh3Attributes, SplitOnTheSeamKeepsTwoElements )
     DynamicMesh3::EdgeSplitInfo Info;
     ASSERT_EQ( Mesh.SplitEdge( Eid, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
-    const FDynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
+    const DynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
     EXPECT_EQ( UV->CountVertexElements( Info.NewVertex ), 2 );
     EXPECT_EQ( Mesh.Attributes()->PrimaryNormals()->CountVertexElements( Info.NewVertex ), 1 );
     // both halves of the split edge are still seams
@@ -140,7 +140,7 @@ TEST( DynamicMesh3Attributes, SplitOffTheSeamSharesOneInterpolatedElement )
     DynamicMesh3::EdgeSplitInfo   Info;
     ASSERT_EQ( Mesh.SplitEdge( A, B, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
-    const FDynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
+    const DynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
     ASSERT_EQ( UV->CountVertexElements( Info.NewVertex ), 1 );
     glm::vec2 Mid{};
     UV->GetElementAtVertex( Info.NewTriangles.A, Info.NewVertex, Mid );
@@ -191,7 +191,7 @@ TEST( DynamicMesh3Attributes, MergeEdgesWeldsOverlaysValid )
     Mesh.Attributes()->EnableMaterialID();
     const int              T0 = Mesh.AppendTriangle( 0, 1, 2 );
     const int              T1 = Mesh.AppendTriangle( 4, 3, 5 );
-    FDynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
+    DynamicMeshUVOverlay*  UV = Mesh.Attributes()->PrimaryUV();
     for ( int Tid : { T0, T1 } )
     {
         const Index3i T = Mesh.GetTriangle( Tid );

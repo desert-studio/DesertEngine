@@ -159,7 +159,7 @@ namespace Desert::Geometry
 
         // UE ComputeAverageUVScaleRatioAlongVertexPath (PolyEditingUVUtil.cpp:55): UV length over mesh length
         // along the path's edges that have UVs; 0 when none do.
-        double UVScaleRatioAlongPath( const DynamicMesh3& Mesh, const FDynamicMeshUVOverlay& UVOverlay,
+        double UVScaleRatioAlongPath( const DynamicMesh3& Mesh, const DynamicMeshUVOverlay& UVOverlay,
                                       const std::vector<int32_t>& VertexPath, double& PathLengthOut )
         {
             double MeshLength = 0, UVLength = 0;
@@ -207,7 +207,7 @@ namespace Desert::Geometry
 
         void ComputeUVIslandForStrip( DynamicMesh3& Mesh, const Strip& Strip, double UVScaleFactor )
         {
-            FDynamicMeshUVOverlay* UVOverlay = Mesh.Attributes()->PrimaryUV();
+            DynamicMeshUVOverlay* UVOverlay = Mesh.Attributes()->PrimaryUV();
             if ( !UVOverlay )
                 return;
             for ( const Index2i& Q : Strip.Quads )

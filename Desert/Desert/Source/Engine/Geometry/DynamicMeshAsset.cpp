@@ -24,9 +24,9 @@ namespace Desert::Geometry
         void RebuildBitangentsFromSigns( DynamicMesh3& mesh, const Ser::MeshAssetData& data )
         {
             DynamicMeshAttributeSet&         attributes = *mesh.Attributes();
-            const FDynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
-            const FDynamicMeshNormalOverlay& tangents   = *attributes.PrimaryTangents();
-            FDynamicMeshNormalOverlay&       bitangents = *attributes.PrimaryBiTangents();
+            const DynamicMeshNormalOverlay&  normals    = *attributes.PrimaryNormals();
+            const DynamicMeshNormalOverlay&  tangents   = *attributes.PrimaryTangents();
+            DynamicMeshNormalOverlay&        bitangents = *attributes.PrimaryBiTangents();
             bitangents.ClearElements();
 
             // Mesh corner j of triangle k is render corner kRenderCorner[j] of file face k (the winding swap

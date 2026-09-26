@@ -331,7 +331,7 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal )
     {
-        FDynamicMeshNormalOverlay* Normals   = Mesh->Attributes()->PrimaryNormals();
+        DynamicMeshNormalOverlay*  Normals   = Mesh->Attributes()->PrimaryNormals();
         Index3i                    Triangle1 = Mesh->GetTriangle( QuadTris.A );
         Index3i                    NormalTriangle1;
         for ( int j = 0; j < 3; ++j )
@@ -352,7 +352,7 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles )
     {
-        FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
+        DynamicMeshNormalOverlay*  Normals = Mesh->Attributes()->PrimaryNormals();
         std::unordered_set<int>    TriangleSet( Triangles.begin(), Triangles.end() );
         auto TrianglePredicate = [&]( int32_t TriangleID ) { return TriangleSet.contains( TriangleID ); };
         std::unordered_map<int, int> Vertices;
@@ -381,7 +381,7 @@ namespace Desert::Geometry
                                                       const glm::dvec3& AxisY, float UVScaleFactor,
                                                       const glm::vec2& UVTranslation )
     {
-        FDynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
+        DynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
         if ( !UVs )
             return;
         std::unordered_map<int, int> VertexToElement;
@@ -423,7 +423,7 @@ namespace Desert::Geometry
         DynamicMeshAttributeSet* Attr = Mesh->Attributes();
         for ( int k = 0; k < Attr->NumNormalLayers(); ++k )
         {
-            FDynamicMeshNormalOverlay* Normals = Attr->GetNormalLayer( k );
+            DynamicMeshNormalOverlay*  Normals = Attr->GetNormalLayer( k );
             std::unordered_set<int>    Done;
             for ( int tid : Triangles )
             {
@@ -473,7 +473,7 @@ namespace Desert::Geometry
     void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal )
     {
         assert( Mesh->HasAttributes() );
-        FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
+        DynamicMeshNormalOverlay*    Normals = Mesh->Attributes()->PrimaryNormals();
         std::unordered_map<int, int> Vertices;
         for ( int Tid : Triangles )
         {
@@ -507,7 +507,7 @@ namespace Desert::Geometry
         if ( Triangles.empty() )
             return;
         assert( Mesh->HasAttributes() && Mesh->Attributes()->NumUVLayers() > 0 );
-        FDynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
+        DynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
 
         // SetFromTo(UnitZ, Normal): W = from.bisector, XYZ = from x bisector; an antiparallel Normal takes UE's
         // first W == 0 branch (|from.X| >= |from.Y| holds for UnitZ): X = -1, Y = Z = 0.

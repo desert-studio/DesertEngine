@@ -103,10 +103,10 @@ namespace Desert::Geometry
 
         // For when a triangle is replaced by multiple triangles, create a new surface point for the point's new
         // location among the smaller triangles.
-        template <typename TIterableTrisType>
+        template <typename IterableTrisType>
         MeshSurfacePoint RelocateTrianglePointAfterRefinement( const DynamicMesh3* Mesh, const glm::dvec3& Pos,
-                                                               const TIterableTrisType& TriIDs,
-                                                               double                   SnapElementThresholdSq )
+                                                               const IterableTrisType& TriIDs,
+                                                               double                  SnapElementThresholdSq )
         {
             double    BestTriDistSq = 0;
             glm::dvec3 BestBaryCoords{};

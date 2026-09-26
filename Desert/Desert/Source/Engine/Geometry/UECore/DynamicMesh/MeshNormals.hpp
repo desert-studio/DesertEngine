@@ -114,7 +114,7 @@ namespace Desert::Geometry
          * Recompute the per-element normals of the given overlay by averaging one-ring face normals
          * @warning NormalOverlay must be attached to ParentMesh or an exact copy
          */
-        void RecomputeOverlayNormals( const FDynamicMeshNormalOverlay* NormalOverlay, bool bWeightByArea = true,
+        void RecomputeOverlayNormals( const DynamicMeshNormalOverlay* NormalOverlay, bool bWeightByArea = true,
                                       bool bWeightByAngle = true )
         {
             Compute_Overlay_FaceAvg( NormalOverlay, bWeightByArea, bWeightByAngle );
@@ -132,7 +132,7 @@ namespace Desert::Geometry
          * @warning assumes that the computed normals are attribute normals
          * @param bInvert if true, normals are flipped
          */
-        void CopyToOverlay( FDynamicMeshNormalOverlay* NormalOverlay, bool bInvert = false ) const;
+        void CopyToOverlay( DynamicMeshNormalOverlay* NormalOverlay, bool bInvert = false ) const;
 
         /**
          * Compute per-vertex normals for the given Mesh
@@ -185,8 +185,8 @@ namespace Desert::Geometry
          * @param bWeightByArea weight neighbor triangles by area
          * @param bWeightByAngle weight neighbor triangles by angle
          */
-        static glm::dvec3 ComputeOverlayNormal( const DynamicMesh3&              Mesh,
-                                                const FDynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
+        static glm::dvec3 ComputeOverlayNormal( const DynamicMesh3&             Mesh,
+                                                const DynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
                                                 bool bWeightByArea = true, bool bWeightByAngle = true );
 
         /**
@@ -195,21 +195,21 @@ namespace Desert::Geometry
          * @param bUseMeshVertexNormalsIfAvailable if true and the parent mesh has per-vertex normals, use them
          * instead of calculating new ones
          */
-        static void InitializeOverlayToPerVertexNormals( FDynamicMeshNormalOverlay* NormalOverlay,
+        static void InitializeOverlayToPerVertexNormals( DynamicMeshNormalOverlay* NormalOverlay,
                                                          bool bUseMeshVertexNormalsIfAvailable = true );
 
         /**
          * Initialize the given NormalOverlay with per-face normals, ie separate overlay element for each vertex of
          * each triangle.
          */
-        static void InitializeOverlayToPerTriangleNormals( FDynamicMeshNormalOverlay* NormalOverlay );
+        static void InitializeOverlayToPerTriangleNormals( DynamicMeshNormalOverlay* NormalOverlay );
 
-        static void InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*        Mesh,
-                                                               FDynamicMeshNormalOverlay* NormalOverlay,
-                                                               double                     AngleThresholdDeg );
+        static void InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*       Mesh,
+                                                               DynamicMeshNormalOverlay* NormalOverlay,
+                                                               double                    AngleThresholdDeg );
 
-        static void InitializeOverlayTopologyFromFaceGroups( const DynamicMesh3*        Mesh,
-                                                             FDynamicMeshNormalOverlay* NormalOverlay );
+        static void InitializeOverlayTopologyFromFaceGroups( const DynamicMesh3*       Mesh,
+                                                             DynamicMeshNormalOverlay* NormalOverlay );
 
         /**
          * Initialize the given Mesh with per-face normals, ie separate overlay element for each vertex of each
@@ -222,7 +222,7 @@ namespace Desert::Geometry
          * each mesh vertex. Only the triangles included in the region are considered when calculating per-vertex
          * normals.
          */
-        static void InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormalOverlay*  NormalOverlay,
+        static void InitializeOverlayRegionToPerVertexNormals( DynamicMeshNormalOverlay*   NormalOverlay,
                                                                const std::vector<int32_t>& Triangles );
 
         /**
@@ -268,10 +268,10 @@ namespace Desert::Geometry
 
         /** Recompute the element Normals of the given attribute overlay using area-weighted averaging of one-ring
          * triangle normals */
-        void Compute_Overlay_FaceAvg_AreaWeighted( const FDynamicMeshNormalOverlay* NormalOverlay );
+        void Compute_Overlay_FaceAvg_AreaWeighted( const DynamicMeshNormalOverlay* NormalOverlay );
         /** Recompute the element Normals of the given attribute overlay using a custom combination of
          * area-weighted and angle-weighted averaging of one-ring triangle normals */
-        void Compute_Overlay_FaceAvg( const FDynamicMeshNormalOverlay* NormalOverlay, bool bWeightByArea,
+        void Compute_Overlay_FaceAvg( const DynamicMeshNormalOverlay* NormalOverlay, bool bWeightByArea,
                                       bool bWeightByAngle );
     };
 

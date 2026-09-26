@@ -205,6 +205,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef IndexMap<int> FIndexMapi;
+    typedef IndexMap<int> IndexMapi;
 
 } // namespace Desert::Geometry

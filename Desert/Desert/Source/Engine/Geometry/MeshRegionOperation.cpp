@@ -41,7 +41,7 @@ namespace Desert::Geometry
             DynamicMeshAttributeSet* attributes = mesh.Attributes();
             if ( attributes == nullptr || !attributes->HasTangentSpace() )
                 return Common::MakeSuccess( true );
-            const FDynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
+            const DynamicMeshUVOverlay* uvs = attributes->PrimaryUV();
             if ( uvs == nullptr )
                 return Common::MakeFormattedError<bool>(
                      "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );

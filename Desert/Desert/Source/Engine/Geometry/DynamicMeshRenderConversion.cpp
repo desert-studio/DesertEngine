@@ -88,11 +88,11 @@ namespace Desert::Geometry
         const DynamicMeshAttributeSet* attributes = mesh.Attributes();
         if ( attributes == nullptr || attributes->PrimaryNormals() == nullptr )
             return MakeFormattedError<RenderMeshData>( "ToRenderMesh: the mesh has no normal overlay" );
-        const FDynamicMeshNormalOverlay* normals      = attributes->PrimaryNormals();
+        const DynamicMeshNormalOverlay*  normals      = attributes->PrimaryNormals();
         const bool                       tangentSpace = attributes->HasTangentSpace();
-        const FDynamicMeshNormalOverlay* tangents     = tangentSpace ? attributes->PrimaryTangents() : nullptr;
-        const FDynamicMeshNormalOverlay* bitangents   = tangentSpace ? attributes->PrimaryBiTangents() : nullptr;
-        const FDynamicMeshUVOverlay*     uvs          = attributes->GetUVLayer( uvLayer );
+        const DynamicMeshNormalOverlay*  tangents     = tangentSpace ? attributes->PrimaryTangents() : nullptr;
+        const DynamicMeshNormalOverlay*  bitangents   = tangentSpace ? attributes->PrimaryBiTangents() : nullptr;
+        const DynamicMeshUVOverlay*      uvs          = attributes->GetUVLayer( uvLayer );
         if ( attributes->NumUVLayers() > 0 && uvs == nullptr )
             return MakeFormattedError<RenderMeshData>( "ToRenderMesh: UV layer {} requested, the mesh has {}",
                                                        uvLayer, attributes->NumUVLayers() );
@@ -220,10 +220,10 @@ namespace Desert::Geometry
         attributes.SetNumUVLayers( 1 );
         attributes.EnableTangents();
         attributes.EnableMaterialID();
-        FDynamicMeshNormalOverlay&     normals     = *attributes.PrimaryNormals();
-        FDynamicMeshNormalOverlay&     tangents    = *attributes.PrimaryTangents();
-        FDynamicMeshNormalOverlay&     bitangents  = *attributes.PrimaryBiTangents();
-        FDynamicMeshUVOverlay&         uvs         = *attributes.GetUVLayer( 0 );
+        DynamicMeshNormalOverlay&      normals     = *attributes.PrimaryNormals();
+        DynamicMeshNormalOverlay&      tangents    = *attributes.PrimaryTangents();
+        DynamicMeshNormalOverlay&      bitangents  = *attributes.PrimaryBiTangents();
+        DynamicMeshUVOverlay&          uvs         = *attributes.GetUVLayer( 0 );
         DynamicMeshMaterialAttribute&  materialIds = *attributes.GetMaterialID();
 
         PositionWelder welder( options.PositionTolerance );

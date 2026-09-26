@@ -9,7 +9,7 @@
 
 namespace Desert::Geometry
 {
-    bool ComputeArbitraryTrianglePatchUVs( DynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
+    bool ComputeArbitraryTrianglePatchUVs( DynamicMesh3& Mesh, DynamicMeshUVOverlay& UVOverlay,
                                            const std::vector<int32_t>& TriangleSet )
     {
         std::vector<int32_t> NbrTriSet;

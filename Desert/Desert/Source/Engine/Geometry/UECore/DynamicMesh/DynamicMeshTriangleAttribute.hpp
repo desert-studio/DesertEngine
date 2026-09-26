@@ -23,7 +23,7 @@ namespace Desert::Geometry
      * can be mirrored to the overlay via OnSplitEdge(), etc.
      */
     template <typename AttribValueType, int AttribDimension>
-    class DynamicMeshTriangleAttribute : public FDynamicMeshAttributeBase
+    class DynamicMeshTriangleAttribute : public DynamicMeshAttributeBase
     {
 
     protected:
@@ -33,7 +33,7 @@ namespace Desert::Geometry
         /** List of per-triangle attribute values */
         DynamicVector<AttribValueType> AttribValues;
 
-        using Super = FDynamicMeshAttributeBase;
+        using Super = DynamicMeshAttributeBase;
 
         friend class DynamicMesh3;
         friend class DynamicMeshAttributeSet;
@@ -74,7 +74,7 @@ namespace Desert::Geometry
             return ParentMesh;
         }
 
-        virtual FDynamicMeshAttributeBase* MakeNew( DynamicMesh3* ParentMeshIn ) const override
+        virtual DynamicMeshAttributeBase* MakeNew( DynamicMesh3* ParentMeshIn ) const override
         {
             DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* Matching =
                  new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
@@ -82,7 +82,7 @@ namespace Desert::Geometry
             return Matching;
         }
 
-        virtual FDynamicMeshAttributeBase* MakeCopy( DynamicMesh3* ParentMeshIn ) const override
+        virtual DynamicMeshAttributeBase* MakeCopy( DynamicMesh3* ParentMeshIn ) const override
         {
             DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* ToFill =
                  new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );
@@ -97,8 +97,8 @@ namespace Desert::Geometry
             AttribValues = Copy.AttribValues;
         }
 
-        virtual FDynamicMeshAttributeBase* MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
-                                                            DynamicMesh3* ParentMeshIn ) const override
+        virtual DynamicMeshAttributeBase* MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
+                                                           DynamicMesh3* ParentMeshIn ) const override
         {
             DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>* ToFill =
                  new DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>( ParentMeshIn );

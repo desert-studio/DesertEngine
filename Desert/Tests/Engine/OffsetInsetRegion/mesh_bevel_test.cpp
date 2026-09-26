@@ -588,7 +588,7 @@ namespace
     {
         if ( mesh.Attributes()->NumUVLayers() == 0 )
             return;
-        const FDynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
+        const DynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
         for ( const int t : bevel.NewTriangles )
         {
             if ( !uvs.IsSetTriangle( t ) )
@@ -617,7 +617,7 @@ namespace
     {
         if ( !mesh.HasAttributes() )
             return;
-        const FDynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
+        const DynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
         for ( const int t : bevel.NewTriangles )
         {
             ASSERT_TRUE( normals.IsSetTriangle( t ) ) << "new triangle " << t;
@@ -654,7 +654,7 @@ namespace
     bool ApplyKeepingOldUVs( MeshBevel& bevel, DynamicMesh3& mesh )
     {
         std::map<int, std::array<glm::vec2, 3>> before;
-        const FDynamicMeshUVOverlay*            uvs = mesh.HasAttributes() && mesh.Attributes()->NumUVLayers() > 0
+        const DynamicMeshUVOverlay*             uvs = mesh.HasAttributes() && mesh.Attributes()->NumUVLayers() > 0
                                                            ? mesh.Attributes()->PrimaryUV()
                                                            : nullptr;
         if ( uvs != nullptr )

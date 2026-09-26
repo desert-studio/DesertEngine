@@ -119,7 +119,7 @@ void MeshNormals::GetVertexNormalsFromOverlayNormals( CombineSplitNormalsMethod 
         return;
     }
 
-    const FDynamicMeshNormalOverlay* NormalOverlay = Mesh->Attributes()->PrimaryNormals();
+    const DynamicMeshNormalOverlay* NormalOverlay = Mesh->Attributes()->PrimaryNormals();
     if ( CombineSplitNormals == CombineSplitNormalsMethod::Average )
     {
         Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0 ) );
@@ -159,7 +159,7 @@ void MeshNormals::GetVertexNormalsFromOverlayNormals( CombineSplitNormalsMethod 
     }
 }
 
-void MeshNormals::CopyToOverlay( FDynamicMeshNormalOverlay* NormalOverlay, bool bInvert ) const
+void MeshNormals::CopyToOverlay( DynamicMeshNormalOverlay* NormalOverlay, bool bInvert ) const
 {
     float sign = ( bInvert ) ? -1.0f : 1.0f;
     for ( int ElemIdx : NormalOverlay->ElementIndicesItr() )
@@ -371,7 +371,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
     } // end for all triangles
 }
 
-void MeshNormals::Compute_Overlay_FaceAvg( const FDynamicMeshNormalOverlay* NormalOverlay, bool bWeightByArea,
+void MeshNormals::Compute_Overlay_FaceAvg( const DynamicMeshNormalOverlay* NormalOverlay, bool bWeightByArea,
                                            bool bWeightByAngle )
 {
     if ( ( !bWeightByAngle ) && bWeightByArea )
@@ -412,7 +412,7 @@ void MeshNormals::Compute_Overlay_FaceAvg( const FDynamicMeshNormalOverlay* Norm
     }
 }
 
-void MeshNormals::Compute_Overlay_FaceAvg_AreaWeighted( const FDynamicMeshNormalOverlay* NormalOverlay )
+void MeshNormals::Compute_Overlay_FaceAvg_AreaWeighted( const DynamicMeshNormalOverlay* NormalOverlay )
 {
     SetCount( NormalOverlay->MaxElementID(), true );
 
@@ -509,7 +509,7 @@ bool MeshNormals::QuickRecomputeOverlayNormals( DynamicMesh3& Mesh, bool bInvert
     {
         return false;
     }
-    FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
+    DynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
     if ( !bParallelCompute )
     {
         MeshNormals Normals( &Mesh );
@@ -580,7 +580,7 @@ bool MeshNormals::RecomputeOverlayTriNormals( DynamicMesh3& Mesh, const std::vec
 {
     if ( Mesh.HasAttributes() && Mesh.Attributes()->PrimaryNormals() != nullptr )
     {
-        FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
+        DynamicMeshNormalOverlay*   NormalOverlay = Mesh.Attributes()->PrimaryNormals();
         std::unordered_set<int32_t> UniqueElementIDs;
         for ( int32_t const tid : Triangles )
         {
@@ -605,7 +605,7 @@ bool MeshNormals::RecomputeOverlayElementNormals( DynamicMesh3& Mesh, const std:
 {
     if ( Mesh.HasAttributes() && Mesh.Attributes()->PrimaryNormals() != nullptr )
     {
-        FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
+        DynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
         for ( int32_t k = 0; k < static_cast<int32_t>( ElementIDs.size() ); ++k )
         {
             int32_t const ElementID = ElementIDs[k];
@@ -665,8 +665,8 @@ glm::dvec3 MeshNormals::ComputeVertexNormal( const DynamicMesh3& Mesh, int32_t V
     return Normalized( NormalSum );
 }
 
-glm::dvec3 MeshNormals::ComputeOverlayNormal( const DynamicMesh3&              Mesh,
-                                              const FDynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
+glm::dvec3 MeshNormals::ComputeOverlayNormal( const DynamicMesh3&             Mesh,
+                                              const DynamicMeshNormalOverlay* NormalOverlay, int ElemIdx,
                                               bool bWeightByArea, bool bWeightByAngle )
 {
     int       ParentVertexID = NormalOverlay->GetParentVertex( ElemIdx );
@@ -694,8 +694,8 @@ glm::dvec3 MeshNormals::ComputeOverlayNormal( const DynamicMesh3&              M
     return ( Count > 0 ) ? Normalized( SumNormal ) : glm::dvec3( 0 );
 }
 
-void MeshNormals::InitializeOverlayToPerVertexNormals( FDynamicMeshNormalOverlay* NormalOverlay,
-                                                       bool bUseMeshVertexNormalsIfAvailable )
+void MeshNormals::InitializeOverlayToPerVertexNormals( DynamicMeshNormalOverlay* NormalOverlay,
+                                                       bool                      bUseMeshVertexNormalsIfAvailable )
 {
     const DynamicMesh3*  Mesh            = NormalOverlay->GetParentMesh();
     bool                 bUseMeshNormals = bUseMeshVertexNormalsIfAvailable && Mesh->HasVertexNormals();
@@ -726,7 +726,7 @@ void MeshNormals::InitializeOverlayToPerVertexNormals( FDynamicMeshNormalOverlay
     }
 }
 
-void MeshNormals::InitializeOverlayToPerTriangleNormals( FDynamicMeshNormalOverlay* NormalOverlay )
+void MeshNormals::InitializeOverlayToPerTriangleNormals( DynamicMeshNormalOverlay* NormalOverlay )
 {
     const DynamicMesh3* Mesh = NormalOverlay->GetParentMesh();
 
@@ -742,9 +742,9 @@ void MeshNormals::InitializeOverlayToPerTriangleNormals( FDynamicMeshNormalOverl
     }
 }
 
-void MeshNormals::InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*        Mesh,
-                                                             FDynamicMeshNormalOverlay* NormalOverlay,
-                                                             double                     AngleThresholdDeg )
+void MeshNormals::InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*       Mesh,
+                                                             DynamicMeshNormalOverlay* NormalOverlay,
+                                                             double                    AngleThresholdDeg )
 {
     double NormalDotProdThreshold = std::cos( AngleThresholdDeg * ( glm::pi<double>() / double( 180 ) ) );
 
@@ -756,8 +756,8 @@ void MeshNormals::InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*
                                         0 );
 }
 
-void MeshNormals::InitializeOverlayTopologyFromFaceGroups( const DynamicMesh3*        Mesh,
-                                                           FDynamicMeshNormalOverlay* NormalOverlay )
+void MeshNormals::InitializeOverlayTopologyFromFaceGroups( const DynamicMesh3*       Mesh,
+                                                           DynamicMeshNormalOverlay* NormalOverlay )
 {
     DESERT_VERIFY_WARN( Mesh->HasTriangleGroups() );
     NormalOverlay->CreateFromPredicate( [Mesh]( int VID, int TA, int TB )
@@ -771,11 +771,11 @@ void MeshNormals::InitializeMeshToPerTriangleNormals( DynamicMesh3* Mesh )
     {
         Mesh->EnableAttributes();
     }
-    FDynamicMeshNormalOverlay* Overlay = Mesh->Attributes()->PrimaryNormals();
+    DynamicMeshNormalOverlay* Overlay = Mesh->Attributes()->PrimaryNormals();
     InitializeOverlayToPerTriangleNormals( Overlay );
 }
 
-void MeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormalOverlay*  NormalOverlay,
+void MeshNormals::InitializeOverlayRegionToPerVertexNormals( DynamicMeshNormalOverlay*   NormalOverlay,
                                                              const std::vector<int32_t>& Triangles )
 {
     const DynamicMesh3* Mesh = NormalOverlay->GetParentMesh();

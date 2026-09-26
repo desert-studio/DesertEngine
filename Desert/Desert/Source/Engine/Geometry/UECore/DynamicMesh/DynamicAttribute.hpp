@@ -177,7 +177,7 @@ namespace Desert::Geometry
         }
     };
 
-    typedef DynamicAttributeBase<DynamicMesh3> FDynamicMeshAttributeBase;
+    typedef DynamicAttributeBase<DynamicMesh3> DynamicMeshAttributeBase;
 
     /**
      * Generic base class for managing a set of registered attributes that must all be kept up to date
@@ -346,6 +346,6 @@ namespace Desert::Geometry
         }
     };
 
-    typedef DynamicAttributeSetBase<DynamicMesh3> FDynamicMeshAttributeSetBase;
+    typedef DynamicAttributeSetBase<DynamicMesh3> DynamicMeshAttributeSetBase;
 
 } // namespace Desert::Geometry
