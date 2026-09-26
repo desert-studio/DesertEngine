@@ -18,8 +18,6 @@ Desert/Tests/Engine/SceneDebugFields/scene_debug_fields_test.cpp | JS1d: test fi
 Desert/Tests/Engine/SceneForeignKeys/scene_foreign_keys_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SceneStitch/scene_stitch_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SettingConsumers/setting_consumers_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/SkeletonMapperFit/skeleton_mapper_fit_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/TwoBoneWitness/two_bone_witness_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/UIComponentRoundTrip/ui_component_round_trip_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/UIEventRouting/ui_event_routing_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
