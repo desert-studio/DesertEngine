@@ -137,6 +137,17 @@ namespace Desert::Graphic
     // place — which is why this key is what makes reusing a renderer across scenes correct.
     // @p bakedSkyFingerprint / @p currentSkyFingerprint are Graphic::SkyBakeFingerprint; see it for why
     // the sun's direction is the one thing it leaves out.
+    // WHETHER THE ENVIRONMENT BAKE WAITS FOR THIS VIEW'S CLOUDS. A panorama baked while the cloud layer's
+    // inputs are still arriving is re-baked the moment they land: on Clouds_Protocol that was three bakes
+    // at startup (sky-only 372 ms, clouds 477 ms, clouds with sky occlusion 461 ms) where one had all the
+    // answers. Only the Bake button overrides it, because that is a question the user asked now.
+    // @p cloudInputsPending is CloudEnvironmentBake::InputsPending; a layer whose resources FAILED is not
+    // pending, so it can never hold the sky back forever.
+    inline bool SkyEnvironmentBakeWaitsForClouds( bool explicitRequest, bool cloudInputsPending )
+    {
+        return !explicitRequest && cloudInputsPending;
+    }
+
     inline bool ShouldRebakeSkyEnvironment( const glm::vec3& bakedSunDir, const glm::vec3& currentSunDir,
                                             float thresholdDeg, bool autoRebake, bool hasEnvironment,
                                             bool explicitRequest, uint64_t bakedCloudFingerprint,

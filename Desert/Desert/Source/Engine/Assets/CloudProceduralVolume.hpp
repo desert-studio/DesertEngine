@@ -4,6 +4,7 @@
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
+#include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace Desert::Assets
@@ -734,6 +736,47 @@ namespace Desert::Assets
     Common::ResultStr<std::vector<unsigned char>>
     BakeCloudProceduralVolume( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
                                const CloudProceduralBakeProgressFn& onProgress );
+
+    /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
+    /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
+    inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000001ULL } };
+
+    /**
+     * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.
+     *
+     * THE SAME SET CloudProceduralParamsEqual COMPARES, AND IN THE SAME SENSE, because the two answer one
+     * question ("would the bake produce different bytes?"): the paintings by content hash, the placement
+     * only when a painting is bound, the shapes value by value (so -0 and +0 are one number). A field
+     * the comparison sees and the key does not would serve yesterday's sky from the cache.
+     */
+    std::string SerializeCloudProceduralBakeInputs( const CloudProceduralFieldParams& params,
+                                                    const glm::vec2&                  regionOriginKm );
+
+    /// The DDC key of one modelling volume; @p deriver is a parameter so a test can prove the version counts.
+    uint64_t CloudProceduralVolumeCacheKey( const CloudProceduralFieldParams& params,
+                                            const glm::vec2&                  regionOriginKm,
+                                            const Common::DDC::Deriver&       deriver = kCloudModellingDeriver );
+
+    struct CloudProceduralCachedBake
+    {
+        std::vector<unsigned char> Voxels;
+        bool                       FromCache = false;
+        uint64_t                   Key       = 0;
+        /// Why a fresh bake could not be stored (the file system's own reason), empty when it was — the
+        /// volume is still good, so the caller logs it rather than failing the sky.
+        std::string CacheWriteError;
+    };
+
+    /**
+     * @brief BakeCloudProceduralVolume behind the derived-data cache (the MeshDerivedData pattern).
+     *
+     * A hit returns the stored bytes without baking; an entry of the wrong size is an error naming its path,
+     * never a silent re-bake. A miss bakes, then Puts.
+     */
+    Common::ResultStr<CloudProceduralCachedBake>
+    BakeCloudProceduralVolumeCached( const CloudProceduralFieldParams& params, const glm::vec2& regionOriginKm,
+                                     const CloudProceduralBakeProgressFn& onProgress );
 
     /**
      * @brief The Dimensional Profile at one point, gathered over @p blobs — 0 outside the body, 1 at

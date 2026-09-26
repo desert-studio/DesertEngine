@@ -510,6 +510,11 @@ namespace Desert::Graphic::System
         // a transmittance field written for a sky that has since been switched off.
         bool m_SkyOcclusionValid = false;
 
+        // Whether a frame has reached the sky-occlusion decision with a complete field since this renderer
+        // was created. Until it has, m_SkyOcclusionValid means "not yet", not "no", and the environment
+        // bake is told to wait rather than bake a panorama the next frame would render stale.
+        bool m_SkyOcclusionDecided = false;
+
         // BORROWED, not owned: Runtime::CloudNoiseService owns every noise volume and shares one upload
         // across all views. A raw pointer says that plainly, where a shared_ptr here would suggest this
         // renderer has a say in the image's lifetime and would keep an unloaded volume alive on the device.
@@ -588,7 +593,7 @@ namespace Desert::Graphic::System
         // std::async BLOCKS until the task finishes, so simply dropping a stale bake was not available —
         // which is why the old code could only ever have one in flight. A JobSystem future wraps a
         // packaged_task and its destructor waits for nothing, so abandoning one is a move-assignment.
-        std::future<Common::ResultStr<std::vector<unsigned char>>> m_ModellingBake;
+        std::future<Common::ResultStr<Assets::CloudProceduralCachedBake>> m_ModellingBake;
 
         /// THE WHOLE CHANNEL BETWEEN A BAKE AND THE VIEW THAT WANTED IT: one flag in, one number out. Both
         /// are read by the worker at the same instant — between XZ slices, through the one progress hook —

@@ -16,6 +16,10 @@ namespace Desert::Assets
 {
     using ItemProgress = std::function<void( const std::string& item, std::size_t done, std::size_t total )>;
 
+    // Asked between items of a long call; true stops it after the item in hand (the editor's splash close
+    // button, pressed while the shader preload runs).
+    using StopRequested = std::function<bool()>;
+
     inline void ReportItem( const ItemProgress& progress, const std::string& item, const std::size_t done,
                             const std::size_t total )
     {

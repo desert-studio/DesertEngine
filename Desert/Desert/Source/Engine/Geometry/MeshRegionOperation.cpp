@@ -115,7 +115,7 @@ namespace Desert::Geometry
         // UE's MaxDim: the largest side of the bounds (Extents are half sides).
         const FVector3d extents = mesh->GetBounds().Extents();
         const double    uvScale = 1.0 / ( 2.0 * std::max( extents.X, std::max( extents.Y, extents.Z ) ) );
-        TArray<int32>   newTriangles;
+        TArray<int32_t> newTriangles;
         for ( const int index : loopIndices )
         {
             const FEdgeLoop& loop = boundary.Loops[index];
@@ -147,7 +147,7 @@ namespace Desert::Geometry
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Triangle );
-        for ( const int32 t : newTriangles )
+        for ( const int32_t t : newTriangles )
             if ( auto added = result.Add( *mesh, t ); !added.IsSuccess() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh Fill Hole: new triangle {}: {}", t,
                                                                   added.GetError() );
@@ -195,8 +195,8 @@ namespace Desert::Geometry
         params.GroupEdgeID        = groupEdge;
         params.SortedInputLengths = &proportions;
         params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
-        TSet<int32>                               newEids;
-        TSet<int32>                               problemGroupEdges;
+        TSet<int32_t>                             newEids;
+        TSet<int32_t>                             problemGroupEdges;
         FGroupEdgeInserter::FOptionalOutputParams out;
         out.NewEidsOut             = &newEids;
         out.ProblemGroupEdgeIDsOut = &problemGroupEdges;
@@ -208,7 +208,7 @@ namespace Desert::Geometry
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Edge );
-        for ( const int32 e : newEids )
+        for ( const int32_t e : newEids )
             if ( auto added = result.Add( *mesh, e ); !added.IsSuccess() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh Insert Edge Loop: new edge {}: {}", e,
                                                                   added.GetError() );
@@ -260,12 +260,12 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh {}: the {} selected {} cover no whole triangle", name, selection.Size(),
                  ToString( selection.Mode() ) );
-        TArray<int32> regionTriangles;
+        TArray<int32_t> regionTriangles;
         for ( const int t : triangles.Ids() )
             regionTriangles.Add( t );
 
         auto          mesh = std::make_shared<FDynamicMesh3>( before );
-        TArray<int32> resultTriangles;
+        TArray<int32_t> resultTriangles;
         if ( operation == RegionOperation::Extrude || operation == RegionOperation::PushPull )
         {
             FOffsetMeshRegion extruder( mesh.get() );
@@ -295,7 +295,7 @@ namespace Desert::Geometry
             if ( !extruder.Apply() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, extruder.FailureReason );
             for ( const auto& region : extruder.OffsetRegions )
-                for ( const int32 t : region.OffsetTids )
+                for ( const int32_t t : region.OffsetTids )
                     resultTriangles.Add( t );
         }
         else
@@ -306,14 +306,14 @@ namespace Desert::Geometry
             if ( !inset.Apply() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, inset.FailureReason );
             for ( const auto& region : inset.InsetRegions )
-                for ( const int32 t : region.InitialTriangles )
+                for ( const int32_t t : region.InitialTriangles )
                     resultTriangles.Add( t );
         }
         if ( auto tangents = RecomputeTangents( *mesh, name ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
         ElementSelection result( ElementMode::Triangle );
-        for ( const int32 t : resultTriangles )
+        for ( const int32_t t : resultTriangles )
             if ( auto added = result.Add( *mesh, t ); !added.IsSuccess() )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: result triangle {}: {}", name, t,
                                                                   added.GetError() );

@@ -176,12 +176,12 @@ TEST( DynamicMesh3Core, CubeAdjacency )
     for ( int VID : Mesh.VertexIndicesItr() )
     {
         std::set<int> FromEdges;
-        Mesh.EnumerateVertexEdges( VID, [&]( int32 EID ) { FromEdges.insert( EID ); } );
+        Mesh.EnumerateVertexEdges( VID, [&]( int32_t EID ) { FromEdges.insert( EID ); } );
         EXPECT_EQ( static_cast<int>( FromEdges.size() ), Mesh.GetVtxEdgeCount( VID ) );
         ValenceSum += Mesh.GetVtxEdgeCount( VID );
 
         std::set<int> Tris;
-        Mesh.EnumerateVertexTriangles( VID, [&]( int32 TID ) { Tris.insert( TID ); } );
+        Mesh.EnumerateVertexTriangles( VID, [&]( int32_t TID ) { Tris.insert( TID ); } );
         EXPECT_EQ( static_cast<int>( Tris.size() ), Mesh.GetVtxTriangleCount( VID ) );
         for ( int TID : Tris )
             EXPECT_GE( IndexUtil::FindTriIndex( VID, Mesh.GetTriangle( TID ) ), 0 );

@@ -223,18 +223,18 @@ namespace
         {
             ASSERT_EQ( e.NewMeshEdges.Num(), e.MeshEdges.Num() );
             ASSERT_EQ( e.NewMeshVertices.Num(), e.MeshVertices.Num() );
-            for ( int32 i = 0; i < e.MeshEdges.Num(); ++i )
+            for ( int32_t i = 0; i < e.MeshEdges.Num(); ++i )
             {
                 const int e0 = e.MeshEdges[i];
                 const int e1 = e.NewMeshEdges[i];
                 EXPECT_NE( e0, e1 ) << "bevel edge " << e.EdgeIndex;
                 EXPECT_TRUE( mesh.IsBoundaryEdge( e0 ) ) << e0;
                 EXPECT_TRUE( mesh.IsBoundaryEdge( e1 ) ) << e1;
-                const int32* partner = bevel.MeshEdgePairs.Find( e0 );
+                const int32_t* partner = bevel.MeshEdgePairs.Find( e0 );
                 ASSERT_NE( partner, nullptr ) << e0;
                 EXPECT_EQ( *partner, e1 );
             }
-            for ( int32 i = 0; i < e.MeshVertices.Num(); ++i )
+            for ( int32_t i = 0; i < e.MeshVertices.Num(); ++i )
             {
                 EXPECT_NE( e.MeshVertices[i], e.NewMeshVertices[i] ) << "bevel edge " << e.EdgeIndex;
                 EXPECT_EQ( mesh.GetVertex( e.MeshVertices[i] ), e.InitialPositions[i] );
@@ -247,7 +247,7 @@ namespace
     {
         for ( const auto& pair : bevel.MeshEdgePairs )
         {
-            const int32* back = bevel.MeshEdgePairs.Find( pair.second );
+            const int32_t* back = bevel.MeshEdgePairs.Find( pair.second );
             ASSERT_NE( back, nullptr ) << pair.first << " -> " << pair.second;
             EXPECT_EQ( *back, pair.first );
         }
@@ -255,7 +255,7 @@ namespace
 
     int GroupEdgeBetween( const FGroupTopology& topology, int groupA, int groupB )
     {
-        for ( int32 i = 0; i < topology.Edges.Num(); ++i )
+        for ( int32_t i = 0; i < topology.Edges.Num(); ++i )
         {
             const FIndex2i g = topology.Edges[i].Groups;
             if ( ( g.A == groupA && g.B == groupB ) || ( g.A == groupB && g.B == groupA ) )
@@ -271,7 +271,7 @@ namespace
         for ( const FMeshBevel::FOneRingWedge& w : v.Wedges )
         {
             EXPECT_GT( w.Triangles.Num(), 0 );
-            for ( const int32 t : w.Triangles )
+            for ( const int32_t t : w.Triangles )
                 EXPECT_TRUE( all.insert( t ).second ) << "triangle " << t << " is in two wedges of " << v.VertexID;
         }
         EXPECT_EQ( all, Ring( mesh, v.VertexID ) );
@@ -323,7 +323,7 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
         for ( const FMeshBevel::FOneRingWedge& w : v.Wedges )
         {
             const int g = mesh.GetTriangleGroup( w.Triangles[0] );
-            for ( const int32 t : w.Triangles )
+            for ( const int32_t t : w.Triangles )
                 EXPECT_EQ( mesh.GetTriangleGroup( t ), g ) << "a wedge between bevel edges is one face";
             wedgeGroups.insert( g );
             // each wedge is bounded by two of the vertex's incoming bevel edges
@@ -458,7 +458,7 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
         {
             ASSERT_EQ( e.MeshEdges.Num(), n ) << "bevel edge " << e.EdgeIndex;
             std::set<int> firstSides;
-            for ( const int32 me : e.MeshEdges )
+            for ( const int32_t me : e.MeshEdges )
                 firstSides.insert( mesh.GetTriangleGroup( mesh.GetEdgeT( me ).A ) );
             flippedSpans += firstSides.size() > 1 ? 1 : 0;
         }
@@ -979,7 +979,7 @@ namespace
         ASSERT_EQ( patch.NumVertexRows(), subdivisions + 2 );
         for ( int c = 0; c < patch.NumVertexCols(); ++c )
         {
-            TArray<int32> column;
+            TArray<int32_t> column;
             ASSERT_TRUE( patch.GetVertexColumn( c, column ) );
             const FVector3d a = mesh.GetVertex( column[0] );
             const FVector3d b = mesh.GetVertex( column.Last() );
@@ -991,7 +991,7 @@ namespace
         }
     }
 
-    double ChamferVolume( FDynamicMesh3 mesh, const TArray<int32>& groupEdges )
+    double ChamferVolume( FDynamicMesh3 mesh, const TArray<int32_t>& groupEdges )
     {
         const FGroupTopology topology( &mesh, true );
         FMeshBevel           bevel;
@@ -1053,9 +1053,9 @@ TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
         const FGroupTopology baseTopology( &base, true );
         struct FCase
         {
-            std::string   Name;
-            TArray<int32> GroupEdges;
-            int           TerminatorTrianglesPerSegment;
+            std::string     Name;
+            TArray<int32_t> GroupEdges;
+            int             TerminatorTrianglesPerSegment;
         };
         const std::vector<FCase> cases = {
              { "one edge", { GroupEdgeBetween( baseTopology, 1, 3 ) }, 2 },
@@ -1144,7 +1144,7 @@ TEST( MeshBevel, MultiSegmentTopFourEdgesKeepTheChamferVolume )
     {
         const FDynamicMesh3  base = TangentCube( n );
         const FGroupTopology baseTopology( &base, true );
-        TArray<int32>        groupEdges;
+        TArray<int32_t>      groupEdges;
         for ( const int side : { 1, 2, 3, 4 } )
             groupEdges.Add( GroupEdgeBetween( baseTopology, 5, side ) );
         const double chamfer = ChamferVolume( base, groupEdges );
@@ -1191,11 +1191,11 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
             if ( c.Z > 49.0 )
                 mesh.SetTriangleGroup( t, 7 + ( c.X > 0.0 ? 1 : 0 ) + ( c.Y > 0.0 ? 2 : 0 ) );
         }
-        const FGroupTopology topology( &mesh, true );
-        const TArray<int32> groupEdges = { GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
-                                           GroupEdgeBetween( topology, 10, 9 ),
-                                           GroupEdgeBetween( topology, 9, 7 ) };
-        FMeshBevelProbe     bevel;
+        const FGroupTopology  topology( &mesh, true );
+        const TArray<int32_t> groupEdges = {
+             GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
+             GroupEdgeBetween( topology, 10, 9 ), GroupEdgeBetween( topology, 9, 7 ) };
+        FMeshBevelProbe bevel;
         bevel.InsetDistance   = 5.0;
         bevel.NumSubdivisions = N;
         ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) ) << bevel.FailureReason;
@@ -1234,7 +1234,7 @@ namespace
         bool            bApplied = false;
     };
 
-    void RunRound( FRoundRun& run, const TArray<int32>& groupEdges, int subdivisions, double roundWeight )
+    void RunRound( FRoundRun& run, const TArray<int32_t>& groupEdges, int subdivisions, double roundWeight )
     {
         const FGroupTopology topology( &run.Mesh, true );
         run.Bevel.InsetDistance   = 5.0;
@@ -1274,11 +1274,11 @@ namespace
 // chamfer and the cube, and grows with the segment count.
 TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
 {
-    const FDynamicMesh3  base = TangentCube( 1 );
-    const FGroupTopology baseTopology( &base, true );
-    const TArray<int32>  groupEdges = { GroupEdgeBetween( baseTopology, 1, 3 ) };
-    const double         chamfer    = ChamferVolume( base, groupEdges );
-    double               previous   = chamfer;
+    const FDynamicMesh3   base = TangentCube( 1 );
+    const FGroupTopology  baseTopology( &base, true );
+    const TArray<int32_t> groupEdges = { GroupEdgeBetween( baseTopology, 1, 3 ) };
+    const double          chamfer    = ChamferVolume( base, groupEdges );
+    double                previous   = chamfer;
     for ( const int N : { 1, 2, 3, 5, 8 } )
     {
         SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
@@ -1294,7 +1294,7 @@ TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
         ASSERT_EQ( patch.NumVertexRows(), N + 2 );
         for ( int c = 0; c < patch.NumVertexCols(); ++c )
         {
-            TArray<int32> column;
+            TArray<int32_t> column;
             ASSERT_TRUE( patch.GetVertexColumn( c, column ) );
             const FVector3d a      = run.Mesh.GetVertex( column[0] );
             const FVector3d b      = run.Mesh.GetVertex( column.Last() );
@@ -1357,11 +1357,11 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
             else if ( c.Y > 49.0 )
                 run.Mesh.SetTriangleGroup( t, c.X > 0.0 ? 10 : 9 );
         }
-        const FGroupTopology topology( &run.Mesh, true );
-        const TArray<int32>  groupEdges = { GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 7, 9 ),
-                                            GroupEdgeBetween( topology, 8, 10 ),
-                                            GroupEdgeBetween( topology, 9, 10 ) };
-        const double         chamfer    = ChamferVolume( run.Mesh, groupEdges );
+        const FGroupTopology  topology( &run.Mesh, true );
+        const TArray<int32_t> groupEdges = {
+             GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 7, 9 ),
+             GroupEdgeBetween( topology, 8, 10 ), GroupEdgeBetween( topology, 9, 10 ) };
+        const double chamfer = ChamferVolume( run.Mesh, groupEdges );
         RunRound( run, groupEdges, N, 1.0 );
         ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
@@ -1410,7 +1410,7 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
 {
     const FDynamicMesh3  base = TangentCube( 1 );
     const FGroupTopology baseTopology( &base, true );
-    TArray<int32>        allEdges;
+    TArray<int32_t>      allEdges;
     for ( int e = 0; e < baseTopology.Edges.Num(); ++e )
         allEdges.Add( e );
     ASSERT_EQ( allEdges.Num(), 12 );
@@ -1534,7 +1534,7 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
         SCOPED_TRACE( std::to_string( n ) + "-sided pyramid" );
         const FDynamicMesh3  base = Pyramid( n );
         const FGroupTopology topology( &base, true );
-        TArray<int32>        lateral;
+        TArray<int32_t>      lateral;
         for ( int i = 0; i < n; ++i )
             lateral.Add( GroupEdgeBetween( topology, 1 + i, 1 + ( i + 1 ) % n ) );
         const double original = SignedVolume( base );
@@ -1647,7 +1647,7 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
         }
     }
     const FGroupTopology topology( &fan, true );
-    TArray<int32>        groupEdges;
+    TArray<int32_t>      groupEdges;
     for ( int s = 0; s < 5; ++s )
         groupEdges.Add( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
     FRoundRun run{ fan };

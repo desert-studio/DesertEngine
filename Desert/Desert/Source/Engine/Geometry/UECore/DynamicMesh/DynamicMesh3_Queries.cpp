@@ -1,5 +1,5 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/DynamicMesh3_Queries.cpp:1-1012,
-// adapted: UE Core via UECore.hpp; FLocalIntArray is TArray<int32> so its explicit instantiations collapse into
+// adapted: UE Core via UECore.hpp; FLocalIntArray is TArray<int32_t> so its explicit instantiations collapse into
 // the TArray ones; GetVertexFrame/GetTriFrame (FFrame3d) not ported; bounds are computed serially.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 
@@ -68,7 +68,7 @@ int FDynamicMesh3::GetAllVtxBoundaryEdges( int vID, ArrayType& EdgeListOut ) con
     return 0;
 }
 
-template int FDynamicMesh3::GetAllVtxBoundaryEdges<TArray<int32>>( int vID, TArray<int32>& EdgeListOut ) const;
+template int FDynamicMesh3::GetAllVtxBoundaryEdges<TArray<int32_t>>( int vID, TArray<int32_t>& EdgeListOut ) const;
 
 void FDynamicMesh3::GetVtxNbrhood( int eID, int vID, int& vOther, int& oppV1, int& oppV2, int& t1, int& t2 ) const
 {
@@ -95,7 +95,7 @@ int FDynamicMesh3::GetVtxTriangleCount( int vID ) const
     }
     int N = 0;
     VertexEdgeLists.Enumerate( vID,
-                               [&]( int32 eid )
+                               [&]( int32_t eid )
                                {
                                    const FEdge Edge   = Edges[eid];
                                    const int   vOther = Edge.Vert.A == vID ? Edge.Vert.B : Edge.Vert.A;
@@ -138,7 +138,7 @@ EMeshResult FDynamicMesh3::GetVtxTriangles( int vID, ArrayType& TrianglesOut ) c
     if ( VertexEdgeLists.GetCount( vID ) > 20 )
     {
         VertexEdgeLists.Enumerate( vID,
-                                   [&]( int32 eid )
+                                   [&]( int32_t eid )
                                    {
                                        const FEdge Edge   = Edges[eid];
                                        const int   vOther = Edge.Vert.A == vID ? Edge.Vert.B : Edge.Vert.A;
@@ -156,7 +156,7 @@ EMeshResult FDynamicMesh3::GetVtxTriangles( int vID, ArrayType& TrianglesOut ) c
     else
     {
         VertexEdgeLists.Enumerate( vID,
-                                   [&]( int32 eid )
+                                   [&]( int32_t eid )
                                    {
                                        const FEdge Edge = Edges[eid];
                                        TrianglesOut.AddUnique( Edge.Tri[0] );
@@ -169,7 +169,8 @@ EMeshResult FDynamicMesh3::GetVtxTriangles( int vID, ArrayType& TrianglesOut ) c
     return EMeshResult::Ok;
 }
 
-template EMeshResult FDynamicMesh3::GetVtxTriangles<TArray<int32>>( int vID, TArray<int32>& TrianglesOut ) const;
+template EMeshResult FDynamicMesh3::GetVtxTriangles<TArray<int32_t>>( int              vID,
+                                                                      TArray<int32_t>& TrianglesOut ) const;
 
 template <typename IntArray, typename BoolArray>
 EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& TrianglesOut, IntArray& SpanLengths,
@@ -241,7 +242,7 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
         int PrevEID  = StartEID;
         WalkedEdges++;
         int   WalkTri   = Edges[StartEID].Tri[0];
-        int32 SpanStart = TrianglesOut.Num();
+        int32_t const SpanStart = TrianglesOut.Num();
         IsLoop.Add( !bHasRemainingBoundaries );
         while ( true )
         {
@@ -288,8 +289,8 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
                                                           : EMeshResult::Failed_InvalidNeighbourhood;
 }
 
-template EMeshResult FDynamicMesh3::GetVtxContiguousTriangles<TArray<int32>, TArray<bool>>(
-     int VertexID, TArray<int32>& TrianglesOut, TArray<int32>& SpanLengths, TArray<bool>& IsLoop ) const;
+template EMeshResult FDynamicMesh3::GetVtxContiguousTriangles<TArray<int32_t>, TArray<bool>>(
+     int VertexID, TArray<int32_t>& TrianglesOut, TArray<int32_t>& SpanLengths, TArray<bool>& IsLoop ) const;
 
 bool FDynamicMesh3::IsBoundaryVertex( int vID ) const
 {
@@ -490,7 +491,7 @@ bool FDynamicMesh3::GetAllVertexGroups( int vID, ArrayType& GroupsOut ) const
     return true;
 }
 
-template bool FDynamicMesh3::GetAllVertexGroups<TArray<int32>>( int vID, TArray<int32>& GroupsOut ) const;
+template bool FDynamicMesh3::GetAllVertexGroups<TArray<int32_t>>( int vID, TArray<int32_t>& GroupsOut ) const;
 
 /**
  * returns true if vID is a "bowtie" vertex, ie multiple disjoint triangle sets in one-ring
@@ -614,9 +615,9 @@ FAxisAlignedBox3d FDynamicMesh3::GetBounds() const
 /**
  * Computes bounding box of selected vertices.
  */
-FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<int32> VertexIDs ) const
+FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<int32_t> VertexIDs ) const
 {
-    int32 NumVertices = VertexIDs.Num();
+    int32_t const NumVertices = VertexIDs.Num();
     if ( NumVertices == 0 )
     {
         return FAxisAlignedBox3d::Empty();
@@ -626,24 +627,24 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<in
     FVector3d MaxVec = MinVec;
     for ( int Idx = 1; Idx < VertexIDs.Num(); ++Idx )
     {
-        int32 VID = VertexIDs[Idx];
+        int32_t const VID = VertexIDs[Idx];
         MinVec    = Min( MinVec, Vertices[VID] );
         MaxVec    = Max( MaxVec, Vertices[VID] );
     }
     return FAxisAlignedBox3d( MinVec, MaxVec );
 }
 
-FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( TConstArrayView<int32> TriangleIDs ) const
+FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const
 {
-    int32 NumTriangles = TriangleIDs.Num();
+    int32_t const NumTriangles = TriangleIDs.Num();
     if ( NumTriangles == 0 )
     {
         return FAxisAlignedBox3d::Empty();
     }
 
-    auto UpdateBoundsWithTriangles = [this]( FAxisAlignedBox3d& Bounds, TConstArrayView<int32> IndexArray )
+    auto UpdateBoundsWithTriangles = [this]( FAxisAlignedBox3d& Bounds, TConstArrayView<int32_t> IndexArray )
     {
-        for ( int32 TID : IndexArray )
+        for ( int32_t const TID : IndexArray )
         {
             const FIndex3i& Tri = Triangles[TID];
             Bounds.Contain( Vertices[Tri.A] );

@@ -86,14 +86,14 @@ namespace
     }
 
     // Both sets non-empty, disjoint, and together exactly the vertex's triangle fan.
-    void ExpectPartition( const FDynamicMesh3& mesh, int v, const TArray<int32>& s0, const TArray<int32>& s1 )
+    void ExpectPartition( const FDynamicMesh3& mesh, int v, const TArray<int32_t>& s0, const TArray<int32_t>& s1 )
     {
         ASSERT_GT( s0.Num(), 0 );
         ASSERT_GT( s1.Num(), 0 );
         std::set<int> all;
-        for ( int32 i = 0; i < s0.Num(); ++i )
+        for ( int32_t i = 0; i < s0.Num(); ++i )
             all.insert( s0[i] );
-        for ( int32 i = 0; i < s1.Num(); ++i )
+        for ( int32_t i = 0; i < s1.Num(); ++i )
             EXPECT_TRUE( all.insert( s1[i] ).second ) << "triangle " << s1[i] << " is on both sides";
         EXPECT_EQ( all, Ring( mesh, v ) );
     }
@@ -156,16 +156,16 @@ TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
         ASSERT_EQ( groupEdges.size(), 3u ) << "cube corner " << v;
         for ( int k = 0; k < 3; ++k )
         {
-            TArray<int32> s0;
-            TArray<int32> s1;
+            TArray<int32_t> s0;
+            TArray<int32_t> s1;
             ASSERT_TRUE( SplitInteriorVertexTrianglesIntoSubsets( &mesh, v, groupEdges[k],
                                                                   groupEdges[( k + 1 ) % 3], s0, s1 ) );
             ExpectPartition( mesh, v, s0, s1 );
             // Two of a corner's three group edges fence off exactly one face: one side is one polygroup, the other
             // two.
-            auto singleGroup = [&]( const TArray<int32>& side )
+            auto singleGroup = [&]( const TArray<int32_t>& side )
             {
-                for ( int32 i = 1; i < side.Num(); ++i )
+                for ( int32_t i = 1; i < side.Num(); ++i )
                     if ( mesh.GetTriangleGroup( side[i] ) != mesh.GetTriangleGroup( side[0] ) )
                         return false;
                 return true;
@@ -188,8 +188,8 @@ TEST( MeshIndexUtil, BoundarySplitPartitionsTheOpenFan )
     {
         if ( mesh.IsBoundaryEdge( e ) )
             continue;
-        TArray<int32> s0;
-        TArray<int32> s1;
+        TArray<int32_t> s0;
+        TArray<int32_t> s1;
         ASSERT_TRUE( SplitBoundaryVertexTrianglesIntoSubsets( &mesh, v, e, s0, s1 ) );
         ExpectPartition( mesh, v, s0, s1 );
         ++tested;
@@ -199,8 +199,8 @@ TEST( MeshIndexUtil, BoundarySplitPartitionsTheOpenFan )
     for ( const int e : mesh.VtxEdgesItr( v ) )
         if ( mesh.IsBoundaryEdge( e ) )
         {
-            TArray<int32> s0;
-            TArray<int32> s1;
+            TArray<int32_t> s0;
+            TArray<int32_t> s1;
             EXPECT_FALSE( SplitBoundaryVertexTrianglesIntoSubsets( &mesh, v, e, s0, s1 ) );
         }
 }
