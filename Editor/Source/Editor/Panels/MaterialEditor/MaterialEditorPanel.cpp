@@ -1,6 +1,8 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include "MaterialEditorPanel.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include "MaterialShaderRebuild.hpp"
 
 #include "../Clouds/CloudDocumentOpen.hpp"
@@ -1796,10 +1798,10 @@ namespace Desert::Editor
                               m_AssetManager->FindByHandle<Assets::CloudTypeAsset>( Common::UUID( handle ) ) )
                         preview = type->GetDisplayName();
                 }
-                else if ( auto painting =
-                               m_AssetManager->FindByHandle<Assets::CloudLayoutAsset>( Common::UUID( handle ) ) )
+                else if ( const auto row = Assets::ContentRegistry::RowOf(
+                               Common::Content::ContentKind::CloudLayout, static_cast<uint64_t>( handle ) ) )
                 {
-                    preview = painting->GetMetadata().Filepath.filename().string();
+                    preview = row->Path.filename().string();
                 }
             }
         }

@@ -4,6 +4,8 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 
+#include <Engine/Assets/AssetManager.hpp>
+
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -32,6 +34,8 @@ namespace Desert::Runtime
     class CloudLayoutService
     {
     public:
+        // The manager Resolve creates on-demand shells in, from their content-registry rows (AL1-2).
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
         /// THE PROJECT HAS THIS PAINTING. Records the handle and the (unread) asset; opens no file.
         ///
         /// This is what `AssetPreloader::PreloadCloudLayouts` does now. Reading every `.dclayout` at boot
@@ -119,5 +123,8 @@ namespace Desert::Runtime
         // Handles already complained about. A missing layout is a permanent state of the scene, so without
         // this the error would be logged every frame of every viewport and bury everything else.
         std::unordered_set<Assets::AssetHandle> m_Reported;
+        // Creates and announces the shell of a handle nothing announced; false = logged and recorded.
+        bool                                Discover( const Assets::AssetHandle& handle );
+        std::weak_ptr<Assets::AssetManager> m_Assets;
     };
 } // namespace Desert::Runtime

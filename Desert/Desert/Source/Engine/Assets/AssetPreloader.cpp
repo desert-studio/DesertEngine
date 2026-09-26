@@ -14,10 +14,7 @@
 #include "Mesh/SkinnedMeshAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
 #include "TextureAsset.hpp"
-#include "CloudNoiseVolumeAsset.hpp"
 #include "CloudTypeAsset.hpp"
-#include "CloudModellingVolumeAsset.hpp"
-#include "CloudLayoutAsset.hpp"
 #include "AnimGraphAsset.hpp"
 #include "ControlRigAsset.hpp"
 #include "RetargetAsset.hpp"
@@ -286,49 +283,6 @@ namespace Desert::Assets
                                        nullptr );
     }
 
-    void AssetPreloader::PreloadCloudNoiseVolumes()
-    {
-        // ANNOUNCED, NOT READ — and the comment this replaces is the reason the whole tier exists.
-        //
-        // It said: "Loaded eagerly, unlike meshes: a volume is 8 MiB of bytes with no parse to speak of,
-        // and the renderer needs its contents on the first frame the component asks for it. Deferring
-        // would buy a stall exactly where the sky first appears." Every clause of that was true. What it
-        // did not say is what the eagerness cost when the component never asks: measured on this machine
-        // this stage was **1312.7 ms of a 5707.0 ms boot**, `CloudNoise_Default.dcnv` alone **607.12 ms
-        // by its own time**, and a scene with no clouds paid all of it.
-        //
-        // The stall the comment feared is real, and it is not answered by making the read lazy — that
-        // only moves it into a frame. It is answered by making the read ASYNCHRONOUS and by giving "not
-        // here yet" somewhere to live: `CloudNoiseService::Require` returns Pending, the read runs on a
-        // `JobSystem` worker, and the host holds its loading overlay up until the content it asked for
-        // has settled. The cost stays in the loading screen where it belongs and stops being paid by
-        // scenes that do not want it.
-        //
-        // THE SCAN ITSELF STAYS, and it is not vestigial: it is what mints every `.dcnv`'s handle, so
-        // the path->handle index still answers for a volume nothing has read (`Common::AssetPathIndex`),
-        // and the Content Browser and the component slot can still OFFER the project's volumes.
-        ProcessAssetKind<CloudNoiseVolumeAsset>( Common::Content::ContentKind::CloudNoiseVolume, m_AssetManager,
-                                                 AssetPriority::Medium, nullptr, /*loadAfterCreate=*/false );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudNoiseService();
-            for ( const auto& [handle, volumeAsset] : manager->FindAllByType<Assets::CloudNoiseVolumeAsset>() )
-            {
-                service->Announce( volumeAsset );
-
-                // The default is chosen by FILE NAME, and it is a project-owned file rather than something
-                // compiled in: a project that ships its own CloudNoise_Default.dcnv replaces the engine's
-                // without touching code, which is the same way every other built-in default here works.
-                //
-                // Note it is nominated from the NAME and not from anything inside the file, which is what
-                // lets this still work when nothing has been read.
-                if ( volumeAsset->GetMetadata().Filepath.filename().string() == kCloudNoiseDefaultVolumeName )
-                    service->SetDefault( handle );
-            }
-        }
-    }
-
     void AssetPreloader::PreloadCloudTypes()
     {
         // Loaded eagerly like the volumes, and for a smaller version of the same reason: a type is a few
@@ -414,55 +368,6 @@ namespace Desert::Assets
         // — the retargeter is per ENTITY, against that entity's own skeleton, built by AnimationECSSystem.
         ProcessAssetKind<RetargetAsset>( Common::Content::ContentKind::Retarget, m_AssetManager,
                                          AssetPriority::Medium, nullptr );
-    }
-
-    void AssetPreloader::PreloadCloudModellingVolumes()
-    {
-        // ANNOUNCED, NOT READ. The comment this replaces said the reads were free because there is "no
-        // parse to speak of"; measured, this stage cost **913.0 ms of a 5707.0 ms boot** for three
-        // sculpted bodies of 4 MiB each, and a scene with no hero cloud in it paid every millisecond.
-        // The service's own header already promised the right rule for the ATLAS — "a frame pays 4.00 MiB
-        // for each body an entity actually names, not for the library" — and the boot was the one place
-        // that rule did not hold.
-        //
-        // NO DEFAULT IS NOMINATED, unlike the noise volumes, and the absence is the decision: an empty
-        // hero-cloud slot means the artist has not chosen a body, and the right answer is no cloud rather
-        // than a cloud they did not put there. `CloudModellingService::RequireBody` says the same thing by
-        // answering Null — never Pending — for an empty handle.
-        ProcessAssetKind<CloudModellingVolumeAsset>( Common::Content::ContentKind::CloudModellingVolume,
-                                                     m_AssetManager, AssetPriority::Medium, nullptr,
-                                                     /*loadAfterCreate=*/false );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudModellingService();
-            for ( const auto& [handle, bodyAsset] : manager->FindAllByType<Assets::CloudModellingVolumeAsset>() )
-                service->Announce( bodyAsset );
-        }
-    }
-
-    void AssetPreloader::PreloadCloudLayouts()
-    {
-        // ANNOUNCED, NOT READ, and this stage is the clearest case in the project for why. Measured on
-        // this machine it cost **689.0 ms of a 5707.0 ms boot** to read ten paintings totalling 10.3 MiB
-        // — and EVERY SCENE IN THIS REPOSITORY LEAVES BOTH LAYOUT SLOTS EMPTY, so every one of those
-        // milliseconds was spent on pixels nothing points at. The comment this replaces called the stage
-        // "cheaper than any of them", which was true per file and beside the point.
-        //
-        // NO DEFAULT IS NOMINATED, and here the absence is the shipped state rather than an edge case: an
-        // empty slot means the sky places its clouds procedurally, which is what every scene in this
-        // repository does and what the phase's acceptance criterion requires stay byte-identical. That is
-        // also why an empty handle resolves to Null and never to Pending — there is nothing to wait for.
-        ProcessAssetKind<CloudLayoutAsset>( Common::Content::ContentKind::CloudLayout, m_AssetManager,
-                                            AssetPriority::Medium, nullptr,
-                                            /*loadAfterCreate=*/false );
-
-        if ( auto manager = m_AssetManager.lock() )
-        {
-            auto* service = Runtime::ResourceRegistry::GetCloudLayoutService();
-            for ( const auto& [handle, layoutAsset] : manager->FindAllByType<Assets::CloudLayoutAsset>() )
-                service->Announce( layoutAsset );
-        }
     }
 
     void AssetPreloader::PreloadStringTables()

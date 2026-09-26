@@ -522,6 +522,27 @@ namespace Desert::Assets
             return rows;
         }
 
+        // THE ROW OF ONE REFERENCE, AS A KIND: what an on-demand service asks before it creates anything. The
+        // registry's handle lookup also answers for the GUID fold (`HandleForGuid`), which is the number every
+        // GUID-identified kind is referenced by; a row of ANOTHER kind under the same number is refused here,
+        // because creating a noise volume from a layout's file would be a load error blamed on the wrong file.
+        inline std::optional<PickerRow> RowOf( Common::Content::ContentKind kind, uint64_t handle )
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle );
+            if ( !row || row->Kind != Common::Content::KindName( kind ) )
+                return std::nullopt;
+            return PickerRow{ Common::AssetHandle( row->EffectiveHandle() ),
+                              row->Key,
+                              Common::AssetHandle::PathForStableKey( row->Key ),
+                              row->Guid,
+                              row->DisplayName,
+                              row->Skinned };
+        }
+
         // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
         // tags the same way): every mesh row of both mesh kinds whose header does (`skinned`) or does not flag
         // a skeleton. The header is read at scan time, so a mesh nobody has loaded is on the right list — the

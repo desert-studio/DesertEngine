@@ -92,6 +92,13 @@ namespace Desert::Runtime
         return &uiThemeService;
     }
 
+    void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        GetCloudNoiseService()->BindAssetManager( assets );
+        GetCloudModellingService()->BindAssetManager( assets );
+        GetCloudLayoutService()->BindAssetManager( assets );
+    }
+
     void ResourceRegistry::ClearAll()
     {
         // Order matters in one place only: the ImageService holds the VkImages that the material, skybox,
