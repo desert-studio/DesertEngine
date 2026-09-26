@@ -19,7 +19,9 @@ namespace Desert::Editor::Control
      * A UNIX-DOMAIN SOCKET AND NOT A LOCAL TCP PORT. "Listens only on localhost" is a promise about a
      * configuration; a filesystem socket is a promise about the kernel — there is no network endpoint to
      * find, nothing answers a port scan, and the access control is the access control of a file, which
-     * the operating system already enforces and the user already understands.
+     * the operating system already enforces and the user already understands. The same socket on every
+     * platform the editor runs on, Windows included (AF_UNIX over Winsock, Windows 10 1803 and later);
+     * what the platforms spell differently is in Common/Core/LocalSocket.hpp and nowhere else.
      *
      * NO THREAD, AND THAT IS DELIBERATE. The socket is non-blocking and drained once per frame from the
      * editor's own update. A listener thread would buy about sixteen milliseconds of latency and cost a
@@ -39,10 +41,6 @@ namespace Desert::Editor::Control
 
         ControlSocket( const ControlSocket& )            = delete;
         ControlSocket& operator=( const ControlSocket& ) = delete;
-
-        /// Whether this platform has the transport at all. Windows does not, here — see the .cpp for why
-        /// that is a refusal rather than an untested implementation.
-        [[nodiscard]] static bool SupportedOnThisPlatform() noexcept;
 
         /// Bind and listen on @p path, or fail naming the reason. Never silently reuses a socket another
         /// editor is holding: an existing path is PROBED, and only a dead one is cleared away.
@@ -107,10 +105,13 @@ namespace Desert::Editor::Control
         /// connection is judged — see PollRequestLine.
         void DrainIncoming();
 
-        // Raw descriptors rather than a platform type in the header: this file is included by EditorLayer,
-        // and <sys/socket.h> in a header that also sees windows.h is a fight nobody needs.
-        int         m_ListenFd = -1;
-        int         m_ClientFd = -1;
+        // Raw handles rather than a platform type in the header: this file is included by EditorLayer, and
+        // <winsock2.h> in a header that is also reached by windows.h is a fight nobody needs. Signed and
+        // pointer-wide because Windows' SOCKET is an unsigned UINT_PTR: an `int` would truncate it, and an
+        // unsigned one would make `>= 0` — the check every line below writes — true for the invalid value.
+        // Common::LocalSocket::kInvalid is that value, -1 on both, and the two must stay the same type.
+        std::intptr_t m_ListenFd = -1;
+        std::intptr_t m_ClientFd = -1;
         // Bumped on every accept. Zero means "nobody has ever connected", which no live connection can be,
         // so a caller that recorded a generation before there was a client cannot match a later one.
         uint64_t    m_ClientGeneration = 0;
