@@ -91,9 +91,10 @@ namespace Desert::Editor::PreviewPane
     [[nodiscard]] inline Graphic::ViewExtent RenderExtent( const float width, const float height,
                                                            const float framebufferScale ) noexcept
     {
-        const float scale = ( framebufferScale > 0.0f && std::isfinite( framebufferScale ) ) ? framebufferScale : 1.0f;
-        const float w     = width * scale;
-        const float h     = height * scale;
+        const float scale =
+             ( framebufferScale > 0.0f && std::isfinite( framebufferScale ) ) ? framebufferScale : 1.0f;
+        const float w = width * scale;
+        const float h = height * scale;
         if ( !std::isfinite( w ) || !std::isfinite( h ) || w < 1.0f || h < 1.0f ||
              w > static_cast<float>( Graphic::kMaxViewExtentSide ) ||
              h > static_cast<float>( Graphic::kMaxViewExtentSide ) )

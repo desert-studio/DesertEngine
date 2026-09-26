@@ -225,7 +225,8 @@ TEST( PreviewPaneLayout, ANarrowWindowSharesItsWidthAndCollapsesNeitherColumn )
         EXPECT_GT( split.Preview, 0.0f );
         EXPECT_GT( split.Details, 0.0f );
         EXPECT_FLOAT_EQ( split.Preview + split.Details, narrow );
-        EXPECT_FLOAT_EQ( split.Preview / split.Details, PaneLayout::kMinPreviewWidth / PaneLayout::kMinDetailsWidth );
+        EXPECT_FLOAT_EQ( split.Preview / split.Details,
+                         PaneLayout::kMinPreviewWidth / PaneLayout::kMinDetailsWidth );
     }
     const auto none = PaneLayout::SplitWidth( 0.0f, 0.6f );
     EXPECT_FLOAT_EQ( none.Preview, 0.0f );

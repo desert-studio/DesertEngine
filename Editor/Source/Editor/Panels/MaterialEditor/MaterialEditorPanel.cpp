@@ -562,7 +562,8 @@ namespace Desert::Editor
         const ImVec2 screen = ImGui::GetCursorScreenPos();
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled( screen, ImVec2( screen.x + size.x, screen.y + size.y ), IM_COL32( 28, 28, 32, 255 ), 4.0f );
+        dl->AddRectFilled( screen, ImVec2( screen.x + size.x, screen.y + size.y ), IM_COL32( 28, 28, 32, 255 ),
+                           4.0f );
         dl->AddRect( screen, ImVec2( screen.x + size.x, screen.y + size.y ), IM_COL32( 68, 68, 76, 255 ), 4.0f );
 
         constexpr float kPad = 14.0f;
@@ -799,7 +800,8 @@ namespace Desert::Editor
         {
             for ( auto s : { PreviewViewport::Shape::Sphere, PreviewViewport::Shape::Cube,
                              PreviewViewport::Shape::Cylinder, PreviewViewport::Shape::Plane } )
-                actions.push_back( { std::string( "Preview shape: " ) + ShapeName( s ), [this, s]() { m_Shape = s; } } );
+                actions.push_back(
+                     { std::string( "Preview shape: " ) + ShapeName( s ), [this, s]() { m_Shape = s; } } );
         }
         actions.push_back( { "Preview: reset view", [this]()
                              {
@@ -2466,12 +2468,12 @@ namespace Desert::Editor
         // the right — with a divider the person drags. The split, the minimum widths and the size the picture
         // renders at are PreviewPane's rules (tested in PreviewInput); this function only feeds them ImGui's
         // numbers. The fraction is kept for the session, so the next material opens where the last was left.
-        static float s_SplitFraction = PreviewPane::kDefaultSplit;
-        constexpr float kDividerWidth = 6.0f;
+        static float    s_SplitFraction = PreviewPane::kDefaultSplit;
+        constexpr float kDividerWidth   = 6.0f;
 
-        const ImVec2             avail = ImGui::GetContentRegionAvail();
-        const float              splittable = std::max( avail.x - kDividerWidth, 0.0f );
-        const PreviewPane::Split split = PreviewPane::SplitWidth( splittable, s_SplitFraction );
+        const ImVec2             avail        = ImGui::GetContentRegionAvail();
+        const float              splittable   = std::max( avail.x - kDividerWidth, 0.0f );
+        const PreviewPane::Split split        = PreviewPane::SplitWidth( splittable, s_SplitFraction );
         const float              columnHeight = std::max( avail.y, 1.0f );
 
         ImGui::BeginChild( "##material_viewport", ImVec2( std::max( split.Preview, 1.0f ), columnHeight ), 0,
@@ -2485,7 +2487,7 @@ namespace Desert::Editor
         const ImVec2      paneAvail = ImGui::GetContentRegionAvail();
         const float       noteHeight =
              note.empty() ? 0.0f
-                          : ImGui::CalcTextSize( note.c_str(), nullptr, false, std::max( paneAvail.x, 1.0f ) ).y +
+                                : ImGui::CalcTextSize( note.c_str(), nullptr, false, std::max( paneAvail.x, 1.0f ) ).y +
                                  ImGui::GetStyle().ItemSpacing.y;
         const ImVec2 pane( std::max( paneAvail.x, 1.0f ), std::max( paneAvail.y - noteHeight, 1.0f ) );
 
@@ -2532,10 +2534,10 @@ namespace Desert::Editor
             const ImVec2 lo = ImGui::GetItemRectMin();
             const ImVec2 hi = ImGui::GetItemRectMax();
             const float  x  = ( lo.x + hi.x ) * 0.5f;
-            ImGui::GetWindowDrawList()->AddLine( ImVec2( x, lo.y ), ImVec2( x, hi.y ),
-                                                 ImGui::GetColorU32( ImGui::IsItemActive() ? ImGuiCol_SeparatorActive
-                                                                                           : ImGuiCol_Separator ),
-                                                 1.0f );
+            ImGui::GetWindowDrawList()->AddLine(
+                 ImVec2( x, lo.y ), ImVec2( x, hi.y ),
+                 ImGui::GetColorU32( ImGui::IsItemActive() ? ImGuiCol_SeparatorActive : ImGuiCol_Separator ),
+                 1.0f );
         }
         ImGui::SameLine( 0.0f, 0.0f );
 
