@@ -24,7 +24,7 @@ namespace Desert::Graphic
         // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
         void BindTileMask( const std::shared_ptr<Image2D>& mask )
         {
-            if ( m_TileMask && mask )
+            if ( m_TileMask != nullptr && mask != nullptr )
                 m_TileMask->SetImage( mask.get() );
         }
 
@@ -91,7 +91,7 @@ namespace Desert::Graphic
         // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
         void BindTileMask( const std::shared_ptr<Image2D>& mask )
         {
-            if ( m_TileMask && mask )
+            if ( m_TileMask != nullptr && mask != nullptr )
                 m_TileMask->SetImage( mask.get() );
         }
 
@@ -140,7 +140,7 @@ namespace Desert::Graphic
         // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
         void BindTileMask( const std::shared_ptr<Image2D>& mask )
         {
-            if ( m_TileMask && mask )
+            if ( m_TileMask != nullptr && mask != nullptr )
                 m_TileMask->SetImage( mask.get() );
         }
 
