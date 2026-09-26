@@ -182,16 +182,16 @@ namespace Desert::Editor
                 filter.Draw( "##Search", 200 );
                 ImGui::Separator();
 
-                for ( const auto& [handle, meshKey, meshPath, meshGuid] : meshAssets )
+                for ( const auto& row : meshAssets )
                 {
-                    const std::string name = Common::Utils::FileSystem::GetFileName( meshPath );
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
 
                     if ( filter.PassFilter( name.c_str() ) )
                     {
-                        bool selected = skinnedMesh.MeshHandle == handle;
+                        const bool selected = skinnedMesh.MeshHandle == row.Handle;
                         if ( ImGui::Selectable( name.c_str(), selected ) )
                         {
-                            skinnedMesh.MeshHandle = handle;
+                            skinnedMesh.MeshHandle = row.Handle;
                         }
                     }
                 }

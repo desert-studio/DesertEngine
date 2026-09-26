@@ -141,12 +141,12 @@ namespace Desert::Editor
                       filter.Draw( "##Search", 200 );
                       ImGui::Separator();
                       auto skyboxes = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Skybox );
-                      for ( const auto& [handle, rowKey, rowPath, rowGuid] : skyboxes )
+                      for ( const auto& row : skyboxes )
                       {
-                          const std::string name = Common::Utils::FileSystem::GetFileName( rowPath );
+                          const std::string name = ::Desert::Editor::PickerDisplayName( row );
                           if ( filter.PassFilter( name.c_str() ) &&
-                               ImGui::Selectable( name.c_str(), handle == skybox.SkyboxHandle ) )
-                              bindSkybox( handle );
+                               ImGui::Selectable( name.c_str(), row.Handle == skybox.SkyboxHandle ) )
+                              bindSkybox( row.Handle );
                       }
                       if ( skyboxes.empty() )
                           ImGui::TextDisabled( "No skybox assets available" );

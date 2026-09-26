@@ -100,14 +100,14 @@ namespace Desert::Editor
                 meshFilter.Draw( "##Search", 200 );
                 ImGui::Separator();
 
-                for ( const auto& [handle, meshKey, meshPath, meshGuid] : meshAssets )
+                for ( const auto& row : meshAssets )
                 {
-                    const std::string& meshName = Common::Utils::FileSystem::GetFileName( meshPath );
+                    const std::string meshName = ::Desert::Editor::PickerDisplayName( row );
                     if ( meshFilter.PassFilter( meshName.c_str() ) )
                     {
-                        if ( ImGui::Selectable( meshName.c_str(), staticMesh.MeshHandle == handle ) )
+                        if ( ImGui::Selectable( meshName.c_str(), staticMesh.MeshHandle == row.Handle ) )
                         {
-                            SetMeshAsset( staticMesh, handle );
+                            SetMeshAsset( staticMesh, row.Handle );
                         }
                     }
                 }

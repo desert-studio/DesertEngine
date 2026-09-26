@@ -833,10 +833,10 @@ namespace Desert::Editor
 
                     if ( m_AssetManager )
                     {
-                        for ( const auto& [candidate, matKey, matPath, matGuid, matGuidName, matGuidSkinned] :
-                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
+                        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
                         {
-                            const std::string matName = matPath.stem().string();
+                            const Common::AssetHandle candidate = row.Handle;
+                            const std::string         matName   = ::Desert::Editor::PickerDisplayName( row );
                             if ( !materialFilter.PassFilter( matName.c_str() ) )
                                 continue;
                             if ( ImGui::Selectable( matName.c_str(), candidate == handle ) )
