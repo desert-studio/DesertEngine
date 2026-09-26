@@ -25,7 +25,6 @@
 
 #include <GLFW/glfw3.h>
 
-#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -502,23 +501,7 @@ namespace
 
     // Our own title bar. The hit-test that makes it drag lives in NativeFrame; everything drawn here
     // is plain ImGui and stays as it is on any platform that gains that hit-test.
-    // The 48x48 copy of the app icon, uploaded once as a GL texture so the title bar shows the
-    // OWNER'S artwork rather than a glyph that merely resembles it. GL 1.1 is all this needs and
-    // opengl32 already exports it; the reporter draws one window and exits, so the texture lives
-    // for the process and is never freed by hand.
-    ImTextureID UploadAppIcon()
-    {
-        GLuint texture = 0;
-        glGenTextures( 1, &texture );
-        glBindTexture( GL_TEXTURE_2D, texture );
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, 48, 48, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                      CrashReporter::AppIcon::kPixels48 );
-        return reinterpret_cast<ImTextureID>( static_cast<std::intptr_t>( texture ) );
-    }
-
-    void DrawTitleBar( float inScale, GLFWwindow* inWindow, ImTextureID inIcon, bool& outClose )
+    void DrawTitleBar( float inScale, GLFWwindow* inWindow, bool& outClose )
     {
         const float height   = kTitleBarHeight * inScale;
         const float buttonW  = kWindowButtonSize * inScale;
@@ -530,9 +513,7 @@ namespace
         const float  width    = ImGui::GetWindowWidth();
         const float  textY    = origin.y + ( ( height - lineHigh ) * 0.5f );
 
-        const float iconSide = 20.0f * inScale;
-        const ImVec2 iconPos( origin.x + ( 12.0f * inScale ), origin.y + ( ( height - iconSide ) * 0.5f ) );
-        drawList->AddImage( inIcon, iconPos, ImVec2( iconPos.x + iconSide, iconPos.y + iconSide ) );
+        drawList->AddText( ImVec2( origin.x + ( 14.0f * inScale ), textY ), kColAccent, kIconBug );
         drawList->AddText( ImVec2( origin.x + ( 38.0f * inScale ), textY ), kColText, kBarTitle );
 
         struct WindowButton
@@ -805,8 +786,6 @@ int main( int inArgc, char** inArgv )
     ImGui_ImplGlfw_InitForOpenGL( window, true );
     ImGui_ImplOpenGL3_Init( "#version 130" );
 
-    const ImTextureID appIcon = UploadAppIcon();
-
     std::string status;
     char        comment[2048] = {};
     bool        commentSaved  = false;
@@ -829,7 +808,7 @@ int main( int inArgc, char** inArgv )
                            ImGuiWindowFlags_NoBringToFrontOnFocus );
 
         bool closeRequested = false;
-        DrawTitleBar( dpiScale, window, appIcon, closeRequested );
+        DrawTitleBar( dpiScale, window, closeRequested );
 
         // The OS learns where the caption is from the same numbers that drew it, every frame, so a
         // resize can never leave the drag strip behind the buttons.
