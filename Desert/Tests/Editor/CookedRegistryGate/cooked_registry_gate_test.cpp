@@ -435,15 +435,15 @@ TEST( CookedRegistryGate, ACacheOfAnotherRowFormIsRebuiltWithoutBeingDeleted )
     const std::string firstLine = current.substr( 0, current.find( '\n' ) );
     const std::string body      = current.substr( current.find( '\n' ) );
     // The previous form, whose rows carried runtime-learned identities and edges.
-    const std::string previous = "DesertAssetRegistryCache 2" + body;
-    EXPECT_FALSE( Common::Content::ParseRegistryCache( previous ) ) << "a version-2 cache was reused";
+    const std::string previous = "DesertAssetRegistryCache 3" + body;
+    EXPECT_FALSE( Common::Content::ParseRegistryCache( previous ) ) << "a version-3 cache was reused";
     // A later form is not this one either; the magic is compared whole, not as a prefix.
     EXPECT_FALSE( Common::Content::ParseRegistryCache( firstLine + "0" + body ) );
     // An older registry form embedded in a current cache would hand back rows without their header columns.
     std::string olderRegistry = current;
-    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 3" );
+    const auto  at            = olderRegistry.find( "\nDesertAssetRegistry 4" );
     ASSERT_NE( at, std::string::npos );
-    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 3" ).size(), "\nDesertAssetRegistry 2" );
+    olderRegistry.replace( at, std::string( "\nDesertAssetRegistry 4" ).size(), "\nDesertAssetRegistry 3" );
     EXPECT_FALSE( Common::Content::ParseRegistryCache( olderRegistry ) );
 
     // And what the editor does with a refused cache: an empty one, i.e. every header read afresh.
