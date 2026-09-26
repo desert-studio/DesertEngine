@@ -66,16 +66,8 @@ namespace Desert::Runtime
         if ( service == nullptr || !skybox || service->Get( skybox->GetMetadata().Handle ) )
             return;
 
-        // Load() is the file-existence check (SkyboxAsset::LoadFromFile) and logs its own refusal by name;
-        // registering a skybox whose panorama is gone would bake nothing and say so less clearly.
-        if ( !skybox->IsReadyForUse() )
-            skybox->Load();
-
-        if ( const auto registered = service->Register( skybox ); !registered )
-        {
-            LOG_ERROR( "[Skybox] '{}' could not be registered, so the scene has no environment from it: {}",
-                       skybox->GetMetadata().Filepath.string(), registered.GetError() );
-        }
+        // Declares only (AL1-3): the read is on the loader's worker and the scene's ContentGate waits for it.
+        service->Request( skybox );
     }
 
     MeshReadiness EnsureMeshDrawable( const Assets::Asset<Assets::MeshAsset>& mesh,

@@ -57,68 +57,63 @@ namespace Desert::Graphic
         // `.detex` container, every HDR sky fell through that return silently — black sky, no IBL, and
         // not one log line. `FindCookedPanorama` reads the container's own kind and key and names the
         // reason when it refuses, so it is the only gate.
-        auto cooked = FindCookedPanorama( meta.Filepath );
-        if ( !cooked )
+        // Staged on the loader's worker (`SkyboxAsset::LoadFromFile`): the panorama's header, the cache
+        // paths, and on a hit the three decoded cubes. Only the device work is left for this thread.
+        const std::shared_ptr<const StagedEnvironment> staged = skyboxAsset->StagedEnvironment();
+        if ( !staged )
+        {
+            LOG_ERROR( "[SceneEnvironment] the skybox '{}' was handed over without being loaded (no staged "
+                       "environment), so it gets NO environment; request it through SkyboxService.",
+                       meta.Filepath.string() );
+            return {};
+        }
+        if ( !staged->Error.empty() )
         {
             LOG_ERROR( "[SceneEnvironment] the skybox '{}' gets NO environment (no radiance, no irradiance, "
                        "no prefiltered specular): {}",
-                       meta.Filepath.string(), cooked.GetError() );
+                       meta.Filepath.string(), staged->Error );
             return {};
         }
-        const std::filesystem::path panoramaPath    = cooked.GetValue().Path;
-        const uint64_t              sourceSignature = cooked.GetValue().SourceSignature;
+        const std::filesystem::path& panoramaPath    = staged->Panorama.Path;
+        const uint64_t               sourceSignature = staged->Panorama.SourceSignature;
+        const std::filesystem::path& radiancePath    = staged->RadiancePath;
+        const std::filesystem::path& irradiancePath  = staged->IrradiancePath;
+        const std::filesystem::path& prefilterPath   = staged->PrefilterPath;
+        const uint64_t               radianceBake    = staged->RadianceBake;
+        const uint64_t               irradianceBake  = staged->IrradianceBake;
+        const uint64_t               prefilterBake   = staged->PrefilterBake;
 
-        const uint64_t radianceBake =
-             EnvironmentBakeSignature( BakedEnvironmentCube::Radiance, kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
-        const uint64_t irradianceBake =
-             EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
-        const uint64_t prefilterBake = EnvironmentBakeSignature( BakedEnvironmentCube::Prefiltered,
-                                                                 kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
-
-        const std::filesystem::path radiancePath   = EnvironmentBakePath( sourceSignature, radianceBake );
-        const std::filesystem::path irradiancePath = EnvironmentBakePath( sourceSignature, irradianceBake );
-        const std::filesystem::path prefilterPath  = EnvironmentBakePath( sourceSignature, prefilterBake );
-
-        // ALL THREE OR NONE. Two cubes off the disk and one recomputed is a legal-looking
-        // environment whose halves came from different bakes; the cheapest way to make that
-        // impossible is to treat the trio as the unit it is.
+        if ( staged->Cached )
         {
-            auto cachedRadiance = LoadBakedEnvironmentCube( radiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
-                                                            kSkyEnvRadianceMips, sourceSignature, radianceBake );
-            auto cachedIrradiance =
-                 LoadBakedEnvironmentCube( irradiancePath, "EnvDiffuseIrradiance", kSkyEnvIrradianceFaceSize, 1u,
-                                           sourceSignature, irradianceBake );
-            auto cachedPrefilter =
-                 LoadBakedEnvironmentCube( prefilterPath, "EnvPrefiltered", kSkyEnvPrefilterFaceSize,
-                                           kSkyEnvPrefilterMips, sourceSignature, prefilterBake );
-
-            if ( cachedRadiance.IsSuccess() && cachedIrradiance.IsSuccess() && cachedPrefilter.IsSuccess() )
+            const auto& cubes = *staged->Cached;
+            auto radiance   = CreateBakedEnvironmentCube( cubes[0], radiancePath );
+            auto irradiance = CreateBakedEnvironmentCube( cubes[1], irradiancePath );
+            auto prefilter  = CreateBakedEnvironmentCube( cubes[2], prefilterPath );
+            if ( radiance.IsSuccess() && irradiance.IsSuccess() && prefilter.IsSuccess() )
             {
-                LOG_INFO( "[SceneEnvironment] '{}' was loaded from its baked IBL chain in {:.1f} ms; the "
-                          "panorama was not read and the three compute passes did not run.",
-                          meta.Filepath.string(),
-                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
+                LOG_INFO( "[SceneEnvironment] '{}' was loaded from its baked IBL chain: {:.1f} ms read on the "
+                          "loader's worker, {:.1f} ms uploading here; the panorama was not read and the three "
+                          "compute passes did not run.",
+                          meta.Filepath.string(), staged->StageMs,
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                     startedAt )
                                .count() );
                 return { meta.Filepath,
-                         imageService->Register( cachedRadiance.ExtractValue(),
-                                                 Runtime::ImageHandle::Type::ImageCube ),
-                         imageService->Register( cachedIrradiance.ExtractValue(),
-                                                 Runtime::ImageHandle::Type::ImageCube ),
-                         imageService->Register( cachedPrefilter.ExtractValue(),
-                                                 Runtime::ImageHandle::Type::ImageCube ) };
+                         imageService->Register( radiance.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ),
+                         imageService->Register( irradiance.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ),
+                         imageService->Register( prefilter.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ) };
             }
-
-            LOG_INFO(
-                 "[SceneEnvironment] '{}' is being baked: {} / {} / {}", meta.Filepath.string(),
-                 cachedRadiance.IsSuccess() ? std::string( "radiance ready" ) : cachedRadiance.GetError(),
-                 cachedIrradiance.IsSuccess() ? std::string( "irradiance ready" ) : cachedIrradiance.GetError(),
-                 cachedPrefilter.IsSuccess() ? std::string( "prefilter ready" ) : cachedPrefilter.GetError() );
+            LOG_ERROR( "[SceneEnvironment] '{}' decoded its baked IBL chain but a GPU cube was not created ({} / "
+                       "{} / {}); baking instead.",
+                       meta.Filepath.string(), radiance.IsSuccess() ? "radiance ok" : radiance.GetError(),
+                       irradiance.IsSuccess() ? "irradiance ok" : irradiance.GetError(),
+                       prefilter.IsSuccess() ? "prefilter ok" : prefilter.GetError() );
+        }
+        else
+        {
+            LOG_INFO( "[SceneEnvironment] '{}' is being baked: {}", meta.Filepath.string(), staged->MissReason );
         }
 
-        // ONLY A MISS READS THE PIXELS, and it reads them out of the container as they are. The bake
-        // samples level 0 alone (`PanoramaToCubemap` in a compute stage, `DiffuseIrradiance` with an
-        // explicit LOD 0), so the chain the cook built on the CPU and the one the old path blitted on
-        // the GPU cannot disagree anywhere the bake looks.
         auto panorama = Texture2D::CreateFromAsset( panoramaPath );
         if ( !panorama )
         {

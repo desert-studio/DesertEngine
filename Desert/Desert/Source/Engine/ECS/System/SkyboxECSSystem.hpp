@@ -142,7 +142,24 @@ namespace Desert::ECS
                         continue;
 
                     const auto& skybox = registry.get<ECS::SkyboxComponent>( skyboxEntity );
-                    cubemap            = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox.SkyboxHandle );
+                    auto* skyboxes     = Runtime::ResourceRegistry::GetSkyboxService();
+                    cubemap            = skyboxes->Get( skybox.SkyboxHandle );
+                    // Being read or baked (AL1-3): keep drawing the sky that was there, never a black frame.
+                    if ( !cubemap && skyboxes->IsPending( skybox.SkyboxHandle ) && m_LastCubemap )
+                    {
+                        if ( m_ReportedPending != skybox.SkyboxHandle )
+                        {
+                            LOG_INFO( "[Skybox] skybox {} is still loading; the previous sky is drawn until it "
+                                      "is ready.",
+                                      static_cast<uint64_t>( skybox.SkyboxHandle ) );
+                            m_ReportedPending = skybox.SkyboxHandle;
+                        }
+                        cubemap = m_LastCubemap;
+                    }
+                    else if ( cubemap )
+                    {
+                        m_LastCubemap = cubemap;
+                    }
                     look               = SkyLookOf( skybox );
                     break;
                 }
@@ -152,6 +169,9 @@ namespace Desert::ECS
         }
 
     private:
+        std::shared_ptr<Graphic::MaterialSkybox> m_LastCubemap;
+        Assets::AssetHandle                      m_ReportedPending;
+
         static uint64_t EntityId( entt::registry& registry, entt::entity entity )
         {
             if ( auto* id = registry.try_get<ECS::UUIDComponent>( entity ) )

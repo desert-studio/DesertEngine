@@ -115,23 +115,24 @@ namespace Desert::Graphic
         return Common::MakeSuccess( std::move( panorama ) );
     }
 
-    Common::ResultStr<std::shared_ptr<ImageCube>>
-    LoadBakedEnvironmentCube( const std::filesystem::path& path, const std::string_view tag,
+    Common::ResultStr<Core::Formats::ImageCubeSpecification>
+    ReadBakedEnvironmentCube( const std::filesystem::path& path, const std::string_view tag,
                               const uint32_t faceSize, const uint32_t mips, const uint64_t sourceSignature,
                               const uint64_t bakeSignature )
     {
+        using Spec = Core::Formats::ImageCubeSpecification;
         // A MISS IS THE NORMAL FIRST RUN, NOT AN ERROR: the caller logs one line naming why it bakes.
         const auto raw = Common::Utils::FileSystem::ReadFileContentIfExists( path );
         if ( !raw.IsSuccess() )
-            return Common::MakeError<std::shared_ptr<ImageCube>>( raw.GetError() );
+            return Common::MakeError<Spec>( raw.GetError() );
         const auto& bytes = raw.GetValue();
         if ( !bytes.has_value() )
-            return Common::MakeFormattedError<std::shared_ptr<ImageCube>>( "not in the cache yet: {}",
+            return Common::MakeFormattedError<Spec>( "not in the cache yet: {}",
                                                                            path.string() );
 
         auto decoded = Ser::DecodeTextureBinary( *bytes, path.string() );
         if ( !decoded.IsSuccess() )
-            return Common::MakeError<std::shared_ptr<ImageCube>>( decoded.GetError() );
+            return Common::MakeError<Spec>( decoded.GetError() );
 
         auto data = decoded.ExtractValue();
 
@@ -143,27 +144,27 @@ namespace Desert::Graphic
         // face size in `SkyRules.hpp` and left the version alone.
         if ( data.SourceContentHash != sourceSignature )
         {
-            return Common::MakeFormattedError<std::shared_ptr<ImageCube>>(
+            return Common::MakeFormattedError<Spec>(
                  "'{}' was baked from a panorama whose signature is {:#018x} and this scene's is {:#018x}.",
                  path.string(), data.SourceContentHash, sourceSignature );
         }
         if ( data.EncoderHash != bakeSignature )
         {
-            return Common::MakeFormattedError<std::shared_ptr<ImageCube>>(
+            return Common::MakeFormattedError<Spec>(
                  "'{}' was baked with settings {:#018x} and this scene asks for {:#018x} (the bake's version or "
                  "shape changed).",
                  path.string(), data.EncoderHash, bakeSignature );
         }
         if ( data.Kind != Ser::TextureKind::Cube )
         {
-            return Common::MakeFormattedError<std::shared_ptr<ImageCube>>(
+            return Common::MakeFormattedError<Spec>(
                  "'{}' is kind {}, and an environment cube is a cube.", path.string(),
                  static_cast<uint32_t>( data.Kind ) );
         }
         if ( data.Width != faceSize || data.LevelCount() != mips ||
              ( data.Format != kStoredCubeFormat && data.Format != kCubeFormat ) )
         {
-            return Common::MakeFormattedError<std::shared_ptr<ImageCube>>(
+            return Common::MakeFormattedError<Spec>(
                  "'{}' holds a {}-texel face with {} levels in format {}, and this environment wants {} / {} "
                  "/ {}.",
                  path.string(), data.Width, data.LevelCount(), static_cast<uint32_t>( data.Format ), faceSize,
@@ -195,7 +196,7 @@ namespace Desert::Graphic
                   static_cast<double>( Core::Formats::CalculateCubeImageSize( faceSize, mips, data.Format ) ) /
                        ( 1024.0 * 1024.0 ) );
 
-        const Core::Formats::ImageCubeSpecification spec = { .Tag        = std::string( tag ),
+        Core::Formats::ImageCubeSpecification spec = { .Tag        = std::string( tag ),
                                                              .FaceSize   = faceSize,
                                                              .Format     = data.Format,
                                                              .Mips       = mips,
@@ -203,6 +204,12 @@ namespace Desert::Graphic
                                                              .Properties = properties,
                                                              .Levels     = std::move( spans ) };
 
+        return Common::MakeSuccess( std::move( spec ) );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageCube>>
+    CreateBakedEnvironmentCube( Core::Formats::ImageCubeSpecification spec, const std::filesystem::path& path )
+    {
         auto cube = SP_CAST( ImageCube, ImageCube::Create( spec, nullptr ) );
         if ( !cube )
         {
@@ -363,5 +370,55 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "the cooked container refused the shape this bake produced" );
 
         return Common::Utils::FileSystem::WriteContentToFileAtomic( path, bytes );
+    }
+    StagedEnvironment StageEnvironment( const std::filesystem::path& skybox )
+    {
+        const auto        startedAt = std::chrono::steady_clock::now();
+        StagedEnvironment staged;
+        staged.Skybox = skybox;
+
+        // THE ASSET'S HEADER DECIDES WHAT THIS SKYBOX IS, NOT ITS FILE NAME: `FindCookedPanorama` reads
+        // the container's own kind and key and names the reason when it refuses, so it is the only gate.
+        auto cooked = FindCookedPanorama( skybox );
+        if ( !cooked )
+        {
+            staged.Error = cooked.GetError();
+            return staged;
+        }
+        staged.Panorama = cooked.ExtractValue();
+        const uint64_t source = staged.Panorama.SourceSignature;
+
+        staged.RadianceBake =
+             EnvironmentBakeSignature( BakedEnvironmentCube::Radiance, kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
+        staged.IrradianceBake =
+             EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
+        staged.PrefilterBake = EnvironmentBakeSignature( BakedEnvironmentCube::Prefiltered,
+                                                         kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
+        staged.RadiancePath   = EnvironmentBakePath( source, staged.RadianceBake );
+        staged.IrradiancePath = EnvironmentBakePath( source, staged.IrradianceBake );
+        staged.PrefilterPath  = EnvironmentBakePath( source, staged.PrefilterBake );
+
+        auto radiance   = ReadBakedEnvironmentCube( staged.RadiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
+                                                    kSkyEnvRadianceMips, source, staged.RadianceBake );
+        auto irradiance = ReadBakedEnvironmentCube( staged.IrradiancePath, "EnvDiffuseIrradiance",
+                                                    kSkyEnvIrradianceFaceSize, 1u, source, staged.IrradianceBake );
+        auto prefilter  = ReadBakedEnvironmentCube( staged.PrefilterPath, "EnvPrefiltered", kSkyEnvPrefilterFaceSize,
+                                                    kSkyEnvPrefilterMips, source, staged.PrefilterBake );
+        if ( radiance.IsSuccess() && irradiance.IsSuccess() && prefilter.IsSuccess() )
+        {
+            staged.Cached = std::array<Core::Formats::ImageCubeSpecification, 3>{
+                 radiance.ExtractValue(), irradiance.ExtractValue(), prefilter.ExtractValue() };
+        }
+        else
+        {
+            staged.MissReason = ( radiance.IsSuccess() ? std::string( "radiance ready" ) : radiance.GetError() ) +
+                                " / " +
+                                ( irradiance.IsSuccess() ? std::string( "irradiance ready" ) : irradiance.GetError() ) +
+                                " / " +
+                                ( prefilter.IsSuccess() ? std::string( "prefilter ready" ) : prefilter.GetError() );
+        }
+        staged.StageMs =
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count();
+        return staged;
     }
 } // namespace Desert::Graphic

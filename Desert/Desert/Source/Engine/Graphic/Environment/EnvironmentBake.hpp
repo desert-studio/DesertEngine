@@ -48,7 +48,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Image.hpp>
 
+#include <array>
 #include <cstdint>
+#include <optional>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -115,9 +117,17 @@ namespace Desert::Graphic
     /// from another source, a file from another bake version, a cube of the wrong shape. The caller's answer to
     /// all of them is the same — bake — but the log has to be able to say which one happened, because
     /// "the cache never hits" and "the cache is never written" look identical from the frame rate.
-    [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
-    LoadBakedEnvironmentCube( const std::filesystem::path& path, std::string_view tag, uint32_t faceSize,
+    ///
+    /// SPLIT IN TWO SO THE DISK HALF LEAVES THE FRAME (AL1-3). `Read` is the file read, the container decode
+    /// and every refusal — no device call, so it runs on an `AsyncAssetLoader` worker; `Create` is the one
+    /// GPU upload and runs on the thread that owns the device. A cache hit is the two in sequence and
+    /// nothing else: no panorama read, no compute pass.
+    [[nodiscard]] Common::ResultStr<Core::Formats::ImageCubeSpecification>
+    ReadBakedEnvironmentCube( const std::filesystem::path& path, std::string_view tag, uint32_t faceSize,
                               uint32_t mips, uint64_t sourceSignature, uint64_t bakeSignature );
+
+    [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
+    CreateBakedEnvironmentCube( Core::Formats::ImageCubeSpecification spec, const std::filesystem::path& path );
 
     /// Read @p cube back off the device and write it as a cooked container. @p sourceKey is the
     /// `.hdr`'s stable project key, recorded as provenance exactly as a cooked texture records its PNG.
@@ -125,4 +135,24 @@ namespace Desert::Graphic
                                                                    ImageCube& cube, const std::string& sourceKey,
                                                                    uint64_t sourceSignature,
                                                                    uint64_t bakeSignature );
+    /// EVERYTHING ABOUT AN `.hdr` ENVIRONMENT THAT CAN BE KNOWN WITHOUT THE DEVICE (AL1-3). Built on an
+    /// `AsyncAssetLoader` worker by `SkyboxAsset::LoadFromFile`, consumed on the main thread by
+    /// `EnvironmentManager::Create`: a cache hit arrives with its three cubes decoded and only the upload
+    /// is left; a miss arrives with the paths and signatures the bake will write under, and the reason.
+    struct StagedEnvironment
+    {
+        std::filesystem::path Skybox;
+        /// Non-empty: there is no cooked panorama, so there is no environment at all — the sentence says why.
+        std::string    Error;
+        CookedPanorama Panorama;
+        uint64_t       RadianceBake = 0, IrradianceBake = 0, PrefilterBake = 0;
+        std::filesystem::path RadiancePath, IrradiancePath, PrefilterPath;
+        /// Radiance, irradiance, prefiltered — present only when ALL THREE hit.
+        std::optional<std::array<Core::Formats::ImageCubeSpecification, 3>> Cached;
+        std::string                                                         MissReason;
+        double                                                              StageMs = 0.0;
+    };
+
+    /// Worker-safe: file reads and decodes only, no device call.
+    [[nodiscard]] StagedEnvironment StageEnvironment( const std::filesystem::path& skybox );
 } // namespace Desert::Graphic
