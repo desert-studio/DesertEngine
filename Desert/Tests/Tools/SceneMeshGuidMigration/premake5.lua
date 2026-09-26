@@ -8,29 +8,24 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- Reflection.gen.cpp is written by DesertHeaderTool as a PREBUILD STEP OF `Desert`, and this test
-    -- asserts that the four fields the species replaced are GONE from the reflected VolumetricCloudData
-    -- and that the two that replaced them are present. Without this edge a parallel build can compile a
-    -- stale table in and the assertion would report on yesterday's struct.
+    -- Reflection.gen.cpp is written by DesertHeaderTool as a PREBUILD STEP OF `Desert`. Without this edge
+    -- a parallel build can compile a stale table in and the assertions would report on yesterday's struct.
     dependson { "Desert" }
 
-    -- The migration, the reflection table it writes for, and the reflected (de)serializer that turns the
-    -- migrated payload into the VolumetricCloudData the renderer reads. Nothing else - the migration is a
-    -- pure function over the parsed tree, and this project failing to link without a renderer is the proof.
+    -- The whole migration TU, so the v31 -> v32 step is reached through MigrateScene like any caller would.
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
-        -- The anim graph's JSON round trip: schema step 21 moves the state machine out of the entity and
-        -- reads it with the engine's own parser, so every suite that compiles the migration links it too.
+        "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp", -- the root check the grid must pass
+        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Graph/AnimGraphSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
     }
 
     includedirs {
@@ -85,6 +80,10 @@ project(test_name)
             links { path }
         end
 
+    filter {}
+
+    filter "system:macosx"
+        links { "Cocoa.framework" }
     filter {}
 
 print("Configured test project: " .. test_name)

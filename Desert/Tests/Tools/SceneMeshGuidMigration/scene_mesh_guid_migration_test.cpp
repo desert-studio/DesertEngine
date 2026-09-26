@@ -1,7 +1,6 @@
-// SCNE 28 (AF7o): a scene's `MeshGuid` stops being the mesh's PATH-derived u64 handle and becomes the GUID
-// text the mesh file's v3 header states - in entity records and in prefab-override records. A number that
-// is not the handle of the file beside it, or a file stating no GUID, REFUSES the file and leaves it
-// unstamped (MigrateMeshGuidsV27ToV28).
+// SCNE 32 (MSH1): the one scene step this tool still carries - a mesh block that names a MeshPath and states no
+// MeshGuid gains the GUID the mesh file's header states (MigratePathOnlyMeshGuidsV31ToV32) - and the refusal
+// every older generation gets now that its steps are gone (LEG1).
 
 #include <SceneMigration.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -63,24 +62,6 @@ namespace
         Project& operator=( const Project& ) = delete;
     };
 
-    // The handle a v27 writer stored for Cooked/Meshes/Probe.skmesh, as the signed JSON integer it wrote.
-    std::string OldHandleText()
-    {
-        const auto handle = static_cast<uint64_t>( Common::AssetHandle::FromKey( "cooked:Meshes/Probe.skmesh" ) );
-        return std::to_string( static_cast<int64_t>( handle ) );
-    }
-
-    std::string V27Scene( const std::string& handle )
-    {
-        return std::string( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000001",)" ) +
-               R"("Versions":{"SCNE":27,"UNIT":1},"Dependencies":[]},"SceneName":"S","Entities":[
-        {"id":1,"Tag":"Rig","SkinnedMesh":{"MeshPath":"Cooked/Meshes/Probe.skmesh","MeshGuid":)" +
-               handle + R"(}},
-        {"id":2,"Tag":"Inst","PrefabPath":"p.deprefab","PrefabOverrides":[{"Path":[],
-          "StaticMesh":{"MeshPath":"Cooked/Meshes/Probe.skmesh","MeshGuid":)" +
-               handle + R"(}}]}]})";
-    }
-
     Migration::SceneSerialized Parse( const std::string& json )
     {
         auto parsed = rfl::json::read<Migration::SceneSerialized>( json );
@@ -89,64 +70,28 @@ namespace
     }
 } // namespace
 
-TEST( SceneMeshGuidMigration, RecordsAndOverridesRaiseThePathHandleToTheHeaderGuid )
+// LEG1: the steps below v31 were deleted, so a v30 scene is REFUSED - by its own number and the current one -
+// and left exactly as it was: unstamped, nothing run.
+TEST( SceneVersionRefusal, AV30SceneIsRefusedNamingItsVersionAndTheCurrentOne )
 {
-    const Project project( "raise" );
-    auto          scene  = Parse( V27Scene( OldHandleText() ) );
-    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    const Project project( "v30" );
+    auto          scene  = Parse( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000004",)"
+                                            R"("Versions":{"SCNE":30,"UNIT":1},"Dependencies":[]},"SceneName":"S",)"
+                                            R"("Entities":[{"id":1,"Tag":"Probe","StaticMesh":{"MeshPath":"x.skmesh"}}]})" );
+    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
-    ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
-    EXPECT_TRUE( report.MeshGuidsRaised );
-    EXPECT_EQ( report.MeshGuids.Rewritten, 2 );
-    const std::string text = rfl::json::write( scene );
-    EXPECT_EQ( text.find( OldHandleText() ), std::string::npos ) << text;
-    std::size_t count = 0;
-    for ( std::size_t at = text.find( kMeshGuidText ); at != std::string::npos;
-          at             = text.find( kMeshGuidText, at + 1 ) )
-        ++count;
-    EXPECT_EQ( count, 2u ) << "one in the record, one in its prefab override: " << text;
+    ASSERT_FALSE( report.Refused.empty() );
+    EXPECT_NE( report.Refused.find( "schema v30" ), std::string::npos ) << report.Refused;
+    EXPECT_NE( report.Refused.find( "to v" + std::to_string( Desert::Core::kSceneVersion ) ), std::string::npos )
+         << report.Refused;
+    EXPECT_EQ( report.Refused.find( "git checkout" ), std::string::npos ) << "no route back to legacy is promised";
+    EXPECT_FALSE( report.Changed() );
     ASSERT_TRUE( scene.Header.has_value() );
-    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
-               Desert::Core::kSceneVersion );
-}
-
-TEST( SceneMeshGuidMigration, AHandleThatIsNotThePathsRefusesAndLeavesTheSceneUnstamped )
-{
-    const Project project( "mismatch" );
-    auto          scene  = Parse( V27Scene( "12345" ) );
-    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
-
-    ASSERT_FALSE( report.Refused.empty() );
-    EXPECT_NE( report.Refused.find( "Rig > SkinnedMesh.MeshGuid = 12345" ), std::string::npos ) << report.Refused;
-    EXPECT_NE( report.Refused.find( "PrefabOverrides[0] > StaticMesh.MeshGuid" ), std::string::npos )
-         << report.Refused;
-    EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ), 27 );
-}
-
-TEST( SceneMeshGuidMigration, AMeshStatingNoGuidRefuses )
-{
-    const Project project( "noguid", 2 );
-    auto          scene  = Parse( V27Scene( OldHandleText() ) );
-    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
-
-    ASSERT_FALSE( report.Refused.empty() );
-    EXPECT_NE( report.Refused.find( "states no mesh GUID" ), std::string::npos ) << report.Refused;
-}
-
-TEST( SceneMeshGuidMigration, AMissingMeshFileRefuses )
-{
-    const Project project( "missing" );
-    fs::remove( project.Root / "Cooked" / "Meshes" / "Probe.skmesh" );
-    auto       scene  = Parse( V27Scene( OldHandleText() ) );
-    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
-
-    ASSERT_FALSE( report.Refused.empty() );
-    EXPECT_NE( report.Refused.find( "no file 'Cooked/Meshes/Probe.skmesh'" ), std::string::npos )
-         << report.Refused;
+    EXPECT_EQ( scene.Header->Versions.at( "SCNE" ), 30u ) << "a refused file must not be stamped";
 }
 
 // SCNE 32 (MSH1): a mesh block that names a MeshPath and states NO MeshGuid - the key missing or "" - gains
-// the GUID the file's v3 header states. The v28 step above rewrote MeshGuid VALUES only, so a block with no
+// the GUID the file's v3 header states. The retired v28 step rewrote MeshGuid VALUES only, so a block with no
 // key crossed v28..v31 as it was and the loader left the slot empty (M10_MeshSlot).
 namespace
 {
@@ -178,11 +123,10 @@ TEST( ScenePathOnlyMeshGuidMigration, APathOnlyBlockInARecordAndAnOverrideGainsT
 {
     const Project project( "pathonly" );
     auto          scene  = Parse( V31PathOnlyScene( "Cooked/Meshes/Probe.skmesh" ) );
-    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_TRUE( report.PathOnlyMeshGuidsRaised );
-    EXPECT_FALSE( report.MeshGuidsRaised ) << "the v28 step must not run on a v31 file";
     EXPECT_EQ( report.PathOnlyMeshGuids.Rewritten, 2 );
     const std::string text = rfl::json::write( scene );
     EXPECT_EQ( Occurrences( text, kMeshGuidText ), 2u ) << "the record and the override: " << text;
@@ -196,7 +140,7 @@ TEST( ScenePathOnlyMeshGuidMigration, ASecondRunOfTheStepChangesNothing )
 {
     const Project project( "pathonly_twice" );
     auto          scene = Parse( V31PathOnlyScene( "Cooked/Meshes/Probe.skmesh" ) );
-    ASSERT_TRUE( Migration::MigrateScene( scene, project.AssetsRoot, "", {} ).Refused.empty() );
+    ASSERT_TRUE( Migration::MigrateScene( scene, project.AssetsRoot, "" ).Refused.empty() );
     const std::string once   = rfl::json::write( scene );
     const auto        report = Migration::MigratePathOnlyMeshGuidsV31ToV32( scene.Entities, project.AssetsRoot );
     EXPECT_EQ( report.Rewritten, 0 );
@@ -208,7 +152,7 @@ TEST( ScenePathOnlyMeshGuidMigration, AMissingFileRefusesNamingBothBlocksAndLeav
 {
     const Project project( "pathonly_missing" );
     auto          scene  = Parse( V31PathOnlyScene( "Cooked/Meshes/Gone.skmesh" ) );
-    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "Probe > StaticMesh.MeshPath = 'Cooked/Meshes/Gone.skmesh'" ),
@@ -223,7 +167,7 @@ TEST( ScenePathOnlyMeshGuidMigration, AMeshStatingNoGuidRefuses )
 {
     const Project project( "pathonly_noguid", 2 );
     auto          scene  = Parse( V31PathOnlyScene( "Cooked/Meshes/Probe.skmesh" ) );
-    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "states no mesh GUID" ), std::string::npos ) << report.Refused;
@@ -258,7 +202,7 @@ TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopedSourceMeshGivesItsHeaderGuid )
     const Project project( "pathonly_envelope" );
     WriteEnvelopeMesh( project, Common::Content::ContentKind::StaticMesh );
     auto       scene  = Parse( V31PathOnlyScene( "Meshes/Probe.stmesh" ) );
-    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_EQ( report.PathOnlyMeshGuids.Rewritten, 2 );
@@ -270,8 +214,14 @@ TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopeOfAnotherKindRefuses )
     const Project project( "pathonly_envelope_kind" );
     WriteEnvelopeMesh( project, Common::Content::ContentKind::Texture );
     auto       scene  = Parse( V31PathOnlyScene( "Meshes/Probe.stmesh" ) );
-    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "is not a mesh" ), std::string::npos ) << report.Refused;
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

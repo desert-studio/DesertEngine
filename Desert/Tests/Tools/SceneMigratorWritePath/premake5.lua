@@ -15,11 +15,6 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Tools/SceneMigrator/Source/MigratorMain.cpp",
-        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp", -- RunSceneMigrator reads and saves the legacy material-id register through it (AF7)
-        -- A5 gave the tool a fourth file class (`.anim`), so the suite that compiles its main must link
-        -- the conversion it now calls, and the tick model that conversion targets. Both are pure.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/AnimationClipMigrate.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Tools/SceneMigrator/Source/SceneMigration.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
         -- The anim graph's JSON round trip: schema step 21 moves the state machine out of the entity and
@@ -33,8 +28,6 @@ project(test_name)
         -- suite that compiles MigratorMain.cpp has to bring the table with it. It is deliberately not in
         -- SceneMigration.cpp: the fifteen suites that test one schema step each must stay free of it.
         "%{wks.location}/Tools/SceneMigrator/Source/SettingsCanonical.cpp",
-        -- The loop's material step (MATL 2) and scene step (SCNE 27) read the legacy-id register.
-        "%{wks.location}/Tools/SceneMigrator/Source/LegacyMaterialIds.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",
@@ -42,12 +35,6 @@ project(test_name)
         -- ENGINE'S own writer, gate-checked by the ENGINE'S own loader gate — so a suite that compiles
         -- the loop has to bring that pair with it, for the same reason it brings the reflection table.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Prefab/PrefabFormat.cpp",
-        -- THE RETARGET WRITER AND GATE, since T7f: the RTGT 2 -> 3 step writes through the engine's own
-        -- WriteRetarget and gates with its own ParseRetarget. Retarget.cpp builds a RetargetPose, whose
-        -- Apply reads the bind pose of a Skeleton, so the three come with it; all pure, no GPU.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/Retarget.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/RetargetPose.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Pose.cpp",
         -- THE CLOUD NOISE VOLUME DECODER, since T7g: the DCNV 1/2 -> 3 step wraps the payload in the AF1
         -- envelope and reads it back through the engine's own DecodeCloudNoiseVolume before writing. Pure
         -- bytes in, bytes out; no GPU.
@@ -55,10 +42,6 @@ project(test_name)
         -- THE SCULPTED CLOUD VOLUME DECODER, likewise for the DCMV 2 -> 3 step (DecodeCloudModellingVolume).
         -- It reaches Common's JobSystem and Rounding, both inside the Common this project already links.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Animation/Skeleton.cpp",
-        -- THE CLOUD TYPE WRITER AND GATE, since T7h: the CLTY 4 -> 5 step writes through the engine's own
-        -- WriteCloudType and gates with its own ParseCloudType; pure, no GPU.
-        "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
         -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
         -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",

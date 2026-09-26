@@ -16,8 +16,8 @@
 //   1. Every shipped `.demat` is MATL 3: one identity (the header GUID), no second number beside it, an
 //      instance's Parent is a shipped material's GUID stated again as the header's one Dependency, and no
 //      two files share a GUID or a handle.
-//   2. Every MaterialGuid a shipped scene names (still the MATL 1 number until SCNE 27) is translated by the
-//      LegacyMaterialIds register to exactly ONE `.demat` — the relation between the two sides.
+//   2. Every MaterialGuid a shipped scene names is carried by exactly ONE `.demat` — the relation between the
+//      two sides.
 //   3. The rule MaterialService refuses on, driven directly, including the cases that must NOT refuse.
 
 #include <gtest/gtest.h>
@@ -119,17 +119,6 @@ namespace
         }
         return out;
     }
-
-    // The register the migrator wrote once from the MATL 1 corpus (Tools/SceneMigrator LegacyMaterialIds).
-    struct LegacyRow
-    {
-        uint64_t    MaterialId = 0;
-        std::string Guid;
-    };
-    struct LegacyRegister
-    {
-        std::vector<LegacyRow> Ids;
-    };
 } // namespace
 
 TEST( MaterialIdentity, EveryShippedMaterialIsMatl3WithOneIdentityAndNoTwoShareIt )
