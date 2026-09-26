@@ -273,11 +273,13 @@ TEST( ProceduralEnvironmentCube, TheSkyboxAssetDecidesAndEveryEmptyEnvironmentIs
                                         << body.substr( end > 200 ? end - 200 : 0, 220 );
         if ( body[end - 1] != ';' )
             continue;
-        const std::size_t statementStart = body.find_last_of( ";{}", end - 2 );
-        std::string       statement      = body.substr( statementStart + 1, end - statementStart - 1 );
-        statement.erase( 0, statement.find_first_not_of( " \t\r\n" ) );
-        EXPECT_EQ( statement.rfind( "LOG_ERROR", 0 ), 0u )
-             << "an empty environment is returned without a LOG_ERROR right before it:\n" << statement;
+        // The statement before is a LOG_ERROR when the last LOG_ERROR before the return is followed by
+        // no `;` other than its own (format strings hold `{}`, so braces cannot delimit statements).
+        const std::size_t log = body.rfind( "LOG_ERROR", end );
+        ASSERT_NE( log, std::string::npos ) << "an empty environment is returned and nothing is logged";
+        EXPECT_EQ( body.find( ';', log ), end - 1 )
+             << "an empty environment is returned without a LOG_ERROR right before it:\n"
+             << body.substr( log, end - log );
     }
     EXPECT_GE( emptyReturns, 2u ) << "the two refusals (no cooked panorama, panorama did not load) are gone";
 }

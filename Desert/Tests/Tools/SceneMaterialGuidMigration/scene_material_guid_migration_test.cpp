@@ -201,7 +201,7 @@ TEST( SceneMaterialGuidMigration, APathOnlySlotGainsTheGuidOfTheMaterialItNames 
 {
     const auto root   = WritePathOnlyFixture( "rsky2_path_only_ok" );
     auto       scene  = Parse( PathOnlyScene( "Materials/A.demat" ) );
-    const auto report = Migration::MigrateScene( scene, "", root, KnownLegacyIds() );
+    const auto report = Migration::MigrateScene( scene, root, "", KnownLegacyIds() );
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_EQ( report.MaterialGuids.Rewritten, 1 );
@@ -214,7 +214,7 @@ TEST( SceneMaterialGuidMigration, APathOnlySlotWhoseMaterialIsMissingRefusesByNa
 {
     const auto root   = WritePathOnlyFixture( "rsky2_path_only_missing" );
     auto       scene  = Parse( PathOnlyScene( "Materials/Gone.demat" ) );
-    const auto report = Migration::MigrateScene( scene, "", root, KnownLegacyIds() );
+    const auto report = Migration::MigrateScene( scene, root, "", KnownLegacyIds() );
 
     ASSERT_FALSE( report.Refused.empty() ) << "a path naming no file must refuse, not stamp an empty slot";
     EXPECT_NE( report.Refused.find( "Materials/Gone.demat" ), std::string::npos ) << report.Refused;
