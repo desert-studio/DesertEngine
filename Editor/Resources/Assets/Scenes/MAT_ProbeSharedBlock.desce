@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "8418ed46ec377848ed31f52d0c1bc01b",
         "Versions": {
-            "SCNE": 30,
+            "SCNE": 31,
             "UNIT": 1
         },
         "Dependencies": []
@@ -54,7 +54,10 @@
                 "Primitive": "Sphere"
             },
             "Material": {
-                "ShaderName": "MatProbe",
+                "Shader": {
+                    "Guid": "40293d62f22f46a49912f44c6c024d06",
+                    "Path": "engine:Shaders/Programs/Graph/MatProbe.shader"
+                },
                 "Params": [
                     {
                         "Name": "Blend",
@@ -74,7 +77,10 @@
                 "Primitive": "Sphere"
             },
             "Material": {
-                "ShaderName": "MatProbe",
+                "Shader": {
+                    "Guid": "40293d62f22f46a49912f44c6c024d06",
+                    "Path": "engine:Shaders/Programs/Graph/MatProbe.shader"
+                },
                 "Params": [
                     {
                         "Name": "Blend",
@@ -94,7 +100,10 @@
                 "Primitive": "Sphere"
             },
             "Material": {
-                "ShaderName": "MatProbe",
+                "Shader": {
+                    "Guid": "40293d62f22f46a49912f44c6c024d06",
+                    "Path": "engine:Shaders/Programs/Graph/MatProbe.shader"
+                },
                 "Params": [
                     {
                         "Name": "Blend",

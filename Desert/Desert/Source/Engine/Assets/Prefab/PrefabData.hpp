@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
+
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/UUID.hpp>
@@ -104,9 +106,12 @@ namespace Desert::Assets
         std::string Path;
     };
 
+    // SCNE 31 (T7i): the shader by its header GUID with the stable key as a locator, the `.demat`'s own
+    // spelling (MATL 4) - it used to be `ShaderName`, the file stem, which a rename silently broke. Absent =
+    // no shader (the component's ShaderName stays empty).
     struct MaterialComponentSer
     {
-        std::string                                    ShaderName;
+        std::optional<AssetGuidRef>                    Shader;
         std::optional<std::vector<MaterialParamSer>>   Params;
         std::optional<std::vector<MaterialTextureSer>> Textures;
     };
