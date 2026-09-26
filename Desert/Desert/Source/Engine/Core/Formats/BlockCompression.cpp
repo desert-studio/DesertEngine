@@ -1,5 +1,7 @@
 #include "BlockCompression.hpp"
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <algorithm>
 #include <cmath>
 // `std::abs( int )` is declared here and NOT by <cmath>, which carries only the floating-point
@@ -876,7 +878,18 @@ namespace Desert::Core::Formats
         std::vector<unsigned char> out(
              static_cast<std::size_t>( CalculateImageSize( width, height, blockFormat ) ) );
 
-        for ( uint32_t by = 0; by < blocksY; ++by )
+        // ROWS OF BLOCKS ARE ENCODED IN PARALLEL, and the bytes are still exactly the serial loop's:
+        // every block is a pure function of its own 4x4 texels (edge texels are clamped reads of the
+        // SOURCE, never of another block's output) and lands at an offset fixed by (bx, by) alone, so
+        // which thread encodes it, and in what order, cannot reach the output. A 1024 radiance cube's
+        // BC6H chain took ~17 s on one worker and the cache entry has to be on disk seconds after the
+        // bake, not when the editor closes. ParallelRanges is safe from a worker (the environment
+        // cache writer calls this from a JobSystem job) and degrades to the serial loop when the pool
+        // is busy, so no caller can be made to wait on a job that never runs.
+        // Four rows of a 1024 face's 256 is ~0.1 % of the face per claim: far above the pool's per-range
+        // cost, and small enough that the slow rows (the sun) are absorbed by whoever finishes first.
+        constexpr std::size_t kBlockRowsPerRange = 4;
+        const auto            encodeRow          = [&]( const uint32_t by )
         {
             for ( uint32_t bx = 0; bx < blocksX; ++bx )
             {
@@ -940,7 +953,14 @@ namespace Desert::Core::Formats
                     EncodeBc6hBlock( texels, block );
                 }
             }
-        }
+        };
+
+        Common::JobSystem::Get().ParallelRanges( blocksY, kBlockRowsPerRange,
+                                                 [&]( const std::size_t firstRow, const std::size_t endRow )
+                                                 {
+                                                     for ( std::size_t by = firstRow; by < endRow; ++by )
+                                                         encodeRow( static_cast<uint32_t>( by ) );
+                                                 } );
 
         return Common::MakeSuccess( std::move( out ) );
     }
