@@ -6,6 +6,7 @@
 #include <Common/Core/Events/WindowEvents.hpp>
 
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -316,6 +317,23 @@ namespace Desert::Platform::Windows
     bool WindowsWindow::IsWindowMaximized() const
     {
         return glfwGetWindowAttrib( m_GLFWWindow, GLFW_MAXIMIZED ) == GLFW_TRUE;
+    }
+
+    bool WindowsWindow::HasDrawableArea() const
+    {
+        // THE FRAMEBUFFER, NOT THE WINDOW, and not m_Data.Specification either. RefreshCachedSize keeps
+        // the last non-degenerate size on purpose, so the cached width and height still read 1280x720 for
+        // a window sitting in the taskbar; asking GLFW is what makes this answer the current truth.
+        int width  = 0;
+        int height = 0;
+        glfwGetFramebufferSize( m_GLFWWindow, &width, &height );
+
+        // Negative is not a size GLFW documents, but the cast below would turn one into four billion, and
+        // the whole point of IsUsableViewExtent is that both ends of that range are refused.
+        if ( width < 0 || height < 0 )
+            return false;
+
+        return Graphic::IsUsableViewExtent( static_cast<uint32_t>( width ), static_cast<uint32_t>( height ) );
     }
 
     uint32_t WindowsWindow::GetWidth() const

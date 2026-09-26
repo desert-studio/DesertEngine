@@ -45,6 +45,9 @@ project(test_name)
 
     filter "system:windows"
         defines { "DESERT_PLATFORM_WINDOWS" }
+        -- The suite drives the real socket, so it links what the socket needs: AF_UNIX over Winsock and
+        -- the DACL on the socket file (Common/Core/LocalSocket.hpp).
+        links { "ws2_32", "advapi32" }
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
     filter "system:linux"
