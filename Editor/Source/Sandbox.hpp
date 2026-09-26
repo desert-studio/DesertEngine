@@ -4,6 +4,7 @@
 #include <Engine/EntryPoint.hpp>
 
 #include <Editor/Core/CommandLine.hpp>
+#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Core/StartupRefusal.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
@@ -250,6 +251,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // measurement would include a few frames of the other configuration.
     Desert::Editor::ShotOptions::Get()                               = options.Shot;
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
+    Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
 
     // The language, before the first frame for the same reason: a run that renders two frames of two
     // languages is not a capture of either. An empty value leaves the process in its source language,

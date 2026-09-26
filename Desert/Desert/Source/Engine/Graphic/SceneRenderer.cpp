@@ -12,6 +12,10 @@
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/RendererSlotPool.hpp>
+
+#include <Engine/Graphic/ViewBudgetGate.hpp>
+
+#include <mutex>
 #include <Common/Core/Units.hpp>
 
 #include <Common/Core/Profiler.hpp>
@@ -439,7 +443,37 @@ namespace Desert::Graphic
             static Engine::RendererSlotPool pool;
             return pool;
         }
+
+        // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
+        // destroyed from panels and from the UI producer, not only from one loop.
+        std::mutex& LiveRenderersMutex()
+        {
+            static std::mutex mutex;
+            return mutex;
+        }
+        std::vector<const SceneRenderer*>& LiveRenderers()
+        {
+            static std::vector<const SceneRenderer*> live;
+            return live;
+        }
     } // namespace
+
+    uint64_t SceneRenderer::HeldBytes() const
+    {
+        return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
+                    .Total() +
+               m_ViewResources.HeldBytes();
+    }
+
+    std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
+    {
+        const std::scoped_lock                    lock( LiveRenderersMutex() );
+        std::vector<Engine::ViewBudget::HeldView> held;
+        held.reserve( LiveRenderers().size() );
+        for ( const SceneRenderer* renderer : LiveRenderers() )
+            held.push_back( { renderer->m_ViewResources.GetName(), renderer->HeldBytes() } );
+        return held;
+    }
 
     uint32_t SceneRenderer::GetLiveRendererCount()
     {
@@ -451,6 +485,10 @@ namespace Desert::Graphic
            m_ViewResources( "renderer slot " + std::to_string( m_SlotLease.RecordingSlot() ) ),
            m_ViewProfile( profile ), m_ViewExtent( extent )
     {
+        {
+            const std::scoped_lock lock( LiveRenderersMutex() );
+            LiveRenderers().push_back( this );
+        }
         if ( !m_SlotLease.IsValid() )
         {
             // More live renderers than slots: the newcomer records into slot 0 and says so, because the
@@ -472,6 +510,10 @@ namespace Desert::Graphic
     SceneRenderer::~SceneRenderer()
     try
     {
+        {
+            const std::scoped_lock lock( LiveRenderersMutex() );
+            std::erase( LiveRenderers(), this );
+        }
         if ( !m_SlotLease.IsValid() )
             return;
 
@@ -1294,6 +1336,24 @@ namespace Desert::Graphic
         // that its camera turns square, and a rebuild would idle the device for identical targets.
         if ( m_ViewExtent == ViewExtent{ width, height } )
             return;
+        // A GROWTH THAT DOES NOT FIT IS REFUSED BEFORE ANYTHING IS DESTROYED: the view keeps its old targets
+        // and its old extent, so it still draws, only not at the new size. Said once per refused size, since
+        // the panel asks again every frame it stays that size.
+        if ( m_TargetFramebuffer )
+        {
+            const ViewExtent requested{ width, height };
+            if ( const auto may =
+                      MayResizeView( m_ViewResources.GetName(), m_ViewProfile, m_ViewExtent, requested );
+                 !may )
+            {
+                if ( !( m_RefusedResize == requested ) )
+                    LOG_WARN( "[ViewBudget] {}. The view keeps its {}x{} targets.", may.GetError(),
+                              m_ViewExtent.Width, m_ViewExtent.Height );
+                m_RefusedResize = requested;
+                return;
+            }
+            m_RefusedResize = ViewExtent{};
+        }
         m_ViewExtent = ViewExtent{ width, height };
         // Before the first build there is no target yet and the extent is all there is to update: the
         // build reads it.

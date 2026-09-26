@@ -4,6 +4,7 @@
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
 
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/AssetMetadata.hpp>
@@ -45,10 +46,10 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::CloudModellingVolume:
             case Assets::AssetTypeID::CloudLayout:
             case Assets::AssetTypeID::Skybox:
+            case Assets::AssetTypeID::Mesh: // static meshes; a `.skmesh` is refused by name in AssetSubjectFor
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
-            case Assets::AssetTypeID::Mesh:
             case Assets::AssetTypeID::Shader:
             case Assets::AssetTypeID::Skeleton:
             case Assets::AssetTypeID::Animation:
@@ -80,6 +81,15 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<SubjectId>(
                  "asset {:016x} ('{}') is a {} (AssetTypeID {}): {}", static_cast<uint64_t>( requested ),
                  found->Filepath.generic_string(), Assets::AssetTypeName( found->AssetType ), type, refusal );
+
+        // ONE TYPE, TWO FORMATS: AssetTypeID::Mesh names both `.stmesh` and `.skmesh`, and only the static one
+        // has a viewer (AV1f). The skinned one is refused here, by name, before a window is built for it.
+        if ( found->AssetType == Assets::AssetTypeID::Mesh &&
+             found->Filepath.extension() == Common::Constants::Extensions::SKINNED_MESH )
+            return Common::MakeFormattedError<SubjectId>(
+                 "asset {:016x} ('{}') is a skeletal mesh: only static meshes have a viewer; the skeletal mesh "
+                 "viewer (AV1g) does not exist yet",
+                 static_cast<uint64_t>( requested ), found->Filepath.generic_string() );
 
         // The register says it opens; an editor missing here is a wiring defect, not a property of the type.
         if ( !editors.HasEditorFor( AssetSubjectType( type ) ) )

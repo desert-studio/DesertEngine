@@ -18,6 +18,13 @@
 
 #include <gtest/gtest.h>
 
+#include <Editor/Import/MeshDeriver.hpp>
+#include <Editor/Panels/StaticMeshViewer/StaticMeshStats.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
 #include <filesystem>
 #include <random>
 #include <set>
@@ -250,6 +257,68 @@ TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )
     const fs::path& folder = target.GetValue();
     EXPECT_FALSE( Editor::WriteStaticMeshAsset( *Dyn( coloured ), kSlots, folder, "Box" ).IsSuccess() );
     EXPECT_FALSE( fs::exists( folder / "Box.stmesh" ) );
+}
+
+// --- The static mesh viewer's statistics (AV1f) ------------------------------------------------------------
+//
+// The window prints DescribeStaticMesh of the mesh's BUILT platform data (the DDC value StaticMeshAsset draws);
+// asserted here against the committed probe, derived by the editor's own builder and read through the engine's
+// own reader, so the numbers on screen are the numbers the renderer draws.
+namespace
+{
+    std::filesystem::path ProbeMeshFile()
+    {
+        std::filesystem::path here = std::filesystem::current_path();
+        for ( int up = 0;
+              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Meshes" ); ++up )
+            here = here.parent_path();
+        return here / "Editor" / "Resources" / "Assets" / "Meshes" / "StaticProbe.stmesh";
+    }
+} // namespace
+
+TEST( StaticMeshViewerStats, TheProbeReportsFortyEightVerticesTwentyFourTrianglesTwoSections )
+{
+    const auto source = Desert::Assets::ReadMeshSourceAssetFile( ProbeMeshFile() );
+    ASSERT_TRUE( source.IsSuccess() ) << source.GetError();
+    const auto built = Desert::Editor::BuildMeshPlatformData( source.GetValue() );
+    ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
+    const auto data =
+         Desert::Assets::Serialization::ReadMeshAssetData( built.GetValue(), ProbeMeshFile().string() );
+    ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
+
+    const auto stats = Desert::Editor::DescribeStaticMesh( data.GetValue() );
+    EXPECT_EQ( stats.Vertices, 48u );
+    EXPECT_EQ( stats.Triangles, 24u );
+    EXPECT_EQ( stats.Sections, 2u );
+    ASSERT_GE( stats.LODs(), 1u );
+    EXPECT_EQ( stats.TrianglesPerLOD[0], stats.Triangles )
+         << "LOD 0 summed over the sections disagrees with the triangle array: IndexCount is in index units";
+    const auto expected = Desert::Assets::Serialization::MeshDataBounds( data.GetValue() );
+    ASSERT_TRUE( stats.Bounds.has_value() && expected.has_value() );
+    const auto& bounds = stats.Bounds.value(); // NOLINT(bugprone-unchecked-optional-access): asserted above
+    const auto& want   = expected.value();     // NOLINT(bugprone-unchecked-optional-access): asserted above
+    EXPECT_EQ( bounds.Min, want.Min );
+    EXPECT_EQ( bounds.Max, want.Max );
+    EXPECT_GT( bounds.Max.y - bounds.Min.y, 0.0f );
+}
+
+TEST( StaticMeshViewerStats, AShorterChainCountsItsCoarsestLevelAtDeeperLODs )
+{
+    Desert::Assets::Serialization::MeshAssetData data;
+    data.Indices.resize( 5 );
+    Desert::Assets::Serialization::SubmeshData a{};
+    a.IndexCount = 9; // 3 triangles
+    a.LODs       = { std::vector<Desert::Assets::Serialization::IndexData>( 2 ),
+                     std::vector<Desert::Assets::Serialization::IndexData>( 1 ) };
+    Desert::Assets::Serialization::SubmeshData b{};
+    b.IndexCount   = 6; // 2 triangles, no chain
+    data.Submeshes = { a, b };
+
+    const auto stats = Desert::Editor::DescribeStaticMesh( data );
+    ASSERT_EQ( stats.LODs(), 3u );
+    EXPECT_EQ( stats.TrianglesPerLOD[0], 5u );
+    EXPECT_EQ( stats.TrianglesPerLOD[1], 4u );
+    EXPECT_EQ( stats.TrianglesPerLOD[2], 3u );
 }
 
 int main( int argc, char** argv )

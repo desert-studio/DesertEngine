@@ -13,6 +13,7 @@
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
+#include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -311,6 +312,15 @@ namespace Desert::Graphic
         // environment, which is why the bake announces its cost with this number beside it.
         static uint32_t GetLiveRendererCount();
 
+        // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
+        // the same table the view's build is checked against) plus every per-view copy its ViewResources
+        // keeps (uniform/storage buffer copies, ...). What the view-budget rule counts as "open views hold"
+        // (Engine/Core/ViewBudget.hpp).
+        [[nodiscard]] uint64_t HeldBytes() const;
+
+        // Every live view and what it holds, for the budget's refusal text and its usage stand-in.
+        [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> LiveHoldings();
+
         const auto& GetMainCamera() const
         {
             return m_SceneInfo.ActiveCamera;
@@ -423,6 +433,10 @@ namespace Desert::Graphic
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
         // cascade framebuffers exist from that moment until this renderer dies.
         ViewProfile m_ViewProfile;
+
+        // The last size a Resize() was refused at by the view budget, so the refusal is logged once and not
+        // every frame the panel keeps asking. Empty once a resize succeeds.
+        ViewExtent m_RefusedResize{};
 
         // The surface's size: the constructor's until the first Resize(), then the last one's. The build
         // reads it and nothing reads the window, so a view never holds targets larger than its surface.

@@ -55,7 +55,7 @@ namespace Desert::Graphic
         // canvas would be drawn in the wrong place in a Vulkan command buffer, which no device-free
         // suite can observe and which `RenderGraphSort` cannot see either — that suite asserts the
         // ORDER the graph produces, and this list is precisely the set of phases whose order the
-        // executor then ignores. Same shape as Engine/Core/RendererSlotBudget.hpp: several callers
+        // executor then ignores. Same shape as Engine/Core/ViewBudget.hpp: several callers
         // needing one answer, written out separately a screen apart.
         //
         // Desert/Tests/Engine/UICanvasOverScene asserts the membership this file declares.

@@ -1,7 +1,8 @@
 #include "UIRenderTextureCache.hpp"
 
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Core/RendererSlotBudget.hpp>
+#include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
+#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
@@ -63,8 +64,8 @@ namespace Desert::Graphic::Render2D
         m_Captures.clear();
         m_Demanded.clear();
         m_Refused.clear();
-        LOG_INFO( "[UI] render-texture cache reset: {} capture(s) destroyed, {} renderer slot(s) returned",
-                  released, released );
+        LOG_INFO( "[UI] render-texture cache reset: {} capture(s) destroyed, {} view(s) returned", released,
+                  released );
     }
 
     UIRenderTextureCache::Capture* UIRenderTextureCache::Build( entt::entity element, const Demand& demand,
@@ -81,26 +82,20 @@ namespace Desert::Graphic::Render2D
             return nullptr;
         }
 
-        // ASKED BEFORE ANYTHING IS BUILT, through the SHARED rule and not a comparison written out here:
-        // the Details preview and the thumbnail service ask the same question with different
-        // entitlements, and two spellings of one policy is how they come to disagree
-        // (Engine/Core/RendererSlotBudget.hpp).
-        //
-        // UserSurface, and that is the entitlement: an author put this element on a canvas and a player is
-        // looking at the rect it occupies. It is allowed the last slot for the same reason the Details
-        // preview is — refusing it would be refusing the thing that was asked for.
-        const uint32_t live = SceneRenderer::GetLiveRendererCount();
-        if ( !Engine::RendererSlotBudget::MayClaim( Engine::RendererSlotBudget::Demand::UserSurface, live,
-                                                    EngineContext::kMaxRendererSlots ) )
+        // ASKED BEFORE ANYTHING IS BUILT, through the shared byte rule (Engine/Core/ViewBudget.hpp) and not a
+        // comparison written out here: the Details preview and the thumbnail service ask the same question
+        // with different entitlements. What is asked for is RequestUIRenderTextureView's, and the renderer
+        // below is built from the same request.
+        const UIRenderTextureViewRequest request = RequestUIRenderTextureView( demand.Width, demand.Height );
+        if ( const auto may = MayCreateView( request.Who, "UI render texture " + demand.ScenePath, request.Profile,
+                                             request.Extent );
+             !may )
         {
-            if ( ShouldSay( m_Refused, element, "slots" ) )
+            if ( ShouldSay( m_Refused, element, "budget" ) )
             {
-                LOG_WARN( "[UI] render-texture element {} (scene '{}') refused: all {} of {} renderer slots "
-                          "are in use, and a slot comes back only when the surface holding it is destroyed. "
-                          "It draws the magenta error fill. Hide or remove another render-texture element, "
-                          "or close a scene view, and it will build on the next frame.",
-                          static_cast<uint32_t>( element ), demand.ScenePath, live,
-                          EngineContext::kMaxRendererSlots );
+                LOG_WARN( "[UI] render-texture element {} draws the magenta error fill: {}. Hide or remove "
+                          "another render-texture element, or close a view, and it builds on the next frame.",
+                          static_cast<uint32_t>( element ), may.GetError() );
             }
             return nullptr;
         }
@@ -134,8 +129,7 @@ namespace Desert::Graphic::Render2D
         // and the number is per capture. An element a few hundred pixels across that paid the viewport's
         // shadow budget would make six of them cost 2 GB of shadow maps alone. Passed to the CONSTRUCTOR
         // because MeshRenderer allocates from it inside Init() — a value arriving later is read by nothing.
-        capture.Renderer =
-             std::make_unique<SceneRenderer>( ViewExtent{ demand.Width, demand.Height }, kPreviewViewProfile );
+        capture.Renderer = std::make_unique<SceneRenderer>( request.Extent, request.Profile );
         capture.Scene    = std::make_shared<Core::Scene>( "UIRenderTexture", capture.Renderer.get() );
 
         // THE WORLD NEEDS SOMETHING TO COLLECT IT. A Core::Scene adds no ECS systems of its own, so

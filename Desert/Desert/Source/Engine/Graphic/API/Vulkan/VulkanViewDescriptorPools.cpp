@@ -43,6 +43,14 @@ namespace Desert::Graphic::API::Vulkan
         {
         public:
             DescriptorPoolChain<ViewPoolBlock> Chain;
+
+            // A descriptor pool's storage is allocated by the driver, which Vulkan never reports in bytes
+            // (VkDescriptorPoolCreateInfo carries counts, not a size), and it is not in the device-local heap
+            // the budget reads. Any number here would be a guess presented as a measurement.
+            [[nodiscard]] uint64_t HeldBytes() const noexcept override
+            {
+                return 0;
+            }
         };
 
         class ViewPoolChainFactory final : public IViewResourceCopyFactory
