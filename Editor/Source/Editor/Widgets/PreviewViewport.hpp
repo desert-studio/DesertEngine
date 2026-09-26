@@ -203,6 +203,11 @@ namespace Desert::Editor
         // slots so the preview shows the real look); empty = the default material.
         void SetMesh( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& materials = {} );
 
+        // Pin the shown mesh's LOD (-1 = auto by distance): writes the preview entity's
+        // StaticMeshComponent::ForcedLOD, the one field the renderer reads. SetMesh resets it to auto, because
+        // the target entity is reused across previews.
+        void SetForcedLOD( int lod );
+
         // Show a material on a primitive.
         void SetMaterial( const Assets::AssetHandle& material, Shape shape = Shape::Sphere );
 

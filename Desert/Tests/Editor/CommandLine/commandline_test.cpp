@@ -384,3 +384,19 @@ int main( int argc, char** argv )
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }
+
+TEST( CommandLine, ViewBudgetMiBIsReadAndANonNumberIsRefused )
+{
+    auto given = ParseCommandLine( { "--view-budget-mib", "768" } );
+    ASSERT_TRUE( given.IsSuccess() ) << given.GetError();
+    EXPECT_EQ( given.GetValue().ViewBudgetMiB, 768u ) << "--view-budget-mib was parsed but not recorded";
+
+    auto none = ParseCommandLine( {} );
+    ASSERT_TRUE( none.IsSuccess() ) << none.GetError();
+    EXPECT_EQ( none.GetValue().ViewBudgetMiB, 0u )
+         << "without the flag the driver's budget must stand; a non-zero default is a silent ceiling";
+
+    for ( const char* bad : { "0", "-5", "lots", "1.5" } )
+        EXPECT_FALSE( ParseCommandLine( { "--view-budget-mib", bad } ).IsSuccess() )
+             << "--view-budget-mib " << bad << " was accepted";
+}

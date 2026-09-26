@@ -23,6 +23,12 @@ namespace Desert::Editor
     class AssetThumbnailRenderer
     {
     public:
+        // The side of the offscreen view, for the budget asked before one is built (ThumbnailService).
+        [[nodiscard]] static constexpr uint32_t RenderSide() noexcept
+        {
+            return kRenderSize;
+        }
+
         // Waits for the GPU before releasing the scene, then the renderer that owns its passes. The same
         // order and the same reason as ~PreviewViewport: this is destroyed when the thumbnail queue has been
         // idle for a while (so the renderer slot goes back), which can happen while the last frame this
