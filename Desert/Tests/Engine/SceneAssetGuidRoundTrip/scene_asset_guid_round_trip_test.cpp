@@ -51,6 +51,8 @@ namespace
 
     Desert::Assets::AssetGuidResolver ResolverOver( const std::vector<Row>& rows )
     {
+        // Copying a binding string may throw bad_alloc; a test resolver has no noexcept contract to keep.
+        // NOLINTNEXTLINE(bugprone-exception-escape)
         return [rows]( const AssetGuid& guid ) -> std::optional<std::string>
         {
             for ( const Row& row : rows )

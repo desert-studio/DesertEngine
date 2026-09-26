@@ -1628,7 +1628,7 @@ namespace Desert::Core::Serialize
                     for ( const auto& [key, value] : block.value() )
                         if ( key != "ScenePath" )
                             out[key] = value;
-                return rfl::Generic( std::move( out ) );
+                return { std::move( out ) };
             };
             s.Deserialize = [reflected = s.Deserialize]( ECS::Entity entity, const rfl::Generic& g,
                                                          const Assets::AssetManager& assetManager )

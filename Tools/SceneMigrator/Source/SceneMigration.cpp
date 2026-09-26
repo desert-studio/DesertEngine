@@ -4152,7 +4152,7 @@ namespace Desert::Migration
                                                                  const std::filesystem::path& assetsRoot )
         {
             constexpr std::string_view kPrefix = "Resources/Assets/";
-            if ( scenePath.rfind( kPrefix, 0 ) != 0 )
+            if ( !scenePath.starts_with( kPrefix ) )
                 return Common::MakeError<Assets::AssetGuidRef>( "is not under '" + std::string( kPrefix ) +
                                                                 "', the root scenes are opened from" );
             const std::string           relative = scenePath.substr( kPrefix.size() );
