@@ -3,6 +3,7 @@
 // EstimateGeodesicCenterFrameVertex, SetTriangleUVsFromExpMap) and SetTriangleUVsFromFreeBoundarySpectralConformal
 // (the spectral branch of SetTriangleUVsFromConformal; the natural-conformal branch has no caller here);
 // FExpMapOptions is not ported (its defaults, zero normal-smoothing rounds, are what every UE caller here passes).
+// SetToPerVertexUVs and ScaleUVAreaTo3DArea (with DetermineAreaFromUVs inlined) serve the bevel's MVC patch.
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
@@ -48,6 +49,20 @@ namespace Desert::Geometry
                                                               bool                 bUseExistingUVTopology,
                                                               bool                 bPreserveIrregularity,
                                                               FUVEditResult*       Result = nullptr );
+
+        /**
+         * One UV element per mesh vertex, set on every triangle (existing elements are cleared). VertexToUVOut
+         * maps vertex ID -> element ID; bIsIdentityMapOut is true when the two coincide.
+         */
+        void SetToPerVertexUVs( TArray<int32>& VertexToUVOut, bool& bIsIdentityMapOut );
+
+        /**
+         * Scale the Triangles' UVs uniformly about their UV bounding-box centre so their UV area is ScaleFactor^2
+         * times their 3D area; bRecenterAtOrigin puts that centre at the origin. False on a zero or non-finite
+         * area.
+         */
+        bool ScaleUVAreaTo3DArea( const TArray<int32>& Triangles, bool bRecenterAtOrigin,
+                                  float ScaleFactor = 1.0f );
 
     private:
         FDynamicMesh3*         Mesh;
