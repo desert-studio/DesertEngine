@@ -4,6 +4,8 @@
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
+#include <Editor/Core/ToastManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/BlockoutSession.hpp>
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -866,7 +868,9 @@ namespace Desert::Editor::Tools
         // a clean slate — the grid frame and Block Size stay so you carry straight on with the next piece.
         if ( ms.ReqAccept )
         {
-            ms.ReqAccept = false;
+            ms.ReqAccept         = false;
+            const bool endTool   = ms.ReqAcceptEndsTool;
+            ms.ReqAcceptEndsTool = false;
             if ( !( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() ) )
             {
                 // Collision on Accept (UE's Cube Grid bakes collision with the mesh): a blockout you
@@ -911,32 +915,40 @@ namespace Desert::Editor::Tools
                         }
                     }
                 }
-
-                // Output: Static Mesh (after the collider, which reads the EditMesh's render bounds): the
-                // blockout becomes a new asset before the creation is recorded. A refused write does NOT
-                // accept - the session stays open with its cells, and the log says why, so nothing the user
-                // built is lost and nothing other than what Output asked for enters the scene.
-                if ( ms.Output.Type == Core::ModelingState::OutputType::StaticMesh )
-                    if ( auto written = Commands::OutputStaticMesh( m_Entity, ms.Output.Folder, ms.Output.Name );
-                         !written.IsSuccess() )
-                    {
-                        LOG_ERROR( "[CubeGrid] Accept refused: {}", written.GetError() );
-                        return;
-                    }
-
-                // ONE undo step for the whole blockout session, with the collider it just got: undo removes
-                // the entity (snapshotting it, EditMesh included, through the scene serializer), redo brings
-                // it back under the same UUID. The per-edit regenerations before Accept are the tool's own
-                // working state, like a gizmo drag before the mouse is released.
-                Commands::NotifyCreated( { m_Entity } );
-                Core::SelectionManager::SetSelected( m_Entity );
-                m_Entity = Common::UUID::Null();
-                m_Volume.m_Cells.clear();
-                m_Volume.m_Frozen.clear();
-                m_HasSel = m_Selecting = m_CornerMode = false;
-                m_Volume.m_Unit = m_BakedUnit = -1.0f;
-                m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             }
+
+            // Output: Static Mesh (after the collider, which reads the EditMesh's render bounds): the blockout
+            // becomes a new asset before the creation is recorded. ONE undo step for the whole session, with
+            // the collider it just got: undo removes the entity (EditMesh included, through the scene
+            // serializer), redo brings it back under the same UUID. A refused write does NOT accept: the
+            // session and the tool stay open with the cells, and the user is told why (BlockoutSession.hpp).
+            auto accepted = AcceptBlockout(
+                 m_Entity, ms, endTool,
+                 [&]( const Common::UUID& piece ) -> Common::BoolResultStr
+                 {
+                     if ( ms.Output.Type != Core::ModelingState::OutputType::StaticMesh )
+                         return Common::MakeSuccess( true );
+                     auto written = Commands::OutputStaticMesh( piece, ms.Output.Folder, ms.Output.Name );
+                     if ( !written.IsSuccess() )
+                         return Common::MakeError<bool>( written.GetError() );
+                     return Common::MakeSuccess( true );
+                 },
+                 []( const Common::UUID& piece )
+                 {
+                     Commands::NotifyCreated( { piece } );
+                     Core::SelectionManager::SetSelected( piece );
+                 } );
+            if ( !accepted.IsSuccess() )
+            {
+                LOG_ERROR( "[CubeGrid] Accept refused: {}", accepted.GetError() );
+                ToastManager::Push( "CubeGrid Accept refused: " + accepted.GetError(), ToastLevel::Error, 10.0f );
+                return;
+            }
+            m_Volume.m_Cells.clear();
+            m_Volume.m_Frozen.clear();
+            m_HasSel = m_Selecting = m_CornerMode = false;
+            m_Volume.m_Unit = m_BakedUnit = -1.0f;
+            m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
         }
         if ( ms.ReqCancel )
         {
@@ -972,12 +984,6 @@ namespace Desert::Editor::Tools
         auto&       smc    = entity.HasComponent<ECS::StaticMeshComponent>()
                                   ? entity.GetComponent<ECS::StaticMeshComponent>()
                                   : entity.AddComponent<ECS::StaticMeshComponent>();
-        // Every baked triangle uses material 0, so the component needs slot 0 (empty = the default material).
-        // Without it Output: Static Mesh refuses the write ("uses material slot 0, the asset has 0 slots"),
-        // Accept never completes, and the tool keeps the piece as its own in-progress entity.
-        if ( smc.MaterialSlots.empty() )
-            smc.MaterialSlots.resize( 1 );
-
         // The quads become an EditMesh - the entity's source of truth, the thing the scene saves - and the
         // render mesh is derived from it (EditableMesh.hpp). The weld joins each quad's corners with its
         // neighbours' into shared topology; the normal, tangent and UV each become a seam exactly where two
@@ -998,10 +1004,12 @@ namespace Desert::Editor::Tools
 
     void CubeGridTool::Cancel( ::Desert::Core::Scene& scene )
     {
-        if ( m_Entity != Common::UUID::Null() )
-            if ( auto ref = scene.FindEntityByID( m_Entity ) )
-                scene.DestroyEntity( ref->get() );
-        m_Entity = Common::UUID::Null();
+        CancelBlockout( m_Entity,
+                        [&]( const Common::UUID& piece )
+                        {
+                            if ( auto ref = scene.FindEntityByID( piece ) )
+                                scene.DestroyEntity( ref->get() );
+                        } );
         m_Volume.m_Cells.clear();
         m_Volume.m_Frozen.clear();
         m_HasSel = m_Selecting = m_CornerMode = false;
