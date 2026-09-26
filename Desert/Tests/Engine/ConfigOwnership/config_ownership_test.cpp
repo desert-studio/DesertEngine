@@ -242,6 +242,7 @@ namespace
     constexpr const char* kGizmoState     = "Editor/Source/Editor/Core/GizmoState.cpp";
     constexpr const char* kViewportPanel  = "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp";
     constexpr const char* kPhotogrammetry = "Editor/Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp";
+    constexpr const char* kPreviewEnvironment = "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp";
     constexpr const char* kBuildPanel     = "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp";
 
     constexpr Row kEditorPrefsRows[] = {
@@ -295,6 +296,10 @@ namespace
          { "FavouriteFields", Owner::Machine, kPrefsImpl },
          { "CollapsedComponents", Owner::Machine, kPrefsImpl },
 
+         // Preview Scene Settings: which HDR one person judges materials under is their answer, not the
+         // project's. Read into every preview each frame by PreviewEnvironment::ApplyTo.
+         { "PreviewScene", Owner::Machine, kPreviewEnvironment },
+
          // The content browser's pinned folders, per project. Machine by question 1 and not a close call:
          // which folders one person keeps at hand is the definition of a value two people on the same
          // project hold differently at the same moment, and a pin is invisible to everybody else.
@@ -333,10 +338,10 @@ namespace
     // ------------------------------------------------------------------------------------------------
     // The nested DebugView block of editor.json — Desert::Graphic::DebugViewState.
     //
-    // These are the ten fields К2 took out of the level file. They are censused for KIND only: their
-    // placement is additionally guarded by Desert/Tests/Engine/SceneDebugFields, which derives the set of
-    // names a .desce may never state from this same declaration, and duplicating its consumer answers here
-    // would be a second table of one set.
+    // These are the ten fields К2 took out of the level file, plus ShowSkyBackdrop (AV1h, the preview's Show
+    // Environment). They are censused for KIND only: their placement is additionally guarded by
+    // Desert/Tests/Engine/SceneDebugFields, which derives the set of names a .desce may never state from this same
+    // declaration, and duplicating its consumer answers here would be a second table of one set.
     // ------------------------------------------------------------------------------------------------
 
     constexpr Row kDebugViewRows[] = {
@@ -350,6 +355,7 @@ namespace
          { "LightingDebug", Owner::Machine },
          { "ShadowDebug", Owner::Machine },
          { "DeferredDebug", Owner::Machine },
+         { "ShowSkyBackdrop", Owner::Machine },
     };
 
     // ------------------------------------------------------------------------------------------------

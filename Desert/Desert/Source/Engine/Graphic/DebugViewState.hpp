@@ -68,6 +68,10 @@ namespace Desert::Graphic
         // The editor's infinite ground grid. Drawn by Editor::Render::EditorGridPass, which is compiled
         // into the Editor and into nothing else — it has never been able to reach a packaged game.
         bool ShowGrid = false;
+        // The sky drawn behind the geometry (SkyboxRenderer::SetBackdropVisible). Off only hides the
+        // backdrop: the environment still lights the scene, which is what a preview's "Show Environment"
+        // means in UE.
+        bool ShowSkyBackdrop = true;
 
         // Green physics-collider wireframes (UE-style authoring aid). Same story: the pass that draws them
         // is Editor::Render::EditorColliderPass and lives only in the Editor target, so the 55 scenes that

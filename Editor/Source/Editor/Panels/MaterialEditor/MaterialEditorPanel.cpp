@@ -16,6 +16,7 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
@@ -32,6 +33,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
@@ -431,7 +433,18 @@ namespace Desert::Editor
                        "'. Drop an HDR skybox onto that slot in the parameters beside this pane and the "
                        "ball appears.";
 
-            auto*      skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
+            auto* skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
+            // The boot only SCANS .hdr files; a skybox is baked when something registers it. A material
+            // opened with its slot already bound never went through the drop that registers (below), so
+            // the lookup came back empty for a file that is on disk. Registering is idempotent.
+            if ( skyboxService != nullptr && !skyboxService->Get( Assets::AssetHandle( bound ) ) && m_AssetManager )
+            {
+                if ( auto sky = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( Assets::AssetHandle( bound ) ) )
+                {
+                    Graphic::Renderer::GetInstance().WaitDeviceIdle();
+                    Runtime::EnsureSkyboxRegistered( sky );
+                }
+            }
             const auto skybox = skyboxService ? skyboxService->Get( Assets::AssetHandle( bound ) ) : nullptr;
             if ( !skybox || !skybox->GetEnvironment() )
                 return "No preview: the skybox bound to '" + cubeParam->DisplayName +
@@ -742,6 +755,7 @@ namespace Desert::Editor
                  valuesOf, parentOf ) );
         }
 
+        PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager.get() );
         if ( Graphic::IsUsableViewExtent( m_PreviewExtent ) )
             m_Preview->Update( m_PreviewExtent.Width, m_PreviewExtent.Height );
     }
@@ -841,7 +855,7 @@ namespace Desert::Editor
             {
                 place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
                        ImGui::CalcTextSize( "Floor", nullptr, true ).x );
-                ImGui::Checkbox( "Floor", &setup.ShowFloor );
+                PreviewEnvironment::DrawShowFloor( "Floor" );
             }
         }
 
@@ -884,6 +898,7 @@ namespace Desert::Editor
                                  if ( m_Preview )
                                      m_Preview->ResetView();
                              } } );
+        PreviewEnvironment::AppendActions( actions, m_AssetManager.get() );
         return actions;
     }
 
@@ -2060,10 +2075,11 @@ namespace Desert::Editor
                                    "the 51 cloud scenes in this project author; set it to your level's "
                                    "value if that level disagrees." );
 
-            // ROTATION IS NOT OFFERED, and its absence is a decision rather than an omission. For a
-            // preset sky the environment's rotation IS the sun's azimuth — the row below — so a second
-            // control would be two knobs on one number; and for an HDR environment the engine has no
-            // rotation at all, on the sky, the skybox or in any shader. See the report.
+            // THE HDR ENVIRONMENT, as UE's Preview Scene Settings: one editor-wide choice shared by every
+            // preview window, so it is drawn from EditorPreferences rather than from this window's setup.
+            ImGui::Separator();
+            ImGui::TextUnformatted( "HDR Environment" );
+            PreviewEnvironment::DrawEnvironmentRows( m_AssetManager.get() );
         }
 
         if ( ImGui::CollapsingHeader( "Light", ImGuiTreeNodeFlags_DefaultOpen ) )
@@ -2096,7 +2112,7 @@ namespace Desert::Editor
             }
             else
             {
-                ImGui::Checkbox( "Show Floor", &setup.ShowFloor );
+                PreviewEnvironment::DrawShowFloor( "Show Floor" );
                 ImGui::BeginDisabled( !setup.ShowFloor );
                 ImGui::Checkbox( "Receive Shadow", &setup.FloorReceivesShadow );
                 if ( ImGui::IsItemHovered() )

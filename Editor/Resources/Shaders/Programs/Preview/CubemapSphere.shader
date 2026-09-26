@@ -26,7 +26,7 @@ Shader "CubemapSphere"
             mat4 InvProjection;
             mat4 InvView;
             vec4 CameraPos; // xyz; w unused
-            vec4 Params;    // x = sphere radius (world units); y > 0.5 = the cube is the backdrop too; zw unused
+            vec4 Params;    // x = sphere radius (world units); y > 0.5 = the cube is the backdrop too; z = lod; w > 0.5 = long-lat
         } u;
 
         Uniform(1) samplerCube u_CubeMap;
@@ -38,14 +38,16 @@ Shader "CubemapSphere"
             vec4 Gain;      // rgb = tint * intensity
         } skyLook;
         #include <Common/SkyLook.glslh>
+        #include <Common/SkyPanorama.glslh>
 
         In(0) vec3 v_Near;
         In(1) vec3 v_Far;
+        In(2) vec2 v_Ndc;
         Out(0) vec4 o_Color;
 
         vec3 SkyBy( vec3 direction )
         {
-            return ApplySkyGain( texture( u_CubeMap, SkyLookDirection( direction, skyLook.YawCosSin.xy ) ).rgb,
+            return ApplySkyGain( textureLod( u_CubeMap, SkyLookDirection( direction, skyLook.YawCosSin.xy ), u.Params.z ).rgb,
                                  skyLook.Gain.rgb );
         }
 
@@ -56,6 +58,14 @@ Shader "CubemapSphere"
 
         void main()
         {
+            // THE 2D VIEW: the cube unwrapped by the bake's own panorama mapping, so it reads as the file does.
+            if ( u.Params.w > 0.5 )
+            {
+                o_Color      = vec4( SkyBy( PanoramaDirection( PanoramaScreenUV( v_Ndc ) ) ), 1.0 );
+                gl_FragDepth = kBackdropDepth;
+                return;
+            }
+
             vec3 origin = v_Near;
             vec3 dir    = normalize( v_Far - v_Near );
 
@@ -103,6 +113,7 @@ Shader "CubemapSphere"
 
         Out(0) vec3 v_Near;
         Out(1) vec3 v_Far;
+        Out(2) vec2 v_Ndc;
 
         vec3 Unproject( vec2 ndc, float z )
         {
@@ -123,6 +134,7 @@ Shader "CubemapSphere"
             // (Core/Projection.hpp).
             v_Near = Unproject( ndc, 1.0 );
             v_Far  = Unproject( ndc, 0.0 );
+            v_Ndc  = ndc; // the 2D view's unwrap is placed in the fragment stage (PanoramaScreenUV)
 
             gl_Position = vec4( ndc, 0.0, 1.0 );
         }
