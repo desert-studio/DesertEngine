@@ -320,8 +320,12 @@ TEST( AssetPreloadCensus, ThePopulationIsGivenTheScansOwnCountAndSoCannotPrecede
     // no longer needs a root or an extension list — but it still RETURNS the count, and that count is
     // still the only thing that can tell "this project has no clips" from "the clips never reached the
     // library".
+    // SINCE AL1-6 the count is the registry's `.anim` rows: clips are no longer created at boot, the
+    // library indexes the rows and the loader reads a clip when an animator names it.
+    EXPECT_EQ( source.find( "ProcessAssetKind<AnimationAsset>" ), std::string::npos )
+         << kPreloaderSource << " creates clip assets at boot again; they are read on demand since AL1-6.";
     std::smatch      scan;
-    const std::regex scanPattern( R"((\w+)\s*=\s*[\s\S]{0,40}?ProcessAssetKind<\s*AnimationAsset\s*>)" );
+    const std::regex scanPattern( R"((\w+)\s*=\s*[\s\S]{0,80}?ContentRegistry::Rows\(\s*Common::Content::ContentKind::Animation\s*\))" );
     ASSERT_TRUE( std::regex_search( source, scan, scanPattern ) )
          << "the `.anim` scan in " << kPreloaderSource
          << " no longer assigns its result to anything. That count is the only thing that can tell 'this "
