@@ -44,11 +44,11 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::CloudType:
             case Assets::AssetTypeID::CloudModellingVolume:
             case Assets::AssetTypeID::CloudLayout:
+            case Assets::AssetTypeID::Skybox:
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";
             case Assets::AssetTypeID::Mesh:
-            case Assets::AssetTypeID::Skybox:
             case Assets::AssetTypeID::Shader:
             case Assets::AssetTypeID::Skeleton:
             case Assets::AssetTypeID::Animation:
