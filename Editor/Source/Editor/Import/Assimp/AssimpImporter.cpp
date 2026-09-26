@@ -9,6 +9,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/LogStream.hpp>
 #include <assimp/DefaultLogger.hpp>
+#include <assimp/config.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
@@ -28,6 +29,7 @@
 
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportManager.hpp>
+#include <Editor/Import/ImportUnits.hpp>
 #include <Editor/Import/ImportResult.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 
@@ -882,20 +884,107 @@ namespace Desert::Editor
         return result;
     }
 
+    // Did the file say what its unit is? FBX states it in GlobalSettings::UnitScaleFactor, which assimp
+    // copies into the scene metadata under that name and in CENTIMETRES PER FILE UNIT — 1.0 is a
+    // centimetre file, 100.0 a metre one. The value is written as a float; the double branch is there
+    // because aiMetadata stores the two as distinct types and reading the wrong one silently answers
+    // "the file said nothing", which is the one answer that must never be a guess.
+    static bool ReadStatedUnitScale( const aiScene& scene, float& centimetresPerUnit )
+    {
+        if ( scene.mMetaData == nullptr )
+            return false;
+
+        float asFloat = 0.0f;
+        if ( scene.mMetaData->Get( "UnitScaleFactor", asFloat ) )
+        {
+            centimetresPerUnit = asFloat;
+            return true;
+        }
+
+        double asDouble = 0.0;
+        if ( scene.mMetaData->Get( "UnitScaleFactor", asDouble ) )
+        {
+            centimetresPerUnit = static_cast<float>( asDouble );
+            return true;
+        }
+
+        return false;
+    }
+
     ImportResult AssimpImporter::Import( const std::filesystem::path& path, ImportManager& manager )
     {
         static ScopedAssimpLogger logger;
         Assimp::Importer          importer;
 
-        const uint32_t flags = aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_CalcTangentSpace |
-                               aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights |
-                               aiProcess_GlobalScale;
+        // READ FIRST, SCALE SECOND, and aiProcess_GlobalScale is deliberately NOT in this set.
+        //
+        // assimp normalises every file to METRES: its FBX reader calls SetFileScale( UnitScaleFactor *
+        // 0.01 ) (Editor/ThirdParty/assimp/code/AssetLib/FBX/FBXImporter.cpp:180), so running the scaling
+        // step with the default factor divided every centimetre-authored FBX by 100. Measured on
+        // base.fbx, a 190 cm humanoid: 1.1542 x 1.8983 x 0.3784 with the step on, 115.42 x 189.83 x 37.84
+        // with it off. This engine is centimetres (Common::Units), so we read the file, ask it what its
+        // unit is (ImportUnits::Resolve), and only then run assimp's OWN scaling step with the factor
+        // that lands the geometry in centimetres. Scaling it ourselves is not the cheaper option:
+        // ScaleProcess also scales bone offset matrices, node translations and animation position keys,
+        // and a second implementation of that is a second thing to keep in agreement.
+        const uint32_t readFlags = aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_CalcTangentSpace |
+                                   aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
 
-        const aiScene* scene = importer.ReadFile( path.string(), flags );
+        const aiScene* scene = importer.ReadFile( path.string(), readFlags );
 
         if ( !scene || !scene->mRootNode )
         {
             throw std::runtime_error( "Failed to import: " + path.string() );
+        }
+
+        const std::string fileName = path.filename().string();
+
+        float                    statedCentimetresPerUnit = 0.0f;
+        const bool               stated = ReadStatedUnitScale( *scene, statedCentimetresPerUnit );
+        const ImportUnits::Scale unit =
+             ImportUnits::Resolve( path.extension().string(), stated, statedCentimetresPerUnit );
+
+        switch ( unit.From )
+        {
+            case ImportUnits::Source::StatedByFile:
+            case ImportUnits::Source::FixedByFormat:
+                LOG_INFO( "[Import] {}: 1 file unit = {} cm ({}); geometry scaled by {}", fileName,
+                          unit.CentimetresPerUnit, ImportUnits::Describe( unit.From ),
+                          unit.CentimetresPerUnit );
+                break;
+            case ImportUnits::Source::AssumedCentimetres:
+                // Not a silent guess: the file is about to be treated as centimetres and the log says so,
+                // because a model that turns up 100x wrong is only debuggable if this line exists.
+                LOG_WARN( "[Import] {}: {} — taking 1 file unit = 1 cm. Re-export stating the unit if the "
+                          "model imports at the wrong size.",
+                          fileName, ImportUnits::Describe( unit.From ) );
+                break;
+            case ImportUnits::Source::StatedButUnusable:
+                LOG_ERROR( "[Import] {}: {} ({}); taking 1 file unit = 1 cm instead.", fileName,
+                           ImportUnits::Describe( unit.From ), statedCentimetresPerUnit );
+                break;
+        }
+
+        // The metres-per-file-unit assimp itself worked out while reading. BaseImporter::ReadFile sets it
+        // unconditionally, so it is already here whether or not the scaling step ran.
+        const float assimpMetresPerUnit = importer.GetPropertyFloat( AI_CONFIG_APP_SCALE_KEY, 1.0f );
+
+        if ( !ImportUnits::IsUsableScale( assimpMetresPerUnit ) )
+        {
+            throw std::runtime_error( "Refusing to import " + path.string() + ": the reader reports " +
+                                      std::to_string( assimpMetresPerUnit ) +
+                                      " metres per file unit, which is not a usable scale." );
+        }
+
+        importer.SetPropertyFloat( AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY,
+                                   ImportUnits::GlobalScaleFactor( unit.CentimetresPerUnit,
+                                                                   assimpMetresPerUnit ) );
+
+        scene = importer.ApplyPostProcessing( aiProcess_GlobalScale );
+
+        if ( !scene || !scene->mRootNode )
+        {
+            throw std::runtime_error( "Failed to scale to centimetres on import: " + path.string() );
         }
 
         return ProcessScene( scene, manager, path );
