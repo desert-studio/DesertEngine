@@ -91,7 +91,8 @@ namespace
     uint64_t KeyOf( const ChainNode& subject )
     {
         return ChainFingerprint(
-             subject, 7u, []( const ChainNode& n, uint64_t seed ) { return Fingerprint( &n.Value, sizeof( n.Value ), seed ); },
+             subject, 7u,
+             []( const ChainNode& n, uint64_t seed ) { return Fingerprint( &n.Value, sizeof( n.Value ), seed ); },
              []( const ChainNode& n ) { return n.Parent; } );
     }
 
@@ -103,7 +104,7 @@ namespace
         const uint64_t  before = KeyOf( child );
         EXPECT_EQ( KeyOf( child ), before );
 
-        parent.Value = 1.5f;
+        parent.Value               = 1.5f;
         const uint64_t afterParent = KeyOf( child );
         EXPECT_NE( afterParent, before );
 
@@ -113,9 +114,9 @@ namespace
 
     TEST( PreviewRenderGate, CyclicChainStopsAtTheServiceDepth )
     {
-        ChainNode a{ 1.0f };
-        ChainNode b{ 2.0f, &a };
-        a.Parent = &b;
+        ChainNode       a{ 1.0f };
+        const ChainNode b{ 2.0f, &a };
+        a.Parent   = &b;
         int visits = 0;
         (void)ChainFingerprint(
              a, 0u,
