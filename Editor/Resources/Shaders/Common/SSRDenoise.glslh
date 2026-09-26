@@ -9,21 +9,25 @@
 // 0 whatever the history holds - which is why the tiled SSR variant may leave such pixels undrawn.
 //
 // params: xy = texel size, z = history blend (0 = first frame / resize), w unused.
+// radius/stride: the spatial kernel is (2 * radius + 1)^2 taps `stride` texels apart, both reaching 2 texels.
+// The GI gather is full resolution: 5x5 taps, 1 texel apart. SSR's trace is HALF resolution, so its texels
+// are 2 pixels wide and 3x3 taps 2 pixels apart cover the same footprint with 9 reads instead of 25.
 vec4 SSRDenoise(sampler2D traceTex, sampler2D historyTex, sampler2D worldPosTex, vec2 uv, mat4 prevViewProj,
-                vec4 params)
+                vec4 params, int radius, float stride)
 {
-	vec2 t = params.xy;
+	vec2 t = params.xy * stride;
 
-	// --- Spatial: alpha-weighted 5x5 tent + neighbourhood AABB (for the temporal clamp). ---
+	// --- Spatial: alpha-weighted tent + neighbourhood AABB (for the temporal clamp). ---
 	vec3  colAcc = vec3(0.0);
 	float aAcc   = 0.0;
 	float wsum   = 0.0;
 	vec3  mnC = vec3(1e9), mxC = vec3(-1e9);
 	float mnA = 1e9, mxA = -1e9;
-	for (int y = -2; y <= 2; y++)
-		for (int x = -2; x <= 2; x++)
+	float edge = float(radius + 1);
+	for (int y = -radius; y <= radius; y++)
+		for (int x = -radius; x <= radius; x++)
 		{
-			float w  = (3.0 - abs(float(x))) * (3.0 - abs(float(y)));
+			float w  = (edge - abs(float(x))) * (edge - abs(float(y)));
 			vec2  su = clamp(uv + vec2(x, y) * t, vec2(0.001), vec2(0.999));
 			vec4  s  = texture(traceTex, su);
 			colAcc += s.rgb * s.a * w;

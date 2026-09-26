@@ -40,7 +40,8 @@ Shader "SSRResolve"
 
         void main()
         {
-        	oColor = SSRDenoise(u_Trace, u_History, u_GBufferWorldPos, v_TexCoord, u_PrevViewProj, u_Params);
+        	oColor = SSRDenoise(u_Trace, u_History, u_GBufferWorldPos, v_TexCoord, u_PrevViewProj, u_Params,
+        	                    2, 1.0);
         }
     }
 }

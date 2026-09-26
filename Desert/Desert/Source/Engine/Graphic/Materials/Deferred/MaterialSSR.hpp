@@ -7,63 +7,6 @@
 
 namespace Desert::Graphic
 {
-    // Fullscreen SSR material: reads the G-buffer (albedo/metallic, normal/roughness, world pos) + the scene
-    // colour snapshot, driving SSR.glsl.frag. Header-only.
-    class MaterialSSR final : public Material
-    {
-    public:
-        MaterialSSR() : Material( "MaterialSSR", "SSR" )
-        {
-            m_Albedo     = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferAlbedo" ).get();
-            m_Normal     = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
-            m_WorldPos   = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferWorldPos" ).get();
-            m_SceneColor = m_MaterialExecutor->GetTexture2DProperty( "u_SceneColor" ).get();
-            m_TileMask   = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();
-        }
-
-        // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
-        void BindTileMask( const std::shared_ptr<Image2D>& mask )
-        {
-            if ( m_TileMask != nullptr && mask != nullptr )
-                m_TileMask->SetImage( mask.get() );
-        }
-
-        void BindInputs( const std::shared_ptr<Image2D>& albedo, const std::shared_ptr<Image2D>& normal,
-                         const std::shared_ptr<Image2D>& worldPos, const std::shared_ptr<Image2D>& sceneColor,
-                         const glm::mat4& viewProj, const glm::vec4& cameraPos, int maxSteps, float maxDistance,
-                         float intensity, float thickness, float jitterSeed )
-        {
-            if ( m_Albedo && albedo )
-                m_Albedo->SetImage( albedo.get() );
-            if ( m_Normal && normal )
-                m_Normal->SetImage( normal.get() );
-            if ( m_WorldPos && worldPos )
-                m_WorldPos->SetImage( worldPos.get() );
-            if ( m_SceneColor && sceneColor )
-                m_SceneColor->SetImage( sceneColor.get() );
-
-            struct SSRUBData
-            {
-                glm::mat4 ViewProj;
-                glm::vec4 CameraPos; // xyz = camera, w = per-frame jitter seed (temporal accumulation)
-                glm::vec4 Params;    // x=maxSteps, y=maxDistance, z=intensity, w=thickness
-            } data;
-            data.ViewProj  = viewProj;
-            data.CameraPos = glm::vec4( glm::vec3( cameraPos ), jitterSeed );
-            data.Params    = glm::vec4( static_cast<float>( maxSteps ), maxDistance, intensity, thickness );
-
-            if ( auto* ub = Get<UniformBufferProperty>( "SSRUB" ) )
-                ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
-        }
-
-    private:
-        Texture2DProperty* m_Albedo     = nullptr;
-        Texture2DProperty* m_Normal     = nullptr;
-        Texture2DProperty* m_WorldPos   = nullptr;
-        Texture2DProperty* m_SceneColor = nullptr;
-        Texture2DProperty* m_TileMask   = nullptr;
-    };
-
     // Which program draws the shared denoiser (Common/SSRDenoise.glslh): the GI gather writes every pixel and
     // resolves fullscreen; SSR's trace writes only where the tile mask says, and resolves over those tiles.
     enum class SSRResolveVariant
