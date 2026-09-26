@@ -1,7 +1,6 @@
-// SCNE 28 (AF7o): a scene's `MeshGuid` stops being the mesh's PATH-derived u64 handle and becomes the GUID
-// text the mesh file's v3 header states - in entity records and in prefab-override records. A number that
-// is not the handle of the file beside it, or a file stating no GUID, REFUSES the file and leaves it
-// unstamped (MigrateMeshGuidsV27ToV28).
+// SCNE 32 (MSH1): the one scene step this tool still carries - a mesh block that names a MeshPath and states no
+// MeshGuid gains the GUID the mesh file's header states (MigratePathOnlyMeshGuidsV31ToV32) - and the refusal
+// every older generation gets now that its steps are gone (LEG1).
 
 #include <SceneMigration.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -71,9 +70,9 @@ namespace
     }
 } // namespace
 
-// LEG1: the steps below v31 were deleted, so a v30 scene is REFUSED - by its own numbers, with the command
-// that still raises it - and left exactly as it was: unstamped, nothing run.
-TEST( SceneLegacyGeneration, AV30SceneIsRefusedNamingItsVersionAndTheCommand )
+// LEG1: the steps below v31 were deleted, so a v30 scene is REFUSED - by its own number and the current one -
+// and left exactly as it was: unstamped, nothing run.
+TEST( SceneVersionRefusal, AV30SceneIsRefusedNamingItsVersionAndTheCurrentOne )
 {
     const Project project( "v30" );
     auto          scene  = Parse( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000004",)"
@@ -83,7 +82,9 @@ TEST( SceneLegacyGeneration, AV30SceneIsRefusedNamingItsVersionAndTheCommand )
 
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "schema v30" ), std::string::npos ) << report.Refused;
-    EXPECT_NE( report.Refused.find( "scripts/Dev/migrate.sh --write" ), std::string::npos ) << report.Refused;
+    EXPECT_NE( report.Refused.find( "to v" + std::to_string( Desert::Core::kSceneVersion ) ), std::string::npos )
+         << report.Refused;
+    EXPECT_EQ( report.Refused.find( "git checkout" ), std::string::npos ) << "no route back to legacy is promised";
     EXPECT_FALSE( report.Changed() );
     ASSERT_TRUE( scene.Header.has_value() );
     EXPECT_EQ( scene.Header->Versions.at( "SCNE" ), 30u ) << "a refused file must not be stamped";
@@ -217,4 +218,10 @@ TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopeOfAnotherKindRefuses )
 
     ASSERT_FALSE( report.Refused.empty() );
     EXPECT_NE( report.Refused.find( "is not a mesh" ), std::string::npos ) << report.Refused;
+}
+
+int main( int argc, char** argv )
+{
+    testing::InitGoogleTest( &argc, argv );
+    return RUN_ALL_TESTS();
 }

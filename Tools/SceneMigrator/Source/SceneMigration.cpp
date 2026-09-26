@@ -257,12 +257,9 @@ namespace Desert::Migration
         // The refusal a file gets when its stated pair is one this tool has no route from: the numbers it
         // states, the numbers this tool knows, and what to do instead. Built here rather than at each
         // site so a scene and a prefab are refused in the same words.
-        // THE WAY OUT for a file older than v31, named in the refusal itself: the legacy steps were deleted
-        // (LEG1), so the only tool that still raises such a file is the SceneMigrator of a build from before
-        // them - dev 869cde331 is the last one - and the command is spelled out so nobody has to guess it.
-        constexpr const char* kOlderThanSupported =
-             "The oldest this tool reads is v31/v1 - older files are not supported. Raise it with a build from "
-             "before LEG1: `git checkout 869cde331 && scripts/Dev/migrate.sh --write <file>`.";
+        // Older generations are not supported (owner decision, LEG1): their steps were deleted, and no route
+        // back to them is promised. The refusal names the numbers and stops there.
+        constexpr const char* kOlderThanSupported = "The oldest this tool reads is v31/v1 - older files are not supported.";
 
         std::string RefuseGeneration( const char* what, int statedSceneVersion, int statedUnitVersion,
                                       const char* why )

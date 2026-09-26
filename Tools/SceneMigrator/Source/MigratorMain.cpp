@@ -45,9 +45,6 @@
 //   SceneMigrator --check <path>...  report what would change and write nothing (exit 1 if any would)
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
-#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
-#include <Engine/Assets/Serialization/Retarget.hpp>
-#include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
@@ -66,9 +63,6 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <Engine/Animation/TimeModel.hpp>
-#include <Engine/Assets/Serialization/Animation.hpp>
-#include <Engine/Assets/Serialization/AnimationClipMigrate.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -104,12 +98,9 @@ namespace
     // at the old number, refused by the loader and by their own migrator alike.
     constexpr const char* kPrefabExtension = ".deprefab";
 
-    // CLIPS ARE COLLECTED TOO, since A5, and by THIS tool for the reason the prefabs gave: a second
-    // binary over a second corpus is a command somebody forgets, and forgetting it leaves files the
-    // loader refuses. A `.anim` does NOT share the scene's version integers — it has its own sequence,
-    // because a scene names a clip by NAME and nothing in a `.desce` changes when a clip's time model
-    // does. Its step is gated on its own number and is content-detected the same way: a file with no
-    // version field is generation 0, never "already current".
+    // CLIPS ARE COLLECTED TOO, since A5: a second binary over a second corpus is a command somebody forgets.
+    // A `.anim` does NOT share the scene's version integers - it states its own ANIM generation, because a
+    // scene names a clip by NAME - and is gated on that number alone.
     constexpr const char* kClipExtension = ".anim";
     constexpr const char* kShaderExtension = ".shader";
 
@@ -117,7 +108,7 @@ namespace
     // tool - each is versioned by its own loader - but their text is written by the canonical writer, so a
     // file in the tree that predates it is re-laid-out here, version untouched, and the next save of it
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
-    // (container 1 -> 2, IsCloudLayout).
+    // (IsCloudLayout).
     constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
                                                 ".detheme",    ".derig",  ".retarget",    ".skeleton" };
 
@@ -258,96 +249,6 @@ namespace
 
     // Every text asset this tool writes goes through the one canonical writer (AF6), so a migrated file and a
     // file saved by the engine are laid out alike and a migration's diff is only the lines it changed.
-    // `object` (JSON text of an object without a "Header" member) with "Header": `header` as its FIRST member,
-    // every other byte left as written; WriteText lays the result out canonically. A text that does not open
-    // an object is returned unchanged, and WriteText's parse then refuses it by name.
-    std::string PrependHeaderMember( const std::string& object, const std::string& header )
-    {
-        const std::size_t open = object.find_first_not_of( " \t\r\n" );
-        if ( open == std::string::npos || object[open] != '{' )
-            return object;
-        const std::size_t next  = object.find_first_not_of( " \t\r\n", open + 1 );
-        const bool        empty = next != std::string::npos && object[next] == '}';
-        return object.substr( 0, open + 1 ) + "\"Header\":" + header + ( empty ? "" : "," ) +
-               object.substr( open + 1 );
-    }
-
-    // `object` without its TOP-LEVEL member `key` and the one comma that separated it from a neighbour, every
-    // other byte kept; nullopt when the top level does not state `key` exactly once. Text, not rfl::Generic:
-    // the generic tree reads every integer as int64, and a uint64 above INT64_MAX came back negative (T7e2).
-    std::optional<std::string> EraseTopLevelMember( const std::string& object, std::string_view key )
-    {
-        // The end of the string literal opening at `quote`, one past its closing quote.
-        const auto stringEnd = [&]( std::size_t quote )
-        {
-            std::size_t at = quote + 1;
-            while ( at < object.size() && object[at] != '"' )
-                at += object[at] == '\\' ? 2 : 1;
-            return at + 1;
-        };
-        int                                                depth = 0;
-        std::optional<std::pair<std::size_t, std::size_t>> found;
-        for ( std::size_t at = 0; at < object.size(); ++at )
-        {
-            const char c = object[at];
-            if ( c == '{' || c == '[' )
-                ++depth;
-            else if ( c == '}' || c == ']' )
-                --depth;
-            else if ( c == '"' )
-            {
-                const std::size_t close = stringEnd( at );
-                const std::size_t colon = object.find_first_not_of( " \t\r\n", close );
-                const bool        isKey = depth == 1 && colon != std::string::npos && object[colon] == ':' &&
-                                   std::string_view( object ).substr( at + 1, close - at - 2 ) == key;
-                if ( isKey )
-                {
-                    if ( found )
-                        return std::nullopt;
-                    // The value ends at the first ',' or '}' back at the member's own depth.
-                    int         inner = 0;
-                    std::size_t end   = colon + 1;
-                    while ( end < object.size() )
-                    {
-                        const char v = object[end];
-                        if ( v == '"' )
-                        {
-                            end = stringEnd( end );
-                            continue;
-                        }
-                        if ( v == '{' || v == '[' )
-                            ++inner;
-                        else if ( inner > 0 && ( v == '}' || v == ']' ) )
-                            --inner;
-                        else if ( inner == 0 && ( v == ',' || v == '}' ) )
-                            break;
-                        ++end;
-                    }
-                    while ( end > colon && std::isspace( static_cast<unsigned char>( object[end - 1] ) ) != 0 )
-                        --end;
-                    found = std::make_pair( at, end );
-                    at    = end - 1;
-                    continue;
-                }
-                at = close - 1;
-            }
-        }
-        if ( !found )
-            return std::nullopt;
-        const auto [begin, end] = *found;
-        std::size_t before      = begin;
-        while ( before > 0 && std::isspace( static_cast<unsigned char>( object[before - 1] ) ) != 0 )
-            --before;
-        if ( before > 0 && object[before - 1] == ',' )
-            return object.substr( 0, before - 1 ) + object.substr( end );
-        std::size_t after = end;
-        while ( after < object.size() && std::isspace( static_cast<unsigned char>( object[after] ) ) != 0 )
-            ++after;
-        if ( after < object.size() && object[after] == ',' )
-            return object.substr( 0, begin ) + object.substr( after + 1 );
-        return object.substr( 0, begin ) + object.substr( end );
-    }
-
     bool WriteText( const std::filesystem::path& path, const std::string& json, std::ostream& err )
     {
         const auto text = Common::Content::CanonicalJsonText( json );
@@ -371,291 +272,74 @@ namespace
         Failed,
     };
 
-    // ONE STEP, MANY TEXT KINDS: "the file gains the text asset header". An old-generation text asset states
-    // a top-level version member and no identity; the raised one opens with the text asset header (its Kind, a
-    // GUID minted HERE, once, and the format under the kind's tag) and states its version nowhere else. Every
-    // other member keeps its order and bytes. Each kind is a row, not a copy of the step: T6b1 wrote it for
-    // the cloud type, T7b made it the table the next text kinds join.
-    struct TextHeaderRaise
+    // THE TEXT KINDS WITH A HEADER VERSION, each read at its current generation only. The steps that raised
+    // older generations (headerless text, RTGT 2 -> 3, CLTY 4 -> 5, the clip conversions) were deleted with
+    // the other legacy steps (LEG1): a file stating anything else is refused by its number, never raised.
+    struct TextHeaderGate
     {
-        const char*                  Extension;
-        Common::Content::ContentKind Kind;
-        uint32_t                     Tag;
-        int                          FromVersion;
-        uint32_t                     ToVersion;
-        // The member the old generation stated its version in; dropped by the raise. nullptr when the old
-        // generation stated no version at all (the anim graph): every headerless file of it IS FromVersion.
-        const char* VersionMember;
-        // Whether a file that left the member out IS FromVersion (the string table and the theme said
-        // "absent means 1"), or states nothing the step may assume (the cloud type).
-        bool AbsentIsFrom;
+        const char* Extension;
+        const char* Tag; // the key the header's Versions map states the generation under
+        uint32_t    Current;
     };
 
-    constexpr std::array kTextHeaderRaises{
-         // .decloudtype 3 -> 4 (AF7v, T6b1). The literal 4 and not kCloudTypeSchemaVersion: CLTY 5 (T7h) names
-         // the noise volume by GUID, which this splice cannot state, so RaiseCloudTypeV4ToV5 takes it on.
-         TextHeaderRaise{ ".decloudtype", Common::Content::ContentKind::CloudType,
-                          Desert::Assets::kCloudTypeSchemaTag, 3, 4, "FormatVersion", false },
-         // .destrings 1 -> 2 (T7b).
-         TextHeaderRaise{ ".destrings", Common::Content::ContentKind::StringTable,
-                          Desert::Assets::kStringTableSchemaTag, 1, Desert::Assets::kStringTableSchemaVersion,
-                          "FormatVersion", true },
-         // .detheme 1 -> 2 (T7b).
-         TextHeaderRaise{ ".detheme", Common::Content::ContentKind::UITheme, Desert::Assets::kUIThemeSchemaTag, 1,
-                          Desert::Assets::kUIThemeSchemaVersion, "FormatVersion", true },
-         // .derig 1 -> 2 (T7c).
-         TextHeaderRaise{ ".derig", Common::Content::ContentKind::ControlRig, Desert::Assets::kControlRigSchemaTag,
-                          1, Desert::Assets::kControlRigSchemaVersion, "FormatVersion", true },
-         // .retarget 1 -> 2 (T7c). The literal 2 and not kRetargetSchemaVersion: RTGT 3 (T7f) names the rig by
-         // GUID, which this splice cannot state, so a v1 file lands at 2 and RaiseRetargetV2ToV3 takes it on.
-         TextHeaderRaise{ ".retarget", Common::Content::ContentKind::Retarget, Desert::Assets::kRetargetSchemaTag,
-                          1, 2, "FormatVersion", true },
-         // .danimgraph 0 -> 1 (T7d): generation 0 stated no version member at all.
-         TextHeaderRaise{ ".danimgraph", Common::Content::ContentKind::AnimGraph,
-                          Desert::Assets::kAnimGraphSchemaTag, 0, Desert::Assets::kAnimGraphSchemaVersion, nullptr,
-                          true },
-         // .skeleton 0 -> 1 (T7e): generation 0 stated no version member at all.
-         TextHeaderRaise{ ".skeleton", Common::Content::ContentKind::Skeleton, Desert::Assets::kSkeletonSchemaTag,
-                          0, Desert::Assets::kSkeletonSchemaVersion, nullptr, true },
-         // .anim 3 -> 4 (T7e): the clip's own `Version` moves into the header. Generations 0-2 reach 3 first
-         // through MigrateAnimationJson (the clip loop); a file that left `Version` out is generation 0, never 3.
-         TextHeaderRaise{ ".anim", Common::Content::ContentKind::Animation, Desert::Assets::kAnimationSchemaTag,
-                          Desert::Assets::Serialization::kAnimationLastVersionMember,
-                          Desert::Assets::kAnimationSchemaVersion, "Version", false },
+    constexpr std::array kTextHeaderGates{
+         TextHeaderGate{ ".decloudtype", "CLTY", Desert::Assets::kCloudTypeSchemaVersion },
+         TextHeaderGate{ ".destrings", "STRT", Desert::Assets::kStringTableSchemaVersion },
+         TextHeaderGate{ ".detheme", "UITH", Desert::Assets::kUIThemeSchemaVersion },
+         TextHeaderGate{ ".derig", "CRIG", Desert::Assets::kControlRigSchemaVersion },
+         TextHeaderGate{ ".retarget", "RTGT", Desert::Assets::kRetargetSchemaVersion },
+         TextHeaderGate{ ".danimgraph", "ANGR", Desert::Assets::kAnimGraphSchemaVersion },
+         TextHeaderGate{ ".skeleton", "SKEL", Desert::Assets::kSkeletonSchemaVersion },
+         TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
     };
 
-    const TextHeaderRaise* TextHeaderRaiseFor( const std::filesystem::path& path )
+    const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
     {
         const std::string ext = path.extension().string();
-        for ( const TextHeaderRaise& row : kTextHeaderRaises )
+        for ( const TextHeaderGate& row : kTextHeaderGates )
             if ( ext == row.Extension )
                 return &row;
         return nullptr;
     }
 
-    // A file that already has a header returns nullopt (nothing to raise); any version but the row's
-    // FromVersion is refused, the file untouched.
-    Common::ResultStr<std::optional<std::string>> RaiseTextToHeader( const TextHeaderRaise&            row,
-                                                                     const std::string&                source,
-                                                                     const Common::Content::AssetGuid& guid )
+    // The generation `text` states under `tag`, or the reason it states none. Headerless text is an older
+    // generation this tool no longer reads, and is refused as such.
+    Common::ResultStr<uint32_t> ReadStatedVersion( const std::filesystem::path& path, const std::string& text,
+                                                   const char* tag )
     {
-        const auto tree = rfl::json::read<rfl::Generic>( source );
-        if ( !tree || !tree.value().to_object() )
-            return Common::MakeError<std::optional<std::string>>( "not a JSON object" );
-        const rfl::Generic::Object fields = tree.value().to_object().value();
-        if ( fields.get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
-            return Common::MakeSuccess( std::optional<std::string>{} );
-        const std::string member  = row.VersionMember != nullptr ? row.VersionMember : "";
-        const auto        stated  = row.VersionMember != nullptr ? fields.get( member )
-                                                                 : rfl::Result<rfl::Generic>( rfl::Error( "unstated" ) );
-        const auto version = [&]() -> rfl::Result<int>
+        const std::string  where = "'" + path.string() + "'";
+        std::istringstream in( text );
+        const auto         header = Common::Content::ReadTextHeaderObject( in );
+        if ( !header )
+            return Common::MakeError<uint32_t>( where + " states no readable text header (" + header.GetError() +
+                                                "); files older than their first headed generation are not "
+                                                "supported" );
+        const auto parsed = rfl::json::read<Common::Content::TextAssetHeaderSerialized>( header.GetValue() );
+        if ( !parsed )
+            return Common::MakeError<uint32_t>( where + ": unreadable header: " + parsed.error().what() );
+        const auto stated = parsed.value().Versions.find( tag );
+        if ( stated == parsed.value().Versions.end() )
+            return Common::MakeError<uint32_t>( where + ": the header states no " + tag + " version" );
+        return Common::MakeSuccess( stated->second );
+    }
+
+    // Refuses (false, reason on `err`) a file of a gated kind whose stated generation is not the current one.
+    bool PassesTextHeaderGate( const TextHeaderGate& row, const std::filesystem::path& path, const std::string& text,
+                               std::ostream& err )
+    {
+        const auto stated = ReadStatedVersion( path, text, row.Tag );
+        if ( !stated )
         {
-            if ( stated.has_value() )
-                return stated.value().to_int();
-            if ( row.AbsentIsFrom )
-                return row.FromVersion;
-            return { rfl::Error( "absent" ) };
-        }();
-        if ( !version || version.value() != row.FromVersion )
-            return Common::MakeError<std::optional<std::string>>(
-                 std::string( Common::Content::KindName( row.Kind ) ) + " format version " +
-                 ( version ? std::to_string( version.value() ) : "(unstated)" ) + " has no step to v" +
-                 std::to_string( row.ToVersion ) + "; only a version-" + std::to_string( row.FromVersion ) +
-                 " file is raised" );
-        const std::array<Common::Content::SubsystemVersion, 1> versions = {
-             Common::Content::SubsystemVersion{ row.Tag, row.ToVersion } };
-        const std::string headerText =
-             rfl::json::write( Common::Content::MakeTextHeader( row.Kind, guid, versions ) );
-        // THE HEADER IS SPLICED INTO THE SOURCE TEXT and the version member cut out of it, every other byte
-        // kept. A round trip through rfl::Generic reads an integer as int64, so a skeleton's Signature and a
-        // clip's SkeletonSignature above INT64_MAX came back negative (T7e, T7e2) - a rig no mesh would match.
-        std::string body = source;
-        if ( stated.has_value() )
-        {
-            auto cut = EraseTopLevelMember( source, member );
-            if ( !cut )
-                return Common::MakeError<std::optional<std::string>>( "the top level states '" + member +
-                                                                      "' more than once" );
-            body = std::move( *cut );
+            err << "FAIL   " << stated.GetError() << "\n";
+            return false;
         }
-        return Common::MakeSuccess( std::optional<std::string>( PrependHeaderMember( body, headerText ) ) );
-    }
-
-    // RTGT 2 AS IT WAS WRITTEN, frozen here: the rig a bare path relative to the cooked meshes root. Every
-    // other member is the engine's own row type, which RTGT 3 did not change.
-    struct RetargetDataV2
-    {
-        std::optional<Common::Content::TextAssetHeaderSerialized>          Header;
-        std::string                                                        Name;
-        std::string                                                        SourceSkeleton;
-        std::string                                                        SourcePelvisBone;
-        std::string                                                        TargetPelvisBone;
-        Desert::Assets::Serialization::RetargetPoseData                    SourceRetargetPose;
-        Desert::Assets::Serialization::RetargetPoseData                    TargetRetargetPose;
-        std::vector<Desert::Assets::Serialization::RetargetChainData>      Chains;
-        std::vector<Desert::Assets::Serialization::RetargetBoneRenameData> BoneRenames;
-    };
-
-    // .retarget RTGT 2 -> 3 (T7f): the source rig named by {Guid, Path}, the GUID read out of the named
-    // `.skeleton`'s own header. nullopt when the text already states 3; any other version, or a rig that is
-    // not there or states no GUID, is refused by name and the caller leaves the file untouched.
-    //
-    // THE RIG IS LOOKED UP WHERE THE ENGINE LOOKS: the project's Cooked/Meshes, beside the assets root
-    // (`<project>/Resources/Assets`) this retarget lies under - the mesh step's reading of the same layout.
-    // The text written is the engine's own WriteRetarget (header GUID kept, Dependencies stated) and it
-    // must pass the engine's own ParseRetarget before the caller writes a byte.
-    Common::ResultStr<std::optional<std::string>> RaiseRetargetV2ToV3( const std::filesystem::path& path,
-                                                                       const std::string&           text )
-    {
-        using Result      = std::optional<std::string>;
-        namespace File    = Desert::Assets::Serialization;
-        namespace Paths   = Common::Constants::Path;
-        const auto parsed = rfl::json::read<RetargetDataV2>( text );
-        const auto stated = [&]() -> int
+        if ( stated.GetValue() != row.Current )
         {
-            if ( parsed )
-                return Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kRetargetSchemaTag );
-            const auto current = rfl::json::read<File::RetargetAssetData>( text );
-            return current ? Desert::Assets::StatedVersion( current.value().Header,
-                                                            Desert::Assets::kRetargetSchemaTag )
-                           : 0;
-        }();
-        if ( stated == File::kRetargetVersion )
-            return Common::MakeSuccess( Result{} );
-        if ( !parsed || stated != 2 )
-            return Common::MakeError<Result>( "not a readable RTGT 2 retarget (states RTGT " +
-                                              std::to_string( stated ) + ")" +
-                                              ( parsed ? "" : std::string( ": " ) + parsed.error().what() ) );
-        const RetargetDataV2& v2 = parsed.value();
-
-        auto assetsRoot = Paths::RootForContentPath( Paths::ContentDir::Retarget, path );
-        if ( assetsRoot && assetsRoot->filename().empty() )
-            assetsRoot = assetsRoot->parent_path();
-        const std::filesystem::path sandbox( Paths::SANDBOX_ASSETS_ROOT );
-        if ( !assetsRoot || assetsRoot->filename() != sandbox.filename() ||
-             assetsRoot->parent_path().filename() != sandbox.parent_path().filename() )
-            return Common::MakeError<Result>( "lies under no <project>/" + sandbox.generic_string() +
-                                              "/Retargets folder, so there is no Cooked/Meshes holding its rig '" +
-                                              v2.SourceSkeleton + "'" );
-        const std::filesystem::path meshesCooked =
-             Paths::CONTENT_DIRS[static_cast<std::size_t>( Paths::ContentDir::MeshCooked )].Rel;
-        const std::filesystem::path rig = ( assetsRoot->parent_path().parent_path() / Paths::COOKED_DIR_NAME /
-                                            meshesCooked / v2.SourceSkeleton )
-                                               .lexically_normal();
-        const Common::Content::AssetGuid rigGuid = Desert::Assets::ReadTextHeaderGuid( rig );
-        if ( rigGuid.IsNull() )
-            return Common::MakeError<Result>( "its source rig " + rig.generic_string() +
-                                              " is missing or states no header GUID; raise the rig first" );
-
-        File::RetargetAssetData v3;
-        v3.Header             = v2.Header;
-        v3.Name               = v2.Name;
-        v3.SourceSkeleton     = { Common::Content::AssetGuidToText( rigGuid ), v2.SourceSkeleton };
-        v3.SourcePelvisBone   = v2.SourcePelvisBone;
-        v3.TargetPelvisBone   = v2.TargetPelvisBone;
-        v3.SourceRetargetPose = v2.SourceRetargetPose;
-        v3.TargetRetargetPose = v2.TargetRetargetPose;
-        v3.Chains             = v2.Chains;
-        v3.BoneRenames        = v2.BoneRenames;
-        std::string written   = File::WriteRetarget( v3 );
-        if ( auto loadable = File::ParseRetarget( written ); !loadable )
-            return Common::MakeError<Result>( "the raised text does not pass the engine's own ParseRetarget: " +
-                                              loadable.GetError() );
-        return Common::MakeSuccess( Result( std::move( written ) ) );
-    }
-
-    // The GUID a `.dcnv` envelope header states; null when the file is absent, bare or not a noise volume.
-    // The engine's CloudNoiseVolumeAsset::ReadCloudNoiseVolumeGuid, minus the VFS the migrator has no use for.
-    Common::Content::AssetGuid ReadNoiseVolumeGuid( const std::filesystem::path& file )
-    {
-        namespace CC                        = Common::Content;
-        const CC::SubsystemVersion kKnown[] = {
-             { Desert::Assets::kCloudNoiseSubsystemTag, Desert::Assets::kCloudNoiseContainerVersion } };
-        const CC::AssetHeaderReadContext context{ kKnown };
-        std::ifstream                    in( file, std::ios::binary );
-        if ( !in )
-            return {};
-        const auto header = CC::ReadEnvelopeHeader( in, context );
-        if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
-            return {};
-        return header.GetValue().Asset.Guid;
-    }
-
-    // .decloudtype CLTY 4 -> 5 (T7h): the noise volume named by {Guid, Path}, the GUID read out of the named
-    // `.dcnv`'s envelope, and stated as the header's one Dependency. nullopt when the text already states 5;
-    // any other version, or a volume that is not there or states no GUID, is refused by name and the caller
-    // leaves the file untouched. A type naming no volume only moves its version.
-    //
-    // THE VOLUME IS LOOKED UP WHERE THE ENGINE LOOKS: relative to the assets root this type lies under (its
-    // Clouds/Types folder's root). The text written must pass the engine's own ParseCloudType before the
-    // caller writes a byte.
-    Common::ResultStr<std::optional<std::string>> RaiseCloudTypeV4ToV5( const std::filesystem::path& path,
-                                                                        const std::string&           text )
-    {
-        using Result    = std::optional<std::string>;
-        namespace Paths = Common::Constants::Path;
-        struct HeaderOnly
-        {
-            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
-        };
-        const auto header = rfl::json::read<HeaderOnly>( text );
-        const int  stated =
-             header ? Desert::Assets::StatedVersion( header.value().Header, Desert::Assets::kCloudTypeSchemaTag )
-                     : 0;
-        if ( stated == static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) )
-            return Common::MakeSuccess( Result{} );
-        const auto tree = rfl::json::read<rfl::Generic>( text );
-        if ( stated != 4 || !tree || !tree.value().to_object() )
-            return Common::MakeError<Result>( "not a readable CLTY 4 cloud type (states CLTY " +
-                                              std::to_string( stated ) + ")" );
-        rfl::Generic::Object doc = tree.value().to_object().value();
-
-        std::vector<std::string> dependencies;
-        if ( const auto named = doc.get( "NoiseVolume" ); named )
-        {
-            const auto relative = named.value().to_string();
-            if ( !relative )
-                return Common::MakeError<Result>( "its NoiseVolume is not a CLTY 4 path string" );
-            auto assetsRoot = Paths::RootForContentPath( Paths::ContentDir::CloudType, path );
-            if ( assetsRoot && assetsRoot->filename().empty() )
-                assetsRoot = assetsRoot->parent_path();
-            if ( !assetsRoot )
-                return Common::MakeError<Result>( "lies under no <assets>/Clouds/Types folder, so there is no "
-                                                  "assets root holding its noise volume '" +
-                                                  relative.value() + "'" );
-            const std::filesystem::path      volume = ( *assetsRoot / relative.value() ).lexically_normal();
-            const Common::Content::AssetGuid guid   = ReadNoiseVolumeGuid( volume );
-            if ( guid.IsNull() )
-                return Common::MakeError<Result>(
-                     "its noise volume " + volume.generic_string() +
-                     " is missing or states no envelope GUID; raise the volume first" );
-            rfl::Generic::Object ref;
-            ref["Guid"]        = rfl::Generic( Common::Content::AssetGuidToText( guid ) );
-            ref["Path"]        = rfl::Generic( relative.value() );
-            doc["NoiseVolume"] = rfl::Generic( ref );
-            dependencies.push_back( Common::Content::AssetGuidToText( guid ) );
+            err << "FAIL   " << path.string() << " — states " << row.Tag << " v" << stated.GetValue()
+                << ", and this tool reads v" << row.Current << " only; older files are not supported\n";
+            return false;
         }
-
-        // THE DOCUMENT IS EDITED, NOT RE-SERIALISED: only the version, the Dependencies and the volume reference
-        // move, so every authored number keeps its spelling (the typed writer would print 9.4 as the float's
-        // double expansion). The engine's own ParseCloudType is still the gate the result has to pass.
-        const auto headerTree = doc.get( "Header" );
-        if ( !headerTree || !headerTree.value().to_object() )
-            return Common::MakeError<Result>( "its Header is not an object" );
-        rfl::Generic::Object headerDoc = headerTree.value().to_object().value();
-        rfl::Generic::Object versions;
-        versions["CLTY"] = rfl::Generic( static_cast<int>( Desert::Assets::kCloudTypeSchemaVersion ) );
-        rfl::Generic::Array dependencyTexts;
-        for ( const auto& guid : dependencies )
-            dependencyTexts.emplace_back( guid );
-        headerDoc["Versions"]     = rfl::Generic( versions );
-        headerDoc["Dependencies"] = rfl::Generic( dependencyTexts );
-        doc["Header"]             = rfl::Generic( headerDoc );
-        std::string written       = rfl::json::write( rfl::Generic( doc ) );
-        if ( auto loadable = Desert::Assets::ParseCloudType( written ); !loadable )
-            return Common::MakeError<Result>( "the raised text does not pass the engine's own ParseCloudType: " +
-                                              loadable.GetError() );
-        return Common::MakeSuccess( Result( std::move( written ) ) );
+        return true;
     }
 
     Layout RelayOutIfNeeded( const std::filesystem::path& path, const std::string& source, bool check,
@@ -710,24 +394,9 @@ namespace
     // MATL version, predates MATL v1 and is refused by name rather than read as generation 0.
     Common::ResultStr<uint32_t> ReadMaterialSchemaVersion( const std::filesystem::path& path, const std::string& text )
     {
-        const std::string  where = "'" + path.string() + "'";
-        std::istringstream in( text );
-        const auto         header = Common::Content::ReadTextHeaderObject( in );
-        if ( !header )
-            return Common::MakeError<uint32_t>( where + " states no readable text header (" + header.GetError() +
-                                                "); materials older than MATL v1 are not supported" );
-        const auto parsed = rfl::json::read<Common::Content::TextAssetHeaderSerialized>( header.GetValue() );
-        if ( !parsed )
-            return Common::MakeError<uint32_t>( where + ": unreadable header: " + parsed.error().what() );
-        const auto matl = parsed.value().Versions.find( "MATL" );
-        if ( matl == parsed.value().Versions.end() )
-            return Common::MakeError<uint32_t>( where + ": the header states no MATL version" );
-        return Common::MakeSuccess( matl->second );
+        return ReadStatedVersion( path, text, "MATL" );
     }
 
-    // WHAT THE CHAIN DID, in one line, for a scene OR a prefab: the same report comes back from both entry
-    // points, so the same function prints it and the step cannot be reported for one file class and silently
-    // omitted for the other. §4.7 - a migration that says nothing is a migration nobody can check.
     void PrintSteps( std::ostream& out, const Desert::Migration::FileMigrationReport& report )
     {
         if ( report.PathOnlyMeshGuidsRaised )
@@ -878,84 +547,27 @@ namespace Desert::Migration
             out << "ok     " << path.string() << " — already at mesh v" << version.GetValue() << "\n";
         }
 
-        // THE CLOUD LAYOUTS (container 1 -> 2). The version-1 bytes after magic and version ARE the
-        // version-2 payload, so the pass only wraps them: kind CloudLayout, a fresh GUID, the layout version
-        // under its own tag. The wrapped file is read back and its payload compared before anything is
-        // written. A version-2 file is left byte-for-byte as it is, so a second run changes nothing.
+        // THE CLOUD LAYOUTS: only the enveloped generation (container 2) is read. A bare version-1 'DCLY'
+        // container is refused by its number - its step was deleted with the other legacy steps (LEG1).
         for ( const auto& path : layouts )
         {
             namespace CC                        = Common::Content;
             const CC::SubsystemVersion kKnown[] = {
                  { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion } };
-            const std::string bytes     = ReadAll( path );
-            const auto*       first     = reinterpret_cast<const std::byte*>( bytes.data() );
-            constexpr size_t  kV1Prefix = sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) + 4u;
-            if ( bytes.size() >= kV1Prefix &&
-                 std::memcmp( bytes.data(), Desert::Assets::kCloudLayoutVersion1Magic,
-                              sizeof( Desert::Assets::kCloudLayoutVersion1Magic ) ) != 0 )
+            const std::string bytes = ReadAll( path );
+            const auto*       first = reinterpret_cast<const std::byte*>( bytes.data() );
+            const auto        header =
+                 CC::ReadEnvelopeHeader( std::span( first, bytes.size() ), CC::AssetHeaderReadContext{ kKnown } );
+            if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
             {
-                const auto header = CC::ReadEnvelopeHeader( std::span( first, bytes.size() ),
-                                                            CC::AssetHeaderReadContext{ kKnown } );
-                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudLayout )
-                {
-                    err << "FAIL   " << path.string() << " — neither a version-1 'DCLY' layout nor a cloud layout "
-                        << "envelope: "
-                        << ( header ? "the envelope's kind is not CloudLayout" : header.GetError() ) << "\n";
-                    ++failed;
-                    continue;
-                }
-                out << "ok     " << path.string() << " — already at layout v"
-                    << Desert::Assets::kCloudLayoutContainerVersion << "\n";
-                continue;
-            }
-            if ( bytes.size() < kV1Prefix )
-            {
-                err << "FAIL   " << path.string() << " — " << bytes.size() << " bytes, too short for any layout\n";
+                err << "FAIL   " << path.string() << " — not a cloud layout envelope at v"
+                    << Desert::Assets::kCloudLayoutContainerVersion << " (older layouts are not supported): "
+                    << ( header ? "the envelope's kind is not CloudLayout" : header.GetError() ) << "\n";
                 ++failed;
                 continue;
             }
-            uint32_t version = 0;
-            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
-            if ( version != 1u )
-            {
-                err << "FAIL   " << path.string() << " — a bare 'DCLY' container version " << version
-                    << "; this tool raises version 1 only\n";
-                ++failed;
-                continue;
-            }
-
-            CC::AssetEnvelope envelope;
-            envelope.Asset.Kind       = CC::ContentKind::CloudLayout;
-            envelope.Asset.Guid       = CC::AssetGuid::Generate();
-            envelope.Asset.Subsystems = { kKnown[0] };
-            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
-                                           std::vector<std::byte>( first + kV1Prefix, first + bytes.size() ) } );
-            const auto wrapped = CC::WriteAssetEnvelope( envelope );
-            const auto reread =
-                 wrapped ? CC::ReadAssetEnvelope( wrapped.GetValue(), CC::AssetHeaderReadContext{ kKnown } )
-                         : Common::MakeFormattedError<CC::AssetEnvelope>( "{}", wrapped.GetError() );
-            if ( !reread || !( reread.GetValue().Asset == envelope.Asset ) ||
-                 reread.GetValue().Sections != envelope.Sections )
-            {
-                err << "FAIL   " << path.string() << " — the wrapped layout does not read back: "
-                    << ( reread ? std::string( "its header or payload differs" ) : reread.GetError() ) << "\n";
-                ++failed;
-                continue;
-            }
-            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — layout v1 -> v"
-                << Desert::Assets::kCloudLayoutContainerVersion << ", GUID "
-                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
-            ++changed;
-            if ( check )
-                continue;
-            if ( const auto written =
-                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
-                 !written )
-            {
-                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
-                ++failed;
-                --changed;
-            }
+            out << "ok     " << path.string() << " — already at layout v"
+                << Desert::Assets::kCloudLayoutContainerVersion << "\n";
         }
 
         // THE CLOUD NOISE VOLUMES (bare container 1 or 2 -> DCNV 3). The version-2 bytes after magic and
@@ -1305,14 +917,8 @@ namespace Desert::Migration
             }
             out << "ok     " << path.string() << " — MATL v" << Desert::Assets::kMaterialSchemaVersion << "\n";
         }
-        int clipsChanged = 0;
-
         // ---- THE CLIPS ----------------------------------------------------------------------------
-        //
-        // Their own generation sequence, their own gate. A `.anim` with no version field is generation 0
-        // and is converted; one already at the current generation is REFUSED by the migration function
-        // rather than converted again — this step is NOT idempotent, and reading integer ticks as seconds
-        // is exactly the doubling the text-sigil step once shipped (`#menu.play` -> `##menu.play`).
+        // Their own generation sequence, their own gate: only the current ANIM generation is read.
         for ( const auto& path : clips )
         {
             const std::string source = ReadAll( path );
@@ -1322,103 +928,17 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-
-            // Generations 0-2 are converted to 3 first (their keys and sections); a generation-3 text is
-            // raised as it is. Either way the header raise is the last step and mints the clip's GUID once.
-            Desert::Assets::Serialization::AnimationMigrationReport report;
-            const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( source, report );
-            if ( !migrated )
+            if ( !PassesTextHeaderGate( *TextHeaderGateFor( path ), path, source, err ) )
             {
-                // A clip that already states its header is the ordinary case on a second run, and it is
-                // reported as "ok" rather than as a failure — the refusal is what keeps a second run from
-                // doubling the conversion, not a sign that anything is wrong.
-                if ( report.FromVersion >= Desert::Assets::Serialization::kAnimationVersion )
-                {
-                    if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
-                         layout != Layout::Canonical )
-                    {
-                        ++( layout == Layout::Failed ? failed : relaid );
-                        continue;
-                    }
-                    out << "ok     " << path.string() << " — already at `.anim` generation " << report.FromVersion
-                        << "\n";
-                    continue;
-                }
-                if ( report.FromVersion != Desert::Assets::Serialization::kAnimationLastVersionMember )
-                {
-                    err << "FAIL   " << path.string() << " — " << migrated.GetError() << "\n";
-                    ++failed;
-                    continue;
-                }
-            }
-
-            std::ostringstream what;
-            if ( migrated )
-            {
-                // WHAT ACTUALLY HAPPENED TO THIS FILE, which is not the same sentence for both steps. A
-                // generation-0 file has its key times moved from float seconds onto the tick grid; a
-                // generation-1 one keeps every tick it had and gains the SHAPE each key now states. Printing
-                // the first sentence for both was true of the corpus on the day it was written and false the
-                // day a second step existed.
-                std::ostringstream what;
-                if ( report.FromVersion < 1 )
-                {
-                    what << " generation " << report.FromVersion << ": key times moved from float seconds onto "
-                         << "the " << Desert::Animation::PROJECT_TICK_RATE.Numerator << "-tick grid; display rate "
-                         << report.DisplayRateNumerator << " fps"
-                         << ( report.DisplayRateIsAFallback ? " (no standard grid fits its keys, defaulted)" : "" )
-                         << "; " << report.KeysMoved << " key time(s) rounded";
-                    if ( report.KeysMoved > 0 )
-                    {
-                        what << ", worst by " << report.WorstMicro << " millionths of a tick";
-                    }
-                    what << ";";
-                }
-                else
-                {
-                    what << " generation " << report.FromVersion << ": every tick kept; display rate "
-                         << report.DisplayRateNumerator << " fps carried;";
-                }
-                what << " " << report.ShapesWritten
-                     << " key(s) now STATE their interpolation and tangent mode instead of inheriting a silent "
-                        "default;";
-                // THE GENERATION-3 SENTENCE, and it is a separate one because it is a separate claim: the
-                // step from 2 adds NO key shapes (they were already stated) and adds the section instead, so
-                // a line reporting only `ShapesWritten` would say "0" and read as a conversion that did
-                // nothing.
-                what << " " << report.SectionsWritten
-                     << " section(s) now STATE the range, blend type and weight its values are read under;";
-            }
-            const Common::Content::AssetGuid guid = Common::Content::AssetGuid::Generate();
-            const auto                       raised =
-                 RaiseTextToHeader( *TextHeaderRaiseFor( path ), migrated ? migrated.GetValue() : source, guid );
-            if ( !raised || !raised.GetValue().has_value() )
-            {
-                err << "FAIL   " << path.string() << " — the header raise "
-                    << ( raised ? std::string( "found a header already" ) : raised.GetError() ) << "\n";
                 ++failed;
                 continue;
             }
-            what << " generation " << Desert::Assets::Serialization::kAnimationLastVersionMember << " -> "
-                 << Desert::Assets::Serialization::kAnimationVersion << ": the version now lives in the text "
-                 << "asset header, GUID " << Common::Content::AssetGuidToText( guid ) << ";";
-
-            if ( check )
+            if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err ); layout != Layout::Canonical )
             {
-                out << "WOULD  " << path.string() << " —" << what.str() << "\n";
-                ++clipsChanged;
+                ++( layout == Layout::Failed ? failed : relaid );
                 continue;
             }
-
-            if ( !WriteText( path, *raised.GetValue(), err ) )
-            {
-                err << "FAIL   " << path.string() << " — the conversion could not be written; the original "
-                    << "file is untouched. It would have been:" << what.str() << "\n";
-                ++failed;
-                continue;
-            }
-            out << "raised " << path.string() << " —" << what.str() << "\n";
-            ++clipsChanged;
+            out << "ok     " << path.string() << " — ANIM v" << Desert::Assets::kAnimationSchemaVersion << "\n";
         }
 
         // THE PREFABS, through the SAME chain the scenes went through (И11).
@@ -1507,75 +1027,18 @@ namespace Desert::Migration
 
         for ( const auto& path : texts )
         {
-            if ( const TextHeaderRaise* row = TextHeaderRaiseFor( path ) )
+            const std::string text = ReadAll( path );
+            if ( const TextHeaderGate* row = TextHeaderGateFor( path ); row && !PassesTextHeaderGate( *row, path, text, err ) )
             {
-                std::string                      text   = ReadAll( path );
-                const Common::Content::AssetGuid guid   = Common::Content::AssetGuid::Generate();
-                const auto                       raised = RaiseTextToHeader( *row, text, guid );
-                if ( !raised )
-                {
-                    err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
-                    ++failed;
-                    continue;
-                }
-                std::ostringstream steps;
-                if ( raised.GetValue().has_value() )
-                {
-                    steps << Common::Content::KindName( row->Kind ) << " v" << row->FromVersion << " -> v"
-                          << row->ToVersion << ", GUID " << Common::Content::AssetGuidToText( guid );
-                    text = *raised.GetValue();
-                }
-                // Chained in the same run, so a v1 retarget lands at RTGT 3 and never waits on disk at 2.
-                if ( row->Kind == Common::Content::ContentKind::Retarget )
-                {
-                    const auto rigged = RaiseRetargetV2ToV3( path, text );
-                    if ( !rigged )
-                    {
-                        err << "FAIL   " << path.string() << " — RTGT 2 -> 3: " << rigged.GetError()
-                            << " (original untouched)\n";
-                        ++failed;
-                        continue;
-                    }
-                    if ( rigged.GetValue().has_value() )
-                    {
-                        steps << ( steps.tellp() > 0 ? "; " : "" ) << "RTGT 2 -> 3, source rig by GUID";
-                        text = *rigged.GetValue();
-                    }
-                }
-                // Chained the same way, so a CLTY 3 type lands at CLTY 5.
-                if ( row->Kind == Common::Content::ContentKind::CloudType )
-                {
-                    const auto named = RaiseCloudTypeV4ToV5( path, text );
-                    if ( !named )
-                    {
-                        err << "FAIL   " << path.string() << " — CLTY 4 -> 5: " << named.GetError()
-                            << " (original untouched)\n";
-                        ++failed;
-                        continue;
-                    }
-                    if ( named.GetValue().has_value() )
-                    {
-                        steps << ( steps.tellp() > 0 ? "; " : "" ) << "CLTY 4 -> 5, noise volume by GUID";
-                        text = *named.GetValue();
-                    }
-                }
-                if ( steps.tellp() > 0 )
-                {
-                    out << ( check ? "WOULD  " : "raised " ) << path.string() << " — " << steps.str() << "\n";
-                    ++changed;
-                    if ( !check && !WriteText( path, text, err ) )
-                        ++failed;
-                    continue;
-                }
+                ++failed;
+                continue;
             }
-            if ( const Layout layout = RelayOutIfNeeded( path, ReadAll( path ), check, out, err );
-                 layout != Layout::Canonical )
+            if ( const Layout layout = RelayOutIfNeeded( path, text, check, out, err ); layout != Layout::Canonical )
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
-            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s) of which " << clipsChanged
-            << ( check ? " would change, " : " raised, " ) << materials.size() << " material(s), "
+            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size() << " material(s), "
             << prefabs.size() << " prefab(s), "
             << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
             << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
