@@ -86,8 +86,8 @@ namespace
     {
         const std::string text   = Common::Json::Write( written );
         const auto        parsed = Common::Json::Read<Common::Json::Object>( text );
-        EXPECT_TRUE( parsed ) << "what the serializer wrote is not a JSON object: " << text << " - "
-                              << parsed.GetError();
+        SCOPED_TRACE( "what the serializer wrote must be a JSON object: " + text );
+        EXPECT_TRUE( parsed.IsSuccess() );
         return parsed ? parsed.GetValue() : Common::Json::Object{};
     }
 
@@ -156,9 +156,9 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
     const auto stored = object.get( "Sprite" );
     ASSERT_TRUE( stored.has_value() ) << "the canvas wrote no Sprite field at all";
     const Common::Json::Node ref = Common::Json::Root( stored.value() );
-    ASSERT_EQ( ref.GetKind(), Common::Json::Kind::Object )
-         << "the sprite was written as something other than a {Guid, Path} "
-            "reference (SCNE 30) - a bare key or a raw id is not an identity";
+    SCOPED_TRACE( "the sprite must be written as a {Guid, Path} reference (SCNE 30) - a bare key or a raw id is "
+                  "not an identity" );
+    ASSERT_EQ( ref.GetKind(), Common::Json::Kind::Object );
     const auto field = [&]( const char* key ) -> std::string
     {
         const auto v = ref.Find( key );

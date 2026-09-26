@@ -488,7 +488,8 @@ TEST( WorldSceneGenerator, TheSettingsBlockIsTheREFLECTIONTABLEAndNothingElse )
     const auto settings = Document( bytes ).get( "Settings" );
     ASSERT_TRUE( settings.has_value() ) << "the generated scene states no Settings block at all";
     const Common::Json::Node block = Common::Json::Root( *settings, Common::Json::Path().Key( "Settings" ) );
-    ASSERT_EQ( block.GetKind(), Common::Json::Kind::Object ) << "the Settings block is not an object";
+    SCOPED_TRACE( "the Settings block must be an object" );
+    ASSERT_EQ( block.GetKind(), Common::Json::Kind::Object );
 
     const auto* type = Desert::Reflection::ReflectionRegistry::Get().Find( "SceneSettings" );
     ASSERT_NE( type, nullptr ) << "the reflection table this suite reads is empty";

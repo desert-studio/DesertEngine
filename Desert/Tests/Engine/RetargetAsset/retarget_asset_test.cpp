@@ -327,16 +327,26 @@ namespace
         return parsed.IsSuccess() ? parsed.ExtractValue() : File::RetargetAssetData{};
     }
 
+    // `data` stating `version` under RTGT in its header - a generation this build did not write.
+    File::RetargetAssetData Restamped( File::RetargetAssetData data, std::uint32_t version )
+    {
+        if ( data.Header.has_value() )
+            data.Header->Versions["RTGT"] = version;
+        return data;
+    }
+
     // `json` with one top-level member set to `value` - replaced in place, or added (first when `first`). A
     // document of another generation is provoked through the tree, never by splicing text.
-    template <typename T>
-    std::string WithMember( const std::string& json, std::string_view name, const T& value, bool first = false )
+    std::string WithMember( const std::string& json, std::string_view name, const Common::Json::Value& value,
+                            bool first = false )
     {
         auto parsed = Common::Json::Parse( json );
         EXPECT_TRUE( parsed.IsSuccess() ) << ( parsed.IsSuccess() ? "" : parsed.GetError() );
         if ( !parsed.IsSuccess() )
             return {};
         const Common::Json::Value   tree = parsed.ExtractValue();
+        // Set and Build are non-const; clang-tidy 18 misses the calls made through the member lambda below.
+        // NOLINTNEXTLINE(misc-const-correctness)
         Common::Json::ObjectBuilder rebuilt;
         if ( first )
             rebuilt.Set( name, value );
@@ -551,9 +561,7 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     const File::RetargetAssetData stamped = StampedRetarget();
     ASSERT_TRUE( stamped.Header.has_value() );
     ASSERT_EQ( stamped.Header->Versions.at( "RTGT" ), File::kRetargetVersion );
-    File::RetargetAssetData future  = stamped;
-    future.Header->Versions["RTGT"] = 42;
-    const auto forward              = File::ParseRetarget( Common::Json::Write( future ) );
+    const auto forward = File::ParseRetarget( Common::Json::Write( Restamped( stamped, 42 ) ) );
     ASSERT_FALSE( forward.IsSuccess() );
     EXPECT_NE( forward.GetError().find( "42" ), std::string::npos ) << forward.GetError();
 
@@ -562,7 +570,8 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     File::RetargetAssetData past = ShippedRetarget();
     past.Header.reset();
     for ( const std::string& v1 :
-          { Common::Json::Write( past ), WithMember( Common::Json::Write( past ), "FormatVersion", 1, true ) } )
+          { Common::Json::Write( past ), WithMember( Common::Json::Write( past ), "FormatVersion",
+                                                     Common::Json::Value( std::int64_t{ 1 } ), true ) } )
     {
         const auto backward = File::ParseRetarget( v1 );
         ASSERT_FALSE( backward.IsSuccess() ) << v1;
@@ -574,10 +583,8 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     // `"RTGT": 2` is the one thing a reader can trust before the payload's shape is known.
     // The payload is written in the v2 shape, the rig a bare string, so the refusal must come from the
     // stated version and not from the typed read failing on the object it now expects.
-    File::RetargetAssetData second  = stamped;
-    second.Header->Versions["RTGT"] = 2;
-    const std::string v2 =
-         WithMember( Common::Json::Write( second ), "SourceSkeleton", std::string( "ForeignArm.skeleton" ) );
+    const std::string v2    = WithMember( Common::Json::Write( Restamped( stamped, 2 ) ), "SourceSkeleton",
+                                          Common::Json::Value( std::string( "ForeignArm.skeleton" ) ) );
     const auto older = File::ParseRetarget( v2 );
     ASSERT_FALSE( older.IsSuccess() );
     EXPECT_NE( older.GetError().find( "format version 2" ), std::string::npos ) << older.GetError();
@@ -1172,8 +1179,9 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
     EXPECT_EQ( shippedRig.GetValue().Signature, builtRig.Signature );
     for ( size_t i = 0; i < builtRig.Bones.size(); ++i )
     {
-        EXPECT_EQ( shippedRig.GetValue().Bones[i].Name, builtRig.Bones[i].Name ) << "bone " << i;
-        EXPECT_EQ( shippedRig.GetValue().Bones[i].ParentBoneID, builtRig.Bones[i].ParentBoneID ) << "bone " << i;
+        SCOPED_TRACE( "bone " + std::to_string( i ) );
+        EXPECT_EQ( shippedRig.GetValue().Bones[i].Name, builtRig.Bones[i].Name );
+        EXPECT_EQ( shippedRig.GetValue().Bones[i].ParentBoneID, builtRig.Bones[i].ParentBoneID );
         EXPECT_LT( MaxAbsDelta( shippedRig.GetValue().Bones[i].LocalBindTransform,
                                 builtRig.Bones[i].LocalBindTransform ),
                    1.0e-3F )
@@ -1189,7 +1197,8 @@ TEST( RetargetAssetTest, TheShippedSourceRigAndClipAreEXACTLYWhatThisSuiteConstr
          << kSourceClip << " is missing or is not a clip; copy " << clipOut.string() << " over it";
 
     const File::AnimationAssetData builtClip = ForeignArmClipData();
-    EXPECT_TRUE( shippedClip.GetValue().Header.has_value() ) << kSourceClip << " states no header";
+    SCOPED_TRACE( std::string( kSourceClip ) + " must state a header" );
+    EXPECT_TRUE( shippedClip.GetValue().Header.has_value() );
     EXPECT_EQ( shippedClip.GetValue().Name, builtClip.Name );
     EXPECT_EQ( shippedClip.GetValue().DurationTicks, builtClip.DurationTicks );
     EXPECT_EQ( shippedClip.GetValue().SkeletonSignature, builtClip.SkeletonSignature );

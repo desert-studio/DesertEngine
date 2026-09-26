@@ -196,7 +196,8 @@ TEST( CloudProtocolScene, TheSettingsBlockIsWrittenInFull )
         ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName << " has no Settings block";
 
         const Common::Json::Node settings = Common::Json::Root( *parsed.GetValue().Settings );
-        ASSERT_EQ( settings.GetKind(), Common::Json::Kind::Object ) << sceneName << ": Settings is not an object";
+        SCOPED_TRACE( std::string( sceneName ) + ": Settings must be an object" );
+        ASSERT_EQ( settings.GetKind(), Common::Json::Kind::Object );
 
         const std::set<std::string> present = KeysOf( settings );
         for ( const auto& field : type->Fields )
@@ -230,7 +231,8 @@ TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndTh
         ASSERT_TRUE( parsed ) << sceneName;
         ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName;
         const Common::Json::Node settings = Common::Json::Root( *parsed.GetValue().Settings );
-        ASSERT_EQ( settings.GetKind(), Common::Json::Kind::Object ) << sceneName;
+        SCOPED_TRACE( sceneName );
+        ASSERT_EQ( settings.GetKind(), Common::Json::Kind::Object );
 
         const std::set<std::string> present = KeysOf( settings );
         for ( const char* key : { "CloudQualityTier", "AA", "MeshLOD", "TextureFilterMode", "Anisotropy" } )
