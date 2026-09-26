@@ -21,22 +21,20 @@
 
 #include <ToolMain.hpp>
 
+// The transport, and ONLY the transport: the same header the editor's end of this channel uses, so that
+// what the platforms spell differently is written once rather than once per end. Header-only, which is why
+// this tool still links nothing but reflect-cpp (Tools/DesertCtl/premake5.lua).
+#include <Common/Core/LocalSocket.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
-#include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
-
-#if !defined( DESERT_PLATFORM_WINDOWS )
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <time.h>
-#include <unistd.h>
-#endif
 
 namespace
 {
@@ -167,35 +165,27 @@ namespace
     }
 } // namespace
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-
-int main( int, char** )
-{
-    // The editor's own transport refuses on Windows for the same reason, written out at
-    // Editor/Source/Editor/Core/Control/ControlSocket.cpp: it is developed and verified where the editor
-    // runs, and that is macOS today. Refusing in one line here beats a client that connects to nothing.
-    std::fprintf( stderr,
-                  "desertctl: the control channel has no transport on Windows yet. The editor refuses "
-                  "--control-socket there for the same reason, so there would be nothing to connect to.\n" );
-    return kNoEditor;
-}
-
-#else
-
 namespace
 {
-    /// Connect, waiting up to @p waitSeconds for the socket to appear. Returns -1 having said why.
-    int Connect( const std::string& path, double waitSeconds )
+    namespace Socket = Common::LocalSocket;
+
+    /// Connect, waiting up to @p waitSeconds for the socket to appear. Returns kInvalid having said why.
+    Socket::Handle Connect( const std::string& path, double waitSeconds )
     {
+        if ( const std::string unavailable = Socket::EnsureLibraryReady(); !unavailable.empty() )
+        {
+            std::fprintf( stderr, "desertctl: the platform's socket library could not be started: %s.\n",
+                          unavailable.c_str() );
+            return Socket::kInvalid;
+        }
+
         sockaddr_un address{};
-        if ( path.size() >= sizeof( address.sun_path ) )
+        if ( !Socket::FillAddress( address, path ) )
         {
             std::fprintf( stderr, "desertctl: socket path is too long (%zu of %zu characters).\n", path.size(),
-                          sizeof( address.sun_path ) - 1 );
-            return -1;
+                          Socket::MaxPathLength() );
+            return Socket::kInvalid;
         }
-        address.sun_family = AF_UNIX;
-        std::strncpy( address.sun_path, path.c_str(), sizeof( address.sun_path ) - 1 );
 
         // 50 ms between attempts: fast enough that a ready editor is not kept waiting, slow enough that a
         // thirty-second wait is six hundred syscalls rather than a spin.
@@ -205,26 +195,23 @@ namespace
 
         for ( ;; )
         {
-            const int fd = ::socket( AF_UNIX, SOCK_STREAM, 0 );
+            const Socket::Handle fd = Socket::Open();
             if ( fd < 0 )
             {
-                std::fprintf( stderr, "desertctl: socket() failed: %s\n", std::strerror( errno ) );
-                return -1;
+                std::fprintf( stderr, "desertctl: socket() failed: %s\n", Socket::LastErrorText().c_str() );
+                return Socket::kInvalid;
             }
 
-            if ( ::connect( fd, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) == 0 )
+            if ( ::connect( Socket::Raw( fd ), Socket::AsSockaddr( address ), sizeof( address ) ) == 0 )
                 return fd;
 
-            lastError = std::strerror( errno );
-            ::close( fd );
+            lastError = Socket::LastErrorText();
+            Socket::Close( fd );
 
             if ( waited >= waitSeconds )
                 break;
 
-            timespec pause{};
-            pause.tv_sec  = 0;
-            pause.tv_nsec = static_cast<long>( kRetrySeconds * 1e9 );
-            ::nanosleep( &pause, nullptr );
+            std::this_thread::sleep_for( std::chrono::duration<double>( kRetrySeconds ) );
             waited += kRetrySeconds;
         }
 
@@ -232,25 +219,30 @@ namespace
                       "desertctl: no editor is listening on '%s' (%s). Start one with "
                       "--control-socket '%s', or raise --wait if it is still booting.\n",
                       path.c_str(), lastError.c_str(), path.c_str() );
-        return -1;
+        return Socket::kInvalid;
     }
 
-    bool SendAll( int fd, const std::string& text )
+    bool SendAll( Socket::Handle fd, const std::string& text )
     {
         std::size_t sent = 0;
         while ( sent < text.size() )
         {
+            // Winsock counts the bytes of one send in an `int`; a request is one short line, so the cast
+            // is safe here, and the loop would take the rest in any case.
+            const auto remaining = static_cast<int>( text.size() - sent );
 #if defined( MSG_NOSIGNAL )
-            const ssize_t wrote = ::send( fd, text.data() + sent, text.size() - sent, MSG_NOSIGNAL );
+            const auto wrote = static_cast<std::ptrdiff_t>(
+                 ::send( Socket::Raw( fd ), text.data() + sent, remaining, MSG_NOSIGNAL ) );
 #else
-            const ssize_t wrote = ::send( fd, text.data() + sent, text.size() - sent, 0 );
+            const auto wrote =
+                 static_cast<std::ptrdiff_t>( ::send( Socket::Raw( fd ), text.data() + sent, remaining, 0 ) );
 #endif
             if ( wrote > 0 )
             {
                 sent += static_cast<std::size_t>( wrote );
                 continue;
             }
-            if ( wrote < 0 && errno == EINTR )
+            if ( wrote < 0 && Socket::LastErrorIsInterrupted() )
                 continue;
             return false;
         }
@@ -259,7 +251,7 @@ namespace
 
     /// Read until the first newline. BLOCKING, and that is the point: the editor answers a command only
     /// after a frame that already reflects it, so this wait IS the synchronisation the caller wanted.
-    bool ReadLine( int fd, std::string& out )
+    bool ReadLine( Socket::Handle fd, std::string& out )
     {
         char buffer[4096];
         for ( ;; )
@@ -271,13 +263,14 @@ namespace
                 return true;
             }
 
-            const ssize_t received = ::recv( fd, buffer, sizeof( buffer ), 0 );
+            const auto received = static_cast<std::ptrdiff_t>(
+                 ::recv( Socket::Raw( fd ), buffer, static_cast<int>( sizeof( buffer ) ), 0 ) );
             if ( received > 0 )
             {
                 out.append( buffer, static_cast<std::size_t>( received ) );
                 continue;
             }
-            if ( received < 0 && errno == EINTR )
+            if ( received < 0 && Socket::LastErrorIsInterrupted() )
                 continue;
 
             // Closed with a partial line, or closed with nothing. Either way there is no reply, and
@@ -397,20 +390,20 @@ static int RunTool( int argc, char** argv )
         return kNoEditor;
     }
 
-    const int fd = Connect( socketPath, waitSeconds );
+    const Socket::Handle fd = Connect( socketPath, waitSeconds );
     if ( fd < 0 )
         return kNoEditor;
 
     if ( !SendAll( fd, request + "\n" ) )
     {
         std::fprintf( stderr, "desertctl: the editor closed the connection before the request went out.\n" );
-        ::close( fd );
+        Socket::Close( fd );
         return kNoEditor;
     }
 
     std::string reply;
     const bool  got = ReadLine( fd, reply );
-    ::close( fd );
+    Socket::Close( fd );
 
     if ( !got )
     {
@@ -467,5 +460,3 @@ int main( int argc, char** argv )
 {
     return Desert::Tools::RunMain( "DesertCtl", argc, argv, &RunTool );
 }
-
-#endif // DESERT_PLATFORM_WINDOWS

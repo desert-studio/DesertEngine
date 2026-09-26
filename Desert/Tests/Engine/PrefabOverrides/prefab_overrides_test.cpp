@@ -17,11 +17,10 @@
 // Core::Serialize::CapturePrefabInstance, which reaches the entity serializer and through it the whole
 // engine — no suite can link that, which is exactly why the decision lives where a suite can.
 
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
-
-#include <rflcpp/rfl/json.hpp>
 
 #include <string>
 #include <vector>
@@ -39,28 +38,28 @@ using Desert::Assets::PrefabPathKey;
 
 namespace
 {
-    // A component payload, as a component payload actually reaches these functions: an rfl::Generic
+    // A component payload, as a component payload actually reaches these functions: an Common::Json::Value
     // object tree, the same thing ComponentRegistry hands EntityData.
-    rfl::Generic Payload( const std::string& key, double value )
+    Common::Json::Value Payload( const std::string& key, double value )
     {
-        rfl::Generic::Object object;
-        object[key] = rfl::Generic( value );
+        Common::Json::Object object;
+        object[key] = Common::Json::Value( value );
         return { object };
     }
 
     // A component payload with MORE THAN ONE FIELD. Ю20 is entirely about what happens to the other
     // fields when one of them is overridden, and a one-field fixture cannot tell the two granularities
     // apart — which is why the suite could be green through the whole of Ю19 while the defect was there.
-    rfl::Generic Payload2( const std::string& a, double av, const std::string& b, double bv )
+    Common::Json::Value Payload2( const std::string& a, double av, const std::string& b, double bv )
     {
-        rfl::Generic::Object object;
-        object[a] = rfl::Generic( av );
-        object[b] = rfl::Generic( bv );
+        Common::Json::Object object;
+        object[a] = Common::Json::Value( av );
+        object[b] = Common::Json::Value( bv );
         return { object };
     }
 
     // One field of a payload, as text, so a test can say which field moved and which did not.
-    std::string FieldOf( const rfl::Generic& payload, const std::string& field )
+    std::string FieldOf( const Common::Json::Value& payload, const std::string& field )
     {
         const auto object = payload.to_object();
         if ( !object )
@@ -72,12 +71,12 @@ namespace
         {
             return "<absent>";
         }
-        return rfl::json::write( value.value() );
+        return Common::Json::Write( value.value() );
     }
 
-    std::string Text( const rfl::Generic& g )
+    std::string Text( const Common::Json::Value& g )
     {
-        return rfl::json::write( g );
+        return Common::Json::Write( g );
     }
 
     // A UI button record as the capture sees one: a tag, a transform, and two component payloads.
@@ -131,7 +130,7 @@ TEST( PrefabOverrides, OnlyTheEditedFieldIsRecorded )
     // BY VALUE. `Result::value()` hands back the temporary Result's contents, so binding a reference to
     // it dangles the moment the full expression ends — which is a crash inside the variant, not a test
     // failure, and it cost a debugging round here.
-    const rfl::Generic panel = over->Components.get( "UIPanel" ).value();
+    const Common::Json::Value panel = over->Components.get( "UIPanel" ).value();
     EXPECT_EQ( FieldOf( panel, "Color" ), "0.9" );
     EXPECT_EQ( FieldOf( panel, "CornerRadius" ), "<absent>" )
          << "the corner radius was not touched, so the override must not state it";
@@ -168,7 +167,7 @@ TEST( PrefabOverrides, SourceEditsReachAnOverriddenInstance )
     EXPECT_EQ( Text( result.Components.get( "UILayout" ).value() ), Text( Payload( "OffsetMinX", 64.0 ) ) );
     EXPECT_EQ( result.Tag, "Primary Button" );
 
-    const rfl::Generic panel = result.Components.get( "UIPanel" ).value();
+    const Common::Json::Value panel = result.Components.get( "UIPanel" ).value();
     // THE SIBLING FIELD FOLLOWED THE SOURCE TOO — this is Ю20, and under component-sized overrides this
     // line read 8 instead of 24: the author who recoloured one button stopped receiving every later edit
     // to that button's shape, silently.
@@ -214,8 +213,8 @@ TEST( PrefabOverrides, RecordApplierAndLiveApplierCarryTheSameValues )
     EntityData layered = BaseRecord();
     LayerOverrideOntoRecord( layered, *over );
 
-    const rfl::Generic liveSide = MergePayload( BaseRecord().Components.get( "UIPanel" ).value(),
-                                                over->Components.get( "UIPanel" ).value() );
+    const Common::Json::Value liveSide = MergePayload( BaseRecord().Components.get( "UIPanel" ).value(),
+                                                       over->Components.get( "UIPanel" ).value() );
 
     EXPECT_EQ( Text( layered.Components.get( "UIPanel" ).value() ), Text( liveSide ) );
 
@@ -232,10 +231,10 @@ TEST( PrefabOverrides, RecordApplierAndLiveApplierCarryTheSameValues )
 
 TEST( PrefabOverrides, MergeKeepsEveryFieldThePartialDoesNotMention )
 {
-    const rfl::Generic current = Payload2( "Color", 0.25, "CornerRadius", 8.0 );
-    const rfl::Generic partial = Payload( "Color", 0.90 );
+    const Common::Json::Value current = Payload2( "Color", 0.25, "CornerRadius", 8.0 );
+    const Common::Json::Value partial = Payload( "Color", 0.90 );
 
-    const rfl::Generic merged = MergePayload( current, partial );
+    const Common::Json::Value merged = MergePayload( current, partial );
     EXPECT_EQ( FieldOf( merged, "Color" ), "0.9" );
     EXPECT_EQ( FieldOf( merged, "CornerRadius" ), "8.0" )
          << "a field the override does not mention must keep the value it had — without this a "
@@ -264,8 +263,10 @@ TEST( PrefabOverrides, APayloadThatIsNotAnObjectIsComparedAndMergedWhole )
 {
     // Not every component payload is an object — one serialized as an array or a scalar has no fields to
     // take apart, and inventing sub-structure there would be a second definition of "field".
-    const rfl::Generic before( rfl::Generic::Array{ rfl::Generic( 1.0 ), rfl::Generic( 2.0 ) } );
-    const rfl::Generic after( rfl::Generic::Array{ rfl::Generic( 1.0 ), rfl::Generic( 9.0 ) } );
+    const Common::Json::Value before(
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( 2.0 ) } );
+    const Common::Json::Value after(
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( 9.0 ) } );
 
     EXPECT_FALSE( DiffPayload( before, before ).has_value() );
     const auto diff = DiffPayload( before, after );
@@ -294,7 +295,7 @@ TEST( PrefabOverrides, AFieldThePrefabDoesNotStateIsPinnedAndCounted )
     // the source for that one field, which is the lesser loss — and it is COUNTED, so the caller can
     // name it instead of leaving it silent. (#148: normalising the base would remove the choice.)
     ASSERT_TRUE( over.has_value() );
-    const rfl::Generic pinned = over->Components.get( "UIPanel" ).value();
+    const Common::Json::Value pinned = over->Components.get( "UIPanel" ).value();
     EXPECT_EQ( FieldOf( pinned, "CornerRadius" ), "8.0" );
     EXPECT_EQ( FieldOf( pinned, "Color" ), "<absent>" );
     EXPECT_EQ( report.UnstatedFields, 1u );
@@ -367,12 +368,12 @@ TEST( PrefabOverrides, OverridesSurviveTheFile )
     instanceRoot.PrefabOverrides = std::vector<PrefabOverrideData>{ *over };
     tree.Entities.push_back( instanceRoot );
 
-    const std::string json   = rfl::json::write( tree );
-    const auto        parsed = rfl::json::read<Desert::Assets::PrefabData>( json );
+    const std::string json   = Common::Json::Write( tree );
+    const auto        parsed = Common::Json::Read<Desert::Assets::PrefabData>( json );
     ASSERT_TRUE( parsed ) << json;
 
-    ASSERT_EQ( parsed.value().Entities.size(), 1u );
-    const auto& back = parsed.value().Entities.front();
+    ASSERT_EQ( parsed.GetValue().Entities.size(), 1u );
+    const auto& back = parsed.GetValue().Entities.front();
     ASSERT_TRUE( back.PrefabOverrides.has_value() );
     ASSERT_EQ( back.PrefabOverrides->size(), 1u );
 

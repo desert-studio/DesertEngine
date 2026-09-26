@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 
@@ -148,13 +149,13 @@ TEST( ImportedMeshAsset, LodSiblingsBecomeSourceModels )
     AddPlane( imported, "Body_lod1", 2, 0.0f, a );
     const auto source = Editor::MeshSourceFromImport( imported, {}, "Crate" );
     ASSERT_TRUE( source.IsSuccess() ) << source.GetError();
-    ASSERT_EQ( source.GetValue().Models.size(), 3u );
-    EXPECT_EQ( source.GetValue().Models[0].Mesh.MaterialIds.size(), 64u ); // Body + Lid
-    EXPECT_EQ( source.GetValue().Models[1].Mesh.MaterialIds.size(), 8u );
-    EXPECT_EQ( source.GetValue().Models[2].Mesh.MaterialIds.size(), 2u );
-    ASSERT_EQ( source.GetValue().MaterialSlots.size(), 2u );
-    EXPECT_EQ( source.GetValue().MaterialSlots[0].Name, "Body" );
-    EXPECT_EQ( source.GetValue().MaterialSlots[1].Material, b );
+    ASSERT_EQ( source.GetValue().Source.Models.size(), 3u );
+    EXPECT_EQ( source.GetValue().Source.Models[0].Mesh.MaterialIds.size(), 64u ); // Body + Lid
+    EXPECT_EQ( source.GetValue().Source.Models[1].Mesh.MaterialIds.size(), 8u );
+    EXPECT_EQ( source.GetValue().Source.Models[2].Mesh.MaterialIds.size(), 2u );
+    ASSERT_EQ( source.GetValue().Source.MaterialSlots.size(), 2u );
+    EXPECT_EQ( source.GetValue().Source.MaterialSlots[0].Name, "Body" );
+    EXPECT_EQ( source.GetValue().Source.MaterialSlots[1].Material, b );
 }
 
 TEST( ImportedMeshAsset, WhatTheSourceCannotHoldIsRefusedByName )
@@ -173,11 +174,82 @@ TEST( ImportedMeshAsset, WhatTheSourceCannotHoldIsRefusedByName )
     ASSERT_FALSE( refusedGap.IsSuccess() );
     EXPECT_NE( refusedGap.GetError().find( "LOD1" ), std::string::npos ) << refusedGap.GetError();
 
+    // Skipping debris is not a licence to write an empty source: a LOD whose every face is degenerate is
+    // refused by name.
     Ser::MeshAssetData degenerate;
     AddPlane( degenerate, "Flat", 1, 0.0f, {} );
-    degenerate.Indices.push_back( degenerate.Indices[0] ); // a duplicate face does not weld one-to-one
-    degenerate.Submeshes[0].IndexCount += 3;
+    for ( Ser::IndexData& face : degenerate.Indices )
+        face.V3 = face.V1;
     const auto refusedWeld = Editor::MeshSourceFromImport( degenerate, {}, "Flat" );
     ASSERT_FALSE( refusedWeld.IsSuccess() );
     EXPECT_NE( refusedWeld.GetError().find( "Flat" ), std::string::npos ) << refusedWeld.GetError();
+    EXPECT_NE( refusedWeld.GetError().find( "2 degenerate" ), std::string::npos ) << refusedWeld.GetError();
+}
+
+namespace
+{
+    // A 2 x 2-quad plane (faces 0..7) plus the three shapes an FBX export leaves behind: a degenerate face
+    // (face 8), a duplicate of face 0 (face 9) and a fin on the plane's shared edge 1-3 (face 10), which
+    // EditMesh cannot share and stands on its own corner copies. Face k carries polygroup 100 + k.
+    Ser::MeshAssetData PlaneWithExportDebris()
+    {
+        Ser::MeshAssetData data;
+        AddPlane( data, "Fins", 2, 0.0f, {} );
+        data.StaticVertices.push_back(
+             { { 10.0f, 20.0f, 10.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, {} } );
+        data.Indices.push_back( { 0, 0, 1 } );
+        data.Indices.push_back( data.Indices[0] );
+        data.Indices.push_back( { 1, 3, 9 } );
+        data.Submeshes[0].VertexCount = static_cast<uint32_t>( data.StaticVertices.size() );
+        data.Submeshes[0].IndexCount  = static_cast<uint32_t>( data.Indices.size() * 3 );
+        for ( size_t k = 0; k < data.Indices.size(); ++k )
+            data.PolyGroups.push_back( 100 + static_cast<int32_t>( k ) );
+        return data;
+    }
+} // namespace
+
+TEST( ImportedMeshAsset, ExportDebrisIsSkippedAndTheRestKeepsItsGroups )
+{
+    // The editor's regression: base.fbx (204 degenerate, 4 duplicate, 8 detached of 120000) was refused whole,
+    // so the Starter scene drew no mesh.
+    const auto source = Editor::MeshSourceFromImport( PlaneWithExportDebris(), {}, "Fins" );
+    ASSERT_TRUE( source.IsSuccess() ) << source.GetError();
+    EXPECT_EQ( source.GetValue().DroppedDegenerate, 1 );
+    EXPECT_EQ( source.GetValue().DroppedDuplicate, 1 );
+    EXPECT_EQ( source.GetValue().DetachedTriangles, 1 );
+    ASSERT_EQ( source.GetValue().Source.Models.size(), 1u );
+
+    // Every surviving face keeps ITS group: 8 plane faces and the fin; the dropped faces' groups (108, 109)
+    // are gone rather than shifted onto the fin.
+    const Geometry::EditMeshSer& mesh = source.GetValue().Source.Models[0].Mesh;
+    ASSERT_EQ( mesh.Triangles.size(), 9u * 3u );
+    std::vector<int> groups = mesh.PolyGroups;
+    std::ranges::sort( groups );
+    EXPECT_EQ( groups, ( std::vector<int>{ 100, 101, 102, 103, 104, 105, 106, 107, 110 } ) );
+
+    // The fin stands on its own corners: it shares no vertex with the plane (a component of its own).
+    const auto finAt = static_cast<size_t>( std::ranges::find( mesh.PolyGroups, 110 ) - mesh.PolyGroups.begin() );
+    for ( size_t t = 0; t < mesh.PolyGroups.size(); ++t )
+        for ( int j = 0; j < 3 && t != finAt; ++j )
+            for ( int i = 0; i < 3; ++i )
+                EXPECT_NE( mesh.Triangles[finAt * 3 + i], mesh.Triangles[t * 3 + j] ) << "triangle " << t;
+
+    // ONE warning line, naming the file and every count.
+    const std::string warning = Editor::SkippedFacesWarning( source.GetValue(), "Meshes/base.fbx" );
+    EXPECT_NE( warning.find( "'Meshes/base.fbx'" ), std::string::npos ) << warning;
+    EXPECT_NE( warning.find( "1 degenerate" ), std::string::npos ) << warning;
+    EXPECT_NE( warning.find( "1 duplicate" ), std::string::npos ) << warning;
+    EXPECT_NE( warning.find( "detached 1" ), std::string::npos ) << warning;
+    EXPECT_EQ( warning.find( '\n' ), std::string::npos ) << warning;
+
+    const auto clean = Editor::MeshSourceFromImport(
+         []
+         {
+             Ser::MeshAssetData d;
+             AddPlane( d, "Clean", 2, 0.0f, {} );
+             return d;
+         }(),
+         {}, "Clean" );
+    ASSERT_TRUE( clean.IsSuccess() ) << clean.GetError();
+    EXPECT_TRUE( Editor::SkippedFacesWarning( clean.GetValue(), "Clean" ).empty() );
 }

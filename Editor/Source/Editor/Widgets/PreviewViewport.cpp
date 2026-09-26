@@ -989,10 +989,11 @@ namespace Desert::Editor
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
-        // The wheel over an Interactive preview zooms it and must not also scroll the window around it. This
-        // ImGui (1.89 WIP) predates key ownership (SetItemKeyOwner); SetItemUsingMouseWheel is its form, read by
-        // the NEXT frame's wheel routing, which is why it is claimed on every hovered frame (WheelOwner).
-        if ( WheelOwner( mode, hovered, ImGui::GetIO().MouseWheel ) == PreviewWheelOwner::Zoom )
+        // Claimed on the item itself, right after it is submitted (SetItemUsingMouseWheel reads the LAST
+        // item), through the one wheel rule: an empty pane or the sky dome does not zoom, so it must not eat
+        // the scroll of the window around it.
+        const bool zoomable = m_HasContent && m_Fill != Fill::SkyDome;
+        if ( WheelOwner( mode, zoomable, hovered ) == PreviewWheelOwner::Zoom )
             ImGui::SetItemUsingMouseWheel();
 
         ImDrawList*  dl = ImGui::GetWindowDrawList();

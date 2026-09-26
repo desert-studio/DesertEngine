@@ -47,7 +47,8 @@ namespace Desert::Editor
     GetToolTargetMeshAt( const std::shared_ptr<const Geometry::DynamicMesh3>& editable,
                          const std::filesystem::path&                         assetFile );
 
-    // The lift itself, a pure function of the file's bytes (ReadMeshAssetData + DynamicMeshFromMeshAssetData).
+    // The lift itself, a pure function of the asset's render-form bytes (LoadMeshPlatformData's answer):
+    // ReadMeshAssetData + DynamicMeshFromMeshAssetData.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const Geometry::DynamicMesh3>>
     LiftStaticMeshBytes( std::string_view bytes, std::string_view whatFor );
 

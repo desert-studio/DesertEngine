@@ -238,7 +238,8 @@ namespace Desert::Geometry
             ranges.push_back( r );
         }
 
-        ImportedEditMesh    result;
+        ImportedEditMesh result;
+        result.TriangleOfFace.assign( render.Indices.size(), InvalidId );
         EditMesh&           mesh       = result.Mesh;
         EditMeshAttributes& attributes = mesh.Attributes();
         attributes.EnableNormals();
@@ -330,6 +331,7 @@ namespace Desert::Geometry
                     assert( detached == EditResult::Ok );
                     ++result.DetachedTriangles;
                 }
+                result.TriangleOfFace[range.FirstTriangle + k] = t;
                 attributes.SetMaterialId( t, range.Material );
 
                 std::array<int, 3> en{};

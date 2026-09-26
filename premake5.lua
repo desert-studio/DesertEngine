@@ -5,12 +5,14 @@
 --   Configurations.lua  — Debug / Release configurations
 --   PlatformWindows.lua — Windows-wide settings (x64)
 --   PlatformMacOS.lua   — macOS-wide settings (Apple Silicon / ARM64)
+--   UnityBuild.lua      — the CI-only `--unity` switch (Visual Studio unity files)
 
 include "BuildScripts/Platform.lua"
 include "BuildScripts/Workspace.lua"
 include "BuildScripts/Configurations.lua"
 include "BuildScripts/PlatformWindows.lua"
 include "BuildScripts/PlatformMacOS.lua"
+include "BuildScripts/UnityBuild.lua"
 
 group "ThirdParty"
 include "ThirdParty/"

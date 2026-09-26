@@ -38,6 +38,7 @@ project(test_name)
         -- scene load). This is what makes `#include <SceneMigration.hpp>` below resolve, and its
         -- own `#include "SceneMigration.hpp"` of itself.
         "%{wks.location}/Tools/SceneMigrator/Source",
+        "%{wks.location}/Desert/Tests/TestSupport", -- assets_sandbox.hpp: the whole-chain tests open .demat files
     }
     externalincludedirs {
         "%{wks.location}/ThirdParty/entt/include/",       -- Components.hpp is an entt registry away

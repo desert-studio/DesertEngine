@@ -1,5 +1,6 @@
 project "Desert"
     kind "StaticLib"
+    DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
     pchheader "pch.hpp"
     pchsource "Source/pch.cpp"

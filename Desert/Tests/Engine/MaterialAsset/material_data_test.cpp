@@ -1,3 +1,4 @@
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Assets/MaterialData.hpp>
@@ -6,7 +7,6 @@
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 using Desert::Assets::MaterialAssetRef;
 using Desert::Assets::MaterialData;
@@ -58,11 +58,11 @@ TEST( MaterialData, JsonRoundTrip )
     const Common::Content::AssetGuid parent{ 0x1122334455667788ull, 0x99aabbccddeeff00ull };
     m.SetParent( parent );
 
-    const std::string json = rfl::json::write( m );
-    auto              back = rfl::json::read<MaterialData>( json );
+    const std::string json = Common::Json::Write( m );
+    auto              back = Common::Json::Read<MaterialData>( json );
     ASSERT_TRUE( back ) << "round-trip parse failed";
 
-    const MaterialData& r = back.value();
+    const MaterialData& r = back.GetValue();
     EXPECT_EQ( r.Shader, m.Shader );
     EXPECT_EQ( r.ShaderGuid(), ( Common::Content::AssetGuid{ 0x51ull, 0x52ull } ) );
     EXPECT_FLOAT_EQ( r.GetParam( "Color" ).y, 0.2f );
@@ -74,11 +74,11 @@ TEST( MaterialData, PBRJsonRoundTripKeepsShaderAbsent )
 {
     MaterialData m;
     m.SetParam( "AlbedoColor", glm::vec4( 1, 1, 1, 1 ) );
-    const std::string json = rfl::json::write( m );
+    const std::string json = Common::Json::Write( m );
     ASSERT_EQ( json.find( "\"Shader\"" ), std::string::npos ); // nullopt omitted -> stays standard PBR
-    auto back = rfl::json::read<MaterialData>( json );
+    auto back = Common::Json::Read<MaterialData>( json );
     ASSERT_TRUE( back );
-    EXPECT_FALSE( back.value().Shader.has_value() );
+    EXPECT_FALSE( back.GetValue().Shader.has_value() );
 }
 
 // ─── PBRSurfaceParams: the optimized backend's typed VIEW of the canon ───────────────────
@@ -134,8 +134,8 @@ TEST( Migration, LegacyTypedJsonIsNotValidCanon )
          R"("IOR":1.5,"GlassTint":[1,1,1,1],"AlbedoTexture":0,"NormalTexture":0,"MetallicTexture":0,)"
          R"("RoughnessTexture":0,"AOTexture":0,"EmissiveTexture":0,"OpacityTexture":0})";
 
-    auto asCanon = rfl::json::read<MaterialData>( legacyJson );
-    EXPECT_FALSE( asCanon.has_value() );
+    auto asCanon = Common::Json::Read<MaterialData>( legacyJson );
+    EXPECT_FALSE( asCanon.IsSuccess() );
 }
 
 // ─── MATL 3: every asset slot by header GUID + a path locator ────────────────────────────

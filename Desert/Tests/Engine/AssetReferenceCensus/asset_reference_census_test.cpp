@@ -40,6 +40,8 @@
 // that comment describes does not exist, and this suite is it: change the derivation and 17 shipped
 // materials go red here instead of silently emptying.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -144,18 +146,18 @@ namespace
             if ( !entry.is_regular_file() || entry.path().extension() != ".demat" )
                 continue;
 
-            const auto parsed = rfl::json::read<MaterialData>( ReadAll( entry.path() ) );
+            const auto parsed = Common::Json::Read<MaterialData>( ReadAll( entry.path() ) );
             if ( !parsed )
             {
                 if ( parseError != nullptr && parseError->empty() )
-                    *parseError = entry.path().string() + ": " + parsed.error().what();
+                    *parseError = entry.path().string() + ": " + parsed.GetError();
                 continue;
             }
 
             // Both GUID lists (samplers and cloud assets). ShaderRefs name shaders by path, which live outside
             // the content root this census derives, so they are not its question.
             const std::string name = fs::relative( entry.path(), materialsRoot ).generic_string();
-            for ( const auto* list : { &parsed.value().Textures, &parsed.value().CloudAssets } )
+            for ( const auto* list : { &parsed.GetValue().Textures, &parsed.GetValue().CloudAssets } )
                 for ( const auto& ref : *list )
                 {
                     if ( ref.Guid.empty() )
@@ -494,8 +496,8 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
 
     // Recursive walk of one parsed document, reporting every offending occurrence rather than the first.
     std::vector<std::string>                                       offences;
-    std::function<void( const rfl::Generic&, const std::string& )> visit =
-         [&]( const rfl::Generic& node, const std::string& file )
+    std::function<void( const Common::Json::Value&, const std::string& )> visit =
+         [&]( const Common::Json::Value& node, const std::string& file )
     {
         if ( const auto object = node.to_object() )
         {
@@ -547,11 +549,11 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
             if ( autosave )
                 continue;
 
-            const auto parsed = rfl::json::read<rfl::Generic>( ReadAll( entry.path() ) );
+            const auto parsed = Common::Json::Parse( ReadAll( entry.path() ) );
             if ( !parsed )
                 continue; // parsing is SceneVersionGate's subject, not this one
             ++documents;
-            visit( parsed.value(),
+            visit( parsed.GetValue(),
                    fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string() );
         }
     }
