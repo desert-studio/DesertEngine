@@ -26,10 +26,10 @@ namespace Desert::Geometry
         }
 
         TAxisAlignedBox3( const TVector<RealType>& A, const TVector<RealType>& B, const TVector<RealType>& C )
-             : Min( FMath::Min( A.X, FMath::Min( B.X, C.X ) ), FMath::Min( A.Y, FMath::Min( B.Y, C.Y ) ),
-                    FMath::Min( A.Z, FMath::Min( B.Z, C.Z ) ) ),
-               Max( FMath::Max( A.X, FMath::Max( B.X, C.X ) ), FMath::Max( A.Y, FMath::Max( B.Y, C.Y ) ),
-                    FMath::Max( A.Z, FMath::Max( B.Z, C.Z ) ) )
+             : Min( std::min( A.X, std::min( B.X, C.X ) ), std::min( A.Y, std::min( B.Y, C.Y ) ),
+                    std::min( A.Z, std::min( B.Z, C.Z ) ) ),
+               Max( std::max( A.X, std::max( B.X, C.X ) ), std::max( A.Y, std::max( B.Y, C.Y ) ),
+                    std::max( A.Z, std::max( B.Z, C.Z ) ) )
         {
         }
 

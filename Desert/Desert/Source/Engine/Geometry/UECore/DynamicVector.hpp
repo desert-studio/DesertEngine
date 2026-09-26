@@ -15,25 +15,32 @@ namespace Desert::Geometry
      *
      * Iterator functions suitable for use with range-based for are provided
      */
-    template <typename Type, int32 BlockSize = 512>
+    template <typename Type, int32_t BlockSize = 512>
     class TDynamicVector
     {
         static_assert( BlockSize > 0, "TDynamicVector: BlockSize must be larger than zero." );
         static_assert( ( ( BlockSize & ( BlockSize - 1 ) ) == 0 ),
                        "TDynamicVector: BlockSize must be a power of two." );
 
-        static constexpr uint32 NumBitsNeeded( const uint32 N )
+        static constexpr uint32_t NumBitsNeeded( const uint32_t N )
         {
-            return N <= 1 ? 0 : 1 + NumBitsNeeded( ( N + 1 ) / 2 );
+            uint32_t Bits      = 0;
+            uint32_t Remaining = N;
+            while ( Remaining > 1 )
+            {
+                Remaining = ( Remaining + 1 ) / 2;
+                ++Bits;
+            }
+            return Bits;
         }
 
-        static constexpr uint32 GetBlockIndex( const uint32 Index )
+        static constexpr uint32_t GetBlockIndex( const uint32_t Index )
         {
             constexpr int BlockBitsShift = NumBitsNeeded( BlockSize );
             return Index >> BlockBitsShift;
         }
 
-        static constexpr uint32 GetIndexInBlock( const uint32 Index )
+        static constexpr uint32_t GetIndexInBlock( const uint32_t Index )
         {
             constexpr int BlockBitMask = BlockSize - 1;
             return Index & BlockBitMask;
@@ -49,16 +56,16 @@ namespace Desert::Geometry
 
         TDynamicVector( const TDynamicVector& Copy ) : CurBlock( Copy.CurBlock ), CurBlockUsed( Copy.CurBlockUsed )
         {
-            const int32 N = Copy.Blocks.Num();
+            const int32_t N = Copy.Blocks.Num();
             Blocks.Reserve( N );
-            for ( int32 k = 0; k < N; ++k )
+            for ( int32_t k = 0; k < N; ++k )
             {
                 Blocks.Add( std::make_unique<TBlock>( *Copy.Blocks[k] ) );
             }
         }
 
         TDynamicVector( TDynamicVector&& Moved )
-             : CurBlock( Moved.CurBlock ), CurBlockUsed( Moved.CurBlockUsed ), Blocks( MoveTemp( Moved.Blocks ) )
+             : CurBlock( Moved.CurBlock ), CurBlockUsed( Moved.CurBlockUsed ), Blocks( std::move( Moved.Blocks ) )
         {
             Moved.CurBlock     = 0;
             Moved.CurBlockUsed = 0;
@@ -69,11 +76,11 @@ namespace Desert::Geometry
         {
             if ( this != &Copy )
             {
-                const int32 N = Copy.Blocks.Num();
+                const int32_t N = Copy.Blocks.Num();
                 Empty( N );
                 CurBlock     = Copy.CurBlock;
                 CurBlockUsed = Copy.CurBlockUsed;
-                for ( int32 k = 0; k < N; ++k )
+                for ( int32_t k = 0; k < N; ++k )
                 {
                     Blocks.Add( std::make_unique<TBlock>( *Copy.Blocks[k] ) );
                 }
@@ -89,7 +96,7 @@ namespace Desert::Geometry
 
                 CurBlock     = Moved.CurBlock;
                 CurBlockUsed = Moved.CurBlockUsed;
-                Blocks       = MoveTemp( Moved.Blocks );
+                Blocks       = std::move( Moved.Blocks );
 
                 Moved.CurBlock     = 0;
                 Moved.CurBlockUsed = 0;
@@ -100,10 +107,10 @@ namespace Desert::Geometry
 
         TDynamicVector( const TArray<Type>& Array )
         {
-            const uint32 N = static_cast<uint32>( Array.Num() );
+            const auto N = static_cast<uint32_t>( Array.Num() );
             SetNum( N );
             const Type* ArrayPtr = Array.GetData();
-            for ( uint32 Idx = 0; Idx < N; ++Idx )
+            for ( uint32_t Idx = 0; Idx < N; ++Idx )
             {
                 ( *this )[Idx] = ArrayPtr[Idx];
             }
@@ -111,10 +118,10 @@ namespace Desert::Geometry
 
         TDynamicVector( TArrayView<const Type> Array )
         {
-            const uint32 N = static_cast<uint32>( Array.Num() );
+            const auto N = static_cast<uint32_t>( Array.Num() );
             SetNum( N );
             const Type* ArrayPtr = Array.GetData();
-            for ( uint32 Idx = 0; Idx < N; ++Idx )
+            for ( uint32_t Idx = 0; Idx < N; ++Idx )
             {
                 ( *this )[Idx] = ArrayPtr[Idx];
             }
@@ -148,7 +155,7 @@ namespace Desert::Geometry
         {
             return GetLength();
         }
-        static constexpr int32 GetBlockSize()
+        static constexpr int32_t GetBlockSize()
         {
             return BlockSize;
         }
@@ -158,7 +165,7 @@ namespace Desert::Geometry
         }
 
         inline void Add( const Type& Data );
-        template <int32 BlockSizeData>
+        template <int32_t BlockSizeData>
         void        Add( const TDynamicVector<Type, BlockSizeData>& Data );
         void        Add( const TArray<Type>& Data );
         void        Add( TArrayView<const Type> Data );
@@ -180,13 +187,13 @@ namespace Desert::Geometry
             return GetElement( CurBlock, CurBlockUsed - 1 );
         }
 
-        const Type& operator[]( uint32 Index ) const
+        const Type& operator[]( uint32_t Index ) const
         {
             UE_CHECK_SLOW( Index < Num() );
             return GetElement( GetBlockIndex( Index ), GetIndexInBlock( Index ) );
         }
 
-        Type& operator[]( uint32 Index )
+        Type& operator[]( uint32_t Index )
         {
             return const_cast<Type&>( const_cast<const TDynamicVector&>( *this )[Index] );
         }
@@ -318,25 +325,25 @@ namespace Desert::Geometry
             Blocks.Add( std::make_unique<TBlock>() );
         }
 
-        void Empty( int32 NewReservedBlockCount = 0 )
+        void Empty( int32_t NewReservedBlockCount = 0 )
         {
             Blocks.Empty( NewReservedBlockCount );
         }
 
-        const Type& GetElement( int32 BlockIndex, int32 IndexInBlock ) const
+        [[nodiscard]] const Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock ) const
         {
             UE_CHECK_SLOW( 0 <= BlockIndex && BlockIndex < Blocks.Num() && 0 <= IndexInBlock &&
                            IndexInBlock < BlockSize );
             return Blocks.GetData()[BlockIndex]->Elements[IndexInBlock];
         }
 
-        Type& GetElement( int32 BlockIndex, int32 IndexInBlock )
+        Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock )
         {
             return const_cast<Type&>(
                  const_cast<const TDynamicVector&>( *this ).GetElement( BlockIndex, IndexInBlock ) );
         }
 
-        void TruncateBlocks( int32 NewBlockCount, EAllowShrinking AllowShrinking )
+        void TruncateBlocks( int32_t NewBlockCount, EAllowShrinking AllowShrinking )
         {
             if ( Blocks.Num() - NewBlockCount <= 0 )
             {
@@ -346,7 +353,7 @@ namespace Desert::Geometry
             Blocks.RemoveAt( NewBlockCount, Blocks.Num() - NewBlockCount, AllowShrinking );
         }
 
-        template <int32 BlockSizeRhs>
+        template <int32_t BlockSizeRhs>
         friend bool operator==( const TDynamicVector& Lhs, const TDynamicVector<Type, BlockSizeRhs>& Rhs )
         {
             if ( Lhs.Num() != Rhs.Num() )
@@ -361,8 +368,8 @@ namespace Desert::Geometry
 
             if constexpr ( BlockSize == BlockSizeRhs )
             {
-                const uint32 LhsCurBlock = Lhs.CurBlock;
-                for ( uint32 BlockIndex = 0; BlockIndex < LhsCurBlock; ++BlockIndex )
+                const uint32_t LhsCurBlock = Lhs.CurBlock;
+                for ( uint32_t BlockIndex = 0; BlockIndex < LhsCurBlock; ++BlockIndex )
                 {
                     if ( !CompareItems( &Lhs.Blocks[BlockIndex]->Elements[0], &Rhs.Blocks[BlockIndex]->Elements[0],
                                         BlockSize ) )
@@ -375,7 +382,7 @@ namespace Desert::Geometry
             }
             else
             {
-                for ( int32 Index = 0, Num = Lhs.Num(); Index < Num; ++Index )
+                for ( int32_t Index = 0, Num = Lhs.Num(); Index < Num; ++Index )
                 {
                     if ( !( Lhs[Index] == Rhs[Index] ) )
                     {
@@ -387,19 +394,19 @@ namespace Desert::Geometry
             }
         }
 
-        template <int32 BlockSizeRhs>
+        template <int32_t BlockSizeRhs>
         friend bool operator!=( const TDynamicVector& Lhs, const TDynamicVector<Type, BlockSizeRhs>& Rhs )
         {
             return !( Lhs == Rhs );
         }
 
-        void SetCurBlock( SIZE_T Count )
+        void SetCurBlock( size_t Count )
         {
             // Reset block index for the last item and used item count within the last block.
             // This is similar to what happens when computing the indices in operator[], but we additionally
             // account for (1) the vector being empty and (2) that the used item count within the last block needs
             // to be one more than the index of the last item.
-            const int32 LastItemIndex = int32( Count - 1 );
+            const auto LastItemIndex  = static_cast<int32_t>( Count - 1 );
             CurBlock                  = Count != 0 ? GetBlockIndex( LastItemIndex ) : 0;
             CurBlockUsed              = Count != 0 ? GetIndexInBlock( LastItemIndex ) + 1 : 0;
         }
@@ -546,7 +553,7 @@ namespace Desert::Geometry
     using TDynamicVector3i = TDynamicVectorN<int, 3>;
     using TDynamicVector2i = TDynamicVectorN<int, 2>;
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Clear()
     {
         TruncateBlocks( 1, EAllowShrinking::No );
@@ -558,21 +565,21 @@ namespace Desert::Geometry
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Fill( const Type& Value )
     {
-        for ( uint32 BlockIndex = 0, NumBlocks = Blocks.Num(); BlockIndex < NumBlocks; ++BlockIndex )
+        for ( uint32_t BlockIndex = 0, NumBlocks = Blocks.Num(); BlockIndex < NumBlocks; ++BlockIndex )
         {
-            const uint32 NumElementsInBlock =
+            const uint32_t NumElementsInBlock =
                  BlockIndex < NumBlocks - 1 ? BlockSize : GetLength() - BlockSize * ( NumBlocks - 1 );
-            for ( uint32 IndexInBlock = 0; IndexInBlock < NumElementsInBlock; ++IndexInBlock )
+            for ( uint32_t IndexInBlock = 0; IndexInBlock < NumElementsInBlock; ++IndexInBlock )
             {
                 GetElement( BlockIndex, IndexInBlock ) = Value;
             }
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Resize( unsigned int Count )
     {
         if ( GetLength() == Count )
@@ -582,11 +589,11 @@ namespace Desert::Geometry
 
         // Determine how many blocks we need, but make sure we have at least one block available.
         const bool  bCountIsNotMultipleOfBlockSize = Count % BlockSize != 0;
-        const int32 NumBlocksNeeded =
-             FMath::Max( 1, static_cast<int32>( Count ) / BlockSize + bCountIsNotMultipleOfBlockSize );
+        const int32_t NumBlocksNeeded =
+             std::max( 1, static_cast<int32_t>( Count ) / BlockSize + ( bCountIsNotMultipleOfBlockSize ? 1 : 0 ) );
 
         // Determine how many blocks are currently allocated.
-        int32 NumBlocksCurrent = Blocks.Num();
+        int32_t NumBlocksCurrent = Blocks.Num();
 
         // Allocate needed additional blocks.
         while ( NumBlocksCurrent < NumBlocksNeeded )
@@ -605,7 +612,7 @@ namespace Desert::Geometry
         SetCurBlock( Count );
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Resize( unsigned int Count, const Type& InitValue )
     {
         size_t nCurSize = GetLength();
@@ -616,7 +623,7 @@ namespace Desert::Geometry
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     bool TDynamicVector<Type, BlockSize>::SetMinimumSize( unsigned int Count, const Type& InitValue )
     {
         size_t nCurSize = GetLength();
@@ -632,10 +639,10 @@ namespace Desert::Geometry
         return true;
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Add( const Type& Data )
     {
-        UE_CHECK_SLOW( size_t( MAX_uint32 ) >= GetLength() + 1 );
+        UE_CHECK_SLOW( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
         if ( CurBlockUsed == BlockSize )
         {
             if ( CurBlock == static_cast<unsigned int>( Blocks.Num() - 1 ) )
@@ -649,44 +656,44 @@ namespace Desert::Geometry
         ++CurBlockUsed;
     }
 
-    template <typename Type, int32 BlockSize>
-    template <int32 BlockSizeData>
+    template <typename Type, int32_t BlockSize>
+    template <int32_t BlockSizeData>
     void TDynamicVector<Type, BlockSize>::Add( const TDynamicVector<Type, BlockSizeData>& Data )
     {
-        const uint32 Offset  = Num();
-        const uint32 DataNum = static_cast<uint32>( Data.Num() );
+        const uint32_t Offset  = Num();
+        const auto     DataNum = static_cast<uint32_t>( Data.Num() );
         SetNum( Offset + DataNum );
-        for ( uint32 DataIndex = 0; DataIndex < DataNum; ++DataIndex )
+        for ( uint32_t DataIndex = 0; DataIndex < DataNum; ++DataIndex )
         {
             ( *this )[Offset + DataIndex] = Data[DataIndex];
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Add( const TArray<Type>& Data )
     {
-        const uint32 Offset  = Num();
-        const uint32 DataNum = static_cast<uint32>( Data.Num() );
+        const uint32_t Offset  = Num();
+        const auto     DataNum = static_cast<uint32_t>( Data.Num() );
         SetNum( Offset + DataNum );
-        for ( uint32 DataIndex = 0; DataIndex < DataNum; ++DataIndex )
+        for ( uint32_t DataIndex = 0; DataIndex < DataNum; ++DataIndex )
         {
             ( *this )[Offset + DataIndex] = Data[DataIndex];
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::Add( TArrayView<const Type> Data )
     {
-        const uint32 Offset  = Num();
-        const uint32 DataNum = static_cast<uint32>( Data.Num() );
+        const uint32_t Offset  = Num();
+        const auto     DataNum = static_cast<uint32_t>( Data.Num() );
         SetNum( Offset + DataNum );
-        for ( uint32 DataIndex = 0; DataIndex < DataNum; ++DataIndex )
+        for ( uint32_t DataIndex = 0; DataIndex < DataNum; ++DataIndex )
         {
             ( *this )[Offset + DataIndex] = Data[DataIndex];
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::PopBack()
     {
         if ( CurBlockUsed > 0 )
@@ -700,7 +707,7 @@ namespace Desert::Geometry
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     Type& TDynamicVector<Type, BlockSize>::ElementAt( unsigned int Index, Type InitialValue )
     {
         size_t s = GetLength();
@@ -716,7 +723,7 @@ namespace Desert::Geometry
         return ( *this )[Index];
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::InsertAt( const Type& Data, unsigned int Index )
     {
         size_t s = GetLength();
@@ -735,7 +742,7 @@ namespace Desert::Geometry
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     void TDynamicVector<Type, BlockSize>::InsertAt( const Type& AddData, unsigned int Index,
                                                     const Type& InitValue )
     {
@@ -748,15 +755,15 @@ namespace Desert::Geometry
         }
     }
 
-    template <typename Type, int32 BlockSize>
+    template <typename Type, int32_t BlockSize>
     template <typename Func>
     void TDynamicVector<Type, BlockSize>::Apply( const Func& ApplyFunc )
     {
-        for ( uint32 BlockIndex = 0; BlockIndex <= CurBlock; ++BlockIndex )
+        for ( uint32_t BlockIndex = 0; BlockIndex <= CurBlock; ++BlockIndex )
         {
             TBlock*      Block       = Blocks[BlockIndex].get();
-            const uint32 NumElements = BlockIndex < CurBlock ? BlockSize : CurBlockUsed;
-            for ( uint32 ElementIndex = 0; ElementIndex < NumElements; ++ElementIndex )
+            const uint32_t NumElements = BlockIndex < CurBlock ? BlockSize : CurBlockUsed;
+            for ( uint32_t ElementIndex = 0; ElementIndex < NumElements; ++ElementIndex )
             {
                 ApplyFunc( Block->Elements[ElementIndex] ); // UE indexes the block pointer itself, which cannot
                                                             // compile once instantiated

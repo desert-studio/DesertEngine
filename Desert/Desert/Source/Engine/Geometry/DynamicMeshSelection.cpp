@@ -79,7 +79,7 @@ namespace Desert::Geometry
         [[nodiscard]] std::vector<int> GetVertexNeighbours( int v ) const
         {
             std::vector<int> out;
-            m_Mesh.EnumerateVertexEdges( v, [&]( int32 e ) { out.push_back( OtherEnd( e, v ) ); } );
+            m_Mesh.EnumerateVertexEdges( v, [&]( int32_t e ) { out.push_back( OtherEnd( e, v ) ); } );
             return out;
         }
         [[nodiscard]] const FDynamicMeshElements& Attributes() const

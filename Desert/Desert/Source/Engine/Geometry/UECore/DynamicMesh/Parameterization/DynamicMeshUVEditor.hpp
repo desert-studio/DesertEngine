@@ -14,7 +14,7 @@ namespace Desert::Geometry
 {
     struct FUVEditResult
     {
-        TArray<int32> NewUVElements;
+        TArray<int32_t> NewUVElements;
     };
 
     class FDynamicMeshUVEditor
@@ -25,29 +25,29 @@ namespace Desert::Geometry
         {
         }
 
-        void ResetUVs( const TArray<int32>& Triangles );
-        void TransformUVElements( const TArray<int32>&                                ElementIDs,
+        void ResetUVs( const TArray<int32_t>& Triangles );
+        void TransformUVElements( const TArray<int32_t>&                              ElementIDs,
                                   const std::function<FVector2f( const FVector2f& )>& TransformFunc );
 
         /** Frame at the vertex farthest (Dijkstra) from the longest boundary loop; false without a boundary. */
         static bool EstimateGeodesicCenterFrameVertex( const FDynamicMesh3& Mesh, FFrame3d& FrameOut,
-                                                       int32& VertexIDOut, bool bAlignToUnitAxes = true );
+                                                       int32_t& VertexIDOut, bool bAlignToUnitAxes = true );
 
         /**
          * New UV island for the (connected) Triangles from one discrete exponential map centred at
          * EstimateGeodesicCenterFrameVertex. False if the frame was a fallback or any triangle stayed unset.
          */
-        bool SetTriangleUVsFromExpMap( const TArray<int32>& Triangles, FUVEditResult* Result = nullptr );
+        bool SetTriangleUVsFromExpMap( const TArray<int32_t>& Triangles, FUVEditResult* Result = nullptr );
 
         /**
          * Spectral conformal UVs with a free boundary (nothing pinned; the longest boundary loop is the free set).
          * bUseExistingUVTopology keeps the triangles' current UV elements and only moves them (triangles without
          * UVs are skipped); otherwise a new island is made. False without a boundary or if the solve failed.
          */
-        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32>& Triangles,
-                                                              bool                 bUseExistingUVTopology,
-                                                              bool                 bPreserveIrregularity,
-                                                              FUVEditResult*       Result = nullptr );
+        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32_t>& Triangles,
+                                                              bool                   bUseExistingUVTopology,
+                                                              bool                   bPreserveIrregularity,
+                                                              FUVEditResult*         Result = nullptr );
 
     private:
         FDynamicMesh3*         Mesh;

@@ -24,7 +24,7 @@ namespace Desert::Geometry
 
         /** NumVertexRowsV rows of NumVertexColsU VertexIDs, may contain repeated element if the patch forms a loop
          */
-        TArray<TArray<int32>> VertexSpans;
+        TArray<TArray<int32_t>> VertexSpans;
 
         /** Quads stored as pairs of triangle indices, (NumVertexRowsV-1) rows of (NumVertexColsU-1) */
         TArray<TArray<FIndex2i>> QuadTriangles;
@@ -48,12 +48,12 @@ namespace Desert::Geometry
          * mismatch the patch is left empty and false is returned.
          */
         bool InitializeFromQuadPatch( const FDynamicMesh3& Mesh, const TArray<TArray<FIndex2i>>& QuadRowsIn,
-                                      const TArray<TArray<int32>>& VertexSpansIn );
+                                      const TArray<TArray<int32_t>>& VertexSpansIn );
 
         /** The vertices of column ColumnIndex, one per row; false for an index outside the patch. */
-        bool GetVertexColumn( int32 ColumnIndex, TArray<int32>& VerticesOut ) const;
+        bool GetVertexColumn( int32_t ColumnIndex, TArray<int32_t>& VerticesOut ) const;
 
         /** Find column that contains vertex, or InvalidID */
-        [[nodiscard]] int32 FindColumnIndex( int32 VertexID ) const;
+        [[nodiscard]] int32_t FindColumnIndex( int32_t VertexID ) const;
     };
 } // namespace Desert::Geometry

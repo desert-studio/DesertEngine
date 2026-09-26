@@ -17,19 +17,19 @@ namespace Desert::Geometry
     struct FGroupEdgeInserterOptionalOutputParams
     {
         /** Edge IDs of the edges composing the newly inserted group edges. */
-        TSet<int32>* NewEidsOut = nullptr;
+        TSet<int32_t>* NewEidsOut = nullptr;
 
         /**
          * Any triangle IDs whose triangles were deleted or changed by the operation (but not newly
          * created tids). Useful for setting up undo.
          */
-        TSet<int32>* ChangedTidsOut = nullptr;
+        TSet<int32_t>* ChangedTidsOut = nullptr;
 
         /**
          * In loop insertion, the group edge IDs in the original topology that surround non-quad-like
          * groups that stopped the loop.
          */
-        TSet<int32>* ProblemGroupEdgeIDsOut = nullptr;
+        TSet<int32_t>* ProblemGroupEdgeIDsOut = nullptr;
     };
 
     /**
@@ -46,7 +46,7 @@ namespace Desert::Geometry
             FGroupTopology* Topology = nullptr;
 
             /** Edge loops will be inserted perpendicular to this group edge */
-            int32 GroupEdgeID = IndexConstants::InvalidID;
+            int32_t GroupEdgeID = IndexConstants::InvalidID;
 
             /**
              * Inputs can be proportions in the range (0,1), or absolute lengths.
@@ -59,7 +59,7 @@ namespace Desert::Geometry
              * One of the endpoints of the group edge, from which the arc lengths
              * or proportions should be measured
              */
-            int32 StartCornerID = IndexConstants::InvalidID;
+            int32_t StartCornerID = IndexConstants::InvalidID;
 
             /**
              * When inserting edges, this is the distance that a desired new point can be to
@@ -80,7 +80,7 @@ namespace Desert::Geometry
         struct FGroupEdgeSplitPoint
         {
             /** Either vertex ID or edge ID of the point. */
-            int32 ElementID = IndexConstants::InvalidID;
+            int32_t ElementID = IndexConstants::InvalidID;
 
             /** Whether the point is an edge or vertex. */
             bool bIsVertex = true;
@@ -106,7 +106,7 @@ namespace Desert::Geometry
             FGroupTopology* Topology = nullptr;
 
             /** Group across which the cut is inserted. */
-            int32 GroupID = IndexConstants::InvalidID;
+            int32_t GroupID = IndexConstants::InvalidID;
 
             FGroupEdgeSplitPoint StartPoint;
             FGroupEdgeSplitPoint EndPoint;

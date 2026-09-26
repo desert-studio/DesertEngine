@@ -8,12 +8,12 @@
 
 namespace Desert::Geometry
 {
-    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32>& EdgeList,
+    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32_t>& EdgeList,
                                             double InsetDistance, TArray<FLine3d>& InsetLinesOut )
     {
-        const int32 NumEdges = EdgeList.Num();
+        const int32_t NumEdges = EdgeList.Num();
         InsetLinesOut.SetNum( NumEdges );
-        for ( int32 k = 0; k < NumEdges; ++k )
+        for ( int32_t k = 0; k < NumEdges; ++k )
         {
             if ( Mesh.IsEdge( EdgeList[k] ) )
             {
@@ -57,14 +57,14 @@ namespace Desert::Geometry
     }
 
     void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3& Mesh, const TArray<FLine3d>& InsetEdgeLines,
-                                                  const TArray<int32>& VertexIDs,
+                                                  const TArray<int32_t>& VertexIDs,
                                                   TArray<FVector3d>& VertexPositionsOut, bool bIsLoop )
     {
-        const int32 NumVertices = VertexIDs.Num();
+        const int32_t NumVertices = VertexIDs.Num();
         VertexPositionsOut.SetNum( NumVertices );
 
-        int32 StartIndex = 0;
-        int32 EndIndex   = NumVertices;
+        int32_t StartIndex = 0;
+        int32_t EndIndex   = NumVertices;
 
         // An open vertex span has no two lines to intersect at its start/end, so those use the nearest points.
         if ( !bIsLoop )
@@ -76,7 +76,7 @@ namespace Desert::Geometry
             VertexPositionsOut.Last() = InsetEdgeLines.Last().NearestPoint( Mesh.GetVertex( VertexIDs.Last() ) );
         }
 
-        for ( int32 vi = StartIndex; vi < EndIndex; ++vi )
+        for ( int32_t vi = StartIndex; vi < EndIndex; ++vi )
         {
             const FLine3d& PrevLine = ( vi == 0 ) ? InsetEdgeLines.Last() : InsetEdgeLines[vi - 1];
             const FLine3d& NextLine = InsetEdgeLines[vi];
