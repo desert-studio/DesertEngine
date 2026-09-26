@@ -159,7 +159,8 @@ TEST_F( AcceptProject, CancelAfterAnAcceptLeavesTheAcceptedPiece )
 TEST_F( AcceptProject, ThePaletteCancelEndsTheToolAndDiscardsOnlyTheUnacceptedPiece )
 {
     MS&                       ms = MS::Get();
-    const Common::UUID        first( 9001 ), second( 9002 );
+    const Common::UUID        first( 9001 );
+    const Common::UUID        second( 9002 );
     std::set<Common::UUID>    scene = { first };
     std::vector<Common::UUID> committed;
 
