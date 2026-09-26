@@ -16,6 +16,8 @@
 // this header only says where the editor's persisted copy lives.
 #include <Engine/Graphic/DebugViewState.hpp>
 
+#include "Editor/Widgets/PreviewEnvironment.hpp"
+
 namespace Desert::Editor
 {
     // User-level editor settings, persisted to ~/.desertengine/editor.json (per-user, not per-project).
@@ -211,6 +213,11 @@ namespace Desert::Editor
         // `Name` share a list for the same reason: `Name` is the only identity a `.deproj` carries, and
         // the alternative — the project's path — is the defect this field exists to remove.
         std::map<std::string, std::vector<std::string>> FavouriteFolders;
+
+        // The environment every asset-editor preview shows its subject in (UE's Preview Scene Settings):
+        // which HDR, its rotation and EV, and whether the backdrop and the floor show. Per user, shared by
+        // every preview window — PreviewEnvironment.hpp says why it is not a field of the asset.
+        PreviewEnvironment::Settings PreviewScene;
 
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN ------------------------------------------
         // NOT A SETTING, AND NOT A KEY OF ITS OWN. rfl::ExtraFields is spread flat at this struct's own

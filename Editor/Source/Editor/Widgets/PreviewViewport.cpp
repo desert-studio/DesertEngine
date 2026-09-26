@@ -299,6 +299,12 @@ namespace Desert::Editor
         skyC.Data.EnvironmentResolution = ECS::SkyEnvironmentResolution::Low;
         skyC.RequestBake                = true;
 
+        // The HDR environment's carrier, created empty. SkyboxECSSystem is what turns a handle on it into
+        // the backdrop and the IBL (the cubes come from the EnvironmentCache already baked for that asset),
+        // so the preview reuses the level's own route instead of a second one; ApplySetup fills it.
+        m_Skybox = m_Scene->CreateNewEntity( "PreviewSkybox" );
+        m_Skybox.AddComponent<ECS::SkyboxComponent>();
+
         // Same values through the direct call so the sky is enabled from frame 0 (the ECS command path alone
         // proved insufficient in a minimal scene — see AssetThumbnailRenderer). One packing helper, one
         // negation: the palette is read off the component and the sun comes from the light's travel vector.
@@ -344,7 +350,22 @@ namespace Desert::Editor
         // evaluates the palette and the sun every frame, so the dome itself follows a drag with no help;
         // what the bake produces is the IBL pair behind the AMBIENT, and running that per frame while the
         // sun is being swung around would be the most expensive thing in the window by a wide margin.
-        if ( changed && !m_DraggingLight )
+        //
+        // AN HDR REPLACES THE PROCEDURAL SKY, it does not sit under it: with the atmosphere enabled
+        // Graphic::ResolveSkyMode would keep the atmosphere as what shows. The dome and the sky-material
+        // fills author their own sky, so an HDR choice never reaches them.
+        const bool hdr =
+             m_Setup.EnvironmentSkybox.has_value() && m_Fill != Fill::SkyDome && m_Fill != Fill::Cubemap;
+        skyC.Data.Enabled   = !hdr;
+        auto& skybox        = m_Skybox.GetComponent<ECS::SkyboxComponent>();
+        skybox.SkyboxHandle = hdr ? Assets::AssetHandle( *m_Setup.EnvironmentSkybox ) : Assets::AssetHandle();
+        skybox.Rotation     = m_Setup.EnvironmentLook.RotationDegrees;
+        skybox.Intensity    = m_Setup.EnvironmentLook.Intensity;
+
+        // No atmosphere bake for an HDR: its IBL is the asset's own, and switching HDR, rotation or EV
+        // must not pay the panorama bake the atmosphere needs. Switching BACK to the preset sky changes
+        // EnvironmentSkybox, which is a change, so the atmosphere is baked again then.
+        if ( changed && !m_DraggingLight && !hdr )
             skyC.RequestBake = true;
 
         // ── The floor ─────────────────────────────────────────────────────────────────────────────────
@@ -427,6 +448,8 @@ namespace Desert::Editor
         // level's.
         Graphic::DebugViewState debugView;
         debugView.ShowGrid = m_Setup.ShowGrid;
+        // Hides the backdrop only; the environment's IBL keeps lighting the subject (SkyboxRenderer).
+        debugView.ShowSkyBackdrop = m_Setup.ShowEnvironment || m_Fill == Fill::SkyDome;
         m_Renderer->SetDebugView( debugView );
 
         // THE FLAG NEEDS A READER, and in this scene there was none. SceneSettings::ShowGrid is consumed

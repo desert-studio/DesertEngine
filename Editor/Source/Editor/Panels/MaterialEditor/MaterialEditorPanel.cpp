@@ -14,6 +14,7 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
@@ -732,6 +733,7 @@ namespace Desert::Editor
             m_Preview->SetContentFingerprint( digest );
         }
 
+        PreviewEnvironment::ApplyTo( *m_Preview, m_AssetManager.get() );
         if ( Graphic::IsUsableViewExtent( m_PreviewExtent ) )
             m_Preview->Update( m_PreviewExtent.Width, m_PreviewExtent.Height );
     }
@@ -831,7 +833,7 @@ namespace Desert::Editor
             {
                 place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
                        ImGui::CalcTextSize( "Floor", nullptr, true ).x );
-                ImGui::Checkbox( "Floor", &setup.ShowFloor );
+                PreviewEnvironment::DrawShowFloor( "Floor" );
             }
         }
 
@@ -874,6 +876,7 @@ namespace Desert::Editor
                                  if ( m_Preview )
                                      m_Preview->ResetView();
                              } } );
+        PreviewEnvironment::AppendActions( actions, m_AssetManager.get() );
         return actions;
     }
 
@@ -2051,10 +2054,11 @@ namespace Desert::Editor
                                    "the 51 cloud scenes in this project author; set it to your level's "
                                    "value if that level disagrees." );
 
-            // ROTATION IS NOT OFFERED, and its absence is a decision rather than an omission. For a
-            // preset sky the environment's rotation IS the sun's azimuth — the row below — so a second
-            // control would be two knobs on one number; and for an HDR environment the engine has no
-            // rotation at all, on the sky, the skybox or in any shader. See the report.
+            // THE HDR ENVIRONMENT, as UE's Preview Scene Settings: one editor-wide choice shared by every
+            // preview window, so it is drawn from EditorPreferences rather than from this window's setup.
+            ImGui::Separator();
+            ImGui::TextUnformatted( "HDR Environment" );
+            PreviewEnvironment::DrawEnvironmentRows( m_AssetManager.get() );
         }
 
         if ( ImGui::CollapsingHeader( "Light", ImGuiTreeNodeFlags_DefaultOpen ) )
@@ -2087,7 +2091,7 @@ namespace Desert::Editor
             }
             else
             {
-                ImGui::Checkbox( "Show Floor", &setup.ShowFloor );
+                PreviewEnvironment::DrawShowFloor( "Show Floor" );
                 ImGui::BeginDisabled( !setup.ShowFloor );
                 ImGui::Checkbox( "Receive Shadow", &setup.FloorReceivesShadow );
                 if ( ImGui::IsItemHovered() )

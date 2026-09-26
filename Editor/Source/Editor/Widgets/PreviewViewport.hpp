@@ -5,6 +5,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Editor/Widgets/PreviewInput.hpp>
@@ -14,6 +15,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::Editor::UI
@@ -149,6 +151,15 @@ namespace Desert::Editor
             glm::vec3 FloorColour{ 0.30f, 0.30f, 0.31f };
 
             bool ShowGrid = false;
+
+            // ── The HDR environment (Preview Scene Settings, PreviewEnvironment.hpp) ──────────────────────
+            //
+            // A SkyboxAsset handle replaces the procedural sky as what the preview is lit and backed by; empty
+            // is the preset sky above. The look (rotation, 2^EV) is applied where the cubes are sampled, so
+            // neither costs a bake. ShowEnvironment hides the backdrop only — the IBL keeps lighting.
+            std::optional<uint64_t> EnvironmentSkybox;
+            Graphic::SkyLook        EnvironmentLook;
+            bool                    ShowEnvironment = true;
 
             // ── The sky dome's own budget (Fill::SkyDome only) ─────────────────────────────────────────
             //
@@ -412,6 +423,8 @@ namespace Desert::Editor
         ECS::Entity m_Light;
         ECS::Entity m_Floor;
         ECS::Entity m_Sky;
+        // The HDR environment's carrier: a SkyboxComponent whose handle is empty while the preset sky shows.
+        ECS::Entity m_Skybox;
         // The volumetric layer, present only once a Volume-domain material has asked for it: it carries a
         // modelling volume of 8 MiB and a sky-occlusion volume of 2 MiB per renderer, which no material
         // preview should pay for by existing.

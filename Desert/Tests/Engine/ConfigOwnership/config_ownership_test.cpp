@@ -240,6 +240,7 @@ namespace
     constexpr const char* kGizmoState     = "Editor/Source/Editor/Core/GizmoState.cpp";
     constexpr const char* kViewportPanel  = "Editor/Source/Editor/Panels/ViewportPanel/ViewportPanel.cpp";
     constexpr const char* kPhotogrammetry = "Editor/Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp";
+    constexpr const char* kPreviewEnvironment = "Editor/Source/Editor/Widgets/PreviewEnvironmentUI.cpp";
     constexpr const char* kBuildPanel     = "Editor/Source/Editor/Panels/Build/BuildSettingsPanel.cpp";
 
     constexpr Row kEditorPrefsRows[] = {
@@ -292,6 +293,10 @@ namespace
          // Details-panel personalisation, saved on the click.
          { "FavouriteFields", Owner::Machine, kPrefsImpl },
          { "CollapsedComponents", Owner::Machine, kPrefsImpl },
+
+         // Preview Scene Settings: which HDR one person judges materials under is their answer, not the
+         // project's. Read into every preview each frame by PreviewEnvironment::ApplyTo.
+         { "PreviewScene", Owner::Machine, kPreviewEnvironment },
 
          // The content browser's pinned folders, per project. Machine by question 1 and not a close call:
          // which folders one person keeps at hand is the definition of a value two people on the same
