@@ -121,9 +121,30 @@ namespace Desert::Editor
             return Take( Kind::Reveal, field );
         }
 
-        [[nodiscard]] bool TakePicker( std::string_view picker )
+        // A picker opens in TWO frames. The first scrolls its row into view; the second opens the popup
+        // under the row where the scroll left it. Opened in the first frame, the popup was placed at the
+        // row's PRE-scroll position — below the Details window for any row that needed scrolling, which with
+        // multi-viewports is a separate OS window outside the editor's, so no shot of the editor showed it.
+        enum class PickerStep : std::uint8_t
         {
-            return Take( Kind::Picker, picker );
+            None,
+            Scroll,
+            Open
+        };
+
+        [[nodiscard]] PickerStep TakePicker( std::string_view picker )
+        {
+            if ( !m_Drawing || m_Pending.What != Kind::Picker || m_Pending.Name != picker )
+                return PickerStep::None;
+            if ( !m_Pending.Scrolled )
+            {
+                // The row has to be drawn once more after the scroll lands: restart the expiry count.
+                m_Pending.Scrolled = true;
+                m_Pending.Frames   = 0;
+                return PickerStep::Scroll;
+            }
+            m_Pending = {};
+            return PickerStep::Open;
         }
 
     private:
@@ -138,7 +159,8 @@ namespace Desert::Editor
         {
             Kind        What = Kind::None;
             std::string Name;
-            int         Frames = 0;
+            int         Frames   = 0;
+            bool        Scrolled = false;
         };
 
         static void Add( std::vector<std::string>& list, std::string name )

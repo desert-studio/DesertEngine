@@ -216,7 +216,6 @@ namespace Desert::Editor
         // the control channel reaches an asset the way a click does.
         std::vector<std::string> ShownEntries( bool folders ) const;
         Common::BoolResultStr    SelectEntry( const std::string& path );
-        Common::BoolResultStr    OpenFolder( const std::string& path );
 
     private:
         // Collects a finished cloud-volume generation, exactly once. Called from OnPreUpdate rather than

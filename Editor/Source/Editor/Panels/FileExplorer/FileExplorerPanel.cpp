@@ -2181,14 +2181,6 @@ namespace Desert::Editor
         return Common::MakeError( "select: '" + path + "' is not shown in the Assets window's current folder" );
     }
 
-    Common::BoolResultStr FileExplorerPanel::OpenFolder( const std::string& path )
-    {
-        NavigateToPath( path );
-        if ( m_CurrentDir == nullptr || m_CurrentDir->AssetPath != path )
-            return Common::MakeError( "open folder: the Assets window could not open '" + path + "'" );
-        return Common::MakeSuccess( true );
-    }
-
     Common::BoolResultStr FileExplorerPanel::RenameSelected()
     {
         if ( m_CurrentSelected == nullptr )

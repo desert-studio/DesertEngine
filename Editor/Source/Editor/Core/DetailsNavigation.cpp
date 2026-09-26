@@ -25,10 +25,18 @@ namespace Desert::Editor
     {
         DetailsNavigation& navigation = GetDetailsNavigation();
         navigation.NotePicker( picker );
-        if ( !navigation.TakePicker( picker ) )
-            return false;
-        ImGui::SetScrollHereY( 0.25f );
-        ImGui::SetNextWindowPos( ImVec2( ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y ) );
-        return true;
+        switch ( navigation.TakePicker( picker ) )
+        {
+            case DetailsNavigation::PickerStep::None:
+                return false;
+            case DetailsNavigation::PickerStep::Scroll:
+                ImGui::SetScrollHereY( 0.25f );
+                return false;
+            case DetailsNavigation::PickerStep::Open:
+                // The row is where the scroll put it now, so the popup lands under it, inside the window.
+                ImGui::SetNextWindowPos( ImVec2( ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y ) );
+                return true;
+        }
+        return false;
     }
 } // namespace Desert::Editor

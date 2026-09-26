@@ -4097,10 +4097,11 @@ namespace Desert::Editor
             std::string name = p->GetName();
             if ( const auto hash = name.find( "##" ); hash != std::string::npos )
                 name.erase( hash ); // drop the "###id" ImGui suffix for display
+            // Through PanelRequests, the one "show that panel" wire: it also brings the panel's tab
+            // forward, which setting visibility alone never did for a panel already docked behind another.
             commands.push_back( { "Panel", "Open " + name, [p]
                                   {
-                                      p->GetVisibility() = true;
-                                      p->Pinned()        = true; // asked for explicitly: keep it open
+                                      Core::PanelRequests::Open( p->GetName() );
                                       return PaletteCommandDone();
                                   } } );
         }
@@ -4125,9 +4126,6 @@ namespace Desert::Editor
             {
                 commands.push_back( { "Assets", "Select asset " + path,
                                       std::bind_front( &FileExplorerPanel::SelectEntry,
-                                                       std::to_address( m_FileExplorerPanel ), path ) } );
-                commands.push_back( { "Assets", "Open folder " + path,
-                                      std::bind_front( &FileExplorerPanel::OpenFolder,
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
             }
         }
@@ -5303,7 +5301,8 @@ namespace Desert::Editor
                                   } } );
         }
 
-        // FOLDERS, one "Browse" entry each: brings the Assets browser forward ON that folder. Derived from the
+        // FOLDERS, one "Open folder: <path under the assets root>" entry each (the ONE folder command — the
+        // Assets window's own per-shown-folder duplicate that took an absolute path is gone): brings the Assets browser forward ON that folder. Derived from the
         // SAME content enumeration as the "Open" entries above (every folder that holds content, each ancestor
         // up to the assets root included), not from a second walk of the disk: that one call sees a mounted
         // .dpak as well as loose files, and the ContentScanners gate holds every content walk to it. A folder
@@ -5330,8 +5329,8 @@ namespace Desert::Editor
                 // "Menu" and "Open Scene" entries above and below draw the same finding): it blames the
                 // closure's implicit copy, which std::function needs; nothing in the body throws.
                 // NOLINTBEGIN(bugprone-exception-escape)
-                commands.push_back(
-                     { "Browse", label, [this, folder] { return ShowFolderInBrowser( folder ); } } );
+                commands.push_back( { "Assets", "Open folder: " + label,
+                                      [this, folder] { return ShowFolderInBrowser( folder ); } } );
                 // NOLINTEND(bugprone-exception-escape)
             }
         }
