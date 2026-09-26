@@ -85,8 +85,19 @@ namespace Desert::Editor::ThumbnailSubject
         // MeshRenderer with the REAL shader. Three domain refusals in the log (Volume, Skybox, Terrain),
         // and an empty frame written to disk as each material's picture. The check was not missing; it was
         // reading a default.
+        //
+        // `EnsureLoaded`, NOT a bare `Load()` — this IS the defect AssetBase::EnsureLoaded's own comment
+        // warns about ("Load() and ResolveDependencies() as two statements... the second one is what gets
+        // forgotten"). A bare `Load()` re-parses the file (so `m_Data.Shader` now holds the real GUID) but
+        // `SurfaceMaterialAsset::LoadFromFile`'s own resolve step passes no AssetManager — it cannot, since
+        // `Load()` takes none — so `ResolveShader(nullptr)` refuses and clears `m_ShaderName`. Every
+        // material here names an ENGINE shader (Editor/Resources/Shaders is where every `.shader` lives),
+        // so this sweep is what emptied `M_CubemapCheck`, every `_Clouds` medium and the other materials
+        // logged as "shader '' is not registered": their GUID never failed to resolve, it was simply never
+        // asked, and the SHARED asset object then carries that empty name into every later reader,
+        // including the Material Editor opening the very same file.
         if ( !asset->IsReadyForUse() )
-            asset->Load();
+            (void)asset->EnsureLoaded( manager );
 
         auto route = PreviewRouteFor( *asset );
         if ( !route )
