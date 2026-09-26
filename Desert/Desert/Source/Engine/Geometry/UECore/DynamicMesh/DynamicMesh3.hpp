@@ -604,8 +604,8 @@ namespace Desert::Geometry
         vtx_triangles_enumerable VtxTrianglesItr( int VertexID ) const
         {
             assert( m_VertexRefCounts.IsValid( VertexID ) );
-            return vtx_triangles_enumerable( m_VertexEdgeLists.Values( VertexID ), [this, VertexID]( int EdgeID )
-                                             { return GetOrderedOneRingEdgeTris( VertexID, EdgeID ); } );
+            return { m_VertexEdgeLists.Values( VertexID ),
+                     [this, VertexID]( int EdgeID ) { return GetOrderedOneRingEdgeTris( VertexID, EdgeID ); } };
         }
 
         /** Call ApplyFunc for each one-ring triangle of a vertex. Currently this is significantly more efficient
@@ -912,22 +912,20 @@ namespace Desert::Geometry
 
         glm::vec3 GetVertexNormal( int vID ) const
         {
-            if ( !HasVertexNormals() )
+            if ( !m_VertexNormals.has_value() )
             {
                 return { 0, 1, 0 };
             }
             assert( IsVertex( vID ) );
-            const DynamicVector<glm::vec3>& Normals = m_VertexNormals.value();
-            return Normals[vID];
+            return ( *m_VertexNormals )[vID];
         }
 
         void SetVertexNormal( int vID, const glm::vec3& vNewNormal )
         {
-            if ( HasVertexNormals() )
+            if ( m_VertexNormals.has_value() )
             {
                 assert( IsVertex( vID ) );
-                DynamicVector<glm::vec3>& Normals  = m_VertexNormals.value();
-                Normals[vID]                       = vNewNormal;
+                ( *m_VertexNormals )[vID] = vNewNormal;
             }
         }
 
@@ -936,23 +934,20 @@ namespace Desert::Geometry
 
         glm::vec3 GetVertexColor( int vID ) const
         {
-            if ( !HasVertexColors() )
+            if ( !m_VertexColors.has_value() )
             {
                 return glm::vec3( 1 );
             }
             assert( IsVertex( vID ) );
-
-            const DynamicVector<glm::vec3>& Colors = m_VertexColors.value();
-            return Colors[vID];
+            return ( *m_VertexColors )[vID];
         }
 
         void SetVertexColor( int vID, const glm::vec3& vNewColor )
         {
-            if ( HasVertexColors() )
+            if ( m_VertexColors.has_value() )
             {
                 assert( IsVertex( vID ) );
-                DynamicVector<glm::vec3>& Colors  = m_VertexColors.value();
-                Colors[vID]                       = vNewColor;
+                ( *m_VertexColors )[vID] = vNewColor;
             }
         }
 
@@ -961,22 +956,20 @@ namespace Desert::Geometry
 
         glm::vec2 GetVertexUV( int vID ) const
         {
-            if ( !HasVertexUVs() )
+            if ( !m_VertexUVs.has_value() )
             {
                 return glm::vec2( 0 );
             }
             assert( IsVertex( vID ) );
-            const DynamicVector<glm::vec2>& UVs = m_VertexUVs.value();
-            return UVs[vID];
+            return ( *m_VertexUVs )[vID];
         }
 
         void SetVertexUV( int vID, const glm::vec2& vNewUV )
         {
-            if ( HasVertexUVs() )
+            if ( m_VertexUVs.has_value() )
             {
                 assert( IsVertex( vID ) );
-                DynamicVector<glm::vec2>& UVs  = m_VertexUVs.value();
-                UVs[vID]                       = vNewUV;
+                ( *m_VertexUVs )[vID] = vNewUV;
             }
         }
 
@@ -990,17 +983,23 @@ namespace Desert::Geometry
 
         int GetTriangleGroup( int tID ) const
         {
-            return ( !HasTriangleGroups() )
-                        ? -1
-                        : ( m_TriangleRefCounts.IsValid( tID ) ? m_TriangleGroups.value()[tID] : 0 );
+            if ( !m_TriangleGroups.has_value() )
+            {
+                return -1;
+            }
+            if ( !m_TriangleRefCounts.IsValid( tID ) )
+            {
+                return 0;
+            }
+            return ( *m_TriangleGroups )[tID];
         }
 
         void SetTriangleGroup( int tid, int group_id )
         {
-            if ( HasTriangleGroups() )
+            if ( m_TriangleGroups.has_value() )
             {
                 assert( IsTriangle( tid ) );
-                m_TriangleGroups.value()[tid] = group_id;
+                ( *m_TriangleGroups )[tid]    = group_id;
                 m_GroupIDCounter              = std::max( m_GroupIDCounter, group_id + 1 );
             }
         }
@@ -1232,15 +1231,15 @@ namespace Desert::Geometry
         }
         const DynamicVector<glm::vec3>* GetNormalsBuffer() const
         {
-            return HasVertexNormals() ? &m_VertexNormals.value() : nullptr;
+            return m_VertexNormals.has_value() ? &*m_VertexNormals : nullptr;
         }
         const DynamicVector<glm::vec3>* GetColorsBuffer() const
         {
-            return HasVertexColors() ? &m_VertexColors.value() : nullptr;
+            return m_VertexColors.has_value() ? &*m_VertexColors : nullptr;
         }
         const DynamicVector<glm::vec2>* GetUVBuffer() const
         {
-            return HasVertexUVs() ? &m_VertexUVs.value() : nullptr;
+            return m_VertexUVs.has_value() ? &*m_VertexUVs : nullptr;
         }
         const DynamicVector<Index3i>& GetTrianglesBuffer() const
         {
@@ -1252,7 +1251,7 @@ namespace Desert::Geometry
         }
         const DynamicVector<int>* GetTriangleGroupsBuffer() const
         {
-            return HasTriangleGroups() ? &m_TriangleGroups.value() : nullptr;
+            return m_TriangleGroups.has_value() ? &*m_TriangleGroups : nullptr;
         }
         const DynamicVector<Edge>& GetEdgesBuffer() const
         {
