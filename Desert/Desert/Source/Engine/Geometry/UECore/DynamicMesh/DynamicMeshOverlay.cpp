@@ -722,8 +722,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsNo
     }
 
     const Index2i ev     = m_ParentMesh->GetEdgeV( eid );
-    const int base_a = ev.A;
-    const int base_b = ev.B;
+    const int     base_a = ev.A;
+    const int     base_b = ev.B;
 
     const bool bASet = IsSetTriangle( et.A );
     const bool bBSet = IsSetTriangle( et.B );
@@ -806,8 +806,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
     }
 
     const Index2i ev     = m_ParentMesh->GetEdgeV( eid );
-    const int base_a = ev.A;
-    const int base_b = ev.B;
+    const int     base_a = ev.A;
+    const int     base_b = ev.B;
 
     const bool bASet = IsSetTriangle( et.A );
     const bool bBSet = IsSetTriangle( et.B );
@@ -870,8 +870,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::HasInteriorSeamEdges() const
                 continue;
             }
             const Index2i ev     = m_ParentMesh->GetEdgeV( eid );
-            const int base_a = ev.A;
-            const int base_b = ev.B;
+            const int     base_a = ev.A;
+            const int     base_b = ev.B;
 
             Index3i       Triangle0 = GetTriangle( et.A );
             const Index3i BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
@@ -1354,8 +1354,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
 {
     const int     orig_t0 = FlipInfo.Triangles.A;
     const int     orig_t1 = FlipInfo.Triangles.B;
-    const bool bT0Set  = IsSetTriangle( orig_t0 );
-    const bool bT1Set  = IsSetTriangle( orig_t1 );
+    const bool    bT0Set  = IsSetTriangle( orig_t0 );
+    const bool    bT1Set  = IsSetTriangle( orig_t1 );
     int32_t const NumSet = static_cast<int32_t>( bT0Set ) + static_cast<int32_t>( bT1Set );
     if ( NumSet == 0 )
     {

@@ -74,14 +74,16 @@ namespace Desert::Geometry
 
         std::unique_ptr<DynamicMeshAttributeBase> MakeNew( DynamicMesh3* ParentMeshIn ) const override
         {
-            auto Matching = std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
+            auto Matching =
+                 std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
             Matching->Initialize();
             return Matching;
         }
 
         std::unique_ptr<DynamicMeshAttributeBase> MakeCopy( DynamicMesh3* ParentMeshIn ) const override
         {
-            auto ToFill = std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
+            auto ToFill =
+                 std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
             ToFill->Copy( *this );
             return ToFill;
         }
@@ -94,9 +96,10 @@ namespace Desert::Geometry
         }
 
         std::unique_ptr<DynamicMeshAttributeBase> MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
-                                                   DynamicMesh3*                 ParentMeshIn ) const override
+                                                                   DynamicMesh3* ParentMeshIn ) const override
         {
-            auto ToFill = std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
+            auto ToFill =
+                 std::make_unique<DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>>( ParentMeshIn );
             ToFill->Initialize();
             ToFill->CompactCopy( CompactMaps, *this );
             return ToFill;

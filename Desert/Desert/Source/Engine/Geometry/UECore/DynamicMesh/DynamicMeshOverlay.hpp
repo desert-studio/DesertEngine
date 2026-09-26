@@ -70,8 +70,7 @@ namespace Desert::Geometry
 
     public:
         /** Create an empty overlay */
-        DynamicMeshOverlay()
-        = default;
+        DynamicMeshOverlay() = default;
 
         /** Create an overlay for the given parent mesh */
         DynamicMeshOverlay( DynamicMesh3* ParentMeshIn ) : m_ParentMesh( ParentMeshIn )
@@ -162,8 +161,8 @@ namespace Desert::Geometry
             }
 
             // make a map to track element index changes, to use to update element triangles later
-            // Possible speed-up (as in UE): it may be faster to not construct this and to do the remapping per element as we go (by
-            // iterating the one ring of each parent vertex for each element)
+            // Possible speed-up (as in UE): it may be faster to not construct this and to do the remapping per
+            // element as we go (by iterating the one ring of each parent vertex for each element)
             std::vector<int> MapE;
             MapE.resize( MaxElementID() );
             for ( int ID = 0; ID < static_cast<int32_t>( MapE.size() ); ID++ )
@@ -285,8 +284,9 @@ namespace Desert::Geometry
             // Note: ElementRefCounts, Elements and ParentVertices remain unchanged, since the new triangles are
             // unset
             assert( m_ElementTriangles.Num() == static_cast<size_t>( AppendInfo.TriangleOffset ) * 3 );
-            m_ElementTriangles.Resize( 3 * static_cast<size_t>( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
-                                       IndexConstants::InvalidID );
+            m_ElementTriangles.Resize(
+                 3 * static_cast<size_t>( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
+                 IndexConstants::InvalidID );
         }
 
         /** Discard all elements. */
@@ -677,9 +677,9 @@ namespace Desert::Geometry
             int32_t       ElemIndex0 = m_ElementTriangles[TriIndex] * ElementSize;
             int32_t       ElemIndex1 = m_ElementTriangles[TriIndex + 1] * ElementSize;
             int32_t       ElemIndex2 = m_ElementTriangles[TriIndex + 2] * ElementSize;
-            const auto  Bary0      = (AsType)BaryCoords[0];
-            const auto  Bary1      = (AsType)BaryCoords[1];
-            const auto  Bary2      = (AsType)BaryCoords[2];
+            const auto    Bary0      = (AsType)BaryCoords[0];
+            const auto    Bary1      = (AsType)BaryCoords[1];
+            const auto    Bary2      = (AsType)BaryCoords[2];
             for ( int32_t i = 0; i < ElementSize; ++i )
             {
                 DataOut[i] = Bary0 * (AsType)m_Elements[ElemIndex0 + i] +

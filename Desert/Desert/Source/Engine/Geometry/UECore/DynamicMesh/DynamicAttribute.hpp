@@ -55,8 +55,8 @@ namespace Desert::Geometry
          * Default implementation does a full copy and then compacts it, usually derived class will want to
          * override this with a more efficient direct compact copy implementation
          */
-        [[nodiscard]] virtual std::unique_ptr<DynamicAttributeBase> MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
-                                                       ParentType*                   ParentIn ) const
+        [[nodiscard]] virtual std::unique_ptr<DynamicAttributeBase>
+        MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps, ParentType* ParentIn ) const
         {
             std::unique_ptr<DynamicAttributeBase> Copy = MakeCopy( ParentIn );
             Copy->CompactInPlace( CompactMaps );
