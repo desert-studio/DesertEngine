@@ -7,7 +7,7 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <chrono>
 #include <filesystem>
@@ -61,7 +61,7 @@ namespace Desert::WorldGen
         }
 
         // ONE FIELD OF A .demat, NAMED AS A TYPE. The generator needs a material's identity and nothing
-        // else, and rfl ignores the keys it is not asked about - so this reads the number as a uint64_t
+        // else, and the rest of the file rides in an unknown-key carrier - so this reads the number as a uint64_t
         // through the parser, rather than through rfl::Generic's to_int()/to_double(), both of which are
         // the wrong shape for this value: to_int() truncated 6418972230554417713 to 155908657 in the first
         // run of this tool, and to_double() would round every handle above 2^53. Same defect
@@ -69,6 +69,9 @@ namespace Desert::WorldGen
         struct MaterialIdentityOnly
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            // Everything else a material states: not this tool's to read, carried so the strict read
+            // accepts it instead of refusing the file for keys it was never asked about.
+            Common::Json::KeyedValues Rest;
         };
 
         // The material's own file is the only place its identity is written down, so the generator READS
@@ -82,12 +85,13 @@ namespace Desert::WorldGen
             if ( !text.IsSuccess() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "': " + text.GetError() );
 
-            const auto parsed = rfl::json::read<MaterialIdentityOnly>( text.GetValue() );
-            if ( !parsed.has_value() )
-                return Common::MakeError<MaterialRef>( "material '" + relative + "' states no readable header" );
-            if ( !parsed.value().Header )
+            const auto parsed = Common::Json::Read<MaterialIdentityOnly>( text.GetValue() );
+            if ( !parsed )
+                return Common::MakeError<MaterialRef>( "material '" + relative +
+                                                       "' states no readable header: " + parsed.GetError() );
+            if ( !parsed.GetValue().Header )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "' has no header" );
-            const auto guid = Common::Content::AssetGuidFromText( parsed.value().Header->Guid );
+            const auto guid = Common::Content::AssetGuidFromText( parsed.GetValue().Header->Guid );
             if ( !guid || guid.GetValue().IsNull() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "' states no GUID" );
 
@@ -321,7 +325,7 @@ namespace Desert::WorldGen
                 return false;
             }
 
-            json = rfl::json::write( scene );
+            json = Common::Json::Write( scene );
             return true;
         };
 
@@ -374,13 +378,18 @@ namespace Desert::WorldGen
         {
             // THE PLAN OF THE FILE AS WRITTEN, not of the tree in memory: the text is parsed back the way
             // the loader parses it, so what is reported is what a load of this file will partition.
-            const auto parsed = rfl::json::read<Core::SceneSerialized>( json );
-            if ( !parsed.has_value() || !parsed.value().WorldPartition.has_value() )
+            const auto parsed = Common::Json::Read<Core::SceneSerialized>( json );
+            if ( !parsed )
             {
-                err << "WorldGen: the written scene does not parse back with its WorldPartition block\n";
+                err << "WorldGen: the written scene does not parse back: " << parsed.GetError() << "\n";
                 return 7;
             }
-            const auto& scene = parsed.value();
+            if ( !parsed.GetValue().WorldPartition.has_value() )
+            {
+                err << "WorldGen: the written scene parses back without its WorldPartition block\n";
+                return 7;
+            }
+            const auto& scene = parsed.GetValue();
             const auto  plan  = Core::Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
             out << "  partition    : " << Core::Rules::SummarisePartition( plan, *scene.WorldPartition ) << "\n";
             if ( plan.MaxLevelComposite != Core::Rules::kNoRecord && plan.MaxLevel > 0 )

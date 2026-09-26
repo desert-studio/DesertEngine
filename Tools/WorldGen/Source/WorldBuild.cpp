@@ -3,7 +3,8 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -56,15 +57,14 @@ namespace Desert::WorldGen
         // A component payload written through the ENGINE'S OWN mirror struct rather than by hand, so the
         // key names and their order are the struct's and cannot drift from what the loader reads.
         template <typename T>
-        rfl::Generic AsBlock( const T& value )
+        Common::Json::Value AsBlock( const T& value )
         {
-            auto generic = rfl::json::read<rfl::Generic>( rfl::json::write( value ) );
-            // Cannot fail: the text was produced by the writer one call earlier. Named rather than assumed
-            // away, because a silent empty block here would be a scene full of meshless entities.
-            return generic.value_or( rfl::Generic( rfl::Generic::Object{} ) );
+            // The value tree the writer's own text would parse back to (FromStruct is proven byte-identical
+            // to Write per field kind), without a text round trip that could only fail by being wrong.
+            return Common::Json::FromStruct( value );
         }
 
-        rfl::Generic Num( double v )
+        Common::Json::Value Num( double v )
         {
             return { v };
         }
@@ -123,27 +123,28 @@ namespace Desert::WorldGen
         {
             auto sun = MakeEntity( nextId++, "Sun", { -0.3f, -0.55f, -0.78f }, { 0.0f, 0.0f, 0.0f },
                                    { 1.0f, 1.0f, 1.0f } );
-            rfl::Generic::Object light;
-            light["Color"]     = rfl::Generic( rfl::Generic::Array{ Num( 1.0 ), Num( 1.0 ), Num( 1.0 ) } );
-            light["Intensity"] = Num( 1.0 );
-            sun.Components["DirectionLight"] = rfl::Generic( std::move( light ) );
+            Common::Json::Object light;
+            light["Color"] =
+                 Common::Json::Value( Common::Json::Value::Array{ Num( 1.0 ), Num( 1.0 ), Num( 1.0 ) } );
+            light["Intensity"]               = Num( 1.0 );
+            sun.Components["DirectionLight"] = Common::Json::Value( std::move( light ) );
             scene.Entities.push_back( std::move( sun ) );
 
             auto sky =
                  MakeEntity( nextId++, "Sky", { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f } );
-            rfl::Generic::Object skybox;
-            rfl::Generic::Object noSkybox; // SCNE 29 empty reference: {Guid, Path}
-            noSkybox["Guid"]         = rfl::Generic( std::string{} );
-            noSkybox["Path"]         = rfl::Generic( std::string{} );
-            skybox["SkyboxHandle"]   = rfl::Generic( std::move( noSkybox ) );
+            Common::Json::Object skybox;
+            Common::Json::Object noSkybox; // SCNE 29 empty reference: {Guid, Path}
+            noSkybox["Guid"]         = Common::Json::Value( std::string{} );
+            noSkybox["Path"]         = Common::Json::Value( std::string{} );
+            skybox["SkyboxHandle"]   = Common::Json::Value( std::move( noSkybox ) );
             skybox["Intensity"]      = Num( 1.0 );
-            sky.Components["Skybox"] = rfl::Generic( std::move( skybox ) );
-            rfl::Generic::Object atmosphere;
-            atmosphere["Enabled"]           = rfl::Generic( true );
+            sky.Components["Skybox"] = Common::Json::Value( std::move( skybox ) );
+            Common::Json::Object atmosphere;
+            atmosphere["Enabled"]           = Common::Json::Value( true );
             atmosphere["SkyBrightness"]     = Num( 1.0 );
             atmosphere["SunIntensity"]      = Num( 22.0 );
             atmosphere["TimeOfDay"]         = Num( 12.0 );
-            sky.Components["SkyAtmosphere"] = rfl::Generic( std::move( atmosphere ) );
+            sky.Components["SkyAtmosphere"] = Common::Json::Value( std::move( atmosphere ) );
             scene.Entities.push_back( std::move( sky ) );
 
             // Eye height, at the centre of the world, looking down the street. 170 cm is a person, and
@@ -151,15 +152,15 @@ namespace Desert::WorldGen
             // exactly the pop-in the programme's §0.3 forbids.
             auto camera = MakeEntity( nextId++, "Camera", { 0.0f, 170.0f, 0.0f }, { 0.0f, 0.0f, 0.0f },
                                       { 1.0f, 1.0f, 1.0f } );
-            rfl::Generic::Object cam;
-            cam["IsMainCamera"] = rfl::Generic( true );
+            Common::Json::Object cam;
+            cam["IsMainCamera"] = Common::Json::Value( true );
             cam["FOV"]          = Num( 75.0 );
             cam["Near"]         = Num( 10.0 );
             // Far is the world's DIAGONAL and not a round number pulled from another scene: a far plane
             // shorter than the world silently culls the far half of it, which would look exactly like the
             // frustum culling this programme has not built yet and would be read as one.
             cam["Far"]                  = Num( static_cast<double>( stats.ExtentCm ) * 1.5 );
-            camera.Components["Camera"] = rfl::Generic( std::move( cam ) );
+            camera.Components["Camera"] = Common::Json::Value( std::move( cam ) );
             scene.Entities.push_back( std::move( camera ) );
         }
 

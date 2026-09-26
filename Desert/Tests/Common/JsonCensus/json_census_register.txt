@@ -30,9 +30,5 @@ Desert/Tests/Engine/UIStyle/ui_style_test.cpp | JS1d: test fixtures/readers foll
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Editor/Source/Editor/Core/EditorPreferences.cpp | JS1d: editor/tools protocols move to the facade
-Editor/Source/Editor/Core/EditorPreferences.hpp | JS1d: editor/tools protocols move to the facade
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
 Tools/DesertCtl/Source/Main.cpp | JS1d: editor/tools protocols move to the facade
-Tools/WorldGen/Source/WorldBuild.cpp | JS1d: editor/tools protocols move to the facade
-Tools/WorldGen/Source/WorldGenMain.cpp | JS1d: editor/tools protocols move to the facade

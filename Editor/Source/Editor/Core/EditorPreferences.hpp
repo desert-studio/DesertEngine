@@ -7,10 +7,9 @@
 
 #include <glm/glm.hpp>
 
-// The unknown-key carrier below. rfl is in this header and not only in the .cpp because the carrier is a
-// FIELD of the struct — the same reason Assets::EntityData declares its own rfl::ExtraFields inline.
-#include <rflcpp/rfl/ExtraFields.hpp>
-#include <rflcpp/rfl/Generic.hpp>
+// The unknown-key carrier below (Common::Json::KeyedValues) is a FIELD of the struct, so the facade is
+// included here and not only in the .cpp; the same header marks the struct lenient after its definition.
+#include <Common/Json/Json.hpp>
 
 // The viewport's debug/show state. An ENGINE type, because the engine's renderer is what consumes it —
 // this header only says where the editor's persisted copy lives.
@@ -172,7 +171,7 @@ namespace Desert::Editor
         // and the same default PackageOptions carries. Not that header's constant directly: this struct
         // is serialised by reflect-cpp and must stay a plain data type with no editor includes in it.
         std::string PackageConfig    = "Shipping";
-        bool        PackageAppBundle = true;           // macOS: <Name>.app with MoltenVK inside
+        bool        PackageAppBundle = true; // macOS: <Name>.app with MoltenVK inside
 
         // --- Details panel ------------------------------------------------------------------------
         // Fields the user pinned to the top of Details, as "TypeName.FieldName" (e.g. "PointLightData.
@@ -236,7 +235,7 @@ namespace Desert::Editor
         // says so in the log and writes the file back without it. Preservation is for keys another
         // BUILD owns, and it is the deletion path that decides a key is dead — never the accident of
         // which binary saved last.
-        rfl::ExtraFields<rfl::Generic> UnknownKeys;
+        Common::Json::KeyedValues UnknownKeys;
 
         static EditorPreferences& Get();
 
@@ -347,4 +346,7 @@ namespace Desert::Editor
         // to mean nothing. Same deduplication and same return meaning as Save().
         static bool SaveMigrated( const std::string& what );
     };
+    DESERT_JSON_LENIENT( EditorPreferences,
+                         "one ~/.desertengine/editor.json shared by every build and worktree at once: a field "
+                         "an older build has not got yet is that build's normal output, not damage" )
 } // namespace Desert::Editor

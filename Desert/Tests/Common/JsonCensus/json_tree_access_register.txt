@@ -7,7 +7,6 @@ Desert/Desert/Source/Engine/Core/Serialize/SceneSerializer.cpp | JS1c-S5: the sc
 Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c-S6: cell payload keys collected through Node
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c-S6: BlockOf returns a Node, Read* become Node getters
 Desert/Tests/Editor/ControlProtocol/control_protocol_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Editor/PreferenceOwnership/preference_ownership_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/CloudProtocolScene/cloud_protocol_scene_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/CornellSymmetry/cornell_symmetry_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/LocalizedContentCensus/localized_content_census_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
@@ -19,5 +18,4 @@ Desert/Tests/Engine/SceneStitch/scene_stitch_test.cpp | JS1d: test reads its fix
 Desert/Tests/Engine/UIComponentRoundTrip/ui_component_round_trip_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Editor/Source/Editor/Core/EditorPreferences.cpp | JS1d: editor/tools protocol moves to the facade
 Tools/DesertCtl/Source/Main.cpp | JS1d: editor/tools protocol moves to the facade
