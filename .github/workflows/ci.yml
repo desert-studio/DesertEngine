@@ -480,7 +480,9 @@ jobs:
       # would ship the debug instruments the Shipping configuration exists to cut.
       - name: Package the sandbox game
         if: matrix.config == 'Shipping'
-        run: ./build/Bin/Shipping/GamePackager Editor/Desert.deproj --config Shipping --out dist/Game
+        # `--out` is ABSOLUTE: GamePackager changes into the project folder (Editor/) before it writes,
+        # so a relative one produced Editor/dist/Game and the upload below found nothing.
+        run: ./build/Bin/Shipping/GamePackager Editor/Desert.deproj --config Shipping --out "$GITHUB_WORKSPACE/dist/Game"
 
       - name: Upload the game
         if: matrix.config == 'Shipping'
@@ -807,6 +809,51 @@ jobs:
       - name: Lint shaders (DShaderTool)
         shell: cmd
         run: build\Bin\${{ matrix.config }}\DShaderTool.exe Editor\Resources\Shaders
+
+      # THE PLAYER'S ARTIFACT ON WINDOWS, packaged by the same headless tool the macOS Shipping leg uses
+      # (Tools/GamePackager). Release too, not only Shipping: Release is the leg that can photograph the
+      # game (`--shot` is not compiled into Shipping), so the smoke run below needs its package. `--out`
+      # is ABSOLUTE because GamePackager works from the project folder (Editor/), so a relative one
+      # would land under Editor/.
+      - name: Package the sandbox game
+        if: matrix.config != 'Debug'
+        shell: bash
+        run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Editor/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
+
+      # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable installed. The workspace
+      # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc/spirv-cross are MD_DynamicRelease) and
+      # GamePackager copies the VC++ runtime DLLs Runtime.exe imports next to it. This reads the packaged
+      # binaries' own import tables, refuses any DLL outside scripts/CI/windows_allowed_dlls.txt, and
+      # refuses an `app-local` DLL that is imported but not present in the package.
+      - name: Packaged game imports only allowed DLLs
+        if: matrix.config != 'Debug'
+        shell: bash
+        run: |
+          exe="$(find "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}" -maxdepth 2 -name Runtime.exe | head -n 1)"
+          [ -n "$exe" ] || { echo "no Runtime.exe under dist/Game-${{ matrix.config }}"; exit 1; }
+          ./scripts/CI/CheckWindowsDlls.sh scripts/CI/windows_allowed_dlls.txt "$exe"
+
+      # SMOKE RUN OF THE PACKAGED GAME — ONLY ON A VULKAN-CAPABLE RUNNER, AND SAYING SO WHEN SKIPPED.
+      # windows-2022 has no GPU and this job installs no software Vulkan (lavapipe / SwiftShader), so
+      # Runtime.exe cannot create a device there; running it would only prove the runner, not the game.
+      # Set the repository variable DESERT_WINDOWS_VULKAN_RUNNER to 'true' once this job runs on a runner
+      # with a Vulkan driver (self-hosted GPU, or a software ICD installed by a step above). The run
+      # renders a fixed number of frames, writes a PNG and exits; a crash, a non-zero exit, a missing
+      # PNG or ten minutes without exiting fails the job.
+      - name: Smoke-run the packaged game (Vulkan runner only)
+        if: matrix.config == 'Release' && vars.DESERT_WINDOWS_VULKAN_RUNNER == 'true'
+        shell: bash
+        run: |
+          gameDir="$(dirname "$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 2 -name Runtime.exe | head -n 1)")"
+          shot="$RUNNER_TEMP/packaged-smoke.png"
+          cd "$gameDir"
+          timeout 600 ./Runtime.exe --shot "$shot" --shot-frames 30
+          [ -s "$shot" ] || { echo "Runtime.exe exited 0 but wrote no PNG at $shot"; exit 1; }
+
+      - name: Smoke run skipped — no Vulkan on this runner
+        if: matrix.config == 'Release' && vars.DESERT_WINDOWS_VULKAN_RUNNER != 'true'
+        shell: bash
+        run: echo "::notice title=Packaged game NOT started::windows-2022 has no Vulkan device; set DESERT_WINDOWS_VULKAN_RUNNER=true on a Vulkan-capable runner to smoke-run dist/Game-Release/**/Runtime.exe"
 
       - name: Upload test reports
         if: always()
