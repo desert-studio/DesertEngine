@@ -20,6 +20,8 @@
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <functional>
 #include <memory>
 #include <optional>
@@ -49,6 +51,19 @@ namespace Desert::Editor
 
         void OnUIRender() override;
         void SetScene( const std::shared_ptr<::Desert::Core::Scene>& scene ) override;
+
+        /// SWITCHES THIS PANEL'S SCENE ON AS A PARTITIONED WORLD — UE's "Convert Level to World
+        /// Partition", as one undoable history entry.
+        ///
+        /// The decision is Rules::ConvertToWorldPartition (pure, tested in
+        /// Desert/Tests/Engine/WorldPartition); this only stores its answer on the scene, pushes the
+        /// entry that can put it back, and marks the plan for a rebuild. The scene becomes dirty because
+        /// the entry moves CommandHistory's revision, which is what the editor's unsaved-changes star
+        /// reads — there is no second dirty flag to set.
+        ///
+        /// REFUSES, BY NAME, a scene that is already partitioned. The refusal is the returned error, so
+        /// the button and the command palette both show the same sentence.
+        [[nodiscard]] Common::BoolResultStr ConvertSceneToWorldPartition();
         // The default layout docks the panel (EditorLayer). A layout saved before that line has no place for
         // it and ImGui floats it: at this size the map is still readable instead of a ~30 px strip.
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
@@ -73,6 +88,13 @@ namespace Desert::Editor
         ::Desert::Core::WorldPartitionSerialized                 m_EditPartition;
         std::string                                              m_EditPlanStatus;
         bool                                                     m_EditPlanStale = true;
+        // The scene's partition as it was when m_EditPlan was made. The plan is remade when the scene's
+        // own partition stops matching it, which is how an UNDO of a conversion reaches this panel: the
+        // history entry writes the scene and nothing else, so a notification would be a second path to
+        // keep in step with it (and one nothing would notice going missing).
+        std::optional<::Desert::Core::WorldPartitionSerialized> m_PlanSource;
+        // The last conversion's refusal, shown under the button until the next attempt.
+        std::string m_ConvertStatus;
 
         WorldPartitionMap::View m_View;
         bool                    m_FocusPending = true; // fit the plan once the canvas has a size

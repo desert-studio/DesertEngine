@@ -111,6 +111,8 @@
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
+
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
 #include "Editor/Panels/Modeling/ModelingPanel.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
@@ -871,8 +873,8 @@ namespace Desert::Editor
         m_Panels.Add<Editor::SceneSettingsPanel>( m_MainScene );
         // Hidden until asked for: the map is only meaningful on a partitioned scene. The streamer is read through
         // the getter each frame, because Stop and a streaming error destroy it from this side.
-        m_Panels.Add<Editor::WorldPartitionPanel>( m_MainScene, m_AssetManager.get(),
-                                                   [this] { return m_WorldStreamer.get(); } );
+        m_WorldPartitionPanel = &m_Panels.Add<Editor::WorldPartitionPanel>(
+             m_MainScene, m_AssetManager.get(), [this] { return m_WorldStreamer.get(); } );
         m_Panels.Add<Editor::LogsPanel>();
         m_Panels.Add<Editor::CollectionsPanel>( m_AssetManager.get() );
         m_Panels.Add<Editor::HistoryPanel>();
@@ -4110,6 +4112,17 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+
+        // Switching a world on (UE's "Convert Level to World Partition"). Offered UNCONDITIONALLY, unlike
+        // the panel's button: a command that vanishes from the palette cannot tell the user WHY it is not
+        // available, and the refusal this one returns names the scene and the grids it already has.
+        commands.push_back( { "Scene", std::string( Core::Rules::kConvertToWorldPartitionLabel ), [this]
+                              {
+                                  if ( m_WorldPartitionPanel == nullptr )
+                                      return Common::MakeError( "convert to World Partition: the World "
+                                                                "Partition window does not exist" );
+                                  return m_WorldPartitionPanel->ConvertSceneToWorldPartition();
+                              } } );
 
         // The rename dialog on the Assets window's selection, with the registry's referrers listed; the
         // same dialog F2 opens.
@@ -9159,6 +9172,7 @@ namespace Desert::Editor
         // it today" is the weakest guarantee in this audit, because it is about the code that exists
         // rather than about the code. A8-2.
         m_FileExplorerPanel = nullptr;
+        m_WorldPartitionPanel = nullptr;
         // Reported and not returned even though OnDetach has a channel: everything below this line still
         // has to run, and an early return would leave the extra documents and their render slots alive.
         if ( const auto detached = m_ImGuiLayer->OnDetach(); !detached.IsSuccess() )

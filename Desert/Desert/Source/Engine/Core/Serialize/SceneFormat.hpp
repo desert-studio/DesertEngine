@@ -93,11 +93,19 @@ namespace Desert::Core
         // grid default, 256 m. Read by the streaming query (WP4); the partition itself does not depend
         // on it, which is why a cell's contents never change when it is edited.
         float LoadingRange = 25600.0f;
+
+        // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
+        // the partition that plan was made from, and a plan is remade when the two stop matching. Without
+        // an equality the panel would have to rebuild every frame (a whole serialisation of the world) or
+        // trust a notification, and an undo that no notification reached would leave the old picture up.
+        bool operator==( const WorldPartitionGridSerialized& ) const = default;
     };
 
     struct WorldPartitionSerialized
     {
         std::vector<WorldPartitionGridSerialized> Grids;
+
+        bool operator==( const WorldPartitionSerialized& ) const = default;
     };
 
     // The on-disk shape of a .desce file, and the ONLY definition of it: the loader parses into this, the

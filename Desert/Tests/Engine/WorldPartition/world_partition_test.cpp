@@ -28,6 +28,7 @@
 
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <rflcpp/rfl/json.hpp>
@@ -157,6 +158,15 @@ namespace
     }
 
     // One grid, as a world states it.
+    // A grid left entirely at the struct's defaults - what a conversion must produce, expressed without
+    // restating a single number, so this suite goes red if a default moves and the conversion does not.
+    WorldPartitionSerialized WorldPartitionGridDefaults()
+    {
+        WorldPartitionSerialized partition;
+        partition.Grids.emplace_back();
+        return partition;
+    }
+
     WorldPartitionSerialized Cells( float size, float loadingRange = 25600.0f )
     {
         WorldPartitionGridSerialized grid;
@@ -348,9 +358,12 @@ TEST( WorldPartitionFormat, PartitioningAWorldDoesNotMoveItsVersion )
     EXPECT_TRUE( Desert::Core::SceneIsAtCurrentVersion( scene ) );
 }
 
-// SAVING A PARTITIONED WORLD DOES NOT LOSE THE BLOCK. The live Scene has no partition member, so the
-// writer builds a tree WITHOUT the block; the document merge is what puts it back, and this is what goes
-// red the day the merge stops covering the top level.
+// SAVING A PARTITIONED WORLD DOES NOT LOSE THE BLOCK - THE SECOND LINE OF DEFENCE.
+//
+// The live Scene now HOLDS the partition (Scene::GetWorldPartition) and SerializeToJson states the key
+// from it, so the ordinary save no longer depends on the merge at all. This still asserts the merge
+// covers the top level, because that is what protects a block written by a build whose writer does not
+// state it - which is exactly what every build before WPC1 was.
 TEST( WorldPartitionFormat, ThePartitionBlockSurvivesASaveThroughTheDocumentMerge )
 {
     SceneSerialized onDisk;
@@ -384,6 +397,68 @@ TEST( WorldPartitionFormat, ThePartitionBlockSurvivesASaveThroughTheDocumentMerg
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
     EXPECT_FLOAT_EQ( reread->WorldPartition->Grids[0].LoadingRange, 102400.0f );
     // NOLINTEND(bugprone-unchecked-optional-access)
+}
+
+// ── 1e. CONVERTING A WORLD TO WORLD PARTITION ─────────────────────────────────────
+//
+// The editor's "Convert scene to World Partition" is this function plus plumbing: the decision about
+// WHAT a converted world gets, and WHETHER it may be converted at all, is pure and lives here. The
+// editor's half (the history entry, the panel refresh, the palette entry) is what the live checks cover.
+
+TEST( WorldPartitionConvert, ConvertingAnUnpartitionedSceneAddsExactlyTheOneDefaultGrid )
+{
+    const auto converted = Desert::Core::Rules::ConvertToWorldPartition( "Starter", std::nullopt );
+    ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
+
+    ASSERT_EQ( converted.GetValue().Grids.size(), 1u );
+    // The format's own defaults, in centimetres: 128 m cells, 256 m loading range (SceneFormat.hpp).
+    EXPECT_FLOAT_EQ( converted.GetValue().Grids[0].CellSize, 12800.0f );
+    EXPECT_FLOAT_EQ( converted.GetValue().Grids[0].LoadingRange, 25600.0f );
+    EXPECT_EQ( converted.GetValue(), WorldPartitionGridDefaults() );
+}
+
+// A CONVERTED WORLD IS A PARTITIONED WORLD ON DISK. The conversion is only worth anything if what it
+// produces is the same block a hand-written `.desce` states, so it goes through the writer and back.
+TEST( WorldPartitionConvert, AConvertedSceneRoundTripsThroughTheFormatStillPartitioned )
+{
+    const auto converted = Desert::Core::Rules::ConvertToWorldPartition( "Starter", std::nullopt );
+    ASSERT_TRUE( converted.IsSuccess() ) << converted.GetError();
+
+    SceneSerialized scene;
+    scene.SceneName      = "Starter";
+    scene.Header         = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
+                                          Desert::Core::kUnitVersion );
+    scene.WorldPartition = converted.GetValue();
+
+    const auto reread = rfl::json::read<SceneSerialized>( rfl::json::write( scene ) );
+    ASSERT_TRUE( reread.has_value() );
+    ASSERT_TRUE( reread->WorldPartition.has_value() );
+    EXPECT_EQ( *reread->WorldPartition, converted.GetValue() ); // NOLINT(bugprone-unchecked-optional-access)
+    // And the world is planned by the ordinary planner afterwards, with no special case for a fresh grid.
+    EXPECT_TRUE( Desert::Core::SceneIsAtCurrentVersion( *reread ) );
+}
+
+// REFUSED BY NAME, NOT SILENTLY IGNORED. Converting twice would replace a grid somebody tuned with the
+// default one; answering "done" and changing nothing would be just as wrong. So: an error that names the
+// scene and says what it already has.
+TEST( WorldPartitionConvert, AnAlreadyPartitionedSceneIsRefusedByName )
+{
+    const auto refused = Desert::Core::Rules::ConvertToWorldPartition( "Starter", Cells( 51200.0f, 102400.0f ) );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Starter" ), std::string::npos ) << refused.GetError();
+    EXPECT_NE( refused.GetError().find( "already partitioned" ), std::string::npos ) << refused.GetError();
+    // The numbers it already has, so the message is actionable without opening the file: 51200 cm = 512 m.
+    EXPECT_NE( refused.GetError().find( "512 m" ), std::string::npos ) << refused.GetError();
+}
+
+// The refusal holds for a block with NO grids too. An empty `WorldPartition` is still a world somebody
+// switched on by hand, and overwriting it with the default grid is the same substitution.
+TEST( WorldPartitionConvert, AnEmptyPartitionBlockIsStillPartitionedAndStillRefused )
+{
+    const auto refused =
+         Desert::Core::Rules::ConvertToWorldPartition( "Empty Block", WorldPartitionSerialized{} );
+    ASSERT_FALSE( refused.IsSuccess() );
+    EXPECT_NE( refused.GetError().find( "Empty Block" ), std::string::npos ) << refused.GetError();
 }
 
 // ── 2. CELLS ARE DERIVED FROM COORDINATES ──────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@
 #include <Engine/Core/Camera.hpp>
 
 #include "SceneSettings.hpp"
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
 
@@ -281,6 +282,28 @@ namespace Desert::Core
             m_LoadedDocument = std::move( document );
         }
 
+        // WHETHER THIS WORLD IS PARTITIONED, AND WITH WHAT — held on the live scene, which is what makes
+        // it editable at all.
+        //
+        // It used to be held NOWHERE. The loader read the `WorldPartition` block, logged what the
+        // partition would cost and threw it away; the saver never wrote the key, and the block survived a
+        // save only because the foreign-key merge preserves a top-level key the writer does not state
+        // (ForeignKeys.hpp). That is preservation of something this build DOES declare — so the block was
+        // simultaneously ours and unknown, and nothing in the editor could change it: turning a world on
+        // meant editing the `.desce` by hand. Now the loader stores it here, the saver states it from
+        // here, and the editor's Convert command is an ordinary edit of a scene member.
+        //
+        // Absent = this world is not partitioned (SceneSerialized::WorldPartition says the same thing on
+        // disk, and this is that field in memory — one value, one place).
+        [[nodiscard]] const std::optional<WorldPartitionSerialized>& GetWorldPartition() const
+        {
+            return m_WorldPartition;
+        }
+        void SetWorldPartition( std::optional<WorldPartitionSerialized> partition )
+        {
+            m_WorldPartition = std::move( partition );
+        }
+
         // The engine's ONE "save this scene" entry point — and therefore the one that has to answer
         // whether the save happened. It used to return void into a void (SceneSerializer::SaveToFile),
         // so the editor could only assume; see SceneSerializer::SaveToFile for what that cost.
@@ -418,5 +441,7 @@ namespace Desert::Core
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
         rfl::Generic::Object m_LoadedDocument;
+        // See GetWorldPartition().
+        std::optional<WorldPartitionSerialized> m_WorldPartition;
     };
 } // namespace Desert::Core
