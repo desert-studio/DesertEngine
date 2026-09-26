@@ -312,6 +312,8 @@ namespace Desert::Editor
         // early readback returns an empty frame. Capture happens on the last count (reads the prior, warm
         // frame's already-submitted render).
         m_Phase = kRenderFrames;
+        m_CaptureMainMs = 0.0;
+        m_CaptureTicks  = 0;
         // The dome needs its own, much longer window on top of that warm-up — see DomeIsStillSettling.
         m_DomeSettle = ( how == ThumbnailSubject::Preview::SkyDome ) ? kDomeSettleFrames : 0;
         m_DomeFrames = 0;
@@ -351,6 +353,8 @@ namespace Desert::Editor
         m_PendingPng      = outPng;
         m_PendingSubject  = Subject::Mesh;
         m_Phase           = kRenderFrames;
+        m_CaptureMainMs   = 0.0;
+        m_CaptureTicks    = 0;
         m_DomeSettle      = 0;
         m_DomeFrames      = 0;
         return Common::MakeSuccess( true );
@@ -542,6 +546,17 @@ namespace Desert::Editor
 
     void AssetThumbnailRenderer::Tick()
     {
+        if ( !HasPending() )
+            return;
+        const auto began = std::chrono::steady_clock::now();
+        TickCapture();
+        m_CaptureMainMs +=
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
+        ++m_CaptureTicks;
+    }
+
+    void AssetThumbnailRenderer::TickCapture()
+    {
         if ( m_Readback )
         {
             AdvanceReadback();
@@ -663,12 +678,13 @@ namespace Desert::Editor
         if ( !encoded.Written.IsSuccess() )
             LOG_ERROR( "[AssetThumbnailRenderer] '{}': {} — no thumbnail written.", m_ReadbackPng,
                        encoded.Written.GetError() );
-        LOG_DEBUG( "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: submit {:.1f}; worker: read "
+        LOG_DEBUG( "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: {:.1f} over {} ticks, submit "
+                   "{:.1f}; worker: read "
                    "{:.0f}, downscale {:.0f}, png {:.0f}) at {}px from a {}px render",
                    std::filesystem::path( m_ReadbackPng ).filename().string(),
                    std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_ReadbackBegan )
                         .count(),
-                   m_ReadbackFrames, m_ReadbackSubmitMs, encoded.ReadMs, encoded.BoxMs, encoded.PngMs, kSize,
-                   kRenderSize );
+                   m_ReadbackFrames, m_CaptureMainMs, m_CaptureTicks, m_ReadbackSubmitMs, encoded.ReadMs,
+                   encoded.BoxMs, encoded.PngMs, kSize, kRenderSize );
     }
 } // namespace Desert::Editor

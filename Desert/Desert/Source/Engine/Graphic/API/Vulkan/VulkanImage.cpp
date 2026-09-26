@@ -762,6 +762,18 @@ namespace Desert::Graphic::API::Vulkan
         VkBufferImageCopy copy = { .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
                                    .imageExtent      = { w, h, 1 } };
         vkCmdCopyImageToBuffer( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &copy );
+        // The fence alone does not make the copy's writes visible to a host read: without this the worker
+        // may map the staging buffer and read bytes the transfer has not yet made available to the host.
+        const VkBufferMemoryBarrier toHost = { .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                                               .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+                                               .dstAccessMask       = VK_ACCESS_HOST_READ_BIT,
+                                               .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                               .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                               .buffer              = staging,
+                                               .offset              = 0,
+                                               .size                = VK_WHOLE_SIZE };
+        vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+                              &toHost, 0, nullptr );
         TransitionLayout( cmd,
                           original == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : original,
                           VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,

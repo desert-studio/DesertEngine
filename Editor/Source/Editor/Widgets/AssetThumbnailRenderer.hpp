@@ -84,6 +84,7 @@ namespace Desert::Editor
         void Tick();
 
     private:
+        void TickCapture();
         void EnsureInit();
         void FitTarget( const glm::vec3& center, float worldSize );
         void RecordRender();
@@ -155,6 +156,10 @@ namespace Desert::Editor
         std::chrono::steady_clock::time_point  m_ReadbackBegan;
         double                                 m_ReadbackSubmitMs = 0.0;
         int                                    m_ReadbackFrames   = 0;
+        // Main-thread time of EVERY Tick of the current capture (warm-up renders, submit, polls), summed so
+        // the log line states the capture's whole cost to the frame, not just the submit.
+        double m_CaptureMainMs = 0.0;
+        int    m_CaptureTicks  = 0;
 
         // Frames the dome has left to settle before the warm-up counts. Reset whenever a bake is seen
         // running, so the window is measured from the END of the bake rather than from the request.
