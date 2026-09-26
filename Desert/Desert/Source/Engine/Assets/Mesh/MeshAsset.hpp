@@ -5,9 +5,10 @@
 #include <Engine/Assets/AssetEvents.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
-#include <Common/Content/MeshBinaryHeader.hpp>
-#include <Common/Utilities/FileSystem.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 
+#include <filesystem>
+#include <system_error>
 #include <vector>
 
 namespace Desert::Assets
@@ -15,29 +16,31 @@ namespace Desert::Assets
     class MeshAsset : public AssetBase, public AssetsEventSystem
     {
     public:
-        // THE MESH'S IDENTITY IS ITS HEADER GUID (MeshBinary v3), adopted HERE rather than in the load:
-        // the asset manager keys its handle lookup at creation, and a scene's mesh reference is resolved and
-        // registered with the MeshService before anything parses the file — so a handle adopted at load
-        // (as the material does) would arrive after the path-derived one had already been handed out.
-        // A file without a GUID (absent, or a pre-v3 cook) keeps the path-derived handle and a null Guid().
+        // THE MESH'S IDENTITY IS ITS HEADER GUID, adopted HERE rather than in the load: the asset manager
+        // keys its handle lookup at creation, and a scene's mesh reference is resolved and registered with
+        // the MeshService before anything parses the file — so a handle adopted at load (as the material
+        // does) would arrive after the path-derived one had already been handed out.
         //
-        // Inline because every suite that compiles a mesh type compiles this header but not a MeshAsset.cpp.
-        // Only the fixed-size prefix is read; absence is an answer (a cook-create names a file about to be
-        // written), so the IfExists form keeps it out of the error log.
+        // The header is read through `ReadAssetHeaderIfStated`, the one reader that picks the format by the
+        // file's own leading bytes: a mesh is either a cooked MeshBinary v3 (GUID after the 64-byte header)
+        // or a DAST envelope (MeshSourceAsset), and the extension says neither. Reading only the MeshBinary
+        // prefix gave an envelope the path-derived handle while the content registry, reading the same
+        // file through this same function, stated the GUID's — two identities for one mesh.
+        // A file that states no GUID (absent — a cook-create names a file about to be written — or a pre-v3
+        // cook) keeps the path-derived handle and a null Guid(); a malformed header does too, and the load
+        // refuses it by name, so no mesh is ever READY under that handle. RecordOnly: identity is all this
+        // needs, and the load judges the subsystem versions.
         MeshAsset( const AssetPriority priority, const Common::Filepath& filepath, const AssetTypeID type )
              : AssetBase( priority, filepath, type )
         {
-            const auto prefix = Common::Utils::FileSystem::ReadFileContentPrefixIfExists(
-                 m_Metadata.Filepath, Common::Content::kMeshBinaryPrefixV3 );
-            if ( !prefix )
+            std::error_code missing;
+            if ( !std::filesystem::is_regular_file( m_Metadata.Filepath, missing ) )
                 return;
-            const auto& bytes = prefix.GetValue();
-            if ( !bytes.has_value() )
+            const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
+            const auto stated = Common::Content::ReadAssetHeaderIfStated( m_Metadata.Filepath, recordOnly );
+            if ( !stated || !stated.GetValue() || stated.GetValue()->Guid.IsNull() )
                 return;
-            const auto guid = Common::Content::ReadMeshHeaderGuid( *bytes );
-            if ( !guid || guid->IsNull() )
-                return;
-            m_Guid = *guid;
+            m_Guid = stated.GetValue()->Guid;
             AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
                                  Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
         }
