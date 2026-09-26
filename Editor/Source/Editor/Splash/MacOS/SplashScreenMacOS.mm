@@ -94,12 +94,14 @@ namespace Desert::Editor::Splash
         // once, when the file is missing: the buttons then draw the system font's closest characters.
         CTFontRef LoadIconFont( const CGFloat size )
         {
-            NSURL*     url         = [NSURL fileURLWithPath:ToNS( UI::kIconFontFile.string() )];
+            NSURL* const url = [NSURL fileURLWithPath:ToNS( UI::kIconFontFile.string() )];
+            // The toll-free bridge NSURL -> CFURLRef has no C++ cast spelling.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
             CFArrayRef descriptors = CTFontManagerCreateFontDescriptorsFromURL( (__bridge CFURLRef)url );
             CTFontRef  font        = nullptr;
             if ( descriptors != nullptr && CFArrayGetCount( descriptors ) > 0 )
                 font = CTFontCreateWithFontDescriptor(
-                     (CTFontDescriptorRef)CFArrayGetValueAtIndex( descriptors, 0 ), size, nullptr );
+                     static_cast<CTFontDescriptorRef>( CFArrayGetValueAtIndex( descriptors, 0 ) ), size, nullptr );
             if ( descriptors != nullptr )
                 CFRelease( descriptors );
             if ( font == nullptr )
@@ -139,17 +141,20 @@ namespace Desert::Editor::Splash
         // drag made since. Nothing when it is not on screen (minimized).
         std::optional<CGRect> OnScreenBounds( const CGWindowID window )
         {
+            // CGWindowListCreateDescriptionFromArray takes the window ids stored AS the array's pointer values.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,performance-no-int-to-ptr)
             const void*           ids[] = { reinterpret_cast<const void*>( static_cast<uintptr_t>( window ) ) };
             CFArrayRef            list  = CFArrayCreate( nullptr, ids, 1, nullptr );
             CFArrayRef            info  = CGWindowListCreateDescriptionFromArray( list );
             std::optional<CGRect> bounds;
             if ( info != nullptr && CFArrayGetCount( info ) > 0 )
             {
-                auto   entry    = (CFDictionaryRef)CFArrayGetValueAtIndex( info, 0 );
-                auto   onScreen = (CFBooleanRef)CFDictionaryGetValue( entry, kCGWindowIsOnscreen );
-                auto   rect     = (CFDictionaryRef)CFDictionaryGetValue( entry, kCGWindowBounds );
-                CGRect frame{};
-                if ( onScreen != nullptr && CFBooleanGetValue( onScreen ) && rect != nullptr &&
+                const auto* entry = static_cast<CFDictionaryRef>( CFArrayGetValueAtIndex( info, 0 ) );
+                const auto* onScreen =
+                     static_cast<CFBooleanRef>( CFDictionaryGetValue( entry, kCGWindowIsOnscreen ) );
+                const auto* rect = static_cast<CFDictionaryRef>( CFDictionaryGetValue( entry, kCGWindowBounds ) );
+                CGRect      frame{};
+                if ( onScreen != nullptr && CFBooleanGetValue( onScreen ) != 0 && rect != nullptr &&
                      CGRectMakeWithDictionaryRepresentation( rect, &frame ) )
                     bounds = frame;
             }
@@ -177,8 +182,8 @@ namespace Desert::Editor::Splash
                 LOG_WARN( "[Splash] application icon '{}' not found; the Dock keeps the generic icon",
                           kAppIcon.string() );
 
-            NSScreen*    screen = [NSScreen mainScreen];
-            const NSRect visible =
+            NSScreen* const screen = [NSScreen mainScreen];
+            const NSRect    visible =
                  ( screen != nullptr ) ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
             const CGFloat backing = ( screen != nullptr ) ? screen.backingScaleFactor : 2.0;
             const CGFloat fit     = FitScale( (float)visible.size.width, (float)visible.size.height );
@@ -266,16 +271,18 @@ namespace Desert::Editor::Splash
             CTFontRef iconFont = LoadIconFont( kButtonGlyphSize );
             for ( const SplashButton button : { SplashButton::Minimize, SplashButton::Close } )
             {
-                const Rect rect       = ButtonRect( button );
-                CALayer*   square     = [[CALayer alloc] init];
-                square.frame          = ToCG( rect );
-                CATextLayer* glyph    = [[CATextLayer alloc] init];
-                const bool   close    = button == SplashButton::Close;
-                glyph.font            = iconFont != nullptr ? (CFTypeRef)iconFont
-                                                            : (__bridge CFTypeRef)[NSFont systemFontOfSize:kButtonGlyphSize];
-                glyph.fontSize        = kButtonGlyphSize;
-                glyph.string          = iconFont != nullptr ? ToNS( close ? UI::kCloseGlyph : UI::kMinimizeGlyph )
-                                                            : ( close ? @"\u2715" : @"\u2013" );
+                const Rect     rect      = ButtonRect( button );
+                CALayer* const square    = [[CALayer alloc] init];
+                square.frame             = ToCG( rect );
+                CATextLayer* const glyph = [[CATextLayer alloc] init];
+                const bool         close = button == SplashButton::Close;
+                glyph.font               = iconFont != nullptr ? (CFTypeRef)iconFont
+                                                               : (__bridge CFTypeRef)[NSFont systemFontOfSize:kButtonGlyphSize];
+                glyph.fontSize           = kButtonGlyphSize;
+                if ( iconFont != nullptr )
+                    glyph.string = ToNS( close ? UI::kCloseGlyph : UI::kMinimizeGlyph );
+                else
+                    glyph.string = close ? @"\u2715" : @"\u2013";
                 glyph.alignmentMode   = kCAAlignmentCenter;
                 glyph.contentsScale   = scale;
                 CGColorRef white      = MakeColour( 1, 1, 1, 0.9 );
@@ -288,7 +295,7 @@ namespace Desert::Editor::Splash
                 m_ButtonSquares[close ? 1 : 0] = square;
                 m_ButtonGlyphs[close ? 1 : 0]  = glyph;
 
-                NSView* area = [[DesertSplashButtonArea alloc]
+                NSView* const area = [[DesertSplashButtonArea alloc]
                      initWithFrame:NSMakeRect( rect.X * fit, rect.Y * fit, rect.W * fit, rect.H * fit )];
                 [view addSubview:area];
                 [area release];
@@ -380,7 +387,7 @@ namespace Desert::Editor::Splash
             // The delayed perform retains the window until it has run, so the release below is safe.
             [m_Window performSelector:@selector( orderOut: ) withObject:nil afterDelay:kFadeOutSeconds];
 
-            for ( CALayer* layer :
+            for ( CALayer* const layer :
                   { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage, (CALayer*)m_Percent,
                     (CALayer*)m_Item, m_Track, m_Fill, m_Image, (CALayer*)m_ButtonGlyphs[0],
                     (CALayer*)m_ButtonGlyphs[1], m_ButtonSquares[0], m_ButtonSquares[1], m_Root } )
@@ -421,8 +428,8 @@ namespace Desert::Editor::Splash
                 m_MinimizeAsked->store( true );
                 // And through the main queue too, which the main run loop drains whenever the editor
                 // pumps events between stages; whichever comes first minimizes, the other finds nothing.
-                NSWindow* window = m_Window;
-                auto      asked  = m_MinimizeAsked;
+                NSWindow* const window = m_Window;
+                auto            asked  = m_MinimizeAsked;
                 [window retain];
                 dispatch_async( dispatch_get_main_queue(), ^{
                   MinimizeIfAsked( window, asked );

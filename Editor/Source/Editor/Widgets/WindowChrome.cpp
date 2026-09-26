@@ -22,7 +22,7 @@ namespace Desert::Editor::UI
 
         ImVec4 ToImGui( const ButtonColour& colour )
         {
-            return ImVec4( colour.R, colour.G, colour.B, colour.A );
+            return { colour.R, colour.G, colour.B, colour.A };
         }
 
         /// One window button. Its own colours rather than the shared ToolbarButton, because close must go

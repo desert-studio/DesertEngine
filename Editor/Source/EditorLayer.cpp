@@ -445,7 +445,7 @@ namespace Desert::Editor
         }
     } // namespace
 
-    EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName,
+    EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
                               std::unique_ptr<Splash::SplashScreen> splash )
          : Common::Layer( layerName ), m_Application( application ), m_Splash( std::move( splash ) )
 
@@ -564,7 +564,9 @@ namespace Desert::Editor
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
         m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
         m_MainScene     = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
-        m_PrimaryScene  = m_MainScene; // the always-present document #-1 (see SetActiveScene)
+        // Copies m_MainScene, built on the line above; a member initializer would copy null.
+        // NOLINTNEXTLINE(cppcoreguidelines-prefer-member-initializer)
+        m_PrimaryScene = m_MainScene; // the always-present document #-1 (see SetActiveScene)
 
         // The scene/asset-manager the undoable structural commands operate on (the scene OBJECT is reused
         // across loads — Clear() + deserialize — so this stays valid; the history itself is cleared on
@@ -635,7 +637,7 @@ namespace Desert::Editor
                 // status of 134 says "the engine crashed", not "the scene you asked for is missing" — the
                 // caller reading it learns the wrong thing. Ask for an ordered close with the real status;
                 // Run() then draws no frames and teardown happens exactly as on a normal quit.
-                const_cast<Engine::Application*>( m_Application )->Close( 2 );
+                m_Application->Close( 2 );
             }
             else
             {
@@ -730,7 +732,7 @@ namespace Desert::Editor
                  *window,
                  // The same ordered close the control channel's `quit` takes: Run() leaves its loop, every
                  // layer is detached, the device goes idle. Two ways to end a session would drift.
-                 [this]() { const_cast<Engine::Application*>( m_Application )->Close( 0 ); } );
+                 [this]() { m_Application->Close( 0 ); } );
         }
 
         // 1. Create ImGui Context first
@@ -1287,7 +1289,7 @@ namespace Desert::Editor
             m_QuitFromSplash = true;
             LOG_INFO( "[Startup] closed on the splash; {} of {} stage(s) not run",
                       m_StartupStages.size() - m_StartupNext, m_StartupStages.size() );
-            const_cast<Engine::Application*>( m_Application )->Close( 0 );
+            m_Application->Close( 0 );
         }
         if ( step == Splash::StartupStep::RunStage )
         {
@@ -1819,7 +1821,7 @@ namespace Desert::Editor
                 LOG_INFO( "[Memory] {}", Graphic::MemoryWatch::Report() );
                 // A capture that wrote no PNG must not leave a zero exit status behind: the whole value of
                 // an exit code is that a script can trust it, and this one used to say "fine" either way.
-                const_cast<Engine::Application*>( m_Application )->Close( m_ShotFailed ? 1 : 0 );
+                m_Application->Close( m_ShotFailed ? 1 : 0 );
             }
         }
 
@@ -2204,7 +2206,7 @@ namespace Desert::Editor
             const int32_t code = *m_ControlQuitCode;
             m_ControlQuitCode.reset();
             LOG_INFO( "[Control] quit requested; closing with status {}.", code );
-            const_cast<Engine::Application*>( m_Application )->Close( code );
+            m_Application->Close( code );
             return;
         }
 
@@ -3886,9 +3888,9 @@ namespace Desert::Editor
                 ImGuiID topLeft = node;
                 ImGuiID topRight =
                      ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Right, 0.5f, nullptr, &topLeft );
-                ImGuiID bottomLeft =
+                const ImGuiID bottomLeft =
                      ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Down, 0.5f, nullptr, &topLeft );
-                ImGuiID bottomRight =
+                const ImGuiID bottomRight =
                      ::ImGui::DockBuilderSplitNode( topRight, ImGuiDir_Down, 0.5f, nullptr, &topRight );
 
                 const ImGuiID quarters[4] = { topLeft, topRight, bottomLeft, bottomRight };
@@ -5901,9 +5903,11 @@ namespace Desert::Editor
 
             // The slot column. "Cloud - no slot" is not trivia: it is the answer to "I closed four windows
             // and it still will not open", because closing a CPU-drawn document frees nothing.
-            const char*       slot   = document->HoldsRendererSlot()    ? "1 slot"
-                                       : document->ClaimsRendererSlot() ? "claiming"
-                                                                        : "no slot";
+            const char* slot = "no slot";
+            if ( document->HoldsRendererSlot() )
+                slot = "1 slot";
+            else if ( document->ClaimsRendererSlot() )
+                slot = "claiming";
             const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + slot;
             const float       rightW = ImGui::CalcTextSize( right.c_str() ).x;
             ImGui::SameLine( ImGui::GetContentRegionMax().x - rightW - 28.0f );
@@ -6276,7 +6280,7 @@ namespace Desert::Editor
         // been the only way out of the editor other than killing the process. Same ordered close as the
         // title bar's x and the control channel's `quit`.
         if ( ImGui::MenuItem( "Exit" ) )
-            const_cast<Engine::Application*>( m_Application )->Close( 0 );
+            m_Application->Close( 0 );
 
         ImGui::EndMenu();
     }

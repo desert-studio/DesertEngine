@@ -78,6 +78,7 @@ TEST( SplashControls, CloseAskedBetweenStagesStopsEveryLaterStage )
     bool                               closeRequested = false;
     bool                               quit           = false;
     std::vector<std::function<void()>> stages;
+    stages.reserve( 6 );
     for ( int i = 0; i < 6; ++i )
         stages.emplace_back(
              [&, i]()

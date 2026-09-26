@@ -48,7 +48,7 @@ namespace Desert::Editor
     public:
         // @p splash is the start-up splash CreateApplication put up before the renderer existed; this
         // layer reports its steps to it and takes it down on the first real frame (RevealWhenReady).
-        EditorLayer( const Engine::Application* application, const std::string& layerName,
+        EditorLayer( Engine::Application* application, const std::string& layerName,
                      std::unique_ptr<Splash::SplashScreen> splash );
         ~EditorLayer();
 
@@ -494,7 +494,7 @@ namespace Desert::Editor
         bool m_ShowProfiler = true; // View ▸ Profiler toggles the profiler window
 
     private:
-        const Engine::Application* m_Application;
+        Engine::Application* m_Application;
 
         // The window frame the OS no longer draws, because the editor asked for a window without one
         // (Sandbox.hpp: ApplicationInfo::Decorated). Held as an optional rather than a value because it

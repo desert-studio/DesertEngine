@@ -820,7 +820,7 @@ void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormal
     VertNormals.SetNum( NumVertices );
     for ( int32_t i = 0; i < NumVertices; ++i )
     {
-        int32_t const vid    = Vertices[i];
+        int32_t const   vid    = Vertices[i];
         FVector3d const Normal = FMeshNormals::ComputeVertexNormal(
              *Mesh, vid, std::function<bool( int32_t )>( TriangleSetFunc ), true, true );
         int32_t const nid = NormalOverlay->AppendElement( FVector3f( Normal ) );
