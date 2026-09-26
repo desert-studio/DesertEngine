@@ -56,7 +56,7 @@ namespace
     void WritePng( const fs::path& path )
     {
         std::ofstream out( path, std::ios::binary );
-        out.write( static_cast<const char*>( static_cast<const void*>( kOnePixelPng.data() ) ),
+        out.write( static_cast<const char*>( static_cast<const void*>( kOnePixelPng.data() ) ),  // NOLINT(bugprone-casting-through-void): ofstream::write takes char bytes; these are the PNG bytes
                    static_cast<std::streamsize>( kOnePixelPng.size() ) );
     }
 
@@ -89,7 +89,7 @@ namespace
             WritePng( Png );
             const auto hash = ThumbnailFreshness::ContentHash( Source );
             ASSERT_TRUE( hash.has_value() );
-            ASSERT_TRUE( ThumbnailFreshness::Record( Png, hash.value() ) );
+            ASSERT_TRUE( ThumbnailFreshness::Record( Png, hash.value() ) );  // NOLINT(bugprone-unchecked-optional-access): checked by the ASSERT_TRUE (fixture) above, which returns; tidy does not model gtest
         }
     };
 } // namespace
@@ -105,7 +105,7 @@ TEST( ThumbnailPrefetch, ACachedPngIsDecodedOnAWorkerBeforeAnyoneDrawsIt )
 
     const auto pixels = ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) );
     ASSERT_TRUE( pixels.has_value() ) << "the cached PNG was not decoded ahead of the draw";
-    const ThumbnailPixels& px = pixels.value();
+    const ThumbnailPixels& px = pixels.value();  // NOLINT(bugprone-unchecked-optional-access): checked by the ASSERT_TRUE above, which returns; tidy does not model gtest
     EXPECT_EQ( px.Width, 1 );
     EXPECT_EQ( px.Height, 1 );
     EXPECT_EQ( px.Rgba.size(), 4u );
@@ -173,7 +173,7 @@ TEST( ThumbnailPrefetch, APictureACaptureRewroteGoesThroughAWorkerNotTheDraw )
     prefetch.Drain();
     auto second = prefetch.Acquire( f.Png.string(), newer );
     ASSERT_TRUE( second.Pixels.has_value() ) << "the worker never delivered the rewritten picture";
-    EXPECT_NE( second.Pixels.value().DecodedOn, std::this_thread::get_id() );
+    EXPECT_NE( second.Pixels.value().DecodedOn, std::this_thread::get_id() );  // NOLINT(bugprone-unchecked-optional-access): checked by the ASSERT_TRUE above, which returns; tidy does not model gtest
     EXPECT_EQ( prefetch.DecodedOnTheTakingThread() - before, 0u ) << "decoded on main thread: N > 0";
 }
 

@@ -1667,7 +1667,7 @@ namespace Desert::Editor
         // A CAPTURE is not: it shares the settle's frames and asset loader — the one thing the splash is
         // waiting on — so requests made before the hand-over stay queued and are served after it.
         if ( Splash::ThumbnailDiskDecodeAllowed( CurrentRevealState() ) )
-            ThumbnailService::Get().TickDiskAndDecode();
+            ThumbnailService::TickDiskAndDecode();
         if ( Splash::ThumbnailCaptureAllowed( CurrentRevealState() ) )
             ThumbnailService::Get().TickCapture();
 
