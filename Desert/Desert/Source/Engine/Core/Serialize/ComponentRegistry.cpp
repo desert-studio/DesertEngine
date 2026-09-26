@@ -12,12 +12,14 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cstring>
+#include <format>
 #include <optional>
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -133,6 +135,45 @@ namespace Desert::Core::Serialize
             };
 
             return s;
+        }
+
+        // The scene a UIRenderTexture names, as SCNE 31 states it: the `.desce` header GUID (read through the
+        // VFS first, like every identity) and the file's stable key for the reader.
+        Common::ResultStr<Assets::AssetGuidRef> SceneRefForPath( const std::string& path )
+        {
+            const Common::Content::AssetGuid guid = Assets::ReadTextHeaderGuid( path );
+            if ( guid.IsNull() )
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     std::format( "scene '{}' states no header GUID to name it by (missing, or no header)", path ) );
+            return Common::MakeSuccess( Assets::AssetGuidRef{
+                 Common::Content::AssetGuidToText( guid ),
+                 Common::AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) } );
+        }
+
+        // BY GUID through the content registry, which indexes scenes by their header GUID (AF6f): a scene
+        // moved or renamed keeps its GUID, so `Path` is only named in the error and never looked up.
+        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic& block )
+        {
+            const auto  fields = block.to_object();
+            const auto  text   = [&]( const char* key ) -> std::string
+            {
+                if ( !fields.has_value() )
+                    return {};
+                const auto value = fields.value().get( key );
+                return value.has_value() ? value.value().to_string().value_or( "" ) : std::string();
+            };
+            const std::string guidText = text( "Guid" );
+            const std::string pathText = text( "Path" );
+            const auto        guid     = Common::Content::AssetGuidFromText( guidText );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<std::string>(
+                     std::format( "scene reference '{}' ('{}') states no GUID", guidText, pathText ) );
+            const Common::Utils::AssetRegistryEntry* row =
+                 Assets::ContentRegistry::Get().FindByGuidReference( guid.GetValue(), {} );
+            if ( row == nullptr || row->Kind != "Scene" )
+                return Common::MakeError<std::string>( std::format(
+                     "scene {} ('{}') is not a scene this project's registry knows", guidText, pathText ) );
+            return Common::MakeSuccess( Common::AssetHandle::PathForStableKey( row->Key ).generic_string() );
         }
 
         // A marker component (no data, e.g. FolderComponent): presence IS the state. Serializes as an empty
@@ -1554,8 +1595,65 @@ namespace Desert::Core::Serialize
                                                                             &ECS::UIButtonComponent::Data ) );
         Register( MakeReflected<ECS::UIIconComponent, ECS::UIIconData>( "UIIcon", "UIIconData",
                                                                         &ECS::UIIconComponent::Data ) );
-        Register( MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
-             "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data ) );
+        {
+            // BY GUID (SCNE 31), like a material's shader: the runtime field is the path the host opens, the
+            // file states `"Scene": {Guid, Path}` - the scene's header GUID, and its key for the reader.
+            // Everything else in the block is the reflected data as it was.
+            ComponentSerializer s = MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
+                 "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data );
+            s.Serialize = [reflected = s.Serialize]( ECS::Entity                 entity,
+                                                     const Assets::AssetManager& assetManager ) -> rfl::Generic
+            {
+                const auto  block = reflected( entity, assetManager ).to_object();
+                const auto& path  = entity.GetComponent<ECS::UIRenderTextureComponent>().Data.ScenePath;
+                rfl::Generic::Object out;
+                if ( !path.empty() )
+                {
+                    if ( auto ref = SceneRefForPath( path ) )
+                    {
+                        rfl::Generic::Object scene;
+                        scene["Guid"] = ref.GetValue().Guid;
+                        scene["Path"] = ref.GetValue().Path;
+                        out["Scene"]  = rfl::Generic( std::move( scene ) );
+                    }
+                    else
+                        LOG_ERROR( "[Scene] UIRenderTexture on '{}': {} - the scene slot is written EMPTY",
+                                   entity.GetComponent<ECS::TagComponent>().Tag, ref.GetError() );
+                }
+                if ( block.has_value() )
+                    for ( const auto& [key, value] : block.value() )
+                        if ( key != "ScenePath" )
+                            out[key] = value;
+                return rfl::Generic( std::move( out ) );
+            };
+            s.Deserialize = [reflected = s.Deserialize]( ECS::Entity entity, const rfl::Generic& g,
+                                                         const Assets::AssetManager& assetManager )
+            {
+                const auto block = g.to_object();
+                if ( !block.has_value() )
+                    return;
+                // `ScenePath` is not read: a SCNE 31 file names its scene by GUID, and the version gate
+                // refuses an older file before any block is read.
+                rfl::Generic::Object rest;
+                for ( const auto& [key, value] : block.value() )
+                    if ( key != "Scene" && key != "ScenePath" )
+                        rest[key] = value;
+                reflected( entity, rfl::Generic( rest ), assetManager );
+
+                auto& data     = entity.GetComponent<ECS::UIRenderTextureComponent>().Data;
+                data.ScenePath = {};
+                const auto scene = block.value().get( "Scene" );
+                if ( !scene.has_value() )
+                    return; // no scene, which the element draws as the magenta error fill
+                const auto path = ScenePathForRef( scene.value() );
+                if ( path )
+                    data.ScenePath = path.GetValue();
+                else
+                    LOG_ERROR( "[Scene] UIRenderTexture on '{}': {} - the element draws the magenta error fill",
+                               entity.GetComponent<ECS::TagComponent>().Tag, path.GetError() );
+            };
+            Register( std::move( s ) );
+        }
 
         Register( MakeReflected<ECS::UIBindingComponent, ECS::UIBindingData>( "UIBinding", "UIBindingData",
                                                                               &ECS::UIBindingComponent::Data ) );

@@ -130,7 +130,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -150,7 +153,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -170,7 +176,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -190,7 +199,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -210,7 +222,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -230,7 +245,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -250,7 +268,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -270,7 +291,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -290,7 +314,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -310,7 +337,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -330,7 +360,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -350,7 +383,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -370,7 +406,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -390,7 +429,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -410,7 +452,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -430,7 +475,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -450,7 +498,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -470,7 +521,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -490,7 +544,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -510,7 +567,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -530,7 +590,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -550,7 +613,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -570,7 +636,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -590,7 +659,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -610,7 +682,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -630,7 +705,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -650,7 +728,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -670,7 +751,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -690,7 +774,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -710,7 +797,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -730,7 +820,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -750,7 +843,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -770,7 +866,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -790,7 +889,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -810,7 +912,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -830,7 +935,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -850,7 +958,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -870,7 +981,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -890,7 +1004,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -910,7 +1027,10 @@
                 "ClipContents": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0

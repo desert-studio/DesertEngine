@@ -351,7 +351,10 @@ namespace Desert::Migration
     //                   records and prefab-override records. An empty name becomes no key (absent = no
     //                   shader). A stem no `.shader` under <assetsRoot>/../Shaders carries, two files with
     //                   that stem, or a file stating no header GUID REFUSES the file, naming the entity
-    //                   (MigrateShaderGuidsV30ToV31).
+    //                   (MigrateShaderSceneGuidsV30ToV31). In the same step a UIRenderTexture's `ScenePath` (a
+    //                   working-directory path "Resources/Assets/Scenes/X.desce") becomes `"Scene": {"Guid":
+    //                   <the .desce header GUID>, "Path": "assets:Scenes/X.desce"}`; an empty path becomes no
+    //                   key, and a path naming no Scene with a GUID REFUSES the file, naming the entity.
     inline constexpr int kSceneVersionShaderGuids = 31;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
@@ -1494,11 +1497,12 @@ namespace Desert::Migration
                                                             std::vector<Assets::EntityData>& entities,
                                                             const std::filesystem::path&     assetsRoot );
 
-    // Raises every Material component's `ShaderName` (a file stem) from v30 to `"Shader": {Guid, Path}`, in
-    // entity records and their prefab-override records. The report is the texture steps' shape: Rewritten
+    // Raises every Material component's `ShaderName` (a file stem) from v30 to `"Shader": {Guid, Path}`, and
+    // every UIRenderTexture's `ScenePath` to `"Scene": {Guid, Path}`, in entity records and their
+    // prefab-override records. The report is the texture steps' shape: Rewritten
     // counts the names now stated by GUID, UnknownNames non-empty REFUSES the file. IDEMPOTENT: a block with
     // no `ShaderName` is left as it is. SHELF LIFE: deleted once no v30 file remains.
-    TextureGuidsMigrationReport MigrateShaderGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
+    TextureGuidsMigrationReport MigrateShaderSceneGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
                                                             const std::filesystem::path&     assetsRoot );
 
     struct TextureAssetRefsMigrationReport
@@ -1671,8 +1675,8 @@ namespace Desert::Migration
         TextureGuidsMigrationReport      TextureGuids;
         bool                             SpriteGuidsRaised = false; // below kSceneVersionSpriteGuids
         TextureGuidsMigrationReport      SpriteGuids;
-        bool                             ShaderGuidsRaised = false; // below kSceneVersionShaderGuids
-        TextureGuidsMigrationReport      ShaderGuids;
+        bool                             ShaderSceneGuidsRaised = false; // below kSceneVersionShaderGuids
+        TextureGuidsMigrationReport      ShaderSceneGuids;
 
         bool Changed() const
         {
@@ -1683,7 +1687,7 @@ namespace Desert::Migration
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
                    TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
                    MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised || SpriteGuidsRaised ||
-                   ShaderGuidsRaised;
+                   ShaderSceneGuidsRaised;
         }
     };
 
