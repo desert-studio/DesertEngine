@@ -50,6 +50,10 @@
 #include <Engine/Graphic/Image.hpp>
 
 #include <array>
+#include <chrono>
+#include <future>
+#include <list>
+#include <vector>
 #include <cstdint>
 #include <optional>
 #include <filesystem>
@@ -65,10 +69,52 @@ namespace Desert::Graphic
     [[nodiscard]] Common::ResultStr<std::shared_ptr<ImageCube>>
     CreateBakedEnvironmentCube( Core::Formats::ImageCubeSpecification spec, const std::filesystem::path& path );
 
-    /// Read @p cube back off the device and write it as a cooked container. @p sourceKey is the
-    /// `.hdr`'s stable project key, recorded as provenance exactly as a cooked texture records its PNG.
-    [[nodiscard]] Common::BoolResultStr WriteBakedEnvironmentCube( const std::filesystem::path& path,
-                                                                   ImageCube& cube, const std::string& sourceKey,
-                                                                   uint64_t sourceSignature,
-                                                                   uint64_t bakeSignature );
+    /// What one cached cube is: where it goes and the provenance it records. @p SourceKey is the `.hdr`'s
+    /// stable project key, recorded exactly as a cooked texture records its PNG.
+    struct EnvironmentCacheEntry
+    {
+        std::filesystem::path Path;
+        std::string           SourceKey;
+        uint64_t              SourceSignature = 0;
+        uint64_t              BakeSignature   = 0;
+        uint32_t              FaceSize        = 0;
+        uint32_t              Mips            = 0;
+    };
+
+    /// The CPU half of the write: census, BC6H encode, container, atomic file write. Touches no device, so
+    /// it runs on a worker. @p levels is the cube's chain in its own format, tightly packed in table order.
+    [[nodiscard]] Common::BoolResultStr EncodeBakedEnvironmentCube( const EnvironmentCacheEntry& entry,
+                                                                    const std::vector<uint8_t>&  levels );
+
+    /// THE WRITE, OFF THE MAIN THREAD (AL1-3). Measured on SKY_HdrOrientation: 14 668 ms of the cold open
+    /// were the blocking readback plus the BC6H encode plus the file write, all on the main thread, for a
+    /// file that only the NEXT run reads. Now the readback is submitted without a wait, the fence is polled
+    /// once a tick by `Pump`, and the encode and write run on a JobSystem worker; the environment is in
+    /// use from the GPU cubes the whole time. Main-thread only, except the job it starts.
+    class EnvironmentCacheWriter
+    {
+    public:
+        static EnvironmentCacheWriter& Get();
+
+        /// Submits the readback of @p cube; the bytes become @p entry's file some ticks later.
+        [[nodiscard]] Common::BoolResultStr Begin( ImageCube& cube, EnvironmentCacheEntry entry );
+        /// Once a tick, beside `AsyncAssetLoader::Pump`: starts the encode of a landed readback, retires a
+        /// finished write with one line naming the file and its latency.
+        void Pump();
+        /// Host teardown, while the device is alive: finishes every write in flight and releases the readbacks.
+        void Drain();
+        [[nodiscard]] size_t InFlight() const { return m_InFlight.size(); }
+
+    private:
+        struct Write
+        {
+            EnvironmentCacheEntry                    Entry;
+            std::shared_ptr<ImageReadback>           Readback;
+            std::future<Common::BoolResultStr>       Encoded;
+            std::chrono::steady_clock::time_point    StartedAt;
+        };
+        static void Finish( Write& write );
+
+        std::list<Write> m_InFlight;
+    };
 } // namespace Desert::Graphic

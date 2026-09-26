@@ -22,6 +22,11 @@ namespace Desert::Graphic
 
         /// The copied pixels as tightly packed RGBA8. Refused, by name, while the copy is still running.
         NO_DISCARD virtual Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const = 0;
+
+        /// The copied bytes exactly as the image holds them, in its own format and converting nothing —
+        /// what an environment cube's cache needs, whose content is radiance outside [0,1]. Refused, by
+        /// name, while the copy is still running.
+        NO_DISCARD virtual Common::ResultStr<std::vector<uint8_t>> ReadBytes() const = 0;
     };
 
     class Image2D;

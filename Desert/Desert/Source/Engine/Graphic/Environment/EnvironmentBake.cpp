@@ -5,6 +5,7 @@
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/JobSystem.hpp>
 
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
@@ -17,6 +18,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <thread>
 
 namespace Desert::Graphic
 {
@@ -34,20 +36,15 @@ namespace Desert::Graphic
         return Common::MakeSuccess( std::move( cube ) );
     }
 
-    Common::BoolResultStr WriteBakedEnvironmentCube( const std::filesystem::path& path, ImageCube& cube,
-                                                     const std::string& sourceKey, const uint64_t sourceSignature,
-                                                     const uint64_t bakeSignature )
+    Common::BoolResultStr EncodeBakedEnvironmentCube( const EnvironmentCacheEntry& entry,
+                                                      const std::vector<uint8_t>&  levels )
     {
-        auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );
-        if ( !vulkanCube )
-            return Common::MakeError<bool>( "the environment bake can only read back a Vulkan cube" );
-
-        const uint32_t faceSize = cube.GetWidth();
-        const uint32_t mips     = cube.GetMipmapLevels();
-
-        auto readback = vulkanCube->RT_ReadAllLevels();
-        if ( !readback.IsSuccess() )
-            return Common::MakeError<bool>( readback.GetError() );
+        const std::filesystem::path& path            = entry.Path;
+        const std::string&           sourceKey       = entry.SourceKey;
+        const uint64_t               sourceSignature = entry.SourceSignature;
+        const uint64_t               bakeSignature   = entry.BakeSignature;
+        const uint32_t               faceSize        = entry.FaceSize;
+        const uint32_t               mips            = entry.Mips;
 
         Ser::TextureAssetData data;
         data.SourcePath        = sourceKey;
@@ -60,20 +57,20 @@ namespace Desert::Graphic
         data.Format            = Assets::kEnvironmentComputeFormat;
 
         // THE READBACK'S LAYOUT AND THE PLACER'S INPUT ARE THE SAME LAYOUT, and that is asserted rather
-        // than assumed: `RT_ReadAllLevels` documents "tightly packed in table order" and
+        // than assumed: `RT_BeginReadAllLevels` documents "tightly packed in table order" and
         // `TightlyPackedChainBytes` is the size that phrase means. A disagreement here is the middle
         // link dropping a property, so it is a refusal with both numbers and not a silent truncation.
         const uint64_t expected = Ser::TightlyPackedChainBytes(
              faceSize, faceSize, mips, Ser::kTextureCubeLayerCount, Assets::kEnvironmentComputeFormat );
-        if ( readback.GetValue().size() != expected )
+        if ( levels.size() != expected )
         {
             return Common::MakeFormattedError<bool>(
                  "the cube read back as {} bytes and {} levels x {} faces of a {}-texel face is {}.",
-                 readback.GetValue().size(), mips, Ser::kTextureCubeLayerCount, faceSize, expected );
+                 levels.size(), mips, Ser::kTextureCubeLayerCount, faceSize, expected );
         }
 
         auto table = Ser::BuildLevelTable( faceSize, faceSize, mips, Ser::kTextureCubeLayerCount,
-                                           Assets::kEnvironmentComputeFormat, readback.GetValue(), data.Pixels );
+                                           Assets::kEnvironmentComputeFormat, levels, data.Pixels );
         if ( !table.IsSuccess() )
             return Common::MakeError<bool>( table.GetError() );
         data.Levels = table.ExtractValue();
@@ -187,5 +184,104 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "the cooked container refused the shape this bake produced" );
 
         return Common::Utils::FileSystem::WriteContentToFileAtomic( path, bytes );
+    }
+    EnvironmentCacheWriter& EnvironmentCacheWriter::Get()
+    {
+        static EnvironmentCacheWriter writer;
+        return writer;
+    }
+
+    Common::BoolResultStr EnvironmentCacheWriter::Begin( ImageCube& cube, EnvironmentCacheEntry entry )
+    {
+        auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );
+        if ( !vulkanCube )
+            return Common::MakeError<bool>( "the environment bake can only read back a Vulkan cube" );
+        entry.FaceSize = cube.GetWidth();
+        entry.Mips     = cube.GetMipmapLevels();
+        auto begun     = vulkanCube->RT_BeginReadAllLevels();
+        if ( !begun.IsSuccess() )
+            return Common::MakeError<bool>( begun.GetError() );
+        m_InFlight.push_back( { std::move( entry ), begun.ExtractValue(), {}, std::chrono::steady_clock::now() } );
+        return BOOLSUCCESS;
+    }
+
+    void EnvironmentCacheWriter::Pump()
+    {
+        for ( auto it = m_InFlight.begin(); it != m_InFlight.end(); )
+        {
+            Write& write = *it;
+            if ( !write.Encoded.valid() )
+            {
+                if ( !write.Readback->IsComplete() )
+                {
+                    ++it;
+                    continue;
+                }
+                // THE READBACK OBJECT STAYS HERE, the worker gets a raw pointer: it is created and destroyed on
+                // the device thread (its destructor frees a command buffer from a pool), and ReadBytes alone
+                // may run elsewhere. The entry is not erased until the future below is ready.
+                const ImageReadback* readback = write.Readback.get();
+                write.Encoded = Common::JobSystem::Get().Async(
+                     [readback, entry = write.Entry]() -> Common::BoolResultStr
+                     {
+                         auto bytes = readback->ReadBytes();
+                         if ( !bytes.IsSuccess() )
+                             return Common::MakeError<bool>( bytes.GetError() );
+                         return EncodeBakedEnvironmentCube( entry, bytes.GetValue() );
+                     } );
+                ++it;
+                continue;
+            }
+            if ( write.Encoded.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+            {
+                ++it;
+                continue;
+            }
+            Finish( write );
+            it = m_InFlight.erase( it );
+        }
+    }
+
+    void EnvironmentCacheWriter::Drain()
+    {
+        // Shutdown only: every write in flight is FINISHED rather than dropped, because a dropped one is a
+        // cache entry the next run bakes again for 15 s. The readbacks are released here, on the device
+        // thread, while there is still a device to release them to.
+        for ( Write& write : m_InFlight )
+        {
+            if ( !write.Encoded.valid() )
+            {
+                const ImageReadback* readback = write.Readback.get();
+                const auto&          entry    = write.Entry;
+                write.Encoded = std::async( std::launch::deferred,
+                                            [readback, &entry]() -> Common::BoolResultStr
+                                            {
+                                                while ( !readback->IsComplete() )
+                                                    std::this_thread::yield();
+                                                auto bytes = readback->ReadBytes();
+                                                if ( !bytes.IsSuccess() )
+                                                    return Common::MakeError<bool>( bytes.GetError() );
+                                                return EncodeBakedEnvironmentCube( entry, bytes.GetValue() );
+                                            } );
+            }
+            write.Encoded.wait();
+            Finish( write );
+        }
+        m_InFlight.clear();
+    }
+
+    void EnvironmentCacheWriter::Finish( Write& write )
+    {
+        const Common::BoolResultStr written = write.Encoded.get();
+        const double                ms =
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - write.StartedAt ).count();
+        if ( !written.IsSuccess() )
+        {
+            LOG_ERROR( "[EnvironmentBake] '{}' was baked but not cached to '{}' ({:.1f} ms after the bake): {}",
+                       write.Entry.SourceKey, write.Entry.Path.string(), ms, written.GetError() );
+            return;
+        }
+        LOG_INFO( "[EnvironmentBake] '{}' cached to '{}' {:.1f} ms after the bake, off the main thread.",
+                  write.Entry.SourceKey, write.Entry.Path.string(), ms );
     }
 } // namespace Desert::Graphic

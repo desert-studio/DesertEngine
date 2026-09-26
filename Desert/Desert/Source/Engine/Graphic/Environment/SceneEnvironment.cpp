@@ -140,16 +140,16 @@ namespace Desert::Graphic
              imageService->Register( std::move( prefiltered ), Runtime::ImageHandle::Type::ImageCube );
 
         // The two halves of a miss are timed apart because they answer different questions: the
-        // convolutions are GPU work every bake repeats, the write below is a CPU block encode paid
-        // once per panorama. One total hid which of them a change had moved.
+        // convolutions are GPU work every bake repeats, the second half only SUBMITS the cache's readbacks.
         const auto convolvedAt = std::chrono::steady_clock::now();
 
-        // ── AND THEN IT IS WRITTEN, ONCE ─────────────────────────────────────────────────────
+        // ── AND THEN IT IS WRITTEN, ONCE, AND NOT HERE ───────────────────────────────────────
         //
-        // The write happens AFTER the three cubes exist and reads them back off the device, so what
-        // is cached is exactly what this run computed rather than a second computation of it. A
-        // failure here costs the cache and nothing else: the environment in hand is complete, and
-        // the next load simply bakes again with the reason in the log.
+        // The write reads the three cubes back off the device, so what is cached is exactly what this run
+        // computed. It is for the NEXT run: nothing here waits for it. `EnvironmentCacheWriter` submits the
+        // copies, polls their fence once a tick and encodes BC6H + writes the file on a worker — that was
+        // 14.7 s of the main thread on a cold open (AL1-3). A failure costs the cache and nothing else, and
+        // is logged with the file by the writer when it lands.
         {
             const std::string sourceKey = Common::AssetHandle::StableKeyForPath( meta.Filepath );
             const struct
@@ -167,12 +167,15 @@ namespace Desert::Graphic
                 auto* cube  = dynamic_cast<ImageCube*>( image );
                 if ( cube == nullptr )
                     continue;
-                if ( const auto written =
-                          WriteBakedEnvironmentCube( entry.Path, *cube, sourceKey, sourceSignature, entry.Bake );
-                     !written )
+                if ( const auto begun = EnvironmentCacheWriter::Get().Begin(
+                          *cube, { .Path            = entry.Path,
+                                   .SourceKey       = sourceKey,
+                                   .SourceSignature = sourceSignature,
+                                   .BakeSignature   = entry.Bake } );
+                     !begun )
                 {
-                    LOG_ERROR( "[SceneEnvironment] '{}' was baked but not cached to '{}': {}",
-                               meta.Filepath.string(), entry.Path.string(), written.GetError() );
+                    LOG_ERROR( "[SceneEnvironment] '{}' was baked but will not be cached to '{}': {}",
+                               meta.Filepath.string(), entry.Path.string(), begun.GetError() );
                 }
             }
         }
@@ -180,7 +183,7 @@ namespace Desert::Graphic
         LOG_INFO(
              "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, "
              "{:.1f} ms "
-             "caching) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
+             "submitting the cache readbacks) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
              meta.Filepath.string(),
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
              std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),

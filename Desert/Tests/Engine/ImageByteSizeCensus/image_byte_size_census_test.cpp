@@ -446,7 +446,7 @@ namespace
           "included" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp",
           "CalculateImageSize( side, side, m_Specification.Format )", Sizes::OneImage, Blocks::Correct,
-          "ONE FACE of one mip in VulkanImageCube::RT_ReadAllLevels, which is the right unit there: "
+          "ONE FACE of one mip in VulkanImageCube::RT_BeginReadAllLevels, which is the right unit there: "
           "the function advances the buffer offset per face and per level, so the product it wants is "
           "the single image a copy region covers" },
         { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanImage.cpp",
