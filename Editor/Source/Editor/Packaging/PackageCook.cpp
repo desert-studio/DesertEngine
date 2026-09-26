@@ -10,6 +10,7 @@
 #include <Engine/Vector/IconBake.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/DDCShipRegister.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
@@ -287,18 +288,23 @@ namespace Desert::Editor
         // Copies the DDC buckets a game reads into Saved/Cooked/<Platform>/ under the same relative layout.
         // WHOLE BUCKETS, not a list of what this pass touched: a fixture or an earlier cook's entry under a
         // key the runtime will ask for is exactly as valid (the key is its inputs), and the pipeline blob
-        // is keyed by the driver, which no cook can enumerate. Thumbnails are the editor's alone and stay.
+        // is keyed by the driver, which no cook can enumerate.
+        //
+        // The set of buckets is Assets::ShippedDDCBuckets() (DDCShipRegister.hpp), not a literal array here:
+        // a hand-written list is exactly what let kMeshDeriver's mesh-render-data bucket go unshipped (PK3) -
+        // nothing forced this list to grow when a deriver did. Editor-only buckets (Thumbnails - no
+        // Common::DDC::Deriver at all, read only by the asset browser) are excluded by the register, by name,
+        // with a reason; see DDCShipRegister.hpp.
         void StageCookedEntries( CookStats& stats )
         {
-            constexpr std::string_view kShippedBuckets[] = { "ShaderCache",      "FontCache",     "IconCache",
-                                                             "EnvironmentCache", "PipelineCache", "Texture" };
-            const fs::path             cooked            = Common::DDC::PlatformCookedDir();
-            const fs::path             ddcRoot           = Common::DDC::Root();
-            std::error_code            ec;
+            const std::vector<std::string_view> shippedBuckets = Assets::ShippedDDCBuckets();
+            const fs::path                      cooked         = Common::DDC::PlatformCookedDir();
+            const fs::path                      ddcRoot        = Common::DDC::Root();
+            std::error_code                     ec;
             fs::remove_all( cooked, ec );
             fs::create_directories( cooked, ec );
 
-            for ( const std::string_view bucket : kShippedBuckets )
+            for ( const std::string_view bucket : shippedBuckets )
             {
                 const fs::path dir = Common::DDC::BucketDir( bucket );
                 if ( !fs::is_directory( dir, ec ) )
