@@ -41,8 +41,7 @@ namespace Desert::Graphic::System
             m_ResolveShader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRResolveTiled" );
             m_CompositeShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRComposite" );
             if ( !m_TraceShader || !m_ResolveShader || !m_CompositeShader )
-                return Common::MakeError(
-                     "SSR shaders not found (SSR, SSRResolveTiled, SSRComposite)" );
+                return Common::MakeError( "SSR shaders not found (SSR, SSRResolveTiled, SSRComposite)" );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -63,7 +62,8 @@ namespace Desert::Graphic::System
             if ( !CreateStorageTargets( fullW, fullH ) )
                 return Common::MakeError( "SSR trace / tile mask images could not be created" );
 
-            const auto tracePipeline = ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
+            const auto tracePipeline =
+                 ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
             if ( !tracePipeline )
                 return Common::MakeError( tracePipeline.GetError() );
             m_TracePipeline = tracePipeline.GetValue();
@@ -118,8 +118,8 @@ namespace Desert::Graphic::System
         {
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !gbuffer || !sceneColor || !m_TracePipeline || !m_ResolvePipeline ||
-                 !m_CompositePipeline || !m_ResolveMaterial || !m_CompositeMaterial ||
-                 !m_TraceImage || !m_AccumFB[0] || !m_AccumFB[1] || !m_TileMask )
+                 !m_CompositePipeline || !m_ResolveMaterial || !m_CompositeMaterial || !m_TraceImage ||
+                 !m_AccumFB[0] || !m_AccumFB[1] || !m_TileMask )
                 return;
 
             auto& renderer = Renderer::GetInstance();
@@ -184,9 +184,9 @@ namespace Desert::Graphic::System
                 auto pass            = RenderPass::Create( rp );
 
                 renderer.BeginRenderPass( pass.get() );
-                m_ResolveMaterial->BindInputs(
-                     m_TraceImage, m_AccumFB[prv]->GetColorAttachmentImage( 0 ),
-                     gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel, m_HistoryValid ? 0.88f : 0.0f );
+                m_ResolveMaterial->BindInputs( m_TraceImage, m_AccumFB[prv]->GetColorAttachmentImage( 0 ),
+                                               gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel,
+                                               m_HistoryValid ? 0.88f : 0.0f );
                 m_ResolveMaterial->BindTileMask( tileMask );
                 renderer.SubmitVertices( m_ResolvePipeline.get(), tileVertices,
                                          m_ResolveMaterial->GetMaterialExecutor() );
@@ -260,7 +260,8 @@ namespace Desert::Graphic::System
                 return Image2D::Create( spec );
             };
             m_TraceImage = make( "SSRTrace", HalfRes( width ), HalfRes( height ), ViewTargetFormats::kSSRTrace );
-            m_TileMask   = make( "SSRTileMask", TileGrid( width ), TileGrid( height ), ViewTargetFormats::kSSRTileMask );
+            m_TileMask =
+                 make( "SSRTileMask", TileGrid( width ), TileGrid( height ), ViewTargetFormats::kSSRTileMask );
             return m_TraceImage != nullptr && m_TileMask != nullptr;
         }
 

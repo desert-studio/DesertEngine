@@ -177,15 +177,15 @@ namespace Desert::Core
         //                                                          0.25 / 0.29 / 0.28 ms - the condition below
         //       is MET; against the previous row 271 px differ by at most 4/255. The default stays false only
         //       until the scene schema step described at the end lands (it raises the scene version).
-        // Before the fusion, what was left was mostly fixed cost: four passes at 0.04 - 0.08 ms each whatever they draw (the
-        // composite over a few tiles is 0.04), plus ~0.07 of barriers/transitions between them. The roughness
-        // gate already matches UE's r.SSR.MaxRoughness 0.6 fade (full at 0.3, none at 0.6).
-        // RETURN CONDITION: the "Deferred: SSR" line on Desert_Sandbox (same camera, --gpu-profile) at or
-        // under 0.3 ms. Levers left: fold the passes together (trace + resolve as one compute dispatch over a
-        // tile list, the composite into the deferred composite) to shed the per-pass cost, and a
-        // hierarchical-Z march (UE's HZB) - this renderer has no HZB yet.
-        // Scenes then need a schema step: every file states `false`, and none ever stated `true`
-        // (git log -G), so the value is inherited everywhere - except where a frame comparison pins it.
+        // Before the fusion, what was left was mostly fixed cost: four passes at 0.04 - 0.08 ms each whatever they
+        // draw (the composite over a few tiles is 0.04), plus ~0.07 of barriers/transitions between them. The
+        // roughness gate already matches UE's r.SSR.MaxRoughness 0.6 fade (full at 0.3, none at 0.6). RETURN
+        // CONDITION: the "Deferred: SSR" line on Desert_Sandbox (same camera, --gpu-profile) at or under 0.3 ms.
+        // Levers left: fold the passes together (trace + resolve as one compute dispatch over a tile list, the
+        // composite into the deferred composite) to shed the per-pass cost, and a hierarchical-Z march (UE's HZB)
+        // - this renderer has no HZB yet. Scenes then need a schema step: every file states `false`, and none ever
+        // stated `true` (git log -G), so the value is inherited everywhere - except where a frame comparison pins
+        // it.
         PROPERTY( DisplayName( "Enable SSR" ), Category( "Rendering" ) )
         bool EnableSSR = false;
         PROPERTY( DisplayName( "SSR Intensity" ), Category( "Rendering" ), Range( 0.0f, 1.0f ) )
