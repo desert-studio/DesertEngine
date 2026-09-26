@@ -8,24 +8,19 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- THIS SUITE LINKS THE BUILT LIBRARY ON PURPOSE. Its three questions — which formats did we get,
-    -- which version did we get, and what does a real file import to — can only be answered by the
-    -- artifact, not by the build files that asked for it. The text half is AssimpBoundary next door.
+    -- ImportUnits.cpp IS the subject, compiled here rather than restated, so a change to the rule
+    -- reaches this suite. It is deliberately assimp-free: the rule is a function of what the file said
+    -- and what extension it has, and keeping it that way is what lets a unit test cover it at all
+    -- without dragging the FBX parser in. The suite also reads AssimpImporters.txt — the register of
+    -- the formats this engine ships — so the rule and the register cannot drift apart.
     files {
         test_files,
-        -- The unit RULE itself, compiled in rather than restated: this suite asserts the SIZE a file
-        -- imports at, and a second copy of the rule here would be a second thing to keep in agreement.
         "%{wks.location}/Editor/Source/Editor/Import/ImportUnits.cpp",
     }
 
     includedirs {
-        "%{wks.location}/Desert/Common/Source",
-        "%{wks.location}/Editor/Source",  -- <Editor/Import/ImportUnits.hpp>
-    }
-
-    externalincludedirs {
-        "%{wks.location}/Editor/ThirdParty/assimp/include",
-        "%{wks.location}/build/generated/assimp/include",
+        "%{wks.location}/Desert/Common/Source",  -- <Common/Core/Units.hpp>: the centimetre convention
+        "%{wks.location}/Editor/Source",         -- <Editor/Import/ImportUnits.hpp>
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -48,9 +43,13 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    -- Common: nothing of it is used by the assertions, but gtest's main links against the workspace's
-    -- standard set and Optick is what Common's JobSystem registers its threads with.
-    links { "Common", "Optick", "Assimp" }
+    -- Common: nothing of it is called, but gtest's main links against the workspace's standard set and
+    -- Optick is what Common's JobSystem registers its threads with.
+    links { "Common", "Optick" }
+
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
+    filter {}
 
     filter "system:not windows"
         links { "ReflectCpp" }

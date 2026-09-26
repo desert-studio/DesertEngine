@@ -17,9 +17,12 @@
 
 #include <assimp/Importer.hpp>
 #include <assimp/cimport.h>
+#include <assimp/config.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/version.h>
+
+#include <Editor/Import/ImportUnits.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -49,13 +52,17 @@ namespace
         return out.str();
     }
 
-    // THE ENGINE'S OWN POST-PROCESS SET, and the test below asserts that it is still the engine's. Every
-    // count in this file depends on these flags: aiProcess_JoinIdenticalVertices alone turns the rigged
-    // probe's 8 authored vertices into 6. Numbers measured under one flag set and read under another are
-    // the kind of evidence that looks like evidence.
+    // THE ENGINE'S OWN READ FLAGS, and the test below asserts that they are still the engine's. Every
+    // count in this file depends on them: aiProcess_JoinIdenticalVertices alone turns the rigged probe's
+    // 8 authored vertices into 6. Numbers measured under one flag set and read under another are the
+    // kind of evidence that looks like evidence.
+    //
+    // aiProcess_GlobalScale is deliberately absent. The engine runs it as a SECOND phase, after it has
+    // read the file's own unit, because assimp normalises to metres and this engine is centimetres —
+    // see EngineUnitScale below and Editor/Source/Editor/Import/ImportUnits.hpp.
     constexpr unsigned kEngineImportFlags = aiProcess_Triangulate | aiProcess_GenNormals |
                                             aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |
-                                            aiProcess_LimitBoneWeights | aiProcess_GlobalScale;
+                                            aiProcess_LimitBoneWeights;
 
     struct Counts
     {
@@ -87,6 +94,97 @@ namespace
             counts.Bones += scene->mMeshes[m]->mNumBones;
         }
         return counts;
+    }
+
+    // THE ENGINE'S TWO-PHASE IMPORT, run here against the built library so the size a file imports at is
+    // read off a run rather than predicted. Phase one reads with kEngineImportFlags; phase two asks the
+    // file what its unit is (the RULE itself is ImportUnits, compiled into this suite, not restated) and
+    // then runs assimp's own aiProcess_GlobalScale with the factor that lands the geometry in
+    // centimetres. AssimpImporter::Import does exactly this, and the flag census below is what keeps the
+    // two from drifting.
+    struct WorldBox
+    {
+        aiVector3D Min{ 1e30f, 1e30f, 1e30f };
+        aiVector3D Max{ -1e30f, -1e30f, -1e30f };
+
+        float Height() const
+        {
+            return Max.y - Min.y;
+        }
+        float Width() const
+        {
+            return Max.x - Min.x;
+        }
+        float Depth() const
+        {
+            return Max.z - Min.z;
+        }
+    };
+
+    void AccumulateWorld( const aiScene& scene, const aiNode& node, const aiMatrix4x4& parent, WorldBox& box )
+    {
+        const aiMatrix4x4 world = parent * node.mTransformation;
+        for ( unsigned i = 0; i < node.mNumMeshes; ++i )
+        {
+            const aiMesh& mesh = *scene.mMeshes[node.mMeshes[i]];
+            for ( unsigned v = 0; v < mesh.mNumVertices; ++v )
+            {
+                const aiVector3D p = world * mesh.mVertices[v];
+                box.Min.x          = std::min( box.Min.x, p.x );
+                box.Min.y          = std::min( box.Min.y, p.y );
+                box.Min.z          = std::min( box.Min.z, p.z );
+                box.Max.x          = std::max( box.Max.x, p.x );
+                box.Max.y          = std::max( box.Max.y, p.y );
+                box.Max.z          = std::max( box.Max.z, p.z );
+            }
+        }
+        for ( unsigned i = 0; i < node.mNumChildren; ++i )
+            AccumulateWorld( scene, *node.mChildren[i], world, box );
+    }
+
+    // Returns the world-space box in CENTIMETRES, and reports through `source` how the unit was decided,
+    // so a test can assert that a file's size and the reason for it agree.
+    WorldBox ImportInCentimetres( const std::filesystem::path& file, std::string& error,
+                                  Desert::Editor::ImportUnits::Source& source )
+    {
+        Assimp::Importer importer;
+        const aiScene*   scene = importer.ReadFile( file.string(), kEngineImportFlags );
+        WorldBox         box;
+        if ( scene == nullptr )
+        {
+            error = importer.GetErrorString();
+            return box;
+        }
+
+        float stated    = 0.0f;
+        bool  hasStated = false;
+        if ( scene->mMetaData != nullptr )
+        {
+            float asFloat = 0.0f;
+            if ( scene->mMetaData->Get( "UnitScaleFactor", asFloat ) )
+            {
+                stated    = asFloat;
+                hasStated = true;
+            }
+        }
+
+        const auto unit = Desert::Editor::ImportUnits::Resolve( file.extension().string(), hasStated, stated );
+        source          = unit.From;
+
+        const float assimpMetresPerUnit = importer.GetPropertyFloat( AI_CONFIG_APP_SCALE_KEY, 1.0f );
+        importer.SetPropertyFloat(
+             AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY,
+             Desert::Editor::ImportUnits::GlobalScaleFactor( unit.CentimetresPerUnit, assimpMetresPerUnit ) );
+        scene = importer.ApplyPostProcessing( aiProcess_GlobalScale );
+        if ( scene == nullptr || scene->mRootNode == nullptr )
+        {
+            error = "the scaling phase discarded the scene";
+            return box;
+        }
+
+        const aiMatrix4x4 identity;
+        AccumulateWorld( *scene, *scene->mRootNode, identity, box );
+        return box;
     }
 
     // The register's extension column, as a set. Rows are `NAME  ext [ext ...]  reason...`; the
@@ -276,42 +374,131 @@ TEST( AssimpLibraryPin, TheCommittedModelsImportToTheGeometryTheyCarry )
     }
 }
 
-// THE FLAG SET THE NUMBERS ABOVE WERE MEASURED UNDER IS STILL THE ENGINE'S.
+// THE SIZE A FILE IMPORTS AT, WHICH IS A DIFFERENT QUESTION FROM HOW MANY VERTICES IT HAS.
 //
-// Every count in this file is a function of the six post-process steps AssimpImporter passes. A test
-// that hardcoded its own flags would keep passing while the engine moved to a different set, and would
-// then be asserting numbers nobody's import produces. So the flags are read out of the importer's
-// source and compared against the ones used here, name by name.
-TEST( AssimpLibraryPin, TheImporterStillUsesTheFlagsTheseNumbersWereMeasuredUnder )
+// Every count in the test above was already green while base.fbx imported a hundred times too small:
+// assimp normalises to METRES (its FBX reader calls SetFileScale( UnitScaleFactor * 0.01 )), and the
+// engine is CENTIMETRES, so aiProcess_GlobalScale run with the default factor shrank a 190 cm humanoid
+// to 1.9 units. Nothing about the vertex count moves when that happens, which is exactly why this
+// assertion has to exist next to those.
+TEST( AssimpLibraryPin, TheCommittedModelsImportAtTheSizeTheirUnitStates )
+{
+    const auto root = RepositoryRoot();
+
+    // base.fbx states UnitScaleFactor = 1.0 — centimetres — and carries the x100 in its model node's
+    // Lcl Scaling, so the correct import is the node transform applied and no unit conversion on top.
+    // 189.8341 x 115.4216 x 37.8360 cm, read off a run. A humanoid, and a plausible one: UE's default
+    // character capsule is 180 units tall.
+    {
+        std::string error;
+        auto        source = Desert::Editor::ImportUnits::Source::AssumedCentimetres;
+        const auto  box = ImportInCentimetres( root / "Editor/Resources/Assets/Meshes/base.fbx", error, source );
+        ASSERT_TRUE( error.empty() ) << "base.fbx did not import: " << error;
+
+        EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::StatedByFile )
+             << "base.fbx carries a UnitScaleFactor and the importer must read it rather than assume.";
+        EXPECT_NEAR( box.Height(), 189.8341f, 0.01f )
+             << "base.fbx is a humanoid and one world unit is one centimetre, so it imports about 190 "
+                "units tall. 1.9 means the metre normalisation is back.";
+        EXPECT_NEAR( box.Width(), 115.4216f, 0.01f );
+        EXPECT_NEAR( box.Depth(), 37.8360f, 0.01f );
+    }
+
+    // The rigged probe is glTF, whose specification fixes the unit at metres, and it is authored 0.8
+    // units tall. In centimetres that is 80, and nothing in the file says so — the FORMAT does.
+    {
+        std::string error;
+        auto        source = Desert::Editor::ImportUnits::Source::AssumedCentimetres;
+        const auto  box =
+             ImportInCentimetres( root / "Editor/Resources/Assets/Meshes/TwoJointProbe.gltf", error, source );
+        ASSERT_TRUE( error.empty() ) << "TwoJointProbe.gltf did not import: " << error;
+
+        EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::FixedByFormat );
+        EXPECT_NEAR( box.Height(), 80.0f, 0.01f );
+        EXPECT_NEAR( box.Width(), 40.0f, 0.01f );
+    }
+}
+
+// THE CONVERSION HALF, WHICH NO COMMITTED MODEL COVERS.
+//
+// Every FBX under Editor/Resources states UnitScaleFactor = 1 — centimetres — so the assertions above
+// only ever exercise the case where the right answer is "change nothing". A rule that returned 1 for
+// everything would pass all of them. Fixtures/metre_cube.fbx is a hand-authored ASCII FBX stating
+// UnitScaleFactor = 100 around a unit cube: the correct import is 100 units on a side, assimp's own
+// metre normalisation would give 1, and ignoring the stated unit altogether would also give 1.
+TEST( AssimpLibraryPin, AFileThatStatesMetresImportsAsCentimetres )
+{
+    std::string error;
+    auto        source = Desert::Editor::ImportUnits::Source::AssumedCentimetres;
+    const auto  box    = ImportInCentimetres(
+         RepositoryRoot() / "Desert/Tests/Editor/AssimpLibraryPin/Fixtures/metre_cube.fbx", error, source );
+    ASSERT_TRUE( error.empty() ) << "the metre fixture did not import: " << error;
+
+    EXPECT_EQ( source, Desert::Editor::ImportUnits::Source::StatedByFile )
+         << "the fixture states UnitScaleFactor = 100 and the importer must read it.";
+    EXPECT_NEAR( box.Height(), 100.0f, 0.01f )
+         << "a one-metre cube is 100 world units on a side. 1 means the stated unit was ignored or "
+            "assimp's metre normalisation is back.";
+    EXPECT_NEAR( box.Width(), 100.0f, 0.01f );
+    EXPECT_NEAR( box.Depth(), 100.0f, 0.01f );
+}
+
+// THE FLAG SET THE NUMBERS ABOVE WERE MEASURED UNDER IS STILL THE ENGINE'S, AND SO IS ITS SHAPE.
+//
+// Every count in this file is a function of the post-process steps AssimpImporter passes, and every
+// SIZE is a function of when it passes aiProcess_GlobalScale and with what factor. A test that
+// hardcoded either would keep passing while the engine moved, and would then be asserting numbers
+// nobody's import produces. So both are read out of the importer's source.
+TEST( AssimpLibraryPin, TheImporterStillUsesTheFlagsAndTheShapeTheseNumbersWereMeasuredUnder )
 {
     const std::string source =
          ReadFile( RepositoryRoot() / "Editor/Source/Editor/Import/Assimp/AssimpImporter.cpp" );
     ASSERT_FALSE( source.empty() ) << "AssimpImporter.cpp could not be read, so this comparison had "
                                       "nothing to compare against.";
 
-    const std::vector<std::string> expected = { "aiProcess_Triangulate",      "aiProcess_GenNormals",
+    // The READ flags, as one statement, so a flag mentioned in a comment is not mistaken for one passed.
+    const std::size_t declaration = source.find( "const uint32_t readFlags" );
+    ASSERT_NE( declaration, std::string::npos )
+         << "AssimpImporter.cpp no longer declares `readFlags`, so this suite cannot tell which flags "
+            "the numbers above were measured under.";
+    const std::size_t terminator = source.find( ';', declaration );
+    ASSERT_NE( terminator, std::string::npos );
+    const std::string readFlags = source.substr( declaration, terminator - declaration );
+
+    const std::vector<std::string> expected = { "aiProcess_Triangulate", "aiProcess_GenNormals",
                                                 "aiProcess_CalcTangentSpace", "aiProcess_JoinIdenticalVertices",
-                                                "aiProcess_LimitBoneWeights", "aiProcess_GlobalScale" };
+                                                "aiProcess_LimitBoneWeights" };
     for ( const auto& flag : expected )
     {
-        EXPECT_NE( source.find( flag ), std::string::npos )
-             << "AssimpImporter.cpp no longer passes " << flag
+        EXPECT_NE( readFlags.find( flag ), std::string::npos )
+             << "AssimpImporter.cpp no longer reads with " << flag
              << ", so the counts this suite asserts were measured under a flag set the engine has "
                 "stopped using. Re-measure them from a run and update both together.";
     }
 
-    // And no SEVENTH flag: an added step changes vertex counts (JoinIdenticalVertices already turns 8
-    // into 6), so a new one has to arrive with re-measured numbers rather than quietly.
     std::size_t found = 0;
-    for ( std::size_t at = source.find( "aiProcess_" ); at != std::string::npos;
-          at             = source.find( "aiProcess_", at + 1 ) )
+    for ( std::size_t at = readFlags.find( "aiProcess_" ); at != std::string::npos;
+          at             = readFlags.find( "aiProcess_", at + 1 ) )
     {
         ++found;
     }
     EXPECT_EQ( found, expected.size() )
-         << "AssimpImporter.cpp names " << found << " aiProcess_ flags where this suite knows " << expected.size()
+         << "the read flags name " << found << " aiProcess_ steps where this suite knows " << expected.size()
          << ". A post-process step is a transformation of the geometry, so the numbers above must be "
             "re-measured in the same change that adds or removes one.";
+
+    // AND THE SCALING IS STILL A SECOND PHASE WITH OUR OWN FACTOR. This is the half that decides SIZE:
+    // aiProcess_GlobalScale left in the read flags means assimp's default factor, which is metres, which
+    // is the defect the sizes above pin.
+    EXPECT_EQ( readFlags.find( "aiProcess_GlobalScale" ), std::string::npos )
+         << "aiProcess_GlobalScale is back in the READ flags. Run that way it applies assimp's own "
+            "normalisation to metres, and every centimetre-authored FBX imports 100x too small.";
+    EXPECT_NE( source.find( "ApplyPostProcessing( aiProcess_GlobalScale )" ), std::string::npos )
+         << "the importer no longer runs the scaling phase at all, so nothing converts the file's unit "
+            "to centimetres.";
+    EXPECT_NE( source.find( "AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY" ), std::string::npos )
+         << "the importer no longer supplies its own scale factor, so the scaling phase falls back to "
+            "assimp's default of metres.";
 }
 
 int main( int argc, char** argv )
