@@ -90,9 +90,9 @@ namespace Desert::Editor
                                      ThumbnailSubject::Preview how );
 
         // Queue a mesh preview, optionally with the material to apply to every slot.
-        std::string RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
-                                 const Assets::AssetHandle& material = Assets::AssetHandle(
-                                      static_cast<uint64_t>( 0 ) ) );
+        std::string
+        RequestMesh( const Assets::AssetHandle& mesh, const std::string& assetPath,
+                     const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
 
         /**
          * @brief Queue a picture that is PAINTED ON THE CPU from the file's own bytes — the four cloud
@@ -123,8 +123,8 @@ namespace Desert::Editor
         //   (Splash::ThumbnailDiskDecodeAllowed), so the first frame after the window is shown only uploads.
         // TickCapture — the renderer capture queue and the CPU cloud paint. Waits for the window
         //   (Splash::ThumbnailCaptureAllowed): a capture takes a renderer slot and the settle's frames.
-        void TickDiskAndDecode();
-        void TickCapture();
+        static void TickDiskAndDecode();
+        void        TickCapture();
 
         // Forget a cached/failed result, e.g. after the asset was edited.
         void Invalidate( const std::string& assetPath );
@@ -222,12 +222,12 @@ namespace Desert::Editor
         std::vector<Request>                    m_Queue;
         // Keyed on ThumbnailKey::Identity, not on a path spelling, so two panels naming one asset
         // differently cannot each hold their own entry (see Invalidate).
-        std::unordered_set<std::string>         m_Queued;  // asset identities currently queued or in flight
-        std::unordered_set<std::string>         m_Failed;  // gave up: do not retry every frame
+        std::unordered_set<std::string> m_Queued; // asset identities currently queued or in flight
+        std::unordered_set<std::string> m_Failed; // gave up: do not retry every frame
         // The dispatched capture, kept past a give-up so a late PNG still gets its record (TH1c).
-        ThumbnailFreshness::Capture                    m_Capture;
-        int                                            m_InFlightTicks = 0;
-        int                                            m_IdleTicks     = 0; // consecutive frames with no work
+        ThumbnailFreshness::Capture m_Capture;
+        int                         m_InFlightTicks = 0;
+        int                         m_IdleTicks     = 0; // consecutive frames with no work
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
         // stretch of scarcity rather than one per frame, and cleared — with its own line — the moment one
         // comes free, because "it is running again" is as much news as "it stopped".

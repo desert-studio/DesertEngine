@@ -2502,8 +2502,11 @@ namespace Desert::Editor
 
     void FileExplorerPanel::RefreshCurrentDirectory()
     {
-        if ( m_Thumbnails )
-            m_Thumbnails->Clear();
+        // The thumbnail cache is NOT cleared here: it checks each picture's file stamp on every Get, so a
+        // rewritten picture is re-read anyway, and this runs on every rescan — including the one the
+        // directory poll makes ~0.5 s after a folder is opened. Clearing here dropped every picture on screen
+        // and put all of them back through the decoder at once (the Materials folder's 36-42 main-thread
+        // decodes, TH2).
         if ( !m_CurrentDir )
             return;
 

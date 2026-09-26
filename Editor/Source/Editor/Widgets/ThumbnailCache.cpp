@@ -10,12 +10,13 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
-#include <stb_image/stb_image.h>
-
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace Desert::Editor
@@ -56,14 +57,17 @@ namespace Desert::Editor
 
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
-        std::error_code stampEc;
-        const auto      stamp = std::filesystem::last_write_time( sourcePath, stampEc );
+        std::error_code                   stampEc;
+        const auto                        stamp = std::filesystem::last_write_time( sourcePath, stampEc );
+        std::shared_ptr<Graphic::Image2D> previous;
         if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
         {
             const auto seen = m_Stamps.find( sourcePath );
             if ( stampEc || ( seen != m_Stamps.end() && seen->second == stamp ) )
                 return it->second; // may be null (decode previously failed)
-            m_Cache.erase( it );   // the file was rewritten since it was decoded
+            // The file was rewritten since it was decoded (a capture landed): the old picture stays on
+            // screen until the worker has the new one, instead of the icon for those frames.
+            previous = it->second;
         }
 
         if ( m_Cache.size() >= kMaxEntries )
@@ -72,33 +76,33 @@ namespace Desert::Editor
             m_Stamps.clear();
         }
 
-        std::shared_ptr<Graphic::Image2D> result;
-
-        // THE CACHE-HIT PATH IS NOT FREE. The decode half of it (file read, stb, box filter) is taken off the
-        // main thread whenever the browser named this picture ahead of drawing it: ThumbnailPrefetch decodes
-        // it on a worker — during the splash, for the folder the browser opens on — and what is left here is
-        // the upload. A picture nobody prefetched (or whose file changed since) is decoded here, by the same
-        // function, so there is one decoder and one set of numbers in the log line below.
-        const auto                     began = std::chrono::steady_clock::now();
-        std::optional<ThumbnailPixels> decoded;
+        // NOTHING IS DECODED HERE, IN ANY CASE. The decode (file read, stb, box filter: ~24 ms for a 512px
+        // PNG) is always a worker's: ThumbnailPrefetch::Acquire hands over pixels a worker finished from the
+        // file as it is now, or queues the file and this tile draws `previous` (or its icon) for the frames
+        // that takes. What is left on the main thread is the upload. Measured before this rule, the Materials
+        // folder put 36-42 such decodes on the main thread ~1.5 s after it was opened — a rescan cleared this
+        // cache, and every picture a capture rewrote was read back here — about a second of stalled frames.
+        const auto                  began = std::chrono::steady_clock::now();
+        ThumbnailPrefetch::Acquired acquired;
         if ( !stampEc )
-            decoded = ThumbnailPrefetch::Get().Take( sourcePath, stamp );
-        const bool prefetched = decoded.has_value();
-        // A worker already has this file, or is about to: decoding it here too would put the very cost the
-        // prefetch exists to move back on the main thread for this one frame — measured, it was the only
-        // main-thread decode left at startup (a 1672x941 gif, 52 ms, drawn in the frame the browser asked
-        // for it). The tile shows its icon until the worker's pixels arrive; nothing is cached, so the next
-        // Get() takes them.
-        if ( !decoded && ThumbnailPrefetch::Get().Pending( sourcePath ) )
-            return nullptr;
-        if ( !decoded )
-            decoded = ThumbnailPixels::Decode( sourcePath );
-        if ( decoded )
         {
-            const int                           w = decoded->SourceWidth, h = decoded->SourceHeight;
-            const int                           tw = decoded->Width, th = decoded->Height;
-            const double                        decodeMs = decoded->DecodeMs;
-            Core::Formats::Image2DSpecification spec     = {
+            acquired = ThumbnailPrefetch::Get().Acquire( sourcePath, stamp );
+            if ( !acquired.Pixels && !acquired.Undecodable )
+                return previous;
+        }
+
+        std::shared_ptr<Graphic::Image2D> result;
+        std::optional<ThumbnailPixels>&   decoded = acquired.Pixels;
+        const std::string failure = stampEc ? stampEc.message() : std::string( "a worker could not decode it" );
+        if ( decoded.has_value() )
+        {
+            const int                                 w        = decoded->SourceWidth;
+            const int                                 h        = decoded->SourceHeight;
+            const int                                 tw       = decoded->Width;
+            const int                                 th       = decoded->Height;
+            const double                              decodeMs = decoded->DecodeMs;
+            const bool                                onMain   = decoded->DecodedOn == std::this_thread::get_id();
+            const Core::Formats::Image2DSpecification spec     = {
                      .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
                      .Width      = static_cast<uint32_t>( tw ),
                      .Height     = static_cast<uint32_t>( th ),
@@ -127,8 +131,12 @@ namespace Desert::Editor
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
             const std::string name = std::filesystem::path( sourcePath ).filename().string();
             LOG_DEBUG( "[Thumbnails] '{}' {}x{} -> {}x{}: {:.0f} ms on the main thread ({}, decode {:.0f} ms)",
-                       name, w, h, tw, th, mainMs, prefetched ? "decoded ahead on a worker" : "decoded here",
+                       name, w, h, tw, th, mainMs, onMain ? "decoded on the main thread" : "decoded on a worker",
                        decodeMs );
+            if ( onMain )
+                LOG_WARN(
+                     "[Thumbnails] '{}' was decoded on the main thread ({:.0f} ms): decoded on main thread: {}",
+                     name, decodeMs, ThumbnailPrefetch::Get().DecodedOnTheTakingThread() );
 
             // The one line "window shown -> first picture" is read from (TH2's measurement): its timestamp
             // against [Startup] reveal.
@@ -137,7 +145,7 @@ namespace Desert::Editor
             {
                 s_FirstUploaded = true;
                 LOG_INFO( "[Thumbnails] first picture uploaded: '{}' ({}, {:.0f} ms on the main thread)", name,
-                          prefetched ? "decoded ahead on a worker" : "decoded here", mainMs );
+                          onMain ? "decoded on the main thread" : "decoded on a worker", mainMs );
             }
         }
         else if ( IsOurGeneratedThumbnail( sourcePath ) )
@@ -159,8 +167,7 @@ namespace Desert::Editor
             // unguarded remove() here would delete an artist's .png because stb could not read it.
             std::error_code removeEc;
             const bool      removed = std::filesystem::remove( sourcePath, removeEc );
-            LOG_ERROR( "[Thumbnails] the cached thumbnail '{}' could not be decoded ({}); {}", sourcePath,
-                       stbi_failure_reason() ? stbi_failure_reason() : "no reason given",
+            LOG_ERROR( "[Thumbnails] the cached thumbnail '{}' could not be decoded ({}); {}", sourcePath, failure,
                        removed ? "it was deleted and will be rendered again."
                                : "it could NOT be deleted (" + removeEc.message() +
                                       "), so this asset will show its type icon." );
@@ -171,7 +178,7 @@ namespace Desert::Editor
             // never touch the file.
             LOG_ERROR( "[Thumbnails] '{}' could not be decoded ({}); the asset will show its type icon "
                        "instead of a preview.",
-                       sourcePath, stbi_failure_reason() ? stbi_failure_reason() : "no reason given" );
+                       sourcePath, failure );
         }
         m_Cache[sourcePath] = result; // cache success or failure (null)
         if ( !stampEc )
@@ -223,7 +230,8 @@ namespace Desert::Editor
             cache->Clear();
         }
 
-        LOG_INFO( "[Thumbnails] released {} cached image(s) from {} cache(s) on shutdown.", images,
-                  Live().size() );
+        LOG_INFO(
+             "[Thumbnails] released {} cached image(s) from {} cache(s) on shutdown; decoded on main thread: {}.",
+             images, Live().size(), ThumbnailPrefetch::Get().DecodedOnTheTakingThread() );
     }
 } // namespace Desert::Editor

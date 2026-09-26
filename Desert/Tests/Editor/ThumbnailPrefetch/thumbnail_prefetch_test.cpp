@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -27,7 +28,7 @@ namespace
         std::string prefix = "./";
         for ( int up = 0; up < 6; ++up )
         {
-            std::ifstream probe( prefix + "Editor/Source/Editor/Widgets/ThumbnailService.hpp" );
+            const std::ifstream probe( prefix + "Editor/Source/Editor/Widgets/ThumbnailService.hpp" );
             if ( probe )
                 return prefix;
             prefix += "../";
@@ -37,7 +38,7 @@ namespace
 
     std::string ReadFile( const std::string& path )
     {
-        std::ifstream in( path, std::ios::binary );
+        const std::ifstream in( path, std::ios::binary );
         if ( !in )
             return {};
         std::ostringstream ss;
@@ -51,6 +52,13 @@ namespace
          0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78,
          0xda, 0x63, 0x64, 0x60, 0xf8, 0x5f, 0x0f, 0x00, 0x02, 0x87, 0x01, 0x80, 0xeb, 0x47,
          0xba, 0x92, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 };
+
+    void WritePng( const fs::path& path )
+    {
+        std::ofstream out( path, std::ios::binary );
+        out.write( static_cast<const char*>( static_cast<const void*>( kOnePixelPng.data() ) ),
+                   static_cast<std::streamsize>( kOnePixelPng.size() ) );
+    }
 
     struct Fixture
     {
@@ -78,19 +86,17 @@ namespace
         }
         void WriteFreshPng() const
         {
-            std::ofstream out( Png, std::ios::binary );
-            out.write( reinterpret_cast<const char*>( kOnePixelPng.data() ), kOnePixelPng.size() );
-            out.close();
+            WritePng( Png );
             const auto hash = ThumbnailFreshness::ContentHash( Source );
             ASSERT_TRUE( hash.has_value() );
-            ASSERT_TRUE( ThumbnailFreshness::Record( Png, *hash ) );
+            ASSERT_TRUE( ThumbnailFreshness::Record( Png, hash.value() ) );
         }
     };
 } // namespace
 
 TEST( ThumbnailPrefetch, ACachedPngIsDecodedOnAWorkerBeforeAnyoneDrawsIt )
 {
-    Fixture f;
+    const Fixture f;
     f.WriteFreshPng();
 
     ThumbnailPrefetch::Get().Request( { { f.Png.string(), f.Source.string() } } );
@@ -99,10 +105,11 @@ TEST( ThumbnailPrefetch, ACachedPngIsDecodedOnAWorkerBeforeAnyoneDrawsIt )
 
     const auto pixels = ThumbnailPrefetch::Get().Take( f.Png.string(), fs::last_write_time( f.Png ) );
     ASSERT_TRUE( pixels.has_value() ) << "the cached PNG was not decoded ahead of the draw";
-    EXPECT_EQ( pixels->Width, 1 );
-    EXPECT_EQ( pixels->Height, 1 );
-    EXPECT_EQ( pixels->Rgba.size(), 4u );
-    EXPECT_NE( pixels->DecodedOn, std::this_thread::get_id() )
+    const ThumbnailPixels& px = pixels.value();
+    EXPECT_EQ( px.Width, 1 );
+    EXPECT_EQ( px.Height, 1 );
+    EXPECT_EQ( px.Rgba.size(), 4u );
+    EXPECT_NE( px.DecodedOn, std::this_thread::get_id() )
          << "the prefetch decoded on the thread that asked for it: that is the main thread in the editor";
 }
 
@@ -111,10 +118,8 @@ TEST( ThumbnailPrefetch, ACachedPngIsDecodedOnAWorkerBeforeAnyoneDrawsIt )
 // and the cache waits for it instead of decoding it again.
 TEST( ThumbnailPrefetch, APictureAWorkerHoldsIsNotDecodedAgainByTheDraw )
 {
-    Fixture       f;
-    std::ofstream out( f.Png, std::ios::binary );
-    out.write( reinterpret_cast<const char*>( kOnePixelPng.data() ), kOnePixelPng.size() );
-    out.close();
+    const Fixture f;
+    WritePng( f.Png );
 
     ThumbnailPrefetch::Get().Request( { { f.Png.string(), {} } } );
     EXPECT_TRUE( ThumbnailPrefetch::Get().Pending( f.Png.string() ) ) << "a requested picture is not announced";
@@ -125,21 +130,73 @@ TEST( ThumbnailPrefetch, APictureAWorkerHoldsIsNotDecodedAgainByTheDraw )
     EXPECT_FALSE( ThumbnailPrefetch::Get().Pending( f.Png.string() ) );
     EXPECT_FALSE( ThumbnailPrefetch::Get().Pending( ( f.Dir / "never_requested.png" ).string() ) );
 
-    // ThumbnailCache::Get needs a device, so its half of the contract is read from the source: the pending
-    // check comes before the one synchronous decode.
+    // ThumbnailCache::Get needs a device, so its half of the contract is read from the source: it takes pixels
+    // through Acquire (which never decodes, see the next test) and has no decoder of its own to fall back on.
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
-    const std::string cache   = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
-    const auto        pending = cache.find( "if ( !decoded && ThumbnailPrefetch::Get().Pending( sourcePath ) )" );
-    const auto        decode  = cache.find( "decoded = ThumbnailPixels::Decode( sourcePath );" );
-    ASSERT_NE( pending, std::string::npos ) << "Get() decodes a picture a worker is already decoding";
-    ASSERT_NE( decode, std::string::npos );
-    EXPECT_LT( pending, decode );
+    const std::string cache = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailCache.cpp" );
+    ASSERT_FALSE( cache.empty() );
+    EXPECT_NE( cache.find( "ThumbnailPrefetch::Get().Acquire( sourcePath, stamp )" ), std::string::npos )
+         << "Get() no longer takes its pixels through the prefetch";
+    EXPECT_EQ( cache.find( "ThumbnailPixels::Decode(" ), std::string::npos )
+         << "Get() decodes on the main thread again";
+}
+
+// Materials, measured: ~1.5 s after the folder opened, 36-42 pictures were decoded on the main thread at ~24 ms
+// each — pictures a capture had just rewritten, and pictures a rescan dropped from the cache — none of which
+// the folder's prefetch still held. The draw asks for such a picture and gets NOTHING on that frame: the file
+// is queued for a worker, and a later frame takes pixels the worker decoded from the file as it is now.
+TEST( ThumbnailPrefetch, APictureACaptureRewroteGoesThroughAWorkerNotTheDraw )
+{
+    const Fixture f;
+    f.WriteFreshPng();
+    auto& prefetch = ThumbnailPrefetch::Get();
+
+    // The folder's prefetch decoded the old picture...
+    prefetch.Request( { { f.Png.string(), f.Source.string() } } );
+    prefetch.Drain();
+
+    // ...then a capture rewrote it (a newer stamp than the decode carries).
+    WritePng( f.Png );
+    const auto newer = fs::last_write_time( f.Png ) + std::chrono::seconds( 5 );
+    fs::last_write_time( f.Png, newer );
+
+    const std::size_t before = prefetch.DecodedOnTheTakingThread();
+    const auto        first  = prefetch.Acquire( f.Png.string(), newer );
+    EXPECT_FALSE( first.Pixels.has_value() ) << "stale pixels were handed over as the rewritten picture";
+    EXPECT_FALSE( first.Undecodable );
+    EXPECT_TRUE( prefetch.Pending( f.Png.string() ) ) << "the rewritten picture was not queued for a worker";
+
+    // A second draw before the worker is done queues nothing twice and decodes nothing.
+    EXPECT_FALSE( prefetch.Acquire( f.Png.string(), newer ).Pixels.has_value() );
+
+    prefetch.Drain();
+    auto second = prefetch.Acquire( f.Png.string(), newer );
+    ASSERT_TRUE( second.Pixels.has_value() ) << "the worker never delivered the rewritten picture";
+    EXPECT_NE( second.Pixels.value().DecodedOn, std::this_thread::get_id() );
+    EXPECT_EQ( prefetch.DecodedOnTheTakingThread() - before, 0u ) << "decoded on main thread: N > 0";
+}
+
+// A picture a worker could not decode is reported as such (so a generated one is deleted and re-captured),
+// not re-queued every frame forever.
+TEST( ThumbnailPrefetch, AnUndecodablePictureIsReportedNotRequeued )
+{
+    const Fixture f;
+    std::ofstream( f.Png ) << "not a png";
+    const auto stamp = fs::last_write_time( f.Png );
+
+    auto& prefetch = ThumbnailPrefetch::Get();
+    EXPECT_FALSE( prefetch.Acquire( f.Png.string(), stamp ).Undecodable );
+    prefetch.Drain();
+    const auto result = prefetch.Acquire( f.Png.string(), stamp );
+    EXPECT_FALSE( result.Pixels.has_value() );
+    EXPECT_TRUE( result.Undecodable );
+    EXPECT_FALSE( prefetch.Pending( f.Png.string() ) );
 }
 
 TEST( ThumbnailPrefetch, NoPngOnDiskMeansNothingIsDecodedAndNothingIsCaptured )
 {
-    Fixture f; // no PNG: the capture is owed, and the capture queue waits for the window
+    const Fixture f; // no PNG: the capture is owed, and the capture queue waits for the window
 
     ThumbnailPrefetch::Get().Request( { { f.Png.string(), f.Source.string() } } );
     ThumbnailPrefetch::Get().Drain();
@@ -148,7 +205,7 @@ TEST( ThumbnailPrefetch, NoPngOnDiskMeansNothingIsDecodedAndNothingIsCaptured )
 
 TEST( ThumbnailPrefetch, AFileRewrittenSinceTheDecodeIsNotHandedOver )
 {
-    Fixture f;
+    const Fixture f;
     f.WriteFreshPng();
 
     ThumbnailPrefetch::Get().Request( { { f.Png.string(), f.Source.string() } } );
@@ -160,10 +217,8 @@ TEST( ThumbnailPrefetch, AFileRewrittenSinceTheDecodeIsNotHandedOver )
 
 TEST( ThumbnailPrefetch, AUsersOwnImageNeedsNoFreshnessRecord )
 {
-    Fixture       f;
-    std::ofstream out( f.Png, std::ios::binary );
-    out.write( reinterpret_cast<const char*>( kOnePixelPng.data() ), kOnePixelPng.size() );
-    out.close();
+    const Fixture f;
+    WritePng( f.Png );
 
     ThumbnailPrefetch::Get().Request( { { f.Png.string(), {} } } );
     ThumbnailPrefetch::Get().Drain();

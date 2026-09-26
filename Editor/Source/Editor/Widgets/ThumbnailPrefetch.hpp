@@ -84,6 +84,28 @@ namespace Desert::Editor
         [[nodiscard]] std::optional<ThumbnailPixels> Take( const std::string&              picture,
                                                            std::filesystem::file_time_type stamp );
 
+        /// What Acquire() found for one picture.
+        struct Acquired
+        {
+            std::optional<ThumbnailPixels> Pixels; ///< ready to upload, decoded from the file as it is now
+            bool Undecodable = false;              ///< a worker read the file as it is now and stb refused it
+        };
+
+        /// THE ONE DOOR ThumbnailCache::Get takes pixels through, and it never decodes on the calling thread.
+        /// Ready and current: the pixels. Otherwise the picture is queued for a worker (behind the folder's
+        /// own prefetch, never twice) and the tile draws what it had — its previous picture or its icon —
+        /// until a later frame finds them ready. Every picture the browser can draw goes this way: the
+        /// folder prefetch, one a capture has just rewritten, one a Refresh dropped, the Details slots.
+        /// Main thread.
+        [[nodiscard]] Acquired Acquire( const std::string& picture, std::filesystem::file_time_type stamp );
+
+        /// Pixels Acquire() handed over that had been decoded on the thread that took them. The proof the
+        /// contract above holds in a running editor: logged at shutdown, asserted 0 by the suite.
+        [[nodiscard]] std::size_t DecodedOnTheTakingThread() const
+        {
+            return m_DecodedOnTheTakingThread;
+        }
+
         /// `picture` is waiting for a worker or on one now. ThumbnailCache::Get then draws the tile's icon for
         /// the frame instead of decoding the same file a second time on the main thread — the race that put a
         /// 52 ms gif decode on the main thread in the frame right after the browser asked for it.
@@ -108,6 +130,7 @@ namespace Desert::Editor
         {
             std::filesystem::file_time_type Stamp;
             std::optional<ThumbnailPixels>  Pixels; ///< empty: stale, missing or undecodable — Get decides
+            bool                            Attempted = false; ///< stb ran on it (empty Pixels = undecodable)
         };
         struct InFlight
         {
@@ -120,5 +143,6 @@ namespace Desert::Editor
         std::vector<Item>                        m_Waiting;
         std::vector<InFlight>                    m_InFlight;
         std::unordered_map<std::string, Decoded> m_Ready;
+        std::size_t                              m_DecodedOnTheTakingThread = 0;
     };
 } // namespace Desert::Editor

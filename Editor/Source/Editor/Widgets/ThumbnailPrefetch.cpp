@@ -18,9 +18,11 @@ namespace Desert::Editor
     {
         const auto began = std::chrono::steady_clock::now();
 
-        int      w = 0, h = 0, ch = 0;
+        int      w      = 0;
+        int      h      = 0;
+        int      ch     = 0;
         stbi_uc* pixels = stbi_load( path.c_str(), &w, &h, &ch, 4 );
-        if ( !pixels || w <= 0 || h <= 0 )
+        if ( pixels == nullptr || w <= 0 || h <= 0 )
         {
             stbi_image_free( pixels );
             return std::nullopt;
@@ -112,7 +114,8 @@ namespace Desert::Editor
                   ThumbnailFreshness::Picture::CachedPng )
             return out;
 
-        out.Pixels = ThumbnailPixels::Decode( item.Picture );
+        out.Pixels    = ThumbnailPixels::Decode( item.Picture );
+        out.Attempted = true;
         return out;
     }
 
@@ -155,6 +158,37 @@ namespace Desert::Editor
         if ( decoded.Stamp != stamp )
             return std::nullopt;
         return std::move( decoded.Pixels );
+    }
+
+    ThumbnailPrefetch::Acquired ThumbnailPrefetch::Acquire( const std::string&              picture,
+                                                            std::filesystem::file_time_type stamp )
+    {
+        Acquired out;
+        if ( const auto it = m_Ready.find( picture ); it != m_Ready.end() )
+        {
+            Decoded decoded = std::move( it->second );
+            m_Ready.erase( it );
+            if ( decoded.Stamp == stamp && decoded.Pixels.has_value() )
+            {
+                if ( decoded.Pixels->DecodedOn == std::this_thread::get_id() )
+                    ++m_DecodedOnTheTakingThread;
+                out.Pixels = std::move( decoded.Pixels );
+                return out;
+            }
+            if ( decoded.Stamp == stamp && decoded.Attempted )
+            {
+                out.Undecodable = true;
+                return out;
+            }
+            // Decoded from an older file (a capture rewrote it since), or skipped by the folder prefetch's
+            // freshness rule: this file as it is now has not been decoded yet — queue it below.
+        }
+
+        // Appended, not a Request(): the folder's own list stays ahead of it. No freshness source — the
+        // caller has already decided this is the picture it draws.
+        if ( !Pending( picture ) )
+            m_Waiting.push_back( { picture, {} } );
+        return out;
     }
 
     bool ThumbnailPrefetch::Pending( const std::string& picture ) const
