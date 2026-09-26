@@ -8,60 +8,61 @@
 
 namespace Desert::Geometry
 {
-    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32_t>& EdgeList,
-                                            double InsetDistance, TArray<FLine3d>& InsetLinesOut )
+    void ComputeInsetLineSegmentsFromEdges( const DynamicMesh3& Mesh, const std::vector<int32_t>& EdgeList,
+                                            double InsetDistance, std::vector<Line3d>& InsetLinesOut )
     {
-        const int32_t NumEdges = EdgeList.Num();
-        InsetLinesOut.SetNum( NumEdges );
+        const auto NumEdges = static_cast<int32_t>( EdgeList.size() );
+        InsetLinesOut.resize( NumEdges );
         for ( int32_t k = 0; k < NumEdges; ++k )
         {
             if ( Mesh.IsEdge( EdgeList[k] ) )
             {
-                const FDynamicMesh3::FEdge EdgeVT   = Mesh.GetEdge( EdgeList[k] );
-                const FVector3d            A        = Mesh.GetVertex( EdgeVT.Vert.A );
-                const FVector3d            B        = Mesh.GetVertex( EdgeVT.Vert.B );
-                const FVector3d            EdgeDir  = Normalized( A - B );
-                const FVector3d            Midpoint = ( A + B ) * 0.5;
-                FVector3d                  Normal;
-                FVector3d                  Centroid;
+                const DynamicMesh3::Edge   EdgeVT   = Mesh.GetEdge( EdgeList[k] );
+                const glm::dvec3           A        = Mesh.GetVertex( EdgeVT.Vert.A );
+                const glm::dvec3           B        = Mesh.GetVertex( EdgeVT.Vert.B );
+                const glm::dvec3           EdgeDir  = Normalized( A - B );
+                const glm::dvec3           Midpoint = ( A + B ) * 0.5;
+                glm::dvec3                 Normal{};
+                glm::dvec3                 Centroid{};
                 double                     Area = 0.0;
                 Mesh.GetTriInfo( EdgeVT.Tri.A, Normal, Area, Centroid );
 
-                FVector3d InsetDir = Normal.Cross( EdgeDir );
-                if ( ( Centroid - Midpoint ).Dot( InsetDir ) < 0 )
+                glm::dvec3 InsetDir = glm::cross( Normal, EdgeDir );
+                if ( glm::dot( ( Centroid - Midpoint ), InsetDir ) < 0 )
                 {
                     InsetDir = InsetDir * -1.0;
                 }
-                InsetLinesOut[k] = FLine3d( Midpoint + InsetDistance * InsetDir, EdgeDir );
+                InsetLinesOut[k] = Line3d( Midpoint + InsetDistance * InsetDir, EdgeDir );
             }
             else
             {
                 // UE keeps a default line here too: the caller passed an edge that no longer exists.
-                InsetLinesOut[k] = FLine3d();
+                InsetLinesOut[k] = Line3d();
             }
         }
     }
 
-    FVector3d SolveInsetVertexPositionFromLinePair( const FVector3d& Position, const FLine3d& InsetEdgeLine1,
-                                                    const FLine3d& InsetEdgeLine2 )
+    glm::dvec3 SolveInsetVertexPositionFromLinePair( const glm::dvec3& Position, const Line3d& InsetEdgeLine1,
+                                                     const Line3d& InsetEdgeLine2 )
     {
-        if ( std::abs( InsetEdgeLine1.Direction.Dot( InsetEdgeLine2.Direction ) ) > 0.999 )
+        if ( std::abs( glm::dot( InsetEdgeLine1.Direction, InsetEdgeLine2.Direction ) ) > 0.999 )
         {
             // The lines are parallel, so their intersection is not useful: use the nearest point on either line.
             return InsetEdgeLine1.NearestPoint( Position );
         }
         // Inset the point to the intersection point of the two lines.
-        FDistLine3Line3d Distance( InsetEdgeLine1, InsetEdgeLine2 );
+        DistLine3Line3d Distance( InsetEdgeLine1, InsetEdgeLine2 );
         Distance.GetSquared();
-        return 0.5 * ( Distance.Line1ClosestPoint + Distance.Line2ClosestPoint );
+        return 0.5 * ( Distance.m_Line1ClosestPoint + Distance.m_Line2ClosestPoint );
     }
 
-    void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3& Mesh, const TArray<FLine3d>& InsetEdgeLines,
-                                                  const TArray<int32_t>& VertexIDs,
-                                                  TArray<FVector3d>& VertexPositionsOut, bool bIsLoop )
+    void SolveInsetVertexPositionsFromInsetLines( const DynamicMesh3&         Mesh,
+                                                  const std::vector<Line3d>&  InsetEdgeLines,
+                                                  const std::vector<int32_t>& VertexIDs,
+                                                  std::vector<glm::dvec3>& VertexPositionsOut, bool bIsLoop )
     {
-        const int32_t NumVertices = VertexIDs.Num();
-        VertexPositionsOut.SetNum( NumVertices );
+        const auto NumVertices = static_cast<int32_t>( VertexIDs.size() );
+        VertexPositionsOut.resize( NumVertices );
 
         int32_t StartIndex = 0;
         int32_t EndIndex   = NumVertices;
@@ -73,13 +74,13 @@ namespace Desert::Geometry
             EndIndex   = NumVertices - 1;
 
             VertexPositionsOut[0]     = InsetEdgeLines[0].NearestPoint( Mesh.GetVertex( VertexIDs[0] ) );
-            VertexPositionsOut.Last() = InsetEdgeLines.Last().NearestPoint( Mesh.GetVertex( VertexIDs.Last() ) );
+            VertexPositionsOut.back() = InsetEdgeLines.back().NearestPoint( Mesh.GetVertex( VertexIDs.back() ) );
         }
 
         for ( int32_t vi = StartIndex; vi < EndIndex; ++vi )
         {
-            const FLine3d& PrevLine = ( vi == 0 ) ? InsetEdgeLines.Last() : InsetEdgeLines[vi - 1];
-            const FLine3d& NextLine = InsetEdgeLines[vi];
+            const Line3d& PrevLine = ( vi == 0 ) ? InsetEdgeLines.back() : InsetEdgeLines[vi - 1];
+            const Line3d& NextLine = InsetEdgeLines[vi];
             VertexPositionsOut[vi] =
                  SolveInsetVertexPositionFromLinePair( Mesh.GetVertex( VertexIDs[vi] ), PrevLine, NextLine );
         }

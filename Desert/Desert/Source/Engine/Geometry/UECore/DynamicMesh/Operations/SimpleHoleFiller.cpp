@@ -9,63 +9,63 @@
 
 using namespace Desert::Geometry;
 
-bool FSimpleHoleFiller::Fill( int GroupID )
+bool SimpleHoleFiller::Fill( int GroupID )
 {
-    if ( Mesh->HasAttributes() && Mesh->Attributes()->HasPrimaryColors() )
+    if ( m_Mesh->HasAttributes() && m_Mesh->Attributes()->HasPrimaryColors() )
     {
-        FailureReason = "SimpleHoleFiller: the mesh has a primary colour layer and the colour fill "
-                        "(HoleFillUtil::FillColorOverlay) is not ported";
+        m_FailureReason = "SimpleHoleFiller: the mesh has a primary colour layer and the colour fill "
+                          "(HoleFillUtil::FillColorOverlay) is not ported";
         return false;
     }
-    if ( GroupID < 0 && Mesh->HasTriangleGroups() )
-        GroupID = Mesh->AllocateTriangleGroup();
+    if ( GroupID < 0 && m_Mesh->HasTriangleGroups() )
+        GroupID = m_Mesh->AllocateTriangleGroup();
 
-    if ( Loop.GetVertexCount() < 3 )
+    if ( m_Loop.GetVertexCount() < 3 )
     {
-        FailureReason =
-             fmt::format( "SimpleHoleFiller: the loop has {} vertices, 3 needed", Loop.GetVertexCount() );
+        m_FailureReason =
+             fmt::format( "SimpleHoleFiller: the loop has {} vertices, 3 needed", m_Loop.GetVertexCount() );
         return false;
     }
 
     // a three-vertex hole needs one triangle
-    if ( Loop.GetVertexCount() == 3 )
+    if ( m_Loop.GetVertexCount() == 3 )
     {
-        const FIndex3i Tri( Loop.Vertices[0], Loop.Vertices[2], Loop.Vertices[1] );
-        const int      NewTID = Mesh->AppendTriangle( Tri, GroupID );
+        const Index3i Tri( m_Loop.Vertices[0], m_Loop.Vertices[2], m_Loop.Vertices[1] );
+        const int     NewTID = m_Mesh->AppendTriangle( Tri, GroupID );
         if ( NewTID < 0 )
         {
-            FailureReason = fmt::format( "SimpleHoleFiller: triangle ({}, {}, {}) could not be appended", Tri.A,
-                                         Tri.B, Tri.C );
+            m_FailureReason = fmt::format( "SimpleHoleFiller: triangle ({}, {}, {}) could not be appended", Tri.A,
+                                           Tri.B, Tri.C );
             return false;
         }
-        NewTriangles = { NewTID };
-        NewVertex    = IndexConstants::InvalidID;
+        m_NewTriangles = { NewTID };
+        m_NewVertex    = IndexConstants::InvalidID;
         return true;
     }
     return Fill_Fan( GroupID );
 }
 
-bool FSimpleHoleFiller::Fill_Fan( int GroupID )
+bool SimpleHoleFiller::Fill_Fan( int GroupID )
 {
-    FVector3d C = FVector3d::Zero();
-    for ( int i = 0; i < Loop.GetVertexCount(); ++i )
-        C += Mesh->GetVertex( Loop.Vertices[i] );
-    C *= 1.0 / Loop.GetVertexCount();
+    auto C = glm::dvec3( 0 );
+    for ( int i = 0; i < m_Loop.GetVertexCount(); ++i )
+        C += m_Mesh->GetVertex( m_Loop.Vertices[i] );
+    C *= 1.0 / m_Loop.GetVertexCount();
 
-    NewVertex = Mesh->AppendVertex( C );
+    m_NewVertex = m_Mesh->AppendVertex( C );
 
-    FDynamicMeshEditor     Editor( Mesh );
-    FDynamicMeshEditResult AddFanResult;
-    if ( !Editor.AddTriangleFan_OrderedVertexLoop( NewVertex, Loop.Vertices, GroupID, AddFanResult ) )
+    const DynamicMeshEditor Editor( m_Mesh );
+    DynamicMeshEditResult   AddFanResult;
+    if ( !Editor.AddTriangleFan_OrderedVertexLoop( m_NewVertex, m_Loop.Vertices, GroupID, AddFanResult ) )
     {
-        Mesh->RemoveVertex( NewVertex, false );
-        FailureReason =
+        m_Mesh->RemoveVertex( m_NewVertex, false );
+        m_FailureReason =
              fmt::format( "SimpleHoleFiller: the fan around vertex {} over a {}-vertex loop could not be "
                           "appended (a loop edge already has two triangles)",
-                          NewVertex, Loop.GetVertexCount() );
-        NewVertex = IndexConstants::InvalidID;
+                          m_NewVertex, m_Loop.GetVertexCount() );
+        m_NewVertex = IndexConstants::InvalidID;
         return false;
     }
-    NewTriangles = AddFanResult.NewTriangles;
+    m_NewTriangles = AddFanResult.NewTriangles;
     return true;
 }

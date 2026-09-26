@@ -1,6 +1,6 @@
-// The containers FDynamicMesh3 stands on, exercised the way FDynamicMesh3 uses them:
-// TDynamicVector holds per-element attributes addressed by id, FRefCountVector hands out
-// vertex/triangle/edge ids with holes and reuses them, FSmallListSet stores vertex->edge adjacency.
+// The containers DynamicMesh3 stands on, exercised the way DynamicMesh3 uses them:
+// DynamicVector holds per-element attributes addressed by id, RefCountVector hands out
+// vertex/triangle/edge ids with holes and reuses them, SmallListSet stores vertex->edge adjacency.
 #include <gtest/gtest.h>
 
 #include <Engine/Geometry/UECore/RefCountVector.hpp>
@@ -13,7 +13,7 @@ using namespace Desert::Geometry;
 
 namespace
 {
-    std::vector<int> Live( const FRefCountVector& V )
+    std::vector<int> Live( const RefCountVector& V )
     {
         std::vector<int> Out;
         for ( int Id : V.Indices() )
@@ -21,7 +21,7 @@ namespace
         return Out;
     }
 
-    std::vector<int> ListOf( const FSmallListSet& Set, int32_t ListIndex )
+    std::vector<int> ListOf( const SmallListSet& Set, int32_t ListIndex )
     {
         std::vector<int> Out;
         for ( int Value : Set.Values( ListIndex ) )
@@ -39,11 +39,11 @@ namespace
     }
 } // namespace
 
-// ---------------------------------------------------------------- TDynamicVector
+// ---------------------------------------------------------------- DynamicVector
 
 TEST( UECoreDynamicVector, AddCrossesBlockBoundariesAndKeepsValues )
 {
-    TDynamicVector<int, 4> V;
+    DynamicVector<int, 4> V;
     for ( int i = 0; i < 11; ++i )
         V.Add( i * 10 );
     ASSERT_EQ( V.Num(), 11u );
@@ -55,7 +55,7 @@ TEST( UECoreDynamicVector, AddCrossesBlockBoundariesAndKeepsValues )
 
 TEST( UECoreDynamicVector, PopBackAcrossABlockBoundaryThenAddAgain )
 {
-    TDynamicVector<int, 4> V;
+    DynamicVector<int, 4> V;
     for ( int i = 0; i < 5; ++i )
         V.Add( i );
     V.PopBack(); // 5 -> 4: the last block becomes empty, Back() must be the old index 3
@@ -71,8 +71,8 @@ TEST( UECoreDynamicVector, PopBackAcrossABlockBoundaryThenAddAgain )
 
 TEST( UECoreDynamicVector, InsertAtPastTheEndGrowsAndInitialisesTheGap )
 {
-    // FDynamicMesh3::AppendVertex/InsertVertex write attributes at an id that may be past the end.
-    TDynamicVector<double, 4> V;
+    // DynamicMesh3::AppendVertex/InsertVertex write attributes at an id that may be past the end.
+    DynamicVector<double, 4> V;
     V.Add( 1.0 );
     V.InsertAt( 9.0, 6, -1.0 );
     ASSERT_EQ( V.Num(), 7u );
@@ -87,7 +87,7 @@ TEST( UECoreDynamicVector, InsertAtPastTheEndGrowsAndInitialisesTheGap )
 
 TEST( UECoreDynamicVector, ResizeShrinkGrowFillAndSetMinimumSize )
 {
-    TDynamicVector<int, 4> V;
+    DynamicVector<int, 4> V;
     V.Resize( 9, 3 );
     EXPECT_EQ( V.Num(), 9u );
     V.Resize( 2 );
@@ -106,18 +106,18 @@ TEST( UECoreDynamicVector, ResizeShrinkGrowFillAndSetMinimumSize )
 
 TEST( UECoreDynamicVector, CopyMoveAndEqualityAcrossBlockSizes )
 {
-    TDynamicVector<int, 4> A;
+    DynamicVector<int, 4> A;
     for ( int i = 0; i < 9; ++i )
         A.Add( i );
-    TDynamicVector<int, 4> Copy( A );
+    DynamicVector<int, 4> Copy( A );
     EXPECT_TRUE( Copy == A );
     Copy[8] = -1;
     EXPECT_TRUE( Copy != A );
-    TDynamicVector<int, 8> Other;
+    DynamicVector<int, 8> Other;
     for ( int i = 0; i < 9; ++i )
         Other.Add( i );
     EXPECT_TRUE( A == Other );
-    TDynamicVector<int, 4> const Moved( std::move( A ) );
+    DynamicVector<int, 4> const Moved( std::move( A ) );
     EXPECT_EQ( Moved.Num(), 9u );
     // The moved-from state is the contract under test here, so reading A after the move is the point.
     EXPECT_TRUE( A.IsEmpty() ); // NOLINT(bugprone-use-after-move)
@@ -125,24 +125,93 @@ TEST( UECoreDynamicVector, CopyMoveAndEqualityAcrossBlockSizes )
     EXPECT_EQ( A.Num(), 1u );
 }
 
+// A move hands the blocks over and allocates nothing: the destination keeps the very storage the source had, and
+// the source is left holding no block at all (GetByteCount 0), yet every mutator still works on it.
+TEST( UECoreDynamicVector, MoveStealsTheBlocksAndAllocatesNothing )
+{
+    DynamicVector<int, 4> A;
+    for ( int i = 0; i < 6; ++i )
+        A.Add( i );
+    const int* const FirstElement = &A[0];
+    const int* const LastElement  = &A[5];
+
+    DynamicVector<int, 4> Moved( std::move( A ) );
+    EXPECT_EQ( &Moved[0], FirstElement );
+    EXPECT_EQ( &Moved[5], LastElement );
+    // Reading the source after the move is the contract under test.
+    EXPECT_TRUE( A.IsEmpty() );        // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ( A.GetByteCount(), 0u ); // no replacement block was allocated
+    A.Apply( []( int& ) { FAIL() << "a moved-from vector has no element to visit"; } );
+
+    DynamicVector<int, 4> Assigned;
+    Assigned.Add( 42 );
+    Assigned = std::move( Moved );
+    EXPECT_EQ( &Assigned[0], FirstElement );
+    EXPECT_EQ( Assigned[5], 5 );
+    EXPECT_EQ( Moved.GetByteCount(), 0u ); // NOLINT(bugprone-use-after-move)
+
+    // Both blockless vectors are still fully usable.
+    A.Add( 7 );
+    ASSERT_EQ( A.Num(), 1u );
+    EXPECT_EQ( A[0], 7 );
+    Moved.Resize( 5, 3 );
+    EXPECT_EQ( Moved.Num(), 5u );
+    EXPECT_EQ( Moved[4], 3 );
+    DynamicVector<int, 4> Drained( std::move( Assigned ) );
+    Assigned.Clear(); // NOLINT(bugprone-use-after-move)
+    EXPECT_TRUE( Assigned.IsEmpty() );
+    const DynamicVector<int, 4> Final( std::move( Drained ) );
+    EXPECT_TRUE( Final != Assigned );
+    EXPECT_EQ( Final[0], 0 );
+}
+
+// Iterator equality compares the vector and the position; a range-for only needs !=, so == was never instantiated.
+TEST( UECoreDynamicVector, IteratorEqualityComparesVectorAndPosition )
+{
+    DynamicVector<int, 4> A;
+    DynamicVector<int, 4> B;
+    for ( int i = 0; i < 3; ++i )
+    {
+        A.Add( i );
+        B.Add( i );
+    }
+    EXPECT_TRUE( A.begin() == A.begin() );
+    EXPECT_FALSE( A.begin() == A.end() );
+    EXPECT_FALSE( A.begin() == B.begin() );
+    auto It = A.begin();
+    ++It;
+    ++It;
+    ++It;
+    EXPECT_TRUE( It == A.end() );
+
+    const DynamicVector<int, 4>& ConstA = A;
+    EXPECT_TRUE( ConstA.begin() == ConstA.begin() );
+    EXPECT_FALSE( ConstA.begin() == ConstA.end() );
+    EXPECT_TRUE( ConstA.begin() != ConstA.end() );
+    int Sum = 0;
+    for ( const int Value : ConstA )
+        Sum += Value;
+    EXPECT_EQ( Sum, 3 );
+}
+
 TEST( UECoreDynamicVector, VectorNStoresTuplesPerId )
 {
-    // FDynamicMesh3 stores triangles as TDynamicVector<FIndex3i>; the N-wide variant carries raw tuples.
-    TDynamicVector3i Tris;
+    // DynamicMesh3 stores triangles as DynamicVector<Index3i>; the N-wide variant carries raw tuples.
+    DynamicVector3i Tris;
     Tris.Add( { { 0, 1, 2 } } );
     Tris.Add( { { 2, 1, 3 } } );
     EXPECT_EQ( Tris.GetLength(), 2u );
-    EXPECT_EQ( Tris.AsIndex3( 1 ), FIndex3i( 2, 1, 3 ) );
+    EXPECT_EQ( Tris.AsIndex3( 1 ), Index3i( 2, 1, 3 ) );
     Tris.PopBack();
     EXPECT_EQ( Tris.GetLength(), 1u );
-    EXPECT_EQ( Tris.AsIndex3( 0 ), FIndex3i( 0, 1, 2 ) );
+    EXPECT_EQ( Tris.AsIndex3( 0 ), Index3i( 0, 1, 2 ) );
 }
 
-// ---------------------------------------------------------------- FRefCountVector
+// ---------------------------------------------------------------- RefCountVector
 
 TEST( UECoreRefCountVector, FreedIdsLeaveHolesThatIterationSkips )
 {
-    FRefCountVector V;
+    RefCountVector V;
     for ( int i = 0; i < 6; ++i )
         EXPECT_EQ( V.Allocate(), i );
     V.Decrement( 1 );
@@ -159,7 +228,7 @@ TEST( UECoreRefCountVector, FreedIdsLeaveHolesThatIterationSkips )
 
 TEST( UECoreRefCountVector, AllocateReusesTheMostRecentlyFreedIdFirst )
 {
-    FRefCountVector V;
+    RefCountVector V;
     for ( int i = 0; i < 5; ++i )
         V.Allocate();
     V.Decrement( 1 );
@@ -174,7 +243,7 @@ TEST( UECoreRefCountVector, AllocateReusesTheMostRecentlyFreedIdFirst )
 TEST( UECoreRefCountVector, ReferenceCountingKeepsAnIdAliveUntilTheLastRelease )
 {
     // A vertex id is referenced once by itself and once per incident triangle.
-    FRefCountVector V;
+    RefCountVector  V;
     const int       Vid = V.Allocate();
     V.Increment( Vid );
     V.Increment( Vid, 2 );
@@ -185,12 +254,12 @@ TEST( UECoreRefCountVector, ReferenceCountingKeepsAnIdAliveUntilTheLastRelease )
     V.Decrement( Vid );
     EXPECT_FALSE( V.IsValid( Vid ) );
     EXPECT_EQ( V.GetRefCount( Vid ), 0 );
-    EXPECT_EQ( V.GetRawRefCount( Vid ), FRefCountVector::INVALID_REF_COUNT );
+    EXPECT_EQ( V.GetRawRefCount( Vid ), RefCountVector::INVALID_REF_COUNT );
 }
 
 TEST( UECoreRefCountVector, AllocateAtPastTheEndPutsTheGapOnTheFreeList )
 {
-    FRefCountVector V;
+    RefCountVector V;
     V.Allocate();                     // 0
     EXPECT_TRUE( V.AllocateAt( 4 ) ); // 1..3 become free
     EXPECT_EQ( V.GetCount(), 2u );
@@ -204,7 +273,7 @@ TEST( UECoreRefCountVector, AllocateAtPastTheEndPutsTheGapOnTheFreeList )
 
 TEST( UECoreRefCountVector, AllocateAtUnsafeThenRebuildFreeList )
 {
-    FRefCountVector V;
+    RefCountVector V;
     EXPECT_TRUE( V.AllocateAtUnsafe( 3 ) );
     EXPECT_TRUE( V.AllocateAtUnsafe( 0 ) );
     V.RebuildFreeList();
@@ -216,14 +285,14 @@ TEST( UECoreRefCountVector, AllocateAtUnsafeThenRebuildFreeList )
 
 TEST( UECoreRefCountVector, RebuildCountsReferencesFromTriangles )
 {
-    // FDynamicMesh3 rebuilds vertex ref counts by walking the triangles.
-    const std::vector<FIndex3i> Triangles = { { 0, 1, 2 }, { 0, 2, 4 } };
-    FRefCountVector             V;
+    // DynamicMesh3 rebuilds vertex ref counts by walking the triangles.
+    const std::vector<Index3i> Triangles = { { 0, 1, 2 }, { 0, 2, 4 } };
+    RefCountVector             V;
     V.Rebuild(
          6,
          [&]( auto&& Update )
          {
-             for ( const FIndex3i& T : Triangles )
+             for ( const Index3i& T : Triangles )
                  for ( int j = 0; j < 3; ++j )
                      Update( T[j] );
          },
@@ -241,10 +310,10 @@ TEST( UECoreRefCountVector, RebuildCountsReferencesFromTriangles )
 
 TEST( UECoreRefCountVector, AppendOffsetsTheOtherFreeList )
 {
-    FRefCountVector A;
+    RefCountVector A;
     A.Allocate();
     A.Allocate();
-    FRefCountVector B;
+    RefCountVector B;
     B.Allocate();
     B.Allocate();
     B.Allocate();
@@ -257,7 +326,7 @@ TEST( UECoreRefCountVector, AppendOffsetsTheOtherFreeList )
 
 TEST( UECoreRefCountVector, FilteredAndMappedIndicesAndEquality )
 {
-    FRefCountVector V;
+    RefCountVector V;
     for ( int i = 0; i < 6; ++i )
         V.Allocate();
     V.Decrement( 2 );
@@ -270,18 +339,18 @@ TEST( UECoreRefCountVector, FilteredAndMappedIndicesAndEquality )
         Mapped.push_back( X );
     EXPECT_EQ( Mapped, ( std::vector<double>{ 0.0, 0.5, 1.5, 2.0, 2.5 } ) );
 
-    FRefCountVector Copy( V );
+    RefCountVector Copy( V );
     EXPECT_TRUE( Copy == V );
     Copy.Increment( 0 );
     EXPECT_TRUE( Copy != V );
 }
 
-// ---------------------------------------------------------------- FSmallListSet
+// ---------------------------------------------------------------- SmallListSet
 
 TEST( UECoreSmallListSet, AdjacencyListsSpillPastTheBlockAndStayASet )
 {
     // A vertex with more edges than BLOCKSIZE (8) spills into the linked list.
-    FSmallListSet Set;
+    SmallListSet Set;
     Set.Resize( 3 );
     Set.AllocateAt( 0 );
     Set.AllocateAt( 2 );
@@ -300,7 +369,7 @@ TEST( UECoreSmallListSet, AdjacencyListsSpillPastTheBlockAndStayASet )
 
 TEST( UECoreSmallListSet, RemoveFromTheBlockPullsASpilledElementIn )
 {
-    FSmallListSet Set;
+    SmallListSet Set;
     Set.Resize( 1 );
     for ( int e = 0; e < 11; ++e )
         Set.Insert( 0, e );
@@ -317,7 +386,7 @@ TEST( UECoreSmallListSet, RemoveFromTheBlockPullsASpilledElementIn )
 
 TEST( UECoreSmallListSet, ClearedListsReturnTheirStorageForReuse )
 {
-    FSmallListSet Set;
+    SmallListSet Set;
     Set.Resize( 2 );
     for ( int e = 0; e < 12; ++e )
         Set.Insert( 0, e );
@@ -333,7 +402,7 @@ TEST( UECoreSmallListSet, ClearedListsReturnTheirStorageForReuse )
 
 TEST( UECoreSmallListSet, FindReplaceMoveAndEarlyOut )
 {
-    FSmallListSet Set;
+    SmallListSet Set;
     Set.Resize( 3 );
     for ( int e = 0; e < 10; ++e )
         Set.Insert( 0, e * 2 );
@@ -357,7 +426,7 @@ TEST( UECoreSmallListSet, FindReplaceMoveAndEarlyOut )
 
 TEST( UECoreSmallListSet, CompactAndAppendPreserveEveryList )
 {
-    FSmallListSet Set;
+    SmallListSet Set;
     Set.Resize( 4 );
     for ( int e = 0; e < 10; ++e )
         Set.Insert( 0, e );
@@ -365,12 +434,12 @@ TEST( UECoreSmallListSet, CompactAndAppendPreserveEveryList )
     for ( int e = 0; e < 3; ++e )
         Set.Insert( 3, 200 + e );
     Set.Clear( 1 );
-    FSmallListSet Compacted( Set );
+    SmallListSet Compacted( Set );
     Compacted.Compact( 4 );
     EXPECT_TRUE( Compacted == Set );
     EXPECT_LT( Compacted.GetByteCount(), Set.GetByteCount() + 1 );
 
-    FSmallListSet Joined( Set );
+    SmallListSet Joined( Set );
     Joined.AppendWithElementOffset( Set, 1000 );
     EXPECT_EQ( Joined.Size(), 8u );
     EXPECT_EQ( ListOf( Joined, 4 ), Range( 1000, 1010 ) );

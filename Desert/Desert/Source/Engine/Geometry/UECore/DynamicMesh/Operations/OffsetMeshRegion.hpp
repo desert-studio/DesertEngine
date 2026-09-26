@@ -4,10 +4,10 @@
 // LeftShiftArray, StitchRegionBorderLoopPairs_Version1), 455-512 (angle-weighted normals), 527-761
 // (ApplyOffset_Version1), 1082-1108 (EdgesSeparateSameGroupsAndAreColinearAtBorder);
 // PolyEditingEdgeUtil.cpp:108-170 (ComputeNewGroupIDsAlongEdgeLoop); QuadGridPatchUtil.cpp:14-110 (normals and UV
-// island of a quad patch). Adapted: Version1 only (Legacy dropped) and NumSubdivisions = 0, so the FQuadGridPatch
+// island of a quad patch). Adapted: Version1 only (Legacy dropped) and NumSubdivisions = 0, so the QuadGridPatch
 // is one row of quads and is walked directly; CreaseAngleThresholdDeg is not ported (UE's default 180 never
-// splits); bowties are refused by FMeshRegionBoundaryLoops instead of SplitBowtiesAtTriangles;
-// FMeshConnectedComponents -> a flood fill over the region; ComputeMaterialIDsForVertexPath -> the material of the
+// splits); bowties are refused by MeshRegionBoundaryLoops instead of SplitBowtiesAtTriangles;
+// MeshConnectedComponents -> a flood fill over the region; ComputeMaterialIDsForVertexPath -> the material of the
 // region triangle on each loop edge; UE Core via UECore.hpp; a failure names its reason in FailureReason.
 #pragma once
 
@@ -20,10 +20,10 @@
 
 namespace Desert::Geometry
 {
-    class FOffsetMeshRegion
+    class OffsetMeshRegion
     {
     public:
-        enum class EVertexExtrusionVectorType
+        enum class VertexExtrusionVectorType
         {
             Zero,
             VertexNormal,
@@ -31,60 +31,61 @@ namespace Desert::Geometry
             SelectionTriNormalsAngleWeightedAdjusted,
         };
 
-        FDynamicMesh3* Mesh;
-        TArray<int32_t> Triangles;
+        DynamicMesh3*        m_Mesh;
+        std::vector<int32_t> m_Triangles;
 
-        std::function<FVector3d( const FVector3d& Position, const FVector3d& VertexVector, int Vid )>
-             OffsetPositionFunc = [this]( const FVector3d& Position, const FVector3d& VertexVector, int )
-        { return Position + VertexVector * this->DefaultOffsetDistance; };
-        double                                    DefaultOffsetDistance        = 1.0;
-        EVertexExtrusionVectorType                ExtrusionVectorType          = EVertexExtrusionVectorType::Zero;
+        std::function<glm::dvec3( const glm::dvec3& Position, const glm::dvec3& VertexVector, int Vid )>
+             OffsetPositionFunc = [this]( const glm::dvec3& Position, const glm::dvec3& VertexVector, int )
+        { return Position + VertexVector * this->m_DefaultOffsetDistance; };
+        double                                            m_DefaultOffsetDistance = 1.0;
+        VertexExtrusionVectorType                         m_ExtrusionVectorType = VertexExtrusionVectorType::Zero;
         std::function<bool( int32_t Eid1, int32_t Eid2 )> LoopEdgesShouldHaveSameGroup =
              [this]( int32_t Eid1, int32_t Eid2 )
-        { return EdgesSeparateSameGroupsAndAreColinearAtBorder( Mesh, Eid1, Eid2, true ); };
-        float  UVScaleFactor                        = 1.0f;
-        bool   bOffsetFullComponentsAsSolids        = true;
-        bool   bIsPositiveOffset                    = true;
-        double MaxScaleForAdjustingTriNormalsOffset = 4.0;
-        bool   bSingleGroupPerArea                  = true;
-        bool   bUVIslandPerGroup                    = true;
-        bool   bInferMaterialID                     = true;
-        int    SetMaterialID                        = 0;
+        { return EdgesSeparateSameGroupsAndAreColinearAtBorder( m_Mesh, Eid1, Eid2, true ); };
+        float  m_UVScaleFactor                        = 1.0f;
+        bool   m_bOffsetFullComponentsAsSolids        = true;
+        bool   m_bIsPositiveOffset                    = true;
+        double m_MaxScaleForAdjustingTriNormalsOffset = 4.0;
+        bool   m_bSingleGroupPerArea                  = true;
+        bool   m_bUVIslandPerGroup                    = true;
+        bool   m_bInferMaterialID                     = true;
+        int    m_SetMaterialID                        = 0;
 
-        struct FOffsetInfo
+        struct OffsetInfo
         {
-            TArray<int32_t>         OffsetTids;
-            TArray<int32_t>         OffsetGroups;
+            std::vector<int32_t>              OffsetTids;
+            std::vector<int32_t>              OffsetGroups;
             bool                  bIsSolid = false;
-            TArray<FEdgeLoop>     BaseLoops;
-            TArray<FEdgeLoop>     OffsetLoops;
-            TArray<TArray<int32_t>> StitchTriangles;
-            TArray<TArray<int32_t>> StitchPolygonIDs;
+            std::vector<EdgeLoop>             BaseLoops;
+            std::vector<EdgeLoop>             OffsetLoops;
+            std::vector<std::vector<int32_t>> StitchTriangles;
+            std::vector<std::vector<int32_t>> StitchPolygonIDs;
         };
-        TArray<FOffsetInfo> OffsetRegions;
-        TArray<int32_t>     AllModifiedAndNewTriangles;
+        std::vector<OffsetInfo> m_OffsetRegions;
+        std::vector<int32_t>    m_AllModifiedAndNewTriangles;
         // Why Apply returned false, naming the region and the step. Empty on success.
-        std::string FailureReason;
+        std::string m_FailureReason;
 
-        explicit FOffsetMeshRegion( FDynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit OffsetMeshRegion( DynamicMesh3* MeshIn ) : m_Mesh( MeshIn )
         {
         }
 
         bool Apply();
 
-        static bool EdgesSeparateSameGroupsAndAreColinearAtBorder( FDynamicMesh3* Mesh, int32_t Eid1, int32_t Eid2,
+        static bool EdgesSeparateSameGroupsAndAreColinearAtBorder( DynamicMesh3* Mesh, int32_t Eid1, int32_t Eid2,
                                                                    bool bCheckColinearityAtBorder );
 
     protected:
-        bool ApplyOffset( FOffsetInfo& Region );
+        bool ApplyOffset( OffsetInfo& Region );
     };
 
     // The connected components of @p Triangles (edge adjacency), each in ascending order.
-    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
-                                          TArray<TArray<int32_t>>& ComponentsOut );
+    void FindConnectedTriangleComponents( const DynamicMesh3& Mesh, const std::vector<int32_t>& Triangles,
+                                          std::vector<std::vector<int32_t>>& ComponentsOut );
     // UE ComputeNewGroupIDsAlongEdgeLoop (PolyEditingEdgeUtil.cpp:108).
     void
-    ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const TArray<int32_t>& LoopEdgeIDs,
-                                     TArray<int32_t>& NewLoopEdgeGroupIDs, TArray<int32_t>& NewGroupIDsOut,
+    ComputeNewGroupIDsAlongEdgeLoop( DynamicMesh3& Mesh, const std::vector<int32_t>& LoopEdgeIDs,
+                                     std::vector<int32_t>&                          NewLoopEdgeGroupIDs,
+                                     std::vector<int32_t>&                          NewGroupIDsOut,
                                      const std::function<bool( int32_t, int32_t )>& EdgesShouldHaveSameGroupFunc );
 } // namespace Desert::Geometry

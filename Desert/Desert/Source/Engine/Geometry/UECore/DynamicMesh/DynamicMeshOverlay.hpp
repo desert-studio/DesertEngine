@@ -15,14 +15,16 @@
 #include "Engine/Geometry/UECore/RefCountVector.hpp"
 #include "Engine/Geometry/UECore/SmallListSet.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
+#include <Common/Core/Core.hpp>
+#include <cstddef>
 
 namespace Desert::Geometry
 {
 
-    class FDynamicMesh3;
+    class DynamicMesh3;
 
     /**
-     * TDynamicMeshOverlay is an add-on to a FDynamicMesh3 that allows for per-triangle storage
+     * DynamicMeshOverlay is an add-on to a DynamicMesh3 that allows for per-triangle storage
      * of an "element" (eg like a per-triangle UV or normal). However the elements can be shared
      * between triangles at shared vertices because the elements are stored in a separate indexable
      * list.
@@ -38,7 +40,7 @@ namespace Desert::Geometry
      * A "seam" edge is one where at least one of the elements of the triangles on either
      * side of the edge is not shared between the two triangles.
      *
-     * The FDynamicMesh3 mesh topology operations (eg split/flip/collapse edge, poke face, etc)
+     * The DynamicMesh3 mesh topology operations (eg split/flip/collapse edge, poke face, etc)
      * can be mirrored to the overlay via OnSplitEdge(), etc.
      *
      * Note that although this is a template, many of the functions are defined in the .cpp file.
@@ -46,75 +48,72 @@ namespace Desert::Geometry
      * you wish to use in the block at the top of DynamicMeshOverlay.cpp
      */
     template <typename RealType, int ElementSize>
-    class TDynamicMeshOverlay
+    class DynamicMeshOverlay
     {
 
     protected:
         /** The parent mesh this overlay belongs to */
-        FDynamicMesh3* ParentMesh;
+        DynamicMesh3* m_ParentMesh = nullptr;
 
         /** Reference counts of element indices. Iterate over this to find out which elements are valid. */
-        FRefCountVector ElementsRefCounts;
+        RefCountVector m_ElementsRefCounts;
         /** List of element values */
-        TDynamicVector<RealType> Elements;
+        DynamicVector<RealType> m_Elements;
         /** List of parent vertex indices, one per element */
-        TDynamicVector<int> ParentVertices;
+        DynamicVector<int> m_ParentVertices;
 
         /** List of triangle element-index triplets [Elem0 Elem1 Elem2]*/
-        TDynamicVector<int> ElementTriangles;
+        DynamicVector<int> m_ElementTriangles;
 
-        friend class FDynamicMesh3;
-        friend class FDynamicMeshAttributeSet;
+        friend class DynamicMesh3;
+        friend class DynamicMeshAttributeSet;
 
     public:
         /** Create an empty overlay */
-        TDynamicMeshOverlay()
-        {
-            ParentMesh = nullptr;
-        }
+        DynamicMeshOverlay() = default;
 
         /** Create an overlay for the given parent mesh */
-        TDynamicMeshOverlay( FDynamicMesh3* ParentMeshIn )
+        DynamicMeshOverlay( DynamicMesh3* ParentMeshIn ) : m_ParentMesh( ParentMeshIn )
         {
-            ParentMesh = ParentMeshIn;
         }
 
     private:
         /** @set the parent mesh for this overlay.  Only safe for use during FDynamicMesh move */
-        void Reparent( FDynamicMesh3* ParentMeshIn )
+        void Reparent( DynamicMesh3* ParentMeshIn )
         {
-            ParentMesh = ParentMeshIn;
+            m_ParentMesh = ParentMeshIn;
         }
 
     public:
         /** @return the parent mesh for this overlay */
-        const FDynamicMesh3* GetParentMesh() const
+        [[nodiscard]] const DynamicMesh3* GetParentMesh() const
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
         /** @return the parent mesh for this overlay */
-        FDynamicMesh3* GetParentMesh()
+        DynamicMesh3* GetParentMesh()
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
 
         /** Set this overlay to contain the same arrays as the copy overlay */
-        void Copy( const TDynamicMeshOverlay<RealType, ElementSize>& Copy )
+        void Copy( const DynamicMeshOverlay<RealType, ElementSize>& Copy )
         {
-            ElementsRefCounts = FRefCountVector( Copy.ElementsRefCounts );
-            Elements          = Copy.Elements;
-            ParentVertices    = Copy.ParentVertices;
-            ElementTriangles  = Copy.ElementTriangles;
+            m_ElementsRefCounts = RefCountVector( Copy.m_ElementsRefCounts );
+            m_Elements          = Copy.m_Elements;
+            m_ParentVertices    = Copy.m_ParentVertices;
+            m_ElementTriangles  = Copy.m_ElementTriangles;
         }
 
         /** Copy the Copy overlay to a compact rep, also updating parent references based on the CompactMaps */
-        void CompactCopy( const FCompactMaps& CompactMaps, const TDynamicMeshOverlay<RealType, ElementSize>& Copy )
+        void CompactCopy( const DynamicMeshCompactMaps&                    CompactMaps,
+                          const DynamicMeshOverlay<RealType, ElementSize>& Copy )
         {
             ClearElements();
 
             // map of element IDs
-            TArray<int> MapE;
-            MapE.SetNumUninitialized( Copy.MaxElementID() );
+            std::vector<int> MapE;
+            MapE.resize( Copy.MaxElementID() );
 
             // copy elements across
             RealType Data[ElementSize];
@@ -132,81 +131,82 @@ namespace Desert::Geometry
             }
 
             // copy triangles across
-            UE_CHECK( CompactMaps.NumTriangleMappings() ==
-                      Copy.GetParentMesh()->MaxTriangleID() ); // must have valid triangle map
-            for ( int FromTID : Copy.GetParentMesh()->TriangleIndicesItr() )
+            assert( CompactMaps.NumTriangleMappings() ==
+                    Copy.GetParentMesh()->MaxTriangleID() ); // must have valid triangle map
+            for ( const int FromTID : Copy.GetParentMesh()->TriangleIndicesItr() )
             {
                 if ( !Copy.IsSetTriangle( FromTID ) )
                 {
                     continue;
                 }
                 const int ToTID           = CompactMaps.GetTriangleMapping( FromTID );
-                FIndex3i  FromTriElements = Copy.GetTriangle( FromTID );
-                SetTriangle( ToTID, FIndex3i( MapE[FromTriElements.A], MapE[FromTriElements.B],
-                                              MapE[FromTriElements.C] ) );
+                const Index3i FromTriElements = Copy.GetTriangle( FromTID );
+                SetTriangle(
+                     ToTID, Index3i( MapE[FromTriElements.A], MapE[FromTriElements.B], MapE[FromTriElements.C] ) );
             }
         }
 
         /** Compact overlay and update links to parent based on CompactMaps */
-        void CompactInPlace( const FCompactMaps& CompactMaps )
+        void CompactInPlace( const DynamicMeshCompactMaps& CompactMaps )
         {
-            int iLastE = MaxElementID() - 1, iCurE = 0;
-            while ( iLastE >= 0 && ElementsRefCounts.IsValidUnsafe( iLastE ) == false )
+            int iLastE = MaxElementID() - 1;
+            int iCurE  = 0;
+            while ( iLastE >= 0 && !m_ElementsRefCounts.IsValidUnsafe( iLastE ) )
             {
                 iLastE--;
             }
-            while ( iCurE < iLastE && ElementsRefCounts.IsValidUnsafe( iCurE ) )
+            while ( iCurE < iLastE && m_ElementsRefCounts.IsValidUnsafe( iCurE ) )
             {
                 iCurE++;
             }
 
             // make a map to track element index changes, to use to update element triangles later
-            // TODO: it may be faster to not construct this and to do the remapping per element as we go (by
-            // iterating the one ring of each parent vertex for each element)
-            TArray<int> MapE;
-            MapE.SetNumUninitialized( MaxElementID() );
-            for ( int ID = 0; ID < MapE.Num(); ID++ )
+            // Possible speed-up (as in UE): it may be faster to not construct this and to do the remapping per
+            // element as we go (by iterating the one ring of each parent vertex for each element)
+            std::vector<int> MapE;
+            MapE.resize( MaxElementID() );
+            for ( int ID = 0; ID < static_cast<int32_t>( MapE.size() ); ID++ )
             {
                 // mapping is 1:1 by default; sparsely re-mapped below
                 MapE[ID] = ID;
                 // remap all parents
-                if ( ParentVertices[ID] >= 0 )
+                if ( m_ParentVertices[ID] >= 0 )
                 {
-                    ParentVertices[ID] = CompactMaps.GetVertexMapping( ParentVertices[ID] );
+                    m_ParentVertices[ID] = CompactMaps.GetVertexMapping( m_ParentVertices[ID] );
                 }
             }
 
-            TDynamicVector<unsigned short>& ERef = ElementsRefCounts.GetRawRefCountsUnsafe();
+            DynamicVector<unsigned short>&  ERef = m_ElementsRefCounts.GetRawRefCountsUnsafe();
             RealType                        Data[ElementSize];
             while ( iCurE < iLastE )
             {
                 // remap the element data
                 GetElement( iLastE, Data );
                 SetElement( iCurE, Data );
-                ParentVertices[iCurE] = ParentVertices[iLastE];
+                m_ParentVertices[iCurE] = m_ParentVertices[iLastE];
                 ERef[iCurE]           = ERef[iLastE];
-                ERef[iLastE]          = FRefCountVector::INVALID_REF_COUNT;
+                ERef[iLastE]            = RefCountVector::INVALID_REF_COUNT;
                 MapE[iLastE]          = iCurE;
 
                 // move cur forward one, last back one, and  then search for next valid
                 iLastE--;
                 iCurE++;
-                while ( iLastE >= 0 && ElementsRefCounts.IsValidUnsafe( iLastE ) == false )
+                while ( iLastE >= 0 && !m_ElementsRefCounts.IsValidUnsafe( iLastE ) )
                 {
                     iLastE--;
                 }
-                while ( iCurE < iLastE && ElementsRefCounts.IsValidUnsafe( iCurE ) )
+                while ( iCurE < iLastE && m_ElementsRefCounts.IsValidUnsafe( iCurE ) )
                 {
                     iCurE++;
                 }
             }
-            ElementsRefCounts.Trim( ElementCount() );
-            Elements.Resize( ElementCount() * ElementSize );
-            ParentVertices.Resize( ElementCount() );
+            m_ElementsRefCounts.Trim( ElementCount() );
+            m_Elements.Resize( ElementCount() * ElementSize );
+            m_ParentVertices.Resize( ElementCount() );
 
             // Remap and compact triangle element indices.
             int32_t MaxNewTID = -1;
-            for ( int TID = 0, OldMaxTID = ElementTriangles.Num() / 3; TID < OldMaxTID; TID++ )
+            for ( int TID = 0, OldMaxTID = m_ElementTriangles.Num() / 3; TID < OldMaxTID; TID++ )
             {
                 const int32_t OldStart = TID * 3;
                 const int32_t NewTID   = CompactMaps.GetTriangleMapping( TID );
@@ -219,72 +219,75 @@ namespace Desert::Geometry
                 MaxNewTID = std::max( NewTID, MaxNewTID );
 
                 const int32_t NewStart = NewTID * 3;
-                if ( ElementTriangles[OldStart] == IndexConstants::InvalidID )
+                if ( m_ElementTriangles[OldStart] == IndexConstants::InvalidID )
                 {
                     // triangle was not set; copy back InvalidID
                     for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
                     {
-                        ElementTriangles[NewStart + SubIdx] = IndexConstants::InvalidID;
+                        m_ElementTriangles[NewStart + SubIdx] = IndexConstants::InvalidID;
                     }
                 }
                 else
                 {
                     for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
                     {
-                        ElementTriangles[NewStart + SubIdx] = MapE[ElementTriangles[OldStart + SubIdx]];
+                        m_ElementTriangles[NewStart + SubIdx] = MapE[m_ElementTriangles[OldStart + SubIdx]];
                     }
                 }
             }
             // ElementTriangles should never grow during a compaction, so just resizing is ok
             // (i.e., we shouldn't need to set InvalidID on any added triangles)
-            UE_CHECK_SLOW( ElementTriangles.Num() >= ( MaxNewTID + 1 ) * 3 );
-            ElementTriangles.Resize( ( MaxNewTID + 1 ) * 3 );
+            assert( m_ElementTriangles.Num() >= static_cast<size_t>( MaxNewTID + 1 ) * 3 );
+            m_ElementTriangles.Resize( static_cast<size_t>( MaxNewTID + 1 ) * 3 );
 
-            UE_CHECK_SLOW( IsCompact() );
+            assert( IsCompact() );
         }
 
-        void Append( const TDynamicMeshOverlay& ToAppend, const FDynamicMesh3::FAppendInfo& AppendInfo )
+        void Append( const DynamicMeshOverlay& ToAppend, const DynamicMesh3::AppendInfo& AppendInfo )
         {
             // We expect to be appending s.t. the intial ElementTriangles map to the pre-append triangles
-            if ( !UE_ENSURE( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 ) )
+            if ( !Common::EnsureOrWarn( m_ElementTriangles.Num() ==
+                                             static_cast<size_t>( AppendInfo.TriangleOffset ) * 3,
+                                        "ElementTriangles.Num() == AppendInfo.TriangleOffset * 3" ) )
             {
-                ElementTriangles.SetNum( AppendInfo.TriangleOffset * 3 );
+                m_ElementTriangles.SetNum( AppendInfo.TriangleOffset * 3 );
             }
-            UE_CHECK( ToAppend.ElementTriangles.Num() == AppendInfo.NumTriangle * 3 );
+            assert( ToAppend.m_ElementTriangles.Num() == static_cast<size_t>( AppendInfo.NumTriangle ) * 3 );
 
-            int32_t ElementIDOffset        = ElementsRefCounts.GetMaxIndex();
-            int32_t ElementTrianglesOffset = ElementTriangles.Num();
-            ElementTriangles.Add( ToAppend.ElementTriangles );
-            for ( int32_t Idx = ElementTrianglesOffset, N = ElementTriangles.Num(); Idx < N; ++Idx )
+            const int32_t ElementIDOffset        = m_ElementsRefCounts.GetMaxIndex();
+            const int32_t ElementTrianglesOffset = m_ElementTriangles.Num();
+            m_ElementTriangles.Add( ToAppend.m_ElementTriangles );
+            for ( int32_t Idx = ElementTrianglesOffset, N = m_ElementTriangles.Num(); Idx < N; ++Idx )
             {
-                int32_t& ElID = ElementTriangles[Idx];
+                int32_t& ElID = m_ElementTriangles[Idx];
                 if ( ElID != IndexConstants::InvalidID )
                 {
                     ElID += ElementIDOffset;
                 }
             }
 
-            UE_CHECK_SLOW( ElementIDOffset ==
-                           ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
-            ParentVertices.Add( ToAppend.ParentVertices );
-            for ( int32_t Idx = 0; Idx < ToAppend.ParentVertices.Num(); ++Idx )
+            assert( static_cast<size_t>( ElementIDOffset ) ==
+                    m_ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
+            m_ParentVertices.Add( ToAppend.m_ParentVertices );
+            for ( int32_t Idx = 0; Idx < static_cast<int32_t>( ToAppend.m_ParentVertices.Num() ); ++Idx )
             {
-                int32_t& Parent = ParentVertices[Idx + ElementIDOffset];
+                int32_t& Parent = m_ParentVertices[Idx + ElementIDOffset];
                 if ( Parent != IndexConstants::InvalidID )
                 {
                     Parent += AppendInfo.VertexOffset;
                 }
             }
-            ElementsRefCounts.Append( ToAppend.ElementsRefCounts );
-            Elements.Add( ToAppend.Elements );
+            m_ElementsRefCounts.Append( ToAppend.m_ElementsRefCounts );
+            m_Elements.Add( ToAppend.m_Elements );
         }
-        void AppendDefaulted( const FDynamicMesh3::FAppendInfo& AppendInfo )
+        void AppendDefaulted( const DynamicMesh3::AppendInfo& AppendInfo )
         {
             // Note: ElementRefCounts, Elements and ParentVertices remain unchanged, since the new triangles are
             // unset
-            UE_CHECK_SLOW( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 );
-            ElementTriangles.Resize( 3 * ( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
-                                     IndexConstants::InvalidID );
+            assert( m_ElementTriangles.Num() == static_cast<size_t>( AppendInfo.TriangleOffset ) * 3 );
+            m_ElementTriangles.Resize(
+                 3 * static_cast<size_t>( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
+                 IndexConstants::InvalidID );
         }
 
         /** Discard all elements. */
@@ -294,41 +297,41 @@ namespace Desert::Geometry
         template <typename EnumerableIntType>
         void ClearElements( const EnumerableIntType& Triangles )
         {
-            for ( int32_t TriID : Triangles )
+            for ( const int32_t TriID : Triangles )
             {
                 UnsetTriangle( TriID );
             }
         }
 
         /** @return the number of in-use Elements in the overlay */
-        int ElementCount() const
+        [[nodiscard]] int ElementCount() const
         {
-            return (int)ElementsRefCounts.GetCount();
+            return static_cast<int>( m_ElementsRefCounts.GetCount() );
         }
         /** @return the maximum element index in the overlay. This may be larger than the count if Elements have
          * been deleted. */
-        int MaxElementID() const
+        [[nodiscard]] int MaxElementID() const
         {
-            return (int)ElementsRefCounts.GetMaxIndex();
+            return static_cast<int>( m_ElementsRefCounts.GetMaxIndex() );
         }
         /** @return true if this element index is in use */
-        inline bool IsElement( int vID ) const
+        [[nodiscard]] bool IsElement( int vID ) const
         {
-            return ElementsRefCounts.IsValid( vID );
+            return m_ElementsRefCounts.IsValid( vID );
         }
 
         /** @return true if the elements are compact */
-        bool IsCompact() const
+        [[nodiscard]] bool IsCompact() const
         {
-            return ElementsRefCounts.IsDense();
+            return m_ElementsRefCounts.IsDense();
         }
 
-        typedef typename FRefCountVector::IndexEnumerable element_iterator;
+        using element_iterator = typename RefCountVector::IndexEnumerable;
 
         /** @return enumerator for valid element indices suitable for use with range-based for */
-        element_iterator ElementIndicesItr() const
+        [[nodiscard]] element_iterator ElementIndicesItr() const
         {
-            return ElementsRefCounts.Indices();
+            return m_ElementsRefCounts.Indices();
         }
 
         /** Allocate a new element with the given constant value */
@@ -338,7 +341,7 @@ namespace Desert::Geometry
 
         void SetParentVertex( int ElementIndex, int ParentVertexIndex )
         {
-            ParentVertices[ElementIndex] = ParentVertexIndex;
+            m_ParentVertices[ElementIndex] = ParentVertexIndex;
         }
 
         /** Initialize the triangle list to the given size, and set all triangles to InvalidID */
@@ -352,7 +355,7 @@ namespace Desert::Geometry
          *  when remeshing across existing elements to avoid them being freed while temporarily unreferenced,
          *  but then it should eventually be followed by a call to FreeUnusedElements().
          */
-        EMeshResult SetTriangle( int TriangleID, const FIndex3i& TriElements, bool bAllowElementFreeing = true );
+        MeshResult SetTriangle( int tid, const Index3i& tv, bool bAllowElementFreeing = true );
 
         /**
          * Goes through elements and frees any whose reference counts indicate that they are not being used. This
@@ -361,7 +364,7 @@ namespace Desert::Geometry
          *
          * @param ElementsToCheck If provided, only these element ID's will be checked.
          */
-        void FreeUnusedElements( const TSet<int>* ElementsToCheck = nullptr );
+        void FreeUnusedElements( const std::unordered_set<int>* ElementsToCheck = nullptr );
 
         /**
          * Set the triangle to have InvalidID element IDs, decrementing element reference counts if needed.
@@ -373,12 +376,12 @@ namespace Desert::Geometry
         void UnsetTriangle( int TriangleID, bool bAllowElementFreeing = true );
 
         /** @return true if this triangle was set */
-        bool IsSetTriangle( int TID ) const
+        [[nodiscard]] bool IsSetTriangle( int TID ) const
         {
-            bool bIsSet = ElementTriangles[3 * TID] >= 0;
+            const bool bIsSet = m_ElementTriangles[3 * TID] >= 0;
             // we require that triangle elements either be all set or all unset
-            UE_CHECK_SLOW( ElementTriangles[3 * TID + 1] >= 0 == bIsSet );
-            UE_CHECK_SLOW( ElementTriangles[3 * TID + 2] >= 0 == bIsSet );
+            assert( ( m_ElementTriangles[3 * TID + 1] >= 0 ) == bIsSet );
+            assert( ( m_ElementTriangles[3 * TID + 2] >= 0 ) == bIsSet );
             return bIsSet;
         }
 
@@ -390,10 +393,10 @@ namespace Desert::Geometry
          *  IsSetTriangle / GetTri* call for a triangle ID near MaxTriangleID() will read past the end
          *  of ElementTriangles.
          */
-        bool IsTriangleStorageValid() const
+        [[nodiscard]] bool IsTriangleStorageValid() const
         {
-            return ParentMesh != nullptr &&
-                   static_cast<int32_t>( ElementTriangles.Num() ) >= 3 * ParentMesh->MaxTriangleID();
+            return m_ParentMesh != nullptr &&
+                   static_cast<int32_t>( m_ElementTriangles.Num() ) >= 3 * m_ParentMesh->MaxTriangleID();
         }
 
         /**
@@ -449,7 +452,7 @@ namespace Desert::Geometry
          * @param TrianglesToUpdate the triangles that should now reference the new element
          * @return the ID of the newly created element
          */
-        int SplitElement( int ElementID, const TArrayView<const int>& TrianglesToUpdate );
+        int SplitElement( int ElementID, const std::span<const int>& TrianglesToUpdate );
 
         /**
          * Create a new copy of ElementID, and update connected triangles in the TrianglesToUpdate array to
@@ -463,8 +466,8 @@ namespace Desert::Geometry
          * creating a new array for each call.
          * @return the ID of the newly created element
          */
-        int SplitElementWithNewParent( int ElementID, int SplitParentVertexID,
-                                       const TArrayView<const int>& TrianglesToUpdate );
+        int SplitElementWithNewParent( int ElementID, int NewParentID,
+                                       const std::span<const int>& TrianglesToUpdate );
 
         /**
          * Split any bowties at given vertex.
@@ -472,7 +475,7 @@ namespace Desert::Geometry
          * @param NewElementIDs If not null, newly created element IDs are placed here. Note that this array is
          *   intentionally not cleared before appending to it.
          */
-        void SplitBowtiesAtVertex( int32_t VertexID, TArray<int32_t>* NewElementIDs = nullptr );
+        void SplitBowtiesAtVertex( int32_t VertexID, std::vector<int32_t>* NewElementIDs = nullptr );
 
         /**
          * Refine an existing overlay topology by splitting any bowties
@@ -497,7 +500,7 @@ namespace Desert::Geometry
         /** Call after a set of unsafe InsertVertex() calls to rebuild free list */
         void EndUnsafeElementsInsert()
         {
-            ElementsRefCounts.RebuildFreeList();
+            m_ElementsRefCounts.RebuildFreeList();
         }
 
         /**
@@ -505,19 +508,19 @@ namespace Desert::Geometry
          * If bUnsafe, we use fast id allocation that does not update free list.
          * You should only be using this between BeginUnsafeElementsInsert() / EndUnsafeElementsInsert() calls
          */
-        EMeshResult InsertElement( int ElementID, const RealType* Value, bool bUnsafe = false );
+        MeshResult InsertElement( int ElementID, const RealType* Value, bool bUnsafe = false );
 
         //
         // Accessors/Queries
         //
 
         /** Get the element at a given index */
-        inline void GetElement( int ElementID, RealType* Data ) const
+        void GetElement( int ElementID, RealType* Data ) const
         {
-            int k = ElementID * ElementSize;
+            const int k = ElementID * ElementSize;
             for ( int i = 0; i < ElementSize; ++i )
             {
-                Data[i] = Elements[k + i];
+                Data[i] = m_Elements[k + i];
             }
         }
 
@@ -525,10 +528,10 @@ namespace Desert::Geometry
         template <typename AsType>
         void GetElement( int ElementID, AsType& Data ) const
         {
-            int k = ElementID * ElementSize;
+            const int k = ElementID * ElementSize;
             for ( int i = 0; i < ElementSize; ++i )
             {
-                Data[i] = Elements[k + i];
+                Data[i] = m_Elements[k + i];
             }
         }
 
@@ -540,11 +543,11 @@ namespace Desert::Geometry
          * @param Data Value contained at the Element
          */
         template <typename AsType>
-        inline void GetElementAtVertex( int TriangleID, int VertexID, AsType& Data ) const
+        void GetElementAtVertex( int TriangleID, int VertexID, AsType& Data ) const
         {
-            int ElementID = GetElementIDAtVertex( TriangleID, VertexID );
+            const int ElementID = GetElementIDAtVertex( TriangleID, VertexID );
 
-            UE_CHECK_SLOW( ElementID != IndexConstants::InvalidID );
+            assert( ElementID != IndexConstants::InvalidID );
             if ( ElementID != IndexConstants::InvalidID )
             {
                 GetElement( ElementID, Data );
@@ -552,40 +555,40 @@ namespace Desert::Geometry
         }
 
         /** Get the parent vertex id for the element at a given index */
-        inline int GetParentVertex( int ElementID ) const
+        [[nodiscard]] int GetParentVertex( int ElementID ) const
         {
-            return ParentVertices[ElementID];
+            return m_ParentVertices[ElementID];
         }
 
         /** Get the element index tuple for a triangle */
-        inline FIndex3i GetTriangle( int TriangleID ) const
+        [[nodiscard]] Index3i GetTriangle( int TriangleID ) const
         {
-            int i = 3 * TriangleID;
-            return FIndex3i( ElementTriangles[i], ElementTriangles[i + 1], ElementTriangles[i + 2] );
+            const int i = 3 * TriangleID;
+            return { m_ElementTriangles[i], m_ElementTriangles[i + 1], m_ElementTriangles[i + 2] };
         }
 
         /** If the triangle is set to valid element indices, return the indices in TriangleOut and return true,
          * otherwise return false */
-        inline bool GetTriangleIfValid( int TriangleID, FIndex3i& TriangleOut ) const
+        bool GetTriangleIfValid( int TriangleID, Index3i& TriangleOut ) const
         {
-            int i = 3 * TriangleID;
-            int a = ElementTriangles[i];
+            const int i = 3 * TriangleID;
+            const int a = m_ElementTriangles[i];
             if ( a >= 0 )
             {
-                TriangleOut = FIndex3i( a, ElementTriangles[i + 1], ElementTriangles[i + 2] );
-                UE_CHECK_SLOW( TriangleOut.B >= 0 && TriangleOut.C >= 0 );
+                TriangleOut = Index3i( a, m_ElementTriangles[i + 1], m_ElementTriangles[i + 2] );
+                assert( TriangleOut.B >= 0 && TriangleOut.C >= 0 );
                 return true;
             }
             return false;
         }
 
         /** Set the element at a given index */
-        inline void SetElement( int ElementID, const RealType* Data )
+        void SetElement( int ElementID, const RealType* Data )
         {
-            int k = ElementID * ElementSize;
+            const int k = ElementID * ElementSize;
             for ( int i = 0; i < ElementSize; ++i )
             {
-                Elements[k + i] = Data[i];
+                m_Elements[k + i] = Data[i];
             }
         }
 
@@ -593,19 +596,19 @@ namespace Desert::Geometry
         template <typename AsType>
         void SetElement( int ElementID, const AsType& Data )
         {
-            int k = ElementID * ElementSize;
+            const int k = ElementID * ElementSize;
             for ( int i = 0; i < ElementSize; ++i )
             {
-                Elements[k + i] = Data[i];
+                m_Elements[k + i] = Data[i];
             }
         }
 
         /** @return true if triangle contains element */
-        inline bool TriangleHasElement( int TriangleID, int ElementID ) const
+        [[nodiscard]] bool TriangleHasElement( int TriangleID, int ElementID ) const
         {
-            int i = 3 * TriangleID;
-            return ( ElementTriangles[i] == ElementID || ElementTriangles[i + 1] == ElementID ||
-                     ElementTriangles[i + 2] == ElementID );
+            const int i = 3 * TriangleID;
+            return ( m_ElementTriangles[i] == ElementID || m_ElementTriangles[i + 1] == ElementID ||
+                     m_ElementTriangles[i + 2] == ElementID );
         }
 
         /** Returns true if the parent-mesh edge is a "Seam" in this overlay.
@@ -615,9 +618,9 @@ namespace Desert::Geometry
         bool IsSeamEdge( int EdgeID, bool* bIsNonIntersectingOut = nullptr ) const;
         /** Returns true if the parent-mesh edge is a "Seam End" in this overlay, meaning the adjacent element
          * triangles share one element, not two */
-        bool IsSeamEndEdge( int EdgeID ) const;
+        [[nodiscard]] bool IsSeamEndEdge( int EdgeID ) const;
         /** Returns true if the parent-mesh vertex is connected to any seam edges */
-        bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
+        [[nodiscard]] bool IsSeamVertex( int vid, bool bBoundaryIsSeam = true ) const;
         /** Returns true if the parent-mesh vertex is at a seam 'intersection' -- i.e., the end of a seam, or the
          * intersection w/ another seam. */
         [[nodiscard]] bool IsSeamIntersectionVertex( int32_t VertexID ) const;
@@ -631,36 +634,36 @@ namespace Desert::Geometry
         [[nodiscard]] bool IsBowtieInOverlay( int32_t VertexID ) const;
 
         /** @return true if the two triangles are connected, ie shared edge exists and is not a seam edge */
-        bool AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const;
+        [[nodiscard]] bool AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const;
 
         /** find the elements associated with a given parent-mesh vertex */
-        void GetVertexElements( int VertexID, TArray<int>& OutElements ) const;
+        void GetVertexElements( int vid, std::vector<int>& OutElements ) const;
         /** Count the number of unique elements for a given parent-mesh vertex */
-        int CountVertexElements( int VertexID, bool bBruteForce = false ) const;
+        [[nodiscard]] int CountVertexElements( int vid, bool bBruteForce = false ) const;
 
         /** find the triangles connected to an element */
-        void GetElementTriangles( int ElementID, TArray<int>& OutTriangles ) const;
+        void GetElementTriangles( int ElementID, std::vector<int>& OutTriangles ) const;
 
         /**
          * Find the element ID at a vertex of a triangle.
          *
-         * @return Returns the element ID or FDynamicMesh3::InvalidID if the vertex is not a parent of any element
+         * @return Returns the element ID or DynamicMesh3::InvalidID if the vertex is not a parent of any element
          * contained in the triangle.
          */
-        int GetElementIDAtVertex( int TriangleID, int VertexID ) const;
+        [[nodiscard]] int GetElementIDAtVertex( int TriangleID, int VertexID ) const;
 
         /**
          * Find an element ID associated with the given VertexID
          *
          * @param VertexID The vertex ID to search
-         * @param OutElementID Will be set to the found element ID, or FDynamicMesh3::InvalidID if none found
+         * @param OutElementID Will be set to the found element ID, or DynamicMesh3::InvalidID if none found
          * @return true if an element ID was found, false otherwise
          */
         bool FindAnyElementIDAtVertex( int32_t VertexID, int32_t& OutElementID ) const;
 
         /** @return true if overlay has any interior seam edges. This requires an O(N) search unless it early-outs.
          */
-        bool HasInteriorSeamEdges() const;
+        [[nodiscard]] bool HasInteriorSeamEdges() const;
 
         /**
          * Compute interpolated parameter value inside triangle using barycentric coordinates
@@ -672,106 +675,108 @@ namespace Desert::Geometry
         void GetTriBaryInterpolate( int32_t TriangleID, const AsType* BaryCoords, AsType* DataOut ) const
         {
             int32_t const TriIndex   = 3 * TriangleID;
-            int32_t       ElemIndex0 = ElementTriangles[TriIndex] * ElementSize;
-            int32_t       ElemIndex1 = ElementTriangles[TriIndex + 1] * ElementSize;
-            int32_t       ElemIndex2 = ElementTriangles[TriIndex + 2] * ElementSize;
-            const AsType Bary0 = (AsType)BaryCoords[0], Bary1 = (AsType)BaryCoords[1],
-                         Bary2 = (AsType)BaryCoords[2];
+            int32_t       ElemIndex0 = m_ElementTriangles[TriIndex] * ElementSize;
+            int32_t       ElemIndex1 = m_ElementTriangles[TriIndex + 1] * ElementSize;
+            int32_t       ElemIndex2 = m_ElementTriangles[TriIndex + 2] * ElementSize;
+            const auto    Bary0      = static_cast<AsType>( BaryCoords[0] );
+            const auto    Bary1      = static_cast<AsType>( BaryCoords[1] );
+            const auto    Bary2      = static_cast<AsType>( BaryCoords[2] );
             for ( int32_t i = 0; i < ElementSize; ++i )
             {
-                DataOut[i] = Bary0 * (AsType)Elements[ElemIndex0 + i] + Bary1 * (AsType)Elements[ElemIndex1 + i] +
-                             Bary2 * (AsType)Elements[ElemIndex2 + i];
+                DataOut[i] = Bary0 * static_cast<AsType>( m_Elements[ElemIndex0 + i] ) +
+                             Bary1 * static_cast<AsType>( m_Elements[ElemIndex1 + i] ) +
+                             Bary2 * static_cast<AsType>( m_Elements[ElemIndex2 + i] );
             }
         }
 
         /**
          * Checks that the overlay mesh is well-formed, ie all internal data structures are consistent
          */
-        bool CheckValidity( bool                   bAllowNonManifoldVertices = true,
-                            EValidityCheckFailMode FailMode = EValidityCheckFailMode::Check ) const;
+        [[nodiscard]] bool CheckValidity( bool                  bAllowNonManifoldVertices = true,
+                                          ValidityCheckFailMode FailMode = ValidityCheckFailMode::Check ) const;
 
         /**
          * Returns true if this overlay is the same as Other.
          */
-        bool IsSameAs( const TDynamicMeshOverlay<RealType, ElementSize>& Other, bool bIgnoreDataLayout ) const;
+        [[nodiscard]] bool IsSameAs( const DynamicMeshOverlay<RealType, ElementSize>& Other,
+                                     bool                                             bIgnoreDataLayout ) const;
 
         [[nodiscard]] size_t GetByteCount() const
         {
-            return ElementsRefCounts.GetByteCount() + Elements.GetByteCount() + ParentVertices.GetByteCount() +
-                   ElementTriangles.GetByteCount();
+            return m_ElementsRefCounts.GetByteCount() + m_Elements.GetByteCount() +
+                   m_ParentVertices.GetByteCount() + m_ElementTriangles.GetByteCount();
         }
 
-    public:
         /** Set a triangle's element indices to InvalidID */
-        void InitializeNewTriangle( int TriangleID );
+        void InitializeNewTriangle( int tid );
         /** Remove a triangle from the overlay */
         void OnRemoveTriangle( int TriangleID );
         /** Reverse the orientation of a triangle's elements */
         void OnReverseTriOrientation( int TriangleID );
         /** Update the overlay to reflect an edge split in the parent mesh */
-        void OnSplitEdge( const DynamicMeshInfo::FEdgeSplitInfo& SplitInfo );
+        void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo );
         /** Update the overlay to reflect an edge flip in the parent mesh */
-        void OnFlipEdge( const DynamicMeshInfo::FEdgeFlipInfo& FlipInfo );
+        void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo );
         /** Update the overlay to reflect an edge collapse in the parent mesh */
-        void OnCollapseEdge( const DynamicMeshInfo::FEdgeCollapseInfo& CollapseInfo );
+        void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo );
         /** Update the overlay to reflect a face poke in the parent mesh */
-        void OnPokeTriangle( const DynamicMeshInfo::FPokeTriangleInfo& PokeInfo );
+        void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& PokeInfo );
         /** Update the overlay to reflect an edge merge in the parent mesh */
-        void OnMergeEdges( const DynamicMeshInfo::FMergeEdgesInfo& MergeInfo );
+        void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo );
         /** Update the overlay to reflect a vertex merge in the parent mesh */
-        void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& MergeInfo );
+        void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo );
         /** Update the overlay to reflect a vertex split in the parent mesh */
-        void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                            const TArrayView<const int>&             TrianglesToUpdate );
+        void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
+                            const std::span<const int>&             TrianglesToUpdate );
 
     protected:
         /** Set the value at an Element to be a linear interpolation of two other Elements */
         void SetElementFromLerp( int SetElement, int ElementA, int ElementB, double Alpha );
         /** Set the value at an Element to be a barycentric interpolation of three other Elements */
         void SetElementFromBary( int SetElement, int ElementA, int ElementB, int ElementC,
-                                 const FVector3d& BaryCoords );
+                                 const glm::dvec3& BaryCoords );
 
         /** updates the triangles array and optionally the element reference counts */
-        void InternalSetTriangle( int TriangleID, const FIndex3i& TriElements, bool bUpdateRefCounts,
+        void InternalSetTriangle( int tid, const Index3i& tv, bool bUpdateRefCounts,
                                   bool bAllowElementFreeing = true );
     };
 
     /**
-     * TDynamicMeshVectorOverlay is an convenient extension of TDynamicMeshOverlay that adds
+     * DynamicMeshVectorOverlay is an convenient extension of DynamicMeshOverlay that adds
      * a specific N-element Vector type to the template, and adds accessor functions
-     * that convert between that N-element vector type and the N-element arrays used by TDynamicMeshOverlay.
+     * that convert between that N-element vector type and the N-element arrays used by DynamicMeshOverlay.
      */
     template <typename RealType, int ElementSize, typename InVectorType>
-    class TDynamicMeshVectorOverlay : public TDynamicMeshOverlay<RealType, ElementSize>
+    class DynamicMeshVectorOverlay : public DynamicMeshOverlay<RealType, ElementSize>
     {
     public:
-        using BaseType   = TDynamicMeshOverlay<RealType, ElementSize>;
+        using BaseType   = DynamicMeshOverlay<RealType, ElementSize>;
         using VectorType = InVectorType;
 
-        TDynamicMeshVectorOverlay() : TDynamicMeshOverlay<RealType, ElementSize>()
+        DynamicMeshVectorOverlay() : DynamicMeshOverlay<RealType, ElementSize>()
         {
         }
 
-        TDynamicMeshVectorOverlay( FDynamicMesh3* parentMesh )
-             : TDynamicMeshOverlay<RealType, ElementSize>( parentMesh )
+        DynamicMeshVectorOverlay( DynamicMesh3* parentMesh )
+             : DynamicMeshOverlay<RealType, ElementSize>( parentMesh )
         {
         }
 
         /**
          * Append a new Element to the overlay
          */
-        inline int AppendElement( const VectorType& Value )
+        int AppendElement( const VectorType& Value )
         {
             // Cannot use cast operator here because Core Vector types do not define it.
             // However assuming that vector has .X member is also not good...
             // return BaseType::AppendElement((const RealType*)Value);
-            return BaseType::AppendElement( &Value.X );
+            return BaseType::AppendElement( &Value.x );
         }
 
         /**
          * Append a new Element to the overlay
          */
-        inline int AppendElement( const RealType* Value )
+        int AppendElement( const RealType* Value )
         {
             return BaseType::AppendElement( Value );
         }
@@ -779,7 +784,7 @@ namespace Desert::Geometry
         /**
          * Get Element at a specific ID
          */
-        inline VectorType GetElement( int ElementID ) const
+        [[nodiscard]] VectorType GetElement( int ElementID ) const
         {
             VectorType V;
             BaseType::GetElement( ElementID, V );
@@ -789,7 +794,7 @@ namespace Desert::Geometry
         /**
          * Get Element at a specific ID
          */
-        inline void GetElement( int ElementID, VectorType& V ) const
+        void GetElement( int ElementID, VectorType& V ) const
         {
             BaseType::GetElement( ElementID, V );
         }
@@ -797,7 +802,7 @@ namespace Desert::Geometry
         /**
          * Get the Element value associated with a vertex of a triangle.
          */
-        inline VectorType GetElementAtVertex( int TriangleID, int VertexID ) const
+        [[nodiscard]] VectorType GetElementAtVertex( int TriangleID, int VertexID ) const
         {
             VectorType V;
             BaseType::GetElementAtVertex( TriangleID, VertexID, V );
@@ -807,7 +812,7 @@ namespace Desert::Geometry
         /**
          * Get the Element value associated with a vertex of a triangle.
          */
-        inline void GetElementAtVertex( int TriangleID, int VertexID, VectorType& V ) const
+        void GetElementAtVertex( int TriangleID, int VertexID, VectorType& V ) const
         {
             BaseType::GetElementAtVertex( TriangleID, VertexID, V );
         }
@@ -818,25 +823,25 @@ namespace Desert::Geometry
          */
         void GetTriElement( int TriangleID, int32_t TriVertexIndex, VectorType& Value ) const
         {
-            UE_CHECK_SLOW( TriVertexIndex >= 0 && TriVertexIndex <= 2 );
-            GetElement( BaseType::ElementTriangles[( 3 * TriangleID ) + TriVertexIndex], Value );
+            assert( TriVertexIndex >= 0 && TriVertexIndex <= 2 );
+            GetElement( BaseType::m_ElementTriangles[( 3 * TriangleID ) + TriVertexIndex], Value );
         }
 
         /**
          * Get the three Elements associated with a triangle
          */
-        inline void GetTriElements( int TriangleID, VectorType& A, VectorType& B, VectorType& C ) const
+        void GetTriElements( int TriangleID, VectorType& A, VectorType& B, VectorType& C ) const
         {
-            int i = 3 * TriangleID;
-            GetElement( BaseType::ElementTriangles[i], A );
-            GetElement( BaseType::ElementTriangles[i + 1], B );
-            GetElement( BaseType::ElementTriangles[i + 2], C );
+            const int i = 3 * TriangleID;
+            GetElement( BaseType::m_ElementTriangles[i], A );
+            GetElement( BaseType::m_ElementTriangles[i + 1], B );
+            GetElement( BaseType::m_ElementTriangles[i + 2], C );
         }
 
         /**
          * Set Element at a specific ID
          */
-        inline void SetElement( int ElementID, const VectorType& Value )
+        void SetElement( int ElementID, const VectorType& Value )
         {
             BaseType::SetElement( ElementID, Value );
         }
@@ -863,23 +868,23 @@ namespace Desert::Geometry
 #endif
 
 #if !UE_MERGED_MODULES
-    extern template class TDynamicMeshOverlay<float, 1>;
-    extern template class TDynamicMeshOverlay<double, 1>;
-    extern template class TDynamicMeshOverlay<int, 1>;
-    extern template class TDynamicMeshOverlay<float, 2>;
-    extern template class TDynamicMeshOverlay<double, 2>;
-    extern template class TDynamicMeshOverlay<int, 2>;
-    extern template class TDynamicMeshOverlay<float, 3>;
-    extern template class TDynamicMeshOverlay<double, 3>;
-    extern template class TDynamicMeshOverlay<int, 3>;
-    extern template class TDynamicMeshOverlay<float, 4>;
-    extern template class TDynamicMeshOverlay<double, 4>;
+    extern template class DynamicMeshOverlay<float, 1>;
+    extern template class DynamicMeshOverlay<double, 1>;
+    extern template class DynamicMeshOverlay<int, 1>;
+    extern template class DynamicMeshOverlay<float, 2>;
+    extern template class DynamicMeshOverlay<double, 2>;
+    extern template class DynamicMeshOverlay<int, 2>;
+    extern template class DynamicMeshOverlay<float, 3>;
+    extern template class DynamicMeshOverlay<double, 3>;
+    extern template class DynamicMeshOverlay<int, 3>;
+    extern template class DynamicMeshOverlay<float, 4>;
+    extern template class DynamicMeshOverlay<double, 4>;
 
-    extern template class TDynamicMeshVectorOverlay<float, 2, FVector2f>;
-    extern template class TDynamicMeshVectorOverlay<double, 2, FVector2d>;
-    extern template class TDynamicMeshVectorOverlay<float, 3, FVector3f>;
-    extern template class TDynamicMeshVectorOverlay<double, 3, FVector3d>;
-    extern template class TDynamicMeshVectorOverlay<float, 4, FVector4f>;
+    extern template class DynamicMeshVectorOverlay<float, 2, glm::vec2>;
+    extern template class DynamicMeshVectorOverlay<double, 2, glm::dvec2>;
+    extern template class DynamicMeshVectorOverlay<float, 3, glm::vec3>;
+    extern template class DynamicMeshVectorOverlay<double, 3, glm::dvec3>;
+    extern template class DynamicMeshVectorOverlay<float, 4, glm::vec4>;
 #endif
 
 #undef UE_EXTERN_TEMPLATE_API

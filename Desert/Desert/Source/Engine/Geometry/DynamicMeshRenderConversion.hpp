@@ -8,7 +8,7 @@
 
 namespace Desert::Geometry
 {
-    // FDynamicMesh3 <-> the engine's render-mesh arrays (RenderMeshData.hpp), the same arrays and the same
+    // DynamicMesh3 <-> the engine's render-mesh arrays (RenderMeshData.hpp), the same arrays and the same
     // rules as the EditMesh conversion (EditMeshConversion.hpp), so a caller can switch cores without the
     // render side seeing a difference.
     //
@@ -22,21 +22,21 @@ namespace Desert::Geometry
     // MaterialID attribute means every triangle is material 0). A render vertex is one (vertex, normal
     // element, tangent element, bitangent element, UV element) tuple, emitted once per submesh.
     //
-    // WINDING. A render (and EditMesh) triangle is front-facing counter-clockwise; FDynamicMesh3 keeps UE's
-    // clockwise front (VectorUtil::Normal is (V2-V0)x(V1-V0)), so FMeshNormals and every other ported algorithm
+    // WINDING. A render (and EditMesh) triangle is front-facing counter-clockwise; DynamicMesh3 keeps UE's
+    // clockwise front (VectorUtil::Normal is (V2-V0)x(V1-V0)), so MeshNormals and every other ported algorithm
     // stays verbatim. Both conversions swap corners 1 and 2; a round trip restores the render order exactly.
     //
     // Refused, naming the triangle, when the mesh has no attribute set or no normal overlay, or a live
     // triangle is unset in a carried overlay. uvLayer must exist when the mesh has UV layers.
-    [[nodiscard]] Common::ResultStr<RenderMeshData> ToRenderMesh( const FDynamicMesh3& mesh, int uvLayer = 0 );
+    [[nodiscard]] Common::ResultStr<RenderMeshData> ToRenderMesh( const DynamicMesh3& mesh, int uvLayer = 0 );
 
     struct ImportedDynamicMesh
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3  Mesh;
         int           DroppedDegenerate = 0; // two corners welded onto one vertex
         int           DroppedDuplicate  = 0; // the same three welded vertices as an earlier triangle
         int           DetachedTriangles = 0; // a third triangle on an edge: given its own copies of its
-                                             // already-used corners (FDynamicMesh3 refuses such an edge)
+                                             // already-used corners (DynamicMesh3 refuses such an edge)
     };
 
     // Welds render vertices by position into mesh vertices, and each overlay by value per welded vertex into

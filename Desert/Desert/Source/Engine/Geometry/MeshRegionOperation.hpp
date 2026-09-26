@@ -1,8 +1,8 @@
 #pragma once
 
-// Extrude / Push-Pull / Inset / Outset on a selected region of an FDynamicMesh3, as UE's PolyEdit runs them on a
+// Extrude / Push-Pull / Inset / Outset on a selected region of an DynamicMesh3, as UE's PolyEdit runs them on a
 // copy of the mesh: FExtrudeOp (ModelingOperators/Private/DeformationOps/ExtrudeOp.cpp:94-146) drives
-// FOffsetMeshRegion, UPolyEditInsetOutsetActivity (PolyEditInsetOutsetActivity.cpp:181) drives FInsetMeshRegion
+// OffsetMeshRegion, UPolyEditInsetOutsetActivity (PolyEditInsetOutsetActivity.cpp:181) drives InsetMeshRegion
 // with the distance negated for Outset.
 //
 // TANGENTS. The ported region operations set normals and UVs on the triangles they create but never the tangent
@@ -32,7 +32,7 @@ namespace Desert::Geometry
 
     struct RegionOutcome
     {
-        std::shared_ptr<const FDynamicMesh3> Mesh;
+        std::shared_ptr<const DynamicMesh3> Mesh;
         // The moved region (Extrude, Push/Pull) or the inset region (Inset, Outset), in the selection's mode.
         ElementSelection Selection{ ElementMode::Triangle };
     };
@@ -41,7 +41,7 @@ namespace Desert::Geometry
     // for Push/Pull. Refused, by name and numbers, on a zero or wrongly signed distance, a selection covering no
     // whole triangle, the ported operation's own failure, or a tangent space with no UV layer 0 to derive from.
     [[nodiscard]] Common::ResultStr<RegionOutcome> RunRegionOperation( RegionOperation         operation,
-                                                                       const FDynamicMesh3&    before,
+                                                                       const DynamicMesh3&     before,
                                                                        const ElementSelection& selection,
                                                                        float                   distance );
 
@@ -52,21 +52,21 @@ namespace Desert::Geometry
     // (HoleFillTool.cpp:218). An EDGE selection fills the loops through its edges; any other selection fills
     // every loop. The result selects the new triangles. Refused on a mesh with no open loop, a selected edge on
     // no loop, or a loop the filler rejects.
-    [[nodiscard]] Common::ResultStr<RegionOutcome> FillHoles( const FDynamicMesh3&    before,
+    [[nodiscard]] Common::ResultStr<RegionOutcome> FillHoles( const DynamicMesh3&     before,
                                                               const ElementSelection& selection );
 
     // Insert Edge Loop, as UE's UPolyEditInsertEdgeLoopActivity drives FEdgeLoopInsertionOp
     // (PolyEditInsertEdgeLoopActivity.cpp:30-75, EdgeLoopInsertionOp.cpp:25-66) with the PlaneCut mode and one
-    // ProportionOffset: FGroupEdgeInserter::InsertEdgeLoops across the group edge the EDGE selection lies on,
+    // ProportionOffset: GroupEdgeInserter::InsertEdgeLoops across the group edge the EDGE selection lies on,
     // `position` in (0, 1) measured from that group edge's EndpointCorners.A (UE's unflipped direction). Every
     // crossed group is split in two new groups (a cube: 6 -> 10). The result selects the new loop's edges.
     // Refused, by name and numbers: a selection not in Edge mode or empty, edges on more than one group edge,
     // position outside (0, 1), or the inserter's own failure (with the problem group edge count).
     [[nodiscard]] Common::ResultStr<RegionOutcome>
-    InsertEdgeLoop( const FDynamicMesh3& before, const ElementSelection& selection, float position );
+    InsertEdgeLoop( const DynamicMesh3& before, const ElementSelection& selection, float position );
 
-    // Weld Edges: FMergeCoincidentMeshEdges with UE's defaults (MergeCoincidentMeshEdges.h) and the split
+    // Weld Edges: MergeCoincidentMeshEdges with UE's defaults (MergeCoincidentMeshEdges.h) and the split
     // attributes welded along merged edges, the settings of test WeldClosesACubeCutAlongEverySeam. Mesh-wide;
     // leaves an empty selection in @p mode. Refused when there is no boundary edge to weld.
-    [[nodiscard]] Common::ResultStr<RegionOutcome> WeldEdges( const FDynamicMesh3& before, ElementMode mode );
+    [[nodiscard]] Common::ResultStr<RegionOutcome> WeldEdges( const DynamicMesh3& before, ElementMode mode );
 } // namespace Desert::Geometry

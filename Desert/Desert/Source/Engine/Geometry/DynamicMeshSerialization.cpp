@@ -16,27 +16,27 @@ namespace Desert::Geometry
     {
         using Common::MakeFormattedError;
 
-        // UE's MAX_NUM_UV_CHANNELS, the most UV layers FDynamicMeshAttributeSet is meant to carry.
+        // UE's MAX_NUM_UV_CHANNELS, the most UV layers DynamicMeshAttributeSet is meant to carry.
         constexpr size_t kMaxUVLayers = 8;
 
         // Saved corner j is mesh corner kCorner[j]: counter-clockwise saved winding <-> UE's clockwise front.
         // The map is its own inverse.
         constexpr std::array<int, 3> kCorner{ 0, 2, 1 };
 
-        FIndex3i Swizzle( const FIndex3i& in )
+        Index3i Swizzle( const Index3i& in )
         {
-            return FIndex3i( in[kCorner[0]], in[kCorner[1]], in[kCorner[2]] );
+            return { in[kCorner[0]], in[kCorner[1]], in[kCorner[2]] };
         }
 
         // Elements a live triangle uses, densely renumbered in ascending element ID (-1 = not written).
         template <typename OverlayT>
-        std::vector<int> DenseElements( const FDynamicMesh3& mesh, const OverlayT& overlay )
+        std::vector<int> DenseElements( const DynamicMesh3& mesh, const OverlayT& overlay )
         {
             std::vector<int> dense( static_cast<size_t>( overlay.MaxElementID() ), -1 );
             for ( const int t : mesh.TriangleIndicesItr() )
                 if ( overlay.IsSetTriangle( t ) )
                 {
-                    const FIndex3i tri = overlay.GetTriangle( t );
+                    const Index3i tri = overlay.GetTriangle( t );
                     for ( int j = 0; j < 3; ++j )
                         dense[tri[j]] = 0;
                 }
@@ -49,7 +49,7 @@ namespace Desert::Geometry
 
         // Writes an overlay; @p value writes one element's floats (the tangent layer appends its sign).
         template <typename OverlayT, typename ValueFn>
-        EditMeshOverlaySer WriteOverlay( const FDynamicMesh3& mesh, const OverlayT& overlay, ValueFn&& value )
+        EditMeshOverlaySer WriteOverlay( const DynamicMesh3& mesh, const OverlayT& overlay, ValueFn&& value )
         {
             const std::vector<int> dense = DenseElements( mesh, overlay );
             EditMeshOverlaySer     out;
@@ -64,7 +64,7 @@ namespace Desert::Geometry
                     out.Triangles.insert( out.Triangles.end(), { -1, -1, -1 } );
                     continue;
                 }
-                const FIndex3i saved = Swizzle( overlay.GetTriangle( t ) );
+                const Index3i saved = Swizzle( overlay.GetTriangle( t ) );
                 for ( int j = 0; j < 3; ++j )
                     out.Triangles.push_back( dense[saved[j]] );
             }
@@ -72,7 +72,7 @@ namespace Desert::Geometry
         }
 
         template <int N, typename OverlayT>
-        EditMeshOverlaySer WritePlain( const FDynamicMesh3& mesh, const OverlayT& overlay )
+        EditMeshOverlaySer WritePlain( const DynamicMesh3& mesh, const OverlayT& overlay )
         {
             return WriteOverlay( mesh, overlay,
                                  [&]( int e, std::vector<float>& values )
@@ -85,31 +85,31 @@ namespace Desert::Geometry
                                  } );
         }
 
-        glm::vec3 Element3( const FDynamicMeshNormalOverlay& overlay, int e )
+        glm::vec3 Element3( const DynamicMeshNormalOverlay& overlay, int e )
         {
-            glm::vec3 v;
-            static_cast<const FDynamicMeshNormalOverlay::BaseType&>( overlay ).GetElement( e, &v.x );
+            glm::vec3 v{};
+            static_cast<const DynamicMeshNormalOverlay::BaseType&>( overlay ).GetElement( e, &v.x );
             return v;
         }
 
         // The handedness of each tangent element, recovered as UE's VectorUtil::BinormalSign.
-        std::vector<float> TangentSigns( const FDynamicMesh3& mesh, const FDynamicMeshAttributeSet& attributes )
+        std::vector<float> TangentSigns( const DynamicMesh3& mesh, const DynamicMeshAttributeSet& attributes )
         {
-            const FDynamicMeshNormalOverlay& tangents = *attributes.PrimaryTangents();
+            const DynamicMeshNormalOverlay&  tangents = *attributes.PrimaryTangents();
             std::vector<float>               sign( static_cast<size_t>( tangents.MaxElementID() ), 1.0f );
             std::vector<bool>                decided( sign.size(), false );
             if ( !attributes.HasTangentSpace() )
                 return sign;
-            const FDynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
-            const FDynamicMeshNormalOverlay& bitangents = *attributes.PrimaryBiTangents();
+            const DynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
+            const DynamicMeshNormalOverlay& bitangents = *attributes.PrimaryBiTangents();
             for ( const int t : mesh.TriangleIndicesItr() )
             {
                 if ( !tangents.IsSetTriangle( t ) || !normals.IsSetTriangle( t ) ||
                      !bitangents.IsSetTriangle( t ) )
                     continue;
-                const FIndex3i et = Swizzle( tangents.GetTriangle( t ) );
-                const FIndex3i en = Swizzle( normals.GetTriangle( t ) );
-                const FIndex3i eb = Swizzle( bitangents.GetTriangle( t ) );
+                const Index3i et = Swizzle( tangents.GetTriangle( t ) );
+                const Index3i en = Swizzle( normals.GetTriangle( t ) );
+                const Index3i eb = Swizzle( bitangents.GetTriangle( t ) );
                 for ( int j = 0; j < 3; ++j )
                 {
                     if ( decided[et[j]] )
@@ -130,8 +130,8 @@ namespace Desert::Geometry
         {
             const EditMeshSer&    Saved;
             std::string_view      Owner;
-            FDynamicMesh3&        Mesh;
-            std::vector<FIndex3i> SavedTriangles; // saved (counter-clockwise) vertex order per row
+            DynamicMesh3&         Mesh;
+            std::vector<Index3i>  SavedTriangles; // saved (counter-clockwise) vertex order per row
             std::vector<int>      TriangleIds;
 
             template <typename... Args>
@@ -155,15 +155,14 @@ namespace Desert::Geometry
                                  TriangleIds.size() );
 
                 const size_t elements = in.Values.size() / static_cast<size_t>( stride );
-                elementsOut.assign( elements, FDynamicMesh3::InvalidID );
+                elementsOut.assign( elements, DynamicMesh3::InvalidID );
                 for ( size_t e = 0; e < elements; ++e )
                     elementsOut[e] = overlay.AppendElement( &in.Values[e * static_cast<size_t>( stride )] );
 
-                std::vector<int> parent( elements, FDynamicMesh3::InvalidID );
+                std::vector<int> parent( elements, DynamicMesh3::InvalidID );
                 for ( size_t row = 0; row < TriangleIds.size(); ++row )
                 {
-                    const FIndex3i c( in.Triangles[row * 3], in.Triangles[row * 3 + 1],
-                                      in.Triangles[row * 3 + 2] );
+                    const Index3i c( in.Triangles[row * 3], in.Triangles[row * 3 + 1], in.Triangles[row * 3 + 2] );
                     const int      unset = ( c[0] == -1 ) + ( c[1] == -1 ) + ( c[2] == -1 );
                     if ( unset == 3 )
                         continue;
@@ -175,7 +174,7 @@ namespace Desert::Geometry
                         if ( c[j] < 0 || static_cast<size_t>( c[j] ) >= elements )
                             return Fail( "{}: triangle {} names element {} of {}", name, row, c[j], elements );
                         const int vertex = SavedTriangles[row][j];
-                        if ( parent[c[j]] != FDynamicMesh3::InvalidID && parent[c[j]] != vertex )
+                        if ( parent[c[j]] != DynamicMesh3::InvalidID && parent[c[j]] != vertex )
                             return Fail( "{}: element {} is used at vertex {} and at vertex {} (triangle {})",
                                          name, c[j], parent[c[j]], vertex, row );
                         parent[c[j]] = vertex;
@@ -183,21 +182,21 @@ namespace Desert::Geometry
                     if ( c[0] == c[1] || c[1] == c[2] || c[2] == c[0] )
                         return Fail( "{}: triangle {} names one element twice ({}, {}, {})", name, row, c[0], c[1],
                                      c[2] );
-                    const FIndex3i ids( elementsOut[c[0]], elementsOut[c[1]], elementsOut[c[2]] );
-                    if ( const EMeshResult r = overlay.SetTriangle( TriangleIds[row], Swizzle( ids ) );
-                         r != EMeshResult::Ok )
+                    const Index3i ids( elementsOut[c[0]], elementsOut[c[1]], elementsOut[c[2]] );
+                    if ( const MeshResult r = overlay.SetTriangle( TriangleIds[row], Swizzle( ids ) );
+                         r != MeshResult::Ok )
                         return Fail( "{}: triangle {} refused by the overlay ({})", name, row,
                                      static_cast<int>( r ) );
                 }
                 for ( size_t e = 0; e < elements; ++e )
-                    if ( parent[e] == FDynamicMesh3::InvalidID )
+                    if ( parent[e] == DynamicMesh3::InvalidID )
                         return Fail( "{}: element {} of {} is used by no triangle", name, e, elements );
                 return Common::MakeSuccess( true );
             }
 
             // Tangents: xyz into layer 1, and one bitangent element per (tangent, normal) element pair.
-            Common::BoolResultStr ReadTangents( FDynamicMeshAttributeSet& attributes,
-                                                const std::vector<int>&   normalIds )
+            Common::BoolResultStr ReadTangents( DynamicMeshAttributeSet& attributes,
+                                                const std::vector<int>&  normalIds )
             {
                 const EditMeshOverlaySer& in = *Saved.Tangents;
                 std::vector<int>          tangentIds;
@@ -214,9 +213,9 @@ namespace Desert::Geometry
                                      sign[e] );
                 }
 
-                FDynamicMeshNormalOverlay&         normals    = *attributes.PrimaryNormals();
-                FDynamicMeshNormalOverlay&         tangents   = *attributes.PrimaryTangents();
-                FDynamicMeshNormalOverlay&         bitangents = *attributes.PrimaryBiTangents();
+                const DynamicMeshNormalOverlay&    normals    = *attributes.PrimaryNormals();
+                const DynamicMeshNormalOverlay&    tangents   = *attributes.PrimaryTangents();
+                DynamicMeshNormalOverlay&          bitangents = *attributes.PrimaryBiTangents();
                 std::map<std::pair<int, int>, int> pairs; // (saved tangent, saved normal) -> bitangent element
                 std::vector<bool>                  framed( tangentIds.size(), false );
                 const std::vector<int>&            normalRows = Saved.Normals->Triangles;
@@ -226,7 +225,7 @@ namespace Desert::Geometry
                         continue;
                     if ( normalRows[row * 3] == -1 )
                         return Fail( "tangents: triangle {} has a tangent but no normal, so no bitangent", row );
-                    FIndex3i eb;
+                    Index3i eb;
                     for ( int j = 0; j < 3; ++j )
                     {
                         const int st = in.Triangles[row * 3 + j];
@@ -242,8 +241,8 @@ namespace Desert::Geometry
                         }
                         eb[j] = it->second;
                     }
-                    if ( const EMeshResult r = bitangents.SetTriangle( TriangleIds[row], Swizzle( eb ) );
-                         r != EMeshResult::Ok )
+                    if ( const MeshResult r = bitangents.SetTriangle( TriangleIds[row], Swizzle( eb ) );
+                         r != MeshResult::Ok )
                         return Fail( "bitangents: triangle {} refused by the overlay ({})", row,
                                      static_cast<int>( r ) );
                 }
@@ -266,7 +265,7 @@ namespace Desert::Geometry
         };
     } // namespace
 
-    EditMeshSer ToSerialized( const FDynamicMesh3& mesh )
+    EditMeshSer ToSerialized( const DynamicMesh3& mesh )
     {
         EditMeshSer out;
 
@@ -276,17 +275,17 @@ namespace Desert::Geometry
         for ( const int v : mesh.VertexIndicesItr() )
         {
             denseVertex[v]    = next++;
-            const FVector3d p = mesh.GetVertex( v );
-            out.Positions.insert( out.Positions.end(), { static_cast<float>( p.X ), static_cast<float>( p.Y ),
-                                                         static_cast<float>( p.Z ) } );
+            const glm::dvec3 p = mesh.GetVertex( v );
+            out.Positions.insert( out.Positions.end(), { static_cast<float>( p.x ), static_cast<float>( p.y ),
+                                                         static_cast<float>( p.z ) } );
         }
 
-        const FDynamicMeshAttributeSet*      attributes = mesh.Attributes();
-        const FDynamicMeshMaterialAttribute* materialIds =
+        const DynamicMeshAttributeSet*      attributes = mesh.Attributes();
+        const DynamicMeshMaterialAttribute* materialIds =
              attributes != nullptr ? attributes->GetMaterialID() : nullptr;
         for ( const int t : mesh.TriangleIndicesItr() )
         {
-            const FIndex3i saved = Swizzle( mesh.GetTriangle( t ) );
+            const Index3i saved = Swizzle( mesh.GetTriangle( t ) );
             for ( int j = 0; j < 3; ++j )
                 out.Triangles.push_back( denseVertex[saved[j]] );
             out.PolyGroups.push_back( mesh.GetTriangleGroup( t ) );
@@ -299,7 +298,7 @@ namespace Desert::Geometry
             out.Normals = WritePlain<3>( mesh, *attributes->PrimaryNormals() );
         if ( attributes->NumNormalLayers() >= 2 )
         {
-            const FDynamicMeshNormalOverlay& tangents = *attributes->PrimaryTangents();
+            const DynamicMeshNormalOverlay&  tangents = *attributes->PrimaryTangents();
             const std::vector<float>         sign     = TangentSigns( mesh, *attributes );
             out.Tangents                              = WriteOverlay( mesh, tangents,
                                                                       [&]( int e, std::vector<float>& values )
@@ -315,34 +314,33 @@ namespace Desert::Geometry
         return out;
     }
 
-    Common::ResultStr<FDynamicMesh3> DynamicMeshFromSerialized( const EditMeshSer& saved, std::string_view owner )
+    Common::ResultStr<DynamicMesh3> DynamicMeshFromSerialized( const EditMeshSer& saved, std::string_view owner )
     {
-        const auto fail = [&]( const std::string& message )
-        { return Common::MakeError<FDynamicMesh3>( message ); };
+        const auto fail = [&]( const std::string& message ) { return Common::MakeError<DynamicMesh3>( message ); };
         const std::string prefix = "mesh of '" + std::string( owner ) + "': ";
 
         if ( saved.Positions.size() % 3 != 0 )
-            return MakeFormattedError<FDynamicMesh3>( "{}{} position floats is not a whole number of vertices",
-                                                      prefix, saved.Positions.size() );
+            return MakeFormattedError<DynamicMesh3>( "{}{} position floats is not a whole number of vertices",
+                                                     prefix, saved.Positions.size() );
         if ( saved.Triangles.size() % 3 != 0 )
-            return MakeFormattedError<FDynamicMesh3>( "{}{} triangle indices is not a whole number of triangles",
-                                                      prefix, saved.Triangles.size() );
+            return MakeFormattedError<DynamicMesh3>( "{}{} triangle indices is not a whole number of triangles",
+                                                     prefix, saved.Triangles.size() );
         const size_t vertexCount   = saved.Positions.size() / 3;
         const size_t triangleCount = saved.Triangles.size() / 3;
         if ( saved.PolyGroups.size() != triangleCount || saved.MaterialIds.size() != triangleCount )
-            return MakeFormattedError<FDynamicMesh3>( "{}{} triangles but {} polygroups and {} material IDs",
-                                                      prefix, triangleCount, saved.PolyGroups.size(),
-                                                      saved.MaterialIds.size() );
+            return MakeFormattedError<DynamicMesh3>( "{}{} triangles but {} polygroups and {} material IDs",
+                                                     prefix, triangleCount, saved.PolyGroups.size(),
+                                                     saved.MaterialIds.size() );
         if ( saved.UVs.size() > kMaxUVLayers )
-            return MakeFormattedError<FDynamicMesh3>( "{}{} UV layers, at most {}", prefix, saved.UVs.size(),
-                                                      kMaxUVLayers );
+            return MakeFormattedError<DynamicMesh3>( "{}{} UV layers, at most {}", prefix, saved.UVs.size(),
+                                                     kMaxUVLayers );
         if ( saved.Tangents && !saved.Normals )
             return fail( prefix + "a tangent layer without a normal layer has no bitangent" );
 
-        FDynamicMesh3 mesh;
+        DynamicMesh3 mesh;
         mesh.EnableTriangleGroups();
         mesh.EnableAttributes();
-        FDynamicMeshAttributeSet& attributes = *mesh.Attributes();
+        DynamicMeshAttributeSet& attributes = *mesh.Attributes();
         attributes.SetNumNormalLayers( saved.Tangents ? 3 : ( saved.Normals ? 1 : 0 ) );
         attributes.SetNumUVLayers( static_cast<int>( saved.UVs.size() ) );
         if ( saved.Colors )
@@ -351,45 +349,46 @@ namespace Desert::Geometry
 
         for ( size_t v = 0; v < vertexCount; ++v )
             (void)mesh.AppendVertex(
-                 FVector3d( saved.Positions[v * 3], saved.Positions[v * 3 + 1], saved.Positions[v * 3 + 2] ) );
+                 glm::dvec3( saved.Positions[v * 3], saved.Positions[v * 3 + 1], saved.Positions[v * 3 + 2] ) );
 
         Reader reader{ saved, owner, mesh, {}, {} };
         reader.SavedTriangles.reserve( triangleCount );
         reader.TriangleIds.reserve( triangleCount );
         for ( size_t row = 0; row < triangleCount; ++row )
         {
-            const FIndex3i tri( saved.Triangles[row * 3], saved.Triangles[row * 3 + 1],
-                                saved.Triangles[row * 3 + 2] );
+            const Index3i tri( saved.Triangles[row * 3], saved.Triangles[row * 3 + 1],
+                               saved.Triangles[row * 3 + 2] );
             for ( int j = 0; j < 3; ++j )
                 if ( tri[j] < 0 || static_cast<size_t>( tri[j] ) >= vertexCount )
-                    return MakeFormattedError<FDynamicMesh3>( "{}triangle {} names vertex {} of {}", prefix, row,
-                                                              tri[j], vertexCount );
+                    return MakeFormattedError<DynamicMesh3>( "{}triangle {} names vertex {} of {}", prefix, row,
+                                                             tri[j], vertexCount );
             if ( tri[0] == tri[1] || tri[1] == tri[2] || tri[2] == tri[0] )
-                return MakeFormattedError<FDynamicMesh3>( "{}triangle {} ({}, {}, {}) is degenerate", prefix, row,
-                                                          tri[0], tri[1], tri[2] );
+                return MakeFormattedError<DynamicMesh3>( "{}triangle {} ({}, {}, {}) is degenerate", prefix, row,
+                                                         tri[0], tri[1], tri[2] );
             const int t = mesh.AppendTriangle( Swizzle( tri ), saved.PolyGroups[row] );
-            if ( t == FDynamicMesh3::NonManifoldID )
-                return MakeFormattedError<FDynamicMesh3>(
+            if ( t == DynamicMesh3::NonManifoldID )
+                return MakeFormattedError<DynamicMesh3>(
                      "{}triangle {} ({}, {}, {}) would make a non-manifold edge", prefix, row, tri[0], tri[1],
                      tri[2] );
-            if ( t == FDynamicMesh3::DuplicateTriangleID )
-                return MakeFormattedError<FDynamicMesh3>( "{}triangle {} ({}, {}, {}) repeats an earlier triangle",
-                                                          prefix, row, tri[0], tri[1], tri[2] );
+            if ( t == DynamicMesh3::DuplicateTriangleID )
+                return MakeFormattedError<DynamicMesh3>( "{}triangle {} ({}, {}, {}) repeats an earlier triangle",
+                                                         prefix, row, tri[0], tri[1], tri[2] );
             if ( t < 0 )
-                return MakeFormattedError<FDynamicMesh3>( "{}triangle {} ({}, {}, {}) refused ({})", prefix, row,
-                                                          tri[0], tri[1], tri[2], t );
+                return MakeFormattedError<DynamicMesh3>( "{}triangle {} ({}, {}, {}) refused ({})", prefix, row,
+                                                         tri[0], tri[1], tri[2], t );
             attributes.GetMaterialID()->SetValue( t, saved.MaterialIds[row] );
             reader.SavedTriangles.push_back( tri );
             reader.TriangleIds.push_back( t );
         }
 
-        const auto check = [&]( Common::BoolResultStr r ) -> std::optional<std::string>
+        const auto check = [&]( const Common::BoolResultStr& r ) -> std::optional<std::string>
         {
             if ( r.IsSuccess() )
                 return std::nullopt;
             return r.GetError();
         };
-        std::vector<int> normalIds, scratch;
+        std::vector<int> normalIds;
+        std::vector<int> scratch;
         if ( saved.Normals )
             if ( auto e = check(
                       reader.Read( *attributes.PrimaryNormals(), *saved.Normals, "normals", 3, normalIds ) ) )
@@ -397,7 +396,7 @@ namespace Desert::Geometry
         if ( saved.Tangents )
         {
             if ( saved.Tangents->Values.size() % 4 != 0 )
-                return MakeFormattedError<FDynamicMesh3>(
+                return MakeFormattedError<DynamicMesh3>(
                      "{}tangents: {} values is not a whole number of 4-float elements", prefix,
                      saved.Tangents->Values.size() );
             if ( auto e = check( reader.ReadTangents( attributes, normalIds ) ) )
@@ -413,8 +412,8 @@ namespace Desert::Geometry
                                           "UV layer " + std::to_string( layer ), 2, scratch ) ) )
                 return fail( *e );
 
-        if ( !mesh.CheckValidity( {}, EValidityCheckFailMode::ReturnOnly ) )
-            return fail( prefix + "the rebuilt mesh fails FDynamicMesh3::CheckValidity" );
+        if ( !mesh.CheckValidity( {}, ValidityCheckFailMode::ReturnOnly ) )
+            return fail( prefix + "the rebuilt mesh fails DynamicMesh3::CheckValidity" );
         return Common::MakeSuccess( std::move( mesh ) );
     }
 } // namespace Desert::Geometry

@@ -75,7 +75,7 @@ namespace Desert::Editor
     // Nothing is written when the mesh is refused: the render encoding is tried first, so a mesh the loader
     // could not derive (a colour layer, a second UV layer) never becomes a file that draws nothing.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
-    WriteStaticMeshAsset( const Geometry::FDynamicMesh3&              mesh,
+    WriteStaticMeshAsset( const Geometry::DynamicMesh3&               mesh,
                           std::span<const Common::Content::AssetGuid> slotMaterials,
                           const std::filesystem::path& folder, std::string_view baseName )
     {

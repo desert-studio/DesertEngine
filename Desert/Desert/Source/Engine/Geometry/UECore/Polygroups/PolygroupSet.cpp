@@ -3,19 +3,20 @@
 // UE Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; std::string layer lookup by
 // std::string.
 #include "Engine/Geometry/UECore/Polygroups/PolygroupSet.hpp"
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/Polygroups/PolygroupUtil.cpp: 7-78 (the
-// polygroup-layer lookups FPolygroupSet uses), adapted: std::string is std::string; the triangle-label lookups are
+// polygroup-layer lookups PolygroupSet uses), adapted: std::string is std::string; the triangle-label lookups are
 // not ported.
 namespace
 {
-    const FDynamicMeshPolygroupAttribute* FindPolygroupLayerByName( const FDynamicMesh3& Mesh,
-                                                                    const std::string&   Name )
+    const DynamicMeshPolygroupAttribute* FindPolygroupLayerByName( const DynamicMesh3& Mesh,
+                                                                   const std::string&  Name )
     {
-        const FDynamicMeshAttributeSet* AttributeSet = Mesh.Attributes();
+        const DynamicMeshAttributeSet* AttributeSet = Mesh.Attributes();
         if ( AttributeSet == nullptr )
             return nullptr;
         int32_t const NumPolygroupLayers = AttributeSet->NumPolygroupLayers();
@@ -29,9 +30,9 @@ namespace
         return nullptr;
     }
 
-    int32_t FindPolygroupLayerIndex( const FDynamicMesh3& Mesh, const FDynamicMeshPolygroupAttribute* Layer )
+    int32_t FindPolygroupLayerIndex( const DynamicMesh3& Mesh, const DynamicMeshPolygroupAttribute* Layer )
     {
-        const FDynamicMeshAttributeSet* AttributeSet = Mesh.Attributes();
+        const DynamicMeshAttributeSet* AttributeSet = Mesh.Attributes();
         if ( AttributeSet == nullptr )
             return -1;
         int32_t const NumPolygroupLayers = AttributeSet->NumPolygroupLayers();
@@ -46,9 +47,9 @@ namespace
     }
 } // namespace
 
-bool FPolygroupLayer::CheckExists( const FDynamicMesh3* Mesh ) const
+bool PolygroupLayer::CheckExists( const DynamicMesh3* Mesh ) const
 {
-    if ( Mesh )
+    if ( Mesh != nullptr )
     {
         if ( bIsDefaultLayer )
         {
@@ -69,7 +70,7 @@ bool FPolygroupLayer::CheckExists( const FDynamicMesh3* Mesh ) const
     return false;
 }
 
-void FPolygroupLayer::EnableOnMesh( FDynamicMesh3& Mesh ) const
+void PolygroupLayer::EnableOnMesh( DynamicMesh3& Mesh ) const
 {
     if ( bIsDefaultLayer )
     {
@@ -91,29 +92,25 @@ void FPolygroupLayer::EnableOnMesh( FDynamicMesh3& Mesh ) const
     }
 }
 
-FPolygroupSet::FPolygroupSet( const FPolygroupSet* CopyIn )
+PolygroupSet::PolygroupSet( const PolygroupSet* CopyIn )
+     : Mesh( CopyIn->Mesh ), PolygroupAttrib( CopyIn->PolygroupAttrib ),
+       GroupLayerIndex( CopyIn->GroupLayerIndex ), MaxGroupID( CopyIn->MaxGroupID )
 {
-    Mesh            = CopyIn->Mesh;
-    PolygroupAttrib = CopyIn->PolygroupAttrib;
-    GroupLayerIndex = CopyIn->GroupLayerIndex;
-    MaxGroupID      = CopyIn->MaxGroupID;
 }
 
-FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn ) : Mesh( MeshIn )
 {
-    Mesh            = MeshIn;
-    GroupLayerIndex = -1;
+
     RecalculateMaxGroupID();
 }
 
 /** Initialize a PolygroupSet for the given Mesh, and standard triangle group layer */
-FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, FPolygroupLayer GroupLayer )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, PolygroupLayer GroupLayer ) : Mesh( MeshIn )
 {
-    Mesh            = MeshIn;
-    GroupLayerIndex = -1;
+
     if ( !GroupLayer.bIsDefaultLayer )
     {
-        if ( UE_ENSURE( Mesh->Attributes() ) )
+        if ( Common::EnsureOrWarn( Mesh->Attributes() != nullptr, "Mesh->Attributes()" ) )
         {
             if ( GroupLayer.LayerIndex < Mesh->Attributes()->NumPolygroupLayers() )
             {
@@ -123,25 +120,24 @@ FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, FPolygroupLayer Group
         }
         if ( GroupLayerIndex == -1 )
         {
-            UE_ENSURE_MSGF( false, "FPolygroupSet: Attribute index missing!" );
+            DESERT_VERIFY_WARN( false, "PolygroupSet: Attribute index missing!" );
         }
     }
     RecalculateMaxGroupID();
 }
 
-FPolygroupSet::FPolygroupSet( const FDynamicMesh3*                  MeshIn,
-                              const FDynamicMeshPolygroupAttribute* PolygroupAttribIn )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, const DynamicMeshPolygroupAttribute* PolygroupAttribIn )
+     : Mesh( MeshIn ), PolygroupAttrib( PolygroupAttribIn ),
+       GroupLayerIndex( FindPolygroupLayerIndex( *MeshIn, PolygroupAttrib ) )
 {
-    Mesh            = MeshIn;
-    PolygroupAttrib = PolygroupAttribIn;
-    GroupLayerIndex = FindPolygroupLayerIndex( *MeshIn, PolygroupAttrib );
+
     RecalculateMaxGroupID();
 }
 
-FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, int32_t PolygroupLayerIndex )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, int32_t PolygroupLayerIndex ) : Mesh( MeshIn )
 {
-    Mesh = MeshIn;
-    if ( UE_ENSURE( Mesh->Attributes() ) )
+
+    if ( Common::EnsureOrWarn( Mesh->Attributes() != nullptr, "Mesh->Attributes()" ) )
     {
         if ( PolygroupLayerIndex < Mesh->Attributes()->NumPolygroupLayers() )
         {
@@ -151,22 +147,22 @@ FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, int32_t PolygroupLaye
         }
     }
     RecalculateMaxGroupID();
-    UE_ENSURE_MSGF( false, "FPolygroupSet: Attribute index missing!" );
+    DESERT_VERIFY_WARN( false, "PolygroupSet: Attribute index missing!" );
 }
 
-FPolygroupSet::FPolygroupSet( const FDynamicMesh3* MeshIn, const std::string& AttribName )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, const std::string& AttribName )
+     : Mesh( MeshIn ), PolygroupAttrib( FindPolygroupLayerByName( *MeshIn, AttribName ) ),
+       GroupLayerIndex( FindPolygroupLayerIndex( *MeshIn, PolygroupAttrib ) )
 {
-    Mesh            = MeshIn;
-    PolygroupAttrib = FindPolygroupLayerByName( *MeshIn, AttribName );
-    GroupLayerIndex = FindPolygroupLayerIndex( *MeshIn, PolygroupAttrib );
+
     RecalculateMaxGroupID();
-    UE_ENSURE_MSGF( PolygroupAttrib != nullptr, "FPolygroupSet: Attribute set missing!" );
+    DESERT_VERIFY_WARN( PolygroupAttrib != nullptr, "PolygroupSet: Attribute set missing!" );
 }
 
-void FPolygroupSet::RecalculateMaxGroupID()
+void PolygroupSet::RecalculateMaxGroupID()
 {
     MaxGroupID = 0;
-    if ( PolygroupAttrib )
+    if ( PolygroupAttrib != nullptr )
     {
         for ( int32_t const tid : Mesh->TriangleIndicesItr() )
         {

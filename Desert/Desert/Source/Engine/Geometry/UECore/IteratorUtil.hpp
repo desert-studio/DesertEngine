@@ -21,38 +21,35 @@ namespace Desert::Geometry
         using MapFunctionT = std::function<ToType( FromType )>;
 
     public:
-        inline MappedIterator()
+        MappedIterator() = default;
+
+        bool operator==( const MappedIterator& Other ) const
         {
+            return m_Cur == Other.Cur;
+        }
+        bool operator!=( const MappedIterator& Other ) const
+        {
+            return m_Cur != Other.m_Cur;
         }
 
-        inline bool operator==( const MappedIterator& Other ) const
+        ToType operator*() const
         {
-            return Cur == Other.Cur;
-        }
-        inline bool operator!=( const MappedIterator& Other ) const
-        {
-            return Cur != Other.Cur;
+            return m_MapFunction( *m_Cur );
         }
 
-        inline ToType operator*() const
+        const MappedIterator& operator++() // prefix
         {
-            return MapFunction( *Cur );
-        }
-
-        inline const MappedIterator& operator++() // prefix
-        {
-            Cur++;
+            m_Cur++;
             return *this;
         }
 
-        inline MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn )
+        MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn )
+             : m_Cur( CurItr ), m_MapFunction( MapFunctionIn )
         {
-            Cur         = CurItr;
-            MapFunction = MapFunctionIn;
         }
 
-        IteratorT    Cur;
-        MapFunctionT MapFunction;
+        IteratorT    m_Cur;
+        MapFunctionT m_MapFunction;
     };
 
     /**
@@ -65,53 +62,50 @@ namespace Desert::Geometry
         using FilterFunctionT = std::function<bool( ValueType )>;
 
     public:
-        inline FilteredIterator()
+        FilteredIterator() = default;
+
+        bool operator==( const FilteredIterator& Other ) const
         {
+            return m_Cur == Other.Cur;
+        }
+        bool operator!=( const FilteredIterator& Other ) const
+        {
+            return m_Cur != Other.m_Cur;
         }
 
-        inline bool operator==( const FilteredIterator& Other ) const
+        ValueType operator*() const
         {
-            return Cur == Other.Cur;
-        }
-        inline bool operator!=( const FilteredIterator& Other ) const
-        {
-            return Cur != Other.Cur;
+            return *m_Cur;
         }
 
-        inline ValueType operator*() const
-        {
-            return *Cur;
-        }
-
-        inline const FilteredIterator& operator++() // prefix
+        const FilteredIterator& operator++() // prefix
         {
             GotoNextElement();
             return *this;
         }
 
-        inline void GotoNextElement()
+        void GotoNextElement()
         {
             do
             {
-                Cur++;
-            } while ( Cur != End && FilterFunc( *Cur ) == false );
+                m_Cur++;
+            } while ( m_Cur != m_End && !static_cast<bool>( m_FilterFunc( *m_Cur ) ) );
         }
 
-        inline FilteredIterator( const IteratorT& CurItr, const IteratorT& EndItr,
-                                 const FilterFunctionT& FilterFuncIn )
+        FilteredIterator( const IteratorT& CurItr, const IteratorT& EndItr, const FilterFunctionT& FilterFuncIn )
+             : m_Cur( CurItr ), m_End( EndItr )
         {
-            Cur              = CurItr;
-            End              = EndItr;
-            this->FilterFunc = FilterFuncIn;
-            if ( Cur != End && FilterFunc( *Cur ) == false )
+
+            this->m_FilterFunc = FilterFuncIn;
+            if ( m_Cur != m_End && !static_cast<bool>( m_FilterFunc( *m_Cur ) ) )
             {
                 GotoNextElement();
             }
         }
 
-        IteratorT       Cur;
-        IteratorT       End;
-        FilterFunctionT FilterFunc;
+        IteratorT       m_Cur;
+        IteratorT       m_End;
+        FilterFunctionT m_FilterFunc;
     };
 
     /**
@@ -132,7 +126,7 @@ namespace Desert::Geometry
      * If you have more values to return for this input value, set it to some positive
      * number of your choosing.
      *
-     * See FDynamicMesh3::VtxTrianglesItr for an example
+     * See DynamicMesh3::VtxTrianglesItr for an example
      */
     template <typename OutputType, typename InputType, typename InputIteratorT>
     class ExpandIterator
@@ -140,38 +134,36 @@ namespace Desert::Geometry
         using ExpandFunctionT = std::function<OutputType( InputType, int& )>;
 
     public:
-        inline ExpandIterator()
+        ExpandIterator() = default;
+
+        bool operator==( const ExpandIterator& Other ) const
         {
+            return m_Cur == Other.Cur;
+        }
+        bool operator!=( const ExpandIterator& Other ) const
+        {
+            return m_Cur != Other.Cur;
         }
 
-        inline bool operator==( const ExpandIterator& Other ) const
+        OutputType operator*() const
         {
-            return Cur == Other.Cur;
-        }
-        inline bool operator!=( const ExpandIterator& Other ) const
-        {
-            return Cur != Other.Cur;
+            return m_CurValue;
         }
 
-        inline OutputType operator*() const
-        {
-            return CurValue;
-        }
-
-        inline const ExpandIterator& operator++() // prefix
+        const ExpandIterator& operator++() // prefix
         {
             goto_next();
             return *this;
         }
 
-        inline void goto_next()
+        void goto_next()
         {
-            while ( Cur != End )
+            while ( m_Cur != m_End )
             {
-                CurValue = ExpandFunc( *Cur, CurExpandI );
-                if ( CurExpandI == -1 )
+                m_CurValue = ExpandFunc( *m_Cur, m_CurExpandI );
+                if ( m_CurExpandI == -1 )
                 {
-                    ++Cur; // done with this base value
+                    ++m_Cur; // done with this base value
                 }
                 else
                 {
@@ -180,21 +172,19 @@ namespace Desert::Geometry
             }
         }
 
-        inline ExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
-                               const ExpandFunctionT& ExpandFuncIn )
+        ExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
+                        const ExpandFunctionT& ExpandFuncIn )
+             : m_Cur( CurItr ), m_End( EndItr ), m_CurExpandI( -1 ), m_ExpandFunc( ExpandFuncIn )
         {
-            Cur        = CurItr;
-            End        = EndItr;
-            ExpandFunc = ExpandFuncIn;
-            CurExpandI = -1;
+
             goto_next();
         }
 
-        InputIteratorT  Cur;
-        InputIteratorT  End;
-        OutputType      CurValue;
-        int             CurExpandI;
-        ExpandFunctionT ExpandFunc;
+        InputIteratorT  m_Cur;
+        InputIteratorT  m_End;
+        OutputType      m_CurValue;
+        int             m_CurExpandI{};
+        ExpandFunctionT m_ExpandFunc;
     };
 
     /**
@@ -209,8 +199,8 @@ namespace Desert::Geometry
         using ExpandIteratorT = ExpandIterator<OutputType, InputType, InputIteratorT>;
 
     public:
-        ExpandFunctionT ExpandFunc;
-        InputIteratorT  BeginItr, EndItr;
+        ExpandFunctionT m_ExpandFunc;
+        InputIteratorT  m_BeginItr, m_EndItr;
 
         ExpandEnumerable( const InputIteratorT& BeginIn, const InputIteratorT& EndIn,
                           ExpandFunctionT ExpandFuncIn )
@@ -230,12 +220,12 @@ namespace Desert::Geometry
 
         ExpandIteratorT begin()
         {
-            return ExpandIteratorT( BeginItr, EndItr, ExpandFunc );
+            return ExpandIteratorT( m_BeginItr, m_EndItr, m_ExpandFunc );
         }
 
         ExpandIteratorT end()
         {
-            return ExpandIteratorT( EndItr, EndItr, ExpandFunc );
+            return ExpandIteratorT( m_EndItr, m_EndItr, m_ExpandFunc );
         }
     };
 
@@ -243,119 +233,111 @@ namespace Desert::Geometry
      * Wrapper around existing integer iterator that returns either 0, 1, or 2 integers
      * for each value that the original iterator returns.
      *
-     * This is specifically used by FDynamicMesh3::VtxTrianglesItr, where for each edge
+     * This is specifically used by DynamicMesh3::VtxTrianglesItr, where for each edge
      * around a vertex, between 0 and 2 triangles need to be returned.
      *
-     * This is done via the PairExpandFunctionT std::function, which returns a FIndex2i for
+     * This is done via the PairExpandFunctionT std::function, which returns a Index2i for
      * a given integer. This pair must be either (a,invalid), (a, b), or (invalid, invalid),
      * where invalid is integer < 0
      */
     template <typename InputIteratorT>
-    class TPairExpandIterator
+    class PairExpandIterator
     {
-        using PairExpandFunctionT = std::function<FIndex2i( int )>;
+        using PairExpandFunctionT = std::function<Index2i( int )>;
 
     public:
-        inline TPairExpandIterator()
+        PairExpandIterator() = default;
+
+        bool operator==( const PairExpandIterator& Other ) const
         {
+            return m_Cur == Other.Cur;
+        }
+        bool operator!=( const PairExpandIterator& Other ) const
+        {
+            return m_Cur != Other.m_Cur;
         }
 
-        inline bool operator==( const TPairExpandIterator& Other ) const
+        int operator*() const
         {
-            return Cur == Other.Cur;
-        }
-        inline bool operator!=( const TPairExpandIterator& Other ) const
-        {
-            return Cur != Other.Cur;
+            return m_CurValue;
         }
 
-        inline int operator*() const
-        {
-            return CurValue;
-        }
-
-        inline const TPairExpandIterator& operator++() // prefix
+        const PairExpandIterator& operator++() // prefix
         {
             goto_next();
             return *this;
         }
 
-        inline void goto_next()
+        void goto_next()
         {
-            while ( Cur != End )
+            while ( m_Cur != m_End )
             {
-                if ( CurPairI == 0 )
+                if ( m_CurPairI == 0 )
                 {
-                    CurPair = PairFunc( *Cur );
-                    if ( CurPair.A >= 0 )
+                    m_CurPair = m_PairFunc( *m_Cur );
+                    if ( m_CurPair.A >= 0 )
                     {
-                        CurValue = CurPair.A;
-                        CurPairI = 1; // want to take second branch
+                        m_CurValue = m_CurPair.A;
+                        m_CurPairI = 1; // want to take second branch
                         return;       // let caller see value
                     }
-                    else
-                    {
-                        CurPairI = 0;
-                        ++Cur; // done with this base value
-                    }
+
+                    m_CurPairI = 0;
+                    ++m_Cur; // done with this base value
                 }
-                else if ( CurPairI == 1 )
+                else if ( m_CurPairI == 1 )
                 {
-                    if ( CurPair.B >= 0 )
+                    if ( m_CurPair.B >= 0 )
                     {
-                        CurValue = CurPair.B;
-                        CurPairI = 2; // want to take third branch
+                        m_CurValue = m_CurPair.B;
+                        m_CurPairI = 2; // want to take third branch
                         return;       // let caller see value
                     }
-                    else
-                    {
-                        CurPairI = 0;
-                        ++Cur; // done with this base value
-                    }
+
+                    m_CurPairI = 0;
+                    ++m_Cur; // done with this base value
                 }
                 else
                 {
-                    CurPairI = 0;
-                    ++Cur; // done with this base value
+                    m_CurPairI = 0;
+                    ++m_Cur; // done with this base value
                 }
             }
         }
 
-        inline TPairExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
-                                    const PairExpandFunctionT& PairFuncIn )
+        PairExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
+                            const PairExpandFunctionT& PairFuncIn )
+             : m_Cur( CurItr ), m_End( EndItr ), m_PairFunc( PairFuncIn )
         {
-            Cur      = CurItr;
-            End      = EndItr;
-            PairFunc = PairFuncIn;
-            CurPairI = 0;
+
             goto_next();
         }
 
-        InputIteratorT      Cur;
-        InputIteratorT      End;
-        FIndex2i            CurPair;
-        int                 CurValue;
-        int                 CurPairI;
-        PairExpandFunctionT PairFunc;
+        InputIteratorT      m_Cur;
+        InputIteratorT      m_End;
+        Index2i             m_CurPair;
+        int                 m_CurValue{};
+        int                 m_CurPairI{};
+        PairExpandFunctionT m_PairFunc;
     };
 
     /**
-     * Generic "enumerable" object that provides begin/end semantics for an TPairExpandIterator suitable for use
+     * Generic "enumerable" object that provides begin/end semantics for an PairExpandIterator suitable for use
      * with range-based for. You can either provide begin/end iterators, or another "enumerable" object that has
      * begin()/end() functions.
      */
     template <typename InputIteratorT>
-    class TPairExpandEnumerable
+    class PairExpandEnumerable
     {
-        using ExpandFunctionT = std::function<FIndex2i( int )>;
-        using ExpandIteratorT = TPairExpandIterator<InputIteratorT>;
+        using ExpandFunctionT = std::function<Index2i( int )>;
+        using ExpandIteratorT = PairExpandIterator<InputIteratorT>;
 
     public:
-        ExpandFunctionT ExpandFunc;
-        InputIteratorT  BeginItr, EndItr;
+        ExpandFunctionT m_ExpandFunc;
+        InputIteratorT  m_BeginItr, m_EndItr;
 
-        TPairExpandEnumerable( const InputIteratorT& BeginIn, const InputIteratorT& EndIn,
-                               ExpandFunctionT ExpandFuncIn )
+        PairExpandEnumerable( const InputIteratorT& BeginIn, const InputIteratorT& EndIn,
+                              ExpandFunctionT ExpandFuncIn )
         {
             this->BeginItr   = BeginIn;
             this->EndItr     = EndIn;
@@ -363,32 +345,32 @@ namespace Desert::Geometry
         }
 
         template <typename IteratorSource>
-        TPairExpandEnumerable( const IteratorSource& Source, ExpandFunctionT ExpandFuncIn )
+        PairExpandEnumerable( const IteratorSource& Source, ExpandFunctionT ExpandFuncIn )
         {
-            this->BeginItr   = Source.begin();
-            this->EndItr     = Source.end();
-            this->ExpandFunc = ExpandFuncIn;
+            this->m_BeginItr   = Source.begin();
+            this->m_EndItr     = Source.end();
+            this->m_ExpandFunc = ExpandFuncIn;
         }
 
         ExpandIteratorT begin()
         {
-            return ExpandIteratorT( BeginItr, EndItr, ExpandFunc );
+            return ExpandIteratorT( m_BeginItr, m_EndItr, m_ExpandFunc );
         }
 
         ExpandIteratorT end()
         {
-            return ExpandIteratorT( EndItr, EndItr, ExpandFunc );
+            return ExpandIteratorT( m_EndItr, m_EndItr, m_ExpandFunc );
         }
     };
 
     /**
-     * FModuloIteration is used to iterate over a range of indices [0,N) using modulo-arithmetic.
+     * ModuloIteration is used to iterate over a range of indices [0,N) using modulo-arithmetic.
      * The iteration proceeds as NextValue = (CurValue + ModuloValue) % N.
      * As long as the ModuloValue is a prime number > N/2, then every integer in the sequence 0...N-1
      * will appear exactly once before 0 re-appears (and in fact any index in the range can be used
      * as the starting value).
      *
-     * FModuloIteration computes in 64-bit with (by default) a large enough prime that will work
+     * ModuloIteration computes in 64-bit with (by default) a large enough prime that will work
      * for any 32-bit unsigned integer. If 64-bit iterations are needed, some larger primes can
      * be found here: https://en.wikipedia.org/wiki/P%C3%A9pin%27s_test
      *
@@ -399,11 +381,11 @@ namespace Desert::Geometry
      *
      * Usage:
      *
-            FModuloIteration Iter(N);
+            ModuloIteration Iter(N);
             uint32_t Index;
             while (Iter.GetNextIndex(Index)) { ... }
      */
-    struct FModuloIteration
+    struct ModuloIteration
     {
         uint64_t MaxIndex    = 0;
         uint64_t ModuloPrime = 4294967311ull; // prime > max_unsigned_int
@@ -412,17 +394,19 @@ namespace Desert::Geometry
         uint64_t Count       = 0;
         uint64_t ModuloNum   = 1;
 
-        FModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
+        ModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
+             : ModuloPrime( ModuloPrimeIn )
+
         {
             MaxIndex   = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), MaxIndexIn ) );
             StartIndex = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), StartIndexIn ) );
             CurIndex   = StartIndex;
-            Count      = 0;
+
             ModuloNum  = std::max( static_cast<uint64_t>( 1 ),
                                    MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
                                                // is 0 we will terminate on first iteration anyway
-            ModuloPrime = ModuloPrimeIn;
-            UE_CHECK( ModuloPrime > MaxIndex );
+
+            assert( ModuloPrime > MaxIndex );
         }
 
         bool GetNextIndex( uint32_t& NextIndexOut )

@@ -145,12 +145,10 @@ namespace Desert::Geometry::VoxelBlockout
                 return false;
             return cells.contains( Pack( { FloorDiv( c.x, R ), FloorDiv( c.y, R ), FloorDiv( c.z, R ) } ) );
         };
-        if ( inLayer( Cells, Unit, Origin ) )
+        if ( inLayer( m_Cells, m_Unit, m_Origin ) )
             return true;
-        for ( const Layer& l : Frozen )
-            if ( inLayer( l.Cells, l.Unit, l.Origin ) )
-                return true;
-        return false;
+        return std::ranges::any_of( m_Frozen, [&inLayer]( const Layer& l )
+                                    { return inLayer( l.Cells, l.Unit, l.Origin ); } );
     }
 
     bool Volume::FaceHidden( const CellMap& cells, const glm::ivec3& c, const Cell& data, int f, float unit,
@@ -178,8 +176,8 @@ namespace Desert::Geometry::VoxelBlockout
     void Volume::Refine( int F )
     {
         CellMap out;
-        out.reserve( Cells.size() * static_cast<size_t>( F * F * F ) );
-        for ( const auto& [k, cell] : Cells )
+        out.reserve( m_Cells.size() * static_cast<size_t>( F * F * F ) );
+        for ( const auto& [k, cell] : m_Cells )
         {
             const glm::ivec3 c = Unpack( k );
             for ( int dx = 0; dx < F; ++dx )
@@ -187,27 +185,27 @@ namespace Desert::Geometry::VoxelBlockout
                     for ( int dz = 0; dz < F; ++dz )
                         out[Pack( { c.x * F + dx, c.y * F + dy, c.z * F + dz } )] = Cell{};
         }
-        Cells = std::move( out );
-        Unit /= static_cast<float>( F );
+        m_Cells = std::move( out );
+        m_Unit /= static_cast<float>( F );
     }
 
     bool Volume::Freeze()
     {
-        if ( Cells.empty() )
+        if ( m_Cells.empty() )
             return false;
         Layer l;
-        l.Cells  = std::move( Cells );
-        l.Unit   = Unit;
-        l.Origin = Origin;
-        Frozen.push_back( std::move( l ) );
-        Cells.clear();
-        Unit = -1.0f; // the next Block Size becomes the base of a brand-new volume
+        l.Cells  = std::move( m_Cells );
+        l.Unit   = m_Unit;
+        l.Origin = m_Origin;
+        m_Frozen.push_back( std::move( l ) );
+        m_Cells.clear();
+        m_Unit = -1.0f; // the next Block Size becomes the base of a brand-new volume
         return true;
     }
 
     void Volume::PushPull( WorkPlane& plane, const Rect& sel, int dir, int height )
     {
-        auto      occ  = [&]( const glm::ivec3& c ) { return SolidAt( c, Unit, Origin ); };
+        auto      occ  = [&]( const glm::ivec3& c ) { return SolidAt( c, m_Unit, m_Origin ); };
         const int na   = plane.Na;
         const int sign = plane.Sign;
         const int ua   = ( na + 1 ) % 3;
@@ -225,7 +223,7 @@ namespace Desert::Geometry::VoxelBlockout
                     while ( occ( c ) )
                         c[na] += sign;
                     for ( int s = 0; s < height; ++s, c[na] += sign )
-                        Cells[Pack( c )] = Cell{};
+                        m_Cells[Pack( c )] = Cell{};
                 }
             plane.Cell += sign * height;
         }
@@ -239,7 +237,7 @@ namespace Desert::Geometry::VoxelBlockout
                     c[ua] = u;
                     c[va] = v;
                     for ( int s = 0; s < height; ++s, c[na] -= sign )
-                        Cells.erase( Pack( c ) );
+                        m_Cells.erase( Pack( c ) );
                 }
             plane.Cell -= sign * height;
         }
@@ -274,8 +272,8 @@ namespace Desert::Geometry::VoxelBlockout
                 c[plane.Na] = topCell;
                 c[ua]       = uu;
                 c[va]       = vv;
-                auto it     = Cells.find( Pack( c ) );
-                if ( it == Cells.end() )
+                auto it     = m_Cells.find( Pack( c ) );
+                if ( it == m_Cells.end() )
                     continue; // nothing pushed out under this column yet
                 for ( int i = 0; i < 8; ++i )
                 {
@@ -301,7 +299,7 @@ namespace Desert::Geometry::VoxelBlockout
             c[plane.Na] = plane.Cell - 1;
             c[ua]       = kPosts[k].AtUMax ? sel.UMax : sel.UMin;
             c[va]       = kPosts[k].AtVMax ? sel.VMax : sel.VMin;
-            if ( auto it = Cells.find( Pack( c ) ); it != Cells.end() )
+            if ( auto it = m_Cells.find( Pack( c ) ); it != m_Cells.end() )
                 h[k] = it->second.V[kPosts[k].Corner];
         }
         return h;
@@ -393,8 +391,8 @@ namespace Desert::Geometry::VoxelBlockout
                 }
             }
         };
-        emitLayer( Cells, Unit, Origin );
-        for ( const Layer& l : Frozen )
+        emitLayer( m_Cells, m_Unit, m_Origin );
+        for ( const Layer& l : m_Frozen )
             emitLayer( l.Cells, l.Unit, l.Origin );
         return out;
     }

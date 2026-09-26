@@ -7,30 +7,32 @@
 
 #include "Engine/Geometry/UECore/IndexUtil.hpp"
 
+#include <algorithm>
+
 using namespace Desert::Geometry;
 
-void FEdgeSpan::InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn )
+void EdgeSpan::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn )
 {
     Vertices = VerticesIn;
-    Edges.Reset();
-    for ( int i = 0; i + 1 < Vertices.Num(); ++i )
+    Edges.clear();
+    for ( int i = 0; i + 1 < static_cast<int32_t>( Vertices.size() ); ++i )
     {
         const int Eid = Mesh.FindEdge( Vertices[i], Vertices[i + 1] );
-        UE_CHECK( Eid != IndexConstants::InvalidID );
-        Edges.Add( Eid );
+        assert( Eid != IndexConstants::InvalidID );
+        Edges.push_back( Eid );
     }
 }
 
-void FEdgeSpan::InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int>& EdgesIn )
+void EdgeSpan::InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn )
 {
     Edges              = EdgesIn;
-    const int NumEdges = Edges.Num();
-    Vertices.SetNum( NumEdges + 1 );
-    const FIndex2i StartEv = Mesh.GetEdgeV( Edges[0] );
-    FIndex2i       PrevEv  = StartEv;
+    const int NumEdges = static_cast<int32_t>( Edges.size() );
+    Vertices.resize( NumEdges + 1 );
+    const Index2i StartEv = Mesh.GetEdgeV( Edges[0] );
+    Index2i       PrevEv  = StartEv;
     for ( int i = 1; i < NumEdges; ++i )
     {
-        const FIndex2i NextEv = Mesh.GetEdgeV( Edges[i] );
+        const Index2i NextEv  = Mesh.GetEdgeV( Edges[i] );
         Vertices[i]           = IndexUtil::FindSharedEdgeVertex( PrevEv, NextEv );
         PrevEv                = NextEv;
     }
@@ -38,8 +40,8 @@ void FEdgeSpan::InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int
     Vertices[NumEdges] = IndexUtil::FindEdgeOtherVertex( PrevEv, Vertices[NumEdges - 1] );
 }
 
-void FEdgeLoop::Initialize( const TArray<int>& VerticesIn, const TArray<int>& EdgesIn,
-                            const TArray<int>* BowtieVerticesIn )
+void EdgeLoop::Initialize( const std::vector<int>& VerticesIn, const std::vector<int>& EdgesIn,
+                           const std::vector<int>* BowtieVerticesIn )
 {
     Vertices = VerticesIn;
     Edges    = EdgesIn;
@@ -47,28 +49,28 @@ void FEdgeLoop::Initialize( const TArray<int>& VerticesIn, const TArray<int>& Ed
         BowtieVertices = *BowtieVerticesIn;
 }
 
-void FEdgeLoop::InitializeFromEdges( const FDynamicMesh3& Mesh, const TArray<int>& EdgesIn )
+void EdgeLoop::InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn )
 {
     Edges              = EdgesIn;
-    const int NumEdges = Edges.Num();
-    Vertices.SetNum( NumEdges );
+    const int NumEdges = static_cast<int32_t>( Edges.size() );
+    Vertices.resize( NumEdges );
 
-    const FIndex2i StartEV = Mesh.GetEdgeV( Edges[0] );
-    FIndex2i       PrevEV  = StartEV;
+    const Index2i StartEV = Mesh.GetEdgeV( Edges[0] );
+    Index2i       PrevEV  = StartEV;
     for ( int i = 1; i < NumEdges; ++i )
     {
-        const FIndex2i NextEV = Mesh.GetEdgeV( Edges[i] );
+        const Index2i NextEV  = Mesh.GetEdgeV( Edges[i] );
         Vertices[i]           = IndexUtil::FindSharedEdgeVertex( PrevEV, NextEV );
         PrevEV                = NextEV;
     }
     Vertices[0] = IndexUtil::FindEdgeOtherVertex( StartEV, Vertices[1] );
 }
 
-bool FEdgeLoop::InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<int>& VerticesIn )
+bool EdgeLoop::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn )
 {
     Vertices              = VerticesIn;
-    const int NumVertices = Vertices.Num();
-    Edges.SetNum( NumVertices );
+    const int NumVertices = static_cast<int32_t>( Vertices.size() );
+    Edges.resize( NumVertices );
     for ( int i = 0; i < NumVertices; ++i )
     {
         Edges[i] = Mesh.FindEdge( Vertices[i], Vertices[( i + 1 ) % NumVertices] );
@@ -78,39 +80,34 @@ bool FEdgeLoop::InitializeFromVertices( const FDynamicMesh3& Mesh, const TArray<
     return true;
 }
 
-bool FEdgeLoop::IsBoundaryLoop( const FDynamicMesh3& Mesh ) const
+bool EdgeLoop::IsBoundaryLoop( const DynamicMesh3& Mesh ) const
 {
-    for ( int Eid : Edges )
-    {
-        if ( !Mesh.IsBoundaryEdge( Eid ) )
-            return false;
-    }
-    return true;
+    return std::ranges::all_of( Edges, [&Mesh]( const int Eid ) { return Mesh.IsBoundaryEdge( Eid ); } );
 }
 
-FMeshRegionBoundaryLoops::FMeshRegionBoundaryLoops( const FDynamicMesh3* MeshIn, const TArray<int>& RegionTris,
-                                                    bool bAutoCompute )
-     : Mesh( MeshIn )
+MeshRegionBoundaryLoops::MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
+                                                  bool bAutoCompute )
+     : m_Mesh( MeshIn )
 {
-    Triangles.Init( false, Mesh->MaxTriangleID() );
-    for ( int Tid : RegionTris )
+    m_Triangles.assign( m_Mesh->MaxTriangleID(), false );
+    for ( const int Tid : RegionTris )
     {
-        Triangles[Tid] = true;
+        m_Triangles[Tid] = true;
     }
-    Edges.Init( false, Mesh->MaxEdgeID() );
-    for ( int Tid : RegionTris )
+    m_Edges.assign( m_Mesh->MaxEdgeID(), false );
+    for ( const int Tid : RegionTris )
     {
-        const FIndex3i Te = Mesh->GetTriEdges( Tid );
+        const Index3i Te = m_Mesh->GetTriEdges( Tid );
         for ( int j = 0; j < 3; ++j )
         {
             const int Eid = Te[j];
-            if ( !Edges[Eid] )
+            if ( !m_Edges[Eid] )
             {
-                const FIndex2i Et = Mesh->GetEdgeT( Eid );
-                if ( Et.B == IndexConstants::InvalidID || Triangles[Et.A] != Triangles[Et.B] )
+                const Index2i Et = m_Mesh->GetEdgeT( Eid );
+                if ( Et.B == IndexConstants::InvalidID || m_Triangles[Et.A] != m_Triangles[Et.B] )
                 {
-                    EdgesRoi.Add( Eid );
-                    Edges[Eid] = true;
+                    m_EdgesRoi.push_back( Eid );
+                    m_Edges[Eid] = true;
                 }
             }
         }
@@ -121,24 +118,24 @@ FMeshRegionBoundaryLoops::FMeshRegionBoundaryLoops( const FDynamicMesh3* MeshIn,
     }
 }
 
-bool FMeshRegionBoundaryLoops::Compute()
+bool MeshRegionBoundaryLoops::Compute()
 {
-    bFailed = false;
-    FailureReason.clear();
-    Loops.SetNum( 0 );
+    m_bFailed = false;
+    m_FailureReason.clear();
+    m_Loops.resize( 0 );
 
-    TArray<bool> UsedEdge;
-    UsedEdge.Init( false, Mesh->MaxEdgeID() );
-    for ( int Eid : EdgesRoi )
+    std::vector<bool> UsedEdge;
+    UsedEdge.assign( m_Mesh->MaxEdgeID(), false );
+    for ( const int Eid : m_EdgesRoi )
     {
         if ( UsedEdge[Eid] || !IsEdgeOnBoundary( Eid ) )
         {
             continue;
         }
-        FEdgeLoop Loop;
+        EdgeLoop  Loop;
         const int EStart = Eid;
         UsedEdge[EStart] = true;
-        Loop.Edges.Add( EStart );
+        Loop.Edges.push_back( EStart );
         int  ECur       = Eid;
         int  EFirstVert = -1; // the first vertex on ECur, in walking order
         bool bClosed    = false;
@@ -151,26 +148,26 @@ bool FMeshRegionBoundaryLoops::Compute()
             int CurB = 0;
             if ( EFirstVert == -1 )
             {
-                const FIndex2i Ev = GetOrientedEdgeVerts( ECur, TidIn );
+                const Index2i Ev  = GetOrientedEdgeVerts( ECur, TidIn );
                 CurA              = Ev.A;
                 CurB              = Ev.B;
             }
             else
             {
-                const FIndex2i Ev = Mesh->GetEdgeV( ECur );
+                const Index2i Ev  = m_Mesh->GetEdgeV( ECur );
                 CurA              = EFirstVert;
                 CurB              = Ev.A == CurA ? Ev.B : Ev.A;
             }
-            Loop.Vertices.Add( CurA );
+            Loop.Vertices.push_back( CurA );
             int       E0       = -1;
             int       E1       = -1;
             const int BdryNbrs = GetVertexBoundaryEdges( CurB, E0, E1 );
             if ( BdryNbrs != 2 )
             {
-                bFailed       = true;
-                FailureReason = "region boundary vertex " + std::to_string( CurB ) + " has " +
-                                std::to_string( BdryNbrs ) +
-                                " region-boundary edges (2 expected; bowties are refused)";
+                m_bFailed       = true;
+                m_FailureReason = "region boundary vertex " + std::to_string( CurB ) + " has " +
+                                  std::to_string( BdryNbrs ) +
+                                  " region-boundary edges (2 expected; bowties are refused)";
                 return false;
             }
             const int ENext = ( E0 == ECur ) ? E1 : E0;
@@ -180,34 +177,34 @@ bool FMeshRegionBoundaryLoops::Compute()
             }
             else
             {
-                UE_CHECK( !UsedEdge[ENext] );
-                Loop.Edges.Add( ENext );
+                assert( !UsedEdge[ENext] );
+                Loop.Edges.push_back( ENext );
                 ECur           = ENext;
                 UsedEdge[ECur] = true;
             }
             EFirstVert = CurB;
         }
-        Loops.Add( std::move( Loop ) );
+        m_Loops.push_back( std::move( Loop ) );
     }
-    return !bFailed;
+    return !m_bFailed;
 }
 
-bool FMeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const
+bool MeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const
 {
-    if ( !Edges[Eid] )
+    if ( !m_Edges[Eid] )
     {
         return false;
     }
     TidIn             = IndexConstants::InvalidID;
     TidOut            = IndexConstants::InvalidID;
-    const FIndex2i Et = Mesh->GetEdgeT( Eid );
+    const Index2i Et  = m_Mesh->GetEdgeT( Eid );
     if ( Et.B == IndexConstants::InvalidID )
     {
         TidIn = Et.A;
         return true;
     }
-    const bool In0 = Triangles[Et.A];
-    const bool In1 = Triangles[Et.B];
+    const bool In0 = m_Triangles[Et.A];
+    const bool In1 = m_Triangles[Et.B];
     if ( In0 != In1 )
     {
         TidIn  = In0 ? Et.A : Et.B;
@@ -217,18 +214,18 @@ bool FMeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOu
     return false;
 }
 
-FIndex2i FMeshRegionBoundaryLoops::GetOrientedEdgeVerts( int Eid, int TidIn ) const
+Index2i MeshRegionBoundaryLoops::GetOrientedEdgeVerts( int Eid, int TidIn ) const
 {
-    const FIndex2i Ev  = Mesh->GetEdgeV( Eid );
-    const FIndex3i Tri = Mesh->GetTriangle( TidIn );
+    const Index2i  Ev  = m_Mesh->GetEdgeV( Eid );
+    const Index3i  Tri = m_Mesh->GetTriangle( TidIn );
     const int      Ai  = IndexUtil::FindEdgeIndexInTri( Ev.A, Ev.B, Tri );
-    return FIndex2i( Tri[Ai], Tri[( Ai + 1 ) % 3] );
+    return { Tri[Ai], Tri[( Ai + 1 ) % 3] };
 }
 
-int FMeshRegionBoundaryLoops::GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const
+int MeshRegionBoundaryLoops::GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const
 {
     int Count = 0;
-    for ( int Eid : Mesh->VtxEdgesItr( Vid ) )
+    for ( const int Eid : m_Mesh->VtxEdgesItr( Vid ) )
     {
         if ( IsEdgeOnBoundary( Eid ) )
         {
@@ -247,11 +244,11 @@ int FMeshRegionBoundaryLoops::GetVertexBoundaryEdges( int Vid, int& E0, int& E1 
 }
 
 template <typename StorageType, int ElementSize, typename ElementType>
-bool FMeshRegionBoundaryLoops::GetLoopOverlayMap( const FEdgeLoop&                                     LoopIn,
-                                                  const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay,
-                                                  VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const
+bool MeshRegionBoundaryLoops::GetLoopOverlayMap( const EdgeLoop&                                     LoopIn,
+                                                 const DynamicMeshOverlay<StorageType, ElementSize>& Overlay,
+                                                 VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const
 {
-    for ( int32_t i = 0; i < LoopIn.Vertices.Num(); ++i )
+    for ( int32_t i = 0; i < static_cast<int32_t>( LoopIn.Vertices.size() ); ++i )
     {
         const int32_t Vid = LoopIn.Vertices[i];
 
@@ -264,44 +261,45 @@ bool FMeshRegionBoundaryLoops::GetLoopOverlayMap( const FEdgeLoop&              
             return false;
         }
 
-        const FIndex3i TriangleVerts = Mesh->GetTriangle( TidInside );
+        const Index3i  TriangleVerts = m_Mesh->GetTriangle( TidInside );
         const int32_t  VidTriIndex   = TriangleVerts.IndexOf( Vid );
         if ( VidTriIndex < 0 )
         {
             return false;
         }
 
-        const FIndex3i TriangleElements = Overlay.GetTriangle( TidInside );
+        const Index3i  TriangleElements = Overlay.GetTriangle( TidInside );
         const int32_t  UVElementID      = TriangleElements[VidTriIndex];
         if ( !Overlay.IsElement( UVElementID ) )
         {
             return false;
         }
 
-        ElementType Element;
+        ElementType Element{};
         Overlay.GetElement( UVElementID, Element );
-        LoopVidsToOverlayElementsOut.Add( Vid, ElementIDAndValue<ElementType>( UVElementID, Element ) );
+        LoopVidsToOverlayElementsOut.insert_or_assign( Vid,
+                                                       ElementIDAndValue<ElementType>( UVElementID, Element ) );
     }
     return true;
 }
 
 template <typename StorageType, int ElementSize, typename ElementType>
-void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity(
-     VidOverlayMap<ElementType>&                          LoopVidsToOverlayElements,
-     const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay )
+void MeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity(
+     VidOverlayMap<ElementType>&                         LoopVidsToOverlayElements,
+     const DynamicMeshOverlay<StorageType, ElementSize>& Overlay )
 {
     for ( auto& Entry : LoopVidsToOverlayElements )
     {
-        if ( !Overlay.IsElement( Entry.second.Key ) )
+        if ( !Overlay.IsElement( Entry.second.first ) )
         {
-            Entry.second.Key = IndexConstants::InvalidID;
+            Entry.second.first = IndexConstants::InvalidID;
         }
     }
 }
 
 // UV layers are the only overlays these are used for, as in UE; another layer type needs its instantiation here.
-template bool FMeshRegionBoundaryLoops::GetLoopOverlayMap<float, 2, FVector2f>(
-     const FEdgeLoop& LoopIn, const TDynamicMeshOverlay<float, 2>& Overlay,
-     VidOverlayMap<FVector2f>& LoopVidsToOverlayElementsOut ) const;
-template void FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity<float, 2, FVector2f>(
-     VidOverlayMap<FVector2f>& LoopVidsToOverlayElements, const TDynamicMeshOverlay<float, 2>& Overlay );
+template bool MeshRegionBoundaryLoops::GetLoopOverlayMap<float, 2, glm::vec2>(
+     const EdgeLoop& LoopIn, const DynamicMeshOverlay<float, 2>& Overlay,
+     VidOverlayMap<glm::vec2>& LoopVidsToOverlayElementsOut ) const;
+template void MeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity<float, 2, glm::vec2>(
+     VidOverlayMap<glm::vec2>& LoopVidsToOverlayElements, const DynamicMeshOverlay<float, 2>& Overlay );

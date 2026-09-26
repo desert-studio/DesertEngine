@@ -13,95 +13,93 @@ namespace Desert::Geometry
 {
 
     /**
-     * FPolygroupLayer represents a polygroup set on a FDynamicMesh3, which supports a "default"
+     * PolygroupLayer represents a polygroup set on a DynamicMesh3, which supports a "default"
      * group set stored on the mesh, and then N extended group layers stored in the mesh AttributeSet.
      * This struct can represent either.
      */
-    struct FPolygroupLayer
+    struct PolygroupLayer
     {
-        /** If true, layer is the default FDynamicMesh3 triangle groups layer */
+        /** If true, layer is the default DynamicMesh3 triangle groups layer */
         bool bIsDefaultLayer = true;
         /** If bIsDefaultLayer is false, this is the index of the AttributeSet Polygroup Layer */
         int32_t LayerIndex = -1;
 
-        /** Construct a FPolygroupLayer for the default layer */
-        static FPolygroupLayer Default()
+        /** Construct a PolygroupLayer for the default layer */
+        static PolygroupLayer Default()
         {
-            return FPolygroupLayer{ true, -1 };
+            return PolygroupLayer{ true, -1 };
         }
-        /** Construct a FPolygroupLayer for an extended layer */
-        static FPolygroupLayer Layer( int32_t Index )
+        /** Construct a PolygroupLayer for an extended layer */
+        static PolygroupLayer Layer( int32_t Index )
         {
-            return FPolygroupLayer{ false, Index };
+            return PolygroupLayer{ false, Index };
         }
 
-        bool operator==( const FPolygroupLayer& OtherLayer ) const
+        bool operator==( const PolygroupLayer& OtherLayer ) const
         {
             if ( bIsDefaultLayer || OtherLayer.bIsDefaultLayer )
             {
                 return bIsDefaultLayer && OtherLayer.bIsDefaultLayer;
             }
-            else
-            {
-                return LayerIndex == OtherLayer.LayerIndex;
-            }
+
+            return LayerIndex == OtherLayer.LayerIndex;
         }
 
         /** @return true if the specified layer (default or extended) exist and is initialized on the given Mesh */
-        bool CheckExists( const FDynamicMesh3* Mesh ) const;
+        bool CheckExists( const DynamicMesh3* Mesh ) const;
 
         /** Enable the specified layer on the given Mesh, if it's not already there */
-        void EnableOnMesh( FDynamicMesh3& Mesh ) const;
+        void EnableOnMesh( DynamicMesh3& Mesh ) const;
     };
 
     /**
      * Polygroup sets can be stored in multiple places. The default location is in the per-triangle group integer
-     * stored directly on a FDynamicMesh3. Additional layers may be stored in the FDynamicMeshAttributeSet. Future
+     * stored directly on a DynamicMesh3. Additional layers may be stored in the DynamicMeshAttributeSet. Future
      * iterations could store packed polygroups in other places, store them in separate arrays, and so on.
-     * FPolygroupSet can be used to abstract these different cases, by providing a standard Polygroup Get/Set API.
+     * PolygroupSet can be used to abstract these different cases, by providing a standard Polygroup Get/Set API.
      *
-     * To support unique Polygroup ID allocation, FPolygroupSet calculates the maximum GroupID on creation, and
+     * To support unique Polygroup ID allocation, PolygroupSet calculates the maximum GroupID on creation, and
      * updates this maximum across SetGroup() calls. AllocateNewGroupID() can be used to provide new unused
-     * GroupIDs. For consistency with FDynamicMesh3, MaxGroupID is set such that all GroupIDs are less than
+     * GroupIDs. For consistency with DynamicMesh3, MaxGroupID is set such that all GroupIDs are less than
      * MaxGroupID
      *
      */
-    struct FPolygroupSet
+    struct PolygroupSet
     {
-        const FDynamicMesh3*                  Mesh            = nullptr;
-        const FDynamicMeshPolygroupAttribute* PolygroupAttrib = nullptr;
+        const DynamicMesh3*                   Mesh            = nullptr;
+        const DynamicMeshPolygroupAttribute*  PolygroupAttrib = nullptr;
         int32_t                               GroupLayerIndex = -1;
         int32_t                               MaxGroupID      = 0; // Note: all group IDs are less than MaxGroupID
 
         /** Initialize a PolygroupSet for the given Mesh, and standard triangle group layer */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn );
+        explicit PolygroupSet( const DynamicMesh3* MeshIn );
 
         /** Initialize a PolygroupSet for the given Mesh, and standard triangle group layer */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, FPolygroupLayer GroupLayer );
+        explicit PolygroupSet( const DynamicMesh3* MeshIn, PolygroupLayer GroupLayer );
 
         /** Initialize a PolygroupSet for given Mesh and specific Polygroup attribute layer */
-        explicit FPolygroupSet( const FDynamicMesh3*                  MeshIn,
-                                const FDynamicMeshPolygroupAttribute* PolygroupAttribIn );
+        explicit PolygroupSet( const DynamicMesh3*                  MeshIn,
+                               const DynamicMeshPolygroupAttribute* PolygroupAttribIn );
 
         /** Initialize a PolygroupSet for given Mesh and specific Polygroup attribute layer, found by index. If not
          * valid, fall back to standard triangle group layer. */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, int32_t PolygroupLayerIndex );
+        explicit PolygroupSet( const DynamicMesh3* MeshIn, int32_t PolygroupLayerIndex );
 
         /** Initialize a PolygroupSet for given Mesh and specific Polygroup attribute layer, found by name. If not
          * valid, fall back to standard triangle group layer. */
-        explicit FPolygroupSet( const FDynamicMesh3* MeshIn, const std::string& AttribName );
+        explicit PolygroupSet( const DynamicMesh3* MeshIn, const std::string& AttribName );
 
         /** Initialize a PolygroupSet by copying an existing PolygroupSet */
-        explicit FPolygroupSet( const FPolygroupSet* CopyIn );
+        explicit PolygroupSet( const PolygroupSet* CopyIn );
 
         /** @return Mesh this PolygroupSet references  */
-        const FDynamicMesh3* GetMesh()
+        [[nodiscard]] const DynamicMesh3* GetMesh() const
         {
             return Mesh;
         }
 
         /** @return PolygroupAttribute this PolygroupSet references, or null if no PolygroupAttribute is in use */
-        const FDynamicMeshPolygroupAttribute* GetPolygroup()
+        [[nodiscard]] const DynamicMeshPolygroupAttribute* GetPolygroup() const
         {
             return PolygroupAttrib;
         }
@@ -118,8 +116,8 @@ namespace Desert::Geometry
          */
         [[nodiscard]] int32_t GetGroup( int32_t TriangleID ) const
         {
-            return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
-                                       : Mesh->GetTriangleGroup( TriangleID );
+            return ( ( PolygroupAttrib ) != nullptr ) ? PolygroupAttrib->GetValue( TriangleID )
+                                                      : Mesh->GetTriangleGroup( TriangleID );
         }
 
         /**
@@ -127,23 +125,23 @@ namespace Desert::Geometry
          */
         [[nodiscard]] int32_t GetTriangleGroup( int32_t TriangleID ) const
         {
-            return ( PolygroupAttrib ) ? PolygroupAttrib->GetValue( TriangleID )
-                                       : Mesh->GetTriangleGroup( TriangleID );
+            return ( ( PolygroupAttrib ) != nullptr ) ? PolygroupAttrib->GetValue( TriangleID )
+                                                      : Mesh->GetTriangleGroup( TriangleID );
         }
 
         /**
          * Set the PolygroupID for a TriangleID
          */
-        void SetGroup( int32_t TriangleID, int32_t NewGroupID, FDynamicMesh3& WritableMesh )
+        void SetGroup( int32_t TriangleID, int32_t NewGroupID, DynamicMesh3& WritableMesh )
         {
-            UE_CHECK_SLOW( &WritableMesh == this->Mesh ); // require the same mesh
+            assert( &WritableMesh == this->Mesh ); // require the same mesh
             if ( WritableMesh.IsTriangle( TriangleID ) )
             {
-                if ( PolygroupAttrib )
+                if ( PolygroupAttrib != nullptr )
                 {
-                    FDynamicMeshPolygroupAttribute* WritableGroupAttrib =
+                    DynamicMeshPolygroupAttribute* WritableGroupAttrib =
                          WritableMesh.Attributes()->GetPolygroupLayer( GroupLayerIndex );
-                    UE_CHECK_SLOW( WritableGroupAttrib == PolygroupAttrib );
+                    assert( WritableGroupAttrib == PolygroupAttrib );
                     WritableGroupAttrib->SetValue( TriangleID, NewGroupID );
                 }
                 else
