@@ -290,8 +290,13 @@ namespace Desert::Editor
         // is keyed by the driver, which no cook can enumerate. Thumbnails are the editor's alone and stay.
         void StageCookedEntries( CookStats& stats )
         {
-            constexpr std::string_view kShippedBuckets[] = { "ShaderCache",      "FontCache",     "IconCache",
-                                                             "EnvironmentCache", "PipelineCache", "Texture" };
+            // AF4h: ImportedMeshSource is the envelope an FBX (etc.) import derives - no longer written
+            // beside its source - so a packaged game can resolve a static mesh's source data the same way
+            // the editor does, through the DDC, without shipping raw .fbx content (GamePackager's
+            // IsRawMeshSource already excludes those).
+            constexpr std::string_view kShippedBuckets[] = { "ShaderCache",       "FontCache",     "IconCache",
+                                                             "EnvironmentCache",  "PipelineCache", "Texture",
+                                                             "ImportedMeshSource" };
             const fs::path             cooked            = Common::DDC::PlatformCookedDir();
             const fs::path             ddcRoot           = Common::DDC::Root();
             std::error_code            ec;

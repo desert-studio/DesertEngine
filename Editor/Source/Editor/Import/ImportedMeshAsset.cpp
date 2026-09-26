@@ -3,8 +3,7 @@
 #include "CookPaths.hpp"
 
 #include <Common/Core/AssetHandle.hpp>
-#include <Common/Utilities/FileSystem.hpp>
-#include <Common/Utilities/PakFile.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <algorithm>
@@ -123,71 +122,70 @@ namespace Desert::Editor
 
     namespace
     {
-        Common::ResultStr<uint64_t> SourceFileHash( const std::filesystem::path& source )
+        // A LEGACY BESIDE-SOURCE FILE, from a build of the engine that still wrote one at
+        // CookPaths::MeshAsset( source ) (AF4d's original design, retired by AF4h): removed rather than
+        // left behind. It must never be read in preference to the DDC entry (Assets::LoadMeshSourceAsset
+        // does not even look at it once a companion source exists), and an untracked, multi-megabyte file
+        // with nothing pointing at it is not something a cook should leave for the next person to wonder
+        // about.
+        void RemoveStaleBesideSourceFile( const std::filesystem::path& source )
         {
-            const auto bytes = Common::Utils::FileSystem::ReadFileContent( source );
-            if ( !bytes )
-                return Common::MakeFormattedError<uint64_t>( "'{}' cannot be read: {}", source.string(),
-                                                             bytes.GetError() );
-            return Common::MakeSuccess(
-                 Common::Utils::PakContentHash( bytes.GetValue().data(), bytes.GetValue().size() ) );
+            std::error_code ec;
+            std::filesystem::remove( CookPaths::MeshAsset( source ), ec );
         }
     } // namespace
 
     bool ImportedMeshAssetIsFresh( const std::filesystem::path& source )
     {
-        std::error_code ec;
-        const auto      file = CookPaths::MeshAsset( source );
-        if ( !std::filesystem::exists( file, ec ) )
+        const auto hash = Assets::HashMeshSourceFile( source );
+        if ( !hash )
             return false;
-        const auto asset = Assets::ReadMeshSourceAssetFile( file );
-        const auto hash  = SourceFileHash( source );
-        return asset && hash && asset.GetValue().Import.Provenance == Assets::MeshSourceProvenance::Imported &&
-               asset.GetValue().Import.SourceFile == Common::AssetHandle::StableKeyForPath( source ) &&
-               asset.GetValue().Import.SourceHash == hash.GetValue();
+        // Content-addressed: an entry under this exact byte content's key already existing IS "fresh" -
+        // there is nothing else to compare, unlike the old beside-file check (provenance, stored source
+        // hash) that existed only because the file's own claims could otherwise drift from the truth.
+        return Common::DDC::Get( Assets::kMeshSourceDeriver, Assets::MeshSourceDerivedDataKey( hash.GetValue() ) )
+             .has_value();
     }
 
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Ser::MeshAssetData&                 imported,
                                                               std::span<const Assets::MeshMaterialSlot> named,
                                                               const std::filesystem::path&              source )
     {
-        const auto file = CookPaths::MeshAsset( source );
-
-        std::optional<Assets::MeshSourceAsset> existing;
-        std::error_code                        ec;
-        if ( std::filesystem::exists( file, ec ) )
-        {
-            auto read = Assets::ReadMeshSourceAssetFile( file );
-            if ( !read )
-                return Common::MakeFormattedError<MeshAssetWrite>(
-                     "'{}' exists and is not a mesh asset ({}); it is not overwritten - move it away to re-import "
-                     "'{}'",
-                     file.string(), read.GetError(), source.string() );
-            existing = read.ExtractValue();
-        }
-
-        const auto hash = SourceFileHash( source );
+        const auto hash = Assets::HashMeshSourceFile( source );
         if ( !hash )
             return Common::MakeError<MeshAssetWrite>( hash.GetError() );
+        const uint64_t key = Assets::MeshSourceDerivedDataKey( hash.GetValue() );
 
+        RemoveStaleBesideSourceFile( source );
+
+        if ( Common::DDC::Get( Assets::kMeshSourceDeriver, key ).has_value() )
+            return Common::MakeSuccess( MeshAssetWrite::Unchanged ); // this exact content is already cached
+
+        // A RE-IMPORT OF CHANGED BYTES MINTS A NEW GUID (unlike the old beside-file design, which kept the
+        // one already on disk): the cache is addressed by content, and there is no beside-source file left
+        // to read an old identity from. Scenes are unaffected - StaticMeshAsset's handle comes from its
+        // PATH (AssetBase::AssetBase -> AssetHandle::FromCookedPath), never from this Guid; this Guid is
+        // this envelope's OWN identity for the content registry and for anything that references a mesh by
+        // it specifically, and it is stable for as long as the source's bytes are (AF4h).
         Assets::MeshSourceAsset asset;
         asset.Kind              = Common::Content::ContentKind::StaticMesh;
-        asset.Guid              = existing ? existing->Guid : Common::Content::AssetGuid::Generate();
+        asset.Guid              = Common::Content::AssetGuid::Generate();
         asset.Name              = source.stem().string();
         asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
         asset.Import.SourceHash = hash.GetValue();
-        if ( existing )
-            asset.Import.Settings = existing->Import.Settings;
-        auto sourceData = MeshSourceFromImport( imported, named, source.string() );
+        auto sourceData         = MeshSourceFromImport( imported, named, source.string() );
         if ( !sourceData )
             return Common::MakeError<MeshAssetWrite>( sourceData.GetError() );
         asset.Source = sourceData.ExtractValue();
 
-        if ( existing && *existing == asset )
-            return Common::MakeSuccess( MeshAssetWrite::Unchanged );
-        std::filesystem::create_directories( file.parent_path(), ec );
-        if ( auto wrote = Assets::WriteMeshSourceAssetFile( file, asset ); !wrote )
-            return Common::MakeError<MeshAssetWrite>( wrote.GetError() );
+        auto bytes = Assets::EncodeMeshSourceAsset( asset );
+        if ( !bytes )
+            return Common::MakeError<MeshAssetWrite>( bytes.GetError() );
+        const std::string blob( reinterpret_cast<const char*>( bytes.GetValue().data() ),
+                                bytes.GetValue().size() );
+        if ( auto put = Common::DDC::Put( Assets::kMeshSourceDeriver, key, blob ); !put )
+            return Common::MakeFormattedError<MeshAssetWrite>( "'{}': imported source built but not cached: {}",
+                                                               source.string(), put.GetError() );
         return Common::MakeSuccess( MeshAssetWrite::Written );
     }
 } // namespace Desert::Editor

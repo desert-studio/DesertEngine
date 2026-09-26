@@ -5,8 +5,13 @@
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
 
+#include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/PakFile.hpp>
+
 #include <bit>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <utility>
 
 namespace Desert::Assets
@@ -21,6 +26,28 @@ namespace Desert::Assets
 
         std::mutex              s_BuilderMutex;
         MeshPlatformDataBuilder s_Builder;
+
+        // Every raw format ImportManager recognises for a mesh (Editor/Import/ImportManager's registered
+        // importers; the same set GamePackager::IsRawMeshSource excludes from a package, since the runtime
+        // never reads these directly either). Kept as its own list rather than shared with that one: this
+        // is Engine code and cannot depend on Editor's.
+        constexpr std::string_view kRawMeshSourceExtensions[] = { ".fbx", ".obj",   ".gltf",
+                                                                  ".glb", ".blend", ".dae" };
+
+        // The raw source beside @p assetPath, if one exists under a recognised extension - same stem, same
+        // folder (CookPaths::MeshAsset's own mapping, inverted).
+        std::optional<std::filesystem::path> CompanionSourceFile( const std::filesystem::path& assetPath )
+        {
+            for ( const std::string_view ext : kRawMeshSourceExtensions )
+            {
+                std::filesystem::path candidate = assetPath;
+                candidate.replace_extension( ext );
+                std::error_code ec;
+                if ( std::filesystem::exists( candidate, ec ) )
+                    return candidate;
+            }
+            return std::nullopt;
+        }
     } // namespace
 
     std::vector<std::byte> SerializeMeshSettingsForKey( const MeshBuildSettings& settings )
@@ -53,7 +80,7 @@ namespace Desert::Assets
 
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset )
     {
-        auto source = ReadMeshSourceAssetFile( asset );
+        auto source = LoadMeshSourceAsset( asset );
         if ( !source.IsSuccess() )
             return Common::MakeError<std::string>( source.GetError() );
         const uint64_t key = MeshAssetDerivedDataKey( source.GetValue() );
@@ -79,5 +106,47 @@ namespace Desert::Assets
             return Common::MakeFormattedError<std::string>(
                  "mesh asset '{}': render data built but not cached: {}", asset.string(), put.GetError() );
         return built;
+    }
+
+    Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file )
+    {
+        const auto bytes = Common::Utils::FileSystem::ReadFileContent( file );
+        if ( !bytes.IsSuccess() )
+            return Common::MakeFormattedError<uint64_t>( "'{}' cannot be read: {}", file.string(),
+                                                         bytes.GetError() );
+        return Common::MakeSuccess(
+             Common::Utils::PakContentHash( bytes.GetValue().data(), bytes.GetValue().size() ) );
+    }
+
+    uint64_t MeshSourceDerivedDataKey( const uint64_t sourceFileHash )
+    {
+        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, &kMeshSourceBuilderVersion,
+                                     sizeof( kMeshSourceBuilderVersion ) );
+    }
+
+    Common::ResultStr<MeshSourceAsset> LoadMeshSourceAsset( const std::filesystem::path& assetPath )
+    {
+        const auto companion = CompanionSourceFile( assetPath );
+        if ( !companion.has_value() )
+            return ReadMeshSourceAssetFile( assetPath ); // hand-authored: unchanged (AF4h c)
+
+        const auto hash = HashMeshSourceFile( *companion );
+        if ( !hash.IsSuccess() )
+            return Common::MakeError<MeshSourceAsset>( hash.GetError() );
+        const uint64_t key = MeshSourceDerivedDataKey( hash.GetValue() );
+        auto           hit = Common::DDC::Get( kMeshSourceDeriver, key );
+        if ( !hit.has_value() )
+            return Common::MakeFormattedError<MeshSourceAsset>(
+                 "'{}' has no imported source under DDC key {:016x} ({}) for '{}': re-import it (Assets > "
+                 "Rebuild Cooked Assets) - a stale file beside the source, if one exists, is never read in "
+                 "its place",
+                 assetPath.string(), key, Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string(),
+                 companion->string() );
+        const auto decoded =
+             DecodeMeshSourceAsset( std::as_bytes( std::span<const char>( hit->data(), hit->size() ) ) );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeFormattedError<MeshSourceAsset>( "'{}': cached imported source is corrupt: {}",
+                                                                assetPath.string(), decoded.GetError() );
+        return decoded;
     }
 } // namespace Desert::Assets

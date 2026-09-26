@@ -1,4 +1,6 @@
 // AF4d: the importer's output for a static mesh is the MeshSourceAsset envelope beside its source.
+// AF4h: ... and then it isn't - the envelope moved into the DDC, content-addressed, because it is derived
+// data (a pure function of the source's own bytes, AF4g), not a second source living beside the first.
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -10,6 +12,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <set>
 
 namespace fs = std::filesystem;
 using namespace Desert;
@@ -71,7 +74,34 @@ namespace
     };
 } // namespace
 
-TEST( ImportedMeshAsset, ReimportOfTheSameBytesKeepsGuidKeyAndFile )
+TEST( ImportedMeshAsset, CookingASourceWritesNothingBesideIt )
+{
+    const Project      project;
+    Ser::MeshAssetData imported;
+    AddPlane( imported, "Grid", 4, 0.0f, Common::Content::AssetGuid::Generate() );
+
+    // Every entry already in the source's directory, by name - not just the one path this task happens to
+    // know about (`Grid.stmesh`): a regression that wrote a DIFFERENTLY-named derived file beside the
+    // source would pass a narrower check and still be exactly the defect this test exists to catch.
+    const fs::path        dir = project.Source.parent_path();
+    std::set<std::string> before;
+    std::error_code       ec;
+    for ( const auto& e : fs::directory_iterator( dir, ec ) )
+        before.insert( e.path().filename().string() );
+
+    const auto written = Editor::WriteImportedMeshAsset( imported, {}, project.Source );
+    ASSERT_TRUE( written.IsSuccess() ) << written.GetError();
+    EXPECT_EQ( written.GetValue(), Editor::MeshAssetWrite::Written );
+
+    std::set<std::string> after;
+    for ( const auto& e : fs::directory_iterator( dir, ec ) )
+        after.insert( e.path().filename().string() );
+
+    EXPECT_EQ( before, after ) << "the cook grew the source's directory by " << ( after.size() - before.size() )
+                               << " file(s)";
+}
+
+TEST( ImportedMeshAsset, ReimportOfTheSameBytesKeepsGuidKeyAndWritesNoFile )
 {
     const Project      project;
     const auto         material = Common::Content::AssetGuid::Generate();
@@ -83,30 +113,32 @@ TEST( ImportedMeshAsset, ReimportOfTheSameBytesKeepsGuidKeyAndFile )
     ASSERT_TRUE( first.IsSuccess() ) << first.GetError();
     EXPECT_EQ( first.GetValue(), Editor::MeshAssetWrite::Written );
 
+    // AF4h: the cook writes NOTHING beside the source any more - the envelope lives in the DDC
+    // (Assets::kMeshSourceDeriver), keyed by the source's own bytes. The asset PATH is unchanged
+    // (CookPaths::MeshAsset still names it), only the file at that path is gone.
     const fs::path file = Editor::CookPaths::MeshAsset( project.Source );
     EXPECT_EQ( file, Common::Constants::Path::ASSETS_PATH / "Meshes" / "Grid.stmesh" );
-    const auto asset = Assets::ReadMeshSourceAssetFile( file );
+    std::error_code ec;
+    EXPECT_FALSE( fs::exists( file, ec ) ) << "the import left a file beside its source";
+
+    const auto asset = Assets::LoadMeshSourceAsset( file );
     ASSERT_TRUE( asset.IsSuccess() ) << asset.GetError();
     EXPECT_EQ( asset.GetValue().Source.MaterialSlots.size(), 1u );
     EXPECT_EQ( asset.GetValue().Source.MaterialSlots[0].Name, "Sand" );
     EXPECT_EQ( asset.GetValue().Import.SourceFile, Common::AssetHandle::StableKeyForPath( project.Source ) );
-    const auto bytesBefore = Common::Utils::FileSystem::ReadFileContent( file );
-    const auto timeBefore  = fs::last_write_time( file );
 
     const auto second = Editor::WriteImportedMeshAsset( imported, named, project.Source );
     ASSERT_TRUE( second.IsSuccess() ) << second.GetError();
-    EXPECT_EQ( second.GetValue(), Editor::MeshAssetWrite::Unchanged ) << "the asset file was rewritten";
-    EXPECT_EQ( fs::last_write_time( file ), timeBefore );
-    const auto again = Assets::ReadMeshSourceAssetFile( file );
+    EXPECT_EQ( second.GetValue(), Editor::MeshAssetWrite::Unchanged ) << "the same content was rebuilt";
+    EXPECT_FALSE( fs::exists( file, ec ) ) << "a re-import of unchanged content wrote a file beside its source";
+
+    const auto again = Assets::LoadMeshSourceAsset( file );
     ASSERT_TRUE( again.IsSuccess() );
-    EXPECT_EQ( again.GetValue().Guid, asset.GetValue().Guid );
+    EXPECT_EQ( again.GetValue().Guid, asset.GetValue().Guid ) << "unchanged content must key the same DDC entry";
     EXPECT_EQ( Assets::MeshAssetDerivedDataKey( again.GetValue() ),
                Assets::MeshAssetDerivedDataKey( asset.GetValue() ) );
-    const auto bytesAfter = Common::Utils::FileSystem::ReadFileContent( file );
-    EXPECT_EQ( bytesAfter.GetValue(), bytesBefore.GetValue() );
 
-    // Nothing of a static import lands under Cooked/ any more.
-    std::error_code ec;
+    // Nothing of a static import lands under Cooked/ either.
     EXPECT_FALSE( fs::exists( Common::Constants::Path::MESH_PATH_COOKED / "Grid.stmesh", ec ) );
 }
 
@@ -115,9 +147,15 @@ TEST( ImportedMeshAsset, FreshnessIsTheSourceHashNotItsTime )
     const Project      project;
     Ser::MeshAssetData imported;
     AddPlane( imported, "Grid", 2, 0.0f, Common::Content::AssetGuid::Generate() );
+    const fs::path file = Editor::CookPaths::MeshAsset( project.Source );
     EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "no asset yet";
     ASSERT_TRUE( Editor::WriteImportedMeshAsset( imported, {}, project.Source ).IsSuccess() );
     EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) );
+
+    // Captured for the ORIGINAL bytes, before the change below - the "old identity" the AF4h contract says
+    // a content-changing re-import does NOT keep (unlike the beside-file design this replaces).
+    const auto before = Assets::LoadMeshSourceAsset( file );
+    ASSERT_TRUE( before.IsSuccess() ) << before.GetError();
 
     fs::last_write_time( project.Source, fs::file_time_type::clock::now() + std::chrono::hours( 1 ) );
     EXPECT_TRUE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "a touch alone re-imported";
@@ -125,16 +163,19 @@ TEST( ImportedMeshAsset, FreshnessIsTheSourceHashNotItsTime )
     project.Write( "o Grid\nv 0 0 0\n" );
     EXPECT_FALSE( Editor::ImportedMeshAssetIsFresh( project.Source ) ) << "changed bytes were not seen";
 
-    // A re-import after the change keeps the GUID and rewrites the file.
-    const fs::path file   = Editor::CookPaths::MeshAsset( project.Source );
-    const auto     before = Assets::ReadMeshSourceAssetFile( file );
-    ASSERT_TRUE( before.IsSuccess() ) << before.GetError();
+    // AF4h: a re-import after a BYTE change keys a DIFFERENT DDC entry (content-addressed) and mints a
+    // fresh envelope Guid for it - there is no beside-source file left to read an old one from, and the
+    // old entry (still in the DDC, under the old hash) is simply not this content's key any more. Scenes
+    // are unaffected: a static mesh's runtime handle comes from its PATH, not this Guid (ImportedMeshAsset.hpp).
     const auto re = Editor::WriteImportedMeshAsset( imported, {}, project.Source );
     ASSERT_TRUE( re.IsSuccess() ) << re.GetError();
     EXPECT_EQ( re.GetValue(), Editor::MeshAssetWrite::Written );
-    const auto after = Assets::ReadMeshSourceAssetFile( file );
+    std::error_code ec;
+    EXPECT_FALSE( fs::exists( file, ec ) ) << "the re-import left a file beside its source";
+    const auto after = Assets::LoadMeshSourceAsset( file );
     ASSERT_TRUE( after.IsSuccess() ) << after.GetError();
-    EXPECT_EQ( after.GetValue().Guid, before.GetValue().Guid );
+    EXPECT_NE( after.GetValue().Guid, before.GetValue().Guid )
+         << "changed content must not silently keep the previous entry's identity";
 }
 
 TEST( ImportedMeshAsset, LodSiblingsBecomeSourceModels )
