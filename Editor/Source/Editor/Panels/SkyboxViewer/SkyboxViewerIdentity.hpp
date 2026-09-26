@@ -37,12 +37,12 @@ namespace Desert::Editor
         {
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const final
+        [[nodiscard]] bool ClaimsView() const final
         {
             return true;
         }
 
-        [[nodiscard]] bool HoldsRendererSlot() const final
+        [[nodiscard]] bool HoldsView() const final
         {
             return m_PreviewLive;
         }

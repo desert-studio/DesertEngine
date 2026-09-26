@@ -60,10 +60,10 @@ using Desert::Editor::ISubjectDocument;
 using Desert::Editor::OpenDocuments;
 using Desert::Editor::PanelRegistry;
 using Desert::Editor::PendingRendererSlotDemand;
-using Desert::Editor::RendererSlotsHeldByDocuments;
 using Desert::Editor::SubjectDomain;
 using Desert::Editor::SubjectEditorRegistry;
 using Desert::Editor::SubjectId;
+using Desert::Editor::ViewsHeldByDocuments;
 using Desert::Engine::RendererSlotPool;
 
 namespace
@@ -132,19 +132,19 @@ namespace
             return m_Alive;
         }
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return m_Pool != nullptr && m_Slot != RendererSlotPool::kNoFreeSlot;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return m_ClaimsSlot;
         }
 
         // The same teardown a MaterialEditorPanel does when its window has been off screen: give the lease
         // back and keep the window. NOT the destructor — the document survives this.
-        void ReleaseRendererSlot() override
+        void ReleaseView() override
         {
             if ( m_Pool && m_Slot != RendererSlotPool::kNoFreeSlot )
             {
@@ -366,7 +366,7 @@ TEST( DocumentSlotLease, ClosingADocumentReturnsItsSlot )
     well.Add( MakeDocument( DocumentTitle( "M_Sand_Dune", Asset( 12 ) ), Asset( 12 ), &pool ) );
 
     EXPECT_EQ( pool.InUseCount(), 3u );
-    EXPECT_EQ( RendererSlotsHeldByDocuments( well ), 2u );
+    EXPECT_EQ( ViewsHeldByDocuments( well ), 2u );
 
     // RELEASE IS NOT DESTRUCTION. The well hands the document back and the caller destroys it once the
     // device is idle, which is the ordering ~PreviewViewport established -- so the lease is still held
@@ -379,7 +379,7 @@ TEST( DocumentSlotLease, ClosingADocumentReturnsItsSlot )
     closed.reset();
 
     EXPECT_EQ( pool.InUseCount(), 2u );
-    EXPECT_EQ( RendererSlotsHeldByDocuments( well ), 1u );
+    EXPECT_EQ( ViewsHeldByDocuments( well ), 1u );
 }
 
 TEST( DocumentSlotLease, ClosingEveryDocumentLeavesOnlyTheViewport )
@@ -417,7 +417,7 @@ TEST( DocumentSlotLease, ACpuDrawnDocumentIsNotPendingDemand )
 
     // One claim outstanding, not two: the material has a slot coming, the cloud never will.
     EXPECT_EQ( PendingRendererSlotDemand( well.Documents() ), 1u );
-    EXPECT_EQ( RendererSlotsHeldByDocuments( well ), 0u );
+    EXPECT_EQ( ViewsHeldByDocuments( well ), 0u );
 }
 
 // =================================================================================================
@@ -869,16 +869,16 @@ TEST( DocumentSlotLease, ReleasingTheSlotOfAHiddenDocumentDoesNotCloseIt )
     well.Add( MakeDocument( DocumentTitle( "B", Asset( 12 ) ), Asset( 12 ), &pool ) );
 
     EXPECT_EQ( pool.InUseCount(), 3u );
-    EXPECT_EQ( RendererSlotsHeldByDocuments( well ), 2u );
+    EXPECT_EQ( ViewsHeldByDocuments( well ), 2u );
 
-    hidden.ReleaseRendererSlot();
+    hidden.ReleaseView();
 
-    // THE CONTRACT: HoldsRendererSlot answers false afterwards. EditorLayer checks this and logs an error
+    // THE CONTRACT: HoldsView answers false afterwards. EditorLayer checks this and logs an error
     // if it does not, because a document that inherited the empty default while genuinely holding a slot
     // would keep it for ever and the refusal census would go on blaming a window the user cannot fix.
-    EXPECT_FALSE( hidden.HoldsRendererSlot() );
+    EXPECT_FALSE( hidden.HoldsView() );
     EXPECT_EQ( pool.InUseCount(), 2u ) << "the lease really went back to the pool";
-    EXPECT_EQ( RendererSlotsHeldByDocuments( well ), 1u );
+    EXPECT_EQ( ViewsHeldByDocuments( well ), 1u );
 
     // AND THE WINDOW IS STILL OPEN. This is the whole difference from a close, and it is the shape the
     // owner asked for: the resource goes, the layout does not move.
@@ -899,10 +899,10 @@ TEST( DocumentSlotLease, ReleasingTwiceIsNotAnError )
          *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), &pool ) ) );
 
     EXPECT_EQ( pool.InUseCount(), 1u );
-    hidden.ReleaseRendererSlot();
-    hidden.ReleaseRendererSlot();
+    hidden.ReleaseView();
+    hidden.ReleaseView();
     EXPECT_EQ( pool.InUseCount(), 0u );
-    EXPECT_FALSE( hidden.HoldsRendererSlot() );
+    EXPECT_FALSE( hidden.HoldsView() );
 }
 
 // =================================================================================================

@@ -334,7 +334,7 @@ namespace Desert::Editor
 
         // Hands the renderer slot back for every document whose window has been undrawn for
         // kFramesHiddenBeforeSlotRelease frames. Called from ServiceDocumentCloses so it shares that
-        // function's device-idle wait — see ISubjectDocument::ReleaseRendererSlot.
+        // function's device-idle wait — see ISubjectDocument::ReleaseView.
         void ReleaseSlotsOfHiddenDocuments();
 
         // The label a component-subject document is named with: the entity's tag plus what the window is
@@ -397,7 +397,7 @@ namespace Desert::Editor
             // Whether this consumer will ever want a slot. A CPU-only asset document (the four cloud
             // editors) holds none and is not waiting for one, and the census has to say so — "no slot right
             // now, but will claim one when it draws" would name it as something to close to free a slot it
-            // was never going to take. See ISubjectDocument::ClaimsRendererSlot.
+            // was never going to take. See ISubjectDocument::ClaimsView.
             bool ClaimsSlot = true;
             // Set for a consumer the user can close FROM THE REFUSAL ITSELF: an open document. A census that
             // names five things and offers no way to act on any of them is a longer version of "no free
@@ -588,7 +588,7 @@ namespace Desert::Editor
 
         // How long a document must go UNDRAWN BY EVERY VIEW before it gives its renderer slot back. A
         // document behind another one's tab is open and invisible, and it was holding one of the six
-        // renderer slots for as long as the user left it there — see ISubjectDocument::ReleaseRendererSlot.
+        // renderer slots for as long as the user left it there — see ISubjectDocument::ReleaseView.
         //
         // COUNTED RATHER THAN ACTED ON AT ONCE. Dragging a dock tab, collapsing a node and switching layouts
         // all hide a window for a frame or two, and tearing a Scene and a SceneRenderer down and building

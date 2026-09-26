@@ -130,7 +130,7 @@ namespace Desert::Editor
         CloudLayoutPanel( const Assets::AssetHandle& subject, std::shared_ptr<::Desert::Core::Scene> scene,
                           Assets::AssetManager* assets );
 
-        // NEVER — see CloudNoiseVolumePanel::HoldsRendererSlot. The "sky" in this panel's right-hand pane is
+        // NEVER — see CloudNoiseVolumePanel::HoldsView. The "sky" in this panel's right-hand pane is
         // a CPU-evaluated top-down map uploaded as a Graphic::Image2D, not a rendered frame: there is no
         // Scene of its own and no SceneRenderer, so this document costs none of the six slots. It holds a
         // shared_ptr to the ACTIVE scene, which it reads and never renders.
@@ -143,13 +143,13 @@ namespace Desert::Editor
         // a cloud panel.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        // ...and never will — see CloudNoiseVolumePanel::ClaimsRendererSlot.
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        // ...and never will — see CloudNoiseVolumePanel::ClaimsView.
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

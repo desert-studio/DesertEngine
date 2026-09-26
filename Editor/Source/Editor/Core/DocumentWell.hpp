@@ -234,11 +234,11 @@ namespace Desert::Editor
     // range for the same reason — EditorLayer.cpp is compiled by no suite, so a rule written there is a rule
     // nothing can assert.
     template <typename Range>
-    [[nodiscard]] uint32_t RendererSlotsHeldByDocuments( const Range& documents )
+    [[nodiscard]] uint32_t ViewsHeldByDocuments( const Range& documents )
     {
         uint32_t held = 0;
         for ( const auto& document : documents )
-            if ( document && document->HoldsRendererSlot() )
+            if ( document && document->HoldsView() )
                 ++held;
         return held;
     }

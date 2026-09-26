@@ -618,7 +618,7 @@ namespace Desert::Editor
         // was removed on the grounds that a document is destroyed rather than hidden — which was true while
         // a document could only be closed. It is not true of a document docked as a tab behind another one,
         // which is open, invisible, and was holding one of the six for as long as the user left it there.
-        // The editor drives it now: EditorLayer asks the document to ReleaseRendererSlot() when its window
+        // The editor drives it now: EditorLayer asks the document to ReleaseView() when its window
         // has not been drawn for a while, behind the same device-idle wait a close uses. Written there
         // rather than here because "not drawn" is ImGui's answer and this function runs before the frame.
         if ( !m_DrewThisFrame )

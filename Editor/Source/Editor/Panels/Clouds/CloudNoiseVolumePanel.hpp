@@ -74,14 +74,14 @@ namespace Desert::Editor
         // a cloud panel.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
         // ...and never will, which is the half the SLOT CENSUS needs. Without it an open cloud document
         // counts as a claim that has not landed yet, and five of them would exhaust the cap on paper.
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

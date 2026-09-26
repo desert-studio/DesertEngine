@@ -118,12 +118,12 @@ namespace Desert::Editor
         // default — a `true` here would put "UICanvasComponent document 'HUD' — holds a slot" in the
         // refusal census (EditorLayer::RendererSlotCensus), which tells a user to close a window that
         // frees nothing. Its own GPU resources are released by the undrawn sweep below and by ~this.
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }
@@ -142,10 +142,10 @@ namespace Desert::Editor
         // behind another tab draws nothing and ImGui::Begin says so (EditorLayer::DrawDocumentWell skips
         // OnUIRender for it). Without this, a hidden UI Editor tab would record a full canvas pass into a
         // design-resolution RGBA32F target every frame for a window nobody can see — the exact waste
-        // ISubjectDocument::ReleaseRendererSlot exists to stop.
+        // ISubjectDocument::ReleaseView exists to stop.
         //
         // ITS OWN COUNT AND NOT THE EDITOR'S. ReleaseSlotsOfHiddenDocuments is gated on
-        // HoldsRendererSlot(), which this document answers false for the reason above, so the six-slot
+        // HoldsView(), which this document answers false for the reason above, so the six-slot
         // path cannot serve it. The two numbers are independent — nothing has to keep them equal — and
         // they are the same order of magnitude because the question is the same one: has the user left?
         static constexpr uint32_t kFramesUndrawnBeforeTargetRelease = 30;

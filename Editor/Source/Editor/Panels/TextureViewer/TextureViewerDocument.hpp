@@ -56,12 +56,12 @@ namespace Desert::Editor
         // THERE, not whether it still loads as a texture — a load failure is reported in the window.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

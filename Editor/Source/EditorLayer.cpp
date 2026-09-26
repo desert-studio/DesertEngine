@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -1123,7 +1124,7 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::ParticleEmitterComponent>( subject.Owner ); } } );
         // THE UI CANVAS. Its window owns a Framebuffer and a Render2D rather than a SceneRenderer, so it
-        // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsRendererSlot) — a document
+        // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsView) — a document
         // that renders is not automatically a document that costs a slot.
         m_SubjectEditors.Register(
              Editor::UIEditorPanel::SubjectType(),
@@ -2612,8 +2613,9 @@ namespace Desert::Editor
             entry.Name               = DocumentDisplayName( document->GetName() );
             entry.Type               = m_SubjectEditors.TypeName( subject );
             entry.Subject            = subject.ToString();
-            entry.HoldsRendererSlot  = document->HoldsRendererSlot();
-            entry.ClaimsRendererSlot = document->ClaimsRendererSlot();
+            entry.HoldsView          = document->HoldsView();
+            entry.ClaimsView         = document->ClaimsView();
+            entry.ViewForecastBytes  = document->ViewForecastBytes();
             entry.Focused            = ( subject == m_FocusedDocument );
 
             // The three states, asked of the document itself. Written out as words here rather than
@@ -2664,9 +2666,18 @@ namespace Desert::Editor
             snapshot.Panels.push_back( std::move( entry ) );
         }
 
-        snapshot.RendererSlotsLive    = Graphic::SceneRenderer::GetLiveRendererCount();
-        snapshot.RendererSlotsPending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
-        snapshot.RendererSlotsMax     = EngineContext::kMaxRendererSlots;
+        {
+            // The same reading and holdings a refusal is decided on (Graphic::ReadViewBudget), so the state a
+            // client reads and the verdict the editor gives cannot disagree.
+            const auto holdings = Graphic::SceneRenderer::LiveHoldings();
+            snapshot.ViewsLive  = static_cast<uint32_t>( holdings.size() );
+            for ( const Engine::ViewBudget::HeldView& view : holdings )
+                snapshot.ViewBytes += view.Bytes;
+            snapshot.PendingViewBytes                 = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
+            snapshot.BudgetBytes                      = reading.CeilingBytes;
+            snapshot.UsageBytes                       = reading.UsageBytes;
+        }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
         snapshot.LogWarningCount = LogsPanel::WarningCount();
@@ -3176,7 +3187,7 @@ namespace Desert::Editor
         // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
         for ( const auto& panel : m_Panels )
             if ( const auto* details = dynamic_cast<const ScenePropertiesPanel*>( panel.get() ) )
-                census.push_back( { "Details preview", details->HoldsRendererSlot() } );
+                census.push_back( { "Details preview", details->HoldsView() } );
 
         // The documents are asked of their own owner rather than sifted out of the panel list with a
         // dynamic_cast. That cast was the seam an earlier task closed: it only existed because the two
@@ -3187,8 +3198,7 @@ namespace Desert::Editor
             // titled "MP_GreenTint", not one titled "MP_GreenTint###docasset:2:3333333333333333333".
             census.push_back( { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
                                      DocumentDisplayName( document->GetName() ) + "'",
-                                document->HoldsRendererSlot(), document->ClaimsRendererSlot(),
-                                document->Subject() } );
+                                document->HoldsView(), document->ClaimsView(), document->Subject() } );
         }
 
         return census;
@@ -3312,8 +3322,8 @@ namespace Desert::Editor
             const std::string name = document->GetName();
             // Asked BEFORE the move, and counted rather than assumed: a document that will never claim a
             // slot adds nothing to the committed total, and "pending + 1" would have reported every cloud
-            // document as a claim on a slot it does not take. See ISubjectDocument::ClaimsRendererSlot.
-            const uint32_t committed = pending + ( document->ClaimsRendererSlot() ? 1u : 0u );
+            // document as a claim on a slot it does not take. See ISubjectDocument::ClaimsView.
+            const uint32_t committed = pending + ( document->ClaimsView() ? 1u : 0u );
 
             // ASKED THE MOMENT IT IS BUILT, and not left to the sweep a frame later. A document whose
             // subject was already gone would otherwise appear for one frame and vanish, which reads as a
@@ -3459,18 +3469,18 @@ namespace Desert::Editor
             const uint32_t undrawn = m_OpenDocuments.FramesUndrawn( document->Subject() );
             if ( undrawn < kFramesHiddenBeforeSlotRelease )
                 continue;
-            if ( !document->HoldsRendererSlot() )
+            if ( !document->HoldsView() )
                 continue;
 
-            document->ReleaseRendererSlot();
+            document->ReleaseView();
 
-            // VERIFIED, NOT ASSUMED. ReleaseRendererSlot's contract is that HoldsRendererSlot answers false
+            // VERIFIED, NOT ASSUMED. ReleaseView's contract is that HoldsView answers false
             // afterwards; a document that inherited the empty default while genuinely holding a slot would
             // otherwise keep it for ever and the census would go on blaming a window the user cannot fix.
-            if ( document->HoldsRendererSlot() )
+            if ( document->HoldsView() )
             {
                 LOG_ERROR( "[Editor] '{}' was asked to release its renderer slot after {} hidden frames and "
-                           "still holds one. ReleaseRendererSlot must make HoldsRendererSlot false — see "
+                           "still holds one. ReleaseView must make HoldsView false — see "
                            "ISubjectDocument.",
                            DocumentDisplayName( document->GetName() ), undrawn );
                 continue;
@@ -3492,7 +3502,7 @@ namespace Desert::Editor
         for ( const auto& document : m_OpenDocuments )
         {
             if ( m_OpenDocuments.FramesUndrawn( document->Subject() ) >= kFramesHiddenBeforeSlotRelease &&
-                 document->HoldsRendererSlot() )
+                 document->HoldsView() )
             {
                 releasePending = true;
                 break;
@@ -6002,9 +6012,9 @@ namespace Desert::Editor
             // The slot column. "Cloud - no slot" is not trivia: it is the answer to "I closed four windows
             // and it still will not open", because closing a CPU-drawn document frees nothing.
             const char* slot = "no slot";
-            if ( document->HoldsRendererSlot() )
+            if ( document->HoldsView() )
                 slot = "1 slot";
-            else if ( document->ClaimsRendererSlot() )
+            else if ( document->ClaimsView() )
                 slot = "claiming";
             const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + slot;
             const float       rightW = ImGui::CalcTextSize( right.c_str() ).x;

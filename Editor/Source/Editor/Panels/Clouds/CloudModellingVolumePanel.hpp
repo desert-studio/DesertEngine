@@ -87,7 +87,7 @@ namespace Desert::Editor
 
         void OnUIRender() override;
 
-        // NEVER — see CloudNoiseVolumePanel::HoldsRendererSlot. This panel bakes one slice plane per frame
+        // NEVER — see CloudNoiseVolumePanel::HoldsView. This panel bakes one slice plane per frame
         // on the CPU and uploads it as a Graphic::Image2D; it owns no Scene and no SceneRenderer, so it
         // costs none of the six slots and returns none when it closes.
 
@@ -99,13 +99,13 @@ namespace Desert::Editor
         // a cloud panel.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        // ...and never will — see CloudNoiseVolumePanel::ClaimsRendererSlot.
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        // ...and never will — see CloudNoiseVolumePanel::ClaimsView.
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

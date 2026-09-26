@@ -60,7 +60,7 @@ namespace Desert::Editor
         [[nodiscard]] bool IsSubjectAlive() const override;
 
         // ~PreviewViewport idles the device and releases the renderer, which is what returns the slot.
-        void ReleaseRendererSlot() override;
+        void ReleaseView() override;
 
         [[nodiscard]] bool HasPreview() const override
         {

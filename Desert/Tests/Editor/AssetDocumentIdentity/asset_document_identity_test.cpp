@@ -81,12 +81,12 @@ namespace
             return true;
         }
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return m_HoldsSlot;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return m_ClaimsSlot;
         }
@@ -115,12 +115,12 @@ namespace
             return true;
         }
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }
@@ -372,7 +372,7 @@ TEST( PendingRendererSlotDemand, CpuOnlyDocumentsAreNotPendingDemand )
 {
     // THE DEFECT THIS RULE EXISTS FOR. The four cloud editors bake on the CPU and upload an Image2D; they
     // hold no renderer slot and never will. Counted as pending demand -- which is what "open, holding
-    // nothing" meant before ClaimsRendererSlot existed -- five of them beside the main viewport would make
+    // nothing" meant before ClaimsView existed -- five of them beside the main viewport would make
     // `live + pending` reach the six-slot cap, and the sixth cloud asset an artist double-clicked would be
     // refused with a census listing windows that hold nothing and would never hold anything.
     std::vector<std::unique_ptr<IPanel>> panels;
@@ -404,14 +404,14 @@ TEST( PendingRendererSlotDemand, CountsOnlyTheDocumentsThatWillActuallyClaim )
 
 TEST( PendingRendererSlotDemand, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
 {
-    // ClaimsRendererSlot defaults to TRUE, and that default is the conservative one: a new document type
+    // ClaimsView defaults to TRUE, and that default is the conservative one: a new document type
     // that forgets to answer is refused early rather than admitted past the cap and discovered later as two
     // surfaces trading each other's per-frame camera. Asserted on the base class's own default so that
     // flipping it to false-by-default cannot pass unnoticed.
     std::vector<std::unique_ptr<IPanel>> panels;
     panels.push_back( std::make_unique<FakeDocument>( "Silent", Asset( 901 ) ) );
 
-    EXPECT_TRUE( static_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsRendererSlot() );
+    EXPECT_TRUE( static_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsView() );
     EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
 }
 
@@ -529,4 +529,61 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// --- What is spoken for, in bytes (RT2i) ----------------------------------------------------------------
+
+TEST( PendingViewBytes, AnUndrawnClaimantCountsItsForecastAndNothingElseDoes )
+{
+    // The forecast is the preview profile's census at the window's default size; the fake has none, so its
+    // first build is at kUnsizedViewExtent and that is what it has spoken for.
+    const uint64_t forecast = Desert::Editor::ForecastPreviewViewBytes( 0, 0 );
+    ASSERT_GT( forecast, 0u );
+
+    std::vector<std::unique_ptr<IPanel>> panels;
+    panels.push_back( std::make_unique<FakeDocument>( "Undrawn", Asset( 201 ) ) );
+    auto held         = std::make_unique<FakeDocument>( "Drawn", Asset( 202 ) );
+    held->m_HoldsSlot = true; // its memory is in the usage already; counting the forecast would count it twice
+    panels.push_back( std::move( held ) );
+    auto cpu          = std::make_unique<FakeDocument>( "Cloud", Asset( 203 ) );
+    cpu->m_ClaimsSlot = false; // drawn on the CPU: no view is ever coming
+    panels.push_back( std::move( cpu ) );
+
+    EXPECT_EQ( static_cast<const ISubjectDocument*>( panels.front().get() )->ViewForecastBytes(), forecast );
+    EXPECT_EQ( Desert::Editor::PendingViewBytes( panels ), forecast );
+}
+
+TEST( AdmitDocumentView, TheNewForecastPlusPendingDemandMustFitWhatIsFree )
+{
+    FakeDocument   incoming( "Incoming", Asset( 211 ) );
+    const uint64_t forecast = incoming.ViewForecastBytes();
+    const uint64_t pending  = 3 * forecast;
+    const uint64_t usage    = 100ull * 1024 * 1024;
+
+    Desert::Engine::ViewBudget::Reading reading;
+    reading.UsageBytes   = usage;
+    reading.CeilingBytes = usage + pending + forecast; // exactly enough
+
+    const auto fits = Desert::Editor::AdmitDocumentView( incoming, pending, reading );
+    EXPECT_TRUE( fits.Ok );
+    EXPECT_EQ( fits.RequestBytes, pending + forecast ) << "The refusal must state what was asked for.";
+    EXPECT_EQ( fits.ReserveBytes, 0u ) << "A document the person opened is a user surface: it keeps no reserve.";
+
+    reading.CeilingBytes -= 1;
+    EXPECT_FALSE( Desert::Editor::AdmitDocumentView( incoming, pending, reading ).Ok )
+         << "One byte short of the forecast plus what is spoken for was admitted.";
+}
+
+TEST( AdmitDocumentView, ADocumentThatBuildsNoViewAsksOnlyForWhatIsAlreadySpokenFor )
+{
+    FakeDocument cpu( "Cloud", Asset( 221 ) );
+    cpu.m_ClaimsSlot = false;
+
+    Desert::Engine::ViewBudget::Reading reading;
+    reading.UsageBytes   = 0;
+    reading.CeilingBytes = 1024;
+
+    EXPECT_TRUE( Desert::Editor::AdmitDocumentView( cpu, 1024, reading ).Ok )
+         << "A CPU-drawn document was refused over a view it will never build.";
+    EXPECT_EQ( Desert::Editor::AdmitDocumentView( cpu, 0, reading ).RequestBytes, 0u );
 }

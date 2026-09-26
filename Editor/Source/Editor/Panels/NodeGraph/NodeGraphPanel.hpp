@@ -80,12 +80,12 @@ namespace Desert::Editor
 
         // A NODE CANVAS COSTS NO RENDERER SLOT — everything here is ImGui geometry. Same answer, and the
         // same reason, as AnimGraphPanel's.
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }
