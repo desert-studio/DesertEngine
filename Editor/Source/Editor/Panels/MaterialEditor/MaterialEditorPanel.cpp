@@ -708,6 +708,30 @@ namespace Desert::Editor
         // pane collapsed, or not yet laid out at a real size - skips the frame and the preview keeps what it
         // last rendered; a growth the view budget refuses is SceneRenderer::Resize's call, and the preview
         // goes on drawing at the size it holds.
+        // WHAT THE PICTURE IS MADE OF THAT THE WIDGET CANNOT SEE: the drawn material's values, and its shader's
+        // rebuild count. The preview re-renders when this moves and otherwise shows its last image
+        // (Editor/Widgets/PreviewRenderGate.hpp); a value left out here is an edit the pane would not show.
+        {
+            namespace Gate                   = PreviewRenderGate;
+            const Assets::MaterialData& data = drawn->Data();
+            uint64_t digest = Gate::Fingerprint( &m_SeenRebuildCount, sizeof( m_SeenRebuildCount ) );
+            for ( const Assets::MaterialShaderParam& param : data.Params )
+            {
+                digest = Gate::Fingerprint( param.Name.data(), param.Name.size(), digest );
+                digest = Gate::Fingerprint( &param.Value, sizeof( param.Value ), digest );
+            }
+            for ( const auto* refs : { &data.Textures, &data.CloudAssets } )
+                for ( const Assets::MaterialAssetRef& ref : *refs )
+                {
+                    digest = Gate::Fingerprint( ref.Name.data(), ref.Name.size(), digest );
+                    digest = Gate::Fingerprint( ref.Guid.data(), ref.Guid.size(), digest );
+                    digest = Gate::Fingerprint( ref.Path.data(), ref.Path.size(), digest );
+                }
+            if ( const std::string* parent = data.ParentText() )
+                digest = Gate::Fingerprint( parent->data(), parent->size(), digest );
+            m_Preview->SetContentFingerprint( digest );
+        }
+
         if ( Graphic::IsUsableViewExtent( m_PreviewExtent ) )
             m_Preview->Update( m_PreviewExtent.Width, m_PreviewExtent.Height );
     }
@@ -814,6 +838,18 @@ namespace Desert::Editor
         place( buttonWidth( "Reset View" ) );
         if ( ImGui::Button( "Reset View" ) && m_Preview )
             m_Preview->ResetView();
+        // Unreal's Realtime: off, the preview renders only when what it shows changes; on, every frame.
+        if ( m_Preview )
+        {
+            place( ImGui::GetFrameHeight() + style.ItemInnerSpacing.x +
+                   ImGui::CalcTextSize( "Realtime", nullptr, true ).x );
+            bool realtime = m_Preview->IsRealtime();
+            if ( ImGui::Checkbox( "Realtime", &realtime ) )
+                m_Preview->SetRealtime( realtime );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Render the preview every frame. Off: only when the material, the view or "
+                                   "the preview scene changes." );
+        }
     }
 
     std::vector<ISubjectDocument::DocumentAction> MaterialEditorPanel::Actions()
@@ -828,6 +864,11 @@ namespace Desert::Editor
                 actions.push_back(
                      { std::string( "Preview shape: " ) + ShapeName( s ), [this, s]() { m_Shape = s; } } );
         }
+        actions.push_back( { "Preview: toggle realtime", [this]()
+                             {
+                                 if ( m_Preview )
+                                     m_Preview->SetRealtime( !m_Preview->IsRealtime() );
+                             } } );
         actions.push_back( { "Preview: reset view", [this]()
                              {
                                  if ( m_Preview )

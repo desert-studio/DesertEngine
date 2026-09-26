@@ -17,9 +17,8 @@
 // Material Editor about 400 px wide on a 1600 px window — its preview pane a sliver — and a document whose
 // imgui.ini entry predated that column opened as a small floating window over the level.
 //
-// Only the FIRST frame of an opening is placed (the caller applies this with ImGuiCond_Appearing): whatever
-// the person does with the tab afterwards — tears it out, docks it beside the Details — stands for as long
-// as the document stays open.
+// Only the FIRST frame of an opening is placed (EditorLayer::DrawDocuments, ImGuiCond_Always once): whatever
+// the person does with the tab afterwards stands, and is remembered per document kind (below).
 //
 // Kept apart from ImGui so the rule is asserted (Desert/Tests/Editor/DocumentOwnership): EditorLayer.cpp is
 // compiled by no suite, and a placement that is wrong is only ever seen as "the window opened small".

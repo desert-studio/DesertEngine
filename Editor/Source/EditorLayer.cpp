@@ -758,6 +758,7 @@ namespace Desert::Editor
 
         // Before the first frame, which is when ImGui reads imgui.ini.
         RegisterDocumentWellLayoutHandler();
+        RegisterDocumentPlacementHandler();
 
         // Setup ImGui style
         ThemeManager::SetDarkTheme();
@@ -5824,6 +5825,58 @@ namespace Desert::Editor
         ::ImGui::AddSettingsHandler( &handler );
     }
 
+    namespace
+    {
+        // The per-kind key of a document's remembered placement: "<domain>:<facet>" — the Material Editor of
+        // every material shares one, a mesh viewer another. The owner is left out on purpose.
+        std::string DocumentKindKey( const SubjectId& subject )
+        {
+            return std::string( SubjectDomainName( subject.Domain ) ) + ':' + std::to_string( subject.Facet );
+        }
+    } // namespace
+
+    void EditorLayer::RegisterDocumentPlacementHandler()
+    {
+        // "[DocumentPlacement][Kinds]\n<kind>=<DocumentPlacement::Format>" in imgui.ini and every saved layout.
+        // ReadInit clears the map: a layout without the section means every kind opens beside the level.
+        ImGuiSettingsHandler handler;
+        handler.TypeName   = "DocumentPlacement";
+        handler.TypeHash   = ImHashStr( handler.TypeName );
+        handler.UserData   = this;
+        handler.ReadInitFn = []( ImGuiContext*, ImGuiSettingsHandler* self )
+        { static_cast<EditorLayer*>( self->UserData )->m_RememberedPlacement.clear(); };
+        handler.ReadOpenFn = []( ImGuiContext*, ImGuiSettingsHandler* self, const char* ) -> void*
+        { return self->UserData; };
+        handler.ReadLineFn = []( ImGuiContext*, ImGuiSettingsHandler* self, void*, const char* line )
+        {
+            auto*                  layer = static_cast<EditorLayer*>( self->UserData );
+            const std::string_view text( line );
+            if ( text.empty() )
+                return;
+            const std::size_t eq         = text.find( '=' );
+            const auto        remembered = eq == std::string_view::npos
+                                                ? std::nullopt
+                                                : DocumentPlacement::Parse( std::string( text.substr( eq + 1 ) ) );
+            if ( eq == 0 || !remembered )
+            {
+                LOG_WARN( "[Editor] The layout's [DocumentPlacement] entry has an unreadable line '{}'; that "
+                          "document kind opens beside the level viewport.",
+                          line );
+                return;
+            }
+            layer->m_RememberedPlacement[std::string( text.substr( 0, eq ) )] = *remembered;
+        };
+        handler.WriteAllFn = []( ImGuiContext*, ImGuiSettingsHandler* self, ImGuiTextBuffer* out )
+        {
+            auto* layer = static_cast<EditorLayer*>( self->UserData );
+            out->appendf( "[DocumentPlacement][Kinds]\n" );
+            for ( const auto& [kind, remembered] : layer->m_RememberedPlacement )
+                out->appendf( "%s=%s\n", kind.c_str(), DocumentPlacement::Format( remembered ).c_str() );
+            out->appendf( "\n" );
+        };
+        ::ImGui::AddSettingsHandler( &handler );
+    }
+
     void EditorLayer::DrawDocumentWell()
     {
         namespace ImGui = ::ImGui;
@@ -5986,30 +6039,49 @@ namespace Desert::Editor
         ImGuiID mainDockId = 0;
         if ( const ::ImGuiWindow* scene = ImGui::FindWindowByName( PanelDisplayTitle( "Scene###scene" ).c_str() ) )
             mainDockId = scene->DockId;
-        const ImGuiViewport*               work      = ImGui::GetMainViewport();
-        const DocumentPlacement::Placement placement = DocumentPlacement::Place(
-             mainDockId, mainDockId != 0 && ImGui::DockBuilderGetNode( mainDockId ),
-             glm::vec2( work->WorkPos.x, work->WorkPos.y ), glm::vec2( work->WorkSize.x, work->WorkSize.y ) );
+        const ImGuiViewport* work      = ImGui::GetMainViewport();
+        const bool           sceneLive = mainDockId != 0 && ImGui::DockBuilderGetNode( mainDockId );
+
+        // A document that closed gives its "placed" mark back, so its next opening is placed again.
+        std::erase_if( m_PlacedDocuments,
+                       [this]( const SubjectId& placed )
+                       {
+                           return std::none_of( m_OpenDocuments.begin(), m_OpenDocuments.end(),
+                                                [&]( const auto& open ) { return open->Subject() == placed; } );
+                       } );
 
         for ( const auto& document : m_OpenDocuments )
         {
-            const SubjectId subject = document->Subject();
+            const SubjectId   subject = document->Subject();
+            const std::string kind    = DocumentKindKey( subject );
 
-            // OPENED AS A TAB IN THE MAIN WORK AREA, beside the level viewport, the way Unreal opens an asset
-            // editor (Editor/Core/DocumentPlacement.hpp). Appearing, not FirstUseEver: FirstUseEver is
-            // skipped for any window imgui.ini has an entry for, so a document first opened under an older
-            // layout kept reopening as the small floating window that entry recorded. Appearing places the
-            // first frame of each opening only; a tab the person moves stays moved while it is open.
-            if ( placement.Docked() )
-                ImGui::SetNextWindowDockID( placement.DockId, ImGuiCond_Appearing );
-            else
+            // PLACED ONCE, ON THE FRAME THE WINDOW FIRST EXISTS, the way Unreal opens an asset editor: where
+            // this kind was last put, else as a tab beside the level viewport (Editor/Core/DocumentPlacement.hpp).
+            // ImGuiCond_Always for that one frame, because the window's own imgui.ini entry would otherwise
+            // put it back wherever an older layout left it (the small floating window ME1c removed).
+            const bool placing = !m_PlacedDocuments.contains( subject );
+            if ( placing )
             {
-                ImGui::SetNextWindowDockID( 0, ImGuiCond_Appearing );
-                ImGui::SetNextWindowPos( ImVec2( placement.Pos.x, placement.Pos.y ), ImGuiCond_Appearing );
-                ImGui::SetNextWindowSize( ImVec2( placement.Size.x, placement.Size.y ), ImGuiCond_Appearing );
+                const auto  it         = m_RememberedPlacement.find( kind );
+                const auto* remembered = it != m_RememberedPlacement.end() ? &it->second : nullptr;
+                const bool  rememberedLive =
+                     remembered && remembered->DockId != 0 && ImGui::DockBuilderGetNode( remembered->DockId );
+                const DocumentPlacement::Resolution resolved = DocumentPlacement::Resolve(
+                     m_SubjectEditors.TypeName( subject ), remembered, mainDockId, sceneLive, rememberedLive,
+                     glm::vec2( work->WorkPos.x, work->WorkPos.y ),
+                     glm::vec2( work->WorkSize.x, work->WorkSize.y ) );
+                if ( !resolved.Report.empty() )
+                    LOG_WARN( "[Documents] {}: {}", document->GetName(), resolved.Report );
+                ImGui::SetNextWindowDockID( resolved.Place.DockId, ImGuiCond_Always );
+                if ( !resolved.Place.Docked() )
+                {
+                    ImGui::SetNextWindowPos( ImVec2( resolved.Place.Pos.x, resolved.Place.Pos.y ),
+                                             ImGuiCond_Always );
+                    ImGui::SetNextWindowSize( ImVec2( resolved.Place.Size.x, resolved.Place.Size.y ),
+                                              ImGuiCond_Always );
+                }
+                m_PlacedDocuments.insert( subject );
             }
-            if ( const glm::vec2 defSize = document->GetDefaultSize(); defSize.x > 0.0f && defSize.y > 0.0f )
-                ImGui::SetNextWindowSize( ImVec2( defSize.x, defSize.y ), ImGuiCond_FirstUseEver );
 
             if ( !m_FocusPanel.empty() && document->GetName() == m_FocusPanel )
             {
@@ -6035,6 +6107,22 @@ namespace Desert::Editor
             // slot can go back (ReleaseSlotsOfHiddenDocuments).
             const bool visible = ImGui::Begin( DocumentDisplayTitle( *document ).c_str(), &open );
             ImGui::PopStyleVar();
+            // OBSERVED from the second frame on: wherever the person has put the window is what the next
+            // opening of this kind gets. The first frame is skipped because the placement is still landing.
+            if ( !placing )
+            {
+                const ImVec2                        pos  = ImGui::GetWindowPos();
+                const ImVec2                        size = ImGui::GetWindowSize();
+                const DocumentPlacement::Remembered seen =
+                     DocumentPlacement::Observe( ImGui::GetWindowDockID(), mainDockId, glm::vec2( pos.x, pos.y ),
+                                                 glm::vec2( size.x, size.y ) );
+                auto [it, inserted] = m_RememberedPlacement.try_emplace( kind, seen );
+                if ( inserted || !( it->second == seen ) )
+                {
+                    it->second = seen;
+                    ImGui::MarkIniSettingsDirty();
+                }
+            }
             if ( visible )
             {
                 if ( ImGui::IsWindowFocused( ImGuiFocusedFlags_RootAndChildWindows ) )

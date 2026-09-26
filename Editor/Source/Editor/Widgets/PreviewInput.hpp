@@ -105,7 +105,7 @@ namespace Desert::Editor
     enum class PreviewWheelOwner : uint8_t
     {
         PassThrough, // the parent window scrolls; the preview ignores the wheel
-        Zoom,        // the preview zooms and the caller claims the wheel from the parent (SetItemKeyOwner)
+        Zoom,        // the preview zooms and the caller claims the wheel from the parent (SetItemUsingMouseWheel)
     };
 
     [[nodiscard]] inline PreviewWheelOwner WheelOwner( const PreviewInteraction mode, const bool hovered,

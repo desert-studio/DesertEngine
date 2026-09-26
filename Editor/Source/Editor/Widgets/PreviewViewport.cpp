@@ -4,9 +4,12 @@
 #include <Editor/RenderSystems/Passes/EditorCubemapPreviewPass.hpp>
 #include <Editor/RenderSystems/Passes/EditorGridPass.hpp>
 
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 
 #include "UIHelper/ImGuiUI.hpp"
+
+#include <ImGui/imgui_internal.h>
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
@@ -318,6 +321,8 @@ namespace Desert::Editor
             return;
 
         const bool changed = !m_AppliedSetupValid || !( m_Setup == m_AppliedSetup );
+        if ( changed )
+            ++m_SetupRevision;
 
         // ── The key light, which is also the sun ───────────────────────────────────────────────────────
         auto& lightC          = m_Light.GetComponent<ECS::DirectionLightComponent>();
@@ -465,12 +470,16 @@ namespace Desert::Editor
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::StaticMeshComponent>() )
             return;
-        m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD = lod;
+        int& forced = m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD;
+        if ( forced != lod )
+            ++m_ContentRevision;
+        forced = lod;
     }
 
     void PreviewViewport::SetMesh( const Assets::AssetHandle&              mesh,
                                    const std::vector<Assets::AssetHandle>& materials )
     {
+        ++m_ContentRevision;
         if ( static_cast<uint64_t>( mesh ) == 0 )
         {
             Clear();
@@ -616,6 +625,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetMaterial( const Assets::AssetHandle& material, Shape shape )
     {
+        ++m_ContentRevision;
         EnsureInit();
 
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
@@ -651,6 +661,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetCubemapMaterial( std::function<Graphic::SampledCube()> resolveCube )
     {
+        ++m_ContentRevision;
         EnsureInit();
 
         // Nothing rides the mesh path in this mode — the ball is the external pass's draw (see the
@@ -697,6 +708,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetCubemapBackdrop( bool cubeIsBackdrop )
     {
+        ++m_ContentRevision;
         if ( m_Fill != Fill::Cubemap || !m_CubemapPass )
         {
             LOG_ERROR( "[Preview] SetCubemapBackdrop without a cubemap on show — call SetCubemapMaterial first." );
@@ -707,6 +719,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetVolumeMaterial( const Assets::AssetHandle& material )
     {
+        ++m_ContentRevision;
         EnsureInit();
         if ( !m_Inited )
             return;
@@ -788,6 +801,7 @@ namespace Desert::Editor
 
     void PreviewViewport::InvalidatePipelines( const void* shader )
     {
+        ++m_ContentRevision;
         if ( !m_Inited || !m_Renderer || !shader )
             return;
 
@@ -799,6 +813,7 @@ namespace Desert::Editor
 
     void PreviewViewport::Clear()
     {
+        ++m_ContentRevision;
         m_HasContent = false;
         m_MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Framed     = false;
@@ -895,6 +910,8 @@ namespace Desert::Editor
         if ( !m_Framed && static_cast<uint64_t>( m_MeshHandle ) != 0 )
         {
             m_Framed = TryFrameMesh();
+            if ( m_Framed )
+                ++m_ContentRevision;
         }
 
         // Resize recreates framebuffers and idles the GPU, so only on an actual change.
@@ -926,6 +943,26 @@ namespace Desert::Editor
 
         ApplyCamera( m_Width, m_Height );
 
+        // SKIPPED WHEN THE PICTURE WOULD NOT CHANGE (PreviewRenderGate). Everything above still runs: the resize
+        // must follow the pane, and ApplySetup/ApplyCamera are what tell the gate that something moved. A
+        // read still in flight anywhere (a texture of this material streaming in) counts as time-dependent:
+        // the picture changes when it lands, and nothing this widget holds would say so.
+        PreviewRenderGate::Inputs in;
+        in.Subject         = m_ContentRevision;
+        in.Parameters      = m_ContentFingerprint;
+        in.Setup           = m_SetupRevision;
+        in.Yaw             = m_Yaw;
+        in.Pitch           = m_Pitch;
+        in.Zoom            = m_Zoom;
+        in.Focus           = m_Focus;
+        in.Width           = m_Width;
+        in.Height          = m_Height;
+        const bool loading = Assets::AsyncAssetLoader::Get().Outstanding() > 0;
+        m_RenderedLastUpdate =
+             PreviewRenderGate::ShouldRender( m_Gate, in, IsSkyRebuilding() || loading, m_Realtime );
+        if ( !m_RenderedLastUpdate )
+            return;
+
         // Recorded into the editor's current frame command buffer, submitted when the frame ends. This is
         // why Update() must run from OnPreUpdate() and never from OnUIRender(). The scene opens and closes
         // its own renderer inside this call, so a refusal cannot leave that buffer holding half a pass.
@@ -952,6 +989,11 @@ namespace Desert::Editor
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight );
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
+        // The wheel over an Interactive preview zooms it and must not also scroll the window around it. This
+        // ImGui (1.89 WIP) predates key ownership (SetItemKeyOwner); SetItemUsingMouseWheel is its form, read by
+        // the NEXT frame's wheel routing, which is why it is claimed on every hovered frame (WheelOwner).
+        if ( WheelOwner( mode, hovered, ImGui::GetIO().MouseWheel ) == PreviewWheelOwner::Zoom )
+            ImGui::SetItemUsingMouseWheel();
 
         ImDrawList*  dl = ImGui::GetWindowDrawList();
         const ImVec2 end( origin.x + drawSize.x, origin.y + drawSize.y );

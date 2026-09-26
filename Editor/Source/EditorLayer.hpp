@@ -20,6 +20,7 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/DocumentWell.hpp"
+#include "Editor/Core/DocumentPlacement.hpp"
 #include "Editor/Core/FlightRules.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
 #include "Editor/RenderSystems/RenderRigistry.hpp"
@@ -36,6 +37,7 @@
 
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Desert::Editor
 {
@@ -607,6 +609,15 @@ namespace Desert::Editor
         // What the layout file last said about the well's window; a difference marks imgui.ini dirty.
         bool m_DocumentWellOpenInLayout = true;
         void RegisterDocumentWellLayoutHandler();
+
+        // WHERE EACH DOCUMENT KIND WAS LAST PUT (Editor/Core/DocumentPlacement.hpp), keyed by DocumentKindKey —
+        // domain and facet, stable across runs. Persisted in imgui.ini as [DocumentPlacement][Kinds], so a
+        // named layout carries it too. The next opening of that kind goes back there.
+        std::unordered_map<std::string, Editor::DocumentPlacement::Remembered> m_RememberedPlacement;
+        // Documents whose opening has been placed. The placement is applied ONCE, on the first frame the
+        // window exists; afterwards the window is the person's and is only observed.
+        std::unordered_set<SubjectId> m_PlacedDocuments;
+        void                          RegisterDocumentPlacementHandler();
 
         // A refused open, waiting to be shown (see DrawOpenRefusedPopup). Holds the census by value: the
         // documents it names may be closed while the dialog is up, and a row pointing at a destroyed panel
