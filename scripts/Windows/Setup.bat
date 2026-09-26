@@ -162,9 +162,20 @@ REM Generating it is now Common.vcxproj's PreBuildEvent, which runs on every bui
 REM well would hide a PreBuildEvent that had stopped firing: a missing header is a compile error, a
 REM stale one is a lie.
 REM ---------------------------------------------------------------------------
+REM THE VERSION IS CHECKED BEFORE ANYTHING IS GENERATED, and this used to be taken on trust. Whichever
+REM premake5 was found — on PATH or already in vendor\bin — was used whatever version it was, and the
+REM versions are not interchangeable: BuildScripts\UnityBuild.lua overrides
+REM premake.vstudio.vc2010.fileConfigFunction, which exists in beta8 and not in beta2, so a stale binary
+REM answers `--unity` with "unable to override 'fileConfigFunction'" and writes no project files at all.
+REM Measured on a machine whose vendor\bin held 5.0.0-beta2. WITHOUT --unity the same binary is worse
+REM than an error: it succeeds, and the solution it writes is one no CI run has ever built.
+call :check_premake_version
+if errorlevel 1 goto :skip_generate
+
 echo --- Generating project files ^(premake5 %PREMAKE_ACTION% %PREMAKE_EXTRA%^)
 "%PREMAKE%" %PREMAKE_ACTION% %PREMAKE_EXTRA%
 if errorlevel 1 call :fail "premake5 %PREMAKE_ACTION%"
+:skip_generate
 
 REM ---------------------------------------------------------------------------
 REM 7. Is everything premake5 and the generated projects read actually on disk?
@@ -280,6 +291,43 @@ echo   --unity        Generate Common, Desert and Editor as MSBuild unity builds
 echo                  a developer build leaves it off ^(see BuildScripts\UnityBuild.lua^).
 echo.
 exit /b 2
+
+REM --- premake version -------------------------------------------------------
+REM Refuses BY NAME and says how to fix it, rather than generating with a premake nobody tested.
+REM `premake5 --version` prints a banner line ending in the version; the last token of the line that
+REM contains "Premake Build Script Generator" is that version. Errorlevel 1 means "do not generate".
+:check_premake_version
+REM THE BANNER IS TOKENISED, NOT ECHOED INSIDE A BLOCK. It reads
+REM     premake5 (Premake Build Script Generator) 5.0.0-beta8
+REM and those parentheses are the same hazard as %ProgramFiles(x86)% at the top of this file: a `)`
+REM inside a parenthesised block closes the block at PARSE time, so `echo %%V | findstr ...` in a for
+REM body is a syntax error that reports the wrong line. findstr does the matching in the pipe instead,
+REM and token 6 is the version — the banner has had this shape since premake4.
+set "PREMAKE_FOUND="
+for /f "tokens=6" %%V in ('""%PREMAKE%" --version 2^>NUL" ^| findstr /C:"Premake Build Script Generator"') do set "PREMAKE_FOUND=%%V"
+if not defined PREMAKE_FOUND (
+    call :fail "premake5 did not report a version ('%PREMAKE%' --version); cannot tell whether it is %PREMAKE_VERSION%"
+    exit /b 1
+)
+if /I "%PREMAKE_FOUND%"=="%PREMAKE_VERSION%" (
+    echo --- premake5 is %PREMAKE_FOUND%
+    exit /b 0
+)
+echo.
+echo   '%PREMAKE%' is %PREMAKE_FOUND%, and this repository needs %PREMAKE_VERSION%.
+echo.
+echo   The two are not interchangeable: BuildScripts\UnityBuild.lua uses a premake API that
+echo   %PREMAKE_VERSION% has and older builds do not, so --unity fails outright and a plain
+echo   generate writes project files no CI run has built.
+echo.
+echo   To update, delete the old one and let this script fetch the pinned version:
+echo       del "%ROOT%\vendor\bin\premake5.exe"
+echo       scripts\Windows\Setup.bat
+echo   If premake5 is on your PATH instead, install %PREMAKE_VERSION% there or remove it from PATH:
+echo       where premake5
+echo.
+call :fail "premake5 is %PREMAKE_FOUND%, need %PREMAKE_VERSION% (nothing was generated)"
+exit /b 1
 
 :fail
 set /a FAILCOUNT+=1
