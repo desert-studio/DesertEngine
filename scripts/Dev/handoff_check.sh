@@ -34,6 +34,14 @@ if [ -z "${HANDOFF_NO_BUILD:-}" ]; then
     if ! printf '%s\n' $suites | xargs "$DEV_ROOT/scripts/Dev/suite.sh" --build-only >"$LOG/build.log" 2>&1; then
         echo "handoff_check: building the suites FAILED; log $LOG/build.log"; tail -5 "$LOG/build.log"; exit 1
     fi
+    # (0b) the Editor too: suites compile a fraction of the Editor's sources, and on 09-26 two batches each passed
+    # every suite while together they broke the Editor build (AV1d changed PreviewViewport::Draw, AV1e called the
+    # old one). HANDOFF_NO_EDITOR=1 skips it.
+    if [ -z "${HANDOFF_NO_EDITOR:-}" ] && [ -f Editor.make ]; then
+        if ! "$HOME/.claude/tools/build_quiet.sh" "$PWD" "$LOG/editor.log" Editor >/dev/null 2>&1; then
+            echo "handoff_check: building the Editor FAILED; log $LOG/editor.log"; grep -m5 "error:" "$LOG/editor.log"; exit 1
+        fi
+    fi
 fi
 bins=()
 for t in "$BIN"/*; do [ -f "$t" ] && [ -x "$t" ] && bins+=("$t"); done
