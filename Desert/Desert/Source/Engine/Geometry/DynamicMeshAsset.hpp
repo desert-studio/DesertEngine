@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <span>
@@ -32,10 +33,12 @@ namespace Desert::Geometry
                                 std::span<const Common::Content::AssetGuid> slotMaterials );
 
     // The asset's triangles welded back (DynamicMeshFromRenderMesh) with triangle groups from the file (all 0
-    // for a file with none) and MaterialID = submesh index; triangle k is face k of the file. Refused on a
-    // skinned asset and on faces that do not weld back one-to-one (degenerate, duplicate, or a third triangle
-    // on an edge): the per-face polygroups are addressed by face order, and the EditMesh reader refuses the
-    // same files, so both cores open exactly the same set of assets.
-    [[nodiscard]] Common::ResultStr<DynamicMesh3>
+    // for a file with none) and MaterialID = submesh index. The same rule as the EditMesh reader
+    // (FromMeshAssetData), so both cores open the same set of assets: as UE's MeshDescription -> DynamicMesh
+    // conversion does, degenerate and duplicate faces are skipped and a third triangle on an edge stands on
+    // its own corner copies; the counts come back with the mesh for the caller to say out loud, and each
+    // surviving face keeps its own polygroup and bitangent sign through TriangleOfFace. Refused on a skinned
+    // asset, and by the face count when no face survives the weld.
+    [[nodiscard]] Common::ResultStr<ImportedDynamicMesh>
     DynamicMeshFromMeshAssetData( const Assets::Serialization::MeshAssetData& data );
 } // namespace Desert::Geometry

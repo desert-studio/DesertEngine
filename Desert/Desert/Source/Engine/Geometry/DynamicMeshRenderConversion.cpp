@@ -216,6 +216,7 @@ namespace Desert::Geometry
 
         ImportedDynamicMesh result;
         DynamicMesh3&       mesh = result.Mesh;
+        result.TriangleOfFace.assign( render.Indices.size(), DynamicMesh3::InvalidID );
         mesh.EnableAttributes();
         DynamicMeshAttributeSet& attributes = *mesh.Attributes();
         attributes.SetNumUVLayers( 1 );
@@ -312,6 +313,7 @@ namespace Desert::Geometry
                     return MakeFormattedError<ImportedDynamicMesh>(
                          "FromRenderMesh: triangle {} of a submesh was refused by the mesh ({})", k, t );
                 materialIds.SetValue( t, range.Material );
+                result.TriangleOfFace[range.FirstTriangle + k] = t;
 
                 Index3i en;
                 Index3i et;

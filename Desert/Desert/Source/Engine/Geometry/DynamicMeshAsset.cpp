@@ -8,6 +8,7 @@
 
 #include <array>
 #include <map>
+#include <vector>
 
 namespace Desert::Geometry
 {
@@ -21,7 +22,8 @@ namespace Desert::Geometry
         // component at one vertex (they are within any tolerance) and the file would not write back to the
         // same bytes; so the bitangent overlay is rebuilt here as the P6 reader builds it: one element per
         // (normal element, tangent element, sign) a corner uses, valued cross(N, T) * sign.
-        void RebuildBitangentsFromSigns( DynamicMesh3& mesh, const Ser::MeshAssetData& data )
+        void RebuildBitangentsFromSigns( DynamicMesh3& mesh, const Ser::MeshAssetData& data,
+                                         const std::vector<int>& triangleOfFace )
         {
             DynamicMeshAttributeSet&        attributes = *mesh.Attributes();
             const DynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
@@ -29,15 +31,17 @@ namespace Desert::Geometry
             DynamicMeshNormalOverlay&       bitangents = *attributes.PrimaryBiTangents();
             bitangents.ClearElements();
 
-            // Mesh corner j of triangle k is render corner kRenderCorner[j] of file face k (the winding swap
-            // DynamicMeshRenderConversion.hpp makes on the way in).
+            // Mesh corner j of triangle TriangleOfFace[k] is render corner kRenderCorner[j] of file face k (the
+            // winding swap DynamicMeshRenderConversion.hpp makes on the way in).
             constexpr int                     kRenderCorner[3] = { 0, 2, 1 };
             std::map<std::array<int, 3>, int> made;
             for ( const Ser::SubmeshData& submesh : data.Submeshes )
                 for ( uint32_t f = submesh.IndexOffset / 3; f < ( submesh.IndexOffset + submesh.IndexCount ) / 3;
                       ++f )
                 {
-                    const int                     t    = static_cast<int>( f );
+                    const int t = triangleOfFace[f];
+                    if ( t == DynamicMesh3::InvalidID )
+                        continue; // a dropped face has no triangle and no bitangent
                     const Ser::IndexData&         face = data.Indices[f];
                     const std::array<uint32_t, 3> local{ face.V1, face.V2, face.V3 };
                     const Index3i                 en = normals.GetTriangle( t );
@@ -105,30 +109,30 @@ namespace Desert::Geometry
         return Common::MakeSuccess( MeshAssetDataFromRender( render, slotMaterials, std::move( groups ) ) );
     }
 
-    Common::ResultStr<DynamicMesh3> DynamicMeshFromMeshAssetData( const Ser::MeshAssetData& data )
+    Common::ResultStr<ImportedDynamicMesh> DynamicMeshFromMeshAssetData( const Ser::MeshAssetData& data )
     {
         auto arrays = RenderFromMeshAssetData( data );
         if ( !arrays.IsSuccess() )
-            return Common::MakeError<DynamicMesh3>( arrays.GetError() );
+            return Common::MakeError<ImportedDynamicMesh>( arrays.GetError() );
         const RenderMeshData render = arrays.ExtractValue();
 
         auto imported = DynamicMeshFromRenderMesh( render );
         if ( !imported.IsSuccess() )
-            return Common::MakeError<DynamicMesh3>( imported.GetError() );
+            return Common::MakeError<ImportedDynamicMesh>( imported.GetError() );
         ImportedDynamicMesh result = imported.ExtractValue();
-        if ( result.DroppedDegenerate != 0 || result.DroppedDuplicate != 0 || result.DetachedTriangles != 0 )
-            return Common::MakeFormattedError<DynamicMesh3>(
-                 "the asset's {} faces do not weld back one-to-one ({} degenerate, {} duplicate, {} detached), "
-                 "so its per-face polygroups cannot be placed",
-                 data.Indices.size(), result.DroppedDegenerate, result.DroppedDuplicate,
-                 result.DetachedTriangles );
+        if ( result.Mesh.TriangleCount() == 0 )
+            return Common::MakeFormattedError<ImportedDynamicMesh>(
+                 "none of the asset's {} faces survives the weld ({} degenerate, {} duplicate), so there is "
+                 "nothing to model",
+                 data.Indices.size(), result.DroppedDegenerate, result.DroppedDuplicate );
 
-        // Nothing was dropped or split off, so face k of the file is triangle k of the fresh mesh.
+        // Face k of the file is render face k; a dropped face has no triangle and its group goes with it.
         DynamicMesh3& mesh = result.Mesh;
-        RebuildBitangentsFromSigns( mesh, data );
+        RebuildBitangentsFromSigns( mesh, data, result.TriangleOfFace );
         mesh.EnableTriangleGroups( 0 );
-        for ( size_t k = 0; k < data.PolyGroups.size(); ++k )
-            mesh.SetTriangleGroup( static_cast<int>( k ), data.PolyGroups[k] );
-        return Common::MakeSuccess( std::move( mesh ) );
+        for ( size_t k = 0; k < data.PolyGroups.size() && k < result.TriangleOfFace.size(); ++k )
+            if ( const int t = result.TriangleOfFace[k]; t != DynamicMesh3::InvalidID )
+                mesh.SetTriangleGroup( t, data.PolyGroups[k] );
+        return Common::MakeSuccess( std::move( result ) );
     }
 } // namespace Desert::Geometry

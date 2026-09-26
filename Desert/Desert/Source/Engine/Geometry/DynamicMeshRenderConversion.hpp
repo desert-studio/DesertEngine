@@ -6,6 +6,8 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <vector>
+
 namespace Desert::Geometry
 {
     // DynamicMesh3 <-> the engine's render-mesh arrays (RenderMeshData.hpp), the same arrays and the same
@@ -37,6 +39,9 @@ namespace Desert::Geometry
         int           DroppedDuplicate  = 0; // the same three welded vertices as an earlier triangle
         int           DetachedTriangles = 0; // a third triangle on an edge: given its own copies of its
                                              // already-used corners (DynamicMesh3 refuses such an edge)
+        // Per render face (render.Indices order), the triangle it became, or DynamicMesh3::InvalidID for a
+        // dropped one: what lets per-face data (the file's polygroups) follow its face past the dropped ones.
+        std::vector<int> TriangleOfFace;
     };
 
     // Welds render vertices by position into mesh vertices, and each overlay by value per welded vertex into
