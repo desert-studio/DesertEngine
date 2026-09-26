@@ -35,6 +35,7 @@
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -73,10 +74,6 @@ namespace
     constexpr std::array kPathOnly = {
          PathOnlyRow{ ContentKind::Skeleton, "no header format: a .skeleton states no GUID (AF4 mesh programme)" },
          PathOnlyRow{ ContentKind::Animation, "no header format: an .anim states no GUID (AF4 mesh programme)" },
-         PathOnlyRow{ ContentKind::Shader,
-                      "every stored reference is by GUID - the .shader header (T7j), a .demat's Shader (T7k, "
-                      "MATL 4) and a scene's Material.Shader (T7i, SCNE 31) - but the registry route this census "
-                      "moves a file through still locates a .shader by path" },
          PathOnlyRow{ ContentKind::CloudNoiseVolume, "raw DCNV file, no DAST envelope: states no GUID (AF10e)" },
          PathOnlyRow{ ContentKind::CloudModellingVolume,
                       "raw DCMV file, no DAST envelope; StoredFormFor(CloudModellingVolumeAsset) = AssetsRelative "
@@ -110,10 +107,12 @@ namespace
     // The kinds whose referrers write a GUID beside the path, each with the reader that honours it:
     // mesh/material slots of mesh components and the texture slot (ResolveGuidRef, ComponentRegistry.cpp
     // FromGuid branches), skyboxes (SCNE 29), and a .demat's texture/cloud references (MaterialAssetRef,
-    // MaterialData.hpp). Every other kind's referrer writes the path alone.
+    // MaterialData.hpp), and shaders - a .demat's Shader (MATL 4) and a scene's Material.Shader (SCNE 31),
+    // both {Guid, Path} against the `.shader` comment header the registry reads (ShaderCommentHeaderFormat).
+    // Every other kind's referrer writes the path alone.
     constexpr std::array kGuidReferrers = {
-         ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture,    ContentKind::Material,
-         ContentKind::Skybox,     ContentKind::CloudType,   ContentKind::CloudLayout };
+         ContentKind::StaticMesh, ContentKind::SkinnedMesh, ContentKind::Texture,     ContentKind::Material,
+         ContentKind::Skybox,     ContentKind::CloudType,   ContentKind::CloudLayout, ContentKind::Shader };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -234,8 +233,17 @@ namespace
             case ContentKind::WorldIndex:
             case ContentKind::Skybox:
                 return SyntheticEnvelope( kind, guid );
+            case ContentKind::Shader:
+            {
+                // The `.shader` header is its first line's comment (T7j); the body is the least the declared-name
+                // check accepts, named after the probe file.
+                const std::string text =
+                     Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader( kind, guid, {} ) ) +
+                     "Shader \"AF10a_Probe\" {}\n";
+                return { text.begin(), text.end() };
+            }
             default:
-                // Skeleton, animation, shader: formats with no header at all.
+                // Skeleton, animation: formats with no header at all.
                 return { 'N', 'O', 'H', 'D', 'R' };
         }
     }
