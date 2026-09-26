@@ -79,10 +79,10 @@ namespace Desert::Graphic::API::Vulkan
         std::unordered_map<Core::Formats::ShaderStage, std::string> stages;
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::Preprocess );
-            m_ProgramMeta = Core::Preprocess::ShaderPreprocess::ParseProgramMetaForPass( asset->GetShaderContent(),
-                                                                                         m_PassName );
-            stages        = Core::Preprocess::ShaderPreprocess::PreProcessProgramPass( asset->GetShaderContent(),
-                                                                                       m_ShaderPath, m_PassName );
+            auto                          preprocessed =
+                 Core::Preprocess::ShaderPreprocess::PreProcessPass( content, m_ShaderPath, m_PassName );
+            m_ProgramMeta = std::move( preprocessed.Meta );
+            stages        = std::move( preprocessed.Stages );
         }
         if ( m_ProgramMeta.HasParams() || m_ProgramMeta.State.Topology.has_value() )
         {
