@@ -1979,7 +1979,8 @@ namespace Desert::Migration
                         const auto guid = MaterialGuidOfPath( stored.value(), assetsRoot );
                         if ( !guid )
                         {
-                            report.UnknownNames.push_back( site + " = '" + stored.value() + "': " + guid.GetError() );
+                            report.UnknownNames.push_back( site + " = '" + stored.value() +
+                                                           "': " + guid.GetError() );
                             guids.push_back( rfl::Generic( std::string() ) );
                             continue;
                         }
@@ -4044,8 +4045,9 @@ namespace Desert::Migration
                     report.Refused =
                          "'" + name + "': " + std::to_string( report.MaterialGuids.UnknownNames.size() ) +
                          " material slot(s) name no material this step can identify (an old id the register " +
-                         kLegacyMaterialIdRegisterName + " does not know, or a path whose .demat cannot be read): " +
-                         names + ". Nothing was written.";
+                         kLegacyMaterialIdRegisterName +
+                         " does not know, or a path whose .demat cannot be read): " + names +
+                         ". Nothing was written.";
                     return;
                 }
             }

@@ -68,12 +68,12 @@ namespace Desert::Graphic
         const std::filesystem::path panoramaPath    = cooked.GetValue().Path;
         const uint64_t              sourceSignature = cooked.GetValue().SourceSignature;
 
-        const uint64_t radianceBake = EnvironmentBakeSignature( BakedEnvironmentCube::Radiance,
-                                                                kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
+        const uint64_t radianceBake =
+             EnvironmentBakeSignature( BakedEnvironmentCube::Radiance, kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
         const uint64_t irradianceBake =
              EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
-        const uint64_t prefilterBake = EnvironmentBakeSignature(
-             BakedEnvironmentCube::Prefiltered, kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
+        const uint64_t prefilterBake = EnvironmentBakeSignature( BakedEnvironmentCube::Prefiltered,
+                                                                 kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
 
         const std::filesystem::path radiancePath   = EnvironmentBakePath( sourceSignature, radianceBake );
         const std::filesystem::path irradiancePath = EnvironmentBakePath( sourceSignature, irradianceBake );
@@ -83,24 +83,22 @@ namespace Desert::Graphic
         // environment whose halves came from different bakes; the cheapest way to make that
         // impossible is to treat the trio as the unit it is.
         {
-            auto cachedRadiance =
-                 LoadBakedEnvironmentCube( radiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
-                                           kSkyEnvRadianceMips, sourceSignature, radianceBake );
+            auto cachedRadiance = LoadBakedEnvironmentCube( radiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
+                                                            kSkyEnvRadianceMips, sourceSignature, radianceBake );
             auto cachedIrradiance =
-                 LoadBakedEnvironmentCube( irradiancePath, "EnvDiffuseIrradiance", kSkyEnvIrradianceFaceSize,
-                                           1u, sourceSignature, irradianceBake );
+                 LoadBakedEnvironmentCube( irradiancePath, "EnvDiffuseIrradiance", kSkyEnvIrradianceFaceSize, 1u,
+                                           sourceSignature, irradianceBake );
             auto cachedPrefilter =
                  LoadBakedEnvironmentCube( prefilterPath, "EnvPrefiltered", kSkyEnvPrefilterFaceSize,
                                            kSkyEnvPrefilterMips, sourceSignature, prefilterBake );
 
             if ( cachedRadiance.IsSuccess() && cachedIrradiance.IsSuccess() && cachedPrefilter.IsSuccess() )
             {
-                LOG_INFO(
-                     "[SceneEnvironment] '{}' was loaded from its baked IBL chain in {:.1f} ms; the "
-                     "panorama was not read and the three compute passes did not run.",
-                     meta.Filepath.string(),
-                     std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
-                          .count() );
+                LOG_INFO( "[SceneEnvironment] '{}' was loaded from its baked IBL chain in {:.1f} ms; the "
+                          "panorama was not read and the three compute passes did not run.",
+                          meta.Filepath.string(),
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
+                               .count() );
                 return { meta.Filepath,
                          imageService->Register( cachedRadiance.ExtractValue(),
                                                  Runtime::ImageHandle::Type::ImageCube ),
@@ -110,12 +108,11 @@ namespace Desert::Graphic
                                                  Runtime::ImageHandle::Type::ImageCube ) };
             }
 
-            LOG_INFO( "[SceneEnvironment] '{}' is being baked: {} / {} / {}", meta.Filepath.string(),
-                      cachedRadiance.IsSuccess() ? std::string( "radiance ready" ) : cachedRadiance.GetError(),
-                      cachedIrradiance.IsSuccess() ? std::string( "irradiance ready" )
-                                                   : cachedIrradiance.GetError(),
-                      cachedPrefilter.IsSuccess() ? std::string( "prefilter ready" )
-                                                  : cachedPrefilter.GetError() );
+            LOG_INFO(
+                 "[SceneEnvironment] '{}' is being baked: {} / {} / {}", meta.Filepath.string(),
+                 cachedRadiance.IsSuccess() ? std::string( "radiance ready" ) : cachedRadiance.GetError(),
+                 cachedIrradiance.IsSuccess() ? std::string( "irradiance ready" ) : cachedIrradiance.GetError(),
+                 cachedPrefilter.IsSuccess() ? std::string( "prefilter ready" ) : cachedPrefilter.GetError() );
         }
 
         // ONLY A MISS READS THE PIXELS, and it reads them out of the container as they are. The bake
@@ -133,19 +130,19 @@ namespace Desert::Graphic
         const std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
 
         // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
-        auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle() );
-        const auto  radianceHandle = imageService->Register( std::move( radianceCube ),
-                                                             Runtime::ImageHandle::Type::ImageCube );
+        auto       radianceCube = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle() );
+        const auto radianceHandle =
+             imageService->Register( std::move( radianceCube ), Runtime::ImageHandle::Type::ImageCube );
 
         // 2) Diffuse irradiance (from the panorama directly).
-        auto       diffuseIrradiance       = CreateDiffuseIrradiance( imagePanorama->GetImageHandle() );
-        const auto diffuseIrradianceHandle = imageService->Register(
-             std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
+        auto       diffuseIrradiance = CreateDiffuseIrradiance( imagePanorama->GetImageHandle() );
+        const auto diffuseIrradianceHandle =
+             imageService->Register( std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
 
         // 3) Prefiltered specular (real GGX per-mip convolution of the radiance cube).
-        auto       prefiltered       = CreatePrefilteredMap( radianceHandle );
-        const auto prefilteredHandle = imageService->Register(
-             std::move( prefiltered ), Runtime::ImageHandle::Type::ImageCube );
+        auto       prefiltered = CreatePrefilteredMap( radianceHandle );
+        const auto prefilteredHandle =
+             imageService->Register( std::move( prefiltered ), Runtime::ImageHandle::Type::ImageCube );
 
         // The two halves of a miss are timed apart because they answer different questions: the
         // convolutions are GPU work every bake repeats, the write below is a CPU block encode paid
@@ -175,8 +172,8 @@ namespace Desert::Graphic
                 auto* cube  = dynamic_cast<ImageCube*>( image );
                 if ( !cube )
                     continue;
-                if ( const auto written = WriteBakedEnvironmentCube( entry.Path, *cube, sourceKey,
-                                                                     sourceSignature, entry.Bake );
+                if ( const auto written =
+                          WriteBakedEnvironmentCube( entry.Path, *cube, sourceKey, sourceSignature, entry.Bake );
                      !written )
                 {
                     LOG_ERROR( "[SceneEnvironment] '{}' was baked but not cached to '{}': {}",
@@ -192,8 +189,7 @@ namespace Desert::Graphic
              meta.Filepath.string(),
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
              std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt )
-                  .count(),
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt ).count(),
              kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
              kSkyEnvPrefilterMips,
              static_cast<double>( SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
