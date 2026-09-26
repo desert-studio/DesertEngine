@@ -1,6 +1,6 @@
 #pragma once
 
-// THE TEMPORARY BRIDGE BETWEEN THE TWO MESH CORES (P8a). StaticMeshComponent::EditableMesh is an FDynamicMesh3;
+// THE TEMPORARY BRIDGE BETWEEN THE TWO MESH CORES (P8a). StaticMeshComponent::EditableMesh is an DynamicMesh3;
 // the modeling operations of M14-M17 and the tools that pick and select elements still run on EditMesh until
 // their PORT0 cards (P10-P17) move them onto the ported core. Until then every crossing goes through THIS file
 // and nothing else: outside Geometry/EditMesh* and this bridge no source includes an EditMesh header
@@ -38,7 +38,7 @@ namespace Desert::ECS
 namespace Desert::Geometry::Bridge
 {
     // The EditMesh a tool reads for @p mesh: picking, element selection, the operations' input. IDs AGREE with
-    // the FDynamicMesh3's: a mesh made by FromEditMesh is handed back the very EditMesh it was made from (so
+    // the DynamicMesh3's: a mesh made by FromEditMesh is handed back the very EditMesh it was made from (so
     // edge IDs, which only the EditMesh has, stay those the selection was made on), and any other mesh is
     // compact (both cores' saved form numbers densely) and converted through the saved form, which keeps
     // vertex and triangle order. Cached per mesh for as long as the mesh lives - the component's mesh is
@@ -47,16 +47,16 @@ namespace Desert::Geometry::Bridge
     // removed by P10 (GroupTopology + selection: picking and selection read the ported core); the function
     // itself by P8b.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const EditMesh>>
-    EditMeshView( const std::shared_ptr<const FDynamicMesh3>& mesh );
+    EditMeshView( const std::shared_ptr<const DynamicMesh3>& mesh );
 
     // An operation's result back onto the ported core. The EditMesh is compacted first and @p selection (the
     // operation's output selection, if the caller keeps one) is renumbered through the same maps and its edges
-    // are then carried onto the FDynamicMesh3's edge IDs by vertex pair, so its IDs name the returned mesh's
-    // elements. Refused when the converted mesh is refused by the FDynamicMesh3
+    // are then carried onto the DynamicMesh3's edge IDs by vertex pair, so its IDs name the returned mesh's
+    // elements. Refused when the converted mesh is refused by the DynamicMesh3
     // reader. removed by the last of the cards whose operations call it: Offset (ours; P11 ported Extrude /
     // Inset), P12 Edge Loop / Weld / Hole Fill / Clean, P13a/b Bevel, P14 Plane Cut / Mirror, P15 Subdivide, P17
     // Boolean / Trim, P19 (or its own card) the XForm tab; the function itself by P8b.
-    [[nodiscard]] Common::ResultStr<std::shared_ptr<const FDynamicMesh3>>
+    [[nodiscard]] Common::ResultStr<std::shared_ptr<const DynamicMesh3>>
     FromEditMesh( EditMesh mesh, ElementSelection* selection = nullptr );
 
     // @p selection (IDs of @p mesh) in the IDs of @p view = EditMeshView( mesh ), for an operation that still runs
@@ -65,7 +65,7 @@ namespace Desert::Geometry::Bridge
     // edge, when the view has no edge between those vertices (then @p view is not @p mesh's view). removed by
     // the same cards as FromEditMesh; the function itself by P8b.
     [[nodiscard]] Common::ResultStr<ElementSelection>
-    ToEditMeshSelection( const FDynamicMesh3& mesh, const EditMesh& view, const ElementSelection& selection );
+    ToEditMeshSelection( const DynamicMesh3& mesh, const EditMesh& view, const ElementSelection& selection );
 
     // FromEditMesh, then ECS::SetEditableMesh: what a tool that still BUILDS an EditMesh (Create Shape, the
     // CubeGrid blockout, a PolyEdit drag step) puts on the entity. Refused with either step's reason.

@@ -13,14 +13,14 @@
 
 namespace Desert::Geometry
 {
-    class FDynamicMesh3;
+    class DynamicMesh3;
 
     // MESH ELEMENT SELECTION - UE's Modeling Mode selection (UPolygonSelectionMechanic over a
-    // FGroupTopologySelection / FDynamicMeshSelection): which vertices, edges, triangles or polygroups of ONE
+    // GroupTopologySelection / FDynamicMeshSelection): which vertices, edges, triangles or polygroups of ONE
     // EditMesh the next operation works on. Plain CPU data - no ECS, no ImGui, no camera: a pick is given its
     // view (PickView) by the caller.
     //
-    // Why not UE's shape: FGroupTopologySelection keeps corners, group edges and groups side by side in ONE
+    // Why not UE's shape: GroupTopologySelection keeps corners, group edges and groups side by side in ONE
     // object, because UE's group topology derives polygroup corners/edges from the triangles. We keep one mode
     // and one ID set - the element kinds the EditMesh itself numbers, plus polygroups - so every operation
     // below has one input kind and one output kind, and a conversion is an explicit call, not a side of the
@@ -123,9 +123,9 @@ namespace Desert::Geometry
         [[nodiscard]] Common::BoolResultStr Toggle( const EditMesh& mesh, int id );
         // The same three on the ported core (DynamicMeshSelection.cpp): what the editor's selection runs on since
         // P10. The EditMesh overloads serve the operations still on the bridge and go with it in P8b.
-        [[nodiscard]] Common::BoolResultStr Add( const FDynamicMesh3& mesh, int id );
-        [[nodiscard]] Common::BoolResultStr Toggle( const FDynamicMesh3& mesh, int id );
-        PruneReport                         Prune( const FDynamicMesh3& mesh );
+        [[nodiscard]] Common::BoolResultStr Add( const DynamicMesh3& mesh, int id );
+        [[nodiscard]] Common::BoolResultStr Toggle( const DynamicMesh3& mesh, int id );
+        PruneReport                         Prune( const DynamicMesh3& mesh );
         // Add over any mesh view of ElementSelectionAlgorithms.inl (the algorithms build their results with it).
         template <class Mesh>
         [[nodiscard]] Common::BoolResultStr AddIn( const Mesh& mesh, int id );

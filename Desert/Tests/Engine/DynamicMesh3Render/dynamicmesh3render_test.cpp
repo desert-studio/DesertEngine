@@ -1,7 +1,7 @@
-// FMeshNormals (ported from UE) and FDynamicMesh3 <-> render-mesh conversion.
+// MeshNormals (ported from UE) and DynamicMesh3 <-> render-mesh conversion.
 //
 // The render side is the one EditMesh already converts to, so the load-bearing assertion is the RELATION between
-// the two cores: for the same render input, ToRenderMesh(FDynamicMesh3) is byte-identical to
+// the two cores: for the same render input, ToRenderMesh(DynamicMesh3) is byte-identical to
 // ToRenderMesh(EditMesh). Round trips are asserted on the canonical form (the output of one conversion), because
 // the weld is allowed to move a seam vertex onto the position of the first vertex it welds to.
 #include <gtest/gtest.h>
@@ -25,9 +25,9 @@ namespace
 {
     constexpr float kPi = 3.14159265358979f;
 
-    bool Valid( const FDynamicMesh3& mesh )
+    bool Valid( const DynamicMesh3& mesh )
     {
-        return mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly );
+        return mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::ReturnOnly );
     }
 
     Vertex MakeVertex( const glm::vec3& p, const glm::vec3& n, const glm::vec3& t, const glm::vec2& uv )
@@ -64,7 +64,7 @@ namespace
         const glm::vec3 X( 1, 0, 0 ), Y( 0, 1, 0 ), Z( 0, 0, 1 );
         struct Face
         {
-            glm::vec3 N, U, V;
+            glm::vec3 N{}, U{}, V{};
         };
         const Face faces[6] = { { X, Y, Z }, { -X, Z, Y }, { Y, Z, X }, { -Y, X, Z }, { Z, X, Y }, { -Z, Y, X } };
         RenderMeshData render;
@@ -179,14 +179,14 @@ namespace
         EXPECT_EQ( a.SourceTriangles, b.SourceTriangles );
     }
 
-    FDynamicMesh3 Import( const RenderMeshData& render )
+    DynamicMesh3 Import( const RenderMeshData& render )
     {
         auto imported = DynamicMeshFromRenderMesh( render );
         EXPECT_TRUE( imported.IsSuccess() );
         return std::move( imported.GetValue().Mesh );
     }
 
-    RenderMeshData Export( const FDynamicMesh3& mesh )
+    RenderMeshData Export( const DynamicMesh3& mesh )
     {
         auto render = ToRenderMesh( mesh );
         EXPECT_TRUE( render.IsSuccess() ) << ( render.IsSuccess() ? "" : render.GetError() );
@@ -195,28 +195,28 @@ namespace
 
     // Reaches the protected element-triangle table of an overlay, so a test can corrupt it the way a missed
     // attribute update in an edit operator would.
-    struct OverlayAccess : FDynamicMeshNormalOverlay
+    struct OverlayAccess : DynamicMeshNormalOverlay
     {
-        static TDynamicVector<int>& Triangles( FDynamicMeshNormalOverlay& overlay )
+        static DynamicVector<int>& Triangles( DynamicMeshNormalOverlay& overlay )
         {
-            return overlay.*( &OverlayAccess::ElementTriangles );
+            return overlay.*( &OverlayAccess::m_ElementTriangles );
         }
     };
 } // namespace
 
 TEST( DynamicMesh3Render, HardCubeFromFaceGroupsIs24VerticesWithFaceNormals )
 {
-    FDynamicMesh3 mesh = Import( HardCube( 50.0f ) );
+    DynamicMesh3 mesh = Import( HardCube( 50.0f ) );
     ASSERT_EQ( mesh.VertexCount(), 8 );
     ASSERT_EQ( mesh.TriangleCount(), 12 );
-    FDynamicMeshAttributeSet& attributes = *mesh.Attributes();
+    DynamicMeshAttributeSet& attributes = *mesh.Attributes();
     attributes.SetNumUVLayers( 0 );
     attributes.DisableTangents();
-    FDynamicMeshNormalOverlay* normals = attributes.PrimaryNormals();
+    DynamicMeshNormalOverlay* normals = attributes.PrimaryNormals();
 
     // Per-vertex first: one element per vertex, so the only split left is the material one (every corner is
     // used by both submeshes, 2 x 8).
-    FMeshNormals::InitializeOverlayToPerVertexNormals( normals, false );
+    MeshNormals::InitializeOverlayToPerVertexNormals( normals, false );
     ASSERT_TRUE( Valid( mesh ) );
     EXPECT_EQ( Export( mesh ).Vertices.size(), 16u );
 
@@ -224,34 +224,34 @@ TEST( DynamicMesh3Render, HardCubeFromFaceGroupsIs24VerticesWithFaceNormals )
     mesh.EnableTriangleGroups();
     for ( const int t : mesh.TriangleIndicesItr() )
         mesh.SetTriangleGroup( t, t / 2 + 1 );
-    FMeshNormals::InitializeOverlayTopologyFromFaceGroups( &mesh, normals );
-    ASSERT_TRUE( FMeshNormals::QuickRecomputeOverlayNormals( mesh ) );
+    MeshNormals::InitializeOverlayTopologyFromFaceGroups( &mesh, normals );
+    ASSERT_TRUE( MeshNormals::QuickRecomputeOverlayNormals( mesh ) );
     ASSERT_TRUE( Valid( mesh ) );
 
     const RenderMeshData render = Export( mesh );
     ASSERT_EQ( render.Vertices.size(), 24u );
     for ( size_t k = 0; k < render.Indices.size(); ++k )
     {
-        const FVector3d face   = mesh.GetTriNormal( render.SourceTriangles[k] );
+        const glm::dvec3 face   = mesh.GetTriNormal( render.SourceTriangles[k] );
         const Index&    index  = render.Indices[k];
         const uint32_t  offset = render.Submeshes[k < 6 ? 0 : 1].VertexOffset;
         for ( const uint32_t local : { index.V1, index.V2, index.V3 } )
         {
             const glm::vec3& n = render.Vertices[offset + local].Normal;
-            EXPECT_NEAR( n.x, face.X, 1e-6 );
-            EXPECT_NEAR( n.y, face.Y, 1e-6 );
-            EXPECT_NEAR( n.z, face.Z, 1e-6 );
+            EXPECT_NEAR( n.x, face.x, 1e-6 );
+            EXPECT_NEAR( n.y, face.y, 1e-6 );
+            EXPECT_NEAR( n.z, face.z, 1e-6 );
         }
     }
 }
 
 TEST( DynamicMesh3Render, SphereSmoothNormalsFollowTheRadius )
 {
-    FDynamicMesh3 mesh = Import( UVSphere( 100.0f, 12, 24 ) );
+    DynamicMesh3 mesh = Import( UVSphere( 100.0f, 12, 24 ) );
     ASSERT_TRUE( Valid( mesh ) );
-    FDynamicMeshNormalOverlay* normals = mesh.Attributes()->PrimaryNormals();
-    // Wipe what the import carried, so the values come from FMeshNormals and not from the render input.
-    FMeshNormals::InitializeOverlayToPerVertexNormals( normals, false );
+    DynamicMeshNormalOverlay* normals = mesh.Attributes()->PrimaryNormals();
+    // Wipe what the import carried, so the values come from MeshNormals and not from the render input.
+    MeshNormals::InitializeOverlayToPerVertexNormals( normals, false );
     ASSERT_TRUE( Valid( mesh ) );
     EXPECT_EQ( normals->ElementCount(), mesh.VertexCount() );
 
@@ -262,31 +262,31 @@ TEST( DynamicMesh3Render, SphereSmoothNormalsFollowTheRadius )
         EXPECT_GT( glm::dot( v.Normal, glm::normalize( v.Position ) ), 0.995f );
     }
 
-    FMeshNormals vertexNormals( &mesh );
+    MeshNormals vertexNormals( &mesh );
     vertexNormals.ComputeVertexNormals();
     for ( const int vid : mesh.VertexIndicesItr() )
-        EXPECT_GT( vertexNormals[vid].Dot( Normalized( mesh.GetVertex( vid ) ) ), 0.995 );
+        EXPECT_GT( glm::dot( vertexNormals[vid], Normalized( mesh.GetVertex( vid ) ) ), 0.995 );
 
-    FMeshNormals triangleNormals( &mesh );
+    MeshNormals triangleNormals( &mesh );
     triangleNormals.ComputeTriangleNormals();
     for ( const int tid : mesh.TriangleIndicesItr() )
-        EXPECT_GT( triangleNormals[tid].Dot( Normalized( mesh.GetTriCentroid( tid ) ) ), 0.95 );
+        EXPECT_GT( glm::dot( triangleNormals[tid], Normalized( mesh.GetTriCentroid( tid ) ) ), 0.95 );
 }
 
 TEST( DynamicMesh3Render, AngleWeightingIsSymmetricAtCubeCornersAreaWeightingIsNot )
 {
     // Each cube corner sees 90 degrees of every face whatever the triangulation, so angle weighting gives the
     // diagonal; the triangulation gives one face two triangles there and area weighting leans towards it.
-    const FDynamicMesh3 mesh      = Import( HardCube( 50.0f ) );
+    const DynamicMesh3  mesh      = Import( HardCube( 50.0f ) );
     bool                areaLeans = false;
     for ( const int vid : mesh.VertexIndicesItr() )
     {
-        const FVector3d angle = FMeshNormals::ComputeVertexNormal( mesh, vid, false, true );
-        const FVector3d area  = FMeshNormals::ComputeVertexNormal( mesh, vid, true, false );
-        EXPECT_NEAR( std::abs( angle.X ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        EXPECT_NEAR( std::abs( angle.Y ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        EXPECT_NEAR( std::abs( angle.Z ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        areaLeans |= std::abs( std::abs( area.X ) - 1.0 / std::sqrt( 3.0 ) ) > 1e-3;
+        const glm::dvec3 angle = MeshNormals::ComputeVertexNormal( mesh, vid, false, true );
+        const glm::dvec3 area  = MeshNormals::ComputeVertexNormal( mesh, vid, true, false );
+        EXPECT_NEAR( std::abs( angle.x ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
+        EXPECT_NEAR( std::abs( angle.y ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
+        EXPECT_NEAR( std::abs( angle.z ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
+        areaLeans |= std::abs( std::abs( area.x ) - 1.0 / std::sqrt( 3.0 ) ) > 1e-3;
     }
     EXPECT_TRUE( areaLeans );
 }
@@ -296,7 +296,7 @@ TEST( DynamicMesh3Render, RoundTripIsByteStableForThreeShapes )
     for ( const RenderMeshData& input : { HardCube( 50.0f ), UVSphere( 100.0f, 10, 20 ), Grid( 6 ) } )
     {
         const RenderMeshData first = Export( Import( input ) );
-        const FDynamicMesh3  again = Import( first );
+        const DynamicMesh3   again = Import( first );
         ASSERT_TRUE( Valid( again ) );
         ExpectSameRender( first, Export( again ) );
         EXPECT_EQ( first.Indices.size(), input.Indices.size() );
@@ -335,7 +335,7 @@ TEST( DynamicMesh3Render, NewCoreMatchesEditMeshToRenderMesh )
         RenderMeshData actual   = Export( Import( input ) );
         ASSERT_EQ( expected.Vertices.size(), actual.Vertices.size() );
         // The one field the cores store differently: EditMesh keeps a handedness sign and rebuilds the bitangent
-        // as cross(N, T) from the welded normal and tangent elements, FDynamicMesh3 keeps the bitangent overlay
+        // as cross(N, T) from the welded normal and tangent elements, DynamicMesh3 keeps the bitangent overlay
         // itself. Where the first-seen normal and tangent at a welded vertex came from different render vertices
         // the two differ by float rounding; everything else must match bit for bit.
         int bitangentDiffers = 0;
@@ -355,19 +355,19 @@ TEST( DynamicMesh3Render, CorruptedOverlayIsCaughtByCheckValidity )
 {
     // Negative control for the P4 validity checks the round trips lean on: point triangle 0's first corner at an
     // element whose parent is another vertex.
-    FDynamicMesh3 mesh = Import( HardCube( 50.0f ) );
+    DynamicMesh3 mesh = Import( HardCube( 50.0f ) );
     ASSERT_TRUE( Valid( mesh ) );
-    FDynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
-    const FIndex3i             tri     = normals.GetTriangle( 0 );
+    DynamicMeshNormalOverlay&  normals = *mesh.Attributes()->PrimaryNormals();
+    const Index3i              tri     = normals.GetTriangle( 0 );
     ASSERT_NE( normals.GetParentVertex( tri.A ), normals.GetParentVertex( tri.B ) );
     OverlayAccess::Triangles( normals )[0] = tri.B;
-    EXPECT_FALSE( normals.CheckValidity( true, EValidityCheckFailMode::ReturnOnly ) );
+    EXPECT_FALSE( normals.CheckValidity( true, ValidityCheckFailMode::ReturnOnly ) );
     EXPECT_FALSE( Valid( mesh ) );
 }
 
 TEST( DynamicMesh3Render, UnsetOverlayTriangleIsRefusedByName )
 {
-    FDynamicMesh3 mesh = Import( Grid( 2 ) );
+    DynamicMesh3 mesh = Import( Grid( 2 ) );
     mesh.Attributes()->PrimaryNormals()->UnsetTriangle( 3 );
     const auto render = ToRenderMesh( mesh );
     ASSERT_FALSE( render.IsSuccess() );

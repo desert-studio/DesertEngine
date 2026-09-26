@@ -16,17 +16,17 @@ namespace Desert::Geometry
     namespace
     {
         // THE FILE'S BITANGENT IS A SIGN. Both writers put cross(N, T) * sign there (the EditMesh render
-        // conversion per render vertex, the FDynamicMesh3 one through the P6 reader's bitangent elements), and
+        // conversion per render vertex, the DynamicMesh3 one through the P6 reader's bitangent elements), and
         // the EditMesh reader keeps only the sign. Welding the stored vectors instead would merge a -0 and a +0
         // component at one vertex (they are within any tolerance) and the file would not write back to the
         // same bytes; so the bitangent overlay is rebuilt here as the P6 reader builds it: one element per
         // (normal element, tangent element, sign) a corner uses, valued cross(N, T) * sign.
-        void RebuildBitangentsFromSigns( FDynamicMesh3& mesh, const Ser::MeshAssetData& data )
+        void RebuildBitangentsFromSigns( DynamicMesh3& mesh, const Ser::MeshAssetData& data )
         {
-            FDynamicMeshAttributeSet&        attributes = *mesh.Attributes();
-            const FDynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
-            const FDynamicMeshNormalOverlay& tangents   = *attributes.PrimaryTangents();
-            FDynamicMeshNormalOverlay&       bitangents = *attributes.PrimaryBiTangents();
+            DynamicMeshAttributeSet&         attributes = *mesh.Attributes();
+            const DynamicMeshNormalOverlay&  normals    = *attributes.PrimaryNormals();
+            const DynamicMeshNormalOverlay&  tangents   = *attributes.PrimaryTangents();
+            DynamicMeshNormalOverlay&        bitangents = *attributes.PrimaryBiTangents();
             bitangents.ClearElements();
 
             // Mesh corner j of triangle k is render corner kRenderCorner[j] of file face k (the winding swap
@@ -40,9 +40,9 @@ namespace Desert::Geometry
                     const int                     t    = static_cast<int>( f );
                     const Ser::IndexData&         face = data.Indices[f];
                     const std::array<uint32_t, 3> local{ face.V1, face.V2, face.V3 };
-                    const FIndex3i                en = normals.GetTriangle( t );
-                    const FIndex3i                et = tangents.GetTriangle( t );
-                    FIndex3i                      eb;
+                    const Index3i                 en = normals.GetTriangle( t );
+                    const Index3i                 et = tangents.GetTriangle( t );
+                    Index3i                       eb;
                     for ( int j = 0; j < 3; ++j )
                     {
                         const Ser::StaticVertexData& v =
@@ -52,12 +52,10 @@ namespace Desert::Geometry
                         const auto [it, fresh] = made.emplace( std::array<int, 3>{ en[j], et[j], sign }, 0 );
                         if ( fresh )
                         {
-                            const FVector3f n = normals.GetElement( en[j] );
-                            const FVector3f g = tangents.GetElement( et[j] );
-                            const glm::vec3 b =
-                                 glm::cross( glm::vec3( n.X, n.Y, n.Z ), glm::vec3( g.X, g.Y, g.Z ) ) *
-                                 static_cast<float>( sign );
-                            it->second = bitangents.AppendElement( FVector3f( b.x, b.y, b.z ) );
+                            const glm::vec3 n = normals.GetElement( en[j] );
+                            const glm::vec3 g = tangents.GetElement( et[j] );
+                            const glm::vec3 b = glm::cross( n, g ) * static_cast<float>( sign );
+                            it->second        = bitangents.AppendElement( b );
                         }
                         eb[j] = it->second;
                     }
@@ -67,7 +65,7 @@ namespace Desert::Geometry
     } // namespace
 
     Common::ResultStr<Ser::MeshAssetData>
-    DynamicMeshToMeshAssetData( const FDynamicMesh3&                        mesh,
+    DynamicMeshToMeshAssetData( const DynamicMesh3&                         mesh,
                                 std::span<const Common::Content::AssetGuid> slotMaterials )
     {
         if ( mesh.TriangleCount() == 0 )
@@ -75,7 +73,7 @@ namespace Desert::Geometry
                  "the mesh has {} vertices and no triangle, and a static mesh with nothing to draw has no bounds",
                  mesh.VertexCount() );
 
-        if ( const FDynamicMeshAttributeSet* attributes = mesh.Attributes() )
+        if ( const DynamicMeshAttributeSet* attributes = mesh.Attributes() )
         {
             if ( attributes->HasPrimaryColors() )
                 return Common::MakeError<Ser::MeshAssetData>(
@@ -107,26 +105,26 @@ namespace Desert::Geometry
         return Common::MakeSuccess( MeshAssetDataFromRender( render, slotMaterials, std::move( groups ) ) );
     }
 
-    Common::ResultStr<FDynamicMesh3> DynamicMeshFromMeshAssetData( const Ser::MeshAssetData& data )
+    Common::ResultStr<DynamicMesh3> DynamicMeshFromMeshAssetData( const Ser::MeshAssetData& data )
     {
         auto arrays = RenderFromMeshAssetData( data );
         if ( !arrays.IsSuccess() )
-            return Common::MakeError<FDynamicMesh3>( arrays.GetError() );
+            return Common::MakeError<DynamicMesh3>( arrays.GetError() );
         const RenderMeshData render = arrays.ExtractValue();
 
         auto imported = DynamicMeshFromRenderMesh( render );
         if ( !imported.IsSuccess() )
-            return Common::MakeError<FDynamicMesh3>( imported.GetError() );
+            return Common::MakeError<DynamicMesh3>( imported.GetError() );
         ImportedDynamicMesh result = imported.ExtractValue();
         if ( result.DroppedDegenerate != 0 || result.DroppedDuplicate != 0 || result.DetachedTriangles != 0 )
-            return Common::MakeFormattedError<FDynamicMesh3>(
+            return Common::MakeFormattedError<DynamicMesh3>(
                  "the asset's {} faces do not weld back one-to-one ({} degenerate, {} duplicate, {} detached), "
                  "so its per-face polygroups cannot be placed",
                  data.Indices.size(), result.DroppedDegenerate, result.DroppedDuplicate,
                  result.DetachedTriangles );
 
         // Nothing was dropped or split off, so face k of the file is triangle k of the fresh mesh.
-        FDynamicMesh3& mesh = result.Mesh;
+        DynamicMesh3& mesh = result.Mesh;
         RebuildBitangentsFromSigns( mesh, data );
         mesh.EnableTriangleGroups( 0 );
         for ( size_t k = 0; k < data.PolyGroups.size(); ++k )

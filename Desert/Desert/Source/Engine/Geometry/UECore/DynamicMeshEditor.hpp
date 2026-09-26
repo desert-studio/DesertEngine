@@ -3,7 +3,7 @@
 // (StitchVertexLoopToTriVidPairSequence, ConvertLoopToTriVidPairSequence), 593-622 (RemoveTriangles), 653-679
 // (DuplicateTriangles), 680-804 (DisconnectTriangles), 1176-1230 (ComputeAndSetQuadNormal, SetQuadNormals),
 // 1265-1303 (SetTriangleNormals), 1557-1618 (SetQuadUVsFromProjection), 1671-1729 (ReverseTriangleOrientations,
-// InvertTriangleNormals), adapted: only the subset FOffsetMeshRegion / FInsetMeshRegion call; UE Core via
+// InvertTriangleNormals), adapted: only the subset OffsetMeshRegion / InsetMeshRegion call; UE Core via
 // UECore.hpp; TPair -> std::pair; FMeshIndexMappings -> plain maps inside DuplicateTriangles (CopyAttributes
 // folded in); the projection frame of SetQuadUVsFromProjection is passed as its two in-plane axes (the frame
 // origin is always zero at the call sites); a failed DisconnectTriangles names its reason instead of ensure().
@@ -19,91 +19,91 @@
 
 namespace Desert::Geometry
 {
-    struct FDynamicMeshEditResult
+    struct DynamicMeshEditResult
     {
-        TArray<int>      NewVertices;
-        TArray<int>      NewTriangles;
-        TArray<FIndex2i> NewQuads;
-        TArray<int>      NewGroups;
+        std::vector<int>      NewVertices;
+        std::vector<int>      NewTriangles;
+        std::vector<Index2i>  NewQuads;
+        std::vector<int>      NewGroups;
 
         void Reset()
         {
-            NewVertices.Reset();
-            NewTriangles.Reset();
-            NewQuads.Reset();
-            NewGroups.Reset();
+            NewVertices.clear();
+            NewTriangles.clear();
+            NewQuads.clear();
+            NewGroups.clear();
         }
-        void GetAllTriangles( TArray<int>& TrianglesOut ) const
+        void GetAllTriangles( std::vector<int>& TrianglesOut ) const
         {
-            TrianglesOut.Append( NewTriangles );
-            for ( const FIndex2i& Quad : NewQuads )
+            TrianglesOut.insert( TrianglesOut.end(), NewTriangles.begin(), NewTriangles.end() );
+            for ( const Index2i& Quad : NewQuads )
             {
-                TrianglesOut.Add( Quad.A );
-                TrianglesOut.Add( Quad.B );
+                TrianglesOut.push_back( Quad.A );
+                TrianglesOut.push_back( Quad.B );
             }
         }
     };
 
     // (triangle, (index of the first vertex, index of the second vertex)) - UE's TriVidPair.
-    using FTriVidPair = std::pair<int, std::pair<int8_t, int8_t>>;
+    using TriVidPair = std::pair<int, std::pair<int8_t, int8_t>>;
 
-    class FDynamicMeshEditor
+    class DynamicMeshEditor
     {
     public:
-        FDynamicMesh3* Mesh;
+        DynamicMesh3* m_Mesh;
 
-        explicit FDynamicMeshEditor( FDynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit DynamicMeshEditor( DynamicMesh3* MeshIn ) : m_Mesh( MeshIn )
         {
         }
 
-        struct FLoopPairSet
+        struct LoopPairSet
         {
-            TArray<int> OuterVertices;
-            TArray<int> OuterEdges;
-            TArray<int> InnerVertices;
-            TArray<int> InnerEdges;
+            std::vector<int> OuterVertices;
+            std::vector<int> OuterEdges;
+            std::vector<int> InnerVertices;
+            std::vector<int> InnerEdges;
             bool        bOuterIncludesIsolatedVertices = false;
         };
 
-        bool        StitchVertexLoopsMinimal( const TArray<int>& Loop1, const TArray<int>& Loop2,
-                                              FDynamicMeshEditResult& ResultOut );
-        bool        StitchVertexLoopToTriVidPairSequence( const TArray<FTriVidPair>& TriVidPairs,
-                                                          const TArray<int>&         VertexLoop,
-                                                          FDynamicMeshEditResult&    ResultOut );
-        static bool ConvertLoopToTriVidPairSequence( const FDynamicMesh3& Mesh, const TArray<int>& VidLoop,
-                                                     const TArray<int>&   EdgeLoop,
-                                                     TArray<FTriVidPair>& TriVertPairsOut );
+        bool        StitchVertexLoopsMinimal( const std::vector<int>& Loop1, const std::vector<int>& Loop2,
+                                              DynamicMeshEditResult& ResultOut );
+        bool        StitchVertexLoopToTriVidPairSequence( const std::vector<TriVidPair>& TriVidPairs,
+                                                          const std::vector<int>&        VertexLoop,
+                                                          DynamicMeshEditResult&         ResultOut );
+        static bool ConvertLoopToTriVidPairSequence( const DynamicMesh3& Mesh, const std::vector<int>& VidLoop,
+                                                     const std::vector<int>&  EdgeLoop,
+                                                     std::vector<TriVidPair>& TriVertPairsOut );
 
-        bool RemoveTriangles( const TArray<int>& Triangles, bool bRemoveIsolatedVerts );
+        bool RemoveTriangles( const std::vector<int>& Triangles, bool bRemoveIsolatedVerts );
 
         // New triangles (vertices, groups, every attribute layer) for @p Triangles; OldToNewVertex maps each
         // duplicated vertex.
-        void DuplicateTriangles( const TArray<int>& Triangles, TMap<int, int>& OldToNewVertex,
-                                 FDynamicMeshEditResult& ResultOut );
+        void DuplicateTriangles( const std::vector<int>& Triangles, std::unordered_map<int, int>& OldToNewVertex,
+                                 DynamicMeshEditResult& ResultOut );
 
         // Cuts @p Triangles loose along their boundary loops. On failure @p FailureOut names the reason.
-        bool DisconnectTriangles( const TArray<int>& Triangles, TArray<FLoopPairSet>& LoopSetOut,
+        bool DisconnectTriangles( const std::vector<int>& Triangles, std::vector<LoopPairSet>& LoopSetOut,
                                   bool bHandleBoundaryVertices, std::string& FailureOut );
-        bool DisconnectTriangles( const TSet<int>& TriangleSet, const TArray<FEdgeLoop>& Loops,
-                                  TArray<FLoopPairSet>& LoopSetOut, bool bHandleBoundaryVertices,
+        bool DisconnectTriangles( const std::unordered_set<int>& TriangleSet, const std::vector<EdgeLoop>& Loops,
+                                  std::vector<LoopPairSet>& LoopSetOut, bool bHandleBoundaryVertices,
                                   std::string& FailureOut );
 
-        FVector3f ComputeAndSetQuadNormal( const FIndex2i& QuadTris, bool bIsPlanar );
-        void      SetQuadNormals( const FIndex2i& QuadTris, const FVector3f& Normal );
-        void      SetTriangleNormals( const TArray<int>& Triangles );
-        void      SetTriangleNormals( const TArray<int>& Triangles, const FVector3f& Normal );
-        bool      AddTriangleFan_OrderedVertexLoop( int CenterVertex, const TArray<int>& VertexLoop, int GroupID,
-                                                    FDynamicMeshEditResult& ResultOut );
-        /** UE's overload with FFrame3d(Origin, Normal), bShiftToOrigin = true, UV layer 0. */
-        void SetTriangleUVsFromProjection( const TArray<int>& Triangles, const FVector3d& Origin,
-                                           const FVector3d& Normal, float UVScaleFactor );
-        void SetQuadUVsFromProjection( const FIndex2i& QuadTris, const FVector3d& AxisX, const FVector3d& AxisY,
-                                       float UVScaleFactor, const FVector2f& UVTranslation );
-        void ReverseTriangleOrientations( const TArray<int>& Triangles, bool bInvertNormals );
-        void InvertTriangleNormals( const TArray<int>& Triangles );
+        glm::vec3 ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar );
+        void      SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal );
+        void      SetTriangleNormals( const std::vector<int>& Triangles );
+        void      SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal );
+        bool AddTriangleFan_OrderedVertexLoop( int CenterVertex, const std::vector<int>& VertexLoop, int GroupID,
+                                               DynamicMeshEditResult& ResultOut );
+        /** UE's overload with Frame3d(Origin, Normal), bShiftToOrigin = true, UV layer 0. */
+        void SetTriangleUVsFromProjection( const std::vector<int>& Triangles, const glm::dvec3& Origin,
+                                           const glm::dvec3& Normal, float UVScaleFactor );
+        void SetQuadUVsFromProjection( const Index2i& QuadTris, const glm::dvec3& AxisX, const glm::dvec3& AxisY,
+                                       float UVScaleFactor, const glm::vec2& UVTranslation );
+        void ReverseTriangleOrientations( const std::vector<int>& Triangles, bool bInvertNormals );
+        void InvertTriangleNormals( const std::vector<int>& Triangles );
     };
 
-    // Edges[i] joins Vertices[i] and Vertices[(i+1) % N] (UE FEdgeLoop::VertexLoopToEdgeLoop).
-    void VertexLoopToEdgeLoop( const FDynamicMesh3& Mesh, const TArray<int>& VertexLoop,
-                               TArray<int>& EdgeLoopOut );
+    // Edges[i] joins Vertices[i] and Vertices[(i+1) % N] (UE EdgeLoop::VertexLoopToEdgeLoop).
+    void VertexLoopToEdgeLoop( const DynamicMesh3& Mesh, const std::vector<int>& VertexLoop,
+                               std::vector<int>& EdgeLoopOut );
 } // namespace Desert::Geometry

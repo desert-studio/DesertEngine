@@ -13,7 +13,7 @@
 
 namespace Desert::Editor
 {
-    using MeshPtr = std::shared_ptr<const Geometry::FDynamicMesh3>;
+    using MeshPtr = std::shared_ptr<const Geometry::DynamicMesh3>;
 
     Common::ResultStr<MeshPtr> LiftStaticMeshBytes( std::string_view bytes, std::string_view whatFor )
     {
@@ -23,7 +23,7 @@ namespace Desert::Editor
         auto mesh = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
         if ( !mesh.IsSuccess() )
             return Common::MakeFormattedError<MeshPtr>( "{}: {}", whatFor, mesh.GetError() );
-        return Common::MakeSuccess( MeshPtr( std::make_shared<Geometry::FDynamicMesh3>( mesh.ExtractValue() ) ) );
+        return Common::MakeSuccess( MeshPtr( std::make_shared<Geometry::DynamicMesh3>( mesh.ExtractValue() ) ) );
     }
 
     Common::ResultStr<ToolTargetMesh> GetToolTargetMeshAt( const MeshPtr&               editable,

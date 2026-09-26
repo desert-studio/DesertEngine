@@ -15,39 +15,22 @@ namespace Desert::Geometry
     {
         using Common::MakeFormattedError;
 
-        // The render side (and EditMesh) wind a front face counter-clockwise; FDynamicMesh3 keeps UE's clockwise
+        // The render side (and EditMesh) wind a front face counter-clockwise; DynamicMesh3 keeps UE's clockwise
         // front, the convention every ported normal / orientation algorithm assumes. The two conversions swap
         // corners 1 and 2, the one place the conventions meet. The map is its own inverse.
         constexpr int kRenderCorner[3] = { 0, 2, 1 };
 
-        glm::vec3 ToGlm( const FVector3f& v )
+        bool Within( const glm::vec3& a, const glm::vec3& b, float tolerance )
         {
-            return { v.X, v.Y, v.Z };
+            return std::abs( a.x - b.x ) <= tolerance && std::abs( a.y - b.y ) <= tolerance &&
+                   std::abs( a.z - b.z ) <= tolerance;
         }
-        glm::vec2 ToGlm( const FVector2f& v )
+        bool Within( const glm::vec2& a, const glm::vec2& b, float tolerance )
         {
-            return { v.X, v.Y };
-        }
-        FVector3f ToUE( const glm::vec3& v )
-        {
-            return FVector3f( v.x, v.y, v.z );
-        }
-        FVector2f ToUE( const glm::vec2& v )
-        {
-            return FVector2f( v.x, v.y );
+            return std::abs( a.x - b.x ) <= tolerance && std::abs( a.y - b.y ) <= tolerance;
         }
 
-        bool Within( const FVector3f& a, const glm::vec3& b, float tolerance )
-        {
-            return std::abs( a.X - b.x ) <= tolerance && std::abs( a.Y - b.y ) <= tolerance &&
-                   std::abs( a.Z - b.z ) <= tolerance;
-        }
-        bool Within( const FVector2f& a, const glm::vec2& b, float tolerance )
-        {
-            return std::abs( a.X - b.x ) <= tolerance && std::abs( a.Y - b.y ) <= tolerance;
-        }
-
-        // The EditMesh conversion's weld (EditMeshConversion.cpp), on FDynamicMesh3: a uniform grid of cells
+        // The EditMesh conversion's weld (EditMeshConversion.cpp), on DynamicMesh3: a uniform grid of cells
         // one tolerance wide, a point matches only inside its own cell or the 26 around it. Positions are
         // stored as doubles of the render floats, so reading them back as float is exact.
         class PositionWelder
@@ -56,7 +39,7 @@ namespace Desert::Geometry
             explicit PositionWelder( float tolerance ) : m_Tolerance( tolerance )
             {
             }
-            int Find( const FDynamicMesh3& mesh, const glm::vec3& p ) const
+            int Find( const DynamicMesh3& mesh, const glm::vec3& p ) const
             {
                 const auto base = Cell( p );
                 for ( int dx = -1; dx <= 1; ++dx )
@@ -67,10 +50,10 @@ namespace Desert::Geometry
                             if ( it == m_Cells.end() )
                                 continue;
                             for ( const int v : it->second )
-                                if ( Within( FVector3f( mesh.GetVertex( v ) ), p, m_Tolerance ) )
+                                if ( Within( glm::vec3( mesh.GetVertex( v ) ), p, m_Tolerance ) )
                                     return v;
                         }
-                return FDynamicMesh3::InvalidID;
+                return DynamicMesh3::InvalidID;
             }
             void Add( const glm::vec3& p, int v )
             {
@@ -90,7 +73,7 @@ namespace Desert::Geometry
         };
 
         template <typename Overlay>
-        Common::BoolResultStr RequireSet( const FDynamicMesh3& mesh, const Overlay& overlay, const char* name )
+        Common::BoolResultStr RequireSet( const DynamicMesh3& mesh, const Overlay& overlay, const char* name )
         {
             for ( const int t : mesh.TriangleIndicesItr() )
                 if ( !overlay.IsSetTriangle( t ) )
@@ -100,16 +83,16 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    Common::ResultStr<RenderMeshData> ToRenderMesh( const FDynamicMesh3& mesh, int uvLayer )
+    Common::ResultStr<RenderMeshData> ToRenderMesh( const DynamicMesh3& mesh, int uvLayer )
     {
-        const FDynamicMeshAttributeSet* attributes = mesh.Attributes();
+        const DynamicMeshAttributeSet* attributes = mesh.Attributes();
         if ( attributes == nullptr || attributes->PrimaryNormals() == nullptr )
             return MakeFormattedError<RenderMeshData>( "ToRenderMesh: the mesh has no normal overlay" );
-        const FDynamicMeshNormalOverlay* normals      = attributes->PrimaryNormals();
+        const DynamicMeshNormalOverlay*  normals      = attributes->PrimaryNormals();
         const bool                       tangentSpace = attributes->HasTangentSpace();
-        const FDynamicMeshNormalOverlay* tangents     = tangentSpace ? attributes->PrimaryTangents() : nullptr;
-        const FDynamicMeshNormalOverlay* bitangents   = tangentSpace ? attributes->PrimaryBiTangents() : nullptr;
-        const FDynamicMeshUVOverlay*     uvs          = attributes->GetUVLayer( uvLayer );
+        const DynamicMeshNormalOverlay*  tangents     = tangentSpace ? attributes->PrimaryTangents() : nullptr;
+        const DynamicMeshNormalOverlay*  bitangents   = tangentSpace ? attributes->PrimaryBiTangents() : nullptr;
+        const DynamicMeshUVOverlay*      uvs          = attributes->GetUVLayer( uvLayer );
         if ( attributes->NumUVLayers() > 0 && uvs == nullptr )
             return MakeFormattedError<RenderMeshData>( "ToRenderMesh: UV layer {} requested, the mesh has {}",
                                                        uvLayer, attributes->NumUVLayers() );
@@ -127,7 +110,7 @@ namespace Desert::Geometry
                 return Common::MakeError<RenderMeshData>( r.GetError() );
 
         // Triangles grouped by material, ascending triangle ID inside each group.
-        const FDynamicMeshMaterialAttribute* materialIds = attributes->GetMaterialID();
+        const DynamicMeshMaterialAttribute*  materialIds = attributes->GetMaterialID();
         std::map<int, std::vector<int>>      byMaterial;
         for ( const int t : mesh.TriangleIndicesItr() )
             byMaterial[materialIds != nullptr ? materialIds->GetValue( t ) : 0].push_back( t );
@@ -145,11 +128,11 @@ namespace Desert::Geometry
             std::map<std::array<int, 5>, uint32_t> corners;
             for ( const int t : triangles )
             {
-                const FIndex3i tri = mesh.GetTriangle( t );
-                const FIndex3i en  = normals->GetTriangle( t );
-                const FIndex3i et  = tangentSpace ? tangents->GetTriangle( t ) : FIndex3i::Invalid();
-                const FIndex3i eb  = tangentSpace ? bitangents->GetTriangle( t ) : FIndex3i::Invalid();
-                const FIndex3i eu  = uvs ? uvs->GetTriangle( t ) : FIndex3i::Invalid();
+                const Index3i  tri = mesh.GetTriangle( t );
+                const Index3i  en  = normals->GetTriangle( t );
+                const Index3i  et  = tangentSpace ? tangents->GetTriangle( t ) : Index3i::Invalid();
+                const Index3i  eb  = tangentSpace ? bitangents->GetTriangle( t ) : Index3i::Invalid();
+                const Index3i  eu  = uvs ? uvs->GetTriangle( t ) : Index3i::Invalid();
                 Index          index{};
                 uint32_t*      slots[3] = { &index.V1, &index.V2, &index.V3 };
                 for ( int j = 0; j < 3; ++j )
@@ -162,15 +145,15 @@ namespace Desert::Geometry
                     if ( found == corners.end() )
                     {
                         Vertex vertex{};
-                        vertex.Position = ToGlm( FVector3f( mesh.GetVertex( tri[c] ) ) );
-                        vertex.Normal   = ToGlm( normals->GetElement( en[c] ) );
+                        vertex.Position = glm::vec3( mesh.GetVertex( tri[c] ) );
+                        vertex.Normal   = normals->GetElement( en[c] );
                         if ( tangentSpace )
                         {
-                            vertex.Tangent   = ToGlm( tangents->GetElement( et[c] ) );
-                            vertex.Bitangent = ToGlm( bitangents->GetElement( eb[c] ) );
+                            vertex.Tangent   = tangents->GetElement( et[c] );
+                            vertex.Bitangent = bitangents->GetElement( eb[c] );
                         }
                         if ( uvs )
-                            vertex.TexCoord = ToGlm( uvs->GetElement( eu[c] ) );
+                            vertex.TexCoord = uvs->GetElement( eu[c] );
                         const auto local = static_cast<uint32_t>( out.Vertices.size() - submesh.VertexOffset );
                         out.Vertices.push_back( vertex );
                         out.SourceVertices.push_back( tri[c] );
@@ -231,25 +214,25 @@ namespace Desert::Geometry
         }
 
         ImportedDynamicMesh result;
-        FDynamicMesh3&      mesh = result.Mesh;
+        DynamicMesh3&       mesh = result.Mesh;
         mesh.EnableAttributes();
-        FDynamicMeshAttributeSet& attributes = *mesh.Attributes();
+        DynamicMeshAttributeSet& attributes = *mesh.Attributes();
         attributes.SetNumUVLayers( 1 );
         attributes.EnableTangents();
         attributes.EnableMaterialID();
-        FDynamicMeshNormalOverlay&     normals     = *attributes.PrimaryNormals();
-        FDynamicMeshNormalOverlay&     tangents    = *attributes.PrimaryTangents();
-        FDynamicMeshNormalOverlay&     bitangents  = *attributes.PrimaryBiTangents();
-        FDynamicMeshUVOverlay&         uvs         = *attributes.GetUVLayer( 0 );
-        FDynamicMeshMaterialAttribute& materialIds = *attributes.GetMaterialID();
+        DynamicMeshNormalOverlay&      normals     = *attributes.PrimaryNormals();
+        DynamicMeshNormalOverlay&      tangents    = *attributes.PrimaryTangents();
+        DynamicMeshNormalOverlay&      bitangents  = *attributes.PrimaryBiTangents();
+        DynamicMeshUVOverlay&          uvs         = *attributes.GetUVLayer( 0 );
+        DynamicMeshMaterialAttribute&  materialIds = *attributes.GetMaterialID();
 
         PositionWelder welder( options.PositionTolerance );
         const auto     weldVertex = [&]( const glm::vec3& p )
         {
             int v = welder.Find( mesh, p );
-            if ( v == FDynamicMesh3::InvalidID )
+            if ( v == DynamicMesh3::InvalidID )
             {
-                v = mesh.AppendVertex( FVector3d( ToUE( p ) ) );
+                v = mesh.AppendVertex( glm::dvec3( p ) );
                 welder.Add( p, v );
             }
             return v;
@@ -264,7 +247,7 @@ namespace Desert::Geometry
             for ( const int e : at[v] )
                 if ( Within( overlay.GetElement( e ), value, options.AttributeTolerance ) )
                     return e;
-            const int e = overlay.AppendElement( ToUE( value ) );
+            const int e = overlay.AppendElement( value );
             at[v].push_back( e );
             return e;
         };
@@ -288,11 +271,11 @@ namespace Desert::Geometry
                 // Welded in render order, so vertex IDs come out in the order the EditMesh import makes them. Then
                 // mesh corner j is render corner kRenderCorner[j]: counter-clockwise render winding becomes UE's
                 // clockwise-front winding (VectorUtil::Normal), so every ported algorithm sees outward normals.
-                FIndex3i welded;
+                Index3i welded;
                 for ( int j = 0; j < 3; ++j )
                     welded[j] = weldVertex( source[j]->Position );
                 const std::array<const Vertex*, 3> renderSource = source;
-                FIndex3i                           corners;
+                Index3i                            corners;
                 for ( int j = 0; j < 3; ++j )
                 {
                     corners[j] = welded[kRenderCorner[j]];
@@ -303,21 +286,21 @@ namespace Desert::Geometry
                     ++result.DroppedDegenerate;
                     continue;
                 }
-                if ( mesh.FindTriangle( corners.A, corners.B, corners.C ) != FDynamicMesh3::InvalidID )
+                if ( mesh.FindTriangle( corners.A, corners.B, corners.C ) != DynamicMesh3::InvalidID )
                 {
                     ++result.DroppedDuplicate;
                     continue;
                 }
                 int t = mesh.AppendTriangle( corners );
-                if ( t == FDynamicMesh3::NonManifoldID )
+                if ( t == DynamicMesh3::NonManifoldID )
                 {
-                    // The render mesh had a third triangle on an edge; FDynamicMesh3 cannot share it, so this
+                    // The render mesh had a third triangle on an edge; DynamicMesh3 cannot share it, so this
                     // triangle stands on its own copies of its already-used corners (a corner welded for this
-                    // very triangle is kept, or it would stay behind isolated). FDynamicMesh3, unlike EditMesh,
+                    // very triangle is kept, or it would stay behind isolated). DynamicMesh3, unlike EditMesh,
                     // accepts an opposite winding across an edge, so only this case detaches.
                     for ( int j = 0; j < 3; ++j )
                         if ( mesh.GetVtxEdgeCount( corners[j] ) > 0 )
-                            corners[j] = mesh.AppendVertex( FVector3d( ToUE( source[j]->Position ) ) );
+                            corners[j] = mesh.AppendVertex( glm::dvec3( source[j]->Position ) );
                     t = mesh.AppendTriangle( corners );
                     ++result.DetachedTriangles;
                 }
@@ -326,7 +309,7 @@ namespace Desert::Geometry
                          "FromRenderMesh: triangle {} of a submesh was refused by the mesh ({})", k, t );
                 materialIds.SetValue( t, range.Material );
 
-                FIndex3i en, et, eb, eu;
+                Index3i en, et, eb, eu;
                 for ( int j = 0; j < 3; ++j )
                 {
                     const Vertex& s = *source[j];

@@ -1,4 +1,4 @@
-// FDynamicMesh3 topology edit operators (ported from UE GeometryCore): split/flip/collapse/merge/poke/split-vertex
+// DynamicMesh3 topology edit operators (ported from UE GeometryCore): split/flip/collapse/merge/poke/split-vertex
 // applied to closed (cube, torus) and open (plane) meshes. After every accepted edit the mesh must pass
 // CheckValidity, the element counts must move by exactly the amounts the operator's topology dictates (so the
 // Euler characteristic is kept, or changes by the amount a merge of components implies), and the returned Info
@@ -18,12 +18,12 @@ namespace
 {
     constexpr double Side = 100.0; // 1 m cube in centimetres
 
-    FDynamicMesh3 MakeCube()
+    DynamicMesh3 MakeCube()
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3 Mesh;
         for ( int i = 0; i < 8; ++i )
             Mesh.AppendVertex(
-                 FVector3d( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
+                 glm::dvec3( ( i & 1 ) * Side, ( ( i >> 1 ) & 1 ) * Side, ( ( i >> 2 ) & 1 ) * Side ) );
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
         for ( const auto& Q : Quads )
@@ -35,12 +35,12 @@ namespace
     }
 
     // N x N quads in the XY plane, 10 cm cells.
-    FDynamicMesh3 MakePlane( int N )
+    DynamicMesh3 MakePlane( int N )
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3 Mesh;
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
-                Mesh.AppendVertex( FVector3d( x * 10.0, y * 10.0, 0.0 ) );
+                Mesh.AppendVertex( glm::dvec3( x * 10.0, y * 10.0, 0.0 ) );
         auto V = [N]( int x, int y ) { return y * ( N + 1 ) + x; };
         for ( int y = 0; y < N; ++y )
             for ( int x = 0; x < N; ++x )
@@ -56,17 +56,17 @@ namespace
         return ( u % NU ) * NV + ( v % NV );
     }
 
-    FDynamicMesh3 MakeTorus( int NU, int NV )
+    DynamicMesh3 MakeTorus( int NU, int NV )
     {
-        FDynamicMesh3 Mesh;
+        DynamicMesh3 Mesh;
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
             {
-                const double a = FMathd::TwoPi * u / NU;
-                const double b = FMathd::TwoPi * v / NV;
-                Mesh.AppendVertex( FVector3d( ( 50.0 + 20.0 * std::cos( b ) ) * std::cos( a ),
-                                              ( 50.0 + 20.0 * std::cos( b ) ) * std::sin( a ),
-                                              20.0 * std::sin( b ) ) );
+                const double a = glm::two_pi<double>() * u / NU;
+                const double b = glm::two_pi<double>() * v / NV;
+                Mesh.AppendVertex( glm::dvec3( ( 50.0 + 20.0 * std::cos( b ) ) * std::cos( a ),
+                                               ( 50.0 + 20.0 * std::cos( b ) ) * std::sin( a ),
+                                               20.0 * std::sin( b ) ) );
             }
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
@@ -79,13 +79,13 @@ namespace
         return Mesh;
     }
 
-    FDynamicMesh3 MakeTetrahedron()
+    DynamicMesh3 MakeTetrahedron()
     {
-        FDynamicMesh3 Mesh;
-        Mesh.AppendVertex( FVector3d( 0, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 10, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 0, 10 ) );
+        DynamicMesh3 Mesh;
+        Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 0, 10 ) );
         Mesh.AppendTriangle( 0, 2, 1 );
         Mesh.AppendTriangle( 0, 1, 3 );
         Mesh.AppendTriangle( 0, 3, 2 );
@@ -95,15 +95,15 @@ namespace
 
     // Two triangles that touch along a doubled boundary edge: v1/v3 and v2/v4 are coincident pairs.
     // bOpposite winds the second triangle so the doubled edges run in opposite directions (weldable).
-    FDynamicMesh3 MakeSeam( bool bOpposite )
+    DynamicMesh3 MakeSeam( bool bOpposite )
     {
-        FDynamicMesh3 Mesh;
-        Mesh.AppendVertex( FVector3d( 0, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 10, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 0, 0 ) );
-        Mesh.AppendVertex( FVector3d( 0, 10, 0 ) );
-        Mesh.AppendVertex( FVector3d( 10, 10, 0 ) );
+        DynamicMesh3 Mesh;
+        Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 0, 10, 0 ) );
+        Mesh.AppendVertex( glm::dvec3( 10, 10, 0 ) );
         Mesh.AppendTriangle( 0, 1, 2 );
         if ( bOpposite )
             Mesh.AppendTriangle( 3, 5, 4 );
@@ -112,11 +112,11 @@ namespace
         return Mesh;
     }
 
-    bool Valid( const FDynamicMesh3& Mesh, bool bPermissive = false )
+    bool Valid( const DynamicMesh3& Mesh, bool bPermissive = false )
     {
-        return Mesh.CheckValidity( bPermissive ? FDynamicMesh3::FValidityOptions::Permissive()
-                                               : FDynamicMesh3::FValidityOptions(),
-                                   EValidityCheckFailMode::ReturnOnly );
+        return Mesh.CheckValidity( bPermissive ? DynamicMesh3::ValidityOptions::Permissive()
+                                               : DynamicMesh3::ValidityOptions(),
+                                   ValidityCheckFailMode::ReturnOnly );
     }
 
     struct FCounts
@@ -128,13 +128,13 @@ namespace
         }
     };
 
-    FCounts Counts( const FDynamicMesh3& Mesh )
+    FCounts Counts( const DynamicMesh3& Mesh )
     {
         return { Mesh.VertexCount(), Mesh.EdgeCount(), Mesh.TriangleCount() };
     }
 
     // Triangle equality up to rotation (orientation must match).
-    bool SameTri( const FIndex3i& T, int a, int b, int c )
+    bool SameTri( const Index3i& T, int a, int b, int c )
     {
         for ( int r = 0; r < 3; ++r )
             if ( T[r] == a && T[( r + 1 ) % 3] == b && T[( r + 2 ) % 3] == c )
@@ -142,13 +142,13 @@ namespace
         return false;
     }
 
-    int FirstInteriorEdge( const FDynamicMesh3& Mesh )
+    int FirstInteriorEdge( const DynamicMesh3& Mesh )
     {
         for ( int EID : Mesh.EdgeIndicesItr() )
             if ( !Mesh.IsBoundaryEdge( EID ) && !Mesh.IsBoundaryVertex( Mesh.GetEdgeV( EID ).A ) &&
                  !Mesh.IsBoundaryVertex( Mesh.GetEdgeV( EID ).B ) )
                 return EID;
-        return FDynamicMesh3::InvalidID;
+        return DynamicMesh3::InvalidID;
     }
 } // namespace
 
@@ -156,16 +156,16 @@ namespace
 
 TEST( DynamicMesh3Edits, SplitInteriorEdgeKeepsEulerAndNamesTheNewElements )
 {
-    for ( FDynamicMesh3 Mesh : { MakeCube(), MakeTorus( 6, 4 ) } )
+    for ( DynamicMesh3 Mesh : { MakeCube(), MakeTorus( 6, 4 ) } )
     {
         const FCounts  Before  = Counts( Mesh );
         const int      OldMaxV = Mesh.MaxVertexID(), OldMaxT = Mesh.MaxTriangleID(), OldMaxE = Mesh.MaxEdgeID();
         const int      EID = 0;
-        const FIndex2i AB  = Mesh.GetEdgeV( EID );
-        const FIndex2i OV  = Mesh.GetEdgeOpposingV( EID );
+        const Index2i  AB  = Mesh.GetEdgeV( EID );
+        const Index2i  OV  = Mesh.GetEdgeOpposingV( EID );
 
-        FDynamicMesh3::FEdgeSplitInfo Info;
-        ASSERT_EQ( Mesh.SplitEdge( EID, Info, 0.25 ), EMeshResult::Ok );
+        DynamicMesh3::EdgeSplitInfo Info;
+        ASSERT_EQ( Mesh.SplitEdge( EID, Info, 0.25 ), MeshResult::Ok );
         ASSERT_TRUE( Valid( Mesh ) );
 
         const FCounts After = Counts( Mesh );
@@ -191,27 +191,27 @@ TEST( DynamicMesh3Edits, SplitInteriorEdgeKeepsEulerAndNamesTheNewElements )
         for ( int k = 0; k < 3; ++k )
             EXPECT_GE( Info.NewEdges[k], OldMaxE );
         EXPECT_EQ( Mesh.FindEdge( a, f ), EID );
-        EXPECT_EQ( Mesh.FindEdge( a, b ), FDynamicMesh3::InvalidID );
-        const FVector3d Expected = Mesh.GetVertex( a ) * 0.75 + Mesh.GetVertex( b ) * 0.25;
+        EXPECT_EQ( Mesh.FindEdge( a, b ), DynamicMesh3::InvalidID );
+        const glm::dvec3 Expected = Mesh.GetVertex( a ) * 0.75 + Mesh.GetVertex( b ) * 0.25;
         EXPECT_NEAR( Distance( Mesh.GetVertex( f ), Expected ), 0.0, 1e-9 );
     }
 }
 
 TEST( DynamicMesh3Edits, SplitBoundaryEdgeAddsOneTriangle )
 {
-    FDynamicMesh3 Mesh = MakePlane( 3 );
-    int           EID  = FDynamicMesh3::InvalidID;
+    DynamicMesh3 Mesh = MakePlane( 3 );
+    int          EID  = DynamicMesh3::InvalidID;
     for ( int E : Mesh.EdgeIndicesItr() )
         if ( Mesh.IsBoundaryEdge( E ) )
         {
             EID = E;
             break;
         }
-    ASSERT_NE( EID, FDynamicMesh3::InvalidID );
+    ASSERT_NE( EID, DynamicMesh3::InvalidID );
     const FCounts Before = Counts( Mesh );
 
-    FDynamicMesh3::FEdgeSplitInfo Info;
-    ASSERT_EQ( Mesh.SplitEdge( EID, Info ), EMeshResult::Ok );
+    DynamicMesh3::EdgeSplitInfo Info;
+    ASSERT_EQ( Mesh.SplitEdge( EID, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts After = Counts( Mesh );
     EXPECT_EQ( After.V, Before.V + 1 );
@@ -219,29 +219,29 @@ TEST( DynamicMesh3Edits, SplitBoundaryEdgeAddsOneTriangle )
     EXPECT_EQ( After.T, Before.T + 1 );
     EXPECT_EQ( After.Euler(), Before.Euler() );
     EXPECT_TRUE( Info.bIsBoundary );
-    EXPECT_EQ( Info.OtherVertices.B, FDynamicMesh3::InvalidID );
-    EXPECT_EQ( Info.NewTriangles.B, FDynamicMesh3::InvalidID );
-    EXPECT_EQ( Info.NewEdges.C, FDynamicMesh3::InvalidID );
+    EXPECT_EQ( Info.OtherVertices.B, DynamicMesh3::InvalidID );
+    EXPECT_EQ( Info.NewTriangles.B, DynamicMesh3::InvalidID );
+    EXPECT_EQ( Info.NewEdges.C, DynamicMesh3::InvalidID );
     EXPECT_TRUE( Mesh.IsBoundaryVertex( Info.NewVertex ) );
 
-    FDynamicMesh3::FEdgeSplitInfo Dead;
-    EXPECT_EQ( Mesh.SplitEdge( Mesh.MaxEdgeID() + 5, Dead ), EMeshResult::Failed_NotAnEdge );
+    DynamicMesh3::EdgeSplitInfo Dead;
+    EXPECT_EQ( Mesh.SplitEdge( Mesh.MaxEdgeID() + 5, Dead ), MeshResult::Failed_NotAnEdge );
 }
 
 // ---------------------------------------------------------------- FlipEdge
 
 TEST( DynamicMesh3Edits, FlipRotatesTheEdgeAndKeepsEveryCount )
 {
-    for ( FDynamicMesh3 Mesh : { MakeCube(), MakeTorus( 6, 4 ), MakePlane( 3 ) } )
+    for ( DynamicMesh3 Mesh : { MakeCube(), MakeTorus( 6, 4 ), MakePlane( 3 ) } )
     {
-        const int EID = FirstInteriorEdge( Mesh ) != FDynamicMesh3::InvalidID ? FirstInteriorEdge( Mesh ) : 0;
+        const int EID = FirstInteriorEdge( Mesh ) != DynamicMesh3::InvalidID ? FirstInteriorEdge( Mesh ) : 0;
         ASSERT_FALSE( Mesh.IsBoundaryEdge( EID ) );
         const FCounts  Before = Counts( Mesh );
-        const FIndex2i AB     = Mesh.GetEdgeV( EID );
-        const FIndex2i CD     = Mesh.GetEdgeOpposingV( EID );
+        const Index2i  AB     = Mesh.GetEdgeV( EID );
+        const Index2i  CD     = Mesh.GetEdgeOpposingV( EID );
 
-        FDynamicMesh3::FEdgeFlipInfo Info;
-        ASSERT_EQ( Mesh.FlipEdge( EID, Info ), EMeshResult::Ok );
+        DynamicMesh3::EdgeFlipInfo Info;
+        ASSERT_EQ( Mesh.FlipEdge( EID, Info ), MeshResult::Ok );
         ASSERT_TRUE( Valid( Mesh ) );
         const FCounts After = Counts( Mesh );
         EXPECT_EQ( After.V, Before.V );
@@ -255,9 +255,9 @@ TEST( DynamicMesh3Edits, FlipRotatesTheEdgeAndKeepsEveryCount )
         EXPECT_EQ( std::set<int>( { Info.OpposingVerts.A, Info.OpposingVerts.B } ),
                    std::set<int>( { CD.A, CD.B } ) );
         EXPECT_EQ( Mesh.FindEdge( CD.A, CD.B ), EID );
-        EXPECT_EQ( Mesh.FindEdge( AB.A, AB.B ), FDynamicMesh3::InvalidID );
+        EXPECT_EQ( Mesh.FindEdge( AB.A, AB.B ), DynamicMesh3::InvalidID );
         // InfoTypes contract: shared edge at index 0 of both new triangles, which are [c,d,b] and [d,c,a].
-        const FIndex2i O = Info.OriginalVerts, P = Info.OpposingVerts;
+        const Index2i O = Info.OriginalVerts, P = Info.OpposingVerts;
         EXPECT_EQ( Mesh.GetTriEdge( Info.Triangles.A, 0 ), EID );
         EXPECT_EQ( Mesh.GetTriEdge( Info.Triangles.B, 0 ), EID );
         EXPECT_TRUE( SameTri( Mesh.GetTriangle( Info.Triangles.A ), P.A, P.B, O.B ) );
@@ -267,21 +267,21 @@ TEST( DynamicMesh3Edits, FlipRotatesTheEdgeAndKeepsEveryCount )
 
 TEST( DynamicMesh3Edits, FlipRefusesBoundaryAndExistingEdges )
 {
-    FDynamicMesh3 Plane  = MakePlane( 2 );
+    DynamicMesh3  Plane  = MakePlane( 2 );
     const FCounts Before = Counts( Plane );
     for ( int EID : Plane.EdgeIndicesItr() )
     {
-        FDynamicMesh3::FEdgeFlipInfo Info;
+        DynamicMesh3::EdgeFlipInfo Info;
         if ( Plane.IsBoundaryEdge( EID ) )
-            EXPECT_EQ( Plane.FlipEdge( EID, Info ), EMeshResult::Failed_IsBoundaryEdge );
+            EXPECT_EQ( Plane.FlipEdge( EID, Info ), MeshResult::Failed_IsBoundaryEdge );
     }
     EXPECT_EQ( Counts( Plane ).E, Before.E );
     EXPECT_TRUE( Valid( Plane ) );
 
     // In a tetrahedron the opposing vertices of every edge are already joined.
-    FDynamicMesh3                Tet = MakeTetrahedron();
-    FDynamicMesh3::FEdgeFlipInfo Info;
-    EXPECT_EQ( Tet.FlipEdge( 0, Info ), EMeshResult::Failed_FlippedEdgeExists );
+    DynamicMesh3               Tet = MakeTetrahedron();
+    DynamicMesh3::EdgeFlipInfo Info;
+    EXPECT_EQ( Tet.FlipEdge( 0, Info ), MeshResult::Failed_FlippedEdgeExists );
     EXPECT_TRUE( Valid( Tet ) );
 }
 
@@ -289,17 +289,17 @@ TEST( DynamicMesh3Edits, FlipRefusesBoundaryAndExistingEdges )
 
 TEST( DynamicMesh3Edits, CollapseInteriorEdgeRemovesOneVertexThreeEdgesTwoTriangles )
 {
-    FDynamicMesh3 Mesh = MakeTorus( 8, 6 );
+    DynamicMesh3 Mesh = MakeTorus( 8, 6 );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts   Before = Counts( Mesh );
     const int       Keep = TorusV( 8, 6, 2, 2 ), Remove = TorusV( 8, 6, 3, 2 );
     const int       EID   = Mesh.FindEdge( Keep, Remove );
-    const FVector3d KeepP = Mesh.GetVertex( Keep ), RemoveP = Mesh.GetVertex( Remove );
-    ASSERT_NE( EID, FDynamicMesh3::InvalidID );
-    EXPECT_EQ( Mesh.CanCollapseEdge( Keep, Remove ), EMeshResult::Ok );
+    const glm::dvec3 KeepP = Mesh.GetVertex( Keep ), RemoveP = Mesh.GetVertex( Remove );
+    ASSERT_NE( EID, DynamicMesh3::InvalidID );
+    EXPECT_EQ( Mesh.CanCollapseEdge( Keep, Remove ), MeshResult::Ok );
 
-    FDynamicMesh3::FEdgeCollapseInfo Info;
-    ASSERT_EQ( Mesh.CollapseEdge( Keep, Remove, 0.5, Info ), EMeshResult::Ok );
+    DynamicMesh3::EdgeCollapseInfo Info;
+    ASSERT_EQ( Mesh.CollapseEdge( Keep, Remove, 0.5, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts After = Counts( Mesh );
     EXPECT_EQ( After.V, Before.V - 1 );
@@ -329,46 +329,46 @@ TEST( DynamicMesh3Edits, CollapseRefusesEditsThatBreakManifoldness )
 {
     // Minor ring of three: the two ends of a ring edge share a third neighbour outside their two triangles,
     // so collapsing would fold the ring into a non-manifold edge.
-    FDynamicMesh3 Thin = MakeTorus( 6, 3 );
+    DynamicMesh3 Thin = MakeTorus( 6, 3 );
     ASSERT_TRUE( Valid( Thin ) );
     const FCounts                    Before = Counts( Thin );
-    FDynamicMesh3::FEdgeCollapseInfo Info;
+    DynamicMesh3::EdgeCollapseInfo   Info;
     EXPECT_EQ( Thin.CollapseEdge( TorusV( 6, 3, 1, 0 ), TorusV( 6, 3, 1, 1 ), Info ),
-               EMeshResult::Failed_InvalidNeighbourhood );
+               MeshResult::Failed_InvalidNeighbourhood );
     EXPECT_EQ( Counts( Thin ).V, Before.V );
     EXPECT_EQ( Counts( Thin ).T, Before.T );
     EXPECT_TRUE( Valid( Thin ) );
 
-    FDynamicMesh3 Tet = MakeTetrahedron();
-    EXPECT_EQ( Tet.CollapseEdge( 0, 1, Info ), EMeshResult::Failed_CollapseTetrahedron );
+    DynamicMesh3 Tet = MakeTetrahedron();
+    EXPECT_EQ( Tet.CollapseEdge( 0, 1, Info ), MeshResult::Failed_CollapseTetrahedron );
     EXPECT_EQ( Tet.TriangleCount(), 4 );
 
     // Interior diagonal of a single quad: both ends are boundary vertices, the collapse would make a bowtie.
-    FDynamicMesh3 Quad = MakePlane( 1 );
-    EXPECT_EQ( Quad.CollapseEdge( 0, 3, Info ), EMeshResult::Failed_InvalidNeighbourhood );
+    DynamicMesh3 Quad = MakePlane( 1 );
+    EXPECT_EQ( Quad.CollapseEdge( 0, 3, Info ), MeshResult::Failed_InvalidNeighbourhood );
 
-    FDynamicMesh3 Tri;
-    Tri.AppendVertex( FVector3d( 0, 0, 0 ) );
-    Tri.AppendVertex( FVector3d( 10, 0, 0 ) );
-    Tri.AppendVertex( FVector3d( 0, 10, 0 ) );
+    DynamicMesh3 Tri;
+    Tri.AppendVertex( glm::dvec3( 0, 0, 0 ) );
+    Tri.AppendVertex( glm::dvec3( 10, 0, 0 ) );
+    Tri.AppendVertex( glm::dvec3( 0, 10, 0 ) );
     Tri.AppendTriangle( 0, 1, 2 );
-    EXPECT_EQ( Tri.CollapseEdge( 0, 1, Info ), EMeshResult::Failed_CollapseTriangle );
+    EXPECT_EQ( Tri.CollapseEdge( 0, 1, Info ), MeshResult::Failed_CollapseTriangle );
     EXPECT_EQ( Tri.TriangleCount(), 1 );
 
-    EXPECT_EQ( Tri.CollapseEdge( 1, 1, Info ), EMeshResult::Failed_NotAnEdge );
+    EXPECT_EQ( Tri.CollapseEdge( 1, 1, Info ), MeshResult::Failed_NotAnEdge );
 }
 
 TEST( DynamicMesh3Edits, CollapseBoundaryEdgeOnPlane )
 {
-    FDynamicMesh3 Mesh   = MakePlane( 3 );
+    DynamicMesh3  Mesh   = MakePlane( 3 );
     const FCounts Before = Counts( Mesh );
     // (1,0)-(2,0) on the bottom row: a boundary edge whose ends are not corners.
-    FDynamicMesh3::FEdgeCollapseInfo Info;
-    ASSERT_EQ( Mesh.CollapseEdge( 1, 2, Info ), EMeshResult::Ok );
+    DynamicMesh3::EdgeCollapseInfo Info;
+    ASSERT_EQ( Mesh.CollapseEdge( 1, 2, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts After = Counts( Mesh );
     EXPECT_TRUE( Info.bIsBoundary );
-    EXPECT_EQ( Info.RemovedTris.B, FDynamicMesh3::InvalidID );
+    EXPECT_EQ( Info.RemovedTris.B, DynamicMesh3::InvalidID );
     EXPECT_EQ( After.V, Before.V - 1 );
     EXPECT_EQ( After.E, Before.E - 2 );
     EXPECT_EQ( After.T, Before.T - 1 );
@@ -379,13 +379,13 @@ TEST( DynamicMesh3Edits, CollapseBoundaryEdgeOnPlane )
 
 TEST( DynamicMesh3Edits, MergeEdgesWeldsTwoComponentsIntoOne )
 {
-    FDynamicMesh3 Mesh = MakeSeam( true );
+    DynamicMesh3 Mesh = MakeSeam( true );
     ASSERT_TRUE( Valid( Mesh ) );
     EXPECT_EQ( Counts( Mesh ).Euler(), 2 ); // two discs
     const int Keep = Mesh.FindEdge( 1, 2 ), Discard = Mesh.FindEdge( 3, 4 );
 
-    FDynamicMesh3::FMergeEdgesInfo Info;
-    ASSERT_EQ( Mesh.MergeEdges( Keep, Discard, Info ), EMeshResult::Ok );
+    DynamicMesh3::MergeEdgesInfo Info;
+    ASSERT_EQ( Mesh.MergeEdges( Keep, Discard, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const FCounts After = Counts( Mesh );
     EXPECT_EQ( After.V, 4 );
@@ -399,66 +399,66 @@ TEST( DynamicMesh3Edits, MergeEdgesWeldsTwoComponentsIntoOne )
     EXPECT_FALSE( Mesh.IsVertex( 3 ) );
     EXPECT_FALSE( Mesh.IsVertex( 4 ) );
     EXPECT_EQ( std::set<int>( { Info.RemovedVerts.A, Info.RemovedVerts.B } ), std::set<int>( { 3, 4 } ) );
-    EXPECT_TRUE( Info.BowtiesRemovedEdges.IsEmpty() );
+    EXPECT_TRUE( Info.BowtiesRemovedEdges.empty() );
 }
 
 TEST( DynamicMesh3Edits, MergeEdgesRefusesInteriorAndSameOrientation )
 {
-    FDynamicMesh3                  Same = MakeSeam( false );
-    FDynamicMesh3::FMergeEdgesInfo Info;
+    DynamicMesh3                 Same = MakeSeam( false );
+    DynamicMesh3::MergeEdgesInfo Info;
     EXPECT_EQ( Same.MergeEdges( Same.FindEdge( 1, 2 ), Same.FindEdge( 3, 4 ), Info ),
-               EMeshResult::Failed_SameOrientation );
+               MeshResult::Failed_SameOrientation );
     EXPECT_EQ( Same.VertexCount(), 6 );
 
-    FDynamicMesh3 Plane = MakePlane( 2 );
-    int           Inner = FDynamicMesh3::InvalidID, Outer = FDynamicMesh3::InvalidID;
+    DynamicMesh3 Plane = MakePlane( 2 );
+    int          Inner = DynamicMesh3::InvalidID, Outer = DynamicMesh3::InvalidID;
     for ( int E : Plane.EdgeIndicesItr() )
         ( Plane.IsBoundaryEdge( E ) ? Outer : Inner ) = E;
-    ASSERT_NE( Inner, FDynamicMesh3::InvalidID );
-    EXPECT_EQ( Plane.MergeEdges( Outer, Inner, Info ), EMeshResult::Failed_NotABoundaryEdge );
+    ASSERT_NE( Inner, DynamicMesh3::InvalidID );
+    EXPECT_EQ( Plane.MergeEdges( Outer, Inner, Info ), MeshResult::Failed_NotABoundaryEdge );
     EXPECT_TRUE( Valid( Plane ) );
 }
 
 TEST( DynamicMesh3Edits, MergeVerticesResolvesToTheRightOperator )
 {
     // Connected by an edge: resolves as a collapse.
-    FDynamicMesh3                     Torus = MakeTorus( 8, 6 );
-    FDynamicMesh3::FMergeVerticesInfo Info;
-    ASSERT_EQ( Torus.MergeVertices( TorusV( 8, 6, 2, 2 ), TorusV( 8, 6, 3, 2 ), Info ), EMeshResult::Ok );
-    EXPECT_TRUE( Info.EdgeCollapseInfo.IsSet() );
-    EXPECT_FALSE( Info.MergeEdgesInfo.IsSet() );
+    DynamicMesh3                    Torus = MakeTorus( 8, 6 );
+    DynamicMesh3::MergeVerticesInfo Info;
+    ASSERT_EQ( Torus.MergeVertices( TorusV( 8, 6, 2, 2 ), TorusV( 8, 6, 3, 2 ), Info ), MeshResult::Ok );
+    EXPECT_TRUE( Info.EdgeCollapseInfo.has_value() );
+    EXPECT_FALSE( Info.MergeEdgesInfo.has_value() );
     EXPECT_TRUE( Valid( Torus ) );
 
     // Unconnected boundary vertices with no shared neighbour: a boundary bowtie, which only the permissive
     // validity options accept.
-    FDynamicMesh3                     Seam = MakeSeam( true );
-    FDynamicMesh3::FMergeVerticesInfo Bowtie;
-    ASSERT_EQ( Seam.MergeVertices( 1, 3, Bowtie ), EMeshResult::Ok );
-    EXPECT_FALSE( Bowtie.EdgeCollapseInfo.IsSet() );
-    EXPECT_FALSE( Bowtie.MergeEdgesInfo.IsSet() );
+    DynamicMesh3                    Seam = MakeSeam( true );
+    DynamicMesh3::MergeVerticesInfo Bowtie;
+    ASSERT_EQ( Seam.MergeVertices( 1, 3, Bowtie ), MeshResult::Ok );
+    EXPECT_FALSE( Bowtie.EdgeCollapseInfo.has_value() );
+    EXPECT_FALSE( Bowtie.MergeEdgesInfo.has_value() );
     EXPECT_FALSE( Seam.IsVertex( 3 ) );
     EXPECT_EQ( Seam.VertexCount(), 5 );
     EXPECT_TRUE( Valid( Seam, true ) );
     EXPECT_FALSE( Valid( Seam ) );
 
-    EXPECT_EQ( Seam.MergeVertices( 1, 1, Bowtie ), EMeshResult::Failed_VertexAlreadyExists );
+    EXPECT_EQ( Seam.MergeVertices( 1, 1, Bowtie ), MeshResult::Failed_VertexAlreadyExists );
 }
 
 // ---------------------------------------------------------------- PokeTriangle / SplitVertex
 
 TEST( DynamicMesh3Edits, PokeSplitsOneTriangleIntoThree )
 {
-    for ( FDynamicMesh3 Mesh : { MakeCube(), MakePlane( 2 ), MakeTorus( 6, 4 ) } )
+    for ( DynamicMesh3 Mesh : { MakeCube(), MakePlane( 2 ), MakeTorus( 6, 4 ) } )
     {
         const FCounts   Before  = Counts( Mesh );
         const int       OldMaxV = Mesh.MaxVertexID(), OldMaxT = Mesh.MaxTriangleID();
         const int       TID = 1;
-        const FIndex3i  Tri = Mesh.GetTriangle( TID );
-        const FVector3d Centroid =
+        const Index3i    Tri = Mesh.GetTriangle( TID );
+        const glm::dvec3 Centroid =
              ( Mesh.GetVertex( Tri.A ) + Mesh.GetVertex( Tri.B ) + Mesh.GetVertex( Tri.C ) ) / 3.0;
 
-        FDynamicMesh3::FPokeTriangleInfo Info;
-        ASSERT_EQ( Mesh.PokeTriangle( TID, Info ), EMeshResult::Ok );
+        DynamicMesh3::PokeTriangleInfo Info;
+        ASSERT_EQ( Mesh.PokeTriangle( TID, Info ), MeshResult::Ok );
         ASSERT_TRUE( Valid( Mesh ) );
         const FCounts After = Counts( Mesh );
         EXPECT_EQ( After.V, Before.V + 1 );
@@ -476,26 +476,26 @@ TEST( DynamicMesh3Edits, PokeSplitsOneTriangleIntoThree )
             EXPECT_EQ( Info.NewEdges[k], Mesh.FindEdge( Info.NewVertex, Tri[k] ) );
         EXPECT_NEAR( Distance( Mesh.GetVertex( Info.NewVertex ), Centroid ), 0.0, 1e-9 );
     }
-    FDynamicMesh3                    Mesh = MakeCube();
-    FDynamicMesh3::FPokeTriangleInfo Info;
-    EXPECT_EQ( Mesh.PokeTriangle( 99, Info ), EMeshResult::Failed_NotATriangle );
+    DynamicMesh3                   Mesh = MakeCube();
+    DynamicMesh3::PokeTriangleInfo Info;
+    EXPECT_EQ( Mesh.PokeTriangle( 99, Info ), MeshResult::Failed_NotATriangle );
 }
 
 TEST( DynamicMesh3Edits, SplitVertexDetachesTheGivenFan )
 {
     // Vertex 4 is the centre of a 2x2 plane; detaching the two triangles of the lower-left quad makes a
     // corner cut: the new vertex carries them, the original keeps the rest, both become boundary vertices.
-    FDynamicMesh3 Mesh = MakePlane( 2 );
-    TArray<int>   Fan;
+    DynamicMesh3     Mesh = MakePlane( 2 );
+    std::vector<int> Fan;
     Mesh.GetVtxTriangles( 4, Fan );
-    ASSERT_EQ( Fan.Num(), 6 );
+    ASSERT_EQ( static_cast<int32_t>( Fan.size() ), 6 );
     EXPECT_TRUE( Mesh.SplitVertexWouldLeaveIsolated( 4, Fan ) );
 
-    const TArray<int> Quad( { 0, 1 } ); // triangles of quad (0,0)
+    const std::vector<int> Quad( { 0, 1 } ); // triangles of quad (0,0)
     EXPECT_FALSE( Mesh.SplitVertexWouldLeaveIsolated( 4, Quad ) );
     const FCounts                   Before = Counts( Mesh );
-    FDynamicMesh3::FVertexSplitInfo Info;
-    ASSERT_EQ( Mesh.SplitVertex( 4, Quad, Info ), EMeshResult::Ok );
+    DynamicMesh3::VertexSplitInfo   Info;
+    ASSERT_EQ( Mesh.SplitVertex( 4, Quad, Info ), MeshResult::Ok );
     EXPECT_TRUE( Valid( Mesh, true ) );
     EXPECT_EQ( Info.OriginalVertex, 4 );
     EXPECT_EQ( Info.NewVertex, Before.V );
@@ -506,7 +506,7 @@ TEST( DynamicMesh3Edits, SplitVertexDetachesTheGivenFan )
     EXPECT_TRUE( Mesh.IsBoundaryVertex( 4 ) );
     EXPECT_TRUE( Mesh.IsBoundaryVertex( Info.NewVertex ) );
 
-    EXPECT_EQ( Mesh.SplitVertex( 999, Quad, Info ), EMeshResult::Failed_NotAVertex );
+    EXPECT_EQ( Mesh.SplitVertex( 999, Quad, Info ), MeshResult::Failed_NotAVertex );
 }
 
 int main( int argc, char** argv )

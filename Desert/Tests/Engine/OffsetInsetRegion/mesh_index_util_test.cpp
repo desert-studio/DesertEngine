@@ -1,4 +1,4 @@
-// MeshIndexUtil.hpp (ported from UE for FMeshBevel) on a welded cube with one polygroup per face: the one-ring
+// MeshIndexUtil.hpp (ported from UE for MeshBevel) on a welded cube with one polygroup per face: the one-ring
 // splitters must cut a corner's fan into two disjoint sides that cover it, and the triangle-edge queries must
 // return UE's edge order, which BuildTerminatorVertex relies on.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
@@ -28,7 +28,7 @@ namespace
     }
 
     // region_operation_test.cpp's TangentCube: faces +X, -X, +Y, -Y, +Z, -Z, face f is polygroup f + 1.
-    FDynamicMesh3 TangentCube()
+    DynamicMesh3 TangentCube()
     {
         const float     half = 50.0f;
         const glm::vec3 X( 1, 0, 0 );
@@ -64,14 +64,14 @@ namespace
         render.SubmeshMaterialIds.push_back( 0 );
         auto imported = DynamicMeshFromRenderMesh( render );
         EXPECT_TRUE( imported.IsSuccess() ) << ( imported.IsSuccess() ? "" : imported.GetError() );
-        FDynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
+        DynamicMesh3 mesh = std::move( imported.ExtractValue().Mesh );
         mesh.EnableTriangleGroups();
         for ( const int t : mesh.TriangleIndicesItr() )
             mesh.SetTriangleGroup( t, 1 + t / 2 );
         return mesh;
     }
 
-    std::set<int> Ring( const FDynamicMesh3& mesh, int v )
+    std::set<int> Ring( const DynamicMesh3& mesh, int v )
     {
         std::set<int> ring;
         for ( const int t : mesh.VtxTrianglesItr( v ) )
@@ -79,21 +79,22 @@ namespace
         return ring;
     }
 
-    bool IsGroupEdge( const FDynamicMesh3& mesh, int e )
+    bool IsGroupEdge( const DynamicMesh3& mesh, int e )
     {
-        const FIndex2i t = mesh.GetEdgeT( e );
+        const Index2i t = mesh.GetEdgeT( e );
         return t.B >= 0 && mesh.GetTriangleGroup( t.A ) != mesh.GetTriangleGroup( t.B );
     }
 
     // Both sets non-empty, disjoint, and together exactly the vertex's triangle fan.
-    void ExpectPartition( const FDynamicMesh3& mesh, int v, const TArray<int32_t>& s0, const TArray<int32_t>& s1 )
+    void ExpectPartition( const DynamicMesh3& mesh, int v, const std::vector<int32_t>& s0,
+                          const std::vector<int32_t>& s1 )
     {
-        ASSERT_GT( s0.Num(), 0 );
-        ASSERT_GT( s1.Num(), 0 );
+        ASSERT_GT( static_cast<int32_t>( s0.size() ), 0 );
+        ASSERT_GT( static_cast<int32_t>( s1.size() ), 0 );
         std::set<int> all;
-        for ( int32_t i = 0; i < s0.Num(); ++i )
+        for ( int32_t i = 0; i < static_cast<int32_t>( s0.size() ); ++i )
             all.insert( s0[i] );
-        for ( int32_t i = 0; i < s1.Num(); ++i )
+        for ( int32_t i = 0; i < static_cast<int32_t>( s1.size() ); ++i )
             EXPECT_TRUE( all.insert( s1[i] ).second ) << "triangle " << s1[i] << " is on both sides";
         EXPECT_EQ( all, Ring( mesh, v ) );
     }
@@ -101,26 +102,26 @@ namespace
 
 TEST( MeshIndexUtil, VertexEdgesComeInTriangleOrder )
 {
-    const FDynamicMesh3 mesh = TangentCube();
+    const DynamicMesh3 mesh = TangentCube();
     for ( const int t : mesh.TriangleIndicesItr() )
     {
-        const FIndex3i tv = mesh.GetTriangle( t );
+        const Index3i tv = mesh.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
         {
-            const FIndex2i e = FindVertexEdgesInTriangle( mesh, t, tv[j] );
+            const Index2i e = FindVertexEdgesInTriangle( mesh, t, tv[j] );
             // A = edge (prev, v), B = edge (v, next): BuildTerminatorVertex reads them in this order.
             EXPECT_TRUE( mesh.GetEdgeV( e.A ).Contains( tv[( j + 2 ) % 3] ) );
             EXPECT_TRUE( mesh.GetEdgeV( e.B ).Contains( tv[( j + 1 ) % 3] ) );
             EXPECT_TRUE( mesh.GetEdgeV( e.A ).Contains( tv[j] ) && mesh.GetEdgeV( e.B ).Contains( tv[j] ) );
         }
     }
-    const FIndex2i none = FindVertexEdgesInTriangle( mesh, 0, IndexConstants::InvalidID );
+    const Index2i none = FindVertexEdgesInTriangle( mesh, 0, IndexConstants::InvalidID );
     EXPECT_EQ( none.A, IndexConstants::InvalidID );
 }
 
 TEST( MeshIndexUtil, SharedEdgeOfAdjacentTrianglesOnly )
 {
-    const FDynamicMesh3 mesh     = TangentCube();
+    const DynamicMesh3  mesh     = TangentCube();
     int                 adjacent = 0;
     int                 apart    = 0;
     for ( const int a : mesh.TriangleIndicesItr() )
@@ -135,7 +136,7 @@ TEST( MeshIndexUtil, SharedEdgeOfAdjacentTrianglesOnly )
                 continue;
             }
             ++adjacent;
-            const FIndex2i et = mesh.GetEdgeT( e );
+            const Index2i et = mesh.GetEdgeT( e );
             EXPECT_TRUE( et.Contains( a ) && et.Contains( b ) );
         }
     // 12 triangles, 18 edges, each shared by an ordered pair twice.
@@ -145,7 +146,7 @@ TEST( MeshIndexUtil, SharedEdgeOfAdjacentTrianglesOnly )
 
 TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
 {
-    const FDynamicMesh3 mesh    = TangentCube();
+    const DynamicMesh3  mesh    = TangentCube();
     int                 corners = 0;
     for ( const int v : mesh.VertexIndicesItr() )
     {
@@ -156,16 +157,16 @@ TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
         ASSERT_EQ( groupEdges.size(), 3u ) << "cube corner " << v;
         for ( int k = 0; k < 3; ++k )
         {
-            TArray<int32_t> s0;
-            TArray<int32_t> s1;
+            std::vector<int32_t> s0;
+            std::vector<int32_t> s1;
             ASSERT_TRUE( SplitInteriorVertexTrianglesIntoSubsets( &mesh, v, groupEdges[k],
                                                                   groupEdges[( k + 1 ) % 3], s0, s1 ) );
             ExpectPartition( mesh, v, s0, s1 );
             // Two of a corner's three group edges fence off exactly one face: one side is one polygroup, the other
             // two.
-            auto singleGroup = [&]( const TArray<int32_t>& side )
+            auto singleGroup = [&]( const std::vector<int32_t>& side )
             {
-                for ( int32_t i = 1; i < side.Num(); ++i )
+                for ( int32_t i = 1; i < static_cast<int32_t>( side.size() ); ++i )
                     if ( mesh.GetTriangleGroup( side[i] ) != mesh.GetTriangleGroup( side[0] ) )
                         return false;
                 return true;
@@ -179,17 +180,17 @@ TEST( MeshIndexUtil, InteriorSplitAtCubeCornerPartitionsTheFan )
 
 TEST( MeshIndexUtil, BoundarySplitPartitionsTheOpenFan )
 {
-    FDynamicMesh3 mesh = TangentCube();
+    DynamicMesh3  mesh = TangentCube();
     const int     v    = mesh.GetTriangle( 0 ).A;
-    ASSERT_EQ( mesh.RemoveTriangle( 0, false, false ), EMeshResult::Ok );
+    ASSERT_EQ( mesh.RemoveTriangle( 0, false, false ), MeshResult::Ok );
     ASSERT_TRUE( mesh.IsBoundaryVertex( v ) );
     int tested = 0;
     for ( const int e : mesh.VtxEdgesItr( v ) )
     {
         if ( mesh.IsBoundaryEdge( e ) )
             continue;
-        TArray<int32_t> s0;
-        TArray<int32_t> s1;
+        std::vector<int32_t> s0;
+        std::vector<int32_t> s1;
         ASSERT_TRUE( SplitBoundaryVertexTrianglesIntoSubsets( &mesh, v, e, s0, s1 ) );
         ExpectPartition( mesh, v, s0, s1 );
         ++tested;
@@ -199,8 +200,8 @@ TEST( MeshIndexUtil, BoundarySplitPartitionsTheOpenFan )
     for ( const int e : mesh.VtxEdgesItr( v ) )
         if ( mesh.IsBoundaryEdge( e ) )
         {
-            TArray<int32_t> s0;
-            TArray<int32_t> s1;
+            std::vector<int32_t> s0;
+            std::vector<int32_t> s1;
             EXPECT_FALSE( SplitBoundaryVertexTrianglesIntoSubsets( &mesh, v, e, s0, s1 ) );
         }
 }

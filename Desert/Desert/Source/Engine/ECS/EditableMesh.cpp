@@ -6,8 +6,8 @@
 
 namespace Desert::ECS
 {
-    Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                           component,
-                                           std::shared_ptr<const Geometry::FDynamicMesh3> mesh )
+    Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                          component,
+                                           std::shared_ptr<const Geometry::DynamicMesh3> mesh )
     {
         if ( !mesh )
             return Common::MakeError<bool>( "SetEditableMesh: no mesh - use ClearEditableMesh to drop one" );

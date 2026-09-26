@@ -29,7 +29,7 @@
 namespace fs = std::filesystem;
 using namespace Desert;
 using Editor::MeshRestore;
-using MeshPtr = std::shared_ptr<const Geometry::FDynamicMesh3>;
+using MeshPtr = std::shared_ptr<const Geometry::DynamicMesh3>;
 
 namespace
 {
@@ -40,7 +40,7 @@ namespace
         EXPECT_TRUE( edit.IsSuccess() );
         auto dyn = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( edit.GetValue() ), "box" );
         EXPECT_TRUE( dyn.IsSuccess() ) << ( dyn.IsSuccess() ? "" : dyn.GetError() );
-        return std::make_shared<const Geometry::FDynamicMesh3>( dyn.ExtractValue() );
+        return std::make_shared<const Geometry::DynamicMesh3>( dyn.ExtractValue() );
     }
 
     std::string Bytes( const MeshPtr& mesh )
@@ -58,7 +58,7 @@ namespace
     }
 
     // Two meshes are the same when they render the same arrays.
-    void ExpectSameRender( const Geometry::FDynamicMesh3& a, const Geometry::FDynamicMesh3& b )
+    void ExpectSameRender( const Geometry::DynamicMesh3& a, const Geometry::DynamicMesh3& b )
     {
         auto ra = Geometry::ToRenderMesh( a );
         auto rb = Geometry::ToRenderMesh( b );

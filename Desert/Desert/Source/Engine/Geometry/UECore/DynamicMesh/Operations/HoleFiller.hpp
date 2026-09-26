@@ -9,7 +9,7 @@ namespace Desert::Geometry
     class IHoleFiller
     {
     public:
-        TArray<int> NewTriangles;
+        std::vector<int> m_NewTriangles;
 
         virtual ~IHoleFiller()                = default;
         virtual bool Fill( int GroupID = -1 ) = 0;

@@ -27,7 +27,7 @@ namespace Desert::Editor::Tools
 
         struct Target
         {
-            std::shared_ptr<const Geometry::FDynamicMesh3> Source;
+            std::shared_ptr<const Geometry::DynamicMesh3> Source;
             glm::mat4                                 World{ 1.0f };
         };
 
@@ -54,8 +54,8 @@ namespace Desert::Editor::Tools
         struct Painter
         {
             ImDrawList&                     List;
-            const Geometry::FDynamicMesh3&  Mesh;
-            const Geometry::FGroupTopology& Topology;
+            const Geometry::DynamicMesh3&   Mesh;
+            const Geometry::GroupTopology&  Topology;
             const glm::mat4&          World;
             const glm::mat4&          ViewProj;
             glm::vec2                 Pos;
@@ -65,7 +65,7 @@ namespace Desert::Editor::Tools
             {
                 glm::vec2 px;
                 const auto q = Mesh.GetVertex( v );
-                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.X, q.Y, q.Z, 1.0f ) ), ViewProj,
+                if ( !Geometry::ProjectToViewport( glm::vec3( World * glm::vec4( q.x, q.y, q.z, 1.0f ) ), ViewProj,
                                                    Pos, Size, px ) )
                     return false;
                 out = ImVec2( px.x, px.y );
@@ -99,7 +99,7 @@ namespace Desert::Editor::Tools
                     List.AddTriangle( a, b, c, outline, 1.5f );
             }
             // A mesh edge lies on a group edge when it is open or its two triangles are in different groups
-            // (FGroupTopology's own definition), so a polygroup's triangulation diagonals are not group edges.
+            // (GroupTopology's own definition), so a polygroup's triangulation diagonals are not group edges.
             bool IsGroupEdge( int e ) const
             {
                 const auto et = Mesh.GetEdgeT( e );
@@ -122,7 +122,7 @@ namespace Desert::Editor::Tools
         // edges (TopologyProvider->GetGroupEdgeEdges).
         void DrawGroupEdges( const Painter& paint )
         {
-            for ( int g = 0; g < paint.Topology.Edges.Num(); ++g )
+            for ( int g = 0; g < static_cast<int32_t>( paint.Topology.m_Edges.size() ); ++g )
                 for ( const int e : paint.Topology.GetGroupEdgeEdges( g ) )
                     paint.Edge( e, kGroupEdgeColour, kGroupEdgeWidth );
         }
@@ -192,8 +192,8 @@ namespace Desert::Editor::Tools
             return;
         }
         // Track built the topology for exactly this mesh (it rebuilds whenever the entity's mesh changes).
-        const Geometry::FDynamicMesh3&  mesh     = *state.Mesh();
-        const Geometry::FGroupTopology& topology = *state.Topology();
+        const Geometry::DynamicMesh3&  mesh     = *state.Mesh();
+        const Geometry::GroupTopology& topology = *state.Topology();
 
         Geometry::PickView view;
         view.LocalToWorld    = target.World;

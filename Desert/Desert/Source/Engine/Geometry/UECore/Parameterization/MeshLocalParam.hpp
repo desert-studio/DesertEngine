@@ -1,18 +1,19 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/Parameterization/MeshLocalParam.h
-// (ELocalParamTypes, ComputeToMaxDistance from a centre vertex, HasUV, GetUV, ProcessQueueUntilTermination,
+// (LocalParamTypes, ComputeToMaxDistance from a centre vertex, HasUV, GetUV, ProcessQueueUntilTermination,
 // ComputeLocalUV, PropagateUV, UpdateUVExpmap/Upwind/Planar, UpdateNeighboursSparse), adapted: nodes addressed by
 // index in a TArray (see MeshDijkstra.hpp), the 2x2 rotation written out (no FMatrix2d), external normals and the
 // three-seed / TransformUV / GetAllComputedUVs entry points are not ported. Normals: the mesh's vertex normals
-// when it has them, else FMeshNormals::ComputeVertexNormal, as UE's GetNormal for FDynamicMesh3.
+// when it has them, else MeshNormals::ComputeVertexNormal, as UE's GetNormal for DynamicMesh3.
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 #include "Engine/Geometry/UECore/FrameTypes.hpp"
 #include "Engine/Geometry/UECore/IndexPriorityQueue.hpp"
 
 namespace Desert::Geometry
 {
-    enum class ELocalParamTypes : uint8_t
+    enum class LocalParamTypes : uint8_t
     {
         PlanarProjection        = 1,
         ExponentialMap          = 2,
@@ -20,145 +21,146 @@ namespace Desert::Geometry
     };
 
     template <class PointSetType>
-    class TMeshLocalParam
+    class MeshLocalParam
     {
     public:
-        ELocalParamTypes ParamMode = ELocalParamTypes::ExponentialMapUpwindAvg;
+        LocalParamTypes m_ParamMode = LocalParamTypes::ExponentialMapUpwindAvg;
 
-        explicit TMeshLocalParam( const PointSetType* PointSetIn ) : PointSet( PointSetIn )
+        explicit MeshLocalParam( const PointSetType* PointSetIn ) : m_PointSet( PointSetIn )
         {
-            Queue.Initialize( PointSet->MaxVertexID() );
+            m_Queue.Initialize( m_PointSet->MaxVertexID() );
         }
 
-        void ComputeToMaxDistance( int32_t CenterPointVtxID, const FFrame3d& CenterPointFrame,
+        void ComputeToMaxDistance( int32_t CenterPointVtxID, const Frame3d& CenterPointFrame,
                                    double ComputeToMaxDistanceIn )
         {
-            SeedFrame            = CenterPointFrame;
-            MaxGraphDistance     = 0.0;
-            FGraphNode& Center   = AllocatedNodes[GetNodeIndex( CenterPointVtxID, true )];
-            Center.UV            = FVector2d::Zero();
+            m_SeedFrame          = CenterPointFrame;
+            m_MaxGraphDistance   = 0.0;
+            GraphNode& Center    = m_AllocatedNodes[GetNodeIndex( CenterPointVtxID, true )];
+            Center.UV            = glm::dvec2( 0 );
             Center.GraphDistance = 0;
             Center.bFrozen       = true;
-            Queue.Insert( CenterPointVtxID, 0 );
+            m_Queue.Insert( CenterPointVtxID, 0 );
             ProcessQueueUntilTermination( ComputeToMaxDistanceIn );
         }
         [[nodiscard]] bool HasUV( int32_t PointID ) const
         {
-            const int32_t* Found = IDToNodeIndexMap.Find( PointID );
-            return Found != nullptr && AllocatedNodes[*Found].bFrozen;
+            const int32_t* Found = FindValue( m_IDToNodeIndexMap, PointID );
+            return Found != nullptr && m_AllocatedNodes[*Found].bFrozen;
         }
-        [[nodiscard]] FVector2d GetUV( int32_t PointID ) const
+        [[nodiscard]] glm::dvec2 GetUV( int32_t PointID ) const
         {
-            const int32_t* Found = IDToNodeIndexMap.Find( PointID );
-            return ( Found != nullptr && AllocatedNodes[*Found].bFrozen )
-                        ? AllocatedNodes[*Found].UV
-                        : FVector2d( std::numeric_limits<double>::max(), std::numeric_limits<double>::max() );
+            const int32_t* Found = FindValue( m_IDToNodeIndexMap, PointID );
+            return ( Found != nullptr && m_AllocatedNodes[*Found].bFrozen )
+                        ? m_AllocatedNodes[*Found].UV
+                        : glm::dvec2( std::numeric_limits<double>::max(), std::numeric_limits<double>::max() );
         }
 
     private:
-        struct FGraphNode
+        struct GraphNode
         {
             int32_t   PointID       = 0;
             int32_t   ParentPointID = 0;
             double    GraphDistance = 0.0;
-            FVector2d UV;
+            glm::dvec2 UV{};
             bool      bFrozen = false;
-            FVector3d CachedNormal;
+            glm::dvec3 CachedNormal{};
         };
-        const PointSetType* PointSet;
-        TMap<int32_t, int32_t> IDToNodeIndexMap;
-        TArray<FGraphNode>  AllocatedNodes;
-        FIndexPriorityQueue Queue;
-        FFrame3d            SeedFrame;
-        double              MaxGraphDistance = 0.0;
+        const PointSetType*                  m_PointSet;
+        std::unordered_map<int32_t, int32_t> m_IDToNodeIndexMap;
+        std::vector<GraphNode>               m_AllocatedNodes;
+        IndexPriorityQueue                   m_Queue;
+        Frame3d                              m_SeedFrame;
+        double                               m_MaxGraphDistance = 0.0;
 
-        [[nodiscard]] FVector3d GetPosition( int32_t PointID ) const
+        [[nodiscard]] glm::dvec3 GetPosition( int32_t PointID ) const
         {
-            return PointSet->GetVertex( PointID );
+            return m_PointSet->GetVertex( PointID );
         }
-        [[nodiscard]] FVector3d GetNormal( int32_t PointID ) const
+        [[nodiscard]] glm::dvec3 GetNormal( int32_t PointID ) const
         {
-            if ( PointSet->HasVertexNormals() )
+            if ( m_PointSet->HasVertexNormals() )
             {
-                const FVector3f N = PointSet->GetVertexNormal( PointID );
-                return { N.X, N.Y, N.Z };
+                const glm::vec3 N = m_PointSet->GetVertexNormal( PointID );
+                return { N.x, N.y, N.z };
             }
-            return FMeshNormals::ComputeVertexNormal( *PointSet, PointID );
+            return MeshNormals::ComputeVertexNormal( *m_PointSet, PointID );
         }
-        FFrame3d GetFrame( const FGraphNode& Node ) const
+        Frame3d GetFrame( const GraphNode& Node ) const
         {
-            return FFrame3d( GetPosition( Node.PointID ), Node.CachedNormal );
+            return Frame3d( GetPosition( Node.PointID ), Node.CachedNormal );
         }
         void ProcessQueueUntilTermination( double MaxDistance )
         {
-            while ( Queue.GetCount() > 0 )
+            while ( m_Queue.GetCount() > 0 )
             {
-                const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
-                MaxGraphDistance =
-                     TMathUtil<double>::Max( AllocatedNodes[NodeIndex].GraphDistance, MaxGraphDistance );
-                if ( MaxGraphDistance > MaxDistance )
+                const int32_t NodeIndex = GetNodeIndex( m_Queue.Dequeue(), false );
+                m_MaxGraphDistance =
+                     std::max<double>( m_AllocatedNodes[NodeIndex].GraphDistance, m_MaxGraphDistance );
+                if ( m_MaxGraphDistance > MaxDistance )
                     return;
-                if ( AllocatedNodes[NodeIndex].ParentPointID >= 0 )
+                if ( m_AllocatedNodes[NodeIndex].ParentPointID >= 0 )
                 {
-                    switch ( ParamMode )
+                    switch ( m_ParamMode )
                     {
-                        case ELocalParamTypes::ExponentialMap:
-                            UpdateUVExpmap( AllocatedNodes[NodeIndex] );
+                        case LocalParamTypes::ExponentialMap:
+                            UpdateUVExpmap( m_AllocatedNodes[NodeIndex] );
                             break;
-                        case ELocalParamTypes::ExponentialMapUpwindAvg:
-                            UpdateUVExpmapUpwind( AllocatedNodes[NodeIndex] );
+                        case LocalParamTypes::ExponentialMapUpwindAvg:
+                            UpdateUVExpmapUpwind( m_AllocatedNodes[NodeIndex] );
                             break;
-                        case ELocalParamTypes::PlanarProjection:
-                            AllocatedNodes[NodeIndex].UV =
-                                 ComputeLocalUV( SeedFrame, GetPosition( AllocatedNodes[NodeIndex].PointID ) );
+                        case LocalParamTypes::PlanarProjection:
+                            m_AllocatedNodes[NodeIndex].UV =
+                                 ComputeLocalUV( m_SeedFrame, GetPosition( m_AllocatedNodes[NodeIndex].PointID ) );
                             break;
                     }
                 }
-                AllocatedNodes[NodeIndex].bFrozen = true;
+                m_AllocatedNodes[NodeIndex].bFrozen = true;
                 UpdateNeighboursSparse( NodeIndex );
             }
         }
-        static FVector2d ComputeLocalUV( const FFrame3d& Frame, FVector3d Position )
+        static glm::dvec2 ComputeLocalUV( const Frame3d& Frame, glm::dvec3 Position )
         {
             Position -= Frame.Origin;
-            return { Position.Dot( Frame.X() ), Position.Dot( Frame.Y() ) };
+            return { glm::dot( Position, Frame.X() ), glm::dot( Position, Frame.Y() ) };
         }
         // the UV of Position from the neighbour's UV, in the neighbour's tangent frame rotated into the seed's
-        static FVector2d PropagateUV( const FVector3d& Position, const FVector2d& NbrUV, const FFrame3d& NbrFrame,
-                                      const FFrame3d& SeedFrameIn )
+        static glm::dvec2 PropagateUV( const glm::dvec3& Position, const glm::dvec2& NbrUV,
+                                       const Frame3d& NbrFrame, const Frame3d& SeedFrameIn )
         {
-            const FVector2d LocalUV = ComputeLocalUV( NbrFrame, Position );
-            FFrame3d        SeedToLocal( SeedFrameIn );
+            const glm::dvec2 LocalUV = ComputeLocalUV( NbrFrame, Position );
+            Frame3d          SeedToLocal( SeedFrameIn );
             SeedToLocal.AlignAxis( 2, NbrFrame.Z() );
-            const FVector3d vAlignedSeedX = SeedToLocal.X();
-            const FVector3d vLocalX       = NbrFrame.X();
-            const double    CosTheta      = vLocalX.Dot( vAlignedSeedX );
-            double          SinTheta      = std::sqrt( TMathUtil<double>::Max( 1.0 - CosTheta * CosTheta, 0.0 ) );
-            if ( vLocalX.Cross( vAlignedSeedX ).Dot( NbrFrame.Z() ) < 0 )
+            const glm::dvec3 vAlignedSeedX = SeedToLocal.X();
+            const glm::dvec3 vLocalX       = NbrFrame.X();
+            const double     CosTheta      = glm::dot( vLocalX, vAlignedSeedX );
+            double           SinTheta      = std::sqrt( std::max<double>( 1.0 - CosTheta * CosTheta, 0.0 ) );
+            if ( glm::dot( glm::cross( vLocalX, vAlignedSeedX ), NbrFrame.Z() ) < 0 )
                 SinTheta = -SinTheta;
             // UE FMatrix2d(Cos, Sin, -Sin, Cos) * LocalUV
-            return NbrUV + FVector2d( CosTheta * LocalUV.X + SinTheta * LocalUV.Y,
-                                      -SinTheta * LocalUV.X + CosTheta * LocalUV.Y );
+            return NbrUV + glm::dvec2( CosTheta * LocalUV.x + SinTheta * LocalUV.y,
+                                       -SinTheta * LocalUV.x + CosTheta * LocalUV.y );
         }
-        void UpdateUVExpmap( FGraphNode& Node )
+        void UpdateUVExpmap( GraphNode& Node )
         {
-            const FGraphNode& Parent = AllocatedNodes[*IDToNodeIndexMap.Find( Node.ParentPointID )];
-            Node.UV = PropagateUV( GetPosition( Node.PointID ), Parent.UV, GetFrame( Parent ), SeedFrame );
+            const GraphNode& Parent = m_AllocatedNodes[m_IDToNodeIndexMap.at( Node.ParentPointID )];
+            Node.UV = PropagateUV( GetPosition( Node.PointID ), Parent.UV, GetFrame( Parent ), m_SeedFrame );
         }
-        void UpdateUVExpmapUpwind( FGraphNode& Node )
+        void UpdateUVExpmapUpwind( GraphNode& Node )
         {
-            const FVector3d NodePos   = GetPosition( Node.PointID );
-            FVector2d       AverageUV = FVector2d::Zero();
+            const glm::dvec3 NodePos   = GetPosition( Node.PointID );
+            glm::dvec2       AverageUV = glm::dvec2( 0 );
             double          WeightSum = 0;
-            for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( Node.PointID ) )
+            for ( const int32_t NbrPointID : m_PointSet->VtxVerticesItr( Node.PointID ) )
             {
-                const int32_t* Found = IDToNodeIndexMap.Find( NbrPointID );
-                if ( Found == nullptr || !AllocatedNodes[*Found].bFrozen )
+                const int32_t* Found = FindValue( m_IDToNodeIndexMap, NbrPointID );
+                if ( Found == nullptr || !m_AllocatedNodes[*Found].bFrozen )
                     continue;
-                const FFrame3d  NbrFrame = GetFrame( AllocatedNodes[*Found] );
-                const FVector2d NbrUV    = PropagateUV( NodePos, AllocatedNodes[*Found].UV, NbrFrame, SeedFrame );
-                const double    Weight =
-                     1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + TMathUtil<double>::ZeroTolerance );
+                const Frame3d    NbrFrame = GetFrame( m_AllocatedNodes[*Found] );
+                const glm::dvec2 NbrUV =
+                     PropagateUV( NodePos, m_AllocatedNodes[*Found].UV, NbrFrame, m_SeedFrame );
+                const double     Weight =
+                     1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + ZeroTolerance<double> );
                 AverageUV = AverageUV + NbrUV * Weight;
                 WeightSum += Weight;
             }
@@ -167,40 +169,41 @@ namespace Desert::Geometry
         }
         int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
-            if ( const int32_t* Found = IDToNodeIndexMap.Find( PointSetID ) )
+            if ( const int32_t* Found = FindValue( m_IDToNodeIndexMap, PointSetID ) )
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            const int32_t NewIndex = AllocatedNodes.Add(
-                 FGraphNode{ PointSetID, -1, 0.0, FVector2d::Zero(), false, GetNormal( PointSetID ) } );
-            IDToNodeIndexMap.Add( PointSetID, NewIndex );
+            m_AllocatedNodes.push_back(
+                 GraphNode{ PointSetID, -1, 0.0, glm::dvec2( 0 ), false, GetNormal( PointSetID ) } );
+            const int32_t NewIndex = static_cast<int32_t>( m_AllocatedNodes.size() ) - 1;
+            m_IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
             return NewIndex;
         }
         void UpdateNeighboursSparse( int32_t ParentIndex )
         {
-            const int32_t   ParentID   = AllocatedNodes[ParentIndex].PointID;
-            const double    ParentDist = AllocatedNodes[ParentIndex].GraphDistance;
-            const FVector3d ParentPos  = GetPosition( ParentID );
-            for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
+            const int32_t    ParentID   = m_AllocatedNodes[ParentIndex].PointID;
+            const double     ParentDist = m_AllocatedNodes[ParentIndex].GraphDistance;
+            const glm::dvec3 ParentPos  = GetPosition( ParentID );
+            for ( const int32_t NbrPointID : m_PointSet->VtxVerticesItr( ParentID ) )
             {
-                FGraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
+                GraphNode& Nbr = m_AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )
                     continue;
                 const double NbrDist = ParentDist + Distance( ParentPos, GetPosition( NbrPointID ) );
-                if ( Queue.Contains( NbrPointID ) )
+                if ( m_Queue.Contains( NbrPointID ) )
                 {
                     if ( NbrDist < Nbr.GraphDistance )
                     {
                         Nbr.ParentPointID = ParentID;
                         Nbr.GraphDistance = NbrDist;
-                        Queue.Update( NbrPointID, static_cast<float>( NbrDist ) );
+                        m_Queue.Update( NbrPointID, static_cast<float>( NbrDist ) );
                     }
                 }
                 else
                 {
                     Nbr.ParentPointID = ParentID;
                     Nbr.GraphDistance = NbrDist;
-                    Queue.Insert( NbrPointID, static_cast<float>( NbrDist ) );
+                    m_Queue.Insert( NbrPointID, static_cast<float>( NbrDist ) );
                 }
             }
         }

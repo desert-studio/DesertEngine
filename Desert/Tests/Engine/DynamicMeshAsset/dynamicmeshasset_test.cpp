@@ -1,6 +1,6 @@
 // FDYNAMICMESH3 AS A .stmesh AND BACK (P7).
 //
-// The reference is the EditMesh pair (EditMeshAsset.hpp). The FDynamicMesh3 under test is NOT built from the
+// The reference is the EditMesh pair (EditMeshAsset.hpp). The DynamicMesh3 under test is NOT built from the
 // same render arrays the EditMesh path writes (that would compare a function with itself): it is read from
 // the EditMesh's scene block through the P6 reader, the independent road a scene mesh takes into the new core.
 // Meshes: the six generator shapes (with polygroups and two materials) and every tracked scene mesh.
@@ -125,11 +125,11 @@ namespace
     }
 
     // The new core's mesh, reached through the scene block (P6), not through the render arrays.
-    FDynamicMesh3 NewCore( const Case& c )
+    DynamicMesh3 NewCore( const Case& c )
     {
         auto mesh = DynamicMeshFromSerialized( ToSerialized( c.Mesh ), c.Name );
         EXPECT_TRUE( mesh.IsSuccess() ) << c.Name << ": " << ( mesh.IsSuccess() ? "" : mesh.GetError() );
-        return mesh.IsSuccess() ? mesh.ExtractValue() : FDynamicMesh3{};
+        return mesh.IsSuccess() ? mesh.ExtractValue() : DynamicMesh3{};
     }
 
     std::string Bytes( const Common::ResultStr<Ser::MeshAssetData>& data, const std::string& name )
@@ -215,7 +215,7 @@ namespace
         return data.IsSuccess() ? data.ExtractValue() : Ser::MeshAssetData{};
     }
 
-    std::string RefusalOf( const Common::ResultStr<FDynamicMesh3>& r )
+    std::string RefusalOf( const Common::ResultStr<DynamicMesh3>& r )
     {
         EXPECT_FALSE( r.IsSuccess() );
         return r.IsSuccess() ? std::string{} : r.GetError();
@@ -291,7 +291,7 @@ TEST( DynamicMeshAsset, PolygroupsAndMaterialsSurviveTheFile )
 {
     for ( const Case& c : Cases() )
     {
-        const FDynamicMesh3 mesh = NewCore( c );
+        const DynamicMesh3  mesh = NewCore( c );
         auto                data = DynamicMeshToMeshAssetData( mesh, kSlots );
         ASSERT_TRUE( data.IsSuccess() ) << c.Name << ": " << data.GetError();
         const Ser::MeshAssetData file = Decoded( Ser::EncodeMeshBinary( data.GetValue() ) );
@@ -301,7 +301,7 @@ TEST( DynamicMeshAsset, PolygroupsAndMaterialsSurviveTheFile )
 
         auto read = DynamicMeshFromMeshAssetData( file );
         ASSERT_TRUE( read.IsSuccess() ) << c.Name << ": " << read.GetError();
-        const FDynamicMesh3& back = read.GetValue();
+        const DynamicMesh3& back = read.GetValue();
         ASSERT_EQ( back.TriangleCount(), mesh.TriangleCount() ) << c.Name;
         ASSERT_EQ( back.VertexCount(), mesh.VertexCount() ) << c.Name << ": the weld did not close the shell";
 
@@ -350,22 +350,22 @@ TEST( DynamicMeshAsset, AFileWithoutGroupsReadsWithEveryFaceInGroupZero )
 
 TEST( DynamicMeshAsset, WhatTheFileCannotHoldIsRefusedByName )
 {
-    const FDynamicMesh3 base = NewCore( Cases().front() );
+    const DynamicMesh3 base = NewCore( Cases().front() );
 
-    FDynamicMesh3 colours = base;
+    DynamicMesh3 colours = base;
     colours.Attributes()->EnablePrimaryColors();
     EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( colours, kSlots ) ).find( "colour" ), std::string::npos );
 
-    FDynamicMesh3 uvs = base;
+    DynamicMesh3 uvs = base;
     uvs.Attributes()->SetNumUVLayers( 2 );
     EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( uvs, kSlots ) ).find( "2 UV layers" ), std::string::npos );
 
-    FDynamicMesh3 layers = base;
+    DynamicMesh3 layers = base;
     layers.Attributes()->SetNumPolygroupLayers( 1 );
     EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( layers, kSlots ) ).find( "polygroup layer" ),
                std::string::npos );
 
-    EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( FDynamicMesh3{}, kSlots ) ).find( "no triangle" ),
+    EXPECT_NE( RefusalOf( DynamicMeshToMeshAssetData( DynamicMesh3{}, kSlots ) ).find( "no triangle" ),
                std::string::npos );
 
     // the same meshes the EditMesh reader refuses

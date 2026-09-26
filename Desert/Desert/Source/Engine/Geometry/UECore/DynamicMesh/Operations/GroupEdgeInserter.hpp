@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/
 // GroupEdgeInserter.h:23-160, adapted: namespace Desert::Geometry, UE Core via UECore.hpp, no FProgressCancel
 // (nothing here runs on a cancellable worker). Only the PlaneCut insertion mode is ported, so EInsertionMode and
-// the Mode fields are not offered: Retriangulate needs ear clipping (PolygonTriangulation), FEdgeLoop::Reverse and
+// the Mode fields are not offered: Retriangulate needs ear clipping (PolygonTriangulation), EdgeLoop::Reverse and
 // SimpleHoleFiller::UpdateAttributes, and it drops the UVs (UE's own comment), which ToRenderMesh would refuse.
 // bSimplifyAlongPath is not offered either: it needs FLocalPlanarSimplify (582 lines), which is not ported.
 #pragma once
@@ -13,37 +13,37 @@
 
 namespace Desert::Geometry
 {
-    /** Optional outputs of FGroupEdgeInserter::InsertEdgeLoops() and InsertGroupEdge(). */
-    struct FGroupEdgeInserterOptionalOutputParams
+    /** Optional outputs of GroupEdgeInserter::InsertEdgeLoops() and InsertGroupEdge(). */
+    struct GroupEdgeInserterOptionalOutputParams
     {
         /** Edge IDs of the edges composing the newly inserted group edges. */
-        TSet<int32_t>* NewEidsOut = nullptr;
+        std::unordered_set<int32_t>* NewEidsOut = nullptr;
 
         /**
          * Any triangle IDs whose triangles were deleted or changed by the operation (but not newly
          * created tids). Useful for setting up undo.
          */
-        TSet<int32_t>* ChangedTidsOut = nullptr;
+        std::unordered_set<int32_t>* ChangedTidsOut = nullptr;
 
         /**
          * In loop insertion, the group edge IDs in the original topology that surround non-quad-like
          * groups that stopped the loop.
          */
-        TSet<int32_t>* ProblemGroupEdgeIDsOut = nullptr;
+        std::unordered_set<int32_t>* ProblemGroupEdgeIDsOut = nullptr;
     };
 
     /**
      * Used to insert group edges and group edge loops, by cutting the triangles of a group with a plane.
      */
-    class FGroupEdgeInserter
+    class GroupEdgeInserter
     {
     public:
         /** Parameters for an InsertEdgeLoops() call. */
-        struct FEdgeLoopInsertionParams
+        struct EdgeLoopInsertionParams
         {
             /** Both of these get updated in the operation */
-            FDynamicMesh3*  Mesh     = nullptr;
-            FGroupTopology* Topology = nullptr;
+            DynamicMesh3*  Mesh     = nullptr;
+            GroupTopology* Topology = nullptr;
 
             /** Edge loops will be inserted perpendicular to this group edge */
             int32_t GroupEdgeID = IndexConstants::InvalidID;
@@ -52,7 +52,7 @@ namespace Desert::Geometry
              * Inputs can be proportions in the range (0,1), or absolute lengths.
              * As the name suggests, they must already be sorted.
              */
-            const TArray<double>* SortedInputLengths    = nullptr;
+            const std::vector<double>* SortedInputLengths    = nullptr;
             bool                  bInputsAreProportions = true;
 
             /**
@@ -71,13 +71,13 @@ namespace Desert::Geometry
         // Defined at namespace scope: a nested struct with default member initializers cannot be the type of a
         // default argument inside its enclosing class (it is not complete there), which UE works around with an
         // empty user-provided constructor.
-        using FOptionalOutputParams = FGroupEdgeInserterOptionalOutputParams;
+        using OptionalOutputParams = GroupEdgeInserterOptionalOutputParams;
 
-        static bool InsertEdgeLoops( const FEdgeLoopInsertionParams& Params,
-                                     FOptionalOutputParams           OptionalOut = FOptionalOutputParams() );
+        static bool InsertEdgeLoops( const EdgeLoopInsertionParams& Params,
+                                     OptionalOutputParams           OptionalOut = OptionalOutputParams() );
 
         /** Point along a group edge that is used as a start/endpoint for an inserted group edge. */
-        struct FGroupEdgeSplitPoint
+        struct GroupEdgeSplitPoint
         {
             /** Either vertex ID or edge ID of the point. */
             int32_t ElementID = IndexConstants::InvalidID;
@@ -89,7 +89,7 @@ namespace Desert::Geometry
              * Tangent that is used to help position the cutting plane. For edges, it is just an edge vector, but
              * for vertices, it is the average of the adjacent edge vectors of the group boundary.
              */
-            FVector3d Tangent = FVector3d::Zero();
+            glm::dvec3 Tangent = glm::dvec3( 0 );
 
             /**
              * Only relevant for edges. The range (0,1) parameter that determines where the edge
@@ -99,17 +99,17 @@ namespace Desert::Geometry
         };
 
         /** Parameters for an InsertGroupEdge() call */
-        struct FGroupEdgeInsertionParams
+        struct GroupEdgeInsertionParams
         {
             /** These are both modified in the operation */
-            FDynamicMesh3*  Mesh     = nullptr;
-            FGroupTopology* Topology = nullptr;
+            DynamicMesh3*  Mesh     = nullptr;
+            GroupTopology* Topology = nullptr;
 
             /** Group across which the cut is inserted. */
             int32_t GroupID = IndexConstants::InvalidID;
 
-            FGroupEdgeSplitPoint StartPoint;
-            FGroupEdgeSplitPoint EndPoint;
+            GroupEdgeSplitPoint StartPoint;
+            GroupEdgeSplitPoint EndPoint;
 
             /**
              * When inserting edges, this is the distance that a desired new point can be to
@@ -118,7 +118,7 @@ namespace Desert::Geometry
             double VertexTolerance = 1e-4 * 10; // UE: KINDA_SMALL_NUMBER * 10
         };
 
-        static bool InsertGroupEdge( FGroupEdgeInsertionParams& Params,
-                                     FOptionalOutputParams      OptionalOut = FOptionalOutputParams() );
+        static bool InsertGroupEdge( GroupEdgeInsertionParams& Params,
+                                     OptionalOutputParams      OptionalOut = OptionalOutputParams() );
     };
 } // namespace Desert::Geometry

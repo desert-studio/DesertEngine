@@ -28,7 +28,7 @@ namespace Desert::Geometry
     // Refused on an empty mesh, a colour overlay, more than one UV layer or a polygroup layer; otherwise
     // only where ToRenderMesh refuses (no normal overlay, an unset element in a carried overlay).
     [[nodiscard]] Common::ResultStr<Assets::Serialization::MeshAssetData>
-    DynamicMeshToMeshAssetData( const FDynamicMesh3&                        mesh,
+    DynamicMeshToMeshAssetData( const DynamicMesh3&                         mesh,
                                 std::span<const Common::Content::AssetGuid> slotMaterials );
 
     // The asset's triangles welded back (DynamicMeshFromRenderMesh) with triangle groups from the file (all 0
@@ -36,6 +36,6 @@ namespace Desert::Geometry
     // skinned asset and on faces that do not weld back one-to-one (degenerate, duplicate, or a third triangle
     // on an edge): the per-face polygroups are addressed by face order, and the EditMesh reader refuses the
     // same files, so both cores open exactly the same set of assets.
-    [[nodiscard]] Common::ResultStr<FDynamicMesh3>
+    [[nodiscard]] Common::ResultStr<DynamicMesh3>
     DynamicMeshFromMeshAssetData( const Assets::Serialization::MeshAssetData& data );
 } // namespace Desert::Geometry
