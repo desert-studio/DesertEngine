@@ -80,37 +80,32 @@ namespace Desert::Assets
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager, std::string_view name )
+    Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager, std::string_view name,
+                                                         const AssetRefSite& site )
     {
         for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
         {
             const Common::Filepath& file = shader->GetMetadata().Filepath;
-            if ( file.stem().string() != name )
-                continue;
-            const Common::Content::AssetGuid guid = ReadShaderHeaderGuid( file );
-            if ( guid.IsNull() )
-                return Common::MakeError<AssetGuidRef>(
-                     std::format( "shader '{}' ({}) states no header GUID to name it by", name, file.string() ) );
-            return Common::MakeSuccess(
-                 AssetGuidRef{ Common::Content::AssetGuidToText( guid ),
-                               std::string( Common::AssetHandle::StableKeyForPath( file ) ) } );
+            if ( file.stem().string() == name )
+                return WriteAssetGuidRef( ReadShaderHeaderGuid( file ), file, site );
         }
-        return Common::MakeError<AssetGuidRef>( std::format( "no loaded shader is named '{}'", name ) );
+        return Common::MakeError<AssetGuidRef>(
+             std::format( "{} on {}: no loaded shader is named '{}'", site.Field, site.Context, name ) );
     }
 
-    Common::ResultStr<std::string> FindShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref )
+    Common::ResultStr<std::string> FindShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref,
+                                                        const AssetRefSite& site )
     {
-        // BY GUID, the shader's identity (the constructor adopts HandleForGuid of its header GUID): a shader
-        // moved or renamed keeps its GUID, so `Path` is only named in the error.
-        const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
-        if ( !guid || guid.GetValue().IsNull() )
-            return Common::MakeError<std::string>(
-                 std::format( "shader reference '{}' ('{}') states no GUID", ref.Guid, ref.Path ) );
-        const auto shader = manager.FindByHandle<ShaderAsset>(
-             Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
-        if ( shader == nullptr )
-            return Common::MakeError<std::string>(
-                 std::format( "shader {} ('{}') is not a shader this project has loaded", ref.Guid, ref.Path ) );
-        return Common::MakeSuccess( shader->GetMetadata().Filepath.stem().string() );
+        // BY GUID, the shader's identity (the constructor adopts HandleForGuid of its header GUID).
+        return ResolveAssetGuidRef( ref,
+                                    [&manager]( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
+                                    {
+                                        const auto shader = manager.FindByHandle<ShaderAsset>( Common::AssetHandle(
+                                             static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+                                        if ( shader == nullptr )
+                                            return std::nullopt;
+                                        return shader->GetMetadata().Filepath.stem().string();
+                                    },
+                                    site );
     }
 } // namespace Desert::Assets

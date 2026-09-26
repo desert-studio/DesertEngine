@@ -18,6 +18,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetRefSerialization.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -139,20 +140,16 @@ namespace Desert::Core::Serialize
 
         // The scene a UIRenderTexture names, as SCNE 31 states it: the `.desce` header GUID (read through the
         // VFS first, like every identity) and the file's stable key for the reader.
-        Common::ResultStr<Assets::AssetGuidRef> SceneRefForPath( const std::string& path )
+        Common::ResultStr<Assets::AssetGuidRef> SceneRefForPath( const std::string&          path,
+                                                                 const Assets::AssetRefSite& site )
         {
-            const Common::Content::AssetGuid guid = Assets::ReadTextHeaderGuid( path );
-            if ( guid.IsNull() )
-                return Common::MakeError<Assets::AssetGuidRef>( std::format(
-                     "scene '{}' states no header GUID to name it by (missing, or no header)", path ) );
-            return Common::MakeSuccess(
-                 Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid ),
-                                       Common::AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) } );
+            return Assets::WriteAssetGuidRef( Assets::ReadTextHeaderGuid( path ), std::filesystem::path( path ),
+                                              site );
         }
 
         // BY GUID through the content registry, which indexes scenes by their header GUID (AF6f): a scene
         // moved or renamed keeps its GUID, so `Path` is only named in the error and never looked up.
-        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic& block )
+        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic& block, const Assets::AssetRefSite& site )
         {
             const auto fields = block.to_object();
             const auto text   = [&]( const char* key ) -> std::string
@@ -162,18 +159,22 @@ namespace Desert::Core::Serialize
                 const auto value = fields.value().get( key );
                 return value.has_value() ? value.value().to_string().value_or( "" ) : std::string();
             };
-            const std::string guidText = text( "Guid" );
-            const std::string pathText = text( "Path" );
-            const auto        guid     = Common::Content::AssetGuidFromText( guidText );
-            if ( !guid || guid.GetValue().IsNull() )
-                return Common::MakeError<std::string>(
-                     std::format( "scene reference '{}' ('{}') states no GUID", guidText, pathText ) );
-            const Common::Utils::AssetRegistryEntry* row =
-                 Assets::ContentRegistry::Get().FindByGuidReference( guid.GetValue(), {} );
-            if ( row == nullptr || row->Kind != "Scene" )
-                return Common::MakeError<std::string>( std::format(
-                     "scene {} ('{}') is not a scene this project's registry knows", guidText, pathText ) );
-            return Common::MakeSuccess( Common::AssetHandle::PathForStableKey( row->Key ).generic_string() );
+            return Assets::ResolveAssetGuidRef(
+                 Assets::AssetGuidRef{ text( "Guid" ), text( "Path" ) },
+                 []( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
+                 {
+                     const Common::Utils::AssetRegistryEntry* row =
+                          Assets::ContentRegistry::Get().FindByGuidReference( guid, {} );
+                     if ( row == nullptr || row->Kind != "Scene" )
+                         return std::nullopt;
+                     return Common::AssetHandle::PathForStableKey( row->Key ).generic_string();
+                 },
+                 site );
+        }
+
+        std::string EntityContext( ECS::Entity entity )
+        {
+            return std::format( "entity '{}'", entity.GetComponent<ECS::TagComponent>().Tag );
         }
 
         // A marker component (no data, e.g. FolderComponent): presence IS the state. Serializes as an empty
@@ -1254,11 +1255,12 @@ namespace Desert::Core::Serialize
                 if ( !mc.ShaderName.empty() )
                 {
                     // BY GUID (SCNE 31): the runtime binds by name, the file names the shader's identity.
-                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName ) )
+                    const std::string context = EntityContext( entity );
+                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName,
+                                                                 { "shader", "Material.Shader", context } ) )
                         ser.Shader = ref.ExtractValue();
                     else
-                        LOG_ERROR( "[Scene] Material on '{}': {} - the shader slot is written EMPTY",
-                                   entity.GetComponent<ECS::TagComponent>().Tag, ref.GetError() );
+                        LOG_ERROR( "[Scene] {} - the shader slot is written EMPTY", ref.GetError() );
                 }
 
                 if ( !mc.Params.empty() )
@@ -1296,12 +1298,13 @@ namespace Desert::Core::Serialize
                 auto& mc = entity.AddComponent<ECS::MaterialComponent>();
                 if ( data.Shader.has_value() )
                 {
-                    if ( auto name = Assets::FindShaderNameByRef( assetManager, *data.Shader ) )
+                    const std::string context = EntityContext( entity );
+                    if ( auto name = Assets::FindShaderNameByRef( assetManager, *data.Shader,
+                                                                  { "shader", "Material.Shader", context } ) )
                         mc.ShaderName = name.ExtractValue();
                     else
-                        LOG_ERROR(
-                             "[Scene] Material on '{}': {} - the entity draws with no shader until it names one",
-                             entity.GetComponent<ECS::TagComponent>().Tag, name.GetError() );
+                        LOG_ERROR( "[Scene] {} - the entity draws with no shader until it names one",
+                                   name.GetError() );
                 }
 
                 if ( data.Params.has_value() )
@@ -1609,7 +1612,8 @@ namespace Desert::Core::Serialize
                 rfl::Generic::Object out;
                 if ( !path.empty() )
                 {
-                    if ( auto ref = SceneRefForPath( path ) )
+                    const std::string context = EntityContext( entity );
+                    if ( auto ref = SceneRefForPath( path, { "scene", "UIRenderTexture.Scene", context } ) )
                     {
                         rfl::Generic::Object scene;
                         scene["Guid"] = ref.GetValue().Guid;
@@ -1617,8 +1621,7 @@ namespace Desert::Core::Serialize
                         out["Scene"]  = rfl::Generic( std::move( scene ) );
                     }
                     else
-                        LOG_ERROR( "[Scene] UIRenderTexture on '{}': {} - the scene slot is written EMPTY",
-                                   entity.GetComponent<ECS::TagComponent>().Tag, ref.GetError() );
+                        LOG_ERROR( "[Scene] {} - the scene slot is written EMPTY", ref.GetError() );
                 }
                 if ( block.has_value() )
                     for ( const auto& [key, value] : block.value() )
@@ -1645,12 +1648,12 @@ namespace Desert::Core::Serialize
                 const auto scene = block.value().get( "Scene" );
                 if ( !scene.has_value() )
                     return; // no scene, which the element draws as the magenta error fill
-                const auto path = ScenePathForRef( scene.value() );
+                const std::string context = EntityContext( entity );
+                const auto path = ScenePathForRef( scene.value(), { "scene", "UIRenderTexture.Scene", context } );
                 if ( path )
                     data.ScenePath = path.GetValue();
                 else
-                    LOG_ERROR( "[Scene] UIRenderTexture on '{}': {} - the element draws the magenta error fill",
-                               entity.GetComponent<ECS::TagComponent>().Tag, path.GetError() );
+                    LOG_ERROR( "[Scene] {} - the element draws the magenta error fill", path.GetError() );
             };
             Register( std::move( s ) );
         }

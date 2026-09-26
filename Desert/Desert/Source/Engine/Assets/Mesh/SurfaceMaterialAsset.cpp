@@ -84,11 +84,11 @@ namespace Desert::Assets
         m_ShaderName.clear();
         if ( manager == nullptr )
             return;
-        const auto name = FindShaderNameByRef( *manager, *m_Data.Shader );
+        const std::string context = std::format( "material '{}'", m_Metadata.Filepath.generic_string() );
+        const auto        name    = FindShaderNameByRef( *manager, *m_Data.Shader, { "shader", "Shader", context } );
         if ( !name )
         {
-            LOG_ERROR( "Material '{}': {}; the material draws nothing until it names one",
-                       m_Metadata.Filepath.string(), name.GetError() );
+            LOG_ERROR( "{}; the material draws nothing until it names one", name.GetError() );
             return;
         }
         m_ShaderName = name.GetValue();
@@ -102,7 +102,7 @@ namespace Desert::Assets
             data.SetShader( {}, {} );
             return BOOLSUCCESS;
         }
-        const auto ref = FindShaderRefByName( manager, name );
+        const auto ref = FindShaderRefByName( manager, name, { "shader", "Shader", "the edited material" } );
         if ( !ref )
             return Common::MakeError( ref.GetError() );
         const auto guid = Common::Content::AssetGuidFromText( ref.GetValue().Guid );
