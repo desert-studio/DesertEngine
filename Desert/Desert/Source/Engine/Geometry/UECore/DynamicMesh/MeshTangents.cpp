@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/MeshTangents.cpp:186-235
 // (ComputeFaceTangent), 295-345 (CopyToOverlays, PlaneProjectionNormalized), 356-391
 // (ComputeSeparatePerTriangleTangents), adapted: UE Core via UECore.hpp, namespace Desert::Geometry, ParallelFor
-// is the UECore.hpp serial shim, FVector2f -> FVector2d by components (UECore's TVector2 has no converting
+// is a serial for loop, FVector2f -> FVector2d by components (UECore's TVector2 has no converting
 // constructor), instantiated for double only.
 #include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
 
@@ -113,43 +113,40 @@ namespace Desert::Geometry
         InitializeTriVertexTangents( false );
 
         // compute per-triangle tangent and bitangent
-        ParallelFor(
-             MaxTriangleID,
-             [&]( int32_t TriangleID )
-             {
-                 if ( Mesh->IsTriangle( TriangleID ) == false || UVOverlay->IsSetTriangle( TriangleID ) == false )
-                 {
-                     return;
-                 }
+        for ( int32_t TriangleID = 0; TriangleID < MaxTriangleID; ++TriangleID )
+        {
+            if ( Mesh->IsTriangle( TriangleID ) == false || UVOverlay->IsSetTriangle( TriangleID ) == false )
+            {
+                continue;
+            }
 
-                 glm::dvec3 TriVertices[3]{};
-                 Mesh->GetTriVertices( TriangleID, TriVertices[0], TriVertices[1], TriVertices[2] );
-                 glm::vec2 TriUVs[3]{};
-                 UVOverlay->GetTriElements( TriangleID, TriUVs[0], TriUVs[1], TriUVs[2] );
-                 glm::vec3 TriNormals[3]{};
-                 NormalOverlay->GetTriElements( TriangleID, TriNormals[0], TriNormals[1], TriNormals[2] );
+            glm::dvec3 TriVertices[3]{};
+            Mesh->GetTriVertices( TriangleID, TriVertices[0], TriVertices[1], TriVertices[2] );
+            glm::vec2 TriUVs[3]{};
+            UVOverlay->GetTriElements( TriangleID, TriUVs[0], TriUVs[1], TriUVs[2] );
+            glm::vec3 TriNormals[3]{};
+            NormalOverlay->GetTriElements( TriangleID, TriNormals[0], TriNormals[1], TriNormals[2] );
 
-                 glm::dvec3 Tangent{}, Bitangent{};
-                 glm::dvec2 Magnitudes{};
-                 double    OrientationSign;
-                 bool      bIsDegenerate;
-                 ComputeFaceTangent( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, OrientationSign,
-                                     bIsDegenerate );
+            glm::dvec3 Tangent{}, Bitangent{};
+            glm::dvec2 Magnitudes{};
+            double     OrientationSign;
+            bool       bIsDegenerate;
+            ComputeFaceTangent( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, OrientationSign,
+                                bIsDegenerate );
 
-                 for ( int32_t j = 0; j < 3; ++j )
-                 {
-                     const glm::dvec3 VtxNormal        = (glm::dvec3)TriNormals[j];
-                     const glm::dvec3 ProjectedTangent = PlaneProjectionNormalized( Tangent, VtxNormal );
+            for ( int32_t j = 0; j < 3; ++j )
+            {
+                const glm::dvec3 VtxNormal        = (glm::dvec3)TriNormals[j];
+                const glm::dvec3 ProjectedTangent = PlaneProjectionNormalized( Tangent, VtxNormal );
 
-                     const double BitangentSign =
-                          VectorUtil::BitangentSign( VtxNormal, ProjectedTangent, Bitangent );
-                     const glm::dvec3 ReconsBitangent =
-                          VectorUtil::Bitangent( VtxNormal, ProjectedTangent, BitangentSign );
+                const double BitangentSign = VectorUtil::BitangentSign( VtxNormal, ProjectedTangent, Bitangent );
+                const glm::dvec3 ReconsBitangent =
+                     VectorUtil::Bitangent( VtxNormal, ProjectedTangent, BitangentSign );
 
-                     SetPerTriangleTangent( TriangleID, j, Normalized( (glm::vec<3, RealType>)ProjectedTangent ),
-                                            Normalized( (glm::vec<3, RealType>)ReconsBitangent ) );
-                 }
-             } );
+                SetPerTriangleTangent( TriangleID, j, Normalized( (glm::vec<3, RealType>)ProjectedTangent ),
+                                       Normalized( (glm::vec<3, RealType>)ReconsBitangent ) );
+            }
+        }
     }
 
     template class MeshTangents<double>;

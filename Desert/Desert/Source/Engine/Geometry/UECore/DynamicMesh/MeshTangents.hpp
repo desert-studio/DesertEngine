@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: only the
 // per-triangle path (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
 // ComputeSeparatePerTriangleTangents, CopyToOverlays); the averaged / MikkT paths and FComputeTangentsOptions are
-// not ported (ParallelFor is the UECore.hpp serial shim, so bParallel has nothing to switch). UE Core via
+// not ported (ParallelFor is a serial for loop, so bParallel has nothing to switch). UE Core via
 // UECore.hpp, namespace Desert::Geometry, instantiated for double only.
 #pragma once
 

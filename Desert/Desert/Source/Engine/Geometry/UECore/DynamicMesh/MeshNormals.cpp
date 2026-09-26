@@ -1,10 +1,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/MeshNormals.cpp:1-767, adapted: UE
 // Core via UECore.hpp, namespace Desert::Geometry, check/ensure are UE_CHECK/UE_ENSURE, FMemory::Memzero is
-// std::memset, ParallelFor is the UECore.hpp serial shim. TriangleToVertexIDs (MeshIndexUtil.cpp:8-51) and
+// std::memset, ParallelFor is a serial for loop. TriangleToVertexIDs (MeshIndexUtil.cpp:8-51) and
 // TMeshQueries::GetVertexWeightsOnTriangle (MeshQueries.h:831-843) are ported below as file-local helpers.
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 
-#include <atomic>
 #include <cstring>
 #include <Common/Core/Core.hpp>
 
@@ -227,14 +226,13 @@ void MeshNormals::Compute_Triangle()
 {
     int NumTriangles = Mesh->MaxTriangleID();
     SetCount( NumTriangles, false );
-    ParallelFor( NumTriangles,
-                 [&]( int32_t Index )
-                 {
-                     if ( Mesh->IsTriangle( Index ) )
-                     {
-                         Normals[Index] = Mesh->GetTriNormal( Index );
-                     }
-                 } );
+    for ( int32_t Index = 0; Index < NumTriangles; ++Index )
+    {
+        if ( Mesh->IsTriangle( Index ) )
+        {
+            Normals[Index] = Mesh->GetTriNormal( Index );
+        }
+    }
 }
 
 void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
@@ -462,21 +460,20 @@ void MeshNormals::SmoothVertexNormals( DynamicMesh3& Mesh, int32_t SmoothingRoun
             SmoothedNormals.assign( NumV, glm::dvec3( 0 ) );
 
             // compute
-            ParallelFor( NumV,
-                         [&]( int32_t vid )
-                         {
-                             if ( Mesh.IsVertex( vid ) )
-                             {
-                                 glm::dvec3 SmoothedNormal = glm::dvec3( 0 );
-                                 Mesh.EnumerateVertexVertices(
-                                      vid, [&]( int32_t nbrvid )
-                                      { SmoothedNormal += (glm::dvec3)Mesh.GetVertexNormal( nbrvid ); } );
-                                 Normalize( SmoothedNormal );
-                                 SmoothedNormals[vid] = Lerp( (glm::dvec3)Mesh.GetVertexNormal( vid ),
-                                                              SmoothedNormal, SmoothingAlpha );
-                                 Normalize( SmoothedNormals[vid] );
-                             }
-                         } );
+            for ( int32_t vid = 0; vid < NumV; ++vid )
+            {
+                if ( Mesh.IsVertex( vid ) )
+                {
+                    glm::dvec3 SmoothedNormal = glm::dvec3( 0 );
+                    Mesh.EnumerateVertexVertices(
+                         vid,
+                         [&]( int32_t nbrvid ) { SmoothedNormal += (glm::dvec3)Mesh.GetVertexNormal( nbrvid ); } );
+                    Normalize( SmoothedNormal );
+                    SmoothedNormals[vid] =
+                         Lerp( (glm::dvec3)Mesh.GetVertexNormal( vid ), SmoothedNormal, SmoothingAlpha );
+                    Normalize( SmoothedNormals[vid] );
+                }
+            }
 
             // update
             for ( int32_t const vid : Mesh.VertexIndicesItr() )
@@ -497,39 +494,13 @@ void MeshNormals::QuickComputeVertexNormalsForTriangles( DynamicMesh3& Mesh, con
 
     std::vector<int32_t> VertexIDs;
     TriangleToVertexIDs( &Mesh, Triangles, VertexIDs );
-    ParallelFor( static_cast<int32_t>( VertexIDs.size() ),
-                 [&]( int32_t i )
-                 {
-                     int32_t const vid       = VertexIDs[i];
-                     glm::dvec3    VtxNormal = ComputeVertexNormal( Mesh, vid, bWeightByArea, bWeightByAngle );
-                     Mesh.SetVertexNormal( vid, (glm::vec3)VtxNormal );
-                 } );
-}
-
-namespace MeshNormalsLocals
-{
-    // This is a workaround for some platforms not supporting C++20's fetch_add for floats
-    // UE platforms should be on C++20, so hopefully we can remove this method in the future and just use
-    // .fetch_add directly
-    template <typename AtomicFloatType = std::atomic<float>>
-    static inline void AtomicFloatFetchAdd( AtomicFloatType& Value, float ToAdd )
+    for ( int32_t i = 0; i < static_cast<int32_t>( VertexIDs.size() ); ++i )
     {
-        constexpr bool bHasAtomicFloatFetchAdd =
-             requires( AtomicFloatType& AtomicFloat, float Param ) { AtomicFloat.fetch_add( Param ); };
-        if constexpr ( bHasAtomicFloatFetchAdd )
-        {
-            Value.fetch_add( ToAdd );
-        }
-        else
-        {
-            // Manual implementation of fetch_add
-            float Old = Value.load();
-            while ( !Value.compare_exchange_weak( Old, Old + ToAdd ) )
-            {
-            }
-        }
+        int32_t const vid       = VertexIDs[i];
+        glm::dvec3    VtxNormal = ComputeVertexNormal( Mesh, vid, bWeightByArea, bWeightByAngle );
+        Mesh.SetVertexNormal( vid, (glm::vec3)VtxNormal );
     }
-} // namespace MeshNormalsLocals
+}
 
 bool MeshNormals::QuickRecomputeOverlayNormals( DynamicMesh3& Mesh, bool bInvert, bool bWeightByArea,
                                                 bool bWeightByAngle, bool bParallelCompute )
@@ -548,70 +519,58 @@ bool MeshNormals::QuickRecomputeOverlayNormals( DynamicMesh3& Mesh, bool bInvert
     }
     else
     {
-        // for the parallel case we want to compute once per triangle normal, and accumulate results in element
-        // normals there is some overhead to using the atomic float buffer, so if not threading it is better to not
-        // do this
-        // Sized at construction: std::atomic is not movable, so vector::resize cannot grow it.
-        std::vector<std::atomic<float>> Normals( static_cast<size_t>( NormalOverlay->MaxElementID() ) * 3 );
+        // Compute once per triangle normal and accumulate the results in element normals. UE threads this path
+        // over atomic floats; the loops here run serially in triangle order, so plain floats accumulate the same
+        // sums UE's single-threaded run does.
+        std::vector<float> Normals( static_cast<size_t>( NormalOverlay->MaxElementID() ) * 3, 0.0f );
 
-        constexpr bool bForceSingleThreaded = false;
+        for ( int32_t TID = 0; TID < Mesh.MaxTriangleID(); ++TID )
+        {
+            if ( !Mesh.IsTriangle( TID ) )
+            {
+                continue;
+            }
 
-        ParallelFor(
-             Mesh.MaxTriangleID(),
-             [&Normals, &Mesh, bWeightByArea, bWeightByAngle, NormalOverlay]( int32_t TID )
-             {
-                 if ( !Mesh.IsTriangle( TID ) )
-                 {
-                     return;
-                 }
+            Index3i ElTri = NormalOverlay->GetTriangle( TID );
+            if ( ElTri.A == INDEX_NONE )
+            {
+                // triangle was not set / has no elements
+                continue;
+            }
 
-                 Index3i ElTri = NormalOverlay->GetTriangle( TID );
-                 if ( ElTri.A == INDEX_NONE )
-                 {
-                     // triangle was not set / has no elements
-                     return;
-                 }
+            glm::dvec3 V0{}, V1{}, V2{};
+            Mesh.GetTriVertices( TID, V0, V1, V2 );
 
-                 glm::dvec3 V0{}, V1{}, V2{};
-                 Mesh.GetTriVertices( TID, V0, V1, V2 );
+            glm::dvec3 TriNormal{};
+            double     TriArea;
+            TriNormal = VectorUtil::NormalArea( V0, V1, V2, TriArea );
+            glm::vec3 TriNormalWeights =
+                 (glm::vec3)GetVertexWeightsOnTriangleImpl( Mesh, TID, TriArea, bWeightByArea, bWeightByAngle );
+            glm::vec3 TriNormalf = (glm::vec3)TriNormal;
 
-                 glm::dvec3 TriNormal{};
-                 double    TriArea;
-                 TriNormal                  = VectorUtil::NormalArea( V0, V1, V2, TriArea );
-                 glm::vec3 TriNormalWeights = (glm::vec3)GetVertexWeightsOnTriangleImpl(
-                      Mesh, TID, TriArea, bWeightByArea, bWeightByAngle );
-                 glm::vec3 TriNormalf = (glm::vec3)TriNormal;
-
-                 for ( int32_t SubIdx = 0; SubIdx < 3; ++SubIdx )
-                 {
-                     int32_t const ElID           = ElTri[SubIdx];
-                     glm::vec3     AddNormal      = TriNormalf * TriNormalWeights[SubIdx];
-                     int32_t const NormalArrayIdx = ElID * 3;
-                     for ( int32_t VecIdx = 0; VecIdx < 3; ++VecIdx )
-                     {
-                         MeshNormalsLocals::AtomicFloatFetchAdd( Normals[NormalArrayIdx + VecIdx],
-                                                                 AddNormal[VecIdx] );
-                     }
-                 }
-             },
-             bForceSingleThreaded );
+            for ( int32_t SubIdx = 0; SubIdx < 3; ++SubIdx )
+            {
+                int32_t const ElID           = ElTri[SubIdx];
+                glm::vec3     AddNormal      = TriNormalf * TriNormalWeights[SubIdx];
+                int32_t const NormalArrayIdx = ElID * 3;
+                for ( int32_t VecIdx = 0; VecIdx < 3; ++VecIdx )
+                {
+                    Normals[NormalArrayIdx + VecIdx] += AddNormal[VecIdx];
+                }
+            }
+        }
 
         float Sign = ( bInvert ) ? -1.0f : 1.0f;
-        ParallelFor(
-             NormalOverlay->MaxElementID(),
-             [&Normals, Sign, NormalOverlay]( int32_t ElID )
-             {
-                 if ( NormalOverlay->IsElement( ElID ) )
-                 {
-                     int32_t const NormalsIdx = ElID * 3;
-                     // Note: Normalization intentionally computed in double precision for accuracy
-                     glm::dvec3 Normal( Normals[NormalsIdx].load(), Normals[NormalsIdx + 1].load(),
-                                        Normals[NormalsIdx + 2].load() );
-                     NormalOverlay->SetElement( ElID,
-                                                static_cast<glm::vec3>( double( Sign ) * Normalized( Normal ) ) );
-                 }
-             },
-             bForceSingleThreaded );
+        for ( int32_t ElID = 0; ElID < NormalOverlay->MaxElementID(); ++ElID )
+        {
+            if ( NormalOverlay->IsElement( ElID ) )
+            {
+                int32_t const NormalsIdx = ElID * 3;
+                // Note: Normalization intentionally computed in double precision for accuracy
+                glm::dvec3 Normal( Normals[NormalsIdx], Normals[NormalsIdx + 1], Normals[NormalsIdx + 2] );
+                NormalOverlay->SetElement( ElID, static_cast<glm::vec3>( double( Sign ) * Normalized( Normal ) ) );
+            }
+        }
     }
     return true;
 }
@@ -647,17 +606,16 @@ bool MeshNormals::RecomputeOverlayElementNormals( DynamicMesh3& Mesh, const std:
     if ( Mesh.HasAttributes() && Mesh.Attributes()->PrimaryNormals() != nullptr )
     {
         FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
-        ParallelFor( static_cast<int32_t>( ElementIDs.size() ),
-                     [&]( int32_t k )
-                     {
-                         int32_t const ElementID = ElementIDs[k];
-                         if ( NormalOverlay->IsElement( ElementID ) )
-                         {
-                             glm::dvec3 NewNormal = MeshNormals::ComputeOverlayNormal(
-                                  Mesh, NormalOverlay, ElementID, bWeightByArea, bWeightByAngle );
-                             NormalOverlay->SetElement( ElementID, (glm::vec3)NewNormal );
-                         }
-                     } );
+        for ( int32_t k = 0; k < static_cast<int32_t>( ElementIDs.size() ); ++k )
+        {
+            int32_t const ElementID = ElementIDs[k];
+            if ( NormalOverlay->IsElement( ElementID ) )
+            {
+                glm::dvec3 NewNormal = MeshNormals::ComputeOverlayNormal( Mesh, NormalOverlay, ElementID,
+                                                                          bWeightByArea, bWeightByAngle );
+                NormalOverlay->SetElement( ElementID, (glm::vec3)NewNormal );
+            }
+        }
         return true;
     }
     return false;

@@ -51,15 +51,4 @@ namespace Desert::Geometry
         return std::equal( A, A + Count, B );
     }
 
-    // UE's ParallelFor (Async/ParallelFor.h), serial: UECore links no task system. Every ported caller writes
-    // disjoint outputs per index or accumulates through std::atomic, so running the body in index order gives
-    // the same results UE's threaded run does (float accumulation order aside).
-    inline void ParallelFor( int32_t Num, const std::function<void( int32_t )>& Body,
-                             bool bForceSingleThread = false )
-    {
-        (void)bForceSingleThread;
-        for ( int32_t Index = 0; Index < Num; ++Index )
-            Body( Index );
-    }
-
 } // namespace Desert::Geometry
