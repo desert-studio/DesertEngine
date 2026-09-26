@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "PropertyEditorBuilder.hpp"
 #include "PropertyReset.hpp"
 #include "PropertyUndoPolicy.hpp"
@@ -378,6 +379,7 @@ namespace Desert::Editor
         void*       p     = FieldPtr( object, field );
         const auto& label = field.DisplayName();
         bool        changed = false;
+        MarkDetailsField( label );
 
         // Kept OUT of `changed` on purpose — see the reset button below. The widget switch assigns to
         // `changed` unconditionally, so anything set before it cannot survive; this is OR-ed back in at

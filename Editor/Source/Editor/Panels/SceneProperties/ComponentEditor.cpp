@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "ComponentEditor.hpp"
 
 #include <algorithm>
@@ -260,7 +261,13 @@ namespace Desert::Editor
         // per window, then mirror the user's toggles back. While searching everything opens instead, and
         // that forced state is deliberately NOT written back.
         const bool storedOpen = !EditorPreferences::IsComponentCollapsed( entry.Name );
-        ImGui::SetNextItemOpen( filtering ? true : storedOpen, filtering ? ImGuiCond_Always : ImGuiCond_Once );
+        // "Show field: <component>" opens the section as a click would (and so is remembered like one).
+        GetDetailsNavigation().NoteComponent( entry.Name );
+        const bool revealed = GetDetailsNavigation().TakeReveal( entry.Name );
+        if ( revealed )
+            ImGui::SetScrollHereY( 0.0f );
+        ImGui::SetNextItemOpen( filtering || revealed ? true : storedOpen,
+                                filtering || revealed ? ImGuiCond_Always : ImGuiCond_Once );
 
         // "###" fixes the id to the component name, so the icon and summary in front of it can change
         // without resetting the section.

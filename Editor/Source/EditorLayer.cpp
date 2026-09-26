@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Editor/Core/DetailsNavigation.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -4130,6 +4131,10 @@ namespace Desert::Editor
                                                        std::to_address( m_FileExplorerPanel ), path ) } );
             }
         }
+
+        // Details: scroll to a field / open an asset picker, as the last Details frame drew them (CTL2).
+        for ( PaletteCommand& command : DetailsPaletteCommands( GetDetailsNavigation() ) )
+            commands.push_back( std::move( command ) );
 
         // THE SIX STAGES OF THE SKY, each as a command that opens the Clouds window ON that stage.
         //

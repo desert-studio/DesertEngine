@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "SkyboxComponent.hpp"
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Core/DragPayloads.hpp>
@@ -113,7 +114,9 @@ namespace Desert::Editor
 
                   // --- HDR skybox picker (dropdown of loaded SkyboxAssets) ---
                   ImGui::TextUnformatted( "Skybox (HDR)" );
-                  if ( ImGui::Button( currentName.c_str(), ImVec2( ImGui::GetContentRegionAvail().x, 0 ) ) )
+                  const bool clicked =
+                       ImGui::Button( currentName.c_str(), ImVec2( ImGui::GetContentRegionAvail().x, 0 ) );
+                  if ( TakeDetailsPickerRequest( "Skybox" ) || clicked )
                       ImGui::OpenPopup( "skybox_selector" );
 
                   // --- drag-drop a skybox/texture file from the File Explorer ---

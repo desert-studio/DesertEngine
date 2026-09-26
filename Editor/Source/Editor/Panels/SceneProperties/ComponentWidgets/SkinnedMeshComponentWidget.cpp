@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "SkinnedMeshComponentWidget.hpp"
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 
@@ -171,7 +172,8 @@ namespace Desert::Editor
 
             DrawAssetBox( kBox, ICON_MDI_HUMAN, !emptySlot, kSkeletalMeshTint );
             ImGui::SameLine();
-            if ( Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot ) )
+            const bool clicked = Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot );
+            if ( TakeDetailsPickerRequest( "Skinned mesh" ) || clicked )
                 ImGui::OpenPopup( "skinned_mesh_selector" );
             DrawAssetFieldOpen( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.MeshHandle ) );
 

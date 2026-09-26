@@ -1,3 +1,4 @@
+#include <Editor/Core/DetailsNavigation.hpp>
 #include "MaterialsPanelComponent.hpp"
 #include <Common/Content/CanonicalText.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
@@ -756,8 +757,10 @@ namespace Desert::Editor
                 row.HasOwnSlot = hasOwnSlot;
                 row.IsInstance = isInstanceAsset;
 
-                std::string      dropped;
-                const SlotAction action = DrawSlotRow( row, dropped );
+                std::string dropped;
+                SlotAction  action = DrawSlotRow( row, dropped );
+                if ( TakeDetailsPickerRequest( "Material slot " + std::to_string( i ) ) )
+                    action = SlotAction::Pick;
 
                 // Drop an existing material asset on the row to assign it (creates the slot if needed).
                 if ( !dropped.empty() )
