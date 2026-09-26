@@ -186,7 +186,7 @@ TEST( ThumbnailSweep, AFreshPictureIsLeftAloneAndAStaleOneIsSweptAgain )
          << "a touched but unchanged material was queued: every launch after a checkout re-renders it.";
 
     // Edit the source: the picture is now of something else.
-    WriteFile( asset, "{ \"Roughness\": 0.9 }" );
+    WriteFile( asset, R"({ "Roughness": 0.9 })" );
 
     EXPECT_TRUE( Mentions( ScanForMissingThumbnails( project.Assets(), 64 ), "Fresh.demat" ) )
          << "a material edited after its picture was written was NOT queued. Every reader already refuses "

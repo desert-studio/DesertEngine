@@ -2,13 +2,14 @@
 // format exists for - the header is read from a PREFIX of the file, so a body that is not even JSON does not
 // stop it - and that the header is checked as strictly as the binary envelope's.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <gtest/gtest.h>
-#include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -43,12 +44,14 @@ namespace
         TextAssetHeaderSerialized header = MakeTextHeader( ContentKind::Material, guid, kKnown );
         header.Kind                      = kind;
         header.Versions["MATL"]          = version;
-        return rfl::json::write( header );
+        return Common::Json::Write( header );
     }
 
     std::string Document( const std::string& header, const std::string& body )
     {
-        return "{\n    \"Header\": " + header + ",\n" + body;
+        return "{\n"
+               R"(    "Header": )" +
+               header + ",\n" + body;
     }
 } // namespace
 
@@ -67,7 +70,7 @@ TEST( TextAssetHeader, ReadsTheHeaderOfAFileWhoseBodyIsNotJson )
 {
     const AssetGuid   guid = AssetGuid::Generate();
     const std::string text =
-         Document( HeaderText( guid ), "    \"Params\": [ {{{ this is not json, and never closes \"}" );
+         Document( HeaderText( guid ), R"(    "Params": [ {{{ this is not json, and never closes "})" );
     const fs::path file = Write( "BrokenBody.demat", text );
 
     const auto header = ReadAssetHeader( file, Context() );
@@ -79,18 +82,18 @@ TEST( TextAssetHeader, ReadsTheHeaderOfAFileWhoseBodyIsNotJson )
     EXPECT_TRUE( header.GetValue().Dependencies.empty() );
 
     // The full read of the same file refuses: the header was read without the body.
-    EXPECT_FALSE( rfl::json::read<rfl::Generic>( text ).has_value() );
+    EXPECT_FALSE( Common::Json::Parse( text ).IsSuccess() );
 }
 
 TEST( TextAssetHeader, StopsAtTheHeaderEvenWithBracesInsideStrings )
 {
-    std::istringstream in( "{ \"Header\": { \"Kind\": \"Mat}{erial\", \"Guid\": \"x\\\"}\" }, \"Body\": garbage" );
+    std::istringstream in( R"({ "Header": { "Kind": "Mat}{erial", "Guid": "x\"}" }, "Body": garbage)" );
     const auto         object = ReadTextHeaderObject( in );
     ASSERT_TRUE( object ) << object.GetError();
-    EXPECT_EQ( object.GetValue(), "{ \"Kind\": \"Mat}{erial\", \"Guid\": \"x\\\"}\" }" );
+    EXPECT_EQ( object.GetValue(), R"({ "Kind": "Mat}{erial", "Guid": "x\"}" })" );
     std::string rest;
     std::getline( in, rest );
-    EXPECT_EQ( rest, ", \"Body\": garbage" ) << "the reader went past the header's closing brace";
+    EXPECT_EQ( rest, R"(, "Body": garbage)" ) << "the reader went past the header's closing brace";
 }
 
 TEST( TextAssetHeader, GuidTextRoundTripsAndRefusesMalformedText )
@@ -117,7 +120,11 @@ TEST( TextAssetHeader, RefusesWhatTheBinaryEnvelopeRefuses )
 {
     const AssetGuid guid = AssetGuid::Generate();
     const auto      read = [&]( const std::string& name, const std::string& header )
-    { return ReadAssetHeader( Write( name, Document( header, "\"A\": 1\n}\n" ) ), Context() ); };
+    {
+        return ReadAssetHeader( Write( name, Document( header, R"("A": 1)"
+                                                               "\n}\n" ) ),
+                                Context() );
+    };
 
     EXPECT_FALSE( read( "Newer.demat", HeaderText( guid, 2 ) ) );
     EXPECT_FALSE( read( "Kind.demat", HeaderText( guid, 1, "NotAKind" ) ) );
@@ -125,21 +132,26 @@ TEST( TextAssetHeader, RefusesWhatTheBinaryEnvelopeRefuses )
 
     TextAssetHeaderSerialized unknown = MakeTextHeader( ContentKind::Material, guid, kKnown );
     unknown.Versions["ZZZZ"]          = 1;
-    EXPECT_FALSE( read( "Unknown.demat", rfl::json::write( unknown ) ) );
+    EXPECT_FALSE( read( "Unknown.demat", Common::Json::Write( unknown ) ) );
 
     TextAssetHeaderSerialized dependency = MakeTextHeader( ContentKind::Material, guid, kKnown );
     dependency.Dependencies.push_back( "not a guid" );
-    EXPECT_FALSE( read( "Dependency.demat", rfl::json::write( dependency ) ) );
+    EXPECT_FALSE( read( "Dependency.demat", Common::Json::Write( dependency ) ) );
 }
 
 TEST( TextAssetHeader, AFileWhoseFirstMemberIsNotTheHeaderIsNotClaimed )
 {
-    const fs::path file   = Write( "NoHeader.demat", "{\n    \"Params\": [],\n    \"Header\": {}\n}\n" );
+    const fs::path file   = Write( "NoHeader.demat", "{\n"
+                                                       R"(    "Params": [],)"
+                                                       "\n"
+                                                       R"(    "Header": {})"
+                                                       "\n}\n" );
     const auto     header = ReadAssetHeader( file, Context() );
     ASSERT_FALSE( header );
     EXPECT_NE( header.GetError().find( "no header format recognises" ), std::string::npos ) << header.GetError();
 
-    const fs::path truncated = Write( "Truncated.demat", "{\n    \"Header\": { \"Kind\": \"Material\"" );
+    const fs::path truncated = Write( "Truncated.demat", "{\n"
+                                                         R"(    "Header": { "Kind": "Material")" );
     const auto     cut       = ReadAssetHeader( truncated, Context() );
     ASSERT_FALSE( cut );
     EXPECT_NE( cut.GetError().find( "ends inside the header" ), std::string::npos ) << cut.GetError();

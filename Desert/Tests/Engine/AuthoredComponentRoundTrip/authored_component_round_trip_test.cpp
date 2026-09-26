@@ -21,8 +21,6 @@
 
 #include <Common/Json/Document.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -47,27 +45,27 @@ namespace
 
     // ReadComponent at a component's place in a scene; the Issues are what the load would report.
     template <class TComponent>
-    Common::Json::Issues ReadAt( const rfl::Generic::Object& block, TComponent& read )
+    Common::Json::Issues ReadAt( const Common::Json::Object& block, TComponent& read )
     {
-        const rfl::Generic   value( block );
+        const Common::Json::Value value( block );
         Common::Json::Issues issues;
         ReadComponent( Common::Json::Root( value, BlockPath() ), read, issues );
         return issues;
     }
 
-    // What a `.desce` holds between the two halves of the trip: JSON TEXT. Staying in `rfl::Generic`
+    // What a `.desce` holds between the two halves of the trip: JSON TEXT. Staying in `Common::Json::Value`
     // would hide exactly the class of defect the UUID rule in AuthoredComponentIO.hpp is about — a
     // value that is fine in the tree and wrong on disk.
-    rfl::Generic::Object ThroughJsonText( const rfl::Generic::Object& written )
+    Common::Json::Object ThroughJsonText( const Common::Json::Object& written )
     {
-        const std::string text   = rfl::json::write( rfl::Generic( written ) );
-        const auto        parsed = rfl::json::read<rfl::Generic>( text );
-        EXPECT_TRUE( parsed.has_value() ) << "what the serializer wrote is not valid JSON: " << text;
-        if ( !parsed.has_value() )
+        const std::string text   = Common::Json::Write( Common::Json::Value( written ) );
+        const auto        parsed = Common::Json::Parse( text );
+        EXPECT_TRUE( parsed.IsSuccess() ) << "what the serializer wrote is not valid JSON: " << text;
+        if ( !parsed.IsSuccess() )
             return {};
-        const auto object = parsed.value().to_object();
+        const auto object = parsed.GetValue().to_object();
         EXPECT_TRUE( object.has_value() );
-        return object.has_value() ? object.value() : rfl::Generic::Object{};
+        return object.has_value() ? object.value() : Common::Json::Object{};
     }
 
     template <class TComponent>
@@ -78,9 +76,9 @@ namespace
         return read;
     }
 
-    std::string JsonTextOf( const rfl::Generic::Object& object )
+    std::string JsonTextOf( const Common::Json::Object& object )
     {
-        return rfl::json::write( rfl::Generic( object ) );
+        return Common::Json::Write( Common::Json::Value( object ) );
     }
 
     // ── THE FIELD CENSUS ───────────────────────────────────────────────────────────────────────────
@@ -182,7 +180,7 @@ namespace
         return fields;
     }
 
-    std::set<std::string> KeysOf( const rfl::Generic::Object& object )
+    std::set<std::string> KeysOf( const Common::Json::Object& object )
     {
         std::set<std::string> keys;
         for ( const auto& [key, value] : object )
@@ -207,7 +205,7 @@ namespace
 
     // Asserts that every declared field of @p structName is a key of @p written, except the ones
     // kNotWritten excuses — and that each excuse still names a real field.
-    void ExpectEveryFieldIsWritten( const std::string& structName, const rfl::Generic::Object& written )
+    void ExpectEveryFieldIsWritten( const std::string& structName, const Common::Json::Object& written )
     {
         const std::string root = RepoRoot();
         ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
@@ -339,11 +337,12 @@ TEST( AuthoredComponentRoundTrip, AMorphBlockWhoseTwoListsDisagreeIsRepairedNotT
 {
     // Hand-written, or written by a build whose mesh had more targets. The Details sliders index the
     // names with the weights' size, so a longer name list is a read past the end waiting to happen.
-    rfl::Generic::Object block;
-    block["Weights"] = rfl::Generic( rfl::Generic::Array{ rfl::Generic( 0.5 ), rfl::Generic( 0.25 ) } );
-    block["TargetNames"] =
-         rfl::Generic( rfl::Generic::Array{ rfl::Generic( std::string( "A" ) ), rfl::Generic( std::string( "B" ) ),
-                                            rfl::Generic( std::string( "C" ) ) } );
+    Common::Json::Object block;
+    block["Weights"] = Common::Json::Value(
+         Common::Json::Value::Array{ Common::Json::Value( 0.5 ), Common::Json::Value( 0.25 ) } );
+    block["TargetNames"] = Common::Json::Value( Common::Json::Value::Array{
+         Common::Json::Value( std::string( "A" ) ), Common::Json::Value( std::string( "B" ) ),
+         Common::Json::Value( std::string( "C" ) ) } );
 
     ECS::MorphComponent read;
     ReadAt( ThroughJsonText( block ), read );
@@ -379,7 +378,7 @@ TEST( AuthoredComponentRoundTrip, EverySocketFieldComesBack )
 
 // THE RULE THAT COST A DESIGN DECISION. `Common::UUID::Generate()` draws over the whole 64-bit range,
 // so about half of all entity ids are above INT64_MAX — and a component payload travels as
-// `rfl::Generic`, whose integer arm is `int64_t`. Stored as a number, those ids land in the `.desce`
+// `Common::Json::Value`, whose integer arm is `int64_t`. Stored as a number, those ids land in the `.desce`
 // as NEGATIVE integers. The bits survive our own round trip, which is precisely why no round-trip test
 // would ever have found it; what would have found it is the first person to read the file.
 TEST( AuthoredComponentRoundTrip, ASocketTargetAboveInt64MaxIsStoredAsDecimalTextAndComesBackExact )
@@ -387,7 +386,7 @@ TEST( AuthoredComponentRoundTrip, ASocketTargetAboveInt64MaxIsStoredAsDecimalTex
     ECS::SocketAttachmentComponent written;
     written.Target = Common::UUID( 0xF0E1D2C3B4A59687ull ); // 17357386176853808775, above INT64_MAX
 
-    const rfl::Generic::Object object = WriteComponent( written );
+    const Common::Json::Object object = WriteComponent( written );
 
     const auto stored = object.get( "Target" );
     ASSERT_TRUE( stored.has_value() ) << "the socket wrote no Target at all";
@@ -447,7 +446,7 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
     ECS::FoliageComponent foliage;
     foliage.Density       = 42.0f;
     foliage.AlignToNormal = false;
-    ReadAt( rfl::Generic::Object{}, foliage );
+    ReadAt( Common::Json::Object{}, foliage );
     EXPECT_FLOAT_EQ( foliage.Density, 42.0f ) << "an empty block reset a float to its struct default";
     EXPECT_FALSE( foliage.AlignToNormal )
          << "an empty block turned a false flag back to true — the exact way a marker registration "
@@ -456,21 +455,21 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
     ECS::LocomotionComponent locomotion;
     locomotion.RunClip  = "Anim_Sprint";
     locomotion.RunSpeed = 999.0f;
-    ReadAt( rfl::Generic::Object{}, locomotion );
+    ReadAt( Common::Json::Object{}, locomotion );
     EXPECT_EQ( locomotion.RunClip, "Anim_Sprint" );
     EXPECT_FLOAT_EQ( locomotion.RunSpeed, 999.0f );
 
     ECS::SocketAttachmentComponent socket;
     socket.Target   = Common::UUID( 777ull );
     socket.BoneName = "mixamorig:Head";
-    ReadAt( rfl::Generic::Object{}, socket );
+    ReadAt( Common::Json::Object{}, socket );
     EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 777ull );
     EXPECT_EQ( socket.BoneName, "mixamorig:Head" );
 
     ECS::MorphComponent morph;
     morph.Weights     = { 0.5f };
     morph.TargetNames = { "Smile" };
-    ReadAt( rfl::Generic::Object{}, morph );
+    ReadAt( Common::Json::Object{}, morph );
     ASSERT_EQ( morph.Weights.size(), 1u );
     EXPECT_FLOAT_EQ( morph.Weights[0], 0.5f );
     EXPECT_EQ( morph.TargetNames.size(), 1u );
@@ -481,10 +480,10 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
 // silently becoming zero.
 TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZeroing )
 {
-    rfl::Generic::Object block;
-    block["Density"]       = rfl::Generic( std::string( "lots" ) );
-    block["AlignToNormal"] = rfl::Generic( 3.5 );
-    block["ScaleMax"]      = rfl::Generic( 8.5 ); // a good key beside the bad ones still lands
+    Common::Json::Object block;
+    block["Density"]       = Common::Json::Value( std::string( "lots" ) );
+    block["AlignToNormal"] = Common::Json::Value( 3.5 );
+    block["ScaleMax"]      = Common::Json::Value( 8.5 ); // a good key beside the bad ones still lands
 
     ECS::FoliageComponent foliage;
     foliage.Density = 42.0f;
@@ -540,8 +539,8 @@ TEST( AuthoredComponentRoundTrip, EveryLandscapeLayerFieldComesBackInOrder )
 // A scene written before layers existed has no "Layers" key and loads with none.
 TEST( AuthoredComponentRoundTrip, AnOldLandscapeBlockReadsNoLayers )
 {
-    rfl::Generic::Object block;
-    block["QuadsPerTile"] = rfl::Generic( static_cast<int64_t>( 63 ) );
+    Common::Json::Object block;
+    block["QuadsPerTile"] = Common::Json::Value( static_cast<int64_t>( 63 ) );
     ECS::LandscapeComponent read;
     ReadAt( ThroughJsonText( block ), read );
     EXPECT_EQ( read.QuadsPerTile, 63u );
@@ -568,7 +567,7 @@ TEST( AuthoredComponentRoundTrip, ABadLayerListIsRefusedWhole )
         return WriteComponent( c );
     };
     const std::string longName( Desert::World::Landscape::kLandscapeMaxWeightLayerName + 1, 'x' );
-    const std::vector<rfl::Generic::Object> bad = {
+    const std::vector<Common::Json::Object> bad = {
          withLayers( { { "Rock", 0.5f, false, glm::vec3( 1.0f ) }, { "Rock", 0.5f, false, glm::vec3( 1.0f ) } } ),
          withLayers( { { "", 0.5f, false, glm::vec3( 1.0f ) } } ),
          withLayers( { { longName, 0.5f, false, glm::vec3( 1.0f ) } } ),
@@ -621,9 +620,9 @@ TEST( AuthoredComponentRoundTrip, TheLandscapeTileBlockNamesEveryLandscapeTileFi
 // a real tile, and a fractional coordinate truncated is a real tile too.
 TEST( AuthoredComponentRoundTrip, ALandscapeTileCoordinateThatDoesNotFitIsRefused )
 {
-    rfl::Generic::Object block;
-    block["TileX"] = rfl::Generic( static_cast<int64_t>( 4294967296ll ) );
-    block["TileZ"] = rfl::Generic( 2.5 );
+    Common::Json::Object block;
+    block["TileX"] = Common::Json::Value( static_cast<int64_t>( 4294967296ll ) );
+    block["TileZ"] = Common::Json::Value( 2.5 );
 
     ECS::LandscapeTileComponent tile;
     tile.TileX = 5;
@@ -647,8 +646,8 @@ TEST( AuthoredComponentRoundTrip, AnIdWithTrailingJunkIsRefusedNotReadAsItsDigit
 {
     ECS::SocketAttachmentComponent socket;
     socket.Target = Common::UUID( 42 );
-    rfl::Generic::Object block;
-    block["Target"]   = rfl::Generic( std::string( "12abc" ) );
+    Common::Json::Object block;
+    block["Target"]   = Common::Json::Value( std::string( "12abc" ) );
     const auto issues = ReadAt( block, socket );
     EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 42u );
     ASSERT_EQ( issues.size(), 1u );
@@ -659,8 +658,8 @@ TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
 {
     ECS::ProjectileComponent projectile;
     projectile.Owner = Common::UUID( 42 );
-    rfl::Generic::Object block;
-    block["Owner"]    = rfl::Generic( std::string( "-1" ) );
+    Common::Json::Object block;
+    block["Owner"]    = Common::Json::Value( std::string( "-1" ) );
     const auto issues = ReadAt( block, projectile );
     EXPECT_EQ( static_cast<uint64_t>( projectile.Owner ), 42u );
     ASSERT_EQ( issues.size(), 1u );
@@ -671,8 +670,8 @@ TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfin
 {
     ECS::FoliageComponent foliage;
     const float           density = foliage.Density;
-    rfl::Generic::Object  block;
-    block["Density"]  = rfl::Generic( 1e300 );
+    Common::Json::Object  block;
+    block["Density"]  = Common::Json::Value( 1e300 );
     const auto issues = ReadAt( ThroughJsonText( block ), foliage );
     EXPECT_EQ( foliage.Density, density );
     ASSERT_EQ( issues.size(), 1u );

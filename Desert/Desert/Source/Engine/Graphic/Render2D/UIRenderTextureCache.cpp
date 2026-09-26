@@ -114,7 +114,8 @@ namespace Desert::Graphic::Render2D
             }
             return nullptr;
         }
-        if ( const auto loadable = Core::ParseLoadableScene( demand.ScenePath, json.GetValue() ); !loadable )
+        auto loadable = Core::ParseLoadableScene( demand.ScenePath, json.GetValue() );
+        if ( !loadable )
         {
             if ( ShouldSay( m_Refused, element, "parse:" + demand.ScenePath ) )
             {
@@ -139,7 +140,7 @@ namespace Desert::Graphic::Render2D
         Core::AddSceneRenderCollectors( *capture.Scene );
 
         const Core::SceneSerializer serializer( capture.Scene.get(), &assetManager );
-        if ( const auto loaded = serializer.DeserializeFromJson( json.GetValue(), demand.ScenePath ); !loaded )
+        if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), demand.ScenePath ); !loaded )
         {
             if ( ShouldSay( m_Refused, element, "load:" + demand.ScenePath ) )
             {

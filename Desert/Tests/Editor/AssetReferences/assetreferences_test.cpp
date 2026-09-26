@@ -26,7 +26,7 @@ TEST( AssetReferenceIndex, FindsHandleReference )
 {
     AssetReferenceIndex idx;
     idx.Add( Make( "Textures/Albedo.png", ".png", { "555000111" }, "" ) ); // binary target
-    idx.Add( Make( "Materials/M.demat", ".demat", { "999" }, "{\"Textures\":[555000111]}" ) );
+    idx.Add( Make( "Materials/M.demat", ".demat", { "999" }, R"({"Textures":[555000111]})" ) );
 
     const auto refs = idx.ReferencersOf( "Textures/Albedo.png" );
     ASSERT_EQ( refs.size(), 1u );
@@ -39,8 +39,8 @@ TEST( AssetReferenceIndex, HandleMatchIsDigitBounded )
 {
     AssetReferenceIndex idx;
     idx.Add( Make( "Textures/T.png", ".png", { "123" }, "" ) );
-    idx.Add( Make( "Materials/Bigger.demat", ".demat", {}, "{\"h\":91234}" ) ); // 123 inside 91234
-    idx.Add( Make( "Materials/Exact.demat", ".demat", {}, "{\"h\":123}" ) );     // exact
+    idx.Add( Make( "Materials/Bigger.demat", ".demat", {}, R"({"h":91234})" ) ); // 123 inside 91234
+    idx.Add( Make( "Materials/Exact.demat", ".demat", {}, R"({"h":123})" ) );    // exact
 
     const auto refs = idx.ReferencersOf( "Textures/T.png" );
     ASSERT_EQ( refs.size(), 1u );
@@ -74,8 +74,8 @@ TEST( AssetReferenceIndex, OrphansAreUnreferencedLeaves )
     AssetReferenceIndex idx;
     idx.Add( Make( "Textures/Used.png", ".png", { "700" }, "" ) );
     idx.Add( Make( "Textures/Unused.png", ".png", { "800" }, "" ) );
-    idx.Add( Make( "Materials/M.demat", ".demat", { "900" }, "{\"Textures\":[700]}" ) );
-    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, "{\"mat\":900}" ) ); // references the material
+    idx.Add( Make( "Materials/M.demat", ".demat", { "900" }, R"({"Textures":[700]})" ) );
+    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, R"({"mat":900})" ) ); // references the material
 
     const auto orphans = idx.Orphans( { ".png", ".demat" } );
 
@@ -134,8 +134,8 @@ TEST( AssetReferenceIndex, AFileASceneStillUsesSurvivesTheSourcesRemoval )
     AssetReferenceIndex idx;
     // A collection material, keyed the way the project index keys it: relative to the assets root.
     idx.Add( Make( "Collections/Foliage/meshes/Leaf.demat", ".demat", { "4400000001" }, "{}" ) );
-    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, "{\"Material\":4400000001}" ) );
-    idx.Add( Make( "Scenes/Second.desce", ".desce", {}, "{\"Material\":4400000001}" ) );
+    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, R"({"Material":4400000001})" ) );
+    idx.Add( Make( "Scenes/Second.desce", ".desce", {}, R"({"Material":4400000001})" ) );
 
     auto       plan     = PlanRemovalOf( "meshes/Leaf.demat" );
     const auto withheld = WithholdReferencedRemovals( plan, idx, "Collections/Foliage" );
@@ -160,7 +160,7 @@ TEST( AssetReferenceIndex, AFileNothingUsesIsRemovedAsPlanned )
     idx.Add( Make( "Collections/Foliage/meshes/Leaf.demat", ".demat", { "4400000001" }, "{}" ) );
     // A scene that references some OTHER material. Present on purpose: an index with nothing in it
     // would also pass this test, and would pass it for the wrong reason.
-    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, "{\"Material\":9900000002}" ) );
+    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, R"({"Material":9900000002})" ) );
 
     auto       plan     = PlanRemovalOf( "meshes/Leaf.demat" );
     const auto withheld = WithholdReferencedRemovals( plan, idx, "Collections/Foliage" );
@@ -176,7 +176,7 @@ TEST( AssetReferenceIndex, AKeyThatTheIndexDoesNotRecogniseWithholdsNothing )
 {
     AssetReferenceIndex idx;
     idx.Add( Make( "Collections/Foliage/meshes/Leaf.demat", ".demat", { "4400000001" }, "{}" ) );
-    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, "{\"Material\":4400000001}" ) );
+    idx.Add( Make( "Scenes/Main.desce", ".desce", {}, R"({"Material":4400000001})" ) );
 
     auto plan = PlanRemovalOf( "meshes/Leaf.demat" );
     EXPECT_TRUE( WithholdReferencedRemovals( plan, idx, "Collections/WrongPack" ).empty() );
@@ -217,7 +217,7 @@ TEST( AssetReferenceIndex, ReferencedByIsTheInverseOfReferencersOf )
 {
     AssetReferenceIndex idx;
     idx.Add( Make( "Textures/Albedo.png", ".png", { "555000111" }, "" ) );
-    idx.Add( Make( "Materials/M.demat", ".demat", { "999" }, "{\"Textures\":[555000111]}" ) );
+    idx.Add( Make( "Materials/M.demat", ".demat", { "999" }, R"({"Textures":[555000111]})" ) );
 
     const auto forward = idx.ReferencedBy( "Materials/M.demat" );
     ASSERT_EQ( forward.size(), 1u );
@@ -246,8 +246,8 @@ TEST( AssetReferenceIndex, ClosureIsTransitive )
 {
     AssetReferenceIndex idx;
     idx.Add( Make( "Textures/Albedo.png", ".png", { "555000111" }, "" ) );
-    idx.Add( Make( "Materials/M.demat", ".demat", { "777000222" }, "{\"Textures\":[555000111]}" ) );
-    idx.Add( Make( "Scenes/S.desce", ".desce", { "333000444" }, "{\"Mat\":777000222}" ) );
+    idx.Add( Make( "Materials/M.demat", ".demat", { "777000222" }, R"({"Textures":[555000111]})" ) );
+    idx.Add( Make( "Scenes/S.desce", ".desce", { "333000444" }, R"({"Mat":777000222})" ) );
     idx.Add( Make( "Textures/Unused.png", ".png", { "888000999" }, "" ) );
 
     const auto closure = idx.ClosureFrom( "Scenes/S.desce" );
@@ -261,8 +261,8 @@ TEST( AssetReferenceIndex, ClosureIsTransitive )
 TEST( AssetReferenceIndex, ClosureTerminatesOnACycle )
 {
     AssetReferenceIndex idx;
-    idx.Add( Make( "A.deprefab", ".deprefab", { "111000111" }, "{\"other\":222000222}" ) );
-    idx.Add( Make( "B.deprefab", ".deprefab", { "222000222" }, "{\"other\":111000111}" ) );
+    idx.Add( Make( "A.deprefab", ".deprefab", { "111000111" }, R"({"other":222000222})" ) );
+    idx.Add( Make( "B.deprefab", ".deprefab", { "222000222" }, R"({"other":111000111})" ) );
 
     const auto closure = idx.ClosureFrom( "A.deprefab" );
     ASSERT_EQ( closure.size(), 2u );
