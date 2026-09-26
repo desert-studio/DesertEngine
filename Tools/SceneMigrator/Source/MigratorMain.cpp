@@ -111,7 +111,7 @@ namespace
     // because a scene names a clip by NAME and nothing in a `.desce` changes when a clip's time model
     // does. Its step is gated on its own number and is content-detected the same way: a file with no
     // version field is generation 0, never "already current".
-    constexpr const char* kClipExtension = ".anim";
+    constexpr const char* kClipExtension   = ".anim";
     constexpr const char* kShaderExtension = ".shader";
 
     // THE OTHER TEXT ASSETS ARE COLLECTED FOR THEIR LAYOUT ONLY (AF6e). Their content has no step in this
@@ -465,7 +465,8 @@ namespace
     // kept (text for the reason EraseTopLevelMember gives). An element that does not state the member, an
     // array that is absent, and a shape that is not an array of objects are left as written: the strict reader
     // then names whatever is wrong with them.
-    std::string EraseMemberOfEachElement( const std::string& object, std::string_view array, std::string_view member )
+    std::string EraseMemberOfEachElement( const std::string& object, std::string_view array,
+                                          std::string_view member )
     {
         int depth = 0;
         for ( std::size_t at = 0; at < object.size(); ++at )
@@ -544,7 +545,7 @@ namespace
         const std::string member  = row.VersionMember != nullptr ? row.VersionMember : "";
         const auto        stated  = row.VersionMember != nullptr ? fields.get( member )
                                                                  : rfl::Result<rfl::Generic>( rfl::Error( "unstated" ) );
-        const auto version = [&]() -> rfl::Result<int>
+        const auto        version = [&]() -> rfl::Result<int>
         {
             if ( stated.has_value() )
                 return stated.value().to_int();

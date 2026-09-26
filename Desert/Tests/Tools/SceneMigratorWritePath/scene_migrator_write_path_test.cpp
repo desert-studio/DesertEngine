@@ -865,8 +865,8 @@ TEST( SceneMigratorWritePath, AMatl3ShaderNameNoShaderFileCarriesIsRefusedByName
 // by name. The raised file must read through ReadSkeletonJson itself, with the uint64 Signature intact.
 TEST( SceneMigratorWritePath, AGenerationZeroSkeletonLosesBoneIndexAndReadsStrictly )
 {
-    const fs::path dir  = MakeTempDir( "JS1dSkeletonRaise" );
-    const fs::path file = dir / "Arm.skeleton";
+    const fs::path        dir       = MakeTempDir( "JS1dSkeletonRaise" );
+    const fs::path        file      = dir / "Arm.skeleton";
     constexpr const char* kIdentity = "[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]";
     {
         std::ofstream out( file, std::ios::binary );
