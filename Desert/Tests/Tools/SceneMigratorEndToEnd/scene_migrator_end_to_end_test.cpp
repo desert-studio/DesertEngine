@@ -15,6 +15,7 @@
 // suite's own choosing instead of whatever content root a process happens to have open.
 
 #include <SceneMigration.hpp>
+#include <assets_sandbox.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -197,6 +198,7 @@ namespace
 
 TEST( SceneMigratorEndToEnd, AV1SceneComesOutStampedAtBothHeads )
 {
+    const Desert::TestSupport::AssetsSandbox sandbox( "SceneMigratorEndToEnd", { "Materials/Rock.demat" } );
     SceneSerialized scene  = SceneAtV1();
     const auto      report = MigrateScene( scene, kAssetsRoot );
 
@@ -375,6 +377,7 @@ TEST( SceneMigratorEndToEnd, TheTonemapperIsPinnedInASettingsBlockCreatedForIt )
 // exactly why it is gated on its own integer and why the stamp above has to happen.
 TEST( SceneMigratorEndToEnd, RunningTheChainTwiceLeavesTheTreeByteIdentical )
 {
+    const Desert::TestSupport::AssetsSandbox sandbox( "SceneMigratorEndToEnd", { "Materials/Rock.demat" } );
     SceneSerialized scene = SceneAtV1();
     MigrateScene( scene, kAssetsRoot );
     const std::string afterFirst = rfl::json::write( scene );
@@ -388,6 +391,7 @@ TEST( SceneMigratorEndToEnd, RunningTheChainTwiceLeavesTheTreeByteIdentical )
 // repository, and the reason the tool is safe to point at the whole tree.
 TEST( SceneMigratorEndToEnd, ASceneAlreadyAtTheHeadIsNotTouched )
 {
+    const Desert::TestSupport::AssetsSandbox sandbox( "SceneMigratorEndToEnd", { "Materials/Rock.demat" } );
     SceneSerialized scene = SceneAtV1();
     MigrateScene( scene, kAssetsRoot );
 

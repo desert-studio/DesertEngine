@@ -105,9 +105,9 @@ TEST_F( ToolTarget, TheLiftOfAnAssetOnlyEntityIsTheP7RoundTrip )
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
     auto reference = Geometry::DynamicMeshFromMeshAssetData( data.GetValue() );
     ASSERT_TRUE( reference.IsSuccess() ) << reference.GetError();
-    EXPECT_EQ( target.GetValue().Mesh->TriangleCount(), reference.GetValue().TriangleCount() );
-    EXPECT_EQ( target.GetValue().Mesh->VertexCount(), reference.GetValue().VertexCount() );
-    ExpectSameRender( *target.GetValue().Mesh, reference.GetValue() );
+    EXPECT_EQ( target.GetValue().Mesh->TriangleCount(), reference.GetValue().Mesh.TriangleCount() );
+    EXPECT_EQ( target.GetValue().Mesh->VertexCount(), reference.GetValue().Mesh.VertexCount() );
+    ExpectSameRender( *target.GetValue().Mesh, reference.GetValue().Mesh );
 }
 
 TEST_F( ToolTarget, AnEditableMeshIsItsOwnTargetAndItsOwnUndoBefore )

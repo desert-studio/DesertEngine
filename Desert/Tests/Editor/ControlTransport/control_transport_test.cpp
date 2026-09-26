@@ -24,44 +24,42 @@
 
 #include <Editor/Core/Control/ControlSocket.hpp>
 
+#include <Common/Core/LocalSocket.hpp>
+
 #include <gtest/gtest.h>
 
-#include <string>
-
-#if !defined( DESERT_PLATFORM_WINDOWS )
 #include <cstdio>
 #include <cstring>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
-#endif
+#include <filesystem>
+#include <string>
 
 using Desert::Editor::Control::ControlSocket;
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-
-// The transport refuses on Windows, and the refusal must NAME itself. A `--control-socket` that quietly did
-// nothing there would leave a client waiting for a socket that is never going to appear, which is the same
-// silent-no-op shape the whole channel replaced.
-TEST( ControlTransport, WindowsRefusesByNameRatherThanListeningToNothing )
-{
-    EXPECT_FALSE( ControlSocket::SupportedOnThisPlatform() );
-
-    ControlSocket socket;
-    const auto    refused = socket.Listen( "C:/temp/desert.sock" );
-    ASSERT_FALSE( refused.IsSuccess() );
-    EXPECT_NE( refused.GetError().find( "Windows" ), std::string::npos );
-    EXPECT_FALSE( socket.IsListening() );
-}
-
-#else
-
 namespace
 {
-    /// A path in the temp directory, unique to this process so two runs of the suite cannot collide.
+    namespace Socket = Common::LocalSocket;
+
+    /// The process id, for a socket path no other run of this suite can collide with. The one thing the
+    /// two platforms do not spell alike that Common/Core/LocalSocket.hpp has no reason to carry: it is
+    /// scaffolding for a test, not part of a transport.
+    [[nodiscard]] unsigned long OwnProcessId()
+    {
+#if defined( _WIN32 )
+        return ::GetCurrentProcessId();
+#else
+        return static_cast<unsigned long>( ::getpid() );
+#endif
+    }
+
+    /// A path in the machine's own temp directory, unique to this process so two runs of the suite cannot
+    /// collide. Asked of <filesystem> rather than written as "/tmp/...": the sockets in this suite are real
+    /// files, and Windows has no /tmp.
     std::string TempSocketPath( const char* tag )
     {
-        return std::string( "/tmp/desert_control_test_" ) + tag + "_" + std::to_string( ::getpid() ) + ".sock";
+        const std::filesystem::path directory = std::filesystem::temp_directory_path();
+        return ( directory /
+                 ( std::string( "desert_ctl_" ) + tag + "_" + std::to_string( OwnProcessId() ) + ".sock" ) )
+             .string();
     }
 
     /// A bare client: connect, send a line, read a line, close. Deliberately not DesertCtl — the point is
@@ -69,19 +67,17 @@ namespace
     class Client
     {
     public:
-        explicit Client( const std::string& path )
+        explicit Client( const std::string& path ) : m_Fd( Socket::Open() )
         {
-            m_Fd = ::socket( AF_UNIX, SOCK_STREAM, 0 );
             if ( m_Fd < 0 )
                 return;
 
             sockaddr_un address{};
-            address.sun_family = AF_UNIX;
-            std::strncpy( address.sun_path, path.c_str(), sizeof( address.sun_path ) - 1 );
-            if ( ::connect( m_Fd, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) != 0 )
+            if ( !Socket::FillAddress( address, path ) ||
+                 ::connect( Socket::Raw( m_Fd ), Socket::AsSockaddr( address ), sizeof( address ) ) != 0 )
             {
-                ::close( m_Fd );
-                m_Fd = -1;
+                Socket::Close( m_Fd );
+                m_Fd = Socket::kInvalid;
             }
         }
 
@@ -101,7 +97,7 @@ namespace
         void Send( const std::string& line )
         {
             const std::string framed = line + "\n";
-            (void)::send( m_Fd, framed.data(), framed.size(), 0 );
+            (void)::send( Socket::Raw( m_Fd ), framed.data(), static_cast<int>( framed.size() ), 0 );
         }
 
         /// Read until a newline, or give up. Blocking: the server is driven by the test itself, so there
@@ -116,7 +112,8 @@ namespace
                 if ( newline != std::string::npos )
                     return received.substr( 0, newline );
 
-                const ssize_t got = ::recv( m_Fd, buffer, sizeof( buffer ), 0 );
+                const auto got = static_cast<std::ptrdiff_t>(
+                     ::recv( Socket::Raw( m_Fd ), buffer, static_cast<int>( sizeof( buffer ) ), 0 ) );
                 if ( got <= 0 )
                     break;
                 received.append( buffer, static_cast<std::size_t>( got ) );
@@ -128,30 +125,30 @@ namespace
         void Close()
         {
             if ( m_Fd >= 0 )
-                ::close( m_Fd );
-            m_Fd = -1;
+                Socket::Close( m_Fd );
+            m_Fd = Socket::kInvalid;
         }
 
     private:
-        int m_Fd = -1;
+        Socket::Handle m_Fd = Socket::kInvalid;
     };
 } // namespace
 
 TEST( ControlTransport, ListeningCreatesTheSocketAndClosingRemovesIt )
 {
     const std::string path = TempSocketPath( "lifecycle" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
     EXPECT_TRUE( socket.IsListening() );
-    EXPECT_EQ( ::access( path.c_str(), F_OK ), 0 );
+    EXPECT_TRUE( Socket::FileExists( path ) );
 
     socket.Close();
     EXPECT_FALSE( socket.IsListening() );
     // A leftover path is not harmless: the next editor given it PROBES what is there, and a file left
     // behind on every exit would train everybody to ignore the line that says so.
-    EXPECT_NE( ::access( path.c_str(), F_OK ), 0 ) << "the socket file outlived the socket";
+    EXPECT_FALSE( Socket::FileExists( path ) ) << "the socket file outlived the socket";
 }
 
 // A path another editor is serving must be REFUSED. Two editors sharing one socket would answer each
@@ -159,7 +156,7 @@ TEST( ControlTransport, ListeningCreatesTheSocketAndClosingRemovesIt )
 TEST( ControlTransport, APathAnotherEditorIsServingIsRefused )
 {
     const std::string path = TempSocketPath( "contested" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket first;
     ASSERT_TRUE( first.Listen( path ).IsSuccess() );
@@ -179,21 +176,21 @@ TEST( ControlTransport, APathAnotherEditorIsServingIsRefused )
 TEST( ControlTransport, ALeftoverSocketFromADeadEditorIsCleared )
 {
     const std::string path = TempSocketPath( "stale" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     // A CRASHED editor leaves the path behind. ~ControlSocket unlinks on a clean exit, so the leftover is
     // built directly: a socket bound to the path and then dropped, which is what the filesystem is left
     // holding when a process dies without running a destructor.
     {
-        const int fd = ::socket( AF_UNIX, SOCK_STREAM, 0 );
+        const Socket::Handle fd = Socket::Open();
         ASSERT_GE( fd, 0 );
         sockaddr_un address{};
-        address.sun_family = AF_UNIX;
-        std::strncpy( address.sun_path, path.c_str(), sizeof( address.sun_path ) - 1 );
-        ASSERT_EQ( ::bind( fd, reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ), 0 );
-        ::close( fd ); // bound, never listened, descriptor gone: nothing is serving this path
+        ASSERT_TRUE( Socket::FillAddress( address, path ) );
+        ASSERT_EQ( ::bind( Socket::Raw( fd ), Socket::AsSockaddr( address ), sizeof( address ) ), 0 )
+             << Socket::LastErrorText();
+        Socket::Close( fd ); // bound, never listened, descriptor gone: nothing is serving this path
     }
-    ASSERT_EQ( ::access( path.c_str(), F_OK ), 0 );
+    ASSERT_TRUE( Socket::FileExists( path ) );
 
     ControlSocket fresh;
     EXPECT_TRUE( fresh.Listen( path ).IsSuccess() )
@@ -218,7 +215,7 @@ TEST( ControlTransport, AnOverlongPathIsRefusedRatherThanTruncated )
 TEST( ControlTransport, ARequestArrivesOnThePollItWasSentTo )
 {
     const std::string path = TempSocketPath( "oneshot" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -245,7 +242,7 @@ TEST( ControlTransport, ARequestArrivesOnThePollItWasSentTo )
 TEST( ControlTransport, AClientThatClosedFreesTheSlotBeforeTheNextIsJudged )
 {
     const std::string path = TempSocketPath( "sequential" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -281,7 +278,7 @@ TEST( ControlTransport, AClientThatClosedFreesTheSlotBeforeTheNextIsJudged )
 TEST( ControlTransport, SequentialClientsWorkOverAndOver )
 {
     const std::string path = TempSocketPath( "repeated" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -316,7 +313,7 @@ TEST( ControlTransport, SequentialClientsWorkOverAndOver )
 TEST( ControlTransport, OnlyOneLineIsHandedBackPerPoll )
 {
     const std::string path = TempSocketPath( "pipelined" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -343,7 +340,7 @@ TEST( ControlTransport, OnlyOneLineIsHandedBackPerPoll )
 TEST( ControlTransport, ASecondSimultaneousClientIsRefusedInWords )
 {
     const std::string path = TempSocketPath( "twoclients" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -370,7 +367,7 @@ TEST( ControlTransport, ASecondSimultaneousClientIsRefusedInWords )
 TEST( ControlTransport, AnIdlePollKeepsTheClient )
 {
     const std::string path = TempSocketPath( "idle" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -411,7 +408,7 @@ TEST( ControlTransport, AnIdlePollKeepsTheClient )
 TEST( ControlTransport, EveryAcceptedConnectionIsANewGeneration )
 {
     const std::string path = TempSocketPath( "generation" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -444,7 +441,7 @@ TEST( ControlTransport, EveryAcceptedConnectionIsANewGeneration )
 TEST( ControlTransport, AGenerationDoesNotMoveWhileOneClientStays )
 {
     const std::string path = TempSocketPath( "generation-stable" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -470,7 +467,7 @@ TEST( ControlTransport, AGenerationDoesNotMoveWhileOneClientStays )
 TEST( ControlTransport, AReplacementClientIsDistinguishableFromTheOneItReplaced )
 {
     const std::string path = TempSocketPath( "generation-swap" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -507,7 +504,7 @@ TEST( ControlTransport, AReplacementClientIsDistinguishableFromTheOneItReplaced 
 TEST( ControlTransport, ServicingTheConnectionDoesNotConsumeARequest )
 {
     const std::string path = TempSocketPath( "service-only" );
-    ::unlink( path.c_str() );
+    (void)Socket::RemoveFile( path );
 
     ControlSocket socket;
     ASSERT_TRUE( socket.Listen( path ).IsSuccess() );
@@ -528,10 +525,17 @@ TEST( ControlTransport, ServicingTheConnectionDoesNotConsumeARequest )
     socket.Close();
 }
 
-#endif // DESERT_PLATFORM_WINDOWS
-
 int main( int argc, char** argv )
 {
+    // The suite opens sockets of its own — the bare client, and the leftover a dead editor would have
+    // left — and on Windows the first socket call in a process fails until the library is up. The editor
+    // does this inside Listen; nothing here would have, and every test would fail as "socket() failed".
+    if ( const std::string unavailable = Common::LocalSocket::EnsureLibraryReady(); !unavailable.empty() )
+    {
+        std::fprintf( stderr, "the platform's socket library could not be started: %s\n", unavailable.c_str() );
+        return 1;
+    }
+
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
 }

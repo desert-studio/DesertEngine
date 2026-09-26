@@ -2,6 +2,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <fstream>
+#include <sstream>
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
@@ -1896,8 +1897,38 @@ namespace Desert::Migration
         }
     } // namespace
 
+    namespace
+    {
+        // The GUID text of the `.demat` a v26 slot named by path alone: its header's GUID, or - for a file
+        // whose own header step has not run yet (no header object) - the GUID that step stamps
+        // (MigrationGuidForPath). A file that cannot be opened, or whose header states no GUID, is refused by
+        // name; a path is never kept as the identity. Reads with std::ifstream and the pure header parser:
+        // the migrator is a plain tool and does not link the engine/Common file-system layer.
+        Common::ResultStr<std::string> MaterialGuidOfPath( const std::string&           stored,
+                                                           const std::filesystem::path& assetsRoot )
+        {
+            const std::filesystem::path file = assetsRoot / stored;
+            std::ifstream               in( file, std::ios::binary );
+            if ( !in )
+                return Common::MakeFormattedError<std::string>( "{}", "no file '" + file.generic_string() + "'" );
+            const auto object = Common::Content::ReadTextHeaderObject( in );
+            if ( !object )
+                return Common::MakeSuccess( Common::Content::AssetGuidToText( MigrationGuidForPath( stored ) ) );
+            const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+            if ( !header )
+                return Common::MakeError<std::string>( "'" + file.generic_string() +
+                                                       "': unreadable header: " + header.GetError() );
+            const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<std::string>( "'" + file.generic_string() +
+                                                       "': the header states no GUID" );
+            return Common::MakeSuccess( Common::Content::AssetGuidToText( guid.GetValue() ) );
+        }
+    } // namespace
+
     MaterialGuidsMigrationReport MigrateMaterialGuidsV26ToV27( std::vector<Assets::EntityData>& entities,
-                                                               const LegacyMaterialIdMap&       legacyIds )
+                                                               const LegacyMaterialIdMap&       legacyIds,
+                                                               const std::filesystem::path&     assetsRoot )
     {
         // The three components whose payload states material slots by `MaterialGuids` (PrefabData.hpp).
         static constexpr auto kSlotComponents =
@@ -1917,7 +1948,61 @@ namespace Desert::Migration
                     continue;
                 const auto slots = fields.value().get( "MaterialGuids" );
                 if ( !slots.has_value() )
+                {
+                    // A v26 payload could name its materials by `MaterialPaths` ALONE (hand-authored scenes
+                    // did: SKY_HDR_PolyHaven and the SKY_N9_IBL_* set). v26 resolved that path; v27 reads
+                    // only the GUID, so such a slot must gain the GUID of the file it names here, or it
+                    // loads as "no material". The first version of this step skipped the payload.
+                    const auto paths = fields.value().get( "MaterialPaths" );
+                    if ( !paths.has_value() )
+                        continue;
+                    const auto pathRows = paths.value().to_array();
+                    if ( !pathRows.has_value() )
+                    {
+                        report.UnknownNames.push_back( tag + " > " + component + ".MaterialPaths is " +
+                                                       Describe( paths.value() ) + ", not an array" );
+                        continue;
+                    }
+                    rfl::Generic::Array guids;
+                    for ( size_t i = 0; i < pathRows.value().size(); ++i )
+                    {
+                        const rfl::Generic& row = pathRows.value()[i];
+                        const std::string   site =
+                             tag + " > " + component + ".MaterialPaths[" + std::to_string( i ) + "]";
+                        const auto stored = row.to_string();
+                        if ( !stored.has_value() )
+                        {
+                            report.UnknownNames.push_back( site + " is " + Describe( row ) + ", not a path" );
+                            guids.emplace_back( std::string() );
+                            continue;
+                        }
+                        if ( stored.value().empty() )
+                        {
+                            ++report.Emptied;
+                            guids.emplace_back( std::string() );
+                            continue;
+                        }
+                        const auto guid = MaterialGuidOfPath( stored.value(), assetsRoot );
+                        if ( !guid )
+                        {
+                            report.UnknownNames.push_back( site + " = '" + stored.value() +
+                                                           "': " + guid.GetError() );
+                            guids.emplace_back( std::string() );
+                            continue;
+                        }
+                        ++report.Rewritten;
+                        guids.emplace_back( guid.GetValue() );
+                    }
+                    rfl::Generic::Object kept;
+                    for ( const auto& [key, value] : fields.value() )
+                    {
+                        kept[key] = value;
+                        if ( key == "MaterialPaths" )
+                            kept["MaterialGuids"] = rfl::Generic( guids );
+                    }
+                    entity.Components[component] = rfl::Generic( std::move( kept ) );
                     continue;
+                }
                 const auto rows = slots.value().to_array();
                 if ( !rows.has_value() )
                 {
@@ -3957,7 +4042,7 @@ namespace Desert::Migration
             if ( statedSceneVersion < kSceneVersionMaterialGuids )
             {
                 report.MaterialGuidsRaised = true;
-                report.MaterialGuids       = MigrateMaterialGuidsV26ToV27( entities, legacyIds );
+                report.MaterialGuids       = MigrateMaterialGuidsV26ToV27( entities, legacyIds, assetsRoot );
                 if ( !report.MaterialGuids.UnknownNames.empty() )
                 {
                     std::string names;
@@ -3965,8 +4050,10 @@ namespace Desert::Migration
                         names += ( names.empty() ? "" : "; " ) + unknown;
                     report.Refused =
                          "'" + name + "': " + std::to_string( report.MaterialGuids.UnknownNames.size() ) +
-                         " material slot(s) state an old material id the register " +
-                         kLegacyMaterialIdRegisterName + " does not know: " + names + ". Nothing was written.";
+                         " material slot(s) name no material this step can identify (an old id the register " +
+                         kLegacyMaterialIdRegisterName +
+                         " does not know, or a path whose .demat cannot be read): " + names +
+                         ". Nothing was written.";
                     return;
                 }
             }

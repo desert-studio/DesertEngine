@@ -5,6 +5,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 #include <Engine/Geometry/EditMesh.hpp>
+#include <Engine/Geometry/EditMeshConversion.hpp>
 
 #include <span>
 
@@ -33,10 +34,11 @@ namespace Desert::Geometry
     ToMeshAssetData( const EditMesh& mesh, std::span<const Common::Content::AssetGuid> slotMaterials );
 
     // The asset's triangles welded back into one EditMesh with the file's polygroups (all 0 for a file with
-    // none), normals, tangents and UV as overlays, and MaterialID = submesh index. Refused on a skinned asset,
-    // and on one whose triangles do not weld back one-to-one (degenerate, duplicate or non-manifold faces):
-    // the per-face polygroups are addressed by face order, and a face the weld drops would shift every
-    // group after it onto the wrong face.
-    [[nodiscard]] Common::ResultStr<EditMesh>
+    // none), normals, tangents and UV as overlays, and MaterialID = submesh index. As UE's MeshDescription ->
+    // DynamicMesh conversion does, degenerate and duplicate faces are skipped and a non-manifold face stands
+    // on its own corner copies; the counts come back with the mesh for the caller to say out loud, and each
+    // surviving face keeps its own polygroup through TriangleOfFace (face order is what addresses them).
+    // Refused on a skinned asset, and by the face count when no face survives the weld.
+    [[nodiscard]] Common::ResultStr<ImportedEditMesh>
     FromMeshAssetData( const Assets::Serialization::MeshAssetData& data );
 } // namespace Desert::Geometry

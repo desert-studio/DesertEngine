@@ -41,6 +41,8 @@ namespace Desert::Platform::Windows
             return m_Data.Specification.Decorated;
         }
 
+        [[nodiscard]] bool HasDrawableArea() const override;
+
         [[nodiscard]] virtual uint32_t GetWidth() const override;
         [[nodiscard]] virtual uint32_t GetHeight() const override;
         // Runtime toggle: the swapchain picks its present mode at creation, so the new pacing only takes

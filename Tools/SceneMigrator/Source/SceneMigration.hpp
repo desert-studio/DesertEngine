@@ -1446,9 +1446,12 @@ namespace Desert::Migration
     // Raises StaticMesh / SkinnedMesh / InstancedStaticMesh `MaterialGuids` from v26 (MATL v1 u64 ids, read
     // back as int64 and therefore often negative) to v27 (the GUID text of the `.demat` that stated the id).
     // `legacyIds` is the old-id register of the file's assets root. A payload is rebuilt only when a slot
-    // changes. SHELF LIFE: deleted once no v26 file remains.
+    // changes. A payload that states `MaterialPaths` and NO `MaterialGuids` gains `MaterialGuids` from the
+    // header GUID of each `.demat` under `assetsRoot` (an unreadable one is an UnknownNames row, so the
+    // file is refused). SHELF LIFE: deleted once no v26 file remains.
     MaterialGuidsMigrationReport MigrateMaterialGuidsV26ToV27( std::vector<Assets::EntityData>& entities,
-                                                               const LegacyMaterialIdMap&       legacyIds );
+                                                               const LegacyMaterialIdMap&       legacyIds,
+                                                               const std::filesystem::path&     assetsRoot );
 
     // What MigrateMeshGuidsV27ToV28 did to one file.
     struct MeshGuidsMigrationReport
