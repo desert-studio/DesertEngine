@@ -355,7 +355,7 @@ TEST( SceneDebugFieldsCorpus, NoSceneOnDiskStatesAnyDebugVisualization )
             continue; // malformed, and SceneVersionGate is the suite that fails on that
 
         for ( const std::string& key : forbidden )
-            EXPECT_FALSE( settings->Find( key ).has_value() )
+            EXPECT_FALSE( settings.value().Find( key ).has_value() )
                  << path.string() << " states Settings." << key
                  << " - a viewport debug flag in a level file. Run Tools/SceneMigrator over it.";
     }

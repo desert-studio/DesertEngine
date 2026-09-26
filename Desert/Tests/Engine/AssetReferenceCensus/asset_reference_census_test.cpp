@@ -510,7 +510,7 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
                      // were broken. The defect being held here is one concept written as two TYPES —
                      // string and integer — so the integer is what the test looks for, and an object
                      // simply means the name is being used for something that is not a reference at all.
-                     if ( handleNames.count( std::string( key ) ) != 0 && value.AsNumber() )
+                     if ( handleNames.contains( std::string( key ) ) && value.AsNumber() )
                      {
                          offences.push_back( file + ": '" + std::string( key ) +
                                              "' is written as a number, not a string" );

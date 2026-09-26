@@ -560,7 +560,7 @@ TEST( RetargetAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirectio
     // WriteRetarget stamps the CURRENT version, so a future one is provoked by restamping what it wrote.
     const File::RetargetAssetData stamped = StampedRetarget();
     ASSERT_TRUE( stamped.Header.has_value() );
-    ASSERT_EQ( stamped.Header->Versions.at( "RTGT" ), File::kRetargetVersion );
+    ASSERT_EQ( stamped.Header.value().Versions.at( "RTGT" ), File::kRetargetVersion );
     const auto forward = File::ParseRetarget( Common::Json::Write( Restamped( stamped, 42 ) ) );
     ASSERT_FALSE( forward.IsSuccess() );
     EXPECT_NE( forward.GetError().find( "42" ), std::string::npos ) << forward.GetError();

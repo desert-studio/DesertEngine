@@ -163,7 +163,7 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
     {
         const auto v = ref.Find( key );
         if ( !v.has_value() )
-            return std::string();
+            return {};
         const auto text = v->AsString();
         return text ? text.GetValue() : std::string();
     };

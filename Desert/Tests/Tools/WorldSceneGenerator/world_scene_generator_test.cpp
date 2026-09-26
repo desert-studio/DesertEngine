@@ -135,7 +135,7 @@ namespace
         EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
         if ( !parsed.IsSuccess() )
             return std::nullopt;
-        return std::move( parsed.GetValue() );
+        return parsed.ExtractValue();
     }
 
     // A counting mint, like the corpus suites use: a scene whose records all carry ids must never call it.
@@ -646,7 +646,7 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 {
     std::string plain;
     ASSERT_EQ( GenerateSmoke( Scratch() / "unpartitioned.desce", plain ), 0 ) << plain;
-    EXPECT_FALSE( ReadScene( plain )->WorldPartition.has_value() );
+    EXPECT_FALSE( ReadScene( plain ).value().WorldPartition.has_value() );
 
     const auto               out = Scratch() / "partitioned.desce";
     const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),

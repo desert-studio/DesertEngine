@@ -712,7 +712,7 @@ TEST( SceneStitchCorpus, EveryRecordTheFileHasIsARecordTheStitchSees )
                 const auto integer = rawId->AsInteger();
                 ASSERT_TRUE( integer ) << path.string() << ": " << integer.GetError();
                 const auto bits = static_cast<uint64_t>( integer.GetValue() );
-                EXPECT_EQ( bits, (uint64_t)*typedRecord.id ) << path.string();
+                EXPECT_EQ( bits, static_cast<uint64_t>( typedRecord.id.value() ) ) << path.string();
             }
 
             const auto rawParent = rawRecord.Find( "parent" );

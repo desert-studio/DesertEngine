@@ -214,42 +214,50 @@ namespace
         return out;
     }
 
-    // The recursion is silenced rather than removed: the document IS recursive, and an explicit worklist
-    // would still have to hold one Node per pending subtree, which recursion already does for free. The
-    // directive has to be the LAST comment line before the statement — one more line of prose under it and
-    // clang-tidy does not see it, which is how the first attempt at this went red with the comment already
-    // written.
-    // NOLINTNEXTLINE(misc-no-recursion)
-    void CollectPairs( const Common::Json::Node& node, const std::string& scene,
+    // A worklist rather than recursion: the recursion ran through the lambda handed to the facade's
+    // ForEachMember, so a directive on this function could not reach the template instantiation in
+    // Document.hpp that clang-tidy also names. Children are pushed in reverse so pairs come out in
+    // document order, as the recursive walk produced them.
+    void CollectPairs( const Common::Json::Node& root, const std::string& scene,
                        std::vector<PathAndGuid>& materials )
     {
-        if ( node.GetKind() == Common::Json::Kind::Array )
+        std::vector<Common::Json::Node> pending{ root };
+        std::vector<Common::Json::Node> children;
+        while ( !pending.empty() )
         {
-            node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
-                                 { CollectPairs( element, scene, materials ); } );
-            return;
-        }
-
-        if ( node.GetKind() != Common::Json::Kind::Object )
-            return;
-
-        const auto paths = node.Find( "MaterialPaths" );
-        const auto guids = node.Find( "MaterialGuids" );
-        if ( paths && guids && paths->GetKind() == Common::Json::Kind::Array &&
-             guids->GetKind() == Common::Json::Kind::Array )
-        {
-            const auto p = CollectStrings( *paths );
-            const auto g = CollectStrings( *guids );
-            for ( size_t at = 0; at < p.size() && at < g.size(); ++at )
+            const Common::Json::Node node = pending.back();
+            pending.pop_back();
+            children.clear();
+            if ( node.GetKind() == Common::Json::Kind::Array )
             {
-                if ( !p[at] || !g[at] || p[at]->empty() || g[at]->empty() )
-                    continue;
-                materials.push_back( { scene, "MaterialPaths/MaterialGuids", *p[at], *g[at] } );
+                node.ForEachElement( [&]( std::size_t, const Common::Json::Node& element )
+                                     { children.push_back( element ); } );
+                pending.insert( pending.end(), children.rbegin(), children.rend() );
+                continue;
             }
-        }
 
-        node.ForEachMember( [&]( std::string_view, const Common::Json::Node& value )
-                            { CollectPairs( value, scene, materials ); } );
+            if ( node.GetKind() != Common::Json::Kind::Object )
+                continue;
+
+            const auto paths = node.Find( "MaterialPaths" );
+            const auto guids = node.Find( "MaterialGuids" );
+            if ( paths && guids && paths->GetKind() == Common::Json::Kind::Array &&
+                 guids->GetKind() == Common::Json::Kind::Array )
+            {
+                const auto p = CollectStrings( *paths );
+                const auto g = CollectStrings( *guids );
+                for ( size_t at = 0; at < p.size() && at < g.size(); ++at )
+                {
+                    if ( !p[at] || !g[at] || p[at]->empty() || g[at]->empty() )
+                        continue;
+                    materials.push_back( { scene, "MaterialPaths/MaterialGuids", *p[at], *g[at] } );
+                }
+            }
+
+            node.ForEachMember( [&]( std::string_view, const Common::Json::Node& value )
+                                { children.push_back( value ); } );
+            pending.insert( pending.end(), children.rbegin(), children.rend() );
+        }
     }
 
     void CollectPairsInScenes( const fs::path& scenesRoot, std::vector<PathAndGuid>& materials,

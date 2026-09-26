@@ -189,7 +189,7 @@ namespace FbxSplit
                     if ( type == MapType::None || materialStem.empty() )
                         continue;
 
-                    std::filesystem::path rel     = std::filesystem::relative( entry.path(), projectDir, ec );
+                    const std::filesystem::path rel = std::filesystem::relative( entry.path(), projectDir, ec );
                     const std::string     relPath = ec ? entry.path().generic_string() : rel.generic_string();
 
                     MaterialDef* def = nullptr;
@@ -424,7 +424,8 @@ namespace FbxSplit
         // Keep the pack self-contained: write the .obj outputs INTO the collection folder (next to the FBX),
         // not Resources/Mesh — so the engine's Assets view isn't polluted with pack contents. Manifest paths
         // are relative to the project dir (parent of "Resources") so they read "Resources/Collections/.../...".
-        std::filesystem::path       resourcesDir, projectDir;
+        std::filesystem::path       resourcesDir;
+        std::filesystem::path       projectDir;
         const std::filesystem::path meshDir = fbxAbs.parent_path() / "meshes";
         if ( FindResourcesRoot( fbxAbs, resourcesDir ) )
         {
@@ -491,7 +492,7 @@ namespace FbxSplit
             }
 
             // Working-dir-relative source path (forward slashes) — the manifest payload + engine cook key.
-            std::filesystem::path                  rel      = std::filesystem::relative( objPath, projectDir, ec );
+            const std::filesystem::path            rel      = std::filesystem::relative( objPath, projectDir, ec );
             const std::string                      meshRel  = ec ? objPath.generic_string() : rel.generic_string();
             const int                              matIndex = BestMaterialForCategory( stem, materials );
             Desert::Editor::CollectionManifestItem item;

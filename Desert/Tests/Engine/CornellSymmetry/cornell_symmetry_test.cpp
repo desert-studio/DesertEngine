@@ -134,7 +134,7 @@ namespace
         const auto parsed = Common::Json::Parse( json );
         EXPECT_TRUE( parsed.IsSuccess() ) << what;
         if ( !parsed.IsSuccess() )
-            return Common::Json::Value( Common::Json::Object{} );
+            return { Common::Json::Object{} };
         EXPECT_EQ( Common::Json::Root( parsed.GetValue() ).GetKind(), Common::Json::Kind::Object ) << what;
         return parsed.GetValue();
     }

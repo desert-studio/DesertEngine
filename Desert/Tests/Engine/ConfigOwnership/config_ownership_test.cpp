@@ -1123,7 +1123,7 @@ TEST( ConfigOwnershipCorpus, NoSceneOnDiskStatesASettingOfAnotherFilesKind )
             continue;
 
         for ( const std::string& key : forbidden )
-            EXPECT_FALSE( settings->Find( key ).has_value() )
+            EXPECT_FALSE( settings.value().Find( key ).has_value() )
                  << path.string() << " states Settings." << key
                  << ", which another config file owns. Run Tools/SceneMigrator over it.";
     }

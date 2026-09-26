@@ -185,12 +185,12 @@ namespace Desert::Editor::Control
 
         [[nodiscard]] inline Common::Json::Value Str( const std::string& text )
         {
-            return Common::Json::Value( text );
+            return { text };
         }
 
         [[nodiscard]] inline Common::Json::Value Num( double value )
         {
-            return Common::Json::Value( value );
+            return { value };
         }
     } // namespace StateDetail
 
@@ -219,7 +219,7 @@ namespace Desert::Editor::Control
                 Common::Json::Object item;
                 item["tag"]  = Str( entity.Tag );
                 item["uuid"] = Str( entity.Uuid );
-                selection.push_back( Common::Json::Value( item ) );
+                selection.emplace_back( item );
             }
             root["selection"] = Common::Json::Value( selection );
         }
@@ -253,7 +253,7 @@ namespace Desert::Editor::Control
                 item["editModel"] = Str( document.EditModel );
                 item["unapplied"] = Common::Json::Value( document.HasUnappliedEdits );
                 item["disk"]      = Str( document.DiskState );
-                open.push_back( Common::Json::Value( item ) );
+                open.emplace_back( item );
             }
 
             Common::Json::Value::Array closed;
@@ -263,7 +263,7 @@ namespace Desert::Editor::Control
                 item["name"]    = Str( document.Name );
                 item["type"]    = Str( document.Type );
                 item["subject"] = Str( document.Subject );
-                closed.push_back( Common::Json::Value( item ) );
+                closed.emplace_back( item );
             }
 
             Common::Json::Object documents;
@@ -286,7 +286,7 @@ namespace Desert::Editor::Control
                 item["pinned"]     = Common::Json::Value( panel.Pinned );
                 item["contextual"] = Common::Json::Value( panel.Contextual );
                 item["relevant"]   = Common::Json::Value( panel.Relevant );
-                panels.push_back( Common::Json::Value( item ) );
+                panels.emplace_back( item );
             }
             root["panels"] = Common::Json::Value( panels );
         }
@@ -393,7 +393,7 @@ namespace Desert::Editor::Control
             if ( property.OverridesParent )
                 item["overridesParent"] = Common::Json::Value( true );
 
-            entries.push_back( Common::Json::Value( item ) );
+            entries.emplace_back( item );
         }
 
         Common::Json::Object payload;

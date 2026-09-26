@@ -124,7 +124,7 @@ namespace
         Common::Json::ObjectBuilder rebuilt;
         payload.ForEachMember( [&]( std::string_view name, const Common::Json::Node& member )
                                { rebuilt.Set( name, name == key ? replacement : member.Raw() ); } );
-        return Common::Json::Value( rebuilt.Build() );
+        return { rebuilt.Build() };
     }
 
     const TypeInfo* Reflected( const char* typeName )

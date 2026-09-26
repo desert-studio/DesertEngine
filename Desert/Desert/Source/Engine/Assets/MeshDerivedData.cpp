@@ -142,8 +142,7 @@ namespace Desert::Assets
                  "its place",
                  assetPath.string(), key, Common::DDC::RelativePath( kMeshSourceDeriver, key ).generic_string(),
                  companion->string() );
-        const auto decoded =
-             DecodeMeshSourceAsset( std::as_bytes( std::span<const char>( hit->data(), hit->size() ) ) );
+        auto decoded = DecodeMeshSourceAsset( std::as_bytes( std::span<const char>( hit->data(), hit->size() ) ) );
         if ( !decoded.IsSuccess() )
             return Common::MakeFormattedError<MeshSourceAsset>( "'{}': cached imported source is corrupt: {}",
                                                                 assetPath.string(), decoded.GetError() );

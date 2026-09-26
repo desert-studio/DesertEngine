@@ -185,18 +185,29 @@ namespace
 
     // Every key of `source`, at every depth, as "a.b.c" -> the value's JSON. What the loss test
     // compares, because "is anything gone" is a question about the whole tree and not one level.
+    // A worklist, not recursion: recursing through the facade's ForEachMember lambda is a call chain
+    // clang-tidy reports inside Document.hpp, where no directive of ours can reach it.
     void Flatten( const Common::Json::Node& source, const std::string& prefix,
                   std::map<std::string, std::string>& into )
     {
-        source.ForEachMember(
-             [&]( std::string_view key, const Common::Json::Node& value )
-             {
-                 const std::string path = prefix.empty() ? std::string( key ) : prefix + "." + std::string( key );
-                 if ( value.GetKind() == Common::Json::Kind::Object )
-                     Flatten( value, path, into );
-                 else
-                     into[path] = Common::Json::Write( value.Raw() );
-             } );
+        std::vector<std::pair<Common::Json::Node, std::string>> pending{ { source, prefix } };
+        while ( !pending.empty() )
+        {
+            // Named copies, not a structured binding: a lambda capturing a binding is a C++20 corner MSVC
+            // has refused before.
+            const Common::Json::Node node = pending.back().first;
+            const std::string        at   = pending.back().second;
+            pending.pop_back();
+            node.ForEachMember(
+                 [&]( std::string_view key, const Common::Json::Node& value )
+                 {
+                     std::string path = at.empty() ? std::string( key ) : at + "." + std::string( key );
+                     if ( value.GetKind() == Common::Json::Kind::Object )
+                         pending.emplace_back( value, std::move( path ) );
+                     else
+                         into[path] = Common::Json::Write( value.Raw() );
+                 } );
+        }
     }
 } // namespace
 

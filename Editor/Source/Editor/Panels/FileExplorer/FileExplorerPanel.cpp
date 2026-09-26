@@ -1104,7 +1104,8 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() || ImGui::IsItemActive() )
                 ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
             {
-                const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+                const ImVec2 mn  = ImGui::GetItemRectMin();
+                const ImVec2 mx  = ImGui::GetItemRectMax();
                 const bool   hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
                 ImGui::GetWindowDrawList()->AddRectFilled(
                      ImVec2( ( mn.x + mx.x ) * 0.5f - 1.0f, mn.y ), ImVec2( ( mn.x + mx.x ) * 0.5f + 1.0f, mx.y ),
@@ -1408,8 +1409,9 @@ namespace Desert::Editor
                         for ( size_t idx : displayOrder )
                         {
                             ImGui::TableNextColumn();
-                            const bool doubleClicked = RenderFile( (int)idx, !m_CurrentDir->Children[idx]->IsFile,
-                                                                   shownIndex, !m_IsInListView );
+                            const bool doubleClicked =
+                                 RenderFile( static_cast<int>( idx ), !m_CurrentDir->Children[idx]->IsFile,
+                                             shownIndex, !m_IsInListView );
                             if ( doubleClicked )
                                 break;
                             shownIndex++;
@@ -1820,7 +1822,8 @@ namespace Desert::Editor
 
         // Copy into the current dir (assets must live under Resources/ so the cook paths stay project-relative).
         const std::filesystem::path texDir = Common::Constants::Path::TEXTUREDIR_PATH;
-        std::filesystem::path destDir = m_CurrentDir ? std::filesystem::path( m_CurrentDir->AssetPath ) : texDir;
+        std::filesystem::path       destDir =
+             m_CurrentDir != nullptr ? std::filesystem::path( m_CurrentDir->AssetPath ) : texDir;
         if ( !std::filesystem::is_directory( destDir ) )
             destDir = texDir;
         std::filesystem::create_directories( destDir, ec );
@@ -1901,15 +1904,15 @@ namespace Desert::Editor
                  switch ( mode )
                  {
                      case SortMode::DateModified:
-                         cmp = ( ca->LastWriteTime < cb->LastWriteTime )   ? -1
-                               : ( ca->LastWriteTime > cb->LastWriteTime ) ? 1
-                                                                           : 0;
+                         cmp = static_cast<int>( ca->LastWriteTime > cb->LastWriteTime ) -
+                               static_cast<int>( ca->LastWriteTime < cb->LastWriteTime );
                          break;
                      case SortMode::Type:
                          cmp = static_cast<int>( ca->Type ) - static_cast<int>( cb->Type );
                          break;
                      case SortMode::Size:
-                         cmp = ( ca->FileSize < cb->FileSize ) ? -1 : ( ca->FileSize > cb->FileSize ) ? 1 : 0;
+                         cmp = static_cast<int>( ca->FileSize > cb->FileSize ) -
+                               static_cast<int>( ca->FileSize < cb->FileSize );
                          break;
                      case SortMode::Name:
                      default:
@@ -2425,9 +2428,11 @@ namespace Desert::Editor
             const bool   hover = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect( cmin, cmax );
             if ( hover )
                 m_TileHovered = true; // consumed by the empty-click deselect in the body loop
-            const ImU32 bg = sel     ? IM_COL32( 52, 92, 160, 150 )
-                             : hover ? IM_COL32( 255, 255, 255, 24 )
-                                     : IM_COL32( 255, 255, 255, 10 );
+            ImU32 bg = IM_COL32( 255, 255, 255, 10 );
+            if ( sel )
+                bg = IM_COL32( 52, 92, 160, 150 );
+            else if ( hover )
+                bg = IM_COL32( 255, 255, 255, 24 );
             dl->ChannelsSetCurrent( 0 );
             dl->AddRectFilled( cmin, cmax, bg, 8.0f );
             if ( sel )

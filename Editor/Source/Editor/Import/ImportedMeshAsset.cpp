@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstring>
 #include <map>
 #include <optional>
 #include <vector>
@@ -204,8 +205,8 @@ namespace Desert::Editor
         auto bytes = Assets::EncodeMeshSourceAsset( asset );
         if ( !bytes )
             return Common::MakeError<MeshAssetWrite>( bytes.GetError() );
-        const std::string blob( reinterpret_cast<const char*>( bytes.GetValue().data() ),
-                                bytes.GetValue().size() );
+        std::string blob( bytes.GetValue().size(), '\0' );
+        std::memcpy( blob.data(), bytes.GetValue().data(), blob.size() );
         if ( auto put = Common::DDC::Put( Assets::kMeshSourceDeriver, key, blob ); !put )
             return Common::MakeFormattedError<MeshAssetWrite>( "'{}': imported source built but not cached: {}",
                                                                source.string(), put.GetError() );

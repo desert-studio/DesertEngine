@@ -65,24 +65,42 @@ namespace
         CollectionManifest manifest;
         manifest.Name      = R"(Oak "Grove" \ Pack)";
         manifest.Author    = "FbxMeshSplitter";
+        // Every field named, absent ones as nullopt: a designated initializer that skips a field is what
+        // -Wmissing-field-initializers reports, and naming them also shows which paths the writer must omit.
         manifest.Materials = std::vector<CollectionManifestMaterial>{
              { .Name        = "bark",
                .Albedo      = R"(Resources/Collections/Oak "Grove"/bark_albedo.png)",
+               .Opacity     = std::nullopt,
                .Normal      = "Resources/Collections/Oak/bark_normal.png",
+               .Roughness   = std::nullopt,
+               .Metallic    = std::nullopt,
+               .AO          = std::nullopt,
                .AlphaCutoff = 0.0f,
                .TwoSided    = false },
              { .Name        = "leaf",
                .Albedo      = "Resources/Collections/Oak/leaf_albedo.png",
                .Opacity     = "Resources/Collections/Oak/leaf_opacity.png",
+               .Normal      = std::nullopt,
+               .Roughness   = std::nullopt,
+               .Metallic    = std::nullopt,
+               .AO          = std::nullopt,
                .AlphaCutoff = 0.5f,
                .TwoSided    = true } };
-        manifest.Items = {
-             { .Name     = "trunk",
-               .Category = R"(Oak "Grove")",
-               .Mesh     = "Resources/Mesh/Oak/trunk.obj",
-               .Material = 0 },
-             { .Name = "leaves", .Category = "Oak", .Mesh = R"(Resources/Mesh/Oak\leaves.obj)", .Material = 1 },
-             { .Name = "stump", .Mesh = "Resources/Mesh/Oak/stump.obj" } };
+        manifest.Items = { { .Name      = "trunk",
+                             .Category  = R"(Oak "Grove")",
+                             .Mesh      = "Resources/Mesh/Oak/trunk.obj",
+                             .Thumbnail = std::nullopt,
+                             .Material  = 0 },
+                           { .Name      = "leaves",
+                             .Category  = "Oak",
+                             .Mesh      = R"(Resources/Mesh/Oak\leaves.obj)",
+                             .Thumbnail = std::nullopt,
+                             .Material  = 1 },
+                           { .Name      = "stump",
+                             .Category  = std::nullopt,
+                             .Mesh      = "Resources/Mesh/Oak/stump.obj",
+                             .Thumbnail = std::nullopt,
+                             .Material  = std::nullopt } };
         return manifest;
     }
 
@@ -123,11 +141,11 @@ TEST_F( CollectionManifestFile, WhatTheSplitterWritesThePanelReadsBackUnchanged 
     EXPECT_EQ( back.Name, written.Name );
     EXPECT_EQ( back.Author, written.Author );
     ASSERT_TRUE( back.Materials.has_value() );
-    ASSERT_EQ( back.Materials->size(), 2u );
+    ASSERT_EQ( back.Materials.value().size(), 2u );
     for ( std::size_t i = 0; i < 2; ++i )
     {
-        const auto& a = ( *written.Materials )[i];
-        const auto& b = ( *back.Materials )[i];
+        const auto& a = written.Materials.value()[i];
+        const auto& b = back.Materials.value()[i];
         EXPECT_EQ( b.Name, a.Name ) << i;
         EXPECT_EQ( b.Albedo, a.Albedo ) << i;
         EXPECT_EQ( b.Opacity, a.Opacity ) << i;

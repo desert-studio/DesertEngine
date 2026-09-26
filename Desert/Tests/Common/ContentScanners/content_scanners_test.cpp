@@ -174,6 +174,12 @@ namespace
            "Cooked/Thumbnails, a machine-local cache this function also DELETES from. Not content, and "
            "nothing a package contains.",
            "" },
+         { "Desert/Desert/Source/Engine/Assets/ContentDirectoryWatch.hpp", Verdict::NotContent,
+           "watches the LOOSE content directories for files added or removed outside the editor, by "
+           "directory modification time. The question is 'what changed on disk', not 'what content is "
+           "there': a mounted .dpak cannot change under a running process, so its half has nothing to "
+           "watch, and ListFilesRecursive returns files, not the directory mtimes the poll compares.",
+           "" },
          { "Runtime/Source/PackagedContent.cpp", Verdict::NotContent,
            "finds the .dpak files THEMSELVES. It cannot go through the mount it is about to create.", "" },
 
