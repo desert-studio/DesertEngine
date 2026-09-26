@@ -575,11 +575,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   held for the one call that moves them into a view).
     //   AV1b +1 Raw +1 Unique: TextureViewerDocument::m_Assets (row in the register) and its m_UIHelper,
     //   the ImGui texture cache the document alone owns: 453 / 354 / 145 / 42 = 994.
-    EXPECT_EQ( CountOf( Form::Raw ), 453 );
+    //   RT2g +2 Raw: VulkanGpuProfiler::m_Recording (the frame slot recording now, inside its own m_Frames)
+    //   and GpuScopeRecorder::m_Stacks (a per-view stack keyed by owner identity), rows in the register:
+    //   455 / 354 / 145 / 42 = 996.
+    EXPECT_EQ( CountOf( Form::Raw ), 455 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
     EXPECT_EQ( CountOf( Form::Unique ), 145 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 994 )
+    EXPECT_EQ( (int)Members().size(), 996 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

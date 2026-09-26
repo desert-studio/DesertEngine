@@ -27,7 +27,7 @@ namespace Desert::TestSupport
     {
         static const uint32_t        base = std::random_device{}() % 1000000u;
         static std::atomic<uint32_t> counter{ 0 };
-        const float                  width = 1.0f + static_cast<float>( base ) + 1000000.0f * counter++;
+        const float width = 1.0f + static_cast<float>( base ) + 1000000.0f * static_cast<float>( counter++ );
 
         Assets::MeshSourceAsset asset;
         asset.Guid              = Common::Content::AssetGuid::Generate();

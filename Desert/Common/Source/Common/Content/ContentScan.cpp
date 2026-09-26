@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <span>
 #include <string>
 #include <cstdio>
 
@@ -205,13 +206,13 @@ namespace Common::Content
             const auto meta = header.GetValue().Find( EnvelopeSection::Meta );
             if ( !meta || meta->Codec != EnvelopeCodec::Stored )
                 return std::nullopt;
-            std::vector<std::byte> bytes( meta->Size );
+            // Read as the stream's own char type and view it as bytes: no cast of the destination pointer.
+            std::vector<char> chars( meta->Size );
             in.clear();
             in.seekg( static_cast<std::streamoff>( meta->Offset ) );
-            if ( !in.read( reinterpret_cast<char*>( bytes.data() ),
-                           static_cast<std::streamsize>( bytes.size() ) ) )
+            if ( !in.read( chars.data(), static_cast<std::streamsize>( chars.size() ) ) )
                 return std::nullopt;
-            const auto decoded = DecodeEnvelopeMeta( bytes );
+            const auto decoded = DecodeEnvelopeMeta( std::as_bytes( std::span<const char>( chars ) ) );
             if ( !decoded )
                 return std::nullopt;
             MeshHeaderBounds bounds{ true, std::nullopt };

@@ -113,7 +113,7 @@ namespace Desert::Graphic::API::Vulkan
         // Direct, not deferred: shutdown runs with the device idle, and a pool replaced earlier is already
         // in the allocator's queue, which the device teardown drains.
         if ( m_Device != VK_NULL_HANDLE )
-            for ( FrameQueries& frame : m_Frames )
+            for ( const FrameQueries& frame : m_Frames )
                 if ( frame.Pool != VK_NULL_HANDLE )
                     vkDestroyQueryPool( m_Device, frame.Pool, nullptr );
 
@@ -144,7 +144,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // The new pool first: if it cannot be made, the old one keeps timing what it can hold rather than
         // the frame losing every scope.
-        const VkQueryPool grown = CreatePool( wanted );
+        const auto grown = CreatePool( wanted );
         if ( grown == VK_NULL_HANDLE )
         {
             LOG_ERROR( "[GpuProfiler] vkCreateQueryPool failed growing a frame's pool from {} to {} queries "
@@ -210,7 +210,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !m_Active || commandBuffer == VK_NULL_HANDLE || m_Recording == nullptr )
             return;
 
-        FrameQueries& frame = *m_Recording;
+        const FrameQueries& frame = *m_Recording;
         if ( frame.FrameTotalWritten )
             vkCmdWriteTimestamp( commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.Pool,
                                  kGpuFrameTotalQuery + 1 );

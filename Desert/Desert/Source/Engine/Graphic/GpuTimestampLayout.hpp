@@ -143,7 +143,7 @@ namespace Desert::Graphic
             const uint32_t stackIndex = StackOf( owner );
             auto&          stack      = m_Stacks[stackIndex].second;
 
-            const int32_t index = static_cast<int32_t>( m_Scopes.size() );
+            const auto index = static_cast<int32_t>( m_Scopes.size() );
             m_Scopes.push_back(
                  Scope{ std::move( name ), stack.empty() ? kGpuNoParent : stack.back(), stackIndex } );
             stack.push_back( index );

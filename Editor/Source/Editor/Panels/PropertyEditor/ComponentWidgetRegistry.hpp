@@ -56,7 +56,7 @@ namespace Desert::Editor
         // Always Static (Editor/Widgets/PreviewInput.hpp): a Details row is a summary of a field, so the
         // picture keeps one angle and double-click opens @p openHandle — the asset the row stands for —
         // through the same AssetFieldRequests queue every other asset field in Details uses.
-        bool DrawPreview( const ImVec2& size, uint64_t openHandle ) const;
+        [[nodiscard]] bool DrawPreview( const ImVec2& size, uint64_t openHandle ) const;
 
         // Details search box: while non-empty, reflected components draw only the fields that match.
         // A hand-written widget cannot filter itself — the panel decides whether to draw it at all.

@@ -84,7 +84,7 @@ TEST( GpuTimestampLayout, TheFirstPoolFitsTheInitialCapacity )
 TEST( GpuTimestampLayout, GrownPoolFitsTheHighWaterMark )
 {
     uint32_t queries = GpuGrownQueryCount( 0, kGpuInitialScopeCapacity );
-    for ( uint32_t highWater : { 10u, 64u, 65u, 97u, 240u, 241u, 1000u, 5000u } )
+    for ( const uint32_t highWater : { 10u, 64u, 65u, 97u, 240u, 241u, 1000u, 5000u } )
     {
         queries = GpuGrownQueryCount( queries, highWater );
         EXPECT_GE( GpuScopeCapacity( queries ), highWater ) << "high water " << highWater;

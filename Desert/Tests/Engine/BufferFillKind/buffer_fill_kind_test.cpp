@@ -129,7 +129,7 @@ namespace
         {
             return m_Block.GetContents();
         }
-        uint64_t ActiveAppliedVersion() const override
+        [[nodiscard]] uint64_t ActiveAppliedVersion() const override
         {
             return m_Block.ActiveAppliedVersion( CurrentFrame() );
         }

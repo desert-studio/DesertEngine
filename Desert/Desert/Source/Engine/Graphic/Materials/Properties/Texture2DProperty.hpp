@@ -18,7 +18,7 @@ namespace Desert::Graphic
 
         void Apply( MaterialBackend* backend ) override
         {
-            if ( !m_Texture )
+            if ( m_Texture == nullptr )
                 return; // nothing assigned yet: every set keeps the fallback it was born with
 
             // The uniform is shared by every view, so it is re-pointed once per write, not per view.

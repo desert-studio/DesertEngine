@@ -87,7 +87,7 @@ namespace
             return nullptr;
         }
 
-        uint64_t ActiveAppliedVersion() const override
+        [[nodiscard]] uint64_t ActiveAppliedVersion() const override
         {
             return m_Block.ActiveAppliedVersion( Frame() );
         }
@@ -417,7 +417,7 @@ TEST_F( MaterialParamUpload, AViewCreatedAHundredFramesAfterAOneOffWriteStillRec
         EXPECT_FALSE( prop.HasDirtyFields() ) << "applying did not bring this view's copy up to date";
         const auto copy = buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() );
         ASSERT_TRUE( copy.has_value() );
-        EXPECT_EQ( *copy, value ) << "frame " << f;
+        EXPECT_EQ( copy, value ) << "frame " << f;
         Engine::FrameManager::GetInstance().NextFrame();
     }
 }
@@ -448,7 +448,7 @@ TEST_F( MaterialParamUpload, AnIdleViewsExistingCopiesReceiveAWriteMadeWhileItWa
             prop.UpdateFields();
         const auto copy = buffer->Copy( preview, Engine::FrameManager::GetInstance().GetCurrentFrameIndex() );
         ASSERT_TRUE( copy.has_value() );
-        EXPECT_EQ( *copy, after ) << "the idle view kept the old value in frame copy " << f;
+        EXPECT_EQ( copy, after ) << "the idle view kept the old value in frame copy " << f;
         Engine::FrameManager::GetInstance().NextFrame();
     }
 }

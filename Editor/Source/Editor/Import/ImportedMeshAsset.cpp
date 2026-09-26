@@ -5,11 +5,11 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
-#include <Engine/Geometry/EditMeshAsset.hpp>
-#include <Engine/Geometry/EditMeshSerialization.hpp>
+#include <Engine/Geometry/EditMeshBridge.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <map>
 #include <optional>
 #include <vector>
@@ -88,19 +88,24 @@ namespace Desert::Editor
                 copy.VertexOffset     = static_cast<uint32_t>( part.StaticVertices.size() );
                 copy.IndexOffset      = static_cast<uint32_t>( part.Indices.size() * 3 );
                 copy.LODs.clear();
+                // Iterator offsets are signed; the bounds were checked above, so these cannot overflow.
+                const auto vertexBegin = static_cast<std::ptrdiff_t>( sub.VertexOffset );
+                const auto vertexEnd   = static_cast<std::ptrdiff_t>( sub.VertexOffset + sub.VertexCount );
+                const auto faceBegin   = static_cast<std::ptrdiff_t>( firstFace );
+                const auto faceEnd     = static_cast<std::ptrdiff_t>( firstFace + sub.IndexCount / 3 );
                 part.StaticVertices.insert( part.StaticVertices.end(),
-                                            imported.StaticVertices.begin() + sub.VertexOffset,
-                                            imported.StaticVertices.begin() + sub.VertexOffset + sub.VertexCount );
-                part.Indices.insert( part.Indices.end(), imported.Indices.begin() + firstFace,
-                                     imported.Indices.begin() + firstFace + sub.IndexCount / 3 );
+                                            imported.StaticVertices.begin() + vertexBegin,
+                                            imported.StaticVertices.begin() + vertexEnd );
+                part.Indices.insert( part.Indices.end(), imported.Indices.begin() + faceBegin,
+                                     imported.Indices.begin() + faceEnd );
                 if ( groupsPerFace )
-                    part.PolyGroups.insert( part.PolyGroups.end(), imported.PolyGroups.begin() + firstFace,
-                                            imported.PolyGroups.begin() + firstFace + sub.IndexCount / 3 );
+                    part.PolyGroups.insert( part.PolyGroups.end(), imported.PolyGroups.begin() + faceBegin,
+                                            imported.PolyGroups.begin() + faceEnd );
                 part.Submeshes.push_back( std::move( copy ) );
                 slotOfSubmesh.push_back( slotOf( sub ) );
             }
 
-            auto lifted = Geometry::FromMeshAssetData( part );
+            auto lifted = Geometry::Bridge::EditMeshFromMeshAssetData( part );
             if ( !lifted.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "'{}' LOD{} cannot become a source model: {}", name,
                                                            level, lifted.GetError() );
@@ -110,7 +115,7 @@ namespace Desert::Editor
                 if ( mesh.IsTriangle( t ) )
                     mesh.Attributes().SetMaterialId(
                          t, slotOfSubmesh[static_cast<size_t>( mesh.Attributes().GetMaterialId( t ) )] );
-            out.Models.push_back( { Geometry::ToSerialized( mesh ) } );
+            out.Models.push_back( { Geometry::Bridge::SavedFormFromEditMesh( mesh ) } );
         }
         return Common::MakeSuccess( std::move( out ) );
     }

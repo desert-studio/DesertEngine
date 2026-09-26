@@ -298,7 +298,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanMaterialBackend::ApplyTexture2D( MaterialProperty* prop )
     {
         auto textureProp = static_cast<Texture2DProperty*>( prop );
-        if ( !textureProp )
+        if ( textureProp == nullptr )
             return;
 
         auto vulkanImage =
@@ -341,7 +341,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanMaterialBackend::ApplyTextureCube( MaterialProperty* prop )
     {
         auto textureProp = static_cast<TextureCubeProperty*>( prop );
-        if ( !textureProp )
+        if ( textureProp == nullptr )
             return;
 
         auto vulkanImage =
