@@ -42,25 +42,27 @@ namespace
 
     std::filesystem::path MakeScratchRoot( const char* inLabel )
     {
-        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        std::filesystem::path root = std::filesystem::temp_directory_path() /
+        const auto            stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        std::filesystem::path root  = std::filesystem::temp_directory_path() /
                                      ( std::string( "desert-cr1-" ) + inLabel + "-" + std::to_string( stamp ) );
         std::filesystem::create_directories( root );
         return root;
     }
 
     // Returns the child's exit code, or -1 when it could not be started.
-    int RunChild( const std::filesystem::path& inReportRoot, const char* inKind )
+    int RunChild( const std::filesystem::path& inReportRoot, const char* inKind,
+                  const char* inMode = "--crash-child" )
     {
 #if defined( _WIN32 )
-        std::wstring command = L"\"" + g_SelfPath.wstring() + L"\" --crash-child ";
+        std::wstring command = L"\"" + g_SelfPath.wstring() + L"\" ";
+        command += std::wstring( inMode, inMode + std::strlen( inMode ) ) + L" ";
         command += std::wstring( inKind, inKind + std::strlen( inKind ) );
         command += L" \"" + inReportRoot.wstring() + L"\"";
 
         std::vector<wchar_t> mutableCommand( command.begin(), command.end() );
         mutableCommand.push_back( L'\0' );
 
-        STARTUPINFOW        startup = {};
+        STARTUPINFOW startup        = {};
         startup.cb                  = sizeof( startup );
         PROCESS_INFORMATION process = {};
         if ( ::CreateProcessW( nullptr, mutableCommand.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
@@ -75,11 +77,11 @@ namespace
         ::CloseHandle( process.hProcess );
         return static_cast<int>( code );
 #else
-        const std::string self = g_SelfPath.string();
-        const std::string root = inReportRoot.string();
-        char*             argv[] = { const_cast<char*>( self.c_str() ), const_cast<char*>( "--crash-child" ),
+        const std::string self   = g_SelfPath.string();
+        const std::string root   = inReportRoot.string();
+        char*             argv[] = { const_cast<char*>( self.c_str() ), const_cast<char*>( inMode ),
                                      const_cast<char*>( inKind ), const_cast<char*>( root.c_str() ), nullptr };
-        pid_t             child = 0;
+        pid_t             child  = 0;
         if ( ::posix_spawn( &child, self.c_str(), nullptr, nullptr, argv, environ ) != 0 )
         {
             return -1;
@@ -164,8 +166,8 @@ namespace
         EXPECT_NE( contents.find( "\nlog=" ), std::string::npos ) << "the log ring produced no lines";
 
         const std::string function = FieldValue( contents, "function" );
-        EXPECT_NE( function, "unknown" ) << "no symbol resolved for the faulting frame; is the PDB beside "
-                                         << g_SelfPath.string() << "?";
+        EXPECT_NE( function, "unknown" )
+             << "no symbol resolved for the faulting frame; is the PDB beside " << g_SelfPath.string() << "?";
         EXPECT_NE( contents.find( inCase.ExpectedFunctionFragment ), std::string::npos )
              << "crash.txt does not name " << inCase.ExpectedFunctionFragment << "; function=" << function;
 
@@ -206,17 +208,41 @@ TEST( CrashHandler, PureCallWritesAReportNamingTheFaultingFunction )
     RunCrashCase( { "purecall", "PureCall" } );
 }
 
+// PKG1: a game's reports go to GameUserDirectory(Name)/Crashes, and that root wins over a project root
+// (a player's install folder is read-only). The child is given both and must use the game's.
+TEST( CrashHandler, GameUserDirectoryWinsOverTheProjectRoot )
+{
+    const std::filesystem::path user = MakeScratchRoot( "game" );
+    const int                   code = RunChild( user, "segv", "--crash-child-game" );
+    ASSERT_NE( code, -1 ) << "could not start the crash child " << g_SelfPath.string();
+
+    EXPECT_FALSE( SoleReportDirectory( user / "Crashes" ).empty() ) << "no report under " << user.string();
+    EXPECT_FALSE( std::filesystem::exists( user / "project" / "Saved" ) ) << "the project root was used";
+
+    std::error_code cleanup;
+    std::filesystem::remove_all( user, cleanup );
+}
+
 int main( int argc, char** argv )
 {
     g_SelfPath = std::filesystem::absolute( argv[0] );
 
-    if ( argc == 4 && std::string( argv[1] ) == "--crash-child" )
+    const bool gameChild = argc == 4 && std::string( argv[1] ) == "--crash-child-game";
+    if ( argc == 4 && ( std::string( argv[1] ) == "--crash-child" || gameChild ) )
     {
         Common::Logger::LogInit();
 
         Common::Crash::InstallOptions options;
-        options.hostName           = "CrashHandlerTestChild";
-        options.reportRootOverride = argv[3];
+        options.hostName = "CrashHandlerTestChild";
+        if ( gameChild )
+        {
+            options.gameUserDirectory = argv[3];
+            options.projectRoot       = std::filesystem::path( argv[3] ) / "project";
+        }
+        else
+        {
+            options.reportRootOverride = argv[3];
+        }
         const Common::BoolResultStr installed = Common::Crash::Install( options );
         if ( !installed.IsSuccess() )
         {

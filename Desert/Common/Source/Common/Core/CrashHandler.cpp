@@ -29,12 +29,18 @@
 #include <DbgHelp.h>
 #include <intrin.h>
 #else
+#include <dlfcn.h>
 #include <execinfo.h>
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+#if defined( __APPLE__ )
+#include <sys/ucontext.h>
+#else
+#include <ucontext.h>
+#endif
 extern char** environ;
 #endif
 
@@ -79,6 +85,9 @@ extern char** environ;
 // faulting thread's own CONTEXT. For synthesized=1 the innermost frames belong to this file and to
 // the CRT, so `function` is the innermost frame that is BOTH outside `Common::Crash::Detail` AND
 // inside the main executable module. Every frame is still in [stack] either way.
+// On POSIX every report is synthesized=1: the frames are walked from inside the signal handler (frame
+// 0 is the interrupted PC from the ucontext, then the handler, the trampoline and the callers), and the
+// function names stay Itanium-MANGLED, because demangling allocates.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 namespace Common::Crash
@@ -88,24 +97,24 @@ namespace Common::Crash
         // Capacities. Fixed, because every one of these buffers is read from a signal handler where
         // an allocation is undefined behaviour. Chosen to cover the real values with room to spare;
         // anything longer is truncated, which still identifies a crash.
-        constexpr std::size_t kSmallField = 128;
-        constexpr std::size_t kPathField = 1024;
-        constexpr std::size_t kLogRingLines = 64;
-        constexpr std::size_t kLogLineChars = 256;
+        constexpr std::size_t kSmallField     = 128;
+        constexpr std::size_t kPathField      = 1024;
+        constexpr std::size_t kLogRingLines   = 64;
+        constexpr std::size_t kLogLineChars   = 256;
         constexpr std::size_t kMaxStackFrames = 64;
-        constexpr std::size_t kWriteBuffer = 8192;
+        constexpr std::size_t kWriteBuffer    = 8192;
 
         // The report context, formatted BEFORE the fault. See the header: nothing here is produced
         // inside a handler.
-        char g_Host[kSmallField] = "unknown";
+        char g_Host[kSmallField]    = "unknown";
         char g_Version[kSmallField] = "unknown";
-        char g_Sha[kSmallField] = "unknown";
-        char g_Branch[kSmallField] = "unknown";
-        bool g_Dirty = false;
+        char g_Sha[kSmallField]     = "unknown";
+        char g_Branch[kSmallField]  = "unknown";
+        bool g_Dirty                = false;
         char g_Machine[kSmallField] = "unknown";
-        char g_Os[kPathField] = "unknown";
-        char g_Gpu[kPathField] = "unknown";
-        char g_Scene[kPathField] = "none";
+        char g_Os[kPathField]       = "unknown";
+        char g_Gpu[kPathField]      = "unknown";
+        char g_Scene[kPathField]    = "none";
         char g_Started[kSmallField] = "unknown";
 
         // The per-crash paths, all built at Install() time. The handler does no path arithmetic:
@@ -116,15 +125,15 @@ namespace Common::Crash
         char g_DirUtf8[kPathField] = "";
         char g_TxtUtf8[kPathField] = "";
 #if defined( DESERT_PLATFORM_WINDOWS )
-        wchar_t g_DirNative[kPathField] = L"";
-        wchar_t g_TxtNative[kPathField] = L"";
-        wchar_t g_DmpNative[kPathField] = L"";
-        wchar_t g_ReporterNative[kPathField] = L"";
+        wchar_t g_DirNative[kPathField]               = L"";
+        wchar_t g_TxtNative[kPathField]               = L"";
+        wchar_t g_DmpNative[kPathField]               = L"";
+        wchar_t g_ReporterNative[kPathField]          = L"";
         wchar_t g_ReporterCommandLine[kPathField * 2] = L"";
 #else
-        char  g_DmpUtf8[kPathField] = "";
+        char  g_DmpUtf8[kPathField]      = "";
         char  g_ReporterUtf8[kPathField] = "";
-        char* g_ReporterArgv[3] = { nullptr, nullptr, nullptr };
+        char* g_ReporterArgv[3]          = { nullptr, nullptr, nullptr };
 #endif
         bool g_HasReporter = false;
 
@@ -145,7 +154,7 @@ namespace Common::Crash
         void StoreLogLine( const char* inText, std::size_t inLength )
         {
             const std::uint32_t slot = g_LogWritten.load( std::memory_order_relaxed ) % kLogRingLines;
-            char*               row = g_LogRing[slot];
+            char*               row  = g_LogRing[slot];
             std::size_t         copy = inLength < ( kLogLineChars - 1 ) ? inLength : ( kLogLineChars - 1 );
             std::memcpy( row, inText, copy );
             // Newlines would break the one-field-per-line contract documented above.
@@ -162,7 +171,7 @@ namespace Common::Crash
 
         class RingSink final : public spdlog::sinks::base_sink<std::mutex>
         {
-          protected:
+        protected:
             void sink_it_( const spdlog::details::log_msg& inMessage ) override
             {
                 spdlog::memory_buf_t formatted;
@@ -199,15 +208,15 @@ namespace Common::Crash
         // expression in C++ even though the macro reads like one.
         const RawHandle kInvalidRawHandle = INVALID_HANDLE_VALUE;
 #else
-        using RawHandle = int;
+        using RawHandle                       = int;
         constexpr RawHandle kInvalidRawHandle = -1;
 #endif
 
         struct RawWriter
         {
-            RawHandle   handle = kInvalidRawHandle;
+            RawHandle   handle               = kInvalidRawHandle;
             char        buffer[kWriteBuffer] = {};
-            std::size_t used = 0;
+            std::size_t used                 = 0;
 
             void Flush()
             {
@@ -308,11 +317,11 @@ namespace Common::Crash
         // One resolved stack frame. Filled by the platform walker, printed by the shared writer.
         struct ResolvedFrame
         {
-            std::uint64_t address = 0;
-            char          module[kSmallField] = "";
+            std::uint64_t address              = 0;
+            char          module[kSmallField]  = "";
             char          function[kPathField] = "";
-            char          source[kPathField] = "";
-            bool          inMainModule = false;
+            char          source[kPathField]   = "";
+            bool          inMainModule         = false;
         };
 
         ResolvedFrame g_Frames[kMaxStackFrames];
@@ -377,11 +386,11 @@ namespace Common::Crash::Detail
     // ── The shared crash.txt writer ─────────────────────────────────────────────────────────────
     struct FaultDescription
     {
-        const char*   kind = "exception";
-        std::uint64_t code = 0;
-        bool          codeIsHex = true;
-        const char*   codeName = "unknown";
-        std::uint64_t address = 0;
+        const char*   kind        = "exception";
+        std::uint64_t code        = 0;
+        bool          codeIsHex   = true;
+        const char*   codeName    = "unknown";
+        std::uint64_t address     = 0;
         bool          synthesized = false;
     };
 
@@ -389,9 +398,9 @@ namespace Common::Crash::Detail
     {
         RawHandle file = RawCreateFile(
 #if defined( DESERT_PLATFORM_WINDOWS )
-            g_TxtNative
+             g_TxtNative
 #else
-            g_TxtUtf8
+             g_TxtUtf8
 #endif
         );
         if ( file == kInvalidRawHandle )
@@ -448,7 +457,10 @@ namespace Common::Crash::Detail
         {
             for ( std::size_t i = 0; i < g_FrameCount; ++i )
             {
-                const bool isHandlerInternal = std::strstr( g_Frames[i].function, "Common::Crash::Detail" ) != nullptr;
+                // The second spelling is the Itanium-mangled one: POSIX names stay mangled (no allocation).
+                const bool isHandlerInternal =
+                     std::strstr( g_Frames[i].function, "Common::Crash::Detail" ) != nullptr ||
+                     std::strstr( g_Frames[i].function, "N6Common5Crash6Detail" ) != nullptr;
                 if ( !isHandlerInternal && g_Frames[i].inMainModule )
                 {
                     faultIndex = i;
@@ -462,8 +474,8 @@ namespace Common::Crash::Detail
             writer.Str( "module_offset=" );
             writer.Hex( g_Frames[faultIndex].address );
             writer.Char( '\n' );
-            writer.Field( "function", g_Frames[faultIndex].function[0] != '\0' ? g_Frames[faultIndex].function
-                                                                               : "unknown" );
+            writer.Field( "function",
+                          g_Frames[faultIndex].function[0] != '\0' ? g_Frames[faultIndex].function : "unknown" );
         }
         else
         {
@@ -505,9 +517,9 @@ namespace Common::Crash::Detail
 
         writer.Str( "[log]\n" );
         const std::uint32_t written = g_LogWritten.load( std::memory_order_acquire );
-        const std::uint32_t count =
-             written < static_cast<std::uint32_t>( kLogRingLines ) ? written
-                                                                   : static_cast<std::uint32_t>( kLogRingLines );
+        const std::uint32_t count   = written < static_cast<std::uint32_t>( kLogRingLines )
+                                           ? written
+                                           : static_cast<std::uint32_t>( kLogRingLines );
         for ( std::uint32_t i = 0; i < count; ++i )
         {
             const std::uint32_t slot = ( written - count + i ) % static_cast<std::uint32_t>( kLogRingLines );
@@ -534,16 +546,17 @@ namespace Common::Crash::Detail
         {
             WriteStderr( "[Crash] report written to: " );
             WriteStderr( g_DirUtf8 );
-            WriteStderr( "\n[Crash] no crash reporter executable beside this binary - the report was not sent.\n" );
+            WriteStderr(
+                 "\n[Crash] no crash reporter executable beside this binary - the report was not sent.\n" );
             return;
         }
 
 #if defined( DESERT_PLATFORM_WINDOWS )
-        STARTUPINFOW        startup = {};
-        startup.cb = sizeof( startup );
+        STARTUPINFOW startup        = {};
+        startup.cb                  = sizeof( startup );
         PROCESS_INFORMATION process = {};
-        if ( ::CreateProcessW( g_ReporterNative, g_ReporterCommandLine, nullptr, nullptr, FALSE, 0, nullptr, nullptr,
-                               &startup, &process ) != 0 )
+        if ( ::CreateProcessW( g_ReporterNative, g_ReporterCommandLine, nullptr, nullptr, FALSE, 0, nullptr,
+                               nullptr, &startup, &process ) != 0 )
         {
             ::CloseHandle( process.hThread );
             ::CloseHandle( process.hProcess );
@@ -621,17 +634,18 @@ namespace Common::Crash::Detail
         outFrame.address = inAddress;
 
         HMODULE owner = nullptr;
-        if ( ::GetModuleHandleExW( GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        if ( ::GetModuleHandleExW( GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                    reinterpret_cast<LPCWSTR>( inAddress ), &owner ) != 0 &&
              owner != nullptr )
         {
             wchar_t wide[MAX_PATH] = L"";
             ::GetModuleFileNameW( owner, wide, MAX_PATH );
             const wchar_t* leaf = std::wcsrchr( wide, L'\\' );
-            leaf = ( leaf != nullptr ) ? leaf + 1 : wide;
+            leaf                = ( leaf != nullptr ) ? leaf + 1 : wide;
             ::WideCharToMultiByte( CP_UTF8, 0, leaf, -1, outFrame.module, static_cast<int>( kSmallField ), nullptr,
                                    nullptr );
-            outFrame.address = inAddress - reinterpret_cast<DWORD64>( owner );
+            outFrame.address      = inAddress - reinterpret_cast<DWORD64>( owner );
             outFrame.inMainModule = ( owner == g_MainModule );
         }
 
@@ -639,29 +653,30 @@ namespace Common::Crash::Detail
         // storage is a raw byte array rather than a plain SYMBOL_INFO.
         alignas( SYMBOL_INFO ) char symbolStorage[sizeof( SYMBOL_INFO ) + kPathField] = {};
         SYMBOL_INFO*                symbol = reinterpret_cast<SYMBOL_INFO*>( symbolStorage );
-        symbol->SizeOfStruct = sizeof( SYMBOL_INFO );
-        symbol->MaxNameLen = static_cast<ULONG>( kPathField - 1 );
-        DWORD64 displacement = 0;
+        symbol->SizeOfStruct               = sizeof( SYMBOL_INFO );
+        symbol->MaxNameLen                 = static_cast<ULONG>( kPathField - 1 );
+        DWORD64 displacement               = 0;
         if ( ::SymFromAddr( inProcess, inAddress, &displacement, symbol ) != 0 )
         {
             CopyIntoFixed( outFrame.function, kPathField, symbol->Name );
         }
 
-        IMAGEHLP_LINE64 line = {};
-        line.SizeOfStruct = sizeof( IMAGEHLP_LINE64 );
+        IMAGEHLP_LINE64 line   = {};
+        line.SizeOfStruct      = sizeof( IMAGEHLP_LINE64 );
         DWORD lineDisplacement = 0;
-        if ( ::SymGetLineFromAddr64( inProcess, inAddress, &lineDisplacement, &line ) != 0 && line.FileName != nullptr )
+        if ( ::SymGetLineFromAddr64( inProcess, inAddress, &lineDisplacement, &line ) != 0 &&
+             line.FileName != nullptr )
         {
             const char* leaf = std::strrchr( line.FileName, '\\' );
-            leaf = ( leaf != nullptr ) ? leaf + 1 : line.FileName;
+            leaf             = ( leaf != nullptr ) ? leaf + 1 : line.FileName;
             RawWriter scratch;
             CopyIntoFixed( outFrame.source, kPathField, leaf );
             const std::size_t used = std::strlen( outFrame.source );
             if ( used + 12 < kPathField )
             {
                 outFrame.source[used] = ':';
-                std::size_t   cursor = used + 1;
-                std::uint32_t value = line.LineNumber;
+                std::size_t   cursor  = used + 1;
+                std::uint32_t value   = line.LineNumber;
                 char          digits[12];
                 std::size_t   count = 0;
                 do
@@ -682,19 +697,19 @@ namespace Common::Crash::Detail
     void WalkStack( const CONTEXT& inContext )
     {
         const HANDLE process = ::GetCurrentProcess();
-        const HANDLE thread = ::GetCurrentThread();
+        const HANDLE thread  = ::GetCurrentThread();
 
         // StackWalk64 WRITES to the context it is given, so it gets a copy: the same CONTEXT is
         // handed to MiniDumpWriteDump afterwards and a walked-over one describes the wrong thread.
         CONTEXT walkContext = inContext;
 
-        STACKFRAME64 frame = {};
-        frame.AddrPC.Offset = walkContext.Rip;
-        frame.AddrPC.Mode = AddrModeFlat;
+        STACKFRAME64 frame     = {};
+        frame.AddrPC.Offset    = walkContext.Rip;
+        frame.AddrPC.Mode      = AddrModeFlat;
         frame.AddrFrame.Offset = walkContext.Rbp;
-        frame.AddrFrame.Mode = AddrModeFlat;
+        frame.AddrFrame.Mode   = AddrModeFlat;
         frame.AddrStack.Offset = walkContext.Rsp;
-        frame.AddrStack.Mode = AddrModeFlat;
+        frame.AddrStack.Mode   = AddrModeFlat;
 
         g_FrameCount = 0;
         while ( g_FrameCount < kMaxStackFrames )
@@ -724,19 +739,18 @@ namespace Common::Crash::Detail
         }
 
         MINIDUMP_EXCEPTION_INFORMATION information = {};
-        information.ThreadId = ::GetCurrentThreadId();
-        information.ExceptionPointers = inPointers;
-        information.ClientPointers = FALSE;
+        information.ThreadId                       = ::GetCurrentThreadId();
+        information.ExceptionPointers              = inPointers;
+        information.ClientPointers                 = FALSE;
 
         // WithIndirectlyReferencedMemory is what makes the locals in the faulting frame readable in
         // the debugger; WithThreadInfo carries the other threads' stacks, which is where a deadlock
         // that presents as a crash actually lives. Both are what UE asks for in its default dump.
-        const MINIDUMP_TYPE type = static_cast<MINIDUMP_TYPE>( MiniDumpWithDataSegs | MiniDumpWithHandleData |
-                                                               MiniDumpWithThreadInfo |
-                                                               MiniDumpWithIndirectlyReferencedMemory |
-                                                               MiniDumpWithUnloadedModules );
-        if ( ::MiniDumpWriteDump( ::GetCurrentProcess(), ::GetCurrentProcessId(), file, type, &information, nullptr,
-                                  nullptr ) == FALSE )
+        const MINIDUMP_TYPE type =
+             static_cast<MINIDUMP_TYPE>( MiniDumpWithDataSegs | MiniDumpWithHandleData | MiniDumpWithThreadInfo |
+                                         MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithUnloadedModules );
+        if ( ::MiniDumpWriteDump( ::GetCurrentProcess(), ::GetCurrentProcessId(), file, type, &information,
+                                  nullptr, nullptr ) == FALSE )
         {
             WriteStderr( "[Crash] MiniDumpWriteDump failed\n" );
         }
@@ -764,13 +778,13 @@ namespace Common::Crash::Detail
         WriteMiniDump( inPointers );
 
         FaultDescription fault;
-        fault.kind = inKind;
+        fault.kind        = inKind;
         fault.synthesized = inSynthesized;
         fault.code = inCodeNameOverride != nullptr ? inCodeOverride : inPointers->ExceptionRecord->ExceptionCode;
         fault.codeName = inCodeNameOverride != nullptr
                               ? inCodeNameOverride
                               : ExceptionCodeName( inPointers->ExceptionRecord->ExceptionCode );
-        fault.address = reinterpret_cast<std::uint64_t>( inPointers->ExceptionRecord->ExceptionAddress );
+        fault.address  = reinterpret_cast<std::uint64_t>( inPointers->ExceptionRecord->ExceptionAddress );
         WriteCrashText( fault, ::GetCurrentThreadId() );
 
         LaunchReporter();
@@ -787,12 +801,12 @@ namespace Common::Crash::Detail
         ::RtlCaptureContext( &context );
 
         EXCEPTION_RECORD record = {};
-        record.ExceptionCode = static_cast<DWORD>( inCode );
+        record.ExceptionCode    = static_cast<DWORD>( inCode );
         record.ExceptionAddress = inAddress;
 
         EXCEPTION_POINTERS pointers = {};
-        pointers.ExceptionRecord = &record;
-        pointers.ContextRecord = &context;
+        pointers.ExceptionRecord    = &record;
+        pointers.ContextRecord      = &context;
 
         HandleWindowsFault( &pointers, inKind, true, inCode, inCodeName );
     }
@@ -835,14 +849,14 @@ namespace Common::Crash::Detail
         // RtlGetVersion and not GetVersionEx: the documented API lies to a process without a
         // manifest entry for the running Windows, and a crash report that says "Windows 8" on
         // Windows 11 sends the reader after the wrong thing.
-        using RtlGetVersionFn = LONG( WINAPI* )( PRTL_OSVERSIONINFOW );
-        char        text[kPathField] = "Windows (version unavailable)";
-        const HMODULE ntdll = ::GetModuleHandleW( L"ntdll.dll" );
+        using RtlGetVersionFn          = LONG( WINAPI* )( PRTL_OSVERSIONINFOW );
+        char          text[kPathField] = "Windows (version unavailable)";
+        const HMODULE ntdll            = ::GetModuleHandleW( L"ntdll.dll" );
         if ( ntdll != nullptr )
         {
             const auto getVersion = reinterpret_cast<RtlGetVersionFn>(
                  reinterpret_cast<void*>( ::GetProcAddress( ntdll, "RtlGetVersion" ) ) );
-            RTL_OSVERSIONINFOW version = {};
+            RTL_OSVERSIONINFOW version  = {};
             version.dwOSVersionInfoSize = sizeof( version );
             if ( getVersion != nullptr && getVersion( &version ) == 0 )
             {
@@ -856,7 +870,7 @@ namespace Common::Crash::Detail
         CopyIntoFixed( g_Os, kPathField, text );
 
         wchar_t wideName[MAX_COMPUTERNAME_LENGTH + 1] = L"";
-        DWORD   nameLength = MAX_COMPUTERNAME_LENGTH + 1;
+        DWORD   nameLength                            = MAX_COMPUTERNAME_LENGTH + 1;
         if ( ::GetComputerNameW( wideName, &nameLength ) != 0 )
         {
             char narrow[kSmallField] = "";
@@ -869,8 +883,8 @@ namespace Common::Crash::Detail
     void FreezeNativePaths( const std::filesystem::path& inDirectory, const std::filesystem::path& inReporter )
     {
         const std::wstring directory = inDirectory.wstring();
-        const std::wstring text = ( inDirectory / "crash.txt" ).wstring();
-        const std::wstring dump = ( inDirectory / "crash.dmp" ).wstring();
+        const std::wstring text      = ( inDirectory / "crash.txt" ).wstring();
+        const std::wstring dump      = ( inDirectory / "crash.dmp" ).wstring();
         std::wcsncpy( g_DirNative, directory.c_str(), kPathField - 1 );
         std::wcsncpy( g_TxtNative, text.c_str(), kPathField - 1 );
         std::wcsncpy( g_DmpNative, dump.c_str(), kPathField - 1 );
@@ -920,7 +934,82 @@ namespace Common::Crash::Detail
         }
     }
 
-    void SignalHandler( int inSignal, siginfo_t* inInfo, void* )
+    // The image this file is linked into (Common is static, so: the host executable), taken at Install.
+    // A frame is "ours" when dladdr names the same image base; the skip rule needs it.
+    const void* g_MainBase = nullptr;
+
+    // The interrupted instruction, from the context the kernel handed the handler. backtrace() walks
+    // return addresses from the HANDLER, so the faulting function's own PC is not in it: a leaf that
+    // dereferences null shows up only as its caller.
+    std::uint64_t InterruptedPc( const void* inContext )
+    {
+        if ( inContext == nullptr )
+        {
+            return 0;
+        }
+        const auto* context = static_cast<const ucontext_t*>( inContext );
+#if defined( __APPLE__ ) && defined( __aarch64__ )
+        return static_cast<std::uint64_t>( context->uc_mcontext->__ss.__pc );
+#elif defined( __APPLE__ ) && defined( __x86_64__ )
+        return static_cast<std::uint64_t>( context->uc_mcontext->__ss.__rip );
+#elif defined( __linux__ ) && defined( __x86_64__ )
+        return static_cast<std::uint64_t>( context->uc_mcontext.gregs[REG_RIP] );
+#elif defined( __linux__ ) && defined( __aarch64__ )
+        return static_cast<std::uint64_t>( context->uc_mcontext.pc );
+#else
+        return 0;
+#endif
+    }
+
+    // `inIsReturnAddress`: a backtrace entry is the instruction AFTER a call. The call of a
+    // [[noreturn]] function (abort) is the last instruction of its caller, so that address already
+    // belongs to the NEXT function in the image; the lookup uses the byte before it, as every
+    // unwinder does. The interrupted PC is the faulting instruction itself and is looked up as is.
+    void ResolveFrame( const std::uint64_t inAddress, const bool inIsReturnAddress, ResolvedFrame& outFrame )
+    {
+        outFrame              = {};
+        outFrame.address      = inAddress;
+        outFrame.inMainModule = false;
+        Dl_info info          = {};
+        // dladdr is what backtrace_symbols_fd itself calls on both macOS and glibc; it reads the loader's
+        // image list without allocating. The name stays MANGLED: __cxa_demangle mallocs.
+        const std::uint64_t lookup = inIsReturnAddress && inAddress != 0 ? inAddress - 1 : inAddress;
+        if ( ::dladdr( reinterpret_cast<const void*>( lookup ), &info ) == 0 )
+        {
+            return;
+        }
+        outFrame.address      = inAddress - reinterpret_cast<std::uint64_t>( info.dli_fbase );
+        outFrame.inMainModule = info.dli_fbase == g_MainBase;
+        if ( info.dli_fname != nullptr )
+        {
+            const char* base = std::strrchr( info.dli_fname, '/' );
+            CopyIntoFixed( outFrame.module, kSmallField, base != nullptr ? base + 1 : info.dli_fname );
+        }
+        if ( info.dli_sname != nullptr )
+        {
+            CopyIntoFixed( outFrame.function, kPathField, info.dli_sname );
+        }
+    }
+
+    // Frame 0 is the interrupted PC, then the handler's own backtrace (handler, trampoline, and the
+    // callers of the faulting function). Every POSIX report is therefore `synthesized`: the skip rule
+    // picks the innermost frame outside Common::Crash::Detail in the host image.
+    void CaptureFrames( const void* inContext )
+    {
+        g_FrameCount = 0;
+        if ( const std::uint64_t pc = InterruptedPc( inContext ); pc != 0 )
+        {
+            ResolveFrame( pc, false, g_Frames[g_FrameCount++] );
+        }
+        void*     addresses[kMaxStackFrames];
+        const int count = ::backtrace( addresses, static_cast<int>( kMaxStackFrames ) );
+        for ( int i = 0; i < count && g_FrameCount < kMaxStackFrames; ++i )
+        {
+            ResolveFrame( reinterpret_cast<std::uint64_t>( addresses[i] ), true, g_Frames[g_FrameCount++] );
+        }
+    }
+
+    void SignalHandler( int inSignal, siginfo_t* inInfo, void* inContext )
     {
         if ( g_InHandler.exchange( true ) )
         {
@@ -929,36 +1018,18 @@ namespace Common::Crash::Detail
 
         RawCreateDirectory();
 
-        // NOTHING BELOW MAY ALLOCATE. backtrace() fills a caller-supplied array and
-        // backtrace_symbols_fd() writes straight to a descriptor — unlike backtrace_symbols(), which
-        // mallocs and is therefore unusable here (the allocator's lock may be held by the thread we
-        // just interrupted). The symbolised frames go into crash.txt as a raw tail, so the [stack]
-        // section written by the shared writer stays empty on this platform and the reader gets the
-        // frames from [stack_raw] instead.
-        g_FrameCount = 0;
+        // NOTHING BELOW MAY ALLOCATE: backtrace() fills a caller-supplied array, dladdr reads the
+        // loader's list, and the frames land in the fixed g_Frames, so the shared writer emits [stack].
+        CaptureFrames( inContext );
 
         FaultDescription fault;
-        fault.kind = "signal";
-        fault.code = static_cast<std::uint64_t>( inSignal );
-        fault.codeIsHex = false;
-        fault.codeName = SignalName( inSignal );
-        fault.address = reinterpret_cast<std::uint64_t>( inInfo != nullptr ? inInfo->si_addr : nullptr );
-        fault.synthesized = false;
+        fault.kind        = "signal";
+        fault.code        = static_cast<std::uint64_t>( inSignal );
+        fault.codeIsHex   = false;
+        fault.codeName    = SignalName( inSignal );
+        fault.address     = reinterpret_cast<std::uint64_t>( inInfo != nullptr ? inInfo->si_addr : nullptr );
+        fault.synthesized = true;
         WriteCrashText( fault, static_cast<std::uint64_t>( ::getpid() ) );
-
-        // Appended after the structured body, in its own section, by the only symboliser that is
-        // legal in a signal handler.
-        const int file = ::open( g_TxtUtf8, O_WRONLY | O_APPEND );
-        if ( file >= 0 )
-        {
-            static const char kHeader[] = "[stack_raw]\n";
-            const ssize_t     headerWritten = ::write( file, kHeader, sizeof( kHeader ) - 1 );
-            (void)headerWritten;
-            void*     addresses[kMaxStackFrames];
-            const int count = ::backtrace( addresses, static_cast<int>( kMaxStackFrames ) );
-            ::backtrace_symbols_fd( addresses, count, file );
-            ::close( file );
-        }
 
         LaunchReporter();
         TerminateAfterReport();
@@ -966,16 +1037,24 @@ namespace Common::Crash::Detail
 
     void InstallPlatformHandlers()
     {
-        stack_t alternate = {};
-        alternate.ss_sp = g_AltStack;
-        alternate.ss_size = kAltStackSize;
+        Dl_info self = {};
+        if ( ::dladdr( reinterpret_cast<const void*>( &InstallPlatformHandlers ), &self ) != 0 )
+        {
+            g_MainBase = self.dli_fbase;
+        }
+
+        stack_t alternate  = {};
+        alternate.ss_sp    = g_AltStack;
+        alternate.ss_size  = kAltStackSize;
         alternate.ss_flags = 0;
         ::sigaltstack( &alternate, nullptr );
 
         struct sigaction action = {};
-        action.sa_sigaction = &SignalHandler;
-        action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
-        ::sigemptyset( &action.sa_mask );
+        action.sa_sigaction     = &SignalHandler;
+        action.sa_flags         = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+        // Unqualified on purpose: macOS <signal.h> defines sigemptyset as a MACRO, and `::sigemptyset(`
+        // does not compile there (the first POSIX build of this file, PKG1).
+        sigemptyset( &action.sa_mask );
 
         const int signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
         for ( const int number : signals )
@@ -986,7 +1065,7 @@ namespace Common::Crash::Detail
 
     void FormatOsDescription()
     {
-        utsname system = {};
+        utsname system           = {};
         char    text[kPathField] = "unknown";
         if ( ::uname( &system ) == 0 )
         {
@@ -1005,7 +1084,7 @@ namespace Common::Crash::Detail
             g_ReporterArgv[0] = g_ReporterUtf8;
             g_ReporterArgv[1] = g_DirUtf8;
             g_ReporterArgv[2] = nullptr;
-            g_HasReporter = true;
+            g_HasReporter     = true;
         }
     }
 } // namespace Common::Crash::Detail
@@ -1023,6 +1102,10 @@ namespace Common::Crash
             if ( !inOptions.reportRootOverride.empty() )
             {
                 return inOptions.reportRootOverride;
+            }
+            if ( !inOptions.gameUserDirectory.empty() )
+            {
+                return inOptions.gameUserDirectory / "Crashes";
             }
             if ( !inOptions.projectRoot.empty() )
             {
@@ -1050,15 +1133,15 @@ namespace Common::Crash
         std::filesystem::path ExecutableDirectory()
         {
 #if defined( DESERT_PLATFORM_WINDOWS )
-            wchar_t path[MAX_PATH] = L"";
-            const DWORD length = ::GetModuleFileNameW( nullptr, path, MAX_PATH );
+            wchar_t     path[MAX_PATH] = L"";
+            const DWORD length         = ::GetModuleFileNameW( nullptr, path, MAX_PATH );
             if ( length == 0 )
             {
                 return {};
             }
             return std::filesystem::path( std::wstring( path, length ) ).parent_path();
 #else
-            std::error_code error;
+            std::error_code             error;
             const std::filesystem::path self = std::filesystem::read_symlink( "/proc/self/exe", error );
             if ( !error )
             {
@@ -1070,7 +1153,7 @@ namespace Common::Crash
 
         std::string FormatStartStamp()
         {
-            const std::time_t now = std::time( nullptr );
+            const std::time_t now   = std::time( nullptr );
             std::tm           local = {};
 #if defined( DESERT_PLATFORM_WINDOWS )
             ::localtime_s( &local, &now );

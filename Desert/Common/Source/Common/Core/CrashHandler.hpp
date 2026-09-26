@@ -34,6 +34,12 @@ namespace Common::Crash
         // Project root, or empty for the per-user location. See above.
         std::filesystem::path projectRoot;
 
+        // THE GAME'S OWN per-user directory, Common::Settings::GameUserDirectory(<.deproj Name>) (PKG1).
+        // Non-empty wins over projectRoot: reports go to `<it>/Crashes`, because a game's install folder
+        // is read-only (Program Files, a signed .app) and every file a player's run writes belongs in the
+        // one folder beside machine.json and the pipeline cache. Empty in the editor and the tools.
+        std::filesystem::path gameUserDirectory;
+
         // Overrides the report root outright, both branches above. Only tests pass this: a suite must
         // never write into the developer's real crash folder, and it must be able to assert on what it
         // wrote. Empty in every shipping host.

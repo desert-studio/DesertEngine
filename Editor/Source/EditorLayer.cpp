@@ -4113,8 +4113,7 @@ namespace Desert::Editor
         // QA machine with the editor they are already running, not only on a build that was compiled for
         // the purpose. It refuses when the handler is not installed, rather than killing the process and
         // leaving nothing: that refusal IS the useful answer.
-        commands.push_back( { "Debug", "Crash (test)",
-                              []
+        commands.push_back( { "Debug", "Crash (test)", []
                               {
                                   if ( !Common::Crash::IsInstalled() )
                                   {

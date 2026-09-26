@@ -131,33 +131,6 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                   ? fs::path( Desert::Project::ProjectContext::Directory() )
                                   : ( exePath.empty() ? fs::current_path() : exePath.parent_path() );
 
-    // THE CRASH HANDLER, INSTALLED AS SOON AS THERE IS A PLACE TO PUT A REPORT. `baseDir` is the
-    // project folder in dev and the installed game's folder when packaged, so a player's crash lands
-    // in <game>/Saved/Crashes — beside the game, where a support request can ask for it by name —
-    // rather than in a per-user folder the player cannot find. Before the archives mount, because a
-    // corrupt .dpak is one of the faults worth a report.
-    {
-        Common::Crash::InstallOptions crashOptions;
-        crashOptions.hostName    = "Runtime";
-        crashOptions.projectRoot = baseDir;
-        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
-             !installed.IsSuccess() )
-        {
-            FailStartup( "Crash handler: " + installed.GetError(), 1 );
-        }
-    }
-
-    if ( !crashTestArg.empty() )
-    {
-        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
-        if ( !kind.has_value() )
-        {
-            FailStartup( "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall",
-                         2 );
-        }
-        Common::Crash::TriggerTestCrash( *kind );
-    }
-
     // Mount the base archive (skipped in dev if there is none — reads stay plain disk reads), then any
     // Patch*.dpak ON TOP in name order (later overrides earlier), so shipping a fix = dropping one pak.
     //
@@ -212,6 +185,34 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
                                   "  Dev:      pass --project <path/to/.deproj> [--scene <path/to/.desce>].",
                                   exePath.stem().string(), Desert::Project::kPackagedDescriptorName ),
                      1 );
+    }
+
+    // THE CRASH HANDLER, INSTALLED AS SOON AS THERE IS A PLACE TO PUT A REPORT: the game's own per-user
+    // directory, GameUserDirectory(<.deproj Name>)/Crashes (PKG1), beside machine.json and the pipeline
+    // cache. Not <install>/Saved/Crashes: a player's install folder is read-only (Program Files, a signed
+    // .app). The Name is known only once the descriptor is open, so this follows the archive mount; a
+    // damaged archive is a refusal with a message above, not a crash.
+    {
+        Common::Crash::InstallOptions crashOptions;
+        crashOptions.hostName = "Runtime";
+        crashOptions.gameUserDirectory =
+             Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name );
+        if ( const Common::BoolResultStr installed = Common::Crash::Install( crashOptions );
+             !installed.IsSuccess() )
+        {
+            FailStartup( "Crash handler: " + installed.GetError(), 1 );
+        }
+    }
+
+    if ( !crashTestArg.empty() )
+    {
+        const std::optional<Common::Crash::TestKind> kind = Common::Crash::ParseTestKind( crashTestArg );
+        if ( !kind.has_value() )
+        {
+            FailStartup(
+                 "--crash-test '" + crashTestArg + "' is not a crash kind; it knows: segv, abort, purecall", 2 );
+        }
+        Common::Crash::TriggerTestCrash( *kind );
     }
 
     // Through the logger, so a support ticket's engine_log.txt says which BUILD and which content set
