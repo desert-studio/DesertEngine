@@ -2,6 +2,7 @@
 // adapted: UE Core via UECore.hpp; LocalIntArray is TArray<int32_t> so its explicit instantiations collapse into
 // the TArray ones; GetVertexFrame/GetTriFrame (Frame3d) not ported; bounds are computed serially.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
@@ -189,7 +190,7 @@ MeshResult DynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tria
     SpanLengths.clear();
     IsLoop.clear();
 
-    if ( !UE_ENSURE( IsVertex( VertexID ) ) )
+    if ( !Common::EnsureOrWarn( IsVertex( VertexID ), "IsVertex( VertexID )" ) )
     {
         return MeshResult::Failed_NotAVertex;
     }
@@ -283,7 +284,7 @@ MeshResult DynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tria
             if ( NextTriID == InvalidID )
             {
                 // remove the corresponding boundary
-                UE_CHECK_SLOW( !StartEdgeIDs.empty() );
+                assert( !StartEdgeIDs.empty() );
                 if ( !StartEdgeIDs.empty() )
                 {
                     // UE RemoveSingleSwap: the first equal element takes the last one's place.
@@ -302,8 +303,9 @@ MeshResult DynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tria
         SpanLengths.push_back( static_cast<int32_t>( TrianglesOut.size() ) - SpanStart );
     }
 
-    return UE_ENSURE( SpanLengths.size() == IsLoop.size() ) ? MeshResult::Ok
-                                                            : MeshResult::Failed_InvalidNeighbourhood;
+    return Common::EnsureOrWarn( SpanLengths.size() == IsLoop.size(), "SpanLengths.size() == IsLoop.size()" )
+                ? MeshResult::Ok
+                : MeshResult::Failed_InvalidNeighbourhood;
 }
 
 template MeshResult DynamicMesh3::GetVtxContiguousTriangles<std::vector<int32_t>, std::vector<bool>>(
@@ -312,7 +314,7 @@ template MeshResult DynamicMesh3::GetVtxContiguousTriangles<std::vector<int32_t>
 
 bool DynamicMesh3::IsBoundaryVertex( int vID ) const
 {
-    UE_CHECK_SLOW( IsVertex( vID ) );
+    assert( IsVertex( vID ) );
     if ( IsVertex( vID ) )
     {
         for ( int eid : VertexEdgeLists.Values( vID ) )
@@ -328,7 +330,7 @@ bool DynamicMesh3::IsBoundaryVertex( int vID ) const
 
 bool DynamicMesh3::IsBoundaryTriangle( int tID ) const
 {
-    UE_CHECK_SLOW( IsTriangle( tID ) );
+    assert( IsTriangle( tID ) );
     if ( IsTriangle( tID ) )
     {
         const Index3i& TriEdgeIDs = TriangleEdges[tID];
@@ -355,7 +357,7 @@ Index2i DynamicMesh3::GetOrientedBoundaryEdgeV( int eID ) const
             return Index2i( tri[ai], tri[( ai + 1 ) % 3] );
         }
     }
-    UE_CHECK_SLOW( false );
+    assert( false );
     return InvalidEdge;
 }
 
@@ -716,7 +718,7 @@ glm::dvec3 DynamicMesh3::GetEdgeNormal( int eID ) const
         }
         return n;
     }
-    UE_CHECK_SLOW( false );
+    assert( false );
     return glm::dvec3( 0 );
 }
 
@@ -731,7 +733,7 @@ glm::dvec3 DynamicMesh3::GetEdgePoint( int eID, double t ) const
         double    mt    = 1.0 - t;
         return mt * Vertices[iv0] + t * Vertices[iv1];
     }
-    UE_CHECK_SLOW( false );
+    assert( false );
     return glm::dvec3( 0 );
 }
 
@@ -784,7 +786,7 @@ glm::dvec3 DynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, d
 
 glm::dvec3 DynamicMesh3::GetTriBaryNormal( int tID, double bary0, double bary1, double bary2 ) const
 {
-    UE_CHECK_SLOW( HasVertexNormals() );
+    assert( HasVertexNormals() );
     if ( HasVertexNormals() )
     {
         const Index3i&                  tIDs     = Triangles[tID];

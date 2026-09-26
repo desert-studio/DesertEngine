@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
@@ -110,7 +111,7 @@ void MeshNormals::CopyToVertexNormals( DynamicMesh3* SetMesh, bool bInvert ) con
 
 void MeshNormals::GetVertexNormalsFromOverlayNormals( CombineSplitNormalsMethod CombineSplitNormals )
 {
-    UE_CHECK( Mesh );
+    assert( Mesh );
 
     // no overlay to copy from
     if ( !Mesh->HasAttributes() || !Mesh->Attributes()->PrimaryNormals() )
@@ -238,7 +239,7 @@ void MeshNormals::Compute_Triangle()
 
 void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 {
-    UE_CHECK( static_cast<int32_t>( Normals.size() ) >= Mesh->MaxTriangleID() );
+    assert( static_cast<int32_t>( Normals.size() ) >= Mesh->MaxTriangleID() );
 
     // We're going to look through the triangles and set any zero normals
     // to the normal of their neighbor, preferring to go toward the neighbor
@@ -252,7 +253,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
         WalkedTidsOut.clear();
         NonDegenerateNeighborTidOut = DynamicMesh3::InvalidID;
 
-        UE_CHECK( StartTid != DynamicMesh3::InvalidID && Normals[StartTid] == glm::dvec3( 0 ) );
+        assert( StartTid != DynamicMesh3::InvalidID && Normals[StartTid] == glm::dvec3( 0 ) );
 
         // We don't like recursion, so we use a little stack instead to help us prioritize
         // the longer-side neighbors in our walk.
@@ -281,7 +282,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             // Sanity check so we don't go forever
             if ( static_cast<int32_t>( WalkedTidsOut.size() ) > Mesh->MaxTriangleID() )
             {
-                UE_CHECK( false );
+                assert( false );
                 return;
             }
 
@@ -353,16 +354,15 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             // Make sure there was a non-degenerate neighbor.
             if ( NonDegenerateNeighborTid == DynamicMesh3::InvalidID )
             {
-                UE_ENSURE_MSGF( false,
-                                TEXT( "MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal: "
-                                      "Had a component entirely composed of degenerate triangle normals." ) );
+                DESERT_VERIFY_WARN( false, "MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal: Had a "
+                                           "component entirely composed of degenerate triangle normals." );
                 IslandDegenerates.insert( CurrentWalkedTids.begin(), CurrentWalkedTids.end() );
             }
             else
             {
                 // Apply the neighbor normal.
                 glm::dvec3 NormalToUse = Normals[NonDegenerateNeighborTid];
-                UE_CHECK( NormalToUse != glm::dvec3( 0 ) );
+                assert( NormalToUse != glm::dvec3( 0 ) );
 
                 for ( int32_t const WalkedTid : CurrentWalkedTids )
                 {
@@ -801,7 +801,7 @@ void MeshNormals::InitializeOverlayTopologyFromOpeningAngle( const DynamicMesh3*
 void MeshNormals::InitializeOverlayTopologyFromFaceGroups( const DynamicMesh3*        Mesh,
                                                            FDynamicMeshNormalOverlay* NormalOverlay )
 {
-    UE_ENSURE( Mesh->HasTriangleGroups() );
+    DESERT_VERIFY_WARN( Mesh->HasTriangleGroups() );
     NormalOverlay->CreateFromPredicate( [Mesh]( int VID, int TA, int TB )
                                         { return Mesh->GetTriangleGroup( TA ) == Mesh->GetTriangleGroup( TB ); },
                                         0 );

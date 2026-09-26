@@ -132,7 +132,7 @@ bool MeshBoundaryLoops::Compute()
             }
             else
             {
-                UE_CHECK( E0 == ECur || E1 == ECur );
+                assert( E0 == ECur || E1 == ECur );
                 ENext = ( E0 == ECur ) ? E1 : E0;
             }
 
@@ -286,7 +286,7 @@ bool MeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<in
             Bv = BvShortest;
             IsSimpleBowtieLoop( LoopV, Dupes, Bv, StartI, EndI );
         }
-        UE_CHECK( LoopV[StartI] == Bv && LoopV[EndI] == Bv );
+        assert( LoopV[StartI] == Bv && LoopV[EndI] == Bv );
 
         VerticesTemp.clear();
         ExtractSpan( LoopV, StartI, EndI, true, VerticesTemp );

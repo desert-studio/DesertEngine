@@ -95,7 +95,7 @@ namespace Desert::Geometry
 
             int OtherGroupID( int GroupID ) const
             {
-                UE_CHECK( Groups.A == GroupID || Groups.B == GroupID );
+                assert( Groups.A == GroupID || Groups.B == GroupID );
                 return ( Groups.A == GroupID ) ? Groups.B : Groups.A;
             }
             bool IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const;

@@ -63,7 +63,7 @@ namespace Desert::Geometry
         /** @return the parameter to pass to DynamicMesh3::SplitEdge to split the edge at this point */
         [[nodiscard]] double GetEdgeSplitParam() const
         {
-            UE_CHECK_SLOW( PointType == SurfacePointType::Edge );
+            assert( PointType == SurfacePointType::Edge );
             return BaryCoord[1];
         }
 

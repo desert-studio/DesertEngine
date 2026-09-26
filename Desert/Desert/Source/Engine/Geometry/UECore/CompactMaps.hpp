@@ -141,14 +141,14 @@ namespace Desert::Geometry
         /** Set mapping for a vertex */
         void SetVertexMapping( int32_t FromID, int32_t ToID )
         {
-            UE_CHECK_SLOW( FromID >= ToID );
+            assert( FromID >= ToID );
             VertMap[FromID] = ToID;
         }
 
         /** Set mapping for a triangle */
         void SetTriangleMapping( int32_t FromID, int32_t ToID )
         {
-            UE_CHECK_SLOW( FromID >= ToID );
+            assert( FromID >= ToID );
             TriMap[FromID] = ToID;
         }
 

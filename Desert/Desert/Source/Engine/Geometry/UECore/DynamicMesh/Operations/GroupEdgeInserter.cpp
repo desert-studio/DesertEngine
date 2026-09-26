@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <Common/Core/Core.hpp>
 
 namespace Desert::Geometry
 {
@@ -44,7 +45,7 @@ namespace Desert::Geometry
             }
 
             const GroupTopology::Group* Group = Topology.FindGroupByID( GroupID );
-            UE_CHECK( Group );
+            assert( Group );
 
             for ( int32_t i = 0; i < static_cast<int32_t>( Group->Boundaries.size() ); ++i )
             {
@@ -225,7 +226,7 @@ namespace Desert::Geometry
                 {
                     // Target must be on the edge that goes to the next vertex
                     const int32_t CurrentEid = Params.Mesh->FindEdge( CurrentVid, SpanVids[NextIndex] );
-                    if ( !UE_ENSURE( CurrentEid >= 0 ) )
+                    if ( !Common::EnsureOrWarn( CurrentEid >= 0, "CurrentEid >= 0" ) )
                     {
                         return false;
                     }
@@ -312,7 +313,7 @@ namespace Desert::Geometry
             }
 
             const glm::dvec3 CutPlaneNormal = Normalized( NormalA + NormalB );
-            if ( !UE_ENSURE( CutPlaneNormal != glm::dvec3( 0 ) ) )
+            if ( !Common::EnsureOrWarn( CutPlaneNormal != glm::dvec3( 0 ), "CutPlaneNormal != glm::dvec3( 0 )" ) )
             {
                 return false;
             }
@@ -361,7 +362,7 @@ namespace Desert::Geometry
                     CrossedEids.insert( CurrentElementID );
                 }
 
-                if ( !UE_ENSURE( PointCount < Mesh.EdgeCount() ) )
+                if ( !Common::EnsureOrWarn( PointCount < Mesh.EdgeCount(), "PointCount < Mesh.EdgeCount()" ) )
                 {
                     return false;
                 }
@@ -566,7 +567,7 @@ namespace Desert::Geometry
                 }
 
                 ++PointCount;
-                UE_CHECK( PointCount == static_cast<int32_t>( OutputPath.size() ) );
+                assert( PointCount == static_cast<int32_t>( OutputPath.size() ) );
                 CurrentElementID      = OutputPath.back().first.ElementID;
                 bCurrentPointIsVertex = ( OutputPath.back().first.PointType == SurfacePointType::Vertex );
             }
@@ -586,13 +587,15 @@ namespace Desert::Geometry
             // different point from the one the loop continues from on the other side.
             std::unordered_set<int32_t>   DisallowedVids;
             const GroupTopology::Group*   Group = Topology.FindGroupByID( GroupID );
-            if ( UE_ENSURE( Group ) )
+            if ( Common::EnsureOrWarn( Group, "Group" ) )
             {
                 for ( const GroupTopology::GroupBoundary& Boundary : Group->Boundaries )
                 {
                     for ( const int32_t GroupEdgeID : Boundary.GroupEdges )
                     {
-                        if ( UE_ENSURE( GroupEdgeID < static_cast<int32_t>( Topology.Edges.size() ) ) )
+                        if ( Common::EnsureOrWarn(
+                                  GroupEdgeID < static_cast<int32_t>( Topology.Edges.size() ),
+                                  "GroupEdgeID < static_cast<int32_t>( Topology.Edges.size() )" ) )
                         {
                             DisallowedVids.insert( Topology.Edges[GroupEdgeID].Span.Vertices.begin(),
                                                    Topology.Edges[GroupEdgeID].Span.Vertices.end() );
@@ -607,7 +610,7 @@ namespace Desert::Geometry
             {
                 return false;
             }
-            UE_CHECK( static_cast<int32_t>( CutPath.size() ) >= 2 );
+            assert( static_cast<int32_t>( CutPath.size() ) >= 2 );
 
             if ( ChangedTrisOut != nullptr )
             {
@@ -633,12 +636,12 @@ namespace Desert::Geometry
             {
                 return false;
             }
-            UE_CHECK( static_cast<int32_t>( PathVertices.size() ) >= 2 );
+            assert( static_cast<int32_t>( PathVertices.size() ) >= 2 );
 
             for ( int32_t i = 1; i < static_cast<int32_t>( PathVertices.size() ); ++i )
             {
                 const int32_t Eid = Mesh.FindEdge( PathVertices[i - 1], PathVertices[i] );
-                if ( UE_ENSURE( Eid >= 0 ) )
+                if ( Common::EnsureOrWarn( Eid >= 0, "Eid >= 0" ) )
                 {
                     PathEidsOut.insert( Eid );
                 }
@@ -802,11 +805,11 @@ namespace Desert::Geometry
     {
         using namespace GroupEdgeInserterLocals;
 
-        UE_CHECK( Params.Mesh );
-        UE_CHECK( Params.Topology );
-        UE_CHECK( Params.SortedInputLengths );
-        UE_CHECK( Params.GroupEdgeID != InvalidID );
-        UE_CHECK( Params.StartCornerID != InvalidID );
+        assert( Params.Mesh );
+        assert( Params.Topology );
+        assert( Params.SortedInputLengths );
+        assert( Params.GroupEdgeID != InvalidID );
+        assert( Params.StartCornerID != InvalidID );
 
         const GroupTopology::GroupEdge& GroupEdge = Params.Topology->Edges[Params.GroupEdgeID];
 
@@ -875,11 +878,11 @@ namespace Desert::Geometry
     {
         using namespace GroupEdgeInserterLocals;
 
-        UE_CHECK( Params.Mesh );
-        UE_CHECK( Params.Topology );
-        UE_CHECK( Params.GroupID != InvalidID );
-        UE_CHECK( Params.StartPoint.ElementID != InvalidID );
-        UE_CHECK( Params.EndPoint.ElementID != InvalidID );
+        assert( Params.Mesh );
+        assert( Params.Topology );
+        assert( Params.GroupID != InvalidID );
+        assert( Params.StartPoint.ElementID != InvalidID );
+        assert( Params.EndPoint.ElementID != InvalidID );
 
         if ( Params.StartPoint.bIsVertex == Params.EndPoint.bIsVertex &&
              Params.StartPoint.ElementID == Params.EndPoint.ElementID )

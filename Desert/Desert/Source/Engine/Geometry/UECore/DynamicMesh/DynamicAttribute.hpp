@@ -6,6 +6,7 @@
 #include "Engine/Geometry/UECore/UECore.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include <Common/Core/Core.hpp>
 
 namespace Desert::Geometry
 {
@@ -315,16 +316,16 @@ namespace Desert::Geometry
         }
         virtual void OnMergeVertices( const DynamicMeshInfo::MergeVerticesInfo& MergeInfo )
         {
-            if ( !UE_ENSURE_MSGF( !MergeInfo.EdgeCollapseInfo.has_value(),
-                                  TEXT( "Vertex merge that resolves as edge collapse "
-                                        "is expected to have called OnCollapseEdge, not OnMergeVertices." ) ) )
+            if ( !Common::EnsureOrWarn( !MergeInfo.EdgeCollapseInfo.has_value(),
+                                        "Vertex merge that resolves as edge collapse is expected to have called "
+                                        "OnCollapseEdge, not OnMergeVertices." ) )
             {
                 OnCollapseEdge( MergeInfo.EdgeCollapseInfo.value() );
                 return;
             }
-            if ( !UE_ENSURE_MSGF( !MergeInfo.MergeEdgesInfo.has_value(),
-                                  TEXT( "Vertex merge that resolves as edge merge "
-                                        "is expected to have called OnMergeEdges, not OnMergeVertices." ) ) )
+            if ( !Common::EnsureOrWarn( !MergeInfo.MergeEdgesInfo.has_value(),
+                                        "Vertex merge that resolves as edge merge is expected to have called "
+                                        "OnMergeEdges, not OnMergeVertices." ) )
             {
                 OnMergeEdges( MergeInfo.MergeEdgesInfo.value() );
                 return;

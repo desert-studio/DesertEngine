@@ -218,8 +218,8 @@ bool GroupTopology::GenerateBoundaryAndGroupEdges(
             Edge.Span.InitializeFromVertices( *Mesh, SpanVertices );
             Edge.EndpointCorners = Index2i( GetCornerIDFromVertexID( SpanVertices[0] ),
                                             GetCornerIDFromVertexID( SpanVertices.back() ) );
-            UE_CHECK( Edge.EndpointCorners.A != IndexConstants::InvalidID &&
-                      Edge.EndpointCorners.B != IndexConstants::InvalidID );
+            assert( Edge.EndpointCorners.A != IndexConstants::InvalidID &&
+                    Edge.EndpointCorners.B != IndexConstants::InvalidID );
             Edges.push_back( Edge );
             const int EdgeIndex = static_cast<int32_t>( Edges.size() ) - 1;
             Boundary.GroupEdges.push_back( EdgeIndex );
@@ -243,7 +243,7 @@ Index2i GroupTopology::MakeEdgeGroupsPair( int MeshEdgeID ) const
 
 int GroupTopology::GetCornerVertexID( int CornerID ) const
 {
-    UE_CHECK( CornerID >= 0 && CornerID < static_cast<int32_t>( Corners.size() ) );
+    assert( CornerID >= 0 && CornerID < static_cast<int32_t>( Corners.size() ) );
     return Corners[CornerID].VertexID;
 }
 
@@ -297,13 +297,13 @@ int GroupTopology::FindGroupEdgeID( int MeshEdgeID ) const
 
 const std::vector<int>& GroupTopology::GetGroupEdgeVertices( int GroupEdgeID ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
     return Edges[GroupEdgeID].Span.Vertices;
 }
 
 const std::vector<int>& GroupTopology::GetGroupEdgeEdges( int GroupEdgeID ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
     return Edges[GroupEdgeID].Span.Edges;
 }
 
@@ -316,7 +316,7 @@ void GroupTopology::FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& Groups
 
 void GroupTopology::FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
     const GroupEdge& Edge = Edges[GroupEdgeID];
     if ( Edge.EndpointCorners.A != IndexConstants::InvalidID )
     {
@@ -331,7 +331,7 @@ void GroupTopology::FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOu
 // UE GroupTopology.cpp:357-377.
 double GroupTopology::GetEdgeArcLength( int32_t GroupEdgeID, std::vector<double>* PerVertexLengthsOut ) const
 {
-    UE_CHECK( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
+    assert( GroupEdgeID >= 0 && GroupEdgeID < static_cast<int32_t>( Edges.size() ) );
     const std::vector<int>& Vertices = GetGroupEdgeVertices( GroupEdgeID );
     const int32_t           NumV     = static_cast<int32_t>( Vertices.size() );
     if ( PerVertexLengthsOut != nullptr )
@@ -368,7 +368,7 @@ bool GroupTopology::IsIsolatedLoop( int32_t GroupEdgeID ) const
 
 void GroupTopology::FindCornerNbrGroups( int CornerID, std::vector<int>& GroupsOut ) const
 {
-    UE_CHECK( CornerID >= 0 && CornerID < static_cast<int32_t>( Corners.size() ) );
+    assert( CornerID >= 0 && CornerID < static_cast<int32_t>( Corners.size() ) );
     for ( int GroupID : Corners[CornerID].NeighbourGroupIDs )
     {
         if ( std::find( GroupsOut.begin(), GroupsOut.end(), GroupID ) == GroupsOut.end() )
@@ -381,7 +381,7 @@ void GroupTopology::FindCornerNbrGroups( int CornerID, std::vector<int>& GroupsO
 void GroupTopology::ForCornerNbrEdges( int                                          CornerID,
                                        const std::function<bool( int32_t EdgeID )>& ReturnTrueToContinue ) const
 {
-    UE_CHECK( CornerID >= 0 && CornerID < static_cast<int32_t>( Corners.size() ) );
+    assert( CornerID >= 0 && CornerID < static_cast<int32_t>( Corners.size() ) );
     std::unordered_set<int32_t> ProcessedEdges;
     for ( int GroupID : Corners[CornerID].NeighbourGroupIDs )
     {

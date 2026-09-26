@@ -135,7 +135,7 @@ namespace Desert::Geometry
          */
         [[nodiscard]] int32_t GetCount( int32_t ListIndex ) const
         {
-            UE_CHECK_SLOW( ListIndex >= 0 );
+            assert( ListIndex >= 0 );
             int32_t const block_ptr = ListHeads[ListIndex];
             return ( block_ptr == NullValue ) ? 0 : ListBlocks[block_ptr];
         }
@@ -146,7 +146,7 @@ namespace Desert::Geometry
          */
         [[nodiscard]] int32_t First( int32_t ListIndex ) const
         {
-            UE_CHECK_SLOW( ListIndex >= 0 );
+            assert( ListIndex >= 0 );
             int32_t const block_ptr = ListHeads[ListIndex];
             return ListBlocks[block_ptr + 1];
         }

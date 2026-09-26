@@ -6,6 +6,7 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 
 #include <array>
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
@@ -98,7 +99,9 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreateFromPredicate(
         {
             bool bIsLoop  = GroupIsLoop[GroupIdx];
             int  GroupNum = TriangleContigGroupLens[GroupIdx];
-            if ( !UE_ENSURE( GroupNum > 0 ) ) // sanity check; groups should always have at least one element
+            if ( !Common::EnsureOrWarn(
+                      GroupNum > 0,
+                      "GroupNum > 0" ) ) // sanity check; groups should always have at least one element
             {
                 continue;
             }
@@ -184,8 +187,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitEl
         {
             ElementID          = VertexID;
             MeshResult Result  = InsertElement( VertexID, DefaultElement.data() );
-            UE_CHECK_SLOW( Result == MeshResult::Ok ); // because we allocate in increasing sequential order,
-                                                       // shouldn't be possible InsertElement to return failure
+            assert( Result == MeshResult::Ok ); // because we allocate in increasing sequential order,
+                                                // shouldn't be possible InsertElement to return failure
         }
         else
         {
@@ -198,7 +201,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::CreatePerVertex( RealType InitEl
         }
         else
         {
-            UE_CHECK_SLOW( VertexID == ElementID );
+            assert( VertexID == ElementID );
         }
     }
 
@@ -286,7 +289,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::MergeElement( int SourceElementI
         }
     };
 
-    UE_CHECK_SLOW( SourceParentID == TargetParentID );
+    assert( SourceParentID == TargetParentID );
     if ( SourceParentID != TargetParentID )
     {
         return false;
@@ -294,8 +297,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::MergeElement( int SourceElementI
 
     ParentMesh->EnumerateVertexTriangles( SourceParentID, MergeElementForTriangle );
 
-    UE_CHECK_SLOW( ElementsRefCounts.IsValid( SourceElementID ) );
-    UE_CHECK_SLOW( ElementsRefCounts.GetRefCount( SourceElementID ) == 1 );
+    assert( ElementsRefCounts.IsValid( SourceElementID ) );
+    assert( ElementsRefCounts.GetRefCount( SourceElementID ) == 1 );
     if ( ElementsRefCounts.GetRefCount( SourceElementID ) == 1 )
     {
         ElementsRefCounts.Decrement( SourceElementID );
@@ -336,7 +339,7 @@ int DynamicMeshOverlay<RealType, ElementSize>::SplitElementWithNewParent(
     }
     ParentVertices.InsertAt( NewParentID, NewElID, DynamicMesh3::InvalidID );
 
-    UE_CHECK_SLOW( ElementsRefCounts.IsValid( ElementID ) );
+    assert( ElementsRefCounts.IsValid( ElementID ) );
 
     // An element may have become isolated after changing all of its incident triangles. Delete such an element.
     if ( ElementsRefCounts.GetRefCount( ElementID ) == 1 )
@@ -396,8 +399,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t   
                              // same element ID, this would be an array of length 1, just containing that element
                              // ID)
 
-    UE_ENSURE( MeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
-                                                                        ContiguousGroupLengths, GroupIsLoop ) );
+    DESERT_VERIFY_WARN( MeshResult::Ok == ParentMesh->GetVtxContiguousTriangles(
+                                               VertexID, TrianglesOut, ContiguousGroupLengths, GroupIsLoop ) );
     int32_t const NumTris = static_cast<int32_t>( TrianglesOut.size() );
 
     auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
@@ -433,7 +436,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::SplitBowtiesAtVertex( int32_t   
     {
         bool bIsLoop       = GroupIsLoop[GroupIdx];
         int  TriInGroupNum = ContiguousGroupLengths[GroupIdx];
-        if ( UE_ENSURE( TriInGroupNum > 0 ) == false )
+        if ( Common::EnsureOrWarn( TriInGroupNum > 0, "TriInGroupNum > 0" ) == false )
         {
             continue;
         }
@@ -534,18 +537,18 @@ MeshResult DynamicMeshOverlay<RealType, ElementSize>::SetTriangle( int tid, cons
 {
     if ( IsElement( tv[0] ) == false || IsElement( tv[1] ) == false || IsElement( tv[2] ) == false )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_NotAVertex;
     }
     if ( tv[0] == tv[1] || tv[0] == tv[2] || tv[1] == tv[2] )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_InvalidNeighbourhood;
     }
 
     if ( ParentMesh->IsTriangle( tid ) == false )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_NotATriangle;
     }
 
@@ -610,7 +613,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, co
                                                                      bool bUpdateRefCounts,
                                                                      bool bAllowElementFreeing )
 {
-    if ( UE_ENSURE( ParentMesh ) == false )
+    if ( Common::EnsureOrWarn( ParentMesh, "ParentMesh" ) == false )
     {
         return;
     }
@@ -666,8 +669,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::InternalSetTriangle( int tid, co
             // triangle are either not yet set or already point to the vertices of the corresponding
             // mesh triangle (and so will remain unchanged). Remember that the same element is not
             // allowed to be used for multiple vertices.
-            UE_CHECK_SLOW( ParentVertices[tv[VInd]] == ParentTriangle[VInd] ||
-                           ParentVertices[tv[VInd]] == DynamicMesh3::InvalidID );
+            assert( ParentVertices[tv[VInd]] == ParentTriangle[VInd] ||
+                    ParentVertices[tv[VInd]] == DynamicMesh3::InvalidID );
 
             ParentVertices.InsertAt( ParentTriangle[VInd], tv[VInd], DynamicMesh3::InvalidID );
         }
@@ -924,8 +927,8 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Verte
                              // same element ID, this would be an array of length 1, just containing that element
                              // ID)
 
-    UE_ENSURE( MeshResult::Ok == ParentMesh->GetVtxContiguousTriangles( VertexID, TrianglesOut,
-                                                                        ContiguousGroupLengths, GroupIsLoop ) );
+    DESERT_VERIFY_WARN( MeshResult::Ok == ParentMesh->GetVtxContiguousTriangles(
+                                               VertexID, TrianglesOut, ContiguousGroupLengths, GroupIsLoop ) );
     int32_t const NumTris = static_cast<int32_t>( TrianglesOut.size() );
 
     auto ElementIDFromTriangle = [VertexID, this]( int32_t TriID ) -> int32_t
@@ -962,7 +965,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsBowtieInOverlay( int32_t Verte
     {
         bool bIsLoop       = GroupIsLoop[GroupIdx];
         int  TriInGroupNum = ContiguousGroupLengths[GroupIdx];
-        if ( UE_ENSURE( TriInGroupNum > 0 ) == false )
+        if ( Common::EnsureOrWarn( TriInGroupNum > 0, "TriInGroupNum > 0" ) == false )
         {
             continue;
         }
@@ -1154,7 +1157,7 @@ template <typename RealType, int ElementSize>
 void DynamicMeshOverlay<RealType, ElementSize>::GetElementTriangles( int               ElementID,
                                                                      std::vector<int>& OutTriangles ) const
 {
-    UE_CHECK_SLOW( ElementsRefCounts.IsValid( ElementID ) );
+    assert( ElementsRefCounts.IsValid( ElementID ) );
     if ( ElementsRefCounts.IsValid( ElementID ) )
     {
         int VertexID = ParentVertices[ElementID];
@@ -1190,7 +1193,7 @@ int DynamicMeshOverlay<RealType, ElementSize>::GetElementIDAtVertex( int Triangl
         }
     }
 
-    UE_CHECK_SLOW( false );
+    assert( false );
     return DynamicMesh3::InvalidID;
 }
 
@@ -1215,7 +1218,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnRemoveTriangle( int TriangleID
         {
             ElementsRefCounts.Decrement( elemid );
             ParentVertices[elemid] = DynamicMesh3::InvalidID;
-            UE_ENSURE( ElementsRefCounts.IsValid( elemid ) == false );
+            DESERT_VERIFY_WARN( ElementsRefCounts.IsValid( elemid ) == false );
         }
     }
 }
@@ -1342,7 +1345,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
     }
     else if ( NumSet == 1 )
     {
-        UE_ENSURE( false ); // flipping across a set/unset boundary is not allowed?
+        DESERT_VERIFY_WARN( false ); // flipping across a set/unset boundary is not allowed?
         // recover by just unsetting both triangles, since it's too late to prevent the flip
         UnsetTriangle( orig_t0 );
         UnsetTriangle( orig_t1 );
@@ -1369,13 +1372,13 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
     int      idx_base_d  = IndexUtil::GetOtherTriIndex( idx_base_a2, idx_base_b2 );
 
     // sanity checks
-    UE_CHECK_SLOW( idx_base_c == BaseTriangle0.IndexOf( base_c ) );
-    UE_CHECK_SLOW( idx_base_d == BaseTriangle1.IndexOf( base_d ) );
+    assert( idx_base_c == BaseTriangle0.IndexOf( base_c ) );
+    assert( idx_base_d == BaseTriangle1.IndexOf( base_d ) );
 
     // we should not have been called on a non-shared edge!!
     bool bHasSharedUVEdge = ( Triangle0[idx_base_a1] == Triangle1[idx_base_a2] ) &&
                             ( Triangle0[idx_base_b1] == Triangle1[idx_base_b2] );
-    UE_CHECK_SLOW( bHasSharedUVEdge );
+    assert( bHasSharedUVEdge );
 
     int A = Triangle0[idx_base_a1];
     int B = Triangle0[idx_base_b1];
@@ -1509,8 +1512,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
         removed_elemid[0]    = Triangle0[idx_removed_tri0];
         bFoundKeptElement[0] = bFoundRemovedElement[0] = true;
 
-        UE_CHECK_SLOW( kept_elemid[0] != DynamicMesh3::InvalidID );
-        UE_CHECK_SLOW( removed_elemid[0] != DynamicMesh3::InvalidID );
+        assert( kept_elemid[0] != DynamicMesh3::InvalidID );
+        assert( removed_elemid[0] != DynamicMesh3::InvalidID );
     }
     if ( ( bIsSeam || !bT0Set ) && bT1Set )
     {
@@ -1518,8 +1521,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
         removed_elemid[1]    = Triangle1[idx_removed_tri1];
         bFoundKeptElement[1] = bFoundRemovedElement[1] = true;
 
-        UE_CHECK_SLOW( kept_elemid[1] != DynamicMesh3::InvalidID );
-        UE_CHECK_SLOW( removed_elemid[1] != DynamicMesh3::InvalidID );
+        assert( kept_elemid[1] != DynamicMesh3::InvalidID );
+        assert( removed_elemid[1] != DynamicMesh3::InvalidID );
     }
 
     // update value of kept elements
@@ -1531,7 +1534,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
         }
 
         // Guard against seam-end edge collapse case or otherwise corrupted mesh data
-        if ( !UE_ENSURE( IsElement( kept_elemid[i] ) && IsElement( removed_elemid[i] ) ) )
+        if ( !Common::EnsureOrWarn( IsElement( kept_elemid[i] ) && IsElement( removed_elemid[i] ),
+                                    "IsElement( kept_elemid[i] ) && IsElement( removed_elemid[i] )" ) )
         {
             continue;
         }
@@ -1619,7 +1623,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
         if ( removed_elemid[k] != DynamicMesh3::InvalidID )
         {
             int rc = ElementsRefCounts.GetRefCount( removed_elemid[k] );
-            UE_CHECK_SLOW( rc == 0 );
+            assert( rc == 0 );
         }
     }
 #endif
@@ -1844,7 +1848,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool             
     {
         CheckOrFailF = [&]( bool b )
         {
-            UE_CHECKF( b, "DynamicMeshOverlay::CheckValidity failed!" );
+            assert( ( b ) && "DynamicMeshOverlay::CheckValidity failed!" );
             is_ok = is_ok && b;
         };
     }
@@ -1852,7 +1856,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool             
     {
         CheckOrFailF = [&]( bool b )
         {
-            UE_ENSURE_MSGF( b, "DynamicMeshOverlay::CheckValidity failed!" );
+            DESERT_VERIFY_WARN( b, "DynamicMeshOverlay::CheckValidity failed!" );
             is_ok = is_ok && b;
         };
     }

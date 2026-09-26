@@ -16,7 +16,7 @@ void EdgeSpan::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vect
     for ( int i = 0; i + 1 < static_cast<int32_t>( Vertices.size() ); ++i )
     {
         const int Eid = Mesh.FindEdge( Vertices[i], Vertices[i + 1] );
-        UE_CHECK( Eid != IndexConstants::InvalidID );
+        assert( Eid != IndexConstants::InvalidID );
         Edges.push_back( Eid );
     }
 }
@@ -180,7 +180,7 @@ bool MeshRegionBoundaryLoops::Compute()
             }
             else
             {
-                UE_CHECK( !UsedEdge[ENext] );
+                assert( !UsedEdge[ENext] );
                 Loop.Edges.push_back( ENext );
                 ECur           = ENext;
                 UsedEdge[ECur] = true;

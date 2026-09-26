@@ -131,7 +131,7 @@ namespace Desert::Geometry
         /** add mapping from one index to another */
         inline void Add( IntType FromID, IntType ToID )
         {
-            UE_CHECK_SLOW( FromID >= 0 && ToID >= 0 );
+            assert( FromID >= 0 && ToID >= 0 );
             ForwardMap.Add( FromID, ToID );
             ReverseMap.Add( ToID, FromID );
         }
@@ -139,24 +139,24 @@ namespace Desert::Geometry
         /** @return true if we can map forward from this value */
         inline bool ContainsFrom( IntType FromID ) const
         {
-            UE_CHECK_SLOW( FromID >= 0 );
-            UE_CHECK( bWantForward );
+            assert( FromID >= 0 );
+            assert( bWantForward );
             return ForwardMap.Contains( FromID );
         }
 
         /** @return true if we can reverse-map from this value */
         inline bool ContainsTo( IntType ToID ) const
         {
-            UE_CHECK_SLOW( ToID >= 0 );
-            UE_CHECK( bWantReverse );
+            assert( ToID >= 0 );
+            assert( bWantReverse );
             return ReverseMap.Contains( ToID );
         }
 
         /** @return forward-map of input value */
         inline IntType GetTo( IntType FromID ) const
         {
-            UE_CHECK_SLOW( FromID >= 0 );
-            UE_CHECK( bWantForward );
+            assert( FromID >= 0 );
+            assert( bWantForward );
             const IntType* FoundVal = ForwardMap.Find( FromID );
             return ( FoundVal == nullptr ) ? UnmappedID() : *FoundVal;
         }
@@ -164,8 +164,8 @@ namespace Desert::Geometry
         /** @return reverse-map of input value */
         inline IntType GetFrom( IntType ToID ) const
         {
-            UE_CHECK_SLOW( ToID >= 0 );
-            UE_CHECK( bWantReverse );
+            assert( ToID >= 0 );
+            assert( bWantReverse );
             const IntType* FoundVal = ReverseMap.Find( ToID );
             return ( FoundVal == nullptr ) ? UnmappedID() : *FoundVal;
         }
@@ -173,22 +173,22 @@ namespace Desert::Geometry
         /** @return forward-map of input value or null if not found */
         inline const IntType* FindTo( IntType FromID ) const
         {
-            UE_CHECK_SLOW( FromID >= 0 );
-            UE_CHECK( bWantForward );
+            assert( FromID >= 0 );
+            assert( bWantForward );
             return ForwardMap.Find( FromID );
         }
 
         /** @return reverse-map of input value or null if not found */
         inline const IntType* FindFrom( IntType ToID ) const
         {
-            UE_CHECK_SLOW( ToID >= 0 );
-            UE_CHECK( bWantReverse );
+            assert( ToID >= 0 );
+            assert( bWantReverse );
             return ReverseMap.Find( ToID );
         }
 
         void Reserve( int NumElements )
         {
-            UE_CHECK_SLOW( NumElements >= 0 );
+            assert( NumElements >= 0 );
             if ( bWantForward )
             {
                 ForwardMap.Reserve( NumElements );

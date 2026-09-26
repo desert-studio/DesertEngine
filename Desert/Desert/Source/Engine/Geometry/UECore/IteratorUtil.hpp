@@ -422,7 +422,7 @@ namespace Desert::Geometry
                                    MaxIndex ); // can't be zero or we hit integer-divide. If MaxIndex
                                                // is 0 we will terminate on first iteration anyway
             ModuloPrime = ModuloPrimeIn;
-            UE_CHECK( ModuloPrime > MaxIndex );
+            assert( ModuloPrime > MaxIndex );
         }
 
         bool GetNextIndex( uint32_t& NextIndexOut )

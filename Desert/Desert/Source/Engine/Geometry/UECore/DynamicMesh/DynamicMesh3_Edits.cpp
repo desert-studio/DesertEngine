@@ -1,8 +1,10 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/DynamicMesh3_Edits.cpp:1-2311,
-// adapted: UE Core via UECore.hpp; check/checkSlow/checkfSlow/ensure are the shim's UE_CHECK* / UE_ENSURE;
-// SetTriangle's attribute guard has the polarity UE intended (fails when attributes ARE present).
+// adapted: UE Core via UECore.hpp; check/checkSlow/checkfSlow are assert, ensure is DESERT_VERIFY_WARN /
+// Common::EnsureOrWarn; SetTriangle's attribute guard has the polarity UE intended (fails when attributes ARE
+// present).
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include <Common/Core/Core.hpp>
 using namespace Desert::Geometry;
 
 int DynamicMesh3::AppendVertex( const VertexInfo& VtxInfo )
@@ -136,12 +138,12 @@ int DynamicMesh3::AppendTriangle( const Index3i& tv, int gid )
 {
     if ( IsVertex( tv[0] ) == false || IsVertex( tv[1] ) == false || IsVertex( tv[2] ) == false )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return InvalidID;
     }
     if ( tv[0] == tv[1] || tv[0] == tv[2] || tv[1] == tv[2] )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return InvalidID;
     }
 
@@ -168,7 +170,7 @@ int DynamicMesh3::AppendTriangle( const Index3i& tv, int gid )
         }
         // there's no other triangle on the edge to check -- if there were, we would have already returned
         // NonManifoldID
-        UE_CHECK_SLOW( Edges[e0].Tri[1] == InvalidID );
+        assert( Edges[e0].Tri[1] == InvalidID );
     }
 
     bool bHasGroups = HasTriangleGroups(); // have to check before changing .triangles
@@ -207,12 +209,12 @@ MeshResult DynamicMesh3::InsertTriangle( int tid, const Index3i& tv, int gid, bo
 
     if ( IsVertex( tv[0] ) == false || IsVertex( tv[1] ) == false || IsVertex( tv[2] ) == false )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_NotAVertex;
     }
     if ( tv[0] == tv[1] || tv[0] == tv[2] || tv[1] == tv[2] )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_InvalidNeighbourhood;
     }
 
@@ -272,8 +274,8 @@ int32_t DynamicMesh3::RemoveUnusedVertices()
             {
                 Attributes()->OnRemoveVertex( VID );
             }
-            UE_CHECK_SLOW( VertexRefCounts.IsValid( VID ) == false ); // vertex should now not be valid
-            UE_CHECK_SLOW( VertexEdgeLists.GetCount( VID ) == 0 ); // vertex should not have had any edges attached
+            assert( VertexRefCounts.IsValid( VID ) == false ); // vertex should now not be valid
+            assert( VertexEdgeLists.GetCount( VID ) == 0 );    // vertex should not have had any edges attached
         }
     }
 
@@ -532,7 +534,7 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
 
     if ( HasAttributes() )
     {
-        UE_CHECK_SLOW( CompactInfo ); // can this ever fail?
+        assert( CompactInfo ); // can this ever fail?
         AttributeSet->CompactInPlace( *CompactInfo );
     }
 }
@@ -621,7 +623,7 @@ MeshResult DynamicMesh3::RemoveVertex( int vID, bool bPreserveManifold )
     }
 
     VertexRefCounts.Decrement( vID );
-    UE_ENSURE( VertexRefCounts.IsValid( vID ) == false );
+    DESERT_VERIFY_WARN( VertexRefCounts.IsValid( vID ) == false );
     VertexEdgeLists.Clear( vID );
     if ( HasAttributes() )
     {
@@ -635,7 +637,7 @@ MeshResult DynamicMesh3::RemoveTriangle( int tID, bool bRemoveIsolatedVertices, 
 {
     if ( !TriangleRefCounts.IsValid( tID ) )
     {
-        UE_ENSURE( false );
+        DESERT_VERIFY_WARN( false );
         return MeshResult::Failed_NotATriangle;
     }
 
@@ -680,7 +682,7 @@ MeshResult DynamicMesh3::RemoveTriangle( int tID, bool bRemoveIsolatedVertices, 
 
     // free this triangle
     TriangleRefCounts.Decrement( tID );
-    UE_CHECK_SLOW( TriangleRefCounts.IsValid( tID ) == false );
+    assert( TriangleRefCounts.IsValid( tID ) == false );
 
     // Decrement vertex refcounts. If any hit 1 and we got remove-isolated flag,
     // we need to remove that vertex
@@ -691,7 +693,7 @@ MeshResult DynamicMesh3::RemoveTriangle( int tID, bool bRemoveIsolatedVertices, 
         if ( bRemoveIsolatedVertices && VertexRefCounts.GetRefCount( vid ) == 1 )
         {
             VertexRefCounts.Decrement( vid );
-            UE_CHECK_SLOW( VertexRefCounts.IsValid( vid ) == false );
+            assert( VertexRefCounts.IsValid( vid ) == false );
             VertexEdgeLists.Clear( vid );
         }
     }
@@ -707,7 +709,7 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
 {
     // UE 5.8 writes `if (ensure(HasAttributes()) == false)`, which rejects exactly the meshes it can handle:
     // SetTriangle does not update overlays, so it is meshes WITH attributes that must be refused.
-    if ( UE_ENSURE( !HasAttributes() ) == false )
+    if ( Common::EnsureOrWarn( !HasAttributes(), "!HasAttributes()" ) == false )
     {
         return MeshResult::Failed_Unsupported;
     }
@@ -728,17 +730,17 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
 
     if ( !TriangleRefCounts.IsValid( tID ) )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_NotATriangle;
     }
     if ( IsVertex( newv[0] ) == false || IsVertex( newv[1] ) == false || IsVertex( newv[2] ) == false )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_NotAVertex;
     }
     if ( newv[0] == newv[1] || newv[0] == newv[2] || newv[1] == newv[2] )
     {
-        UE_CHECK_SLOW( false );
+        assert( false );
         return MeshResult::Failed_BrokenTopology;
     }
     // look up edges. if any already have two triangles, this would
@@ -790,7 +792,7 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
         if ( bRemoveIsolatedVertices && VertexRefCounts.GetRefCount( vid ) == 1 )
         {
             VertexRefCounts.Decrement( vid );
-            UE_CHECK_SLOW( VertexRefCounts.IsValid( vid ) == false );
+            assert( VertexRefCounts.IsValid( vid ) == false );
             VertexEdgeLists.Clear( vid );
         }
     }
@@ -1083,12 +1085,12 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     // update the two other edges whose triangle nbrs have changed
     if ( ReplaceEdgeTriangle( eca, t0, t1 ) == -1 )
     {
-        UE_CHECKF( false, "DynamicMesh3.FlipEdge: first ReplaceEdgeTriangle failed" );
+        assert( ( false ) && "DynamicMesh3.FlipEdge: first ReplaceEdgeTriangle failed" );
         return MeshResult::Failed_UnrecoverableError;
     }
     if ( ReplaceEdgeTriangle( edb, t1, t0 ) == -1 )
     {
-        UE_CHECKF( false, "DynamicMesh3.FlipEdge: second ReplaceEdgeTriangle failed" );
+        assert( ( false ) && "DynamicMesh3.FlipEdge: second ReplaceEdgeTriangle failed" );
         return MeshResult::Failed_UnrecoverableError;
     }
 
@@ -1099,19 +1101,19 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     // remove old eab from verts a and b, and Decrement ref counts
     if ( VertexEdgeLists.Remove( a, eab ) == false )
     {
-        UE_CHECKF( false, "DynamicMesh3.FlipEdge: first edge list remove failed" );
+        assert( ( false ) && "DynamicMesh3.FlipEdge: first edge list remove failed" );
         return MeshResult::Failed_UnrecoverableError;
     }
     if ( VertexEdgeLists.Remove( b, eab ) == false )
     {
-        UE_CHECKF( false, "DynamicMesh3.FlipEdge: second edge list remove failed" );
+        assert( ( false ) && "DynamicMesh3.FlipEdge: second edge list remove failed" );
         return MeshResult::Failed_UnrecoverableError;
     }
     VertexRefCounts.Decrement( a );
     VertexRefCounts.Decrement( b );
     if ( IsVertex( a ) == false || IsVertex( b ) == false )
     {
-        UE_CHECKF( false, "DynamicMesh3.FlipEdge: either a or b is not a vertex?" );
+        assert( ( false ) && "DynamicMesh3.FlipEdge: either a or b is not a vertex?" );
         return MeshResult::Failed_UnrecoverableError;
     }
 
@@ -1150,7 +1152,7 @@ MeshResult DynamicMesh3::FlipEdge( int vA, int vB, EdgeFlipInfo& FlipInfo )
 MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& TrianglesToUpdate,
                                       VertexSplitInfo& SplitInfo )
 {
-    if ( !UE_ENSURE( IsVertex( VertexID ) ) )
+    if ( !Common::EnsureOrWarn( IsVertex( VertexID ), "IsVertex( VertexID )" ) )
     {
         return MeshResult::Failed_NotAVertex;
     }
@@ -1182,7 +1184,7 @@ MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& 
             if ( ReplaceEdgeVertex( EdgeID, SplitInfo.OriginalVertex, SplitInfo.NewVertex ) != InvalidID )
             {
                 // if replace edge actually happened, also update VertexEdgeLists accordingly
-                UE_ENSURE( VertexEdgeLists.Remove( SplitInfo.OriginalVertex, EdgeID ) );
+                DESERT_VERIFY_WARN( VertexEdgeLists.Remove( SplitInfo.OriginalVertex, EdgeID ) );
                 VertexEdgeLists.Insert( SplitInfo.NewVertex, EdgeID );
             }
         }
@@ -1465,7 +1467,7 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( VertexEdgeLists.Remove( b, eid ) != true )
             {
-                UE_CHECKF( false, "DynamicMesh3::CollapseEdge: failed at remove case o == b" );
+                assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case o == b" );
                 return MeshResult::Failed_UnrecoverableError;
             }
         }
@@ -1473,7 +1475,7 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( VertexEdgeLists.Remove( c, eid ) != true )
             {
-                UE_CHECKF( false, "DynamicMesh3::CollapseEdge: failed at remove case o == c" );
+                assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case o == c" );
                 return MeshResult::Failed_UnrecoverableError;
             }
             tac = GetOtherEdgeTriangle( eid, t0 );
@@ -1482,7 +1484,7 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( VertexEdgeLists.Remove( d, eid ) != true )
             {
-                UE_CHECKF( false, "DynamicMesh3::CollapseEdge: failed at remove case o == c, step 1" );
+                assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case o == c, step 1" );
                 return MeshResult::Failed_UnrecoverableError;
             }
             tad = GetOtherEdgeTriangle( eid, t1 );
@@ -1502,19 +1504,19 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
                 if ( ReplaceTriangleEdge( WeldedTriangle, eid, ExistingEdge ) == -1 ||
                      ReplaceEdgeTriangle( ExistingEdge, InvalidID, WeldedTriangle ) == -1 )
                 {
-                    UE_CHECKF( false, "DynamicMesh3::CollapseEdge: failed at remove case else" );
+                    assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case else" );
                     return MeshResult::Failed_UnrecoverableError;
                 }
                 // Edge (o,a) should no longer exist
                 VertexEdgeLists.Remove( o, eid );
                 EdgeRefCounts.Decrement( eid );
-                UE_CHECK_SLOW( EdgeRefCounts.IsValid( eid ) == false );
+                assert( EdgeRefCounts.IsValid( eid ) == false );
             }
             else
             {
                 if ( ReplaceEdgeVertex( eid, a, b ) == -1 )
                 {
-                    UE_CHECKF( false, "DynamicMesh3::CollapseEdge: failed at remove case else" );
+                    assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case else" );
                     return MeshResult::Failed_UnrecoverableError;
                 }
                 VertexEdgeLists.Insert( b, eid );
@@ -1533,7 +1535,7 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
                 {
                     if ( ReplaceTriangleVertex( t_j, a, b ) == -1 )
                     {
-                        UE_CHECKF( false, "DynamicMesh3::CollapseEdge: failed at remove last check" );
+                        assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove last check" );
                         return MeshResult::Failed_UnrecoverableError;
                     }
                     VertexRefCounts.Increment( b );
@@ -1547,9 +1549,9 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
     {
         // remove all edges from vtx a, then remove vtx a
         VertexEdgeLists.Clear( a );
-        UE_CHECK_SLOW( VertexRefCounts.GetRefCount( a ) == 3 ); // in t0,t1, and initial ref
+        assert( VertexRefCounts.GetRefCount( a ) == 3 ); // in t0,t1, and initial ref
         VertexRefCounts.Decrement( a, 3 );
-        UE_CHECK_SLOW( VertexRefCounts.IsValid( a ) == false );
+        assert( VertexRefCounts.IsValid( a ) == false );
 
         // remove triangles T0 and T1, and update b/c/d refcounts
         TriangleRefCounts.Decrement( t0 );
@@ -1557,16 +1559,16 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         VertexRefCounts.Decrement( c );
         VertexRefCounts.Decrement( d );
         VertexRefCounts.Decrement( b, 2 );
-        UE_CHECK_SLOW( TriangleRefCounts.IsValid( t0 ) == false );
-        UE_CHECK_SLOW( TriangleRefCounts.IsValid( t1 ) == false );
+        assert( TriangleRefCounts.IsValid( t0 ) == false );
+        assert( TriangleRefCounts.IsValid( t1 ) == false );
 
         // remove edges ead, eab, eac
         EdgeRefCounts.Decrement( ead );
         EdgeRefCounts.Decrement( eab );
         EdgeRefCounts.Decrement( eac );
-        UE_CHECK_SLOW( EdgeRefCounts.IsValid( ead ) == false );
-        UE_CHECK_SLOW( EdgeRefCounts.IsValid( eab ) == false );
-        UE_CHECK_SLOW( EdgeRefCounts.IsValid( eac ) == false );
+        assert( EdgeRefCounts.IsValid( ead ) == false );
+        assert( EdgeRefCounts.IsValid( eab ) == false );
+        assert( EdgeRefCounts.IsValid( eac ) == false );
 
         // replace t0 and t1 in edges ebd and ebc that we kept
         ebd = FindEdgeFromTri( b, d, t1 );
@@ -1577,15 +1579,15 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
 
         if ( ReplaceEdgeTriangle( ebd, t1, tad ) == -1 )
         {
-            UE_CHECKF( false,
-                       "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebd replace triangle" );
+            assert( ( false ) &&
+                    "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebd replace triangle" );
             return MeshResult::Failed_UnrecoverableError;
         }
 
         if ( ReplaceEdgeTriangle( ebc, t0, tac ) == -1 )
         {
-            UE_CHECKF( false,
-                       "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebc replace triangle" );
+            assert( ( false ) &&
+                    "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebc replace triangle" );
             return MeshResult::Failed_UnrecoverableError;
         }
 
@@ -1594,8 +1596,8 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( ReplaceTriangleEdge( tad, ead, ebd ) == -1 )
             {
-                UE_CHECKF( false,
-                           "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebd replace triangle" );
+                assert( ( false ) &&
+                        "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebd replace triangle" );
                 return MeshResult::Failed_UnrecoverableError;
             }
         }
@@ -1603,8 +1605,8 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( ReplaceTriangleEdge( tac, eac, ebc ) == -1 )
             {
-                UE_CHECKF( false,
-                           "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebd replace triangle" );
+                assert( ( false ) &&
+                        "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebd replace triangle" );
                 return MeshResult::Failed_UnrecoverableError;
             }
         }
@@ -1656,28 +1658,28 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
 
         // remove all edges from vtx a, then remove vtx a
         VertexEdgeLists.Clear( a );
-        UE_CHECK_SLOW( VertexRefCounts.GetRefCount( a ) == 2 ); // in t0 and initial ref
+        assert( VertexRefCounts.GetRefCount( a ) == 2 ); // in t0 and initial ref
         VertexRefCounts.Decrement( a, 2 );
-        UE_CHECK_SLOW( VertexRefCounts.IsValid( a ) == false );
+        assert( VertexRefCounts.IsValid( a ) == false );
 
         // remove triangle T0 and update b/c refcounts
         TriangleRefCounts.Decrement( t0 );
         VertexRefCounts.Decrement( c );
         VertexRefCounts.Decrement( b );
-        UE_CHECK_SLOW( TriangleRefCounts.IsValid( t0 ) == false );
+        assert( TriangleRefCounts.IsValid( t0 ) == false );
 
         // remove edges eab and eac
         EdgeRefCounts.Decrement( eab );
         EdgeRefCounts.Decrement( eac );
-        UE_CHECK_SLOW( EdgeRefCounts.IsValid( eab ) == false );
-        UE_CHECK_SLOW( EdgeRefCounts.IsValid( eac ) == false );
+        assert( EdgeRefCounts.IsValid( eab ) == false );
+        assert( EdgeRefCounts.IsValid( eac ) == false );
 
         // replace t0 in edge ebc that we kept
         ebc = FindEdgeFromTri( b, c, t0 );
         if ( ReplaceEdgeTriangle( ebc, t0, tac ) == -1 )
         {
-            UE_CHECKF( false,
-                       "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebc replace triangle" );
+            assert( ( false ) &&
+                    "DynamicMesh3::CollapseEdge: failed at isboundary=false branch, ebc replace triangle" );
             return MeshResult::Failed_UnrecoverableError;
         }
 
@@ -1686,8 +1688,8 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( ReplaceTriangleEdge( tac, eac, ebc ) == -1 )
             {
-                UE_CHECKF( false,
-                           "DynamicMesh3::CollapseEdge: failed at isboundary=true branch, ebd replace triangle" );
+                assert( ( false ) &&
+                        "DynamicMesh3::CollapseEdge: failed at isboundary=true branch, ebd replace triangle" );
                 return MeshResult::Failed_UnrecoverableError;
             }
         }

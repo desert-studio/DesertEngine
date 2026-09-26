@@ -33,8 +33,8 @@ namespace Desert::Geometry
 
         for ( int32_t i( 0 ); i < NewSize; ++i )
         {
-            UE_CHECK_SLOW( ListBlocks[ListHeads[i]] == 0 );
-            UE_CHECK_SLOW( ListBlocks[ListHeads[i] + BLOCK_LIST_OFFSET] == NullValue );
+            assert( ListBlocks[ListHeads[i]] == 0 );
+            assert( ListBlocks[ListHeads[i] + BLOCK_LIST_OFFSET] == NullValue );
         }
 
         AllocatedCount = NewSize;
@@ -42,7 +42,7 @@ namespace Desert::Geometry
 
     void SmallListSet::AllocateAt( int32_t ListIndex )
     {
-        UE_CHECK_SLOW( ListIndex >= 0 );
+        assert( ListIndex >= 0 );
         if ( ListIndex >= (int)ListHeads.GetLength() )
         {
             auto j = static_cast<int32_t>( ListHeads.GetLength() );
@@ -56,13 +56,13 @@ namespace Desert::Geometry
         }
         else
         {
-            UE_CHECKF( ListHeads[ListIndex] == NullValue, "SmallListSet: list at %d is not empty!", ListIndex );
+            assert( ( ListHeads[ListIndex] == NullValue ) && "SmallListSet: list at %d is not empty!" );
         }
     }
 
     void SmallListSet::Compact( int32_t MaxListIndex )
     {
-        UE_CHECK_SLOW( MaxListIndex >= 0 );
+        assert( MaxListIndex >= 0 );
         auto const CurSize = static_cast<int32_t>( ListHeads.GetLength() );
         if ( MaxListIndex < CurSize )
         {
@@ -185,7 +185,7 @@ namespace Desert::Geometry
                     }
                     WalkListIndex = NextIndex;
                 }
-                UE_CHECK_SLOW( LinkedListElements[WalkListIndex + 1] == NullValue );
+                assert( LinkedListElements[WalkListIndex + 1] == NullValue );
                 LinkedListElements[WalkListIndex + 1] = OrigFreeHeadIndex;
             }
         }
@@ -195,7 +195,7 @@ namespace Desert::Geometry
 
     void SmallListSet::Insert( int32_t ListIndex, int32_t Value )
     {
-        UE_CHECK_SLOW( 0 <= ListIndex && ListIndex < (int32_t)ListHeads.Num() );
+        assert( 0 <= ListIndex && ListIndex < (int32_t)ListHeads.Num() );
         int32_t block_ptr = ListHeads[ListIndex];
         if ( block_ptr == NullValue )
         {
@@ -239,7 +239,7 @@ namespace Desert::Geometry
 
     bool SmallListSet::Remove( int32_t ListIndex, int32_t Value )
     {
-        UE_CHECK_SLOW( ListIndex >= 0 );
+        assert( ListIndex >= 0 );
         int32_t const block_ptr = ListHeads[ListIndex];
         int32_t const N         = ListBlocks[block_ptr];
 
@@ -285,16 +285,16 @@ namespace Desert::Geometry
 
     void SmallListSet::Move( int32_t FromIndex, int32_t ToIndex )
     {
-        UE_CHECK_SLOW( FromIndex >= 0 );
-        UE_CHECK_SLOW( ToIndex >= 0 );
-        UE_CHECK_SLOW( ListHeads[ToIndex] == NullValue );
+        assert( FromIndex >= 0 );
+        assert( ToIndex >= 0 );
+        assert( ListHeads[ToIndex] == NullValue );
         ListHeads[ToIndex]   = ListHeads[FromIndex];
         ListHeads[FromIndex] = NullValue;
     }
 
     void SmallListSet::Clear( int32_t ListIndex )
     {
-        UE_CHECK_SLOW( ListIndex >= 0 );
+        assert( ListIndex >= 0 );
         int32_t const block_ptr = ListHeads[ListIndex];
         if ( block_ptr != NullValue )
         {
@@ -322,7 +322,7 @@ namespace Desert::Geometry
 
     bool SmallListSet::Contains( int32_t ListIndex, int32_t Value ) const
     {
-        UE_CHECK_SLOW( ListIndex >= 0 );
+        assert( ListIndex >= 0 );
         int32_t const block_ptr = ListHeads[ListIndex];
         if ( block_ptr != NullValue )
         {

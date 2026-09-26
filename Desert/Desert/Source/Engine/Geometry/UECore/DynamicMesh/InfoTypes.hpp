@@ -76,8 +76,8 @@ namespace Desert::Geometry
          */
         MeshTriEdgeID( int32_t TriangleIDIn, int32_t EdgeIndexIn )
         {
-            UE_CHECK_SLOW( EdgeIndexIn >= 0 && EdgeIndexIn <= 2 );
-            UE_CHECK_SLOW( TriangleIDIn >= 0 && TriangleIDIn < ( 1 << 30 ) );
+            assert( EdgeIndexIn >= 0 && EdgeIndexIn <= 2 );
+            assert( TriangleIDIn >= 0 && TriangleIDIn < ( 1 << 30 ) );
             TriEdgeIndex = (unsigned int)EdgeIndexIn;
             TriangleID   = (unsigned int)TriangleIDIn;
         }
@@ -134,8 +134,8 @@ namespace Desert::Geometry
 
         MeshTriOrderedEdgeID( int32_t TriangleIDIn, int32_t VertexIndexA, int32_t VertexIndexB )
         {
-            UE_CHECK_SLOW( VertexIndexA >= 0 && VertexIndexA <= 2 );
-            UE_CHECK_SLOW( VertexIndexB >= 0 && VertexIndexB <= 2 );
+            assert( VertexIndexA >= 0 && VertexIndexA <= 2 );
+            assert( VertexIndexB >= 0 && VertexIndexB <= 2 );
             TriangleID = TriangleIDIn;
             VertIndexA = VertexIndexA;
             VertIndexB = VertexIndexB;

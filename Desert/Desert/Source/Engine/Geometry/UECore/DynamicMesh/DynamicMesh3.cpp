@@ -3,6 +3,7 @@
 // MeshInfoString and the debug-mesh cvars/stash (1616-1699) not ported.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include <Common/Core/Core.hpp>
 using namespace Desert::Geometry;
 
 // NB: These have to be here until C++17 allows inline variables
@@ -210,7 +211,8 @@ void DynamicMesh3::AppendWithOffsets( const DynamicMesh3& ToAppend, AppendInfo* 
     // TriangleEdges should be 1:1 with Triangles, so this ensure should not fail ...
     // however due to a now-fixed bug, it is possible that a serialized mesh will
     // have too many TriangleEdges; we can recover by resizing to match before appending
-    if ( !UE_ENSURE( TriangleEdges.Num() == UseAppendInfo->TriangleOffset ) )
+    if ( !Common::EnsureOrWarn( TriangleEdges.Num() == UseAppendInfo->TriangleOffset,
+                                "TriangleEdges.Num() == UseAppendInfo->TriangleOffset" ) )
     {
         // Resize to recover from a too-large TriangleEdges array
         TriangleEdges.Resize( UseAppendInfo->TriangleOffset );
@@ -578,7 +580,7 @@ void DynamicMesh3::EnableTriangleGroups( int InitialGroup )
     {
         return;
     }
-    UE_CHECK_SLOW( InitialGroup >= 0 );
+    assert( InitialGroup >= 0 );
     TriangleGroups = DynamicVector<int>();
     int NT         = MaxTriangleID();
     TriangleGroups->Resize( NT );
@@ -678,7 +680,7 @@ Index3i DynamicMesh3::GetTriNeighbourTris( int tID ) const
 
 void DynamicMesh3::EnumerateVertexTriangles( int32_t VertexID, std::function<void( int32_t )> ApplyFunc ) const
 {
-    UE_CHECK_SLOW( VertexRefCounts.IsValid( VertexID ) );
+    assert( VertexRefCounts.IsValid( VertexID ) );
     if ( !IsVertex( VertexID ) )
     {
         return;
@@ -703,7 +705,7 @@ void DynamicMesh3::EnumerateVertexTriangles( int32_t VertexID, std::function<voi
 
 int32_t DynamicMesh3::GetSingleVertexTriangle( int32_t VID ) const
 {
-    UE_CHECK_SLOW( VertexRefCounts.IsValid( VID ) );
+    assert( VertexRefCounts.IsValid( VID ) );
     if ( !IsVertex( VID ) || VertexEdgeLists.GetCount( VID ) == 0 )
     {
         return IndexConstants::InvalidID;
@@ -713,7 +715,7 @@ int32_t DynamicMesh3::GetSingleVertexTriangle( int32_t VID ) const
 
 void DynamicMesh3::EnumerateEdgeTriangles( int32_t EdgeID, const std::function<void( int32_t )>& ApplyFunc ) const
 {
-    UE_CHECK_SLOW( EdgeRefCounts.IsValid( EdgeID ) );
+    assert( EdgeRefCounts.IsValid( EdgeID ) );
     if ( IsEdge( EdgeID ) )
     {
         const Edge Edge = Edges[EdgeID];
@@ -744,7 +746,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
     {
         CheckOrFailF = [&]( bool b )
         {
-            UE_CHECKF( b, "DynamicMesh3::CheckValidity failed!" );
+            assert( ( b ) && "DynamicMesh3::CheckValidity failed!" );
             is_ok = is_ok && b;
         };
     }
@@ -752,7 +754,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
     {
         CheckOrFailF = [&]( bool b )
         {
-            UE_ENSURE_MSGF( b, "DynamicMesh3::CheckValidity failed!" );
+            DESERT_VERIFY_WARN( b, "DynamicMesh3::CheckValidity failed!" );
             is_ok = is_ok && b;
         };
     }
@@ -1050,8 +1052,8 @@ int32_t DynamicMesh3::FindEdgeInternal( int32_t vA, int32_t vB, bool& bIsBoundar
 
 int DynamicMesh3::FindEdge( int vA, int vB ) const
 {
-    UE_CHECK_SLOW( IsVertex( vA ) );
-    UE_CHECK_SLOW( IsVertex( vB ) );
+    assert( IsVertex( vA ) );
+    assert( IsVertex( vB ) );
     if ( vA == vB )
     {
         // self-edges are not allowed, and if we fall through to the search below on a self edge we will

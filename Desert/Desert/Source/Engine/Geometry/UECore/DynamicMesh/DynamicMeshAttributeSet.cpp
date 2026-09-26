@@ -5,6 +5,7 @@
 // helpers (2408-2478) are not ported; SplitAllBowties runs its layers serially.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/MapLookup.hpp"
+#include <Common/Core/Core.hpp>
 
 using namespace Desert::Geometry;
 
@@ -29,7 +30,7 @@ namespace
         {
             Layers.resize( Num );
         }
-        UE_ENSURE( static_cast<int32_t>( Layers.size() ) == Num );
+        DESERT_VERIFY_WARN( static_cast<int32_t>( Layers.size() ) == Num );
     }
 } // namespace
 
@@ -609,7 +610,7 @@ bool DynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
     {
         return false;
     }
-    UE_CHECK( ParentMesh->IsEdge( EdgeID ) );
+    assert( ParentMesh->IsEdge( EdgeID ) );
     if ( ParentMesh->IsEdge( EdgeID ) && !ParentMesh->IsBoundaryEdge( EdgeID ) )
     {
         const Index2i  EdgeTris = ParentMesh->GetEdgeT( EdgeID );

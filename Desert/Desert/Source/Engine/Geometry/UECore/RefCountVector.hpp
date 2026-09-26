@@ -130,14 +130,14 @@ namespace Desert::Geometry
 
         int Increment( int Index, unsigned short IncrementCount = 1 )
         {
-            UE_CHECK_SLOW( RefCounts[Index] != INVALID_REF_COUNT );
+            assert( RefCounts[Index] != INVALID_REF_COUNT );
             RefCounts[Index] += IncrementCount;
             return RefCounts[Index];
         }
 
         void Decrement( int Index, unsigned short DecrementCount = 1 )
         {
-            UE_CHECK_SLOW( RefCounts[Index] != INVALID_REF_COUNT && RefCounts[Index] >= DecrementCount );
+            assert( RefCounts[Index] != INVALID_REF_COUNT && RefCounts[Index] >= DecrementCount );
             RefCounts[Index] -= DecrementCount;
             if ( RefCounts[Index] == 0 )
             {

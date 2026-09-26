@@ -15,6 +15,7 @@
 #include "Engine/Geometry/UECore/RefCountVector.hpp"
 #include "Engine/Geometry/UECore/SmallListSet.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
+#include <Common/Core/Core.hpp>
 
 namespace Desert::Geometry
 {
@@ -133,8 +134,8 @@ namespace Desert::Geometry
             }
 
             // copy triangles across
-            UE_CHECK( CompactMaps.NumTriangleMappings() ==
-                      Copy.GetParentMesh()->MaxTriangleID() ); // must have valid triangle map
+            assert( CompactMaps.NumTriangleMappings() ==
+                    Copy.GetParentMesh()->MaxTriangleID() ); // must have valid triangle map
             for ( int FromTID : Copy.GetParentMesh()->TriangleIndicesItr() )
             {
                 if ( !Copy.IsSetTriangle( FromTID ) )
@@ -238,20 +239,21 @@ namespace Desert::Geometry
             }
             // ElementTriangles should never grow during a compaction, so just resizing is ok
             // (i.e., we shouldn't need to set InvalidID on any added triangles)
-            UE_CHECK_SLOW( ElementTriangles.Num() >= ( MaxNewTID + 1 ) * 3 );
+            assert( ElementTriangles.Num() >= ( MaxNewTID + 1 ) * 3 );
             ElementTriangles.Resize( ( MaxNewTID + 1 ) * 3 );
 
-            UE_CHECK_SLOW( IsCompact() );
+            assert( IsCompact() );
         }
 
         void Append( const DynamicMeshOverlay& ToAppend, const DynamicMesh3::AppendInfo& AppendInfo )
         {
             // We expect to be appending s.t. the intial ElementTriangles map to the pre-append triangles
-            if ( !UE_ENSURE( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 ) )
+            if ( !Common::EnsureOrWarn( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3,
+                                        "ElementTriangles.Num() == AppendInfo.TriangleOffset * 3" ) )
             {
                 ElementTriangles.SetNum( AppendInfo.TriangleOffset * 3 );
             }
-            UE_CHECK( ToAppend.ElementTriangles.Num() == AppendInfo.NumTriangle * 3 );
+            assert( ToAppend.ElementTriangles.Num() == AppendInfo.NumTriangle * 3 );
 
             int32_t ElementIDOffset        = ElementsRefCounts.GetMaxIndex();
             int32_t ElementTrianglesOffset = ElementTriangles.Num();
@@ -265,8 +267,7 @@ namespace Desert::Geometry
                 }
             }
 
-            UE_CHECK_SLOW( ElementIDOffset ==
-                           ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
+            assert( ElementIDOffset == ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
             ParentVertices.Add( ToAppend.ParentVertices );
             for ( int32_t Idx = 0; Idx < ToAppend.ParentVertices.Num(); ++Idx )
             {
@@ -283,7 +284,7 @@ namespace Desert::Geometry
         {
             // Note: ElementRefCounts, Elements and ParentVertices remain unchanged, since the new triangles are
             // unset
-            UE_CHECK_SLOW( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 );
+            assert( ElementTriangles.Num() == AppendInfo.TriangleOffset * 3 );
             ElementTriangles.Resize( 3 * ( AppendInfo.TriangleOffset + AppendInfo.NumTriangle ),
                                      IndexConstants::InvalidID );
         }
@@ -378,8 +379,8 @@ namespace Desert::Geometry
         {
             bool bIsSet = ElementTriangles[3 * TID] >= 0;
             // we require that triangle elements either be all set or all unset
-            UE_CHECK_SLOW( ElementTriangles[3 * TID + 1] >= 0 == bIsSet );
-            UE_CHECK_SLOW( ElementTriangles[3 * TID + 2] >= 0 == bIsSet );
+            assert( ElementTriangles[3 * TID + 1] >= 0 == bIsSet );
+            assert( ElementTriangles[3 * TID + 2] >= 0 == bIsSet );
             return bIsSet;
         }
 
@@ -545,7 +546,7 @@ namespace Desert::Geometry
         {
             int ElementID = GetElementIDAtVertex( TriangleID, VertexID );
 
-            UE_CHECK_SLOW( ElementID != IndexConstants::InvalidID );
+            assert( ElementID != IndexConstants::InvalidID );
             if ( ElementID != IndexConstants::InvalidID )
             {
                 GetElement( ElementID, Data );
@@ -574,7 +575,7 @@ namespace Desert::Geometry
             if ( a >= 0 )
             {
                 TriangleOut = Index3i( a, ElementTriangles[i + 1], ElementTriangles[i + 2] );
-                UE_CHECK_SLOW( TriangleOut.B >= 0 && TriangleOut.C >= 0 );
+                assert( TriangleOut.B >= 0 && TriangleOut.C >= 0 );
                 return true;
             }
             return false;
@@ -819,7 +820,7 @@ namespace Desert::Geometry
          */
         void GetTriElement( int TriangleID, int32_t TriVertexIndex, VectorType& Value ) const
         {
-            UE_CHECK_SLOW( TriVertexIndex >= 0 && TriVertexIndex <= 2 );
+            assert( TriVertexIndex >= 0 && TriVertexIndex <= 2 );
             GetElement( BaseType::ElementTriangles[( 3 * TriangleID ) + TriVertexIndex], Value );
         }
 

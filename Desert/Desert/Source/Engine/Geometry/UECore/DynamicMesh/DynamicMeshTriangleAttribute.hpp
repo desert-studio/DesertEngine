@@ -7,6 +7,7 @@
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicAttribute.hpp"
+#include <Common/Core/Core.hpp>
 
 namespace Desert::Geometry
 {
@@ -115,7 +116,7 @@ namespace Desert::Geometry
                 {
                     continue;
                 }
-                if ( UE_ENSURE( ToTID <= TID ) )
+                if ( Common::EnsureOrWarn( ToTID <= TID, "ToTID <= TID" ) )
                 {
                     CopyValue( TID, ToTID );
                 }
@@ -127,7 +128,7 @@ namespace Desert::Geometry
                           const DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& ToCopy )
         {
             CopyParentClassData( ToCopy );
-            UE_CHECK( CompactMaps.NumTriangleMappings() <= int( ToCopy.AttribValues.Num() / AttribDimension ) );
+            assert( CompactMaps.NumTriangleMappings() <= int( ToCopy.AttribValues.Num() / AttribDimension ) );
             AttribValueType Data[AttribDimension];
             for ( int TID = 0, NumTID = CompactMaps.NumTriangleMappings(); TID < NumTID; TID++ )
             {
@@ -144,7 +145,7 @@ namespace Desert::Geometry
         /** Initialize the attribute values with InitialValue, and resize to the parent mesh's max triangle ID */
         void Initialize( AttribValueType InitialValue )
         {
-            UE_CHECK( ParentMesh != nullptr );
+            assert( ParentMesh != nullptr );
             AttribValues.Resize( ParentMesh->MaxTriangleID() * AttribDimension );
             AttribValues.Fill( InitialValue );
         }
@@ -179,7 +180,8 @@ namespace Desert::Geometry
             int             BufferSize = sizeof( BufferData );
             for ( int32_t Idx = 0; Idx < Info.NumTriangle; ++Idx )
             {
-                if ( !UE_ENSURE( Source.CopyOut( Idx, BufferData, BufferSize ) ) )
+                if ( !Common::EnsureOrWarn( Source.CopyOut( Idx, BufferData, BufferSize ),
+                                            "Source.CopyOut( Idx, BufferData, BufferSize )" ) )
                 {
                     return false;
                 }
@@ -364,7 +366,7 @@ namespace Desert::Geometry
 
         inline void ResizeAttribStoreIfNeeded( int TriangleID )
         {
-            if ( !UE_ENSURE( TriangleID >= 0 ) )
+            if ( !Common::EnsureOrWarn( TriangleID >= 0, "TriangleID >= 0" ) )
             {
                 return;
             }
@@ -455,10 +457,10 @@ namespace Desert::Geometry
                 switch ( FailMode )
                 {
                     case ValidityCheckFailMode::Check:
-                        UE_CHECK( false );
+                        assert( false );
                         return false;
                     case ValidityCheckFailMode::Ensure:
-                        UE_ENSURE( false );
+                        DESERT_VERIFY_WARN( false );
                         return false;
                     default:
                         return false;

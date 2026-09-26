@@ -177,19 +177,19 @@ namespace Desert::Geometry
 
         inline const Type& Front() const
         {
-            UE_CHECK_SLOW( CurBlockUsed > 0 );
+            assert( CurBlockUsed > 0 );
             return GetElement( 0, 0 );
         }
 
         inline const Type& Back() const
         {
-            UE_CHECK_SLOW( CurBlockUsed > 0 );
+            assert( CurBlockUsed > 0 );
             return GetElement( CurBlock, CurBlockUsed - 1 );
         }
 
         const Type& operator[]( uint32_t Index ) const
         {
-            UE_CHECK_SLOW( Index < Num() );
+            assert( Index < Num() );
             return GetElement( GetBlockIndex( Index ), GetIndexInBlock( Index ) );
         }
 
@@ -333,8 +333,8 @@ namespace Desert::Geometry
 
         [[nodiscard]] const Type& GetElement( int32_t BlockIndex, int32_t IndexInBlock ) const
         {
-            UE_CHECK_SLOW( 0 <= BlockIndex && BlockIndex < static_cast<int32_t>( Blocks.size() ) &&
-                           0 <= IndexInBlock && IndexInBlock < BlockSize );
+            assert( 0 <= BlockIndex && BlockIndex < static_cast<int32_t>( Blocks.size() ) && 0 <= IndexInBlock &&
+                    IndexInBlock < BlockSize );
             return Blocks.data()[BlockIndex]->Elements[IndexInBlock];
         }
 
@@ -499,14 +499,14 @@ namespace Desert::Geometry
         }
         inline void SetVector2( unsigned int TopIndex, const glm::vec<2, Type>& V )
         {
-            UE_CHECK( N >= 2 );
+            assert( N >= 2 );
             unsigned int i = TopIndex * N;
             Data[i]        = V.x;
             Data[i + 1]    = V.y;
         }
         inline void SetVector3( unsigned int TopIndex, const glm::vec<3, Type>& V )
         {
-            UE_CHECK( N >= 3 );
+            assert( N >= 3 );
             unsigned int i = TopIndex * N;
             Data[i]        = V.x;
             Data[i + 1]    = V.y;
@@ -514,28 +514,28 @@ namespace Desert::Geometry
         }
         inline glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 2 );
+            assert( N >= 2 );
             return glm::vec<2, Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1] );
         }
         inline glm::vec<3, Type> AsVector3( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 3 );
+            assert( N >= 3 );
             return glm::vec<3, Type>( Data[TopIndex * N + 0], Data[TopIndex * N + 1], Data[TopIndex * N + 2] );
         }
         inline Index2i AsIndex2( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 2 );
+            assert( N >= 2 );
             return Index2i( (int)Data[TopIndex * N + 0], (int)Data[TopIndex * N + 1] );
         }
         inline Index3i AsIndex3( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 3 );
+            assert( N >= 3 );
             return Index3i( (int)Data[TopIndex * N + 0], (int)Data[TopIndex * N + 1],
                             (int)Data[TopIndex * N + 2] );
         }
         inline Index4i AsIndex4( unsigned int TopIndex ) const
         {
-            UE_CHECK( N >= 4 );
+            assert( N >= 4 );
             return Index4i( (int)Data[TopIndex * N + 0], (int)Data[TopIndex * N + 1], (int)Data[TopIndex * N + 2],
                             (int)Data[TopIndex * N + 3] );
         }
@@ -645,7 +645,7 @@ namespace Desert::Geometry
     template <typename Type, int32_t BlockSize>
     void DynamicVector<Type, BlockSize>::Add( const Type& Data )
     {
-        UE_CHECK_SLOW( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
+        assert( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
         if ( CurBlockUsed == BlockSize )
         {
             if ( CurBlock == static_cast<unsigned int>( static_cast<int32_t>( Blocks.size() ) - 1 ) )

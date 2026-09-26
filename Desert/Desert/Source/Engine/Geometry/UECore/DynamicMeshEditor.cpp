@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <Common/Core/Core.hpp>
 
 namespace Desert::Geometry
 {
@@ -70,7 +71,8 @@ namespace Desert::Geometry
                                                       DynamicMeshEditResult& ResultOut )
     {
         int N = static_cast<int32_t>( Loop1.size() );
-        if ( !UE_ENSURE( N == static_cast<int32_t>( Loop2.size() ) ) )
+        if ( !Common::EnsureOrWarn( N == static_cast<int32_t>( Loop2.size() ),
+                                    "N == static_cast<int32_t>( Loop2.size() )" ) )
             return false;
         return StitchLoopsInternal(
              *this, N,
@@ -89,7 +91,8 @@ namespace Desert::Geometry
                                                                   DynamicMeshEditResult&         ResultOut )
     {
         int N = static_cast<int32_t>( TriVidPairs.size() );
-        if ( !UE_ENSURE( N == static_cast<int32_t>( VertexLoop.size() ) ) )
+        if ( !Common::EnsureOrWarn( N == static_cast<int32_t>( VertexLoop.size() ),
+                                    "N == static_cast<int32_t>( VertexLoop.size() )" ) )
             return false;
         return StitchLoopsInternal(
              *this, N,
@@ -110,7 +113,7 @@ namespace Desert::Geometry
                                                              const std::vector<int>&  EdgeLoop,
                                                              std::vector<TriVidPair>& TriVertPairsOut )
     {
-        if ( !UE_ENSURE( EdgeLoop.size() == VidLoop.size() ) )
+        if ( !Common::EnsureOrWarn( EdgeLoop.size() == VidLoop.size(), "EdgeLoop.size() == VidLoop.size()" ) )
             return false;
         for ( int32_t QuadIndex = 0; QuadIndex < static_cast<int32_t>( EdgeLoop.size() ); ++QuadIndex )
         {
@@ -458,7 +461,7 @@ namespace Desert::Geometry
             {
                 // back out what was added so far
                 const bool bRemoved = RemoveTriangles( ResultOut.NewTriangles, false );
-                UE_CHECK( bRemoved );
+                assert( bRemoved );
                 return false;
             }
             ResultOut.NewTriangles.push_back( NewTID );
@@ -469,7 +472,7 @@ namespace Desert::Geometry
     // UE DynamicMeshEditor.cpp:1231-1263
     void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal )
     {
-        UE_CHECK( Mesh->HasAttributes() );
+        assert( Mesh->HasAttributes() );
         FDynamicMeshNormalOverlay* Normals = Mesh->Attributes()->PrimaryNormals();
         std::unordered_map<int, int> Vertices;
         for ( int Tid : Triangles )
@@ -503,7 +506,7 @@ namespace Desert::Geometry
     {
         if ( Triangles.empty() )
             return;
-        UE_CHECK( Mesh->HasAttributes() && Mesh->Attributes()->NumUVLayers() > 0 );
+        assert( Mesh->HasAttributes() && Mesh->Attributes()->NumUVLayers() > 0 );
         FDynamicMeshUVOverlay* UVs = Mesh->Attributes()->PrimaryUV();
 
         // SetFromTo(UnitZ, Normal): W = from.bisector, XYZ = from x bisector; an antiparallel Normal takes UE's

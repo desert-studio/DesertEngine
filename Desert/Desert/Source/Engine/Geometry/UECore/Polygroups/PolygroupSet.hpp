@@ -136,14 +136,14 @@ namespace Desert::Geometry
          */
         void SetGroup( int32_t TriangleID, int32_t NewGroupID, DynamicMesh3& WritableMesh )
         {
-            UE_CHECK_SLOW( &WritableMesh == this->Mesh ); // require the same mesh
+            assert( &WritableMesh == this->Mesh ); // require the same mesh
             if ( WritableMesh.IsTriangle( TriangleID ) )
             {
                 if ( PolygroupAttrib )
                 {
                     DynamicMeshPolygroupAttribute* WritableGroupAttrib =
                          WritableMesh.Attributes()->GetPolygroupLayer( GroupLayerIndex );
-                    UE_CHECK_SLOW( WritableGroupAttrib == PolygroupAttrib );
+                    assert( WritableGroupAttrib == PolygroupAttrib );
                     WritableGroupAttrib->SetValue( TriangleID, NewGroupID );
                 }
                 else
