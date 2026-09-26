@@ -35,8 +35,9 @@ namespace Desert::Editor::Control
         std::string Name;    ///< the display half, as a person reads it on the tab
         std::string Type;    ///< the asset type's name
         std::string Subject; ///< SubjectId::ToString() — "asset:2:333" / "component:17293:88"
-        bool        HoldsRendererSlot  = false;
-        bool        ClaimsRendererSlot = false;
+        bool        HoldsView          = false;
+        bool        ClaimsView         = false;
+        uint64_t    ViewForecastBytes  = 0; ///< ISubjectDocument::ViewForecastBytes
         bool        Focused            = false;
 
         // ── WHERE THIS DOCUMENT'S EDITS HAVE REACHED ───────────────────────────────────────────────────
@@ -108,9 +109,14 @@ namespace Desert::Editor::Control
         bool                                DocumentWellOpen = true; ///< the "Documents" window, not its documents
         std::vector<PanelSnapshot>          Panels;         ///< tools only; a document is never here
 
-        uint32_t RendererSlotsLive    = 0;
-        uint32_t RendererSlotsPending = 0;
-        uint32_t RendererSlotsMax     = 0;
+        // The views (live SceneRenderers) and the device-local budget they are checked against, in bytes
+        // (Engine/Core/ViewBudget.hpp). PendingViewBytes is what open documents have spoken for and not yet
+        // allocated, so it is in no usage figure.
+        uint32_t ViewsLive        = 0;
+        uint64_t ViewBytes        = 0;
+        uint64_t PendingViewBytes = 0;
+        uint64_t BudgetBytes      = 0;
+        uint64_t UsageBytes       = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -126,7 +132,7 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "renderer_slots", "log", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "log", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -247,8 +253,9 @@ namespace Desert::Editor::Control
                 item["name"]       = Str( document.Name );
                 item["type"]       = Str( document.Type );
                 item["subject"]    = Str( document.Subject );
-                item["holdsSlot"]  = rfl::Generic( document.HoldsRendererSlot );
-                item["claimsSlot"] = rfl::Generic( document.ClaimsRendererSlot );
+                item["holdsView"]         = rfl::Generic( document.HoldsView );
+                item["claimsView"]        = rfl::Generic( document.ClaimsView );
+                item["viewForecastBytes"] = Num( static_cast<double>( document.ViewForecastBytes ) );
                 item["focused"]    = rfl::Generic( document.Focused );
                 // The three states, so a client can say in numbers what a capture shows in pixels.
                 item["editModel"] = Str( document.EditModel );
@@ -292,13 +299,15 @@ namespace Desert::Editor::Control
             root["panels"] = rfl::Generic( panels );
         }
 
-        if ( Wanted( sections, "renderer_slots" ) )
+        if ( Wanted( sections, "views" ) )
         {
-            rfl::Generic::Object slots;
-            slots["live"]          = Num( snapshot.RendererSlotsLive );
-            slots["pending"]       = Num( snapshot.RendererSlotsPending );
-            slots["max"]           = Num( snapshot.RendererSlotsMax );
-            root["renderer_slots"] = rfl::Generic( slots );
+            rfl::Generic::Object views;
+            views["live"]         = Num( snapshot.ViewsLive );
+            views["bytes"]        = Num( static_cast<double>( snapshot.ViewBytes ) );
+            views["pendingBytes"] = Num( static_cast<double>( snapshot.PendingViewBytes ) );
+            views["budgetBytes"]  = Num( static_cast<double>( snapshot.BudgetBytes ) );
+            views["usageBytes"]   = Num( static_cast<double>( snapshot.UsageBytes ) );
+            root["views"]         = rfl::Generic( views );
         }
 
         if ( Wanted( sections, "log" ) )

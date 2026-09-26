@@ -183,10 +183,9 @@ namespace Desert::Graphic::Render2D
         capture.Height    = demand.Height;
 
         m_Refused.erase( element );
-        LOG_INFO( "[UI] render-texture element {} took a renderer slot for '{}' at {}x{} ({} of {} now in "
-                  "use)",
+        LOG_INFO( "[UI] render-texture element {} created a view for '{}' at {}x{} (views: {})",
                   static_cast<uint32_t>( element ), demand.ScenePath, demand.Width, demand.Height,
-                  SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  SceneRenderer::DescribeLiveViews() );
 
         const auto inserted = m_Captures.emplace( element, std::move( capture ) );
         return &inserted.first->second;
@@ -225,9 +224,8 @@ namespace Desert::Graphic::Render2D
             for ( const entt::entity element : stale )
             {
                 m_Captures.erase( element );
-                LOG_INFO( "[UI] render-texture element {} released its renderer slot ({} of {} now in use)",
-                          static_cast<uint32_t>( element ), SceneRenderer::GetLiveRendererCount() - 1,
-                          EngineContext::kMaxRendererSlots );
+                LOG_INFO( "[UI] render-texture element {} released its view (views: {})",
+                          static_cast<uint32_t>( element ), SceneRenderer::DescribeLiveViews() );
             }
         }
 

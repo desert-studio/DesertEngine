@@ -55,8 +55,8 @@ namespace Desert::Editor
 
         void OnUIRender() override;
 
-        // NEVER — see CloudNoiseVolumePanel::HoldsRendererSlot. This panel draws a curve with ImGui::PlotLines
-        // and owns no Scene and no SceneRenderer, so it costs none of the six slots.
+        // NEVER — see CloudNoiseVolumePanel::HoldsView. This panel draws a curve with ImGui::PlotLines
+        // and owns no Scene and no SceneRenderer, so it holds no view.
 
         // The `CloudType` this window is about, gone from the manager — deleted in the browser, or the project
         // closed under it. Asked of the metadata rather than of a typed lookup: the question is whether the
@@ -66,13 +66,13 @@ namespace Desert::Editor
         // a cloud panel.
         [[nodiscard]] bool IsSubjectAlive() const override;
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        // ...and never will — see CloudNoiseVolumePanel::ClaimsRendererSlot.
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        // ...and never will — see CloudNoiseVolumePanel::ClaimsView.
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

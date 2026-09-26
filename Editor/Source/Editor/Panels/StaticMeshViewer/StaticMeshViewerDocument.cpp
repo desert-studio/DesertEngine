@@ -114,7 +114,7 @@ namespace Desert::Editor
         }
     }
 
-    void StaticMeshViewerDocument::ReleaseRendererSlot()
+    void StaticMeshViewerDocument::ReleaseView()
     {
         m_Preview.reset();
         m_UIHelper.reset();

@@ -194,7 +194,7 @@ TOOLS = [
         "name": "get_state",
         "description": (
             "The editor's state as JSON. Sections: scene, selection, documents (open in most-recently-"
-            "used order, plus recently closed), panels, renderer_slots (live/pending of six), log "
+            "used order, plus recently closed), panels, views (live count, bytes held, pending bytes, device-local budget and usage), log "
             "(counts and tail), quiescence. Omit sections for all of them."
         ),
         "inputSchema": {

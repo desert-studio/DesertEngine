@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <functional>
 #include <string>
@@ -15,6 +17,7 @@
 #include <Editor/Core/PreviewViewpoints.hpp>
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 
 namespace Desert::Core
 {
@@ -147,6 +150,16 @@ namespace Desert::Editor
         return label + "###doc" + subject.ToString();
     }
 
+    // A document preview's view at @p width x @p height, in bytes: the preview profile's target census
+    // (Graphic::ViewTargetCensus), the table every view's build is checked against. A side of 0 — a window
+    // ImGui lays out itself — is built at kUnsizedViewExtent first, so that is what it forecasts.
+    [[nodiscard]] inline uint64_t ForecastPreviewViewBytes( const uint32_t width, const uint32_t height )
+    {
+        const uint32_t w = width == 0 ? Graphic::kUnsizedViewExtent.Width : width;
+        const uint32_t h = height == 0 ? Graphic::kUnsizedViewExtent.Height : height;
+        return Graphic::SumViewTargets( Graphic::ViewTargetCensus( Graphic::kPreviewViewProfile, w, h ) ).Total();
+    }
+
     // A panel that edits ONE SUBJECT: a document, not a tool.
     //
     // The difference that matters to the editor: a tool panel is created once at startup and toggled, so its
@@ -226,38 +239,54 @@ namespace Desert::Editor
             return {};
         }
 
-        // Is this document holding one of the six renderer slots RIGHT NOW?
+        // Is this document holding a VIEW (a live Graphic::SceneRenderer) RIGHT NOW?
         //
-        // Asked by the slot census before a seventh consumer is admitted. A document that is open but has
-        // not drawn yet holds nothing and still has a claim coming, which is why the census counts pending
-        // demand separately rather than trusting the live-renderer count alone.
-        [[nodiscard]] virtual bool HoldsRendererSlot() const = 0;
+        // Asked before another document is admitted, and by the status bar. A document that is open but
+        // has not drawn yet holds nothing and still has a view coming, which is why the census counts that
+        // demand separately (PendingViewBytes) rather than trusting the device's usage alone: memory the
+        // view has not allocated yet is not in any usage figure.
+        [[nodiscard]] virtual bool HoldsView() const = 0;
 
-        // Will this document EVER claim one of the six renderer slots?
+        // Will this document EVER build a view?
         //
-        // HoldsRendererSlot answers "right now"; this answers "ever", and the census needs both. It counts
-        // an open document that holds no slot as PENDING DEMAND, because a Material Editor that has not
-        // drawn yet is a claim that has not landed — but a document that renders on the CPU has no claim
-        // coming at all, and counting it would refuse a window that costs nothing. With the four cloud
-        // documents (which bake on the CPU and upload an Image2D) that is not hypothetical: five of them
-        // open beside the main viewport made `live + pending` reach the cap, and the sixth was refused with
-        // a census telling the user to close windows that were holding nothing.
+        // HoldsView answers "right now"; this answers "ever", and the census needs both. A Material Editor
+        // that has not drawn yet is a view that has not landed, but a document that renders on the CPU has
+        // no view coming at all, and counting its forecast would refuse a window that costs nothing. With
+        // the four cloud documents (which bake on the CPU and upload an Image2D) that is not hypothetical:
+        // they once pushed the census over the limit, and the refusal told the user to close windows that
+        // were holding nothing.
         //
         // Defaults to TRUE, which is the conservative answer: a new document type that forgets to say is
-        // treated as a claimant and refused early, rather than admitted past the cap and discovered as two
-        // surfaces quietly trading each other's per-frame camera some minutes later.
-        [[nodiscard]] virtual bool ClaimsRendererSlot() const
+        // treated as a claimant and its forecast counted, rather than admitted unchecked and discovered as
+        // an allocation failure some minutes later.
+        [[nodiscard]] virtual bool ClaimsView() const
         {
             return true;
         }
 
-        // ── GIVE THE SLOT BACK WHILE NOBODY IS LOOKING ─────────────────────────────────────────────────
+        // What the view this document WILL build is forecast to hold, in bytes. Only meaningful while
+        // ClaimsView() && !HoldsView(): once the view exists its memory is in the device's usage, and
+        // counting the forecast as well would count it twice (PendingViewBytes).
         //
-        // There are six renderer slots and a document holds one for as long as it is OPEN, which is not
-        // the same as for as long as it is SEEN. Four documents docked as tabs in one node show one tab;
-        // the other three were rendering a preview nobody could see and holding three of the six slots
-        // while they did it, so the fifth document the user opened was refused over resources that were
-        // being spent on hidden windows.
+        // THE WINDOW'S DEFAULT SIZE IS THE FORECAST'S EXTENT. The preview is built at its pane's size on the
+        // first frame the window draws, and the pane is inside the window, so the default size is the
+        // largest the first build can be before the user drags anything. A document with no default size
+        // (0,0) is laid out by ImGui and its first build is at kUnsizedViewExtent. Growth past either is
+        // not this forecast's job: every resize of a live view is checked by Graphic::MayResizeView.
+        // The same census the view's build is checked against (ViewTargetCensus), not a second table.
+        [[nodiscard]] virtual uint64_t ViewForecastBytes() const
+        {
+            const glm::vec2 size = GetDefaultSize();
+            return ForecastPreviewViewBytes( static_cast<uint32_t>( std::max( size.x, 0.0f ) ),
+                                             static_cast<uint32_t>( std::max( size.y, 0.0f ) ) );
+        }
+
+        // ── GIVE THE VIEW BACK WHILE NOBODY IS LOOKING ─────────────────────────────────────────────────
+        //
+        // A document holds its view for as long as it is OPEN, which is not the same as for as long as it
+        // is SEEN. Four documents docked as tabs in one node show one tab; the other three were rendering a
+        // preview nobody could see and holding the device memory of three views while they did it, so the
+        // next document the user opened was refused over memory being spent on hidden windows.
         //
         // THE ALTERNATIVE WAS TO CLOSE THE DOCUMENT ON FOCUS LOSS, AND THE OWNER REFUSED IT: a layout that
         // rearranges itself reads as an editor that lost your panel. So the window stays and the RESOURCE
@@ -265,12 +294,12 @@ namespace Desert::Editor
         // uses, and for the same reason: the last submitted frame may still be executing against the
         // renderer this releases.
         //
-        // AFTERWARDS HoldsRendererSlot() MUST ANSWER FALSE. That is the contract, it is what the editor
-        // logs an error about if it is broken, and it is what a suite can assert over a document with no
-        // renderer anywhere near (DocumentOwnership). The default body is empty because a document that
-        // never claims a slot has nothing to give back — for one that does, an empty override would fail
-        // that check out loud rather than quietly keep the slot.
-        virtual void ReleaseRendererSlot()
+        // AFTERWARDS HoldsView() MUST ANSWER FALSE. That is the contract, it is what the editor logs an
+        // error about if it is broken, and it is what a suite can assert over a document with no renderer
+        // anywhere near (DocumentOwnership). The default body is empty because a document that never
+        // builds a view has nothing to give back — for one that does, an empty override would fail that
+        // check out loud rather than quietly keep the memory.
+        virtual void ReleaseView()
         {
         }
 

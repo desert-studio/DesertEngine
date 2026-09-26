@@ -67,12 +67,12 @@ namespace Desert::Editor
         // NOTHING BUT IMGUI. The gradient bar and the curve plot are drawn with ImGui primitives; there is
         // no Scene, no SceneRenderer and no offscreen target here, so this window is not demand for one of
         // the six slots and closing it would free nothing.
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return false;
         }
 
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return false;
         }

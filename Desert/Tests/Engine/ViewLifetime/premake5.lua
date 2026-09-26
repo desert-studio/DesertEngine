@@ -8,21 +8,21 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
-    -- The unit under test is header-only and free of the renderer: Engine/Core/RendererSlotPool.hpp is
-    -- the whole of the renderer-slot accounting, on a plain bitmask. It sits outside SceneRenderer.cpp
-    -- for the same reason GpuTimestampLayout.hpp sits outside VulkanGpuProfiler -- that file needs a
-    -- VkDevice, so a slot that is leased and never returned would otherwise be assertable only by a
-    -- human counting panels in a running editor. Nothing to compile from the engine, nothing to link.
+    -- The unit under test is the view register, Engine/Graphic/ViewResources.cpp: which views are alive
+    -- and which copies each one owns. It sits outside SceneRenderer.cpp because that file needs a
+    -- VkDevice, so a view that is created and never destroyed would otherwise be assertable only by a
+    -- human counting panels in a running editor. Plain C++, nothing else to link.
     files {
         test_files,
+        "%{wks.location}/Desert/Desert/Source/Engine/Graphic/ViewResources.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
-        -- <Editor/Core/SceneViewIdentity.hpp>. The editor is where slots are opened and closed, and the
-        -- naming of an open scene view is the half of "close a view" that a slot count cannot check:
-        -- returning the slot while every surviving viewport's callback points at the wrong document is a
+        -- <Editor/Core/SceneViewIdentity.hpp>. The editor is where views are opened and closed, and the
+        -- naming of an open scene view is the half of "close a view" that a view count cannot check:
+        -- ending the view while every surviving viewport's callback points at the wrong document is a
         -- green sweep and a broken editor. Header-only, no ImGui, nothing to link.
         "%{wks.location}/Editor/Source",
     }

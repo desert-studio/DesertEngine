@@ -19,7 +19,6 @@
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Camera.hpp>
-#include <Engine/Core/RendererSlotPool.hpp>
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/EventRegistry.hpp>
@@ -80,11 +79,10 @@ namespace Desert::Graphic
             bool                   ReceiveShadows  = true;
         };
 
-        // Each renderer LEASES a slot on construction — the index that says WHICH view is recording, so
-        // per-frame state is stored per renderer instead of being overwritten by the next one
-        // (EngineContext::GetActiveRendererSlot, Docs/RENDERER_FRAME_STATE.md). The lowest free slot is
-        // taken, so a slot handed back by a closed view is reused; past kMaxRendererSlots the renderer
-        // records into slot 0 and warns, and holds no lease to give back.
+        // Each renderer IS a view: it owns its ViewResources, so per-frame state is stored per view instead of
+        // being overwritten by the next one (Docs/RENDERER_FRAME_STATE.md). There is no count limit and no
+        // shared fallback — every view gets its own copies; the only limit is the byte budget the caller
+        // checks before creating one (Engine/Core/ViewBudget.hpp).
         //
         // @p shadowQuality is this renderer's directional-shadow BUDGET and is a CONSTRUCTOR argument
         // rather than a setter on purpose: MeshRenderer allocates the cascade framebuffers from it inside
@@ -99,7 +97,7 @@ namespace Desert::Graphic
         // widget, the thumbnail, the runtime window — and the build allocates at exactly that; Resize()
         // follows the surface from then on. A surface that has no size yet passes kUnsizedViewExtent.
         SceneRenderer( const ViewExtent& extent, const ViewProfile& profile = kSceneViewProfile );
-        // Returns the leased slot, so closing a view hands it back instead of using it up.
+        // Unregisters the view; its per-view copies defer their GPU release (ViewResources).
         ~SceneRenderer();
 
         // This renderer's shadow budget. Read by its own MeshRenderer in Initialize and fixed thereafter.
@@ -308,9 +306,10 @@ namespace Desert::Graphic
         // System::VolumetricCloudRenderer::ModellingBakeProgress for why the wait is worth a number.
         float CloudVolumeBakeProgress() const;
 
-        // How many SceneRenderers are alive right now. Every one of them pays for its own baked sky
-        // environment, which is why the bake announces its cost with this number beside it.
-        static uint32_t GetLiveRendererCount();
+        // "N live, X MiB": views alive right now (ViewResourceRegistry::LiveCount) and what they hold
+        // together. Every log line that opens or closes a view prints it, so a view that is never destroyed
+        // is readable as a count that only goes up.
+        static std::string DescribeLiveViews();
 
         // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
         // the same table the view's build is checked against) plus every per-view copy its ViewResources
@@ -421,13 +420,9 @@ namespace Desert::Graphic
         CloudShadowInput GetCloudShadowInput() const;
 
     private:
-        // Which view this renderer is; see the constructor. Held as a lease so the slot goes back when
-        // this renderer is destroyed, whatever destroys it.
-        Engine::RendererSlotLease m_SlotLease;
-
-        // Everything this view keeps per frame in flight, keyed by the shared resource it copies. Declared
-        // after the lease only so its name can carry the slot while slots still exist. Made the target of
-        // per-frame writes by an ActiveViewScope at the top of each frame phase, next to BindRecordingSlot.
+        // Everything this view keeps per frame in flight, keyed by the shared resource it copies; its name is
+        // the view's name in every log line. Made the target of per-frame writes by an ActiveViewScope at the
+        // top of each frame phase (BeginScene/OnUpdate/EndScene).
         ViewResources m_ViewResources;
 
         // Constructor-set, const in everything but name: MeshRenderer copies it in Initialize and the
@@ -514,11 +509,6 @@ namespace Desert::Graphic
         void ExecuteUI();
 
     private:
-        // Tells the engine context that THIS renderer is the one recording. Called at the top of every
-        // phase a frame has (BeginScene/OnUpdate/EndScene) rather than once, because several views of one
-        // scene are driven phase by phase and each phase therefore starts on whatever view ran last.
-        void BindRecordingSlot() const;
-
         struct
         {
             Core::Camera* ActiveCamera = nullptr;

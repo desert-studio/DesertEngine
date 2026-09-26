@@ -1,21 +1,21 @@
-// Closing a scene view: the slot must come back, and the SURVIVORS must still be themselves.
+// Closing a scene view: its view must go away, and the SURVIVORS must still be themselves.
 //
-// This file sits in the RendererSlots suite rather than a new one because the two halves are one fact. A
-// scene view is a renderer slot with a window around it: opening one leases a slot, closing one must return
-// it, and the reason closing was not implemented for so long is that doing it naively breaks the OTHER
-// half — every surviving viewport's activation callback used to capture its document's POSITION, and a
-// position survives a removal in the worst possible way. It stays in range, it still resolves, and it now
-// names a different document. Asserting the slot count alone would have passed a build in which clicking
-// the third viewport bound the editor to the second one's scene.
+// This file sits in the ViewLifetime suite rather than a new one because the two halves are one fact. A
+// scene view is a view with a window around it: opening one creates a view, closing one must destroy it, and the
+// reason closing was not implemented for so long is that doing it naively breaks the OTHER half — every surviving
+// viewport's activation callback used to capture its document's POSITION, and a position survives a removal in the
+// worst possible way. It stays in range, it still resolves, and it now names a different document. Asserting the
+// view count alone would have passed a build in which clicking the third viewport bound the editor to the second
+// one's scene.
 //
 // So the model below is the editor's own bookkeeping, driven through the REAL types:
-// Engine/Core/RendererSlotPool.hpp for the leases and Editor/Core/SceneViewIdentity.hpp for the naming.
+// Engine/Graphic/ViewResources.hpp for the views and Editor/Core/SceneViewIdentity.hpp for the naming.
 // Neither needs a Vulkan device, which is the whole point — EditorLayer.cpp is one of the 47 of 48 editor
 // panel/layer translation units that NO suite compiles (scripts/CI/UnreachedSources.sh), so anything that
 // is going to be assertable at all has to be lifted out of it into a header like these two.
 
 #include <Editor/Core/SceneViewIdentity.hpp>
-#include <Engine/Core/RendererSlotPool.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #include <gtest/gtest.h>
 
@@ -28,25 +28,23 @@ using Desert::Editor::ActiveSceneViewAfterClose;
 using Desert::Editor::IndexOfSceneView;
 using Desert::Editor::kPrimarySceneViewId;
 using Desert::Editor::SceneViewIdSource;
-using Desert::Engine::kMaxRendererSlots;
-using Desert::Engine::RendererSlotLease;
-using Desert::Engine::RendererSlotPool;
+using Desert::Graphic::ViewResourceRegistry;
+using Desert::Graphic::ViewResources;
 
 namespace
 {
-    // EditorLayer::SceneDocument, minus everything that needs a GPU. Its lease stands in for the
-    // SceneRenderer whose destructor returns the slot, so destroying a document here returns a slot for
-    // exactly the same reason it does in the editor.
+    // EditorLayer::SceneDocument, minus everything that needs a GPU. Its ViewResources is the one the
+    // SceneRenderer owns, so destroying a document here ends a view for exactly the same reason it does in
+    // the editor.
     struct Document
     {
-        Document( uint64_t id, std::string name, RendererSlotPool& pool )
-             : Id( id ), Name( std::move( name ) ), Lease( pool )
+        Document( uint64_t id, std::string name ) : Id( id ), Name( std::move( name ) ), View( Name )
         {
         }
 
-        uint64_t          Id;
-        std::string       Name;
-        RendererSlotLease Lease;
+        uint64_t      Id;
+        std::string   Name;
+        ViewResources View;
     };
 
     // EditorLayer's multi-document bookkeeping: AddSceneView / CloseSceneView / SetActiveScene, with the
@@ -56,15 +54,15 @@ namespace
     class Editor
     {
     public:
-        // The primary viewport: always open, holds a slot for the whole session, cannot be closed.
-        explicit Editor( RendererSlotPool& pool ) : m_Pool( pool ), m_Primary( pool )
+        // The primary viewport: always open, holds a view for the whole session, cannot be closed.
+        Editor() : m_Primary( "Scene 1" )
         {
         }
 
         uint64_t AddSceneView()
         {
             const uint64_t id = m_Ids.Next();
-            m_Docs.push_back( std::make_unique<Document>( id, "Scene " + std::to_string( id + 1 ), m_Pool ) );
+            m_Docs.push_back( std::make_unique<Document>( id, "Scene " + std::to_string( id + 1 ) ) );
             return id;
         }
 
@@ -125,8 +123,7 @@ namespace
         }
 
     private:
-        RendererSlotPool&                      m_Pool;
-        RendererSlotLease                      m_Primary;
+        ViewResources                          m_Primary;
         SceneViewIdSource                      m_Ids;
         std::vector<std::unique_ptr<Document>> m_Docs;
         uint64_t                               m_ActiveId      = kPrimarySceneViewId;
@@ -143,8 +140,7 @@ TEST( SceneViewLifetime, ClosingTheMiddleViewLeavesTheThirdActivatingTheThird )
     // Under the position-capturing callback this is the exact case that failed silently: document 3 was
     // created third, so its callback held index 2. Closing document 2 slid document 3 down to index 1 and
     // left index 2 out of range — or, with a fourth view open, pointing at a stranger. Neither is a crash.
-    RendererSlotPool pool;
-    Editor           editor( pool );
+    Editor editor;
 
     const uint64_t first  = editor.AddSceneView();
     const uint64_t second = editor.AddSceneView();
@@ -170,21 +166,20 @@ TEST( SceneViewLifetime, ClosingTheMiddleViewLeavesTheThirdActivatingTheThird )
     EXPECT_EQ( editor.ActiveName(), "Scene 2" );
 }
 
-TEST( SceneViewLifetime, ClosingTheMiddleViewReturnsExactlyOneSlot )
+TEST( SceneViewLifetime, ClosingTheMiddleViewEndsExactlyOneView )
 {
-    // The same sequence, counted instead of named. One primary + three views = four slots; closing one must
+    // The same sequence, counted instead of named. One primary + three views = four views; closing one must
     // return one, not zero and not two.
-    RendererSlotPool pool;
-    Editor           editor( pool );
-    EXPECT_EQ( pool.InUseCount(), 1u );
+    Editor editor;
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u );
 
     editor.AddSceneView();
     const uint64_t second = editor.AddSceneView();
     editor.AddSceneView();
-    EXPECT_EQ( pool.InUseCount(), 4u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 4u );
 
     ASSERT_TRUE( editor.CloseSceneView( second ) );
-    EXPECT_EQ( pool.InUseCount(), 3u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 3u );
     EXPECT_EQ( editor.OpenViewCount(), 2u );
 }
 
@@ -195,8 +190,7 @@ TEST( SceneViewLifetime, IdsAreNeverReused )
     // The property the whole design rests on. If a closed view's id were handed to a later view, a stale
     // callback would find a LIVE document under its old name and activate a stranger — the dangling index
     // again, in different clothes, and this time undetectable by the empty-optional check.
-    RendererSlotPool      pool;
-    Editor                editor( pool );
+    Editor                editor;
     std::vector<uint64_t> everIssued;
 
     for ( int cycle = 0; cycle < 8; ++cycle )
@@ -214,8 +208,7 @@ TEST( SceneViewLifetime, AStaleIdActivatesNothingAndSaysSo )
 {
     // The failure an id has and a position does not: it ANSWERS. A viewport that outlived its document
     // resolves to nothing, the active document is left alone, and the editor has something to log.
-    RendererSlotPool pool;
-    Editor           editor( pool );
+    Editor editor;
 
     const uint64_t first  = editor.AddSceneView();
     const uint64_t second = editor.AddSceneView();
@@ -232,16 +225,15 @@ TEST( SceneViewLifetime, ClosingTheSameViewTwiceIsHarmless )
 {
     // Two closes can reach CloseSceneView for one document — the window's X and the Scenes menu item both
     // clear the same visibility flag, and a close is deferred to the top of the next frame.
-    RendererSlotPool pool;
-    Editor           editor( pool );
+    Editor editor;
 
     const uint64_t only = editor.AddSceneView();
-    EXPECT_EQ( pool.InUseCount(), 2u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 2u );
 
     EXPECT_TRUE( editor.CloseSceneView( only ) );
-    EXPECT_EQ( pool.InUseCount(), 1u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u );
     EXPECT_FALSE( editor.CloseSceneView( only ) );
-    EXPECT_EQ( pool.InUseCount(), 1u ) << "the second close returned a slot that was not ours";
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u ) << "the second close ended a view that was not ours";
 }
 
 // --- Where the editor is left pointing ---------------------------------------------------------------
@@ -250,8 +242,7 @@ TEST( SceneViewLifetime, ClosingTheACTIVEViewFallsBackToThePrimary )
 {
     // The primary is the only document guaranteed to exist, so it is the only safe landing place. Leaving
     // m_MainScene pointing at a destroyed scene is what every panel would then draw from.
-    RendererSlotPool pool;
-    Editor           editor( pool );
+    Editor editor;
 
     const uint64_t view = editor.AddSceneView();
     editor.Activate( view );
@@ -266,8 +257,7 @@ TEST( SceneViewLifetime, ClosingAnInactiveViewDoesNotMoveTheUser )
 {
     // Tidying up a spare viewport is not a request to be teleported into another scene. This is the clause
     // that a "just reset to the primary on any close" implementation would break.
-    RendererSlotPool pool;
-    Editor           editor( pool );
+    Editor editor;
 
     const uint64_t working = editor.AddSceneView();
     const uint64_t spare   = editor.AddSceneView();
@@ -280,44 +270,40 @@ TEST( SceneViewLifetime, ClosingAnInactiveViewDoesNotMoveTheUser )
 
 // --- The measurement the lead asked for --------------------------------------------------------------
 
-TEST( SceneViewLifetime, OpeningAndClosingViewsForeverNeverRunsOutOfSlots )
+TEST( SceneViewLifetime, OpeningAndClosingViewsForeverLeavesOnlyThePrimary )
 {
-    // The leak's shape: invisible for five cycles, fatal on the sixth. With the primary permanently holding
-    // one of six, five closed-and-never-released views exhaust the pool, and the sixth scene view shares
-    // slot 0 with the main viewport — two live views trading camera, lights and shadow cascades, with no
-    // error message anywhere. Twenty cycles is four times past the cliff.
-    RendererSlotPool pool;
-    Editor           editor( pool );
-    const uint32_t   baseline = pool.InUseCount();
+    // The leak's shape: a closed scene view that keeps its view costs nothing visible until the byte
+    // budget refuses a window the user opens later. Twenty cycles, and the count is back every time.
+    Editor         editor;
+    const uint32_t baseline = ViewResourceRegistry::LiveCount();
     ASSERT_EQ( baseline, 1u );
 
     for ( int cycle = 0; cycle < 20; ++cycle )
     {
         const uint64_t id = editor.AddSceneView();
-        EXPECT_EQ( pool.InUseCount(), baseline + 1 ) << "cycle " << cycle;
+        EXPECT_EQ( ViewResourceRegistry::LiveCount(), baseline + 1 ) << "cycle " << cycle;
         ASSERT_TRUE( editor.CloseSceneView( id ) );
-        EXPECT_EQ( pool.InUseCount(), baseline ) << "cycle " << cycle << ": a closed scene view kept its slot";
+        EXPECT_EQ( ViewResourceRegistry::LiveCount(), baseline )
+             << "cycle " << cycle << ": a closed scene view kept its view";
     }
     EXPECT_EQ( editor.OpenViewCount(), 0u );
 }
 
-TEST( SceneViewLifetime, FiveViewsFitAlongsideThePrimaryAndAllComeBack )
+TEST( SceneViewLifetime, TwelveViewsAreAllLiveAtOnceAndAllComeBack )
 {
-    // The tight case: kMaxRendererSlots is six and the primary takes one, so five extra views is the most
-    // that can be open at once without sharing. Every one of them must be valid, and the pool must drain.
-    RendererSlotPool pool;
-    Editor           editor( pool );
+    // Past the six the retired slot pool allowed: every view is its own, none folds onto the primary's.
+    Editor editor;
 
     std::vector<uint64_t> ids;
-    for ( uint32_t i = 0; i + 1 < kMaxRendererSlots; ++i )
+    for ( uint32_t i = 0; i < 11; ++i )
         ids.push_back( editor.AddSceneView() );
 
-    EXPECT_TRUE( pool.IsFull() );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 12u );
 
     // Closed newest-first, which is neither the order they were opened nor the order the vector holds them
     // after any of the erases above.
     for ( auto it = ids.rbegin(); it != ids.rend(); ++it )
         ASSERT_TRUE( editor.CloseSceneView( *it ) );
 
-    EXPECT_EQ( pool.InUseCount(), 1u ) << "only the primary viewport should still hold a slot";
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u ) << "only the primary viewport should still hold a view";
 }

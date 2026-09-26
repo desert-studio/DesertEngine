@@ -307,8 +307,8 @@ TEST( ThumbnailSweep, OneScanReportsAtMostItsLimit )
 // ---------------------------------------------------------------------------------------------------
 // 5. THE SWEEP CANNOT TAKE A RENDERER SLOT.
 //
-// The trap the lead named: there are six slots (EngineContext::kMaxRendererSlots) and a preview must be
-// DESTROYED to give one back, so background work that claimed them in a batch would close the windows a
+// The trap the lead named: every view is paid from one byte budget and a preview must be DESTROYED to
+// give its memory back, so background work that claimed them in a batch would close the windows a
 // person is looking at.
 //
 // The guarantee is STRUCTURAL rather than numeric, so it is asserted structurally: the sweep never builds

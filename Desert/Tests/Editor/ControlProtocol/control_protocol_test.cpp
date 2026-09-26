@@ -466,12 +466,12 @@ TEST( ControlProtocol, AskingForOneSectionDoesNotReturnTheOthers )
 TEST( ControlProtocol, TheDocumentsSectionCarriesBothTheOpenOnesAndTheClosedOnes )
 {
     EditorSnapshot snapshot;
-    snapshot.Documents.push_back( { .Name               = "M_Crate",
-                                    .Type               = "SurfaceMaterial",
-                                    .Subject            = "1111",
-                                    .HoldsRendererSlot  = true,
-                                    .ClaimsRendererSlot = true,
-                                    .Focused            = true } );
+    snapshot.Documents.push_back( { .Name       = "M_Crate",
+                                    .Type       = "SurfaceMaterial",
+                                    .Subject    = "1111",
+                                    .HoldsView  = true,
+                                    .ClaimsView = true,
+                                    .Focused    = true } );
     snapshot.RecentlyClosed.push_back( { .Name = "M_Barrel", .Type = "SurfaceMaterial", .Subject = "2222" } );
 
     const rfl::Generic::Object json      = ToJson( snapshot, { "documents" } );
@@ -490,7 +490,7 @@ TEST( ControlProtocol, TheDocumentsSectionCarriesBothTheOpenOnesAndTheClosedOnes
     const auto first = openArray.value()[0].to_object();
     ASSERT_TRUE( first );
     EXPECT_EQ( StringField( first.value(), "name" ), "M_Crate" );
-    EXPECT_TRUE( BoolField( first.value(), "holdsSlot", false ) );
+    EXPECT_TRUE( BoolField( first.value(), "holdsView", false ) );
     EXPECT_TRUE( BoolField( first.value(), "focused", false ) );
 
     const auto closed = object.value().get( "recentlyClosed" );

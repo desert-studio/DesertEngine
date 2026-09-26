@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
+#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -1123,7 +1124,7 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject )
                            { return EntityHasComponent<ECS::ParticleEmitterComponent>( subject.Owner ); } } );
         // THE UI CANVAS. Its window owns a Framebuffer and a Render2D rather than a SceneRenderer, so it
-        // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsRendererSlot) — a document
+        // takes none of the six renderer slots and says so (UIEditorPanel::ClaimsView) — a document
         // that renders is not automatically a document that costs a slot.
         m_SubjectEditors.Register(
              Editor::UIEditorPanel::SubjectType(),
@@ -2612,8 +2613,9 @@ namespace Desert::Editor
             entry.Name               = DocumentDisplayName( document->GetName() );
             entry.Type               = m_SubjectEditors.TypeName( subject );
             entry.Subject            = subject.ToString();
-            entry.HoldsRendererSlot  = document->HoldsRendererSlot();
-            entry.ClaimsRendererSlot = document->ClaimsRendererSlot();
+            entry.HoldsView          = document->HoldsView();
+            entry.ClaimsView         = document->ClaimsView();
+            entry.ViewForecastBytes  = document->ViewForecastBytes();
             entry.Focused            = ( subject == m_FocusedDocument );
 
             // The three states, asked of the document itself. Written out as words here rather than
@@ -2664,9 +2666,18 @@ namespace Desert::Editor
             snapshot.Panels.push_back( std::move( entry ) );
         }
 
-        snapshot.RendererSlotsLive    = Graphic::SceneRenderer::GetLiveRendererCount();
-        snapshot.RendererSlotsPending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
-        snapshot.RendererSlotsMax     = EngineContext::kMaxRendererSlots;
+        {
+            // The same reading and holdings a refusal is decided on (Graphic::ReadViewBudget), so the state a
+            // client reads and the verdict the editor gives cannot disagree.
+            const auto holdings = Graphic::SceneRenderer::LiveHoldings();
+            snapshot.ViewsLive  = static_cast<uint32_t>( holdings.size() );
+            for ( const Engine::ViewBudget::HeldView& view : holdings )
+                snapshot.ViewBytes += view.Bytes;
+            snapshot.PendingViewBytes                 = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
+            snapshot.BudgetBytes                      = reading.CeilingBytes;
+            snapshot.UsageBytes                       = reading.UsageBytes;
+        }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
         snapshot.LogWarningCount = LogsPanel::WarningCount();
@@ -2919,9 +2930,8 @@ namespace Desert::Editor
         m_Panels.Adopt( std::move( vp ) );
 
         m_ExtraScenes.emplace_back( std::move( doc ) );
-        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open, {}/{} renderer slots in use)", id,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::GetLiveRendererCount(),
-                  EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open; views: {})", id, m_ExtraScenes.size() + 1,
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::CloseDismissedSceneViews()
@@ -2998,11 +3008,10 @@ namespace Desert::Editor
         doc->Renderer.reset();
         m_ExtraScenes.erase( m_ExtraScenes.begin() + static_cast<ptrdiff_t>( *index ) );
 
-        // The count is printed, not left to be derived: a surface that fails to return its slot produces no
+        // The count is printed, not left to be derived: a surface that fails to destroy its view produces no
         // error at all, and this line beside the one in AddSceneView is what makes the leak readable.
-        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open, {}/{} renderer slots in use)", id, name,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::GetLiveRendererCount(),
-                  EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open; views: {})", id, name,
+                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::AddSceneViewport()
@@ -3041,10 +3050,9 @@ namespace Desert::Editor
         view->Renderer = std::move( renderer );
         m_ExtraViewports.emplace_back( std::move( view ) );
 
-        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world, {}/{} renderer slots in "
-                  "use)",
+        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world; views: {})",
                   m_ExtraViewports.back()->Id, scene->GetSceneName(), scene->GetViewCount(),
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::BuildViewportGrid()
@@ -3109,10 +3117,10 @@ namespace Desert::Editor
             }
         }
 
-        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' ({}/{} renderer slots in use); the dock "
-                  "split runs on the next frame.",
+        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' (views: {}); the dock split runs on the "
+                  "next frame.",
                   m_PendingViewportGrid.size(), scene->GetSceneName(),
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::CloseDismissedSceneViewports()
@@ -3156,27 +3164,26 @@ namespace Desert::Editor
         view->Renderer.reset();
         m_ExtraViewports.erase( m_ExtraViewports.begin() + static_cast<ptrdiff_t>( *index ) );
 
-        LOG_INFO( "[Editor] Closed viewport '{}' ({}/{} renderer slots in use)", name,
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Closed viewport '{}' (views: {})", name, Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
-    std::vector<EditorLayer::RendererSlotConsumer> EditorLayer::RendererSlotCensus() const
+    std::vector<EditorLayer::ViewConsumer> EditorLayer::ViewCensus() const
     {
-        std::vector<RendererSlotConsumer> census;
-        census.push_back( { "main viewport", true } ); // the primary scene's renderer exists for the session
+        std::vector<ViewConsumer> census;
+        census.push_back( { "main viewport", true } ); // the primary scene's view exists for the session
 
         for ( const auto& doc : m_ExtraScenes )
             census.push_back( { "scene view '" + doc->Name + "'", true } );
 
-        // A second ANGLE holds a slot exactly as a second document does — leaving it out of the census
-        // would make the budget's own report disagree with SceneRenderer::GetLiveRendererCount().
+        // A second ANGLE holds a view exactly as a second document does — leaving it out of the census
+        // would make the refusal's own list disagree with SceneRenderer::LiveHoldings().
         for ( const auto& view : m_ExtraViewports )
             census.push_back( { "viewport '" + view->Name + "'", view->Renderer != nullptr } );
 
         // The Details preview is a TOOL that happens to own a renderer, so it is found among the panels.
         for ( const auto& panel : m_Panels )
             if ( const auto* details = dynamic_cast<const ScenePropertiesPanel*>( panel.get() ) )
-                census.push_back( { "Details preview", details->HoldsRendererSlot() } );
+                census.push_back( { "Details preview", details->HoldsView() } );
 
         // The documents are asked of their own owner rather than sifted out of the panel list with a
         // dynamic_cast. That cast was the seam an earlier task closed: it only existed because the two
@@ -3185,10 +3192,12 @@ namespace Desert::Editor
         {
             // The VISIBLE half of the name. The census tells a user what to close, and they close a window
             // titled "MP_GreenTint", not one titled "MP_GreenTint###docasset:2:3333333333333333333".
-            census.push_back( { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
-                                     DocumentDisplayName( document->GetName() ) + "'",
-                                document->HoldsRendererSlot(), document->ClaimsRendererSlot(),
-                                document->Subject() } );
+            census.push_back(
+                 { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
+                        DocumentDisplayName( document->GetName() ) + "'",
+                   document->HoldsView(), document->ClaimsView(),
+                   document->ClaimsView() && !document->HoldsView() ? document->ViewForecastBytes() : 0,
+                   document->Subject() } );
         }
 
         return census;
@@ -3252,68 +3261,22 @@ namespace Desert::Editor
                 continue;
             }
 
-            // Checked BEFORE the slot arithmetic below, so a kind with no editor is reported as the missing
-            // editor it is rather than as a resource shortage it had nothing to do with.
+            // Checked BEFORE the budget below, so a kind with no editor is reported as the missing editor it
+            // is rather than as a memory shortage it had nothing to do with.
             if ( !m_SubjectEditors.HasEditorFor( subject.Type() ) )
             {
                 LOG_WARN( "[Editor] Nothing edits subject '{}' — no window opened.", subject.ToString() );
                 continue;
             }
 
-            // THE SEVENTH CONSUMER IS REFUSED, OUT LOUD. There are six renderer slots. A document admitted
-            // past the cap would not fail — SceneRenderer would hand it slot 0 to share with the main view,
-            // and the symptom is two surfaces quietly trading each other's per-frame camera some minutes
-            // later, with no error anywhere. So the count is checked here and the census is printed with
-            // names, because a bare "no slots" leaves the user with nothing to close.
-            //
-            // Pending demand is counted separately and it is not pedantry: a document that is open but has
-            // not drawn yet holds NO slot and has a claim coming, so the live-renderer count alone would
-            // admit a document there is no slot for and discover it a frame later.
-            //
-            // The counting rule itself lives in SubjectEditorRegistry.hpp, not here: this file is compiled
-            // by no suite, and a rule written in it is a rule nothing can assert.
-            const uint32_t live    = Graphic::SceneRenderer::GetLiveRendererCount();
-            const uint32_t pending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
-
-            if ( live + pending >= EngineContext::kMaxRendererSlots )
-            {
-                auto        rows = RendererSlotCensus();
-                std::string census;
-                for ( const auto& consumer : rows )
-                {
-                    const char* state = consumer.HoldsSlot ? "holds a slot"
-                                        : consumer.ClaimsSlot
-                                             ? "no slot right now, but will claim one when it draws"
-                                             : "holds no slot and never will (drawn on the CPU) — closing "
-                                               "it frees nothing";
-                    census += "\n    " + consumer.Name + " — " + state;
-                }
-                LOG_ERROR( "[Editor] Refusing to open a document for subject '{}': {} of {} renderer slots "
-                           "are in use and {} more are already committed. Close one of these first:{}",
-                           subject.ToString(), live, EngineContext::kMaxRendererSlots, pending, census );
-
-                // AND THE SAME THING WHERE THE USER IS. The census above has always been written; it went
-                // to a log the user was not reading, so a double-click on the seventh document did nothing
-                // at all as far as the screen was concerned. The dialog carries the identical rows and, for
-                // the ones that are documents, a button that acts on them.
-                //
-                // The subject is named by its FILE NAME or its ENTITY NAME where one is known: "handle
-                // 3333333333333333333" is the log's identifier, not the user's.
-                m_OpenRefusal = OpenRefusal{ RefusedSubjectName( subject ), m_SubjectEditors.TypeName( subject ),
-                                             live, pending, std::move( rows ) };
-                m_OpenRefusalPending = true;
-                continue;
-            }
-
+            // BUILT FIRST, JUDGED SECOND. The admission asks the document what its view will cost
+            // (ISubjectDocument::ViewForecastBytes), and only the document knows: a Material Editor forecasts
+            // a preview view, a cloud document forecasts nothing. Building one allocates no GPU memory — a
+            // document builds its view on its first DRAW — so a refused document is dropped here having cost
+            // nothing but the object.
             auto document = m_SubjectEditors.Create( subject );
             if ( !document )
                 continue; // the registry already said why
-
-            const std::string name = document->GetName();
-            // Asked BEFORE the move, and counted rather than assumed: a document that will never claim a
-            // slot adds nothing to the committed total, and "pending + 1" would have reported every cloud
-            // document as a claim on a slot it does not take. See ISubjectDocument::ClaimsRendererSlot.
-            const uint32_t committed = pending + ( document->ClaimsRendererSlot() ? 1u : 0u );
 
             // ASKED THE MOMENT IT IS BUILT, and not left to the sweep a frame later. A document whose
             // subject was already gone would otherwise appear for one frame and vanish, which reads as a
@@ -3326,6 +3289,66 @@ namespace Desert::Editor
                           subject.ToString(), m_SubjectEditors.TypeName( subject ) );
                 continue;
             }
+
+            // A DOCUMENT WHOSE VIEW DOES NOT FIT IS REFUSED, OUT LOUD, IN BYTES. Admitted past the budget it
+            // would not fail here — its view would fail to allocate on the first frame it draws, far from the
+            // click that asked for it. So the device-local budget is asked now, with every number printed and
+            // the open views named, because a bare "out of memory" leaves the user with nothing to close.
+            //
+            // Pending bytes are counted separately and it is not pedantry: a document that is open but has
+            // not drawn yet holds no memory the device reports and has an allocation coming, so the usage
+            // alone would admit a document there is no room for and discover it a frame later.
+            //
+            // The rule itself lives in SubjectEditorRegistry.hpp (AdmitDocumentView over
+            // Engine::ViewBudget::MayCreate), not here: this file is compiled by no suite, and a rule written
+            // in it is a rule nothing can assert.
+            const uint64_t                    pending = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
+            const Engine::ViewBudget::Verdict verdict = AdmitDocumentView( *document, pending, reading );
+            if ( !verdict.Ok )
+            {
+                std::vector<Engine::ViewBudget::HeldView> views = Graphic::SceneRenderer::LiveHoldings();
+                std::vector<ViewConsumer>                 rows  = ViewCensus();
+                std::string                               census;
+                for ( const ViewConsumer& consumer : rows )
+                {
+                    std::string state =
+                         "holds no view and never will (drawn on the CPU) — closing it frees nothing";
+                    if ( consumer.HoldsView )
+                        state = "holds a view";
+                    else if ( consumer.ClaimsView )
+                        state = std::format( "no view yet, will allocate ~{} when it draws",
+                                             Engine::ViewBudget::FormatMiB( consumer.ForecastBytes ) );
+                    census += "\n    " + consumer.Name + " — " + state;
+                }
+                LOG_ERROR( "[Editor] Refusing to open a document for subject '{}': {} (of which {} is spoken for "
+                           "by open documents that have not drawn yet). Close one of these first:{}",
+                           subject.ToString(),
+                           Engine::ViewBudget::DescribeRefusal( document->GetName(), verdict, reading, views ),
+                           Engine::ViewBudget::FormatMiB( pending ), census );
+
+                // AND THE SAME THING WHERE THE USER IS. The census above went to a log the user was not
+                // reading, so a double-click on a document that did not fit did nothing at all as far as the
+                // screen was concerned. The dialog carries the identical numbers and rows and, for the ones
+                // that are documents, a button that acts on them.
+                //
+                // The subject is named by its FILE NAME or its ENTITY NAME where one is known: "handle
+                // 3333333333333333333" is the log's identifier, not the user's.
+                m_OpenRefusal        = OpenRefusal{ RefusedSubjectName( subject ),
+                                             m_SubjectEditors.TypeName( subject ),
+                                             verdict,
+                                             reading,
+                                             pending,
+                                             std::move( views ),
+                                             std::move( rows ) };
+                m_OpenRefusalPending = true;
+                continue;
+            }
+
+            const std::string name = document->GetName();
+            // Asked BEFORE the move: what this document adds to the memory spoken for. A document that will
+            // never build a view adds nothing. See ISubjectDocument::ClaimsView.
+            const uint64_t committed = pending + ( document->ClaimsView() ? document->ViewForecastBytes() : 0 );
 
             // THROUGH THE OWNER'S OWN DOOR, which is what refuses a duplicate rather than appending one.
             // The open-or-focus above already answered for the route this function serves; the refusal
@@ -3352,11 +3375,11 @@ namespace Desert::Editor
             m_DocumentWell.Opened( subject ); // also brings a closed well back
             m_FocusPanel      = name;         // brings the new window forward in the document well
             m_FocusedDocument = subject;
-            LOG_INFO( "[Editor] Opened a '{}' document '{}' ({} open, {}/{} renderer slots in use, {} "
-                      "committed).",
+            LOG_INFO( "[Editor] Opened a '{}' document '{}' ({} open; {} spoken for by documents that have not "
+                      "drawn yet; {}, in use {}).",
                       m_SubjectEditors.TypeName( subject ), name, m_OpenDocuments.Count(),
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots,
-                      committed );
+                      Engine::ViewBudget::FormatMiB( committed ), Engine::ViewBudget::DescribeCeiling( reading ),
+                      Engine::ViewBudget::FormatMiB( reading.UsageBytes ) );
         }
     }
 
@@ -3459,27 +3482,27 @@ namespace Desert::Editor
             const uint32_t undrawn = m_OpenDocuments.FramesUndrawn( document->Subject() );
             if ( undrawn < kFramesHiddenBeforeSlotRelease )
                 continue;
-            if ( !document->HoldsRendererSlot() )
+            if ( !document->HoldsView() )
                 continue;
 
-            document->ReleaseRendererSlot();
+            document->ReleaseView();
 
-            // VERIFIED, NOT ASSUMED. ReleaseRendererSlot's contract is that HoldsRendererSlot answers false
+            // VERIFIED, NOT ASSUMED. ReleaseView's contract is that HoldsView answers false
             // afterwards; a document that inherited the empty default while genuinely holding a slot would
             // otherwise keep it for ever and the census would go on blaming a window the user cannot fix.
-            if ( document->HoldsRendererSlot() )
+            if ( document->HoldsView() )
             {
                 LOG_ERROR( "[Editor] '{}' was asked to release its renderer slot after {} hidden frames and "
-                           "still holds one. ReleaseRendererSlot must make HoldsRendererSlot false — see "
+                           "still holds one. ReleaseView must make HoldsView false — see "
                            "ISubjectDocument.",
                            DocumentDisplayName( document->GetName() ), undrawn );
                 continue;
             }
 
-            LOG_INFO( "[Editor] '{}' gave its renderer slot back after {} frames off screen ({}/{} in use). "
+            LOG_INFO( "[Editor] '{}' released its view after {} frames off screen (views: {}). "
                       "It is rebuilt on the first frame the window is drawn again.",
                       DocumentDisplayName( document->GetName() ), undrawn,
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                      Graphic::SceneRenderer::DescribeLiveViews() );
         }
     }
 
@@ -3492,7 +3515,7 @@ namespace Desert::Editor
         for ( const auto& document : m_OpenDocuments )
         {
             if ( m_OpenDocuments.FramesUndrawn( document->Subject() ) >= kFramesHiddenBeforeSlotRelease &&
-                 document->HoldsRendererSlot() )
+                 document->HoldsView() )
             {
                 releasePending = true;
                 break;
@@ -3537,10 +3560,9 @@ namespace Desert::Editor
             // The slot count is printed rather than derived for a different reason: a document that failed
             // to return its slot produces no error at all, and this line beside the one in
             // ServiceSubjectOpenRequests is what makes the leak readable.
-            LOG_INFO( "[Editor] Closed document '{}' — {} ({} open, {}/{} renderer slots in use after "
-                      "release).",
+            LOG_INFO( "[Editor] Closed document '{}' — {} ({} open; views after release: {}).",
                       DocumentDisplayName( name ), pending.Reason, m_OpenDocuments.Count(),
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                      Graphic::SceneRenderer::DescribeLiveViews() );
         }
 
         m_DocumentsToClose.clear();
@@ -5977,7 +5999,7 @@ namespace Desert::Editor
         // SOMETHING IS OPEN: the well becomes the INDEX of the area it names. Past about six documents the
         // tab strip has the one you want off its end, so a list is not a fallback here — it is the primary
         // way to switch, and it carries the two facts a tab cannot: which type each document is, and
-        // whether it is holding one of the six renderer slots.
+        // whether it is holding a view.
         ImGui::TextDisabled( "OPEN DOCUMENTS \xe2\x80\x94 %zu", m_OpenDocuments.Count() );
         ImGui::Separator();
 
@@ -5999,14 +6021,14 @@ namespace Desert::Editor
                                     ImGuiSelectableFlags_AllowItemOverlap ) )
                 FocusDocument( subject );
 
-            // The slot column. "Cloud - no slot" is not trivia: it is the answer to "I closed four windows
+            // The view column. "Cloud - no view" is not trivia: it is the answer to "I closed four windows
             // and it still will not open", because closing a CPU-drawn document frees nothing.
-            const char* slot = "no slot";
-            if ( document->HoldsRendererSlot() )
-                slot = "1 slot";
-            else if ( document->ClaimsRendererSlot() )
-                slot = "claiming";
-            const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + slot;
+            std::string view = "no view";
+            if ( document->HoldsView() )
+                view = "1 view";
+            else if ( document->ClaimsView() )
+                view = "claiming ~" + Engine::ViewBudget::FormatMiB( document->ViewForecastBytes() );
+            const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + view;
             const float       rightW = ImGui::CalcTextSize( right.c_str() ).x;
             ImGui::SameLine( ImGui::GetContentRegionMax().x - rightW - 28.0f );
             ImGui::TextDisabled( "%s", right.c_str() );
@@ -6199,19 +6221,41 @@ namespace Desert::Editor
         ImGui::Text( "Cannot open %s", m_OpenRefusal->AssetName.c_str() );
         ImGui::PopFont();
 
-        ImGui::TextDisabled( "All %u renderer slots are in use%s. Close one of these to free one:",
-                             EngineContext::kMaxRendererSlots,
-                             m_OpenRefusal->Pending > 0 ? " or already committed" : "" );
+        // EVERY NUMBER THAT DECIDED IT, the same ones the log line carries: what the document needs (its own
+        // forecast plus what open documents have spoken for), the ceiling and where it came from, what is in
+        // use and what is left. "Not enough memory" without them cannot be acted on.
+        const Engine::ViewBudget::Verdict& verdict = m_OpenRefusal->Verdict;
+        ImGui::TextDisabled( "Needs %s (%s already spoken for by documents that have not drawn yet).",
+                             Engine::ViewBudget::FormatMiB( verdict.RequestBytes ).c_str(),
+                             Engine::ViewBudget::FormatMiB( m_OpenRefusal->PendingBytes ).c_str() );
+        ImGui::TextDisabled( "%s.", Engine::ViewBudget::DescribeCeiling( m_OpenRefusal->Reading ).c_str() );
+        ImGui::TextDisabled( "In use %s%s, free %s.", Engine::ViewBudget::FormatMiB( verdict.UsageBytes ).c_str(),
+                             m_OpenRefusal->Reading.UsageKnown ? "" : " (counted from open views only)",
+                             Engine::ViewBudget::FormatMiB( verdict.FreeBytes ).c_str() );
         ImGui::Separator();
 
+        // WHERE THE MEMORY WENT, by view, largest first — what each open view actually holds.
+        std::vector<Engine::ViewBudget::HeldView> views = m_OpenRefusal->Views;
+        std::sort( views.begin(), views.end(),
+                   []( const Engine::ViewBudget::HeldView& a, const Engine::ViewBudget::HeldView& b )
+                   { return a.Bytes > b.Bytes; } );
+        ImGui::TextUnformatted( "Open views" );
+        ImGui::Indent( 18.0f );
+        for ( const Engine::ViewBudget::HeldView& view : views )
+            ImGui::TextDisabled( "%s \xe2\x80\x94 %s", view.Name.c_str(),
+                                 Engine::ViewBudget::FormatMiB( view.Bytes ).c_str() );
+        ImGui::Unindent( 18.0f );
+        ImGui::Separator();
+        ImGui::TextUnformatted( "Close one of these to make room:" );
+
         std::vector<SubjectId> closeRequests;
-        for ( const RendererSlotConsumer& consumer : m_OpenRefusal->Census )
+        for ( const ViewConsumer& consumer : m_OpenRefusal->Census )
         {
             ImGui::TextUnformatted( consumer.Name.c_str() );
 
             // A row the user can act on gets a button; the main viewport and the Details preview do not,
             // because neither is a window a person closes to make room. Saying nothing on those rows is
-            // the honest version: they are named because they explain where the slots went.
+            // the honest version: they are named because they explain where the memory went.
             if ( consumer.Document && m_OpenDocuments.Find( *consumer.Document ) )
             {
                 ImGui::SameLine( ImGui::GetContentRegionMax().x - 64.0f );
@@ -6221,10 +6265,20 @@ namespace Desert::Editor
                 ImGui::PopID();
             }
 
+            // A document that has not drawn yet holds nothing the device reports, but it WILL — say how
+            // much, because that is memory the refusal counted against the new document.
+            if ( !consumer.HoldsView && consumer.ClaimsView )
+            {
+                ImGui::Indent( 18.0f );
+                ImGui::TextDisabled( "will allocate ~%s when it draws",
+                                     Engine::ViewBudget::FormatMiB( consumer.ForecastBytes ).c_str() );
+                ImGui::Unindent( 18.0f );
+            }
+
             // The CPU-drawn documents say so, for the reason the log line already did: closing one frees
             // nothing, and a census that let the user close four of them and still be refused would be a
             // longer way of saying nothing.
-            if ( !consumer.HoldsSlot && !consumer.ClaimsSlot )
+            if ( !consumer.HoldsView && !consumer.ClaimsView )
             {
                 ImGui::Indent( 18.0f );
                 ImGui::TextDisabled( "drawn on the CPU \xe2\x80\x94 closing it frees nothing" );
@@ -6244,7 +6298,7 @@ namespace Desert::Editor
         ImGui::EndPopup();
 
         for ( const SubjectId& subject : closeRequests )
-            RequestDocumentClose( subject, "closed to free a renderer slot" );
+            RequestDocumentClose( subject, "closed to free view memory" );
     }
 
     void EditorLayer::DrawRecoveryPopup()
@@ -6962,32 +7016,40 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "Triangles in the VISIBLE meshes of this scene (LOD 0)." );
         }
 
-        // HOW MANY DOCUMENTS, AND HOW MANY OF THE SIX SLOTS ARE GONE. Both numbers already existed in the
-        // code — GetLiveRendererCount and PendingRendererSlotDemand — and neither had anywhere to appear,
-        // so the first a user heard of the cap was a click that did nothing. A count of documents is not
-        // the number that matters; the slot census is, which is why they are shown together: three
-        // documents can be three slots or none, depending on which three.
+        // HOW MANY DOCUMENTS, AND HOW MUCH OF THE VIEW BUDGET IS GONE. A count of documents is not the number
+        // that matters; the memory the views hold against the device-local budget is, which is why they are
+        // shown together: three documents can be three views or none, depending on which three.
         ImGui::SameLine( 0.0f, 16.0f );
         {
-            const uint32_t live    = Graphic::SceneRenderer::GetLiveRendererCount();
-            const uint32_t pending = PendingRendererSlotDemand( m_OpenDocuments.Documents() );
+            uint64_t held = 0;
+            for ( const Engine::ViewBudget::HeldView& view : Graphic::SceneRenderer::LiveHoldings() )
+                held += view.Bytes;
+            const uint64_t                    pending = PendingViewBytes( m_OpenDocuments.Documents() );
+            const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
 
-            // ImGuiCol_TextDisabled, not ImGuiCol_Text: the line below is drawn with TextDisabled like the
-            // rest of the bar, and pushing the wrong colour would leave it grey with a colour nobody sees.
-            const bool tight = live + pending >= EngineContext::kMaxRendererSlots;
+            // Warned past 90 %: the next document is likely refused, and the user should see that coming
+            // before the click rather than after it. ImGuiCol_TextDisabled, not ImGuiCol_Text: the line
+            // below is drawn with TextDisabled like the rest of the bar.
+            const bool tight =
+                 ( reading.UsageBytes + pending ) * 10 > reading.CeilingBytes * 9 && reading.CeilingBytes != 0;
             if ( tight )
                 ImGui::PushStyleColor( ImGuiCol_TextDisabled, ThemeManager::GetWarningColor() );
-            ImGui::TextDisabled( ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE " %zu document%s \xc2\xb7 %u/%u slots",
-                                 m_OpenDocuments.Count(), m_OpenDocuments.Count() == 1 ? "" : "s", live,
-                                 EngineContext::kMaxRendererSlots );
+            ImGui::TextDisabled( ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE " %zu document%s \xc2\xb7 %s / %s",
+                                 m_OpenDocuments.Count(), m_OpenDocuments.Count() == 1 ? "" : "s",
+                                 Engine::ViewBudget::FormatMiB( held ).c_str(),
+                                 Engine::ViewBudget::FormatMiB( reading.CeilingBytes ).c_str() );
             if ( tight )
                 ImGui::PopStyleColor();
 
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "%zu open document(s). %u of the %u renderer slots are in use and %u more "
-                                   "are committed to documents that have not drawn yet; a document that "
-                                   "needs one is refused when they are all spoken for.",
-                                   m_OpenDocuments.Count(), live, EngineContext::kMaxRendererSlots, pending );
+                ImGui::SetTooltip(
+                     "%zu open document(s). Open views hold %s; %s; in use %s; %s more is spoken for "
+                     "by documents that have not drawn yet. A document whose view does not fit is "
+                     "refused.",
+                     m_OpenDocuments.Count(), Engine::ViewBudget::FormatMiB( held ).c_str(),
+                     Engine::ViewBudget::DescribeCeiling( reading ).c_str(),
+                     Engine::ViewBudget::FormatMiB( reading.UsageBytes ).c_str(),
+                     Engine::ViewBudget::FormatMiB( pending ).c_str() );
         }
 
         // Active snap state: off, or the step of the CURRENT transform tool — answers "why did it
@@ -7055,7 +7117,11 @@ namespace Desert::Editor
         const float starW   = dirty ? ImGui::CalcTextSize( "* " ).x : 0.0f;
         const float statsW  = ImGui::CalcTextSize( stats ).x;
         const float alertsW = alerts[0] ? ImGui::CalcTextSize( alerts ).x + 16.0f : 0.0f;
-        ImGui::SameLine( ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW );
+        // Right-aligned, but never left of where the left half actually ended: the document/budget text
+        // grows with its numbers, and a position computed from the right edge alone drew the counters on
+        // top of it. When both halves do not fit, the right half is pushed out and clipped, not overlaid.
+        const float leftEndX = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + 16.0f;
+        ImGui::SameLine( std::max( leftEndX, ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW ) );
 
         if ( alerts[0] )
         {

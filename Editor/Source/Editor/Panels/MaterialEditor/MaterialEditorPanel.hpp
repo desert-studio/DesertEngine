@@ -45,7 +45,7 @@ namespace Desert::Editor
     // guards the distinction and fails in BOTH directions.
     //
     // COST WHEN CLOSED IS ZERO, not "small". The PreviewViewport — and with it a Scene, a SceneRenderer and
-    // one of the six renderer slots — is created on the first frame the window actually draws, and released
+    // its view's render targets — is created on the first frame the window actually draws, and released
     // when the window is DISMISSED, which destroys this panel outright (EditorLayer::
     // ServiceDocumentCloses). That is the difference between a document and a tool panel: a tool is
     // hidden and kept, so it has to be told to let go of its renderer; a document ceases to exist, so it
@@ -65,7 +65,7 @@ namespace Desert::Editor
         void OnUIRender() override;
         void OnPreUpdate() override;
 
-        [[nodiscard]] bool HoldsRendererSlot() const override
+        [[nodiscard]] bool HoldsView() const override
         {
             return m_Preview != nullptr;
         }
@@ -78,10 +78,10 @@ namespace Desert::Editor
             return ResolveSubject() != nullptr;
         }
 
-        // The preview — a Scene, a SceneRenderer and one of the six slots — while this window is not on
+        // The preview — a Scene, a SceneRenderer and its view memory — while this window is not on
         // screen. ReleasePreview is what a close already does; this is the same teardown reached because
         // nobody is looking, and OnPreUpdate builds it back on the first frame the window is drawn again.
-        void ReleaseRendererSlot() override
+        void ReleaseView() override
         {
             ReleasePreview();
         }
@@ -91,12 +91,12 @@ namespace Desert::Editor
         // is not demand for a renderer slot that has yet to land. Answering the base class's `true` here
         // would make such a window count against the six for ever, and the census would tell the user to
         // close a window that holds nothing and never will — the exact failure the four cloud documents
-        // caused before ISubjectDocument::ClaimsRendererSlot existed.
+        // caused before ISubjectDocument::ClaimsView existed.
         //
         // Read from the same string the pane prints, so the census and what the artist is looking at
         // cannot disagree. Empty before the first draw, which is the conservative answer: a window that
         // has not decided yet is counted as a claimant.
-        [[nodiscard]] bool ClaimsRendererSlot() const override
+        [[nodiscard]] bool ClaimsView() const override
         {
             return m_PreviewUnavailable.empty();
         }

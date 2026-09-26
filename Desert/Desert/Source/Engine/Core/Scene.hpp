@@ -169,8 +169,8 @@ namespace Desert::Core
         [[nodiscard]] std::optional<size_t> AddView( Graphic::SceneRenderer* renderer );
 
         // Closes the angle @p renderer was recording. False for a renderer this scene never had.
-        // Does NOT destroy the renderer — the caller owns it, and destroying it is what hands the
-        // renderer slot back (Engine/Core/RendererSlotPool.hpp).
+        // Does NOT destroy the renderer — the caller owns it, and destroying it is what gives the
+        // view's GPU memory back (Graphic/ViewResources.hpp).
         bool RemoveView( const Graphic::SceneRenderer* renderer );
 
         [[nodiscard]] size_t GetViewCount() const

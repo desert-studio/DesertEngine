@@ -63,14 +63,14 @@ namespace Desert::Editor
      * unregistered one is refused with its reason. The dedup and failure sets are keyed on the asset's
      * identity rather than on a pointer, so they mean the same thing on both sides of an eviction.
      *
-     * AND IT NEVER TAKES THE LAST RENDERER SLOT. A capture owns a full SceneRenderer, which is one of six
-     * (Engine/Core/RendererSlotPool.hpp), and a renderer that finds none free does not fail — it records
-     * into slot 0 and shares the main viewport's per-frame state. This queue is background work: nobody
-     * clicked for it, and what it produces is the picture a row shows precisely WHILE the person cannot
-     * have a live preview. Taking the sixth slot would therefore starve the surface they are opening in
-     * order to render its consolation prize. The entitlement is stated once, for both consumers of it, in
-     * Engine/Core/ViewBudget.hpp; when it says no, the queue is kept and the refusal is LOGGED,
-     * because a queue that quietly stops draining reads exactly like a queue with nothing in it.
+     * AND IT NEVER TAKES THE LAST OF THE VIEW BUDGET. A capture owns a full SceneRenderer — a view whose
+     * targets and per-view copies are paid from the byte budget (Engine/Core/ViewBudget.hpp). This queue
+     * is background work: nobody clicked for it, and what it produces is the picture a row shows
+     * precisely WHILE the person cannot have a live preview. Taking the last of the budget would therefore
+     * starve the surface they are opening in order to render its consolation prize. The entitlement is stated
+     * once, for both consumers of it, in Engine/Core/ViewBudget.hpp; when it says no, the queue is kept and the
+     * refusal is LOGGED, because a queue that quietly stops draining reads exactly like a queue with nothing in
+     * it.
      */
     class ThumbnailService
     {
@@ -205,10 +205,10 @@ namespace Desert::Editor
         void TickPainted();
 
         // Created lazily — a session may never preview — and RELEASED again once the queue has been idle
-        // for a while, because it owns a full SceneRenderer and therefore one of the six renderer slots
-        // (Engine/Core/RendererSlotPool.hpp). Holding it for the rest of the session after one thumbnail
-        // meant an editor that had ever shown the asset browser had five slots, not six, for the surfaces
-        // the user actually opens; past six, a scene view records into slot 0 and shares the main
+        // for a while, because it owns a full SceneRenderer and therefore a view's worth of the byte budget
+        // (Engine/Core/ViewBudget.hpp). Holding it for the rest of the session after one thumbnail
+        // meant an editor that had ever shown the asset browser had that much less for the surfaces
+        // the user actually opens; past the budget, a scene view is refused instead of sharing the main
         // viewport's camera with no error message at all.
         std::unique_ptr<AssetThumbnailRenderer> m_Renderer;
         std::vector<Request>                    m_Queue;
