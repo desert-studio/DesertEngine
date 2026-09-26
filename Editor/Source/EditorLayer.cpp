@@ -27,7 +27,11 @@
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Core/Core.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Common/Core/JobSystem.hpp>
 
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
@@ -467,12 +471,9 @@ namespace Desert::Editor
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
         // (MeshECSSystem's default PBR materials) resolve their shaders in their constructors.
-        m_StartupStages.push_back(
-             { "Cooking meshes...",
-               [this] { m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::MESH_PATH ); } } );
-        m_StartupStages.push_back(
-             { "Cooking collections...", [this]
-               { m_ImportManager->ImportAllFromDirectory( Common::Constants::Path::COLLECTIONS_PATH ); } } );
+        //
+        // THE MESH AND COLLECTION COOKS ARE NO LONGER STAGES (AL1-11, owner decision V2): they run on the
+        // JobSystem after the reveal (StartBackgroundCook) and the preload reads whatever cook is on the disk.
         // AND THE LOOSE TEXTURES, WHICH NOTHING COOKED. A texture under `Assets/Textures/` reached its
         // cooked form only as a mesh's dependency or through a drag-and-drop, so the one cooked texture
         // this repository then committed had no producer in any automatic path -- and a stale one (a container
@@ -1475,6 +1476,7 @@ namespace Desert::Editor
         // be used by the same frame it arrived in rather than by the next one.
         Assets::AsyncAssetLoader::Get().Pump();
         UpdateContentSettling();
+        DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         if ( m_SceneLoadRequested && !StartupLoading() )
@@ -6640,6 +6642,107 @@ namespace Desert::Editor
     // loading frames the whole time it was hidden, and a window shown ahead of the first real present would
     // put the last of those — an empty frame — on screen for as long as that frame takes. Shown here, the
     // surface it reveals already holds the editor, and the splash crossfades into it from this instant.
+    void EditorLayer::StartBackgroundCook()
+    {
+        m_BackgroundCook = std::make_unique<BackgroundCookQueue>(
+             []( const std::filesystem::path& source )
+             {
+                 // One cooker per worker thread: Assimp importers are not reentrant.
+                 thread_local ImportManager s_ThreadImporter;
+                 return s_ThreadImporter.Import( source );
+             },
+             []( std::function<void()> job ) { Common::JobSystem::Get().Submit( std::move( job ) ); } );
+        m_BackgroundCookStart = std::chrono::steady_clock::now();
+
+        const std::array<std::filesystem::path, 2> roots{ Common::Constants::Path::MESH_PATH,
+                                                          Common::Constants::Path::COLLECTIONS_PATH };
+        for ( const std::filesystem::path& root : roots )
+        {
+            for ( const std::filesystem::path& source : ImportManager::MeshSources( root ) )
+            {
+                std::error_code ec;
+                const bool      onDisk = std::filesystem::exists( CookPaths::MeshAsset( source ), ec ) ||
+                                    std::filesystem::exists( CookPaths::CookedSkinned( source, ".skmesh" ), ec );
+                if ( !onDisk )
+                    LOG_INFO( "[BackgroundCook] '{}' has no cook on the disk; its asset is Pending until the "
+                              "background cook lands",
+                              source.string() );
+                m_BackgroundCook->Enqueue( source, onDisk );
+            }
+        }
+        LOG_INFO( "[BackgroundCook] {} mesh source(s) queued on the JobSystem after the reveal",
+                  m_BackgroundCook->Total() );
+    }
+
+    void EditorLayer::ReloadRecookedMesh( const std::filesystem::path& source )
+    {
+        const std::array<std::filesystem::path, 2> cooks{ CookPaths::MeshAsset( source ),
+                                                          CookPaths::CookedSkinned( source, ".skmesh" ) };
+        for ( const std::filesystem::path& cooked : cooks )
+        {
+            const auto mesh = m_AssetManager->FindByPath<Assets::MeshAsset>( cooked.generic_string() );
+            if ( !mesh )
+                continue;
+            // The eviction path: drop the loaded data and the built GPU mesh, keep the shell, so the next
+            // draw rebuilds from the fresh cook exactly as a first use does.
+            if ( const auto unloaded = mesh->Unload(); !unloaded )
+            {
+                LOG_ERROR( "[BackgroundCook] '{}' was recooked but its stale data could not be unloaded: {}",
+                           cooked.string(), unloaded.GetError() );
+                continue;
+            }
+            if ( auto* service = Runtime::ResourceRegistry::GetMeshService() )
+                (void)service->EvictBuilt( mesh->GetMetadata().Handle );
+            LOG_INFO( "[BackgroundCook] '{}' was stale; the next draw reads its fresh cook", cooked.string() );
+            return;
+        }
+        // Recooked but never loaded: the next request reads the fresh file; there is nothing to drop.
+        (void)MeshDnD::ResolveOrImportMesh( *m_AssetManager, source.string() );
+    }
+
+    void EditorLayer::DrainBackgroundCook()
+    {
+        if ( !m_BackgroundCook )
+            return;
+        for ( const BackgroundCookQueue::Completed& done : m_BackgroundCook->Drain() )
+        {
+            switch ( DecideCookCompletion( done.Started, done.Verdict ) )
+            {
+                case CookCompletionAction::Nothing:
+                    break;
+                case CookCompletionAction::ReportFailure:
+                    ++m_BackgroundCookFailed;
+                    LOG_ERROR( "[BackgroundCook] '{}' did not cook; {}", done.Source.string(),
+                               done.Started == StartupCookAction::UseCookedVerifyInBackground
+                                    ? "its previous cook stays loaded"
+                                    : "its asset stays Pending (not drawn)" );
+                    break;
+                case CookCompletionAction::Reload:
+                    ++m_BackgroundCookChanged;
+                    ReloadRecookedMesh( done.Source );
+                    break;
+                case CookCompletionAction::Register:
+                    ++m_BackgroundCookChanged;
+                    if ( MeshDnD::ResolveOrImportMesh( *m_AssetManager, done.Source.string() ).Handle.IsNull() )
+                        LOG_ERROR( "[BackgroundCook] '{}' cooked but its asset did not register; it stays Pending",
+                                   done.Source.string() );
+                    else
+                        LOG_INFO( "[BackgroundCook] '{}' cooked and registered", done.Source.string() );
+                    break;
+            }
+        }
+        if ( !m_BackgroundCookReported && m_BackgroundCook->Outstanding() == 0 )
+        {
+            m_BackgroundCookReported = true;
+            LOG_INFO( "[BackgroundCook] {} mesh source(s) checked after the reveal in {} ms: {} recooked, {} failed",
+                      m_BackgroundCook->Total(),
+                      std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() -
+                                                                             m_BackgroundCookStart )
+                           .count(),
+                      m_BackgroundCookChanged, m_BackgroundCookFailed );
+        }
+    }
+
     void EditorLayer::RevealWhenReady()
     {
         if ( !Splash::MayReveal( CurrentRevealState() ) )
@@ -6653,6 +6756,7 @@ namespace Desert::Editor
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();
         LOG_INFO( "[Startup] reveal: the scene's content has settled and the editor window is shown" );
+        StartBackgroundCook();
         // Starts the crossfade and returns; the splash object stays until this layer is destroyed.
         m_Splash->Close();
         LOG_INFO( "[Startup] the splash is closed" );
@@ -6922,6 +7026,13 @@ namespace Desert::Editor
         // rediscovered from a menu, a collapsed one is still right there with its tabs visible.
         DrawBottomDrawerToggle();
         ImGui::SameLine( 0.0f, 12.0f );
+
+        if ( m_BackgroundCook && m_BackgroundCook->Outstanding() > 0 )
+        {
+            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu of %zu mesh source(s)", m_BackgroundCook->Outstanding(),
+                                 m_BackgroundCook->Total() );
+            ImGui::SameLine( 0.0f, 12.0f );
+        }
 
         // Cmd: one line of Lua against the live scene, the same engine the Lua Console runs. UE puts a
         // console here for the same reason — a question about the running world should not need a panel.
