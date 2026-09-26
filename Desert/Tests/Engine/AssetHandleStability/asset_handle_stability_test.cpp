@@ -42,6 +42,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/StringTableAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
@@ -1469,3 +1470,150 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
     ExpectHeaderGuidIdentity<Desert::Assets::RetargetAsset>( file, Common::Content::ContentKind::Retarget );
     std::filesystem::remove_all( file.parent_path() );
 }
+
+// AF10d/AF10e: an asset still named by its OLD path after a rename (a scene's UIText, a saved slot, a rig
+// reference) opens the moved file - the loader follows the registry past the redirector the move left - and
+// it is the SAME asset: the handle is the moved file's header GUID, not the redirector's, so the two
+// spellings cannot publish one asset twice under two identities. ONE rule for every header-GUID kind
+// (ReadTextAssetIdentity), so one test over every kind: a kind added to the rule without a row here, or a
+// kind whose constructor reads the requested path again, fails by name.
+namespace
+{
+    struct OldPathKind
+    {
+        const char*                  Name;
+        Common::Content::ContentKind Kind;
+        bool ( *Write )( const std::filesystem::path& file );
+        std::unique_ptr<Desert::Assets::AssetBase> ( *Open )( const std::filesystem::path& file );
+    };
+
+    template <typename AssetT>
+    std::unique_ptr<Desert::Assets::AssetBase> OpenAs( const std::filesystem::path& file )
+    {
+        return std::make_unique<AssetT>( Desert::Assets::AssetPriority{}, file );
+    }
+
+    // The migrated corpus files (suites run from the tree root), copied into the probe's own project.
+    bool CopyCorpus( const char* relative, const std::filesystem::path& file )
+    {
+        std::error_code copied;
+        std::filesystem::copy_file( relative, file, std::filesystem::copy_options::overwrite_existing, copied );
+        return !copied;
+    }
+
+    bool WriteStringTable( const std::filesystem::path& file )
+    {
+        Desert::Localization::StringTableData data;
+        Desert::Localization::LocalizedEntry  entry;
+        entry.Key         = "af10d.play";
+        entry.Forms["en"] = { { "other", "PLAY" } };
+        data.Entries.push_back( entry );
+        return static_cast<bool>( Desert::Assets::StringTableAsset::Save( file, data ) );
+    }
+    bool WriteTheme( const std::filesystem::path& file )
+    {
+        return static_cast<bool>( Desert::Assets::UIThemeAsset::Save( file, Desert::Assets::UIThemeData{} ) );
+    }
+    bool WriteCloudType( const std::filesystem::path& file )
+    {
+        return static_cast<bool>(
+             Desert::Assets::CloudTypeAsset::Save( file, Desert::Assets::CloudTypeDefault() ) );
+    }
+    bool WriteControlRig( const std::filesystem::path& file )
+    {
+        return CopyCorpus( "Editor/Resources/Assets/Rigs/IKProbe_Arm.derig", file );
+    }
+    bool WriteAnimGraph( const std::filesystem::path& file )
+    {
+        return CopyCorpus( "Editor/Resources/Assets/AnimGraphs/OneBoneBlend.danimgraph", file );
+    }
+    bool WriteRetarget( const std::filesystem::path& file )
+    {
+        return CopyCorpus( "Editor/Resources/Assets/Retargets/ForeignArm_To_IKProbe.retarget", file );
+    }
+    bool WriteSkeleton( const std::filesystem::path& file )
+    {
+        return CopyCorpus( "Editor/Cooked/Meshes/IKProbe.skeleton", file );
+    }
+    bool WriteAnimation( const std::filesystem::path& file )
+    {
+        return CopyCorpus( "Editor/Cooked/Meshes/IKProbe_Swing.anim", file );
+    }
+
+    // gtest names the kind in a failure instead of dumping the struct's bytes.
+    [[maybe_unused]] void PrintTo( const OldPathKind& kind, std::ostream* out )
+    {
+        *out << kind.Name;
+    }
+
+    std::string OldPathKindName( const testing::TestParamInfo<OldPathKind>& info )
+    {
+        return info.param.Name;
+    }
+} // namespace
+
+class AssetOpenedByItsOldPath : public testing::TestWithParam<OldPathKind>
+{
+};
+
+TEST_P( AssetOpenedByItsOldPath, IsTheMovedAssetAndLoadsItsBytes )
+{
+    namespace fs                = std::filesystem;
+    namespace CR                = Desert::Assets::ContentRegistry;
+    const OldPathKind&     kind = GetParam();
+    const auto             ext  = std::string( Common::Content::KindSpec( kind.Kind ).Extension );
+    const ProjectRootGuard restore;
+    fs::path               root = fs::temp_directory_path() / ( std::string( "AF10eOldPath" ) + kind.Name );
+    fs::remove_all( root );
+    fs::create_directories( root );
+    root = fs::canonical( root );
+    Common::Constants::Path::SetProjectRoot( root, "Resources/Assets" );
+    const fs::path& spec = *Common::Content::KindSpec( kind.Kind ).Root;
+    const fs::path  dir  = spec.is_absolute() ? spec : root / spec;
+    fs::create_directories( dir );
+    const fs::path oldFile = dir / ( "Before" + ext );
+    const fs::path newFile = dir / ( "After" + ext );
+    ASSERT_TRUE( kind.Write( oldFile ) ) << "could not write " << oldFile;
+
+    Common::Utils::AssetRegistry registry;
+    const std::string            oldKey = Common::AssetHandle::StableKeyForPath( oldFile );
+    auto                         row =
+         Common::Content::RegistryRowFor( oldKey, Common::Content::DescribeContentFile( oldFile, kind.Kind ) );
+    ASSERT_TRUE( row ) << row.GetError();
+    ASSERT_TRUE( registry.Insert( row.GetValue() ) );
+    CR::ResetForTest();
+    static_cast<void>( CR::Detail::Publish( registry ) );
+    const auto moved = CR::MoveAsset( oldFile, newFile );
+    ASSERT_TRUE( moved ) << moved.GetError();
+
+    const uint64_t movedHandle = static_cast<uint64_t>( kind.Open( newFile )->GetMetadata().Handle );
+    const auto     byOldPath   = kind.Open( oldFile );
+    EXPECT_EQ( static_cast<uint64_t>( byOldPath->GetMetadata().Handle ), movedHandle )
+         << "the old path took the redirector's identity, not the moved " << kind.Name << "'s";
+    const auto loaded = byOldPath->Load();
+    EXPECT_TRUE( loaded ) << "the old path did not read the moved file's bytes: " << loaded.GetError();
+    static_cast<void>( byOldPath->Unload() );
+
+    CR::ResetForTest();
+    fs::remove_all( root );
+}
+
+INSTANTIATE_TEST_SUITE_P(
+     AssetHandleStability, AssetOpenedByItsOldPath,
+     testing::Values( OldPathKind{ "StringTable", Common::Content::ContentKind::StringTable, &WriteStringTable,
+                                   &OpenAs<Desert::Assets::StringTableAsset> },
+                      OldPathKind{ "UITheme", Common::Content::ContentKind::UITheme, &WriteTheme,
+                                   &OpenAs<Desert::Assets::UIThemeAsset> },
+                      OldPathKind{ "CloudType", Common::Content::ContentKind::CloudType, &WriteCloudType,
+                                   &OpenAs<Desert::Assets::CloudTypeAsset> },
+                      OldPathKind{ "ControlRig", Common::Content::ContentKind::ControlRig, &WriteControlRig,
+                                   &OpenAs<Desert::Assets::ControlRigAsset> },
+                      OldPathKind{ "AnimGraph", Common::Content::ContentKind::AnimGraph, &WriteAnimGraph,
+                                   &OpenAs<Desert::Assets::AnimGraphAsset> },
+                      OldPathKind{ "Retarget", Common::Content::ContentKind::Retarget, &WriteRetarget,
+                                   &OpenAs<Desert::Assets::RetargetAsset> },
+                      OldPathKind{ "Skeleton", Common::Content::ContentKind::Skeleton, &WriteSkeleton,
+                                   &OpenAs<Desert::Assets::SkeletonAsset> },
+                      OldPathKind{ "Animation", Common::Content::ContentKind::Animation, &WriteAnimation,
+                                   &OpenAs<Desert::Assets::AnimationAsset> } ),
+     OldPathKindName );
