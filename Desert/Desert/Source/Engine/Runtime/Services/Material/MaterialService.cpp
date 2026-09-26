@@ -78,7 +78,7 @@ namespace Desert::Runtime
     {
         if ( const auto it = m_MaterialAssets.find( handle ); it != m_MaterialAssets.end() )
             return it;
-        if ( handle.IsNull() || m_ReportedMissing.count( handle ) || m_Assets.expired() )
+        if ( handle.IsNull() || m_ReportedMissing.contains( handle ) || m_Assets.expired() )
             return m_MaterialAssets.end();
 
         auto created = Assets::CreateFromRegistryRow<Assets::SurfaceMaterialAsset>(
@@ -101,7 +101,7 @@ namespace Desert::Runtime
         if ( asset->IsReadyForUse() )
             return true;
         const auto handle = asset->GetMetadata().Handle;
-        if ( m_Requests.count( handle ) )
+        if ( m_Requests.contains( handle ) )
             return false;
         // BOTH DELEGATES (T2.3). The completion bumps the invalidation version, so every cached instance
         // set that drew nothing for this material asks again on its next tick.
@@ -502,7 +502,7 @@ namespace Desert::Runtime
         // order the external->internal map fills in (the map stays authoritative for imported
         // materials whose ids genuinely diverge).
         const Assets::AssetHandle asHandle{ uuid };
-        if ( m_Materials.count( asHandle ) || FindOrDiscover( asHandle ) != m_MaterialAssets.end() )
+        if ( m_Materials.contains( asHandle ) || FindOrDiscover( asHandle ) != m_MaterialAssets.end() )
             return asHandle;
 
         return Common::UUID::Null();

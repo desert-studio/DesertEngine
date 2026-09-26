@@ -50,7 +50,7 @@ namespace Desert::Runtime
             return nullptr;
         if ( const auto it = m_Entries.find( handle ); it != m_Entries.end() )
             return &it->second;
-        if ( m_ReportedMissing.count( handle ) )
+        if ( m_ReportedMissing.contains( handle ) )
             return nullptr;
 
         auto created = Assets::CreateFromRegistryRow<Assets::TextureAsset>(
@@ -67,7 +67,7 @@ namespace Desert::Runtime
         return &entry;
     }
 
-    void TextureService::Build( const Assets::AssetHandle& handle, Entry& entry ) const
+    void TextureService::Build( const Assets::AssetHandle& handle, Entry& entry )
     {
         entry.Built = Graphic::TextureFactory::Create2D( entry.Source );
         if ( !entry.Built )
@@ -118,7 +118,7 @@ namespace Desert::Runtime
     Assets::AssetRef<Graphic::Texture2D> TextureService::Require( const Assets::AssetHandle& handle ) const
     {
         Entry* entry = FindOrDiscover( handle );
-        if ( !entry )
+        if ( entry == nullptr )
             return Assets::AssetRef<Graphic::Texture2D>::Null();
         if ( entry->Built )
             return Assets::AssetRef<Graphic::Texture2D>::Ready( handle, entry->Built );

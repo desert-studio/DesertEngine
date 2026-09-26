@@ -61,9 +61,9 @@ namespace Desert::Runtime
             bool Failed = false;
         };
 
-        Entry* FindOrDiscover( const Assets::AssetHandle& handle ) const;
-        void   BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
-        void   Build( const Assets::AssetHandle& handle, Entry& entry ) const;
+        Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
+        void        BeginRead( const Assets::AssetHandle& handle, Entry& entry ) const;
+        static void Build( const Assets::AssetHandle& handle, Entry& entry );
 
         // Mutable: `Get` is const for its 25 callers and discovery on a miss is a cache fill, not a change
         // of what the service answers.

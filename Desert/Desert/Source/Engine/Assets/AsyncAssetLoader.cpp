@@ -336,7 +336,7 @@ namespace Desert::Assets
             const std::lock_guard<std::mutex> guard( state.Lock );
             if ( const auto waiting = state.Waiting.find( handle ); waiting != state.Waiting.end() )
             {
-                if ( state.WorkerReading.count( handle ) != 0 )
+                if ( state.WorkerReading.contains( handle ) )
                     mustWait = true; // a worker is inside Load() already; the file is not read twice
                 else
                 {

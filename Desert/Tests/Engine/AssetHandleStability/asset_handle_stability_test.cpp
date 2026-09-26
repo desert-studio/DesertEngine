@@ -541,7 +541,8 @@ TEST( AssetHandleStability, AnUnloadedMaterialShellAlreadyWearsItsHeaderGuidHand
                static_cast<uint64_t>( Desert::Assets::MaterialData::HandleOf( guid ) ) )
          << "an unloaded material carries a handle other than its header GUID's; the registry row names the "
             "GUID handle, so on-demand discovery refuses every material";
-    EXPECT_EQ( static_cast<uint64_t>( shell.GetMaterialUUID() ), static_cast<uint64_t>( shell.GetMetadata().Handle ) )
+    EXPECT_EQ( static_cast<uint64_t>( shell.GetMaterialUUID() ),
+               static_cast<uint64_t>( shell.GetMetadata().Handle ) )
          << "the external id must equal the handle before load too: the mesh->material link resolves by it";
 }
 

@@ -493,10 +493,14 @@ TEST( AssetPreloadCensus, TexturesAndMaterialsAreNotCreatedAtBootSoHotReloadSees
     const std::string preloader = WithoutComments( ReadFile( root + kPreloaderSource ) );
     ASSERT_FALSE( preloader.empty() );
     constexpr const char* kGone[] = {
-         "ProcessAssetKind<TextureAsset>",          "ProcessAssetKind<SurfaceMaterialAsset>",
-         "FindAllByType<Assets::TextureAsset>",     "FindAllByType<Assets::MaterialAsset>",
-         "ContentKind::Texture",                    "ContentKind::Material",
-         "GetTextureService()->RegisterAsset",      "GetMaterialService()->RegisterAsset",
+         "ProcessAssetKind<TextureAsset>",
+         "ProcessAssetKind<SurfaceMaterialAsset>",
+         "FindAllByType<Assets::TextureAsset>",
+         "FindAllByType<Assets::MaterialAsset>",
+         "ContentKind::Texture",
+         "ContentKind::Material",
+         "GetTextureService()->RegisterAsset",
+         "GetMaterialService()->RegisterAsset",
     };
     for ( const char* token : kGone )
         EXPECT_EQ( preloader.find( token ), std::string::npos )

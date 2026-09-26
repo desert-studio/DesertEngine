@@ -472,8 +472,7 @@ TEST_F( AsyncAssetLoad, FlushOneReadsOnTheCallingThreadAndTheLedgerCountsItAsSyn
     int  completed = 0;
     auto request   = AsyncAssetLoader::Get().Request(
          victim, [&completed]( const auto&, LoadOutcome outcome, const std::string& )
-         { completed += outcome == LoadOutcome::Loaded ? 1 : 100; },
-         [] {} );
+         { completed += outcome == LoadOutcome::Loaded ? 1 : 100; }, [] {} );
 
     const uint64_t inFrameBefore = SyncLoadLedger::InFrameLoads();
     EXPECT_TRUE( AsyncAssetLoader::Get().FlushOne( victim->GetMetadata().Handle ) );
@@ -492,10 +491,11 @@ TEST_F( AsyncAssetLoad, FlushOneReadsOnTheCallingThreadAndTheLedgerCountsItAsSyn
 
 TEST_F( AsyncAssetLoad, FlushOneDeliversOnlyItsOwnHandleAndLeavesTheRestForPump )
 {
-    auto mine   = std::make_shared<ProbeAsset>( "mine.probe" );
-    auto theirs = std::make_shared<ProbeAsset>( "theirs.probe" );
-    int  mineDone = 0, theirsDone = 0;
-    auto a = AsyncAssetLoader::Get().Request(
+    auto mine       = std::make_shared<ProbeAsset>( "mine.probe" );
+    auto theirs     = std::make_shared<ProbeAsset>( "theirs.probe" );
+    int  mineDone   = 0;
+    int  theirsDone = 0;
+    auto a          = AsyncAssetLoader::Get().Request(
          mine, [&mineDone]( const auto&, LoadOutcome, const std::string& ) { ++mineDone; }, [] {} );
     auto b = AsyncAssetLoader::Get().Request(
          theirs, [&theirsDone]( const auto&, LoadOutcome, const std::string& ) { ++theirsDone; }, [] {} );
@@ -546,8 +546,11 @@ TEST_F( AsyncAssetLoad, FlushOneWithNothingRequestedDoesNothing )
 
 TEST( TextureWaiters, ATextureLandingInvalidatesEveryMaterialThatWaitedOnItExactlyOnce )
 {
-    Desert::Runtime::TextureWaiters waiters;
-    const Desert::Assets::AssetHandle texture{ 1 }, other{ 2 }, matA{ 10 }, matB{ 11 };
+    Desert::Runtime::TextureWaiters   waiters;
+    const Desert::Assets::AssetHandle texture{ 1 };
+    const Desert::Assets::AssetHandle other{ 2 };
+    const Desert::Assets::AssetHandle matA{ 10 };
+    const Desert::Assets::AssetHandle matB{ 11 };
 
     // matA binds the texture in two slots (albedo + normal): still ONE rebuild.
     waiters.Add( texture, matA );
@@ -557,7 +560,7 @@ TEST( TextureWaiters, ATextureLandingInvalidatesEveryMaterialThatWaitedOnItExact
 
     uint32_t                                 generation = 0; // MaterialService::Invalidate's ++version
     std::vector<Desert::Assets::AssetHandle> rebuilt;
-    const auto invalidate = [&]( const Desert::Assets::AssetHandle& material )
+    const auto                               invalidate = [&]( const Desert::Assets::AssetHandle& material )
     {
         rebuilt.push_back( material );
         ++generation;
