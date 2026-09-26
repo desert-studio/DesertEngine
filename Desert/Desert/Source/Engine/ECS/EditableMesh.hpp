@@ -40,7 +40,8 @@ namespace Desert::ECS
     // in which Output / Convert to Static Mesh refused every Cube Grid and Create Shape result ("triangle 0
     // uses material slot 0, the asset has 0 slots"). Header-only so a suite without a device can run it.
     // True when it added a slot.
-    [[nodiscard]] inline bool CoverMaterialIds( std::vector<Common::AssetHandle>& slots, std::span<const int> materialIds )
+    [[nodiscard]] inline bool CoverMaterialIds( std::vector<Common::AssetHandle>& slots,
+                                                std::span<const int>              materialIds )
     {
         if ( materialIds.empty() || materialIds.back() < 0 )
             return false;

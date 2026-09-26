@@ -67,10 +67,10 @@ namespace
     Common::BoolResultStr WriteFreshBlockout( const std::string& name )
     {
         Geometry::VoxelBlockout::Volume volume;
-        volume.m_Unit                                                   = 100.0f;
+        volume.m_Unit                                                = 100.0f;
         volume.m_Cells[Geometry::VoxelBlockout::Pack( { 0, 0, 0 } )] = {};
         volume.m_Cells[Geometry::VoxelBlockout::Pack( { 1, 0, 0 } )] = {};
-        auto edit = Geometry::FromRenderMesh( volume.Bake() );
+        auto edit                                                    = Geometry::FromRenderMesh( volume.Bake() );
         if ( !edit.IsSuccess() )
             return Common::MakeError<bool>( edit.GetError() );
         auto dyn = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( edit.GetValue().Mesh ), "CG1" );
@@ -131,9 +131,9 @@ TEST_F( AcceptProject, TheToolBarAcceptLeavesTheToolToEndItselfAndARefusalKeepsI
 
 TEST_F( AcceptProject, CancelAfterAnAcceptLeavesTheAcceptedPiece )
 {
-    MS&                    ms = MS::Get();
-    const Common::UUID     first( 8001 ), second( 8002 );
-    std::set<Common::UUID> scene = { first };
+    MS&                       ms = MS::Get();
+    const Common::UUID        first( 8001 ), second( 8002 );
+    std::set<Common::UUID>    scene = { first };
     std::vector<Common::UUID> committed;
 
     Common::UUID piece    = first;
