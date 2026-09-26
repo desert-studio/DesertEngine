@@ -44,7 +44,8 @@ namespace Desert::Graphic::System
             m_CompositeShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRComposite" );
             m_ClassifyShader  = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRTileClassify" );
             if ( !m_TraceShader || !m_ResolveShader || !m_CompositeShader || !m_ClassifyShader )
-                return Common::MakeError( "SSR shaders not found (SSR, SSRResolveTiled, SSRComposite, SSRTileClassify)" );
+                return Common::MakeError(
+                     "SSR shaders not found (SSR, SSRResolveTiled, SSRComposite, SSRTileClassify)" );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !m_TraceBuffer )
@@ -177,7 +178,8 @@ namespace Desert::Graphic::System
 
                 renderer.BeginRenderPass( pass.get() );
                 m_ClassifyMaterial->BindInputs( gbuffer->GetColorAttachmentImage( 1 ), gridW, gridH );
-                renderer.SubmitFullscreenQuad( m_ClassifyPipeline.get(), m_ClassifyMaterial->GetMaterialExecutor() );
+                renderer.SubmitFullscreenQuad( m_ClassifyPipeline.get(),
+                                               m_ClassifyMaterial->GetMaterialExecutor() );
                 renderer.EndRenderPass();
             }
 

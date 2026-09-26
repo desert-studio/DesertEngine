@@ -78,8 +78,8 @@ namespace Desert::Graphic
     {
     public:
         explicit MaterialSSRResolve( SSRResolveVariant variant )
-            : Material( "MaterialSSRResolve",
-                        variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
+             : Material( "MaterialSSRResolve",
+                         variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
             if ( variant == SSRResolveVariant::Tiled )
                 m_TileMask = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();

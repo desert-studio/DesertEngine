@@ -156,20 +156,25 @@ namespace Desert::Core
         // ray per pixel at FULL resolution, then a temporal resolve and a composite; still bound by the
         // usual SSR limit (off-screen and occluded geometry cannot reflect).
         //
-        // WHY THE DEFAULT IS OFF, measured (SS1, 2026-09-23, Apple M1 Pro / MoltenVK, 715x784 = 0.56 Mpx
-        // headless capture, GPU timestamps). It is the one thing that puts the floor into the lower half
-        // of a chrome sphere - below the horizon the sky IBL can only return the ground colour - so the
-        // look argues for ON. The price argues against, and it does not depend on what is on screen:
-        //   "Deferred: SSR" pass line  1.6 - 3.1 ms  (Desert_Sandbox, Clouds_Protocol + 3 spheres)
-        //   of which Trace 0.4 - 1.4, Resolve 0.3 - 0.9, Composite 0.3 - 0.7, 0.4 - 1.0 outside the three marks
-        //   whole GPU frame, interleaved A/B  +1.6 ms on Desert_Sandbox, +2.2 ms with a mirror floor
-        // Desert_Sandbox reflects on 0.45 % of its pixels and still pays ~2 ms: the trace early-outs on
-        // rough pixels, but the resolve and composite are full-screen RGBA32F passes that run everywhere.
-        // Scaled by pixel count to 1080p (x3.7, an estimate, not a measurement) that is 6 - 8 ms against
-        // a ~1 ms budget.
-        // RETURN CONDITION: the "Deferred: SSR" line on Desert_Sandbox (--camera 0,250,700 --look
-        // 0,-0.3,-1, the same capture) at or under 0.3 ms. The levers are the cost that ignores content:
-        // RGBA16F instead of RGBA32F, and resolve/composite restricted to pixels the trace can write.
+        // WHY THE DEFAULT IS OFF, measured twice on Apple M1 Pro / MoltenVK, GPU timestamps, Desert_Sandbox
+        // (--camera 0,250,700 --look 0,-0.3,-1), the "Deferred: SSR" pass line. It is the one thing that puts
+        // the floor into the lower half of a chrome sphere - below the horizon the sky IBL can only return the
+        // ground colour - so the look argues for ON; the price argues against.
+        //   SS1  (2026-09-23, RGBA32F targets, all passes fullscreen, 0.56 Mpx)   1.6 - 3.1 ms
+        //   SSR1 (2026-09-27, 996x504 = 0.50 Mpx, three runs each):
+        //     RGBA16F targets (2249a6eaf), all passes fullscreen   0.67 / 0.71 / 0.71 ms
+        //     + tiled (SSRRenderer: 8 px tiles, trace/resolve/composite over marked tiles only)
+        //                                                          0.61 / 0.63 / 0.64 ms
+        //       of which Classify 0.19 - 0.22, Trace 0.22 - 0.24, Resolve 0.07 - 0.09, Composite ~0.03,
+        //       ~0.08 outside the marks. Tiling left the reflection the same (max 5/255 on 210 of 0.5 M
+        //       pixels, all inside the reflection) and cut resolve+composite from ~0.4 to ~0.1 ms, but the
+        //       trace is content cost (this scene's floor passes the roughness gate, so its tiles are traced)
+        //       and the classify pass, one fragment per tile looping 64 texels, runs at low occupancy.
+        // Even a free classify leaves ~0.40 ms, so tiling alone cannot reach the budget below.
+        // RETURN CONDITION: the "Deferred: SSR" line on Desert_Sandbox (same camera, --gpu-profile) at or
+        // under 0.3 ms. The levers left are (1) the classify as a compute pass, one thread per pixel reduced per
+        // tile in shared memory (~0.2 ms), and (2) the trace itself: half-resolution trace or fewer steps on
+        // rough-ish pixels - both change the picture, so they need a frame comparison, not just a timing.
         // Scenes then need a schema step: every file states `false`, and none ever stated `true`
         // (git log -G), so the value is inherited everywhere - except where a frame comparison pins it.
         PROPERTY( DisplayName( "Enable SSR" ), Category( "Rendering" ) )
