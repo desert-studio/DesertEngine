@@ -245,17 +245,19 @@ TEST( ProceduralEnvironmentCube, TheSkyboxAssetDecidesAndEveryEmptyEnvironmentIs
 
     EXPECT_EQ( body.find( "GetFileExtension" ), std::string::npos )
          << "EnvironmentManager::Create decides by the skybox's file NAME again. Skyboxes are `.detex` "
-            "containers; the container's own kind and key (FindCookedPanorama) is the one gate.";
+            "containers; the container's own kind and key (Assets::FindCookedPanorama) is the one gate.";
     EXPECT_EQ( body.find( "\".hdr\"" ), std::string::npos )
          << "EnvironmentManager::Create compares against \".hdr\" -- no committed skybox has that extension.";
 
-    const std::size_t gate = body.find( "FindCookedPanorama(" );
-    ASSERT_NE( gate, std::string::npos ) << "EnvironmentManager::Create no longer asks FindCookedPanorama";
+    // AL1-3: the gate moved to the loader's worker (`Assets::StageEnvironment` asks `FindCookedPanorama`), so what
+    // Create reads first is the staged result, and nothing may branch before it.
+    const std::size_t gate = body.find( "->Staged()" );
+    ASSERT_NE( gate, std::string::npos ) << "EnvironmentManager::Create no longer reads the staged environment";
     const std::string beforeGate = body.substr( 0, gate );
     EXPECT_EQ( FindIdentifier( beforeGate, "if", 0 ), std::string::npos )
-         << "something branches before FindCookedPanorama is asked -- it must be the first and only gate";
+         << "something branches before the staged environment is read -- it must be the first and only gate";
     EXPECT_EQ( FindIdentifier( beforeGate, "return", 0 ), std::string::npos )
-         << "EnvironmentManager::Create returns before FindCookedPanorama is asked";
+         << "EnvironmentManager::Create returns before the staged environment is read";
 
     // Every empty environment is the statement right after a LOG_ERROR: `}` or anything else before a
     // `return {};` is the silent fall-through this test exists for.

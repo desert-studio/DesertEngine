@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/Serialization/EnvironmentStaging.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 
@@ -212,40 +213,14 @@ namespace Desert::Graphic
     // What the bake costs
     // ---------------------------------------------------------------------------------------------------
 
-    // The IBL cube chain that every baked environment produces. These are the sizes SceneEnvironment
-    // actually asks for; they live here so the cost report and the bake cannot disagree. Every size names
-    // a FACE (ImageCubeSpecification::FaceSize) — no call site multiplies by the 4x3 cross unwrap.
-    inline constexpr uint32_t kSkyEnvCubeFaceSize       = 1024;
-    inline constexpr uint32_t kSkyEnvIrradianceFaceSize = 32;
-    // The radiance cube is the SHARP environment: the skybox pass draws its mip 0 and the prefilter
-    // convolves it. IT CARRIES ITS WHOLE CHAIN, because both convolutions read it (or the panorama) by
-    // mipmap-filtered importance sampling, and a filtered sample with no lower level to read is a point
-    // sample. Measured 2026-09-23 on SKY_HDR_PolyHaven (rural_asphalt_road_2k.hdr, sun peak 131072;
-    // camera 0,220,-900 look 0,-0.08,1; 90 frames; repeat floor 0 px): with ONE level the satin sphere
-    // reflected the sun as a spray of square splats and the matte sphere's high-pass luminance std was
-    // 2.71; with the chain the splats are gone and it is 1.06. Cost: the radiance cube is 96 -> 128 MiB
-    // of RGBA32F on the bake that computes it, 6.0 -> 8.0 MiB of BC6H on every load that reads the
-    // cache, and on the procedural path nothing resident (that path frees its radiance cube after the
-    // prefilter). The bake got FASTER, as the 2026-09-06 note predicted: .hdr convolution 1876 ->
-    // 1325..1635 ms, procedural rebake 1024x512 sky-only ~440 -> ~395 ms, 512x256 ~360 -> ~318 ms.
-    // The procedural frame (Clouds_Protocol + the same three spheres) moved by at most 2/255 on the
-    // matte and satin spheres and 22/255 at one chrome pixel. (The refusal this replaces rested on
-    // "the only live producer is the procedural bake"; an .hdr with a real sun made that false.)
-    inline constexpr uint32_t kSkyEnvRadianceMips = Core::Formats::MipChainLength( kSkyEnvCubeFaceSize );
-    // The prefiltered specular face. 256 is the MEASURED choice, re-measured 2026-09-23 on real content
-    // (same protocol as above, radiance chain on): 1024 moved SKY_HDR_PolyHaven by at most 64/255 --
-    // at the rim of the sun's highlight on the chrome sphere, mean 0.07/255 over the frame, no
-    // structure visible side by side -- and the procedural sphere scene by at most 31/255, while
-    // costing 8 -> 128 MiB of RGBA32F (0.5 -> 8 MiB cached), 1.5x the procedural rebake (~318 ->
-    // ~487 ms at 512x256) and ~2x the .hdr cache write. The face only matters where a mirror covers
-    // more screen per degree than 256/90 texels do (~2.8 per degree); revisit for a close-up mirror,
-    // not for a brighter sky. (The first measurement, 2026-09-06 on the synthetic content, found 13/255.)
-    inline constexpr uint32_t kSkyEnvPrefilterFaceSize = 256;
-    // Derived from the face, never authored: a hand-typed pair is how 11 mips got requested on a 256
-    // face — an invalid vkCreateImage (VUID-...-00958) away from VK_ERROR_DEVICE_LOST.
-    inline constexpr uint32_t kSkyEnvPrefilterMips = Core::Formats::MipChainLength( kSkyEnvPrefilterFaceSize );
-    static_assert( kSkyEnvRadianceMips <= Core::Formats::MipChainLength( kSkyEnvCubeFaceSize ),
-                   "radiance mip count exceeds what its own face supports" );
+    // The IBL cube chain's sizes live beside the cache that keys on them (`EnvironmentStaging.hpp`), because the
+    // asset layer stages the cubes on a worker and must not include the renderer to learn their shape.
+    using Assets::kSkyEnvCubeFaceSize;
+    using Assets::kSkyEnvIrradianceFaceSize;
+    using Assets::kSkyEnvPrefilterFaceSize;
+    using Assets::kSkyEnvPrefilterMips;
+    using Assets::kSkyEnvRadianceMips;
+
     // The format every one of the three cubes is created at — `ComputeImages::ProccessForImageCube` and
     // `ProccessForImageCubeMips` both ask for RGBA32F. It is the FORMAT that is written down here, not
     // its size: `kSkyEnvBytesPerPixel = 16` used to sit on this line, a hand-typed copy of

@@ -185,7 +185,10 @@ TEST( AsyncAssetPump, BothHostsPumpTheLoaderOnceATick )
     }
 }
 
-TEST( AsyncAssetPump, TheConvertedKindsAreAnnouncedAndNotRead )
+// AL1-2 TOOK THESE KINDS OUT OF THE BOOT ENTIRELY: their services create a shell from the content registry's row
+// when a scene names the handle, so there is no preloader stage left to scan, announce or read. A stage that
+// came back would be the eager boot scan returning, which is the cost this tier removed.
+TEST( AsyncAssetPump, TheOnDemandKindsHaveNoPreloaderStage )
 {
     const std::string root = RepoRoot();
     ASSERT_FALSE( root.empty() );
@@ -195,39 +198,12 @@ TEST( AsyncAssetPump, TheConvertedKindsAreAnnouncedAndNotRead )
 
     for ( const ConvertedKind& kind : kConverted )
     {
-        const std::string body = FunctionBody( preloader, kind.Stage );
-        ASSERT_FALSE( body.empty() ) << kind.Stage << " was not found in " << kPreloaderSource;
-
-        // ASSERTED ON THE CODE, NOT ON THE ARGUMENT'S NAME. The obvious spelling of this check was
-        // `body.find( "loadAfterCreate=*/false" )`, and it failed on a correct tree for a reason worth
-        // keeping: `/*loadAfterCreate=*/` IS A COMMENT, so `WithoutComments` had already removed it. Had
-        // the check been written against the raw source instead it would have passed -- and then gone red
-        // on a caller that wrote the same `false` without the naming comment, which is the same code.
-        // What the scan must not do is read; what says it does not read is the argument's VALUE.
-        // SPL2 put the load's progress report between the priority and the flag (`nullptr` here: a
-        // scan that does not read has nothing to report), so one optional pointer argument may sit there.
-        const std::regex lazyCreate( R"(AssetPriority::[A-Za-z]+\s*,\s*(nullptr\s*,\s*)?false)" );
-        EXPECT_TRUE( std::regex_search( body, lazyCreate ) )
-             << kind.Stage
-             << " creates its assets with the eager load still on. The scan would read every file of this "
-                "kind in the project before the first frame again -- which is the cost this tier removed, "
-                "and it would come back silently because everything else would still work.";
-
-        EXPECT_NE( body.find( "->Announce(" ), std::string::npos )
-             << kind.Stage
-             << " does not announce what it scanned. A kind that is neither read nor "
-                "announced is a kind whose service has never heard of it, so every "
-                "reference to it resolves to Null -- 'the scan did not find it' -- for "
-                "files that are sitting right there on disk.";
-
-        EXPECT_EQ( body.find( "->Register(" ), std::string::npos )
-             << kind.Stage
-             << " still registers from the preloader. Register takes bytes ALREADY IN HAND; calling it "
-                "from a scan means the scan read the file, which is the eager model wearing the new "
-                "spelling.";
+        EXPECT_TRUE( FunctionBody( preloader, kind.Stage ).empty() )
+             << kind.Stage << " is back in " << kPreloaderSource << ": " << kind.Service
+             << " creates these assets on demand from the registry row, and a boot stage would scan every file "
+                "of this kind before the first frame again.";
     }
 }
-
 TEST( AsyncAssetPump, NoProductionSourceReadsAConvertedKindSynchronously )
 {
     const std::string root = RepoRoot();

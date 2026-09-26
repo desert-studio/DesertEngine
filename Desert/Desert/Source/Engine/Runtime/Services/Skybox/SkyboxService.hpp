@@ -13,7 +13,7 @@ namespace Desert::Runtime
         /// until then, and `IsPending` says that the null is "not here yet" rather than "none". A scene
         /// being opened waits for it through `ContentGate`, which counts the loader's outstanding reads.
         /// A file that is not there is an ERROR naming path and GUID, and nothing is requested.
-        void Request( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset );
+        void               Request( const std::shared_ptr<Assets::SkyboxAsset>& skyboxAsset );
         [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const;
         std::shared_ptr<Graphic::MaterialSkybox> Get( const Assets::AssetHandle& handle ) const;
         void                                     Clear();

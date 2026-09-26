@@ -59,11 +59,11 @@ namespace Desert::Graphic
         // reason when it refuses, so it is the only gate.
         // Staged on the loader's worker (`SkyboxAsset::LoadFromFile`): the panorama's header, the cache
         // paths, and on a hit the three decoded cubes. Only the device work is left for this thread.
-        const std::shared_ptr<const StagedEnvironment> staged = skyboxAsset->StagedEnvironment();
+        const std::shared_ptr<const Assets::StagedEnvironment> staged = skyboxAsset->Staged();
         if ( !staged )
         {
             LOG_ERROR( "[SceneEnvironment] the skybox '{}' was handed over without being loaded (no staged "
-                       "environment), so it gets NO environment; request it through SkyboxService.",
+                       "environment), so it gets NO environment -- request it through SkyboxService.",
                        meta.Filepath.string() );
             return {};
         }
@@ -85,23 +85,23 @@ namespace Desert::Graphic
 
         if ( staged->Cached )
         {
-            const auto& cubes = *staged->Cached;
-            auto radiance   = CreateBakedEnvironmentCube( cubes[0], radiancePath );
-            auto irradiance = CreateBakedEnvironmentCube( cubes[1], irradiancePath );
-            auto prefilter  = CreateBakedEnvironmentCube( cubes[2], prefilterPath );
+            const auto& cubes      = *staged->Cached;
+            auto        radiance   = CreateBakedEnvironmentCube( cubes[0], radiancePath );
+            auto        irradiance = CreateBakedEnvironmentCube( cubes[1], irradiancePath );
+            auto        prefilter  = CreateBakedEnvironmentCube( cubes[2], prefilterPath );
             if ( radiance.IsSuccess() && irradiance.IsSuccess() && prefilter.IsSuccess() )
             {
                 LOG_INFO( "[SceneEnvironment] '{}' was loaded from its baked IBL chain: {:.1f} ms read on the "
                           "loader's worker, {:.1f} ms uploading here; the panorama was not read and the three "
                           "compute passes did not run.",
                           meta.Filepath.string(), staged->StageMs,
-                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                                     startedAt )
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
                                .count() );
-                return { meta.Filepath,
-                         imageService->Register( radiance.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ),
-                         imageService->Register( irradiance.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ),
-                         imageService->Register( prefilter.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ) };
+                return {
+                     meta.Filepath,
+                     imageService->Register( radiance.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ),
+                     imageService->Register( irradiance.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ),
+                     imageService->Register( prefilter.ExtractValue(), Runtime::ImageHandle::Type::ImageCube ) };
             }
             LOG_ERROR( "[SceneEnvironment] '{}' decoded its baked IBL chain but a GPU cube was not created ({} / "
                        "{} / {}); baking instead.",

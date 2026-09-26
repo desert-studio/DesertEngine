@@ -142,8 +142,8 @@ namespace Desert::ECS
                         continue;
 
                     const auto& skybox = registry.get<ECS::SkyboxComponent>( skyboxEntity );
-                    auto* skyboxes     = Runtime::ResourceRegistry::GetSkyboxService();
-                    cubemap            = skyboxes->Get( skybox.SkyboxHandle );
+                    auto*       skyboxes = Runtime::ResourceRegistry::GetSkyboxService();
+                    cubemap              = skyboxes->Get( skybox.SkyboxHandle );
                     // Being read or baked (AL1-3): keep drawing the sky that was there, never a black frame.
                     if ( !cubemap && skyboxes->IsPending( skybox.SkyboxHandle ) && m_LastCubemap )
                     {

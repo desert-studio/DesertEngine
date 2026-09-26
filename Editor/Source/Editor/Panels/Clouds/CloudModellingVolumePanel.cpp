@@ -61,7 +61,9 @@ namespace Desert::Editor
     CloudModellingVolumePanel::CloudModellingVolumePanel( const Assets::AssetHandle& subject,
                                                           Assets::AssetManager*      assets )
          : ISubjectDocument(
-                AssetSubjectTitle<Assets::CloudModellingVolumeAsset>( subject, assets, Common::Content::ContentKind::CloudModellingVolume, "Cloud Modelling Volume" ),
+                AssetSubjectTitle<Assets::CloudModellingVolumeAsset>(
+                     subject, assets, Common::Content::ContentKind::CloudModellingVolume,
+                     "Cloud Modelling Volume" ),
                 AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudModellingVolume ) ) ),
            m_Assets( assets )
     {

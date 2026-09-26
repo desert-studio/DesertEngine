@@ -79,7 +79,8 @@ namespace Desert::Editor
     CloudLayoutPanel::CloudLayoutPanel( const Assets::AssetHandle&             subject,
                                         std::shared_ptr<::Desert::Core::Scene> scene,
                                         Assets::AssetManager*                  assets )
-         : ISubjectDocument( AssetSubjectTitle<Assets::CloudLayoutAsset>( subject, assets, Common::Content::ContentKind::CloudLayout, "Cloud Layout" ),
+         : ISubjectDocument( AssetSubjectTitle<Assets::CloudLayoutAsset>(
+                                  subject, assets, Common::Content::ContentKind::CloudLayout, "Cloud Layout" ),
                              AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudLayout ) ) ),
            m_Scene( std::move( scene ) ), m_Assets( assets )
     {

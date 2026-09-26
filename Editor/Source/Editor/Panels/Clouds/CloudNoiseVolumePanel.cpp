@@ -94,7 +94,8 @@ namespace Desert::Editor
     CloudNoiseVolumePanel::CloudNoiseVolumePanel( const Assets::AssetHandle& subject,
                                                   Assets::AssetManager*      assets )
          : ISubjectDocument(
-                AssetSubjectTitle<Assets::CloudNoiseVolumeAsset>( subject, assets, Common::Content::ContentKind::CloudNoiseVolume, "Cloud Noise Volume" ),
+                AssetSubjectTitle<Assets::CloudNoiseVolumeAsset>(
+                     subject, assets, Common::Content::ContentKind::CloudNoiseVolume, "Cloud Noise Volume" ),
                 AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudNoiseVolume ) ) ),
            m_Assets( assets )
     {
