@@ -12,7 +12,7 @@
 #include <string>
 #include <string_view>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 // The reader's half of the text asset header: the two refusals every text kind with a header makes, spelled
 // once. The writer's half is StampTextHeader (TextAssetHeaderStamp.hpp).
@@ -33,16 +33,18 @@ namespace Desert::Assets
     RefuseTextWithoutHeader( const std::string& text, int current, std::optional<int> absentMeans,
                              std::string_view versionMember = "FormatVersion" )
     {
-        const auto tree = rfl::json::read<rfl::Generic>( text );
-        if ( !tree )
-            return BOOLSUCCESS; // Not JSON: the typed parse names what is wrong with it.
-        const auto fields = tree.value().to_object();
-        if ( !fields || fields.value().get( std::string( Common::Content::kTextHeaderMember ) ).has_value() )
-            return BOOLSUCCESS;
+        const auto members = Common::Json::ObjectMembers( text );
+        if ( !members )
+            return BOOLSUCCESS; // Not a JSON object: the typed parse names what is wrong with it.
         std::string version = absentMeans ? std::to_string( *absentMeans ) : "(unstated)";
-        if ( const auto stated = fields.value().get( std::string( versionMember ) ); stated.has_value() )
-            if ( const auto number = stated.value().to_int(); number.has_value() )
-                version = std::to_string( number.value() );
+        for ( const auto& [name, value] : members.GetValue() )
+        {
+            if ( name == Common::Content::kTextHeaderMember )
+                return BOOLSUCCESS;
+            if ( name == versionMember )
+                if ( const auto number = Common::Json::Read<int>( value ); number )
+                    version = std::to_string( number.GetValue() );
+        }
         return Common::MakeFormattedError<bool>(
              "format version {} states no header; this build reads version {} (a "
              "Header with a GUID): run Tools/SceneMigrator over it once",

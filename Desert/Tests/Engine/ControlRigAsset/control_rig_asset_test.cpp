@@ -427,7 +427,7 @@ TEST( ControlRigAssetTest, AFileFromAnotherGenerationIsRefusedByNameInBothDirect
 {
     // WriteControlRig stamps the CURRENT version, so a future one is provoked through the text.
     std::string       text   = RigFile::WriteControlRig( ArmRigFile() );
-    const std::string stated = "\"CRIG\": " + std::to_string( RigFile::kControlRigVersion );
+    const std::string stated = "\"CRIG\":" + std::to_string( RigFile::kControlRigVersion );
     const auto        at     = text.find( stated );
     ASSERT_NE( at, std::string::npos ) << text;
     ASSERT_TRUE( RigFile::ParseControlRig( text ).IsSuccess() );

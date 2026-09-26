@@ -5,7 +5,7 @@
 #include <vector>
 #include <cmath>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 namespace Desert::Assets
 {
@@ -192,23 +192,26 @@ namespace Desert::Assets
             struct HeaderOnly
             {
                 std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+                // The rest of the document, which the typed read below takes: the probe must not refuse
+                // members it was never meant to look at.
+                Common::Json::KeyedValues Rest;
             };
-            const auto headerOnly = rfl::json::read<HeaderOnly>( text );
+            const auto headerOnly = Common::Json::Read<HeaderOnly>( text );
             if ( !headerOnly )
-                return Common::MakeFormattedError<CloudTypeData>( "{}", headerOnly.error().what() );
+                return Common::MakeFormattedError<CloudTypeData>( "{}", headerOnly.GetError() );
             if ( auto header =
-                      CheckStatedHeader( headerOnly.value().Header, Common::Content::ContentKind::CloudType,
+                      CheckStatedHeader( headerOnly.GetValue().Header, Common::Content::ContentKind::CloudType,
                                          kCloudTypeSchemaTag, kCloudTypeFormatVersion, CloudTypeTextSubsystems() );
                  !header )
                 return Common::MakeFormattedError<CloudTypeData>( "{}; run Tools/SceneMigrator",
                                                                   header.GetError() );
         }
 
-        const auto parsed = rfl::json::read<CloudTypeData>( text );
+        const auto parsed = Common::Json::Read<CloudTypeData>( text );
         if ( !parsed )
-            return Common::MakeFormattedError<CloudTypeData>( "{}", parsed.error().what() );
+            return Common::MakeFormattedError<CloudTypeData>( "{}", parsed.GetError() );
 
-        CloudTypeData data = parsed.value();
+        CloudTypeData data = parsed.GetValue();
         // CheckStatedHeader above refused an absent header; the typed read is a second read of the text,
         // so its Header is checked again rather than assumed.
         if ( !data.Header )
@@ -245,6 +248,6 @@ namespace Desert::Assets
              StampTextHeader( data.Header, Common::Content::ContentKind::CloudType, CloudTypeTextSubsystems() );
         if ( data.NoiseVolume )
             stamped.Header->Dependencies = { data.NoiseVolume->Guid };
-        return rfl::json::write( stamped, YYJSON_WRITE_PRETTY );
+        return Common::Json::Write( stamped );
     }
 } // namespace Desert::Assets

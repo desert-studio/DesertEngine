@@ -7,7 +7,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <array>
 #include <format>
@@ -42,7 +42,7 @@ namespace Desert::Assets::Serialization
         SkeletonAssetData out = data;
         out.Header =
              StampTextHeader( data.Header, Common::Content::ContentKind::Skeleton, SkeletonTextSubsystems() );
-        return rfl::json::write( out );
+        return Common::Json::Write( out );
     }
 
     /// Refuses a file with no header (generation 0, before T7e) by name, pointing at Tools/SceneMigrator, and a
@@ -53,14 +53,13 @@ namespace Desert::Assets::Serialization
         // Generation 0 stated no version at all, so a file without a header IS version 0.
         if ( auto headed = RefuseTextWithoutHeader( text, current, 0 ); !headed )
             return Common::MakeError<SkeletonAssetData>( std::format( "skeleton {}", headed.GetError() ) );
-        auto parsed = rfl::json::read<SkeletonAssetData>( text );
+        auto parsed = Common::Json::Read<SkeletonAssetData>( text );
         if ( !parsed )
-            return Common::MakeError<SkeletonAssetData>(
-                 std::format( "bad .skeleton: {}", parsed.error().what() ) );
-        if ( auto header = CheckStatedHeader( parsed.value().Header, Common::Content::ContentKind::Skeleton,
+            return Common::MakeError<SkeletonAssetData>( std::format( "bad .skeleton: {}", parsed.GetError() ) );
+        if ( auto header = CheckStatedHeader( parsed.GetValue().Header, Common::Content::ContentKind::Skeleton,
                                               kSkeletonSchemaTag, current, SkeletonTextSubsystems() );
              !header )
             return Common::MakeError<SkeletonAssetData>( std::format( "skeleton {}", header.GetError() ) );
-        return Common::MakeSuccess( parsed.value() );
+        return Common::MakeSuccess( parsed.GetValue() );
     }
 } // namespace Desert::Assets::Serialization
