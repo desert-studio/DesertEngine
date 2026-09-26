@@ -101,24 +101,52 @@ namespace Desert::Runtime
         // Said once per handle rather than once per frame: a missing theme is a permanent state of the
         // scene, and a message repeated sixty times a second is a log nobody reads. The set is what makes
         // the FIRST occurrence findable.
-        if ( m_Reported.contains( handle ) )
+        if ( m_Reported.contains( handle ) || m_Requests.contains( handle ) )
             return nullptr;
 
-        // AL1-7: no boot stage reads every `.detheme` any more; the first canvas that names one reads it from
-        // its registry row, through the loader, in the call that needs its styles.
-        auto read = Assets::DiscoverAndReadNow<Assets::UIThemeAsset>( m_Assets, handle,
-                                                                      Common::Content::ContentKind::UITheme );
-        if ( read )
+        // AL1-7: no boot stage reads every `.detheme` any more. The first canvas that names one creates it
+        // from its registry row and requests the read; the host's ContentGate holds the loading screen until
+        // it lands, and the canvas draws its authored colours in the frames nobody is shown.
+        auto created = Assets::CreateFromRegistryRow<Assets::UIThemeAsset>( m_Assets, handle,
+                                                                           Common::Content::ContentKind::UITheme );
+        if ( !created )
         {
-            if ( const auto registered = Register( read.GetValue() ); !registered )
-                read = Common::MakeError<Assets::Asset<Assets::UIThemeAsset>>( registered.GetError() );
-            else
-                return &m_Themes.at( handle ).Runtime;
+            m_Reported.insert( handle );
+            LOG_ERROR( "[UI] Theme {} is referenced by a canvas but cannot be used; every element of that "
+                       "canvas draws its own authored colours: {}",
+                       static_cast<uint64_t>( handle ), created.GetError() );
+            return nullptr;
         }
-        m_Reported.insert( handle );
-        LOG_ERROR( "[UI] Theme {} is referenced by a canvas but cannot be used; every element of that canvas "
-                   "draws its own authored colours: {}",
-                   static_cast<uint64_t>( handle ), read.GetError() );
+        if ( created.GetValue()->IsReadyForUse() )
+        {
+            if ( const auto registered = Register( created.GetValue() ); !registered )
+            {
+                m_Reported.insert( handle );
+                LOG_ERROR( "[UI] Theme {} cannot be used: {}", static_cast<uint64_t>( handle ),
+                           registered.GetError() );
+                return nullptr;
+            }
+            return &m_Themes.at( handle ).Runtime;
+        }
+
+        m_Requests[handle] = Assets::AsyncAssetLoader::Get().Request(
+             created.GetValue(),
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 m_Requests.erase( handle );
+                 const auto registered =
+                      outcome == Assets::LoadOutcome::Loaded
+                           ? Register( std::static_pointer_cast<Assets::UIThemeAsset>( loaded ) )
+                           : Common::MakeError<bool>( error );
+                 if ( !registered )
+                 {
+                     m_Reported.insert( handle );
+                     LOG_ERROR( "[UI] Theme '{}' cannot be used; its canvases draw their authored colours: {}",
+                                loaded->GetMetadata().Filepath.string(), registered.GetError() );
+                 }
+             },
+             [this, handle] { m_Requests.erase( handle ); } );
         return nullptr;
     }
 
@@ -129,6 +157,7 @@ namespace Desert::Runtime
 
     void UIThemeService::Clear()
     {
+        m_Requests.clear(); // released: no delegate fires into a cleared service
         m_Themes.clear();
         m_Reported.clear();
         ++m_Generation;

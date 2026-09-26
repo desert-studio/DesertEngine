@@ -41,6 +41,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AsyncAssetLoader.cpp", -- AL1-7: CloudTypeService reads through it
+        "%{wks.location}/Desert/Desert/Source/Engine/Runtime/Services/CloudType/CloudTypeService.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolumeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudModellingVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudLayoutAsset.cpp",

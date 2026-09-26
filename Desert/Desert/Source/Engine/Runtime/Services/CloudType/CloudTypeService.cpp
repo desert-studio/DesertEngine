@@ -33,7 +33,7 @@ namespace Desert::Runtime
         m_Assets = assets;
     }
 
-    const CloudTypeService::Entry* CloudTypeService::FindOrDiscover( const Assets::AssetHandle& handle )
+    const CloudTypeService::Entry* CloudTypeService::FindOrRequest( const Assets::AssetHandle& handle )
     {
         if ( handle == 0 )
             return nullptr;
@@ -41,39 +41,74 @@ namespace Desert::Runtime
             return &it->second;
         // Said once per handle rather than once per frame: a missing type is a permanent state of the
         // scene, and a message repeated sixty times a second is a log nobody reads.
-        if ( m_Reported.contains( handle ) )
+        if ( m_Reported.contains( handle ) || m_Requests.contains( handle ) )
             return nullptr;
 
-        // AL1-7: no boot stage reads every `.decloudtype` any more; the first layer that names one reads it
-        // from its registry row, through the loader, in the call that needs its numbers.
-        auto read = Assets::DiscoverAndReadNow<Assets::CloudTypeAsset>( m_Assets, handle,
-                                                                        Common::Content::ContentKind::CloudType );
-        if ( read )
-        {
-            if ( const auto registered = Register( read.GetValue() ); !registered )
-                read = Common::MakeError<Assets::Asset<Assets::CloudTypeAsset>>( registered.GetError() );
-        }
-        if ( !read )
+        // AL1-7: no boot stage reads every `.decloudtype` any more. The first layer that names one creates
+        // it from its registry row and requests the read; the host's ContentGate holds the loading screen
+        // until it lands (a type is a link in the material -> type -> noise volume chain the gate waits on).
+        auto created = Assets::CreateFromRegistryRow<Assets::CloudTypeAsset>(
+             m_Assets, handle, Common::Content::ContentKind::CloudType );
+        if ( !created )
         {
             m_Reported.insert( handle );
             LOG_ERROR( "[Clouds] Cloud type {} is referenced but cannot be used; the layer falls back to the "
                        "built-in default: {}",
-                       static_cast<uint64_t>( handle ), read.GetError() );
+                       static_cast<uint64_t>( handle ), created.GetError() );
             return nullptr;
         }
-        return &m_Types.at( handle );
+        if ( created.GetValue()->IsReadyForUse() )
+        {
+            if ( const auto registered = Register( created.GetValue() ); !registered )
+            {
+                m_Reported.insert( handle );
+                LOG_ERROR( "[Clouds] Cloud type {} cannot be used: {}", static_cast<uint64_t>( handle ),
+                           registered.GetError() );
+                return nullptr;
+            }
+            return &m_Types.at( handle );
+        }
+
+        m_Requests[handle] = Assets::AsyncAssetLoader::Get().Request(
+             created.GetValue(),
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 m_Requests.erase( handle );
+                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 {
+                     m_Reported.insert( handle );
+                     LOG_ERROR( "[Clouds] Cloud type '{}' could not be read; its layers fall back to the "
+                                "built-in default: {}",
+                                loaded->GetMetadata().Filepath.string(), error );
+                     return;
+                 }
+                 // The shell was created unread, so CreateAsset bound nothing; the noise volume binds here.
+                 if ( const auto manager = m_Assets.lock() )
+                     loaded->ResolveDependencies( *manager );
+                 if ( const auto registered =
+                           Register( std::static_pointer_cast<Assets::CloudTypeAsset>( loaded ) );
+                      !registered )
+                 {
+                     m_Reported.insert( handle );
+                     LOG_ERROR( "[Clouds] Cloud type {} cannot be used: {}", static_cast<uint64_t>( handle ),
+                                registered.GetError() );
+                 }
+             },
+             [this, handle] { m_Requests.erase( handle ); } );
+        return nullptr;
     }
 
     const Graphic::CloudTypeShape& CloudTypeService::GetShape( const Assets::AssetHandle& handle )
     {
-        if ( const Entry* entry = FindOrDiscover( handle ) )
+        if ( const Entry* entry = FindOrRequest( handle ) )
             return entry->Shape;
         return Assets::CloudTypeDefaultShape();
     }
 
     Assets::AssetHandle CloudTypeService::GetNoiseVolume( const Assets::AssetHandle& handle )
     {
-        if ( const Entry* entry = FindOrDiscover( handle ) )
+        if ( const Entry* entry = FindOrRequest( handle ) )
             return entry->NoiseVolume;
 
         // The built-in type has no volume of its own, and a null handle is exactly what
@@ -84,6 +119,7 @@ namespace Desert::Runtime
 
     void CloudTypeService::Clear()
     {
+        m_Requests.clear(); // released: no delegate fires into a cleared service
         m_Types.clear();
         m_Reported.clear();
         ++m_Generation;

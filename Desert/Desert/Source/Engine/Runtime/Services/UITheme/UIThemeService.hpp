@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 
 #include <memory>
@@ -70,8 +71,9 @@ namespace Desert::Runtime
             uint32_t               Revision = 0;
         };
 
-        std::weak_ptr<Assets::AssetManager>            m_Assets;
-        std::unordered_map<Assets::AssetHandle, Entry> m_Themes;
+        std::weak_ptr<Assets::AssetManager>                          m_Assets;
+        std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
+        std::unordered_map<Assets::AssetHandle, Entry>               m_Themes;
         // Handles already complained about. A missing theme is a permanent state of the scene, so without
         // this the error would be logged every frame of every viewport and bury everything else.
         std::unordered_set<Assets::AssetHandle> m_Reported;

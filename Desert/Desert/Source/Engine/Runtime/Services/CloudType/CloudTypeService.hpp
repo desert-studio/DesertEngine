@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 
 #include <memory>
@@ -37,6 +38,13 @@ namespace Desert::Runtime
         /// revision replaces the entry, an unchanged one is a no-op.
         Common::BoolResultStr Register( const std::shared_ptr<Assets::CloudTypeAsset>& asset );
 
+        /// True while the type in @p handle is being read on a worker. The renderer draws no layer that
+        /// names a pending type, so the frames before it lands never ask for a volume the type overrides.
+        [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const
+        {
+            return m_Requests.contains( handle );
+        }
+
         /// The shape a layer's slot resolves to. Never fails: an empty handle and an unknown one both end
         /// at the built-in default, and only the second says anything.
         const Graphic::CloudTypeShape& GetShape( const Assets::AssetHandle& handle );
@@ -67,9 +75,11 @@ namespace Desert::Runtime
             uint32_t                Revision = 0;
         };
 
-        // The entry of @p handle, discovered and read now when no one registered it yet; null when the
-        // handle is empty or cannot be resolved (said once, with the reason).
-        const Entry* FindOrDiscover( const Assets::AssetHandle& handle );
+        // The entry of @p handle; null while it is empty, pending or unusable. A handle nobody registered is
+        // created from its registry row and its read requested here (said once, with the reason, on failure).
+        const Entry* FindOrRequest( const Assets::AssetHandle& handle );
+
+        std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
 
         std::weak_ptr<Assets::AssetManager>            m_Assets;
         std::unordered_map<Assets::AssetHandle, Entry> m_Types;
