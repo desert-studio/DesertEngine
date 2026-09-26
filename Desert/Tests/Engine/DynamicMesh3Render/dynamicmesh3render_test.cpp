@@ -145,9 +145,11 @@ namespace
             const int           w = x1 - x0 + 1;
             for ( int z = 0; z <= cells; ++z )
                 for ( int x = x0; x <= x1; ++x )
-                    vertices.push_back( MakeVertex(
-                         { 10.0f * static_cast<float>( x ), 0.0f, 10.0f * static_cast<float>( z ) }, { 0, 1, 0 },
-                         { 1, 0, 0 }, { static_cast<float>( x ) / cells, static_cast<float>( z ) / cells } ) );
+                    vertices.push_back(
+                         MakeVertex( { 10.0f * static_cast<float>( x ), 0.0f, 10.0f * static_cast<float>( z ) },
+                                     { 0, 1, 0 }, { 1, 0, 0 },
+                                     { static_cast<float>( x ) / static_cast<float>( cells ),
+                                       static_cast<float>( z ) / static_cast<float>( cells ) } ) );
             for ( int z = 0; z < cells; ++z )
                 for ( int x = 0; x < w - 1; ++x )
                 {
