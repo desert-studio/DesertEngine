@@ -93,7 +93,7 @@ namespace Common::Content
             return;
         }
         m_Status      = Status::Loaded;
-        m_Saved       = std::move( loaded.GetValue() );
+        m_Saved       = loaded.GetValue();
         m_Draft       = m_Saved;
         m_LoadMessage = m_Saved.Chunks.empty()
                              ? std::format( "{}: one archive (no chunks declared)", m_Path.string() )

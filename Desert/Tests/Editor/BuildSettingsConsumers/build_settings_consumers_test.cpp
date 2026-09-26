@@ -479,7 +479,8 @@ TEST( BuildSettingsConsumers, EveryRowNamesExactlyOneKindOfConsumer )
     for ( const Row& r : kRows )
     {
         SCOPED_TRACE( r.Name );
-        const int kinds = ( r.Option != nullptr ) + ( r.Machinery != nullptr ) + ( r.Scheme != nullptr );
+        const int kinds = ( r.Option != nullptr ? 1 : 0 ) + ( r.Machinery != nullptr ? 1 : 0 ) +
+                          ( r.Scheme != nullptr ? 1 : 0 );
         EXPECT_EQ( kinds, 1 ) << "a row must name exactly one of: the PackageOptions field it fills, or "
                                  "the reason it is not a setting at all";
 
@@ -625,7 +626,7 @@ TEST( BuildSettingsConsumers, EveryTextHandedToTheChunkSchemeReachesTheSessionAn
             continue;
         ++schemeRows;
         bool handed = false;
-        for ( std::size_t at : WordPositions( src.Panel, r.Scheme ) )
+        for ( const std::size_t at : WordPositions( src.Panel, r.Scheme ) )
         {
             const std::string args = ArgumentsAt( src.Panel, at + std::string( r.Scheme ).size() );
             handed                 = handed || !WordPositions( args, r.Name ).empty();

@@ -75,8 +75,8 @@ namespace Desert::Assets
     // closed it for every header-GUID kind). A path the registry does not know is its own file.
     [[nodiscard]] inline TextAssetIdentity ReadTextAssetIdentity( const Common::Filepath& requested )
     {
-        std::filesystem::path      file = ContentRegistry::FileToOpen( requested );
-        Common::Content::AssetGuid guid = ReadTextHeaderGuid( file );
+        std::filesystem::path            file = ContentRegistry::FileToOpen( requested );
+        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( file );
         return { std::move( file ), guid };
     }
 
