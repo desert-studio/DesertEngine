@@ -341,7 +341,7 @@ namespace Common::Content
         //    for as long as their files' size and stamp hold, so a version-2 cache is rebuilt once.
         // 4: rows carry the tags column (display name, skinned). A version-3 cache would hand back rows with
         //    both empty for as long as their files' size and stamp hold, so it is refused and rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 4";
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 5";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()

@@ -113,7 +113,7 @@ namespace Common::Content
              /* StaticMesh           */ { "StaticMesh", E::STATIC_MESH, &P::ASSETS_PATH },
              /* SkinnedMesh          */ { "SkinnedMesh", E::SKINNED_MESH, &P::MESH_PATH_COOKED },
              /* Skeleton             */ { "Skeleton", ".skeleton", &P::MESH_PATH_COOKED },
-             /* Animation            */ { "Animation", ".anim", &P::MESH_PATH_COOKED },
+             /* Animation            */ { "Animation", ".anim", &P::MESH_PATH_COOKED, "Name" },
              // Texture assets (.detex, AF3) sit anywhere under the assets root -- loose, beside a mesh, in a
              // pack -- and the Skybox root nests inside it: the two kinds share an extension and are told
              // apart by the longest root that contains the file (ContentScan's KindOfContentFile).

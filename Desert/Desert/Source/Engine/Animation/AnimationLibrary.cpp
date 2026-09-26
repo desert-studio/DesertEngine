@@ -3,6 +3,8 @@
 #include <Engine/Animation/ProceduralCharacterAnimations.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 
+#include <Engine/Assets/ContentRegistry.hpp>
+
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -25,16 +27,97 @@ namespace Desert::Animation
         auto asset = m_AssetManager->FindByHandle<Assets::AnimationAsset>( handle );
         if ( !asset )
             return nullptr;
-
-        if ( const auto loaded = asset->EnsureLoaded( *m_AssetManager ); !loaded )
+        // An evicted clip is read again by the loader, never here: a synchronous reload inside the
+        // animation update is a hitch in the frame (plan 2.4). Until it arrives the lookup is pending.
+        if ( !asset->IsReadyForUse() )
         {
-            LOG_ERROR( "[AnimationLibrary] clip '{}' is indexed for a rig but could not be loaded: {}. It is "
-                       "not offered; a caller given it would have played an empty clip.",
-                       asset->GetMetadata().Filepath.string(), loaded.GetError() );
+            RequestRead( asset );
             return nullptr;
         }
-
         return asset;
+    }
+
+    void AnimationLibrary::RequestRead( const Assets::Asset<Assets::AnimationAsset>& asset ) const
+    {
+        const Assets::AssetHandle handle = asset->GetMetadata().Handle;
+        if ( m_Requests.contains( handle ) )
+            return;
+        m_Requests[handle] = Assets::AsyncAssetLoader::Get().Request(
+             asset,
+             [this, handle]( const Assets::Asset<Assets::AssetBase>& loaded, const Assets::LoadOutcome outcome,
+                             const std::string& error )
+             {
+                 m_Requests.erase( handle );
+                 std::erase_if( m_Unread, [&]( const UnreadRow& row ) { return row.Handle == handle; } );
+                 if ( outcome != Assets::LoadOutcome::Loaded )
+                 {
+                     LOG_ERROR( "[AnimationLibrary] clip '{}' could not be read: {}. It is not offered.",
+                                loaded->GetMetadata().Filepath.string(), error );
+                     return;
+                 }
+                 const bool known = std::any_of( m_Clips.begin(), m_Clips.end(),
+                                                 [&]( const ClipRigIdentity& c ) { return c.Handle == handle; } );
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+                 auto* self = const_cast<AnimationLibrary*>( this );
+                 if ( !known )
+                     self->Register( std::static_pointer_cast<Assets::AnimationAsset>( loaded ) );
+             },
+             [this, handle] { m_Requests.erase( handle ); } );
+    }
+
+    void AnimationLibrary::RequestUnread( const std::string& clipName ) const
+    {
+        // Copied: a read that completes inside Request would edit m_Unread under the loop.
+        const std::vector<UnreadRow> unread = m_Unread;
+        for ( const UnreadRow& row : unread )
+        {
+            if ( !clipName.empty() && !row.ClipName.empty() && row.ClipName != clipName )
+                continue;
+            if ( m_Requests.contains( row.Handle ) )
+                continue;
+            auto asset = m_AssetManager->ProbeByHandle<Assets::AnimationAsset>( row.Handle );
+            if ( !asset )
+            {
+                if ( const auto located = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::Animation,
+                                                                          static_cast<uint64_t>( row.Handle ) ) )
+                    asset = m_AssetManager->CreateAsset<Assets::AnimationAsset>(
+                         Assets::AssetPriority::Low, located->Path, /*loadAfterCreate=*/false );
+            }
+            if ( !asset )
+            {
+                LOG_ERROR( "[AnimationLibrary] clip row '{}' (handle {}) is indexed but its asset could not be "
+                           "created; it is dropped from the library.",
+                           row.ClipName, static_cast<uint64_t>( row.Handle ) );
+                std::erase_if( m_Unread, [&]( const UnreadRow& r ) { return r.Handle == row.Handle; } );
+                continue;
+            }
+            RequestRead( asset );
+        }
+    }
+
+    size_t AnimationLibrary::IndexRegistryRows()
+    {
+        size_t indexed = 0;
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ) )
+        {
+            if ( row.DisplayName.empty() )
+                LOG_ERROR( "[AnimationLibrary] clip file '{}' states no Name; only a lookup naming no clip "
+                           "reads it.",
+                           row.Path.string() );
+            m_Unread.push_back( { row.Handle, row.DisplayName } );
+            ++indexed;
+        }
+        return indexed;
+    }
+
+    bool AnimationLibrary::HasPending( const std::string& clipName ) const
+    {
+        const auto named = [&]( const std::string& name )
+        { return clipName.empty() || name.empty() || name == clipName; };
+        return std::any_of( m_Unread.begin(), m_Unread.end(),
+                            [&]( const UnreadRow& row ) { return named( row.ClipName ); } ) ||
+               std::any_of( m_Clips.begin(), m_Clips.end(), [&]( const ClipRigIdentity& c )
+                            { return named( c.ClipName ) && m_Requests.contains( c.Handle ); } );
     }
 
     void AnimationLibrary::Register( const Assets::Asset<Assets::AnimationAsset>& animation )
@@ -75,6 +158,7 @@ namespace Desert::Animation
     std::vector<Assets::Asset<Assets::AnimationAsset>>
     AnimationLibrary::GetForSkeleton( const Skeleton& skeleton ) const
     {
+        RequestUnread( {} );
         const RigIdentity rig = IdentifyRig( skeleton );
 
         std::vector<Assets::Asset<Assets::AnimationAsset>> result;
@@ -89,6 +173,7 @@ namespace Desert::Animation
     Common::ResultStr<Assets::Asset<Assets::AnimationAsset>>
     AnimationLibrary::FindForSkeleton( const Skeleton& skeleton, const std::string& clipName ) const
     {
+        RequestUnread( clipName );
         const RigIdentity rig = IdentifyRig( skeleton );
 
         const auto index = FindClipForRig( m_Clips, rig, clipName );
@@ -109,6 +194,8 @@ namespace Desert::Animation
     void AnimationLibrary::Clear()
     {
         m_Clips.clear();
+        m_Unread.clear();
+        m_Requests.clear();
     }
 
     Common::ResultStr<LibraryPopulation> PopulateLibrary( Assets::AssetManager& assets, AnimationLibrary& library,
@@ -122,21 +209,7 @@ namespace Desert::Animation
 
         LibraryPopulation counts;
 
-        for ( const auto& [handle, animation] : assets.FindAllByType<Assets::AnimationAsset>() )
-        {
-            if ( !animation )
-                continue;
-
-            // The in-memory locomotion clips are in the manager too (RegisterClips creates them as assets
-            // so the pickers can offer them like any other), and they are registered below rather than
-            // here. Skipping them by "was there a file behind this?" is the same question the eviction
-            // path asks, and it is the only property that distinguishes them.
-            if ( !animation->IsReloadableFromFile() )
-                continue;
-
-            library.Register( animation );
-            ++counts.FromFiles;
-        }
+        counts.FromFiles = library.IndexRegistryRows();
 
         counts.Procedural = ProceduralCharacterAnimations::RegisterClips( assets, library );
 

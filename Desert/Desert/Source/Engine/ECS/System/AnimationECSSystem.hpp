@@ -181,7 +181,7 @@ namespace Desert::ECS
                                         anim.Animator->Play( clip, res.Current->Loop );
                                 }
                             }
-                            else
+                            else if ( !m_AnimationLibrary->HasPending( res.Current->Clip ) )
                             {
                                 ReportUnplayableState( clipRig, res.Current->Name, res.Current->Clip,
                                                        found.GetError() );
@@ -213,7 +213,7 @@ namespace Desert::ECS
                         else if ( current->AnimationName != clip.AnimationName )
                             anim.Animator->CrossFade( clip, 0.15f, anim.Loop );
                     }
-                    else
+                    else if ( !m_AnimationLibrary->HasPending( anim.CurrentClip ) )
                     {
                         ReportUnplayableState( clipRig, "AnimationComponent.CurrentClip", anim.CurrentClip,
                                                found.GetError() );
@@ -231,7 +231,7 @@ namespace Desert::ECS
                         anim.CurrentClip = clip.AnimationName;
                         anim.Animator->Play( clip, anim.Loop );
                     }
-                    else
+                    else if ( !m_AnimationLibrary->HasPending( {} ) )
                     {
                         // THE T-POSE'S OWN VOICE. This branch is what an entity does when it names no clip
                         // and the library offers none for its rig, and until now it did it in complete

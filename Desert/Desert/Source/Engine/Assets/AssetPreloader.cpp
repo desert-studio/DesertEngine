@@ -142,8 +142,10 @@ namespace Desert::Assets
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
         // the tail of this function cannot be moved above this statement, because its argument would not
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
-        const size_t animationFilesFound = ProcessAssetKind<AnimationAsset>(
-             Common::Content::ContentKind::Animation, m_AssetManager, AssetPriority::Low, &rows );
+        // Clips are NOT created here: the library indexes their registry rows and the loader reads a
+        // clip when an animator first names it (AL1-6).
+        const size_t animationFilesFound =
+             ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size();
 
         ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
                                          AssetPriority::Low, &rows );
