@@ -16,25 +16,26 @@ namespace Desert::Assets
         // THE CLIP'S IDENTITY IS ITS HEADER GUID (ANIM 4, T7e), adopted HERE for SkeletonAsset's reason: the
         // asset manager keys its handle lookup at creation. A file with no readable header keeps the
         // path-derived handle - the load refuses it by name, so none is ever READY under it.
-        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( m_Metadata.Filepath );
-        if ( !guid.IsNull() )
-            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
-                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+        if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
+             !identity.Guid.IsNull() )
+            AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
     Common::BoolResultStr AnimationAsset::LoadFromFile()
     {
+        // The old path of a moved asset reads the file where it now lives, through the registry - the same
+        // file the constructor took the identity from (ReadTextAssetIdentity).
+        const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
         // Through the VFS first, so a packaged build reads the clip out of its .dpak like every other asset,
         // then off the disk for a loose file the pak does not carry.
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
-                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
-                                      : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
              packed.has_value() )
             text = packed.value();
         else
         {
-            auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
+            auto raw = Common::Utils::FileSystem::ReadFileContent( file );
             if ( !raw )
                 return Common::MakeError( raw.GetError() );
             text = raw.ExtractValue();
@@ -42,8 +43,7 @@ namespace Desert::Assets
 
         const auto dataReflected = Serialization::ReadAnimationJson( text );
         if ( !dataReflected )
-            return Common::MakeFormattedError<bool>( "'{}': {}", m_Metadata.Filepath.string(),
-                                                     dataReflected.GetError() );
+            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), dataReflected.GetError() );
 
         // The channel list -> clip step is a pure function so its refusals can be tested without an asset
         // system; a clip that cannot bind is an error here, not an empty successful load. Nothing is written
@@ -52,7 +52,7 @@ namespace Desert::Assets
         auto built = Serialization::BuildClipFromAssetData( dataReflected.GetValue() );
         if ( !built )
         {
-            return Common::MakeFormattedError<bool>( "'{}': {}", m_Metadata.Filepath.string(), built.GetError() );
+            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), built.GetError() );
         }
 
         m_Clip = built.ExtractValue();

@@ -23,14 +23,9 @@ namespace Desert::Assets
         // THE TABLE'S IDENTITY IS ITS HEADER GUID (format 2), adopted HERE rather than in the load because the
         // asset manager keys its handle lookup at creation. A file with no readable header keeps the
         // path-derived handle - the load refuses a version-1 file by name, so none is ever READY under it.
-        // The OLD path of a moved table reads the header of the file the load will open (the moved table),
-        // not the redirector's: otherwise the old spelling would be a second asset with the redirector's
-        // identity, publishing the same rows under another handle.
-        const std::filesystem::path      file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
-        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( file );
-        if ( !guid.IsNull() )
-            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
-                                 Common::AssetHandle::StableKeyForPath( file ) );
+        if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
+             !identity.Guid.IsNull() )
+            AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
     std::string StringTableAsset::PublishId() const
