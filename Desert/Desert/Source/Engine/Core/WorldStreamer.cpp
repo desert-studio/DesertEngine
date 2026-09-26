@@ -5,7 +5,7 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -64,7 +64,7 @@ namespace Desert::Core
         auto alwaysLoaded = WorldCells::AssembleAlwaysLoaded( *world.Index, reader );
         if ( !alwaysLoaded )
             return Common::MakeError<Result>( alwaysLoaded.GetError() );
-        world.AlwaysLoadedJson = rfl::json::write( alwaysLoaded.GetValue() );
+        world.AlwaysLoadedJson = Common::Json::Write( alwaysLoaded.GetValue() );
         return Common::MakeSuccess( Result( std::move( world ) ) );
     }
 

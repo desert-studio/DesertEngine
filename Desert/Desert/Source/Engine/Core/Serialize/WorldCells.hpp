@@ -47,6 +47,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Json/Json.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <cstddef>
@@ -110,7 +111,7 @@ namespace Desert::Core::WorldCells
     {
         // The scene-wide part of the source, so a world is whole without the .desce it came from.
         std::string                 SceneName;
-        std::optional<rfl::Generic> Settings;
+        std::optional<Common::Json::Value> Settings;
         // The .desce's text header, verbatim: the scene's GUID and its SCNE/UNIT generations (scene v26).
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         WorldPartitionSerialized    WorldPartition;
@@ -125,6 +126,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexFile>      Files; // every cell file, in the order the units first name them
         std::vector<IndexReference> References;
     };
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 2 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -133,6 +135,10 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 2 )
+    // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
+    static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
+                   Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
 
     // ── Cooking ──────────────────────────────────────────────────────────────────────────────────
 

@@ -106,14 +106,11 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Common/Json/Document.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
-
-// A primitive's name on disk is reflect-cpp's spelling of the enumerator (the StaticMesh block is written
-// through it), so it is read back through the same function rather than through a hand-typed name list.
-#include <rflcpp/rfl/enums.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
@@ -415,6 +412,11 @@ namespace Desert::Core::Rules
         // entity position is not a stand-in: nothing reads it. Listed, and contributing no point.
         std::vector<std::size_t> UnplacedLandscapeTiles;
 
+        // EVERY COMPONENT VALUE THE PLANNER READ AND FOUND OF THE WRONG TYPE, each with its full path
+        // (`Entities[id=7].LandscapeTile.TileX`). The planner reads such a value as the loader does — the
+        // component's default is kept — and says so here instead of in silence; CookWorld logs the list.
+        Common::Json::Issues Issues;
+
         // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
         // the footprint furthest from the origin. At least 1 when there is a grid; 0 when there is none.
         int LevelCount = 0;
@@ -582,38 +584,52 @@ namespace Desert::Core::Rules
 
     namespace Detail
     {
-        // An id as the file spells it inside a component block: a DECIMAL STRING, because a 64-bit id
-        // does not survive JSON's double (`AuthoredComponentIO.hpp:150-152` writes it, and that is the
-        // same reason `SceneSettings::SplashSprite` lost handles above 2^53 before it was fixed).
-        [[nodiscard]] inline bool ParseIdString( const std::string& text, Common::UUID& out )
+        // WHERE A RECORD'S COMPONENT PAYLOAD LIVES, as the loader names it: `Entities[id=7].<Component>`. A
+        // record without an id (the planner still places it) is named by the literal "none".
+        [[nodiscard]] inline Common::Json::Path ComponentPath( const Assets::EntityData& record,
+                                                               std::string_view          key )
         {
-            if ( text.empty() || text.size() > 20 )
-                return false;
-            std::uint64_t value = 0;
-            for ( const char character : text )
-            {
-                if ( character < '0' || character > '9' )
-                    return false;
-                const std::uint64_t digit = static_cast<std::uint64_t>( character - '0' );
-                if ( value > ( ~std::uint64_t( 0 ) - digit ) / 10 )
-                    return false;
-                value = value * 10 + digit;
-            }
-            out = Common::UUID( value );
-            return true;
+            const std::string id = record.id.has_value() ? record.id->ToString() : std::string( "none" );
+            return Common::Json::Path{}.Key( "Entities" ).Record( id ).Key( key );
         }
 
-        // The id a named field of a component block holds, if it holds one.
-        [[nodiscard]] inline bool ReadReference( const rfl::Generic::Object& block, std::string_view field,
-                                                 Common::UUID& out )
+        // A component payload of the record, of any kind, read in place (no copy of the block).
+        [[nodiscard]] inline std::optional<Common::Json::Node> PayloadOf( const Assets::EntityData& record,
+                                                                          std::string_view          key )
         {
-            const auto value = block.get( std::string( field ) );
+            for ( const auto& [name, payload] : record.Components )
+                if ( name == key )
+                    return Common::Json::Node( payload, ComponentPath( record, key ) );
+            return std::nullopt;
+        }
+
+        // A component block of the record, if it has one. A payload that is not an object is an Issue: the
+        // loader could not read it either.
+        [[nodiscard]] inline std::optional<Common::Json::Node>
+        BlockOf( const Assets::EntityData& record, std::string_view key, Common::Json::Issues& issues )
+        {
+            auto payload = PayloadOf( record, key );
+            if ( !payload.has_value() )
+                return std::nullopt;
+            if ( payload->GetKind() != Common::Json::Kind::Object )
+            {
+                payload->Report( issues, "object" );
+                return std::nullopt;
+            }
+            return payload;
+        }
+
+        // The id a named field of a component block holds (a DECIMAL STRING, because a 64-bit id does not
+        // survive JSON's double). False when the field is absent; a value that is not an id is an Issue.
+        [[nodiscard]] inline bool ReadReference( const Common::Json::Node& block, std::string_view field,
+                                                 Common::UUID& out, Common::Json::Issues& issues )
+        {
+            const auto value = block.Find( field );
             if ( !value.has_value() )
                 return false;
-            const auto text = value.value().to_string();
-            if ( !text.has_value() )
-                return false;
-            return ParseIdString( text.value(), out );
+            const std::size_t before = issues.size();
+            value->ReadValue( out, issues );
+            return issues.size() == before;
         }
 
         // ONE RECORD'S LOCAL MATRIX, and it must stay identical to ECS::TransformComponent::
@@ -635,24 +651,6 @@ namespace Desert::Core::Rules
                    glm::scale( glm::mat4( 1.0f ), scale );
         }
 
-        // A number inside a component payload. JSON does not keep "0" and "0.0" apart and neither does
-        // rfl::Generic: an integral literal reads as an integer and `to_double` refuses it, so both are
-        // asked for. Not asking for both would silently drop every instance on an integral coordinate.
-        [[nodiscard]] inline bool ReadNumber( const rfl::Generic& value, float& out )
-        {
-            if ( const auto real = value.to_double(); real.has_value() )
-            {
-                out = static_cast<float>( real.value() );
-                return true;
-            }
-            if ( const auto whole = value.to_int64(); whole.has_value() )
-            {
-                out = static_cast<float>( whole.value() );
-                return true;
-            }
-            return false;
-        }
-
         // THE WORLD-SPACE GROUND POSITION OF EVERY INSTANCE AN InstancedStaticMesh RECORD DRAWS.
         //
         // WORLD and not local, and the line that decides it is not the member's comment but the submit in
@@ -660,96 +658,100 @@ namespace Desert::Core::Rules
         // entity's own transform. Each matrix is written by ComponentRegistry as the 16 floats of a
         // column-major glm::mat4 (a memcpy), so the translation is elements 12, 13 and 14.
         //
-        // A matrix that is not 16 numbers is skipped rather than guessed at; the loader would reject the
-        // same block, so it cannot be drawn either.
-        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec2>& out )
+        // A matrix that is not 16 numbers is an Issue and is skipped rather than guessed at; the loader
+        // would reject the same block, so it cannot be drawn either.
+        inline void AppendInstancePoints( const Assets::EntityData& record, std::vector<glm::vec2>& out,
+                                          Common::Json::Issues& issues )
         {
-            const auto payload = record.Components.get( std::string( kInstancePointsComponent ) );
-            if ( !payload.has_value() )
-                return;
-            const auto block = payload.value().to_object();
+            const auto block = BlockOf( record, kInstancePointsComponent, issues );
             if ( !block.has_value() )
                 return;
-            const auto field = block.value().get( std::string( kInstancePointsField ) );
+            const auto field = block->Find( kInstancePointsField );
             if ( !field.has_value() )
                 return;
-            const auto matrices = field.value().to_array();
-            if ( !matrices.has_value() )
-                return;
-
-            for ( const rfl::Generic& matrix : matrices.value() )
+            if ( field->GetKind() != Common::Json::Kind::Array )
             {
-                const auto elements = matrix.to_array();
-                if ( !elements.has_value() || elements.value().size() != 16 )
-                    continue;
-                float x = 0.0f;
-                float z = 0.0f;
-                if ( ReadNumber( elements.value()[12], x ) && ReadNumber( elements.value()[14], z ) )
-                    out.emplace_back( x, z );
+                field->Report( issues, "array of matrices" );
+                return;
             }
+
+            field->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& matrix )
+                 {
+                     std::size_t count = 0;
+                     if ( matrix.GetKind() == Common::Json::Kind::Array )
+                         matrix.ForEachElement( [&]( std::size_t, const Common::Json::Node& ) { ++count; } );
+                     if ( count != 16 )
+                     {
+                         matrix.Report( issues, "array of 16 numbers" );
+                         return;
+                     }
+                     const std::size_t before = issues.size();
+                     float             x      = 0.0f;
+                     float             z      = 0.0f;
+                     matrix.ForEachElement(
+                          [&]( std::size_t i, const Common::Json::Node& element )
+                          {
+                              if ( i == 12 )
+                                  element.ReadValue( x, issues );
+                              else if ( i == 14 )
+                                  element.ReadValue( z, issues );
+                          } );
+                     if ( issues.size() == before )
+                         out.emplace_back( x, z );
+                 } );
         }
 
         // A scalar field of a component block as a number: a bool reads as 1/0, an enum is written as its
-        // integer. False when the field is absent or is not a scalar.
-        [[nodiscard]] inline bool ReadScalar( const rfl::Generic::Object& block, std::string_view field,
-                                              double& out )
+        // integer. False when the field is absent; a value that is neither is an Issue.
+        [[nodiscard]] inline bool ReadScalar( const Common::Json::Node& block, std::string_view field, double& out,
+                                              Common::Json::Issues& issues )
         {
-            const auto value = block.get( std::string( field ) );
+            const auto value = block.Find( field );
             if ( !value.has_value() )
                 return false;
-            if ( const auto flag = value.value().to_bool(); flag.has_value() )
+            if ( const auto flag = value->AsBool() )
             {
-                out = flag.value() ? 1.0 : 0.0;
+                out = flag.GetValue() ? 1.0 : 0.0;
                 return true;
             }
-            float number = 0.0f;
-            if ( !ReadNumber( value.value(), number ) )
-                return false;
-            out = static_cast<double>( number );
-            return true;
+            if ( const auto number = value->AsNumber() )
+            {
+                out = number.GetValue();
+                return true;
+            }
+            value->Report( issues, "bool or number" );
+            return false;
         }
 
         // Whether this record's own components make it always-loaded, and why. Author before Component,
         // because the author's marker is the more specific statement.
-        [[nodiscard]] inline AlwaysLoadedReason GlobalReasonOf( const Assets::EntityData& record )
+        [[nodiscard]] inline AlwaysLoadedReason GlobalReasonOf( const Assets::EntityData& record,
+                                                                Common::Json::Issues&     issues )
         {
-            if ( record.Components.get( std::string( kAlwaysLoadedComponent ) ).has_value() )
+            if ( PayloadOf( record, kAlwaysLoadedComponent ).has_value() )
                 return AlwaysLoadedReason::Author;
 
             for ( const ComponentLoadingRow& row : kComponentLoading )
             {
                 if ( row.Loading == ComponentLoading::Spatial )
                     continue;
-                const auto payload = record.Components.get( std::string( row.ComponentKey ) );
-                if ( !payload.has_value() )
+                if ( !PayloadOf( record, row.ComponentKey ).has_value() )
                     continue;
                 if ( row.Loading == ComponentLoading::Global )
                     return AlwaysLoadedReason::Component;
 
                 bool global = row.AbsentIsGlobal;
-                if ( const auto block = payload.value().to_object(); block.has_value() )
+                if ( const auto block = BlockOf( record, row.ComponentKey, issues ); block.has_value() )
                 {
                     double value = 0.0;
-                    if ( ReadScalar( block.value(), row.Field, value ) )
+                    if ( ReadScalar( *block, row.Field, value, issues ) )
                         global = value != row.SpatialWhen;
                 }
                 if ( global )
                     return AlwaysLoadedReason::Component;
             }
             return AlwaysLoadedReason::None;
-        }
-
-        // A component block of the record, if it has one and it is an object.
-        [[nodiscard]] inline std::optional<rfl::Generic::Object> BlockOf( const Assets::EntityData& record,
-                                                                          std::string_view          key )
-        {
-            const auto payload = record.Components.get( std::string( key ) );
-            if ( !payload.has_value() )
-                return std::nullopt;
-            const auto block = payload.value().to_object();
-            if ( !block.has_value() )
-                return std::nullopt;
-            return block.value();
         }
 
         // Appends the XZ of a local-space box's eight corners, through @p world.
@@ -774,38 +776,47 @@ namespace Desert::Core::Rules
             AppendBoxCorners( world * glm::translate( glm::mat4( 1.0f ), centre ), half, out );
         }
 
-        // The GUID a mesh block names, written as GUID text (SCNE 28). Absent or unreadable text is the null
-        // GUID: the block names no asset the bounds source could answer for.
-        [[nodiscard]] inline Common::Content::AssetGuid ReadGuid( const rfl::Generic::Object& block,
-                                                                  std::string_view            field )
+        // The GUID a mesh block names, written as GUID text (SCNE 28). Absent or empty text is the null GUID:
+        // the block names no asset the bounds source could answer for. A value that is not GUID text is an
+        // Issue, and is the null GUID too.
+        [[nodiscard]] inline Common::Content::AssetGuid
+        ReadGuid( const Common::Json::Node& block, std::string_view field, Common::Json::Issues& issues )
         {
-            const auto value = block.get( std::string( field ) );
-            if ( !value.has_value() )
+            std::string text;
+            block.ReadInto( field, text, issues );
+            if ( text.empty() )
                 return {};
-            const auto text = value.value().to_string();
-            if ( !text.has_value() )
+            const auto guid = Common::Content::AssetGuidFromText( text );
+            if ( !guid )
+            {
+                if ( const auto value = block.Find( field ) )
+                    value->Report( issues, "GUID text" );
                 return {};
-            const auto guid = Common::Content::AssetGuidFromText( text.value() );
-            return guid ? guid.GetValue() : Common::Content::AssetGuid{};
+            }
+            return guid.GetValue();
         }
 
         // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
         // the top of this file. Returns false when the record contributed its position and nothing more.
         inline bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out )
+                                     const AssetBoundsSource& bounds, std::vector<glm::vec2>& out,
+                                     Common::Json::Issues& issues )
         {
             out.emplace_back( world[3].x, world[3].z );
             const std::size_t before = out.size();
 
-            if ( const auto mesh = BlockOf( record, kPrimitiveComponent ); mesh.has_value() )
+            if ( const auto mesh = BlockOf( record, kPrimitiveComponent, issues ); mesh.has_value() )
             {
-                const auto primitive = mesh.value().get( std::string( kPrimitiveField ) );
-                const auto shape     = rfl::string_to_enum<Geometry::PrimitiveType>(
-                     primitive.has_value() ? primitive.value().to_string().value_or( "" ) : std::string() );
-                if ( shape.has_value() )
+                if ( const auto primitive = mesh->Find( kPrimitiveField ) )
                 {
-                    if ( const auto box = Geometry::PrimitiveBounds( shape.value() ); box.has_value() )
-                        AppendBoundsCorners( world, box.value(), out );
+                    const std::size_t       issuesBefore = issues.size();
+                    Geometry::PrimitiveType shape        = {};
+                    primitive->ReadValue( shape, issues );
+                    if ( issues.size() == issuesBefore )
+                    {
+                        if ( const auto box = Geometry::PrimitiveBounds( shape ); box.has_value() )
+                            AppendBoundsCorners( world, box.value(), out );
+                    }
                 }
             }
 
@@ -813,12 +824,12 @@ namespace Desert::Core::Rules
             {
                 for ( const std::string_view key : kMeshAssetComponents )
                 {
-                    const auto mesh = BlockOf( record, key );
+                    const auto mesh = BlockOf( record, key, issues );
                     if ( !mesh.has_value() )
                         continue;
-                    const Common::Content::AssetGuid guid   = ReadGuid( mesh.value(), kMeshHandleField );
-                    const auto          path   = mesh.value().get( std::string( kMeshPathField ) );
-                    const std::string   text   = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                    const Common::Content::AssetGuid guid = ReadGuid( *mesh, kMeshHandleField, issues );
+                    std::string                      text;
+                    mesh->ReadInto( kMeshPathField, text, issues );
                     if ( guid.IsNull() && text.empty() )
                         continue;
                     if ( const auto box = bounds( guid, text ); box.has_value() )
@@ -826,67 +837,50 @@ namespace Desert::Core::Rules
                 }
             }
 
-            AppendInstancePoints( record, out );
+            AppendInstancePoints( record, out, issues );
             return out.size() > before;
-        }
-
-        // A whole number inside a component payload; absent leaves @p out alone, as the loader does.
-        template <class T>
-        inline bool ReadWhole( const rfl::Generic::Object& block, std::string_view field, T& out )
-        {
-            const auto value = block.get( std::string( field ) );
-            if ( !value.has_value() )
-                return true;
-            const auto whole = value.value().to_int64();
-            if ( !whole.has_value() )
-                return false;
-            out = static_cast<T>( whole.value() );
-            return true;
         }
 
         // THE GROUND RECTANGLE OF A LANDSCAPE TILE RECORD, or nullopt when it has none. The root's fields are
         // read with the loader's rule — an absent field is the component's default, which is LandscapeRoot's
-        // default because both are spelled from the same constants — and the root is refused by the same
-        // ValidateLandscapeRoot the loader applies, so the partition never places a tile the loader refuses.
+        // default because both are spelled from the same constants, and a field of the wrong type is an Issue
+        // that keeps that default — and the root is refused by the same ValidateLandscapeRoot the loader
+        // applies, so the partition never places a tile the loader refuses.
         //
         // @p world holds the composed world matrices: the root's translation is the frame's origin, as
         // Entity::GetWorldTransform is for the loaded root.
         inline std::optional<World::Landscape::LandscapeTileRect>
         LandscapeTileRectOf( const Assets::EntityData& tile, const std::vector<glm::mat4>& world,
                              std::span<const Assets::EntityData>                  records,
-                             const std::unordered_map<Common::UUID, std::size_t>& byId )
+                             const std::unordered_map<Common::UUID, std::size_t>& byId,
+                             Common::Json::Issues&                                issues )
         {
-            const auto tileBlock = BlockOf( tile, kLandscapeTileComponent );
+            const auto tileBlock = BlockOf( tile, kLandscapeTileComponent, issues );
             if ( !tileBlock.has_value() )
                 return std::nullopt;
 
             Common::UUID rootId;
-            if ( !ReadReference( *tileBlock, "Landscape", rootId ) || rootId.IsNull() )
+            if ( !ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
                 return std::nullopt;
             const auto found = byId.find( rootId );
             if ( found == byId.end() )
                 return std::nullopt;
-            const auto rootBlock = BlockOf( records[found->second], kLandscapeRootComponent );
+            const auto rootBlock = BlockOf( records[found->second], kLandscapeRootComponent, issues );
             if ( !rootBlock.has_value() )
                 return std::nullopt;
 
             World::Landscape::LandscapeRoot root;
             root.Origin = glm::vec3( world[found->second][3] );
-            if ( !ReadWhole( *rootBlock, "QuadsPerTile", root.QuadsPerTile ) )
-                return std::nullopt;
-            if ( const auto spacing = rootBlock->get( "SpacingCm" ); spacing.has_value() )
-                if ( !ReadNumber( spacing.value(), root.SpacingCm ) )
-                    return std::nullopt;
-            if ( const auto zScale = rootBlock->get( "ZScale" ); zScale.has_value() )
-                if ( !ReadNumber( zScale.value(), root.ZScale ) )
-                    return std::nullopt;
+            rootBlock->ReadInto( "QuadsPerTile", root.QuadsPerTile, issues );
+            rootBlock->ReadInto( "SpacingCm", root.SpacingCm, issues );
+            rootBlock->ReadInto( "ZScale", root.ZScale, issues );
             if ( !World::Landscape::ValidateLandscapeRoot( root ) )
                 return std::nullopt;
 
             std::int32_t tileX = 0;
             std::int32_t tileZ = 0;
-            if ( !ReadWhole( *tileBlock, "TileX", tileX ) || !ReadWhole( *tileBlock, "TileZ", tileZ ) )
-                return std::nullopt;
+            tileBlock->ReadInto( "TileX", tileX, issues );
+            tileBlock->ReadInto( "TileZ", tileZ, issues );
             return World::Landscape::LandscapeTileBounds( root, tileX, tileZ );
         }
     } // namespace Detail
@@ -925,34 +919,33 @@ namespace Desert::Core::Rules
         {
             for ( const auto& [componentKey, payload] : records[record].Components )
             {
-                const auto block = payload.to_object();
-                if ( !block.has_value() )
-                    continue;
+                // A census by SHAPE, not a read of a field: a value that is not an id is simply not a
+                // reference, so nothing here is an Issue.
+                Common::Json::Root( payload ).ForEachMember(
+                     [&]( std::string_view field, const Common::Json::Node& value )
+                     {
+                         if ( value.GetKind() != Common::Json::Kind::String )
+                             return;
+                         const auto id = value.AsUuid();
+                         if ( !id || id.GetValue().IsNull() )
+                             return;
+                         const Common::UUID named = id.GetValue();
+                         if ( byId.find( named ) == byId.end() )
+                             return;
 
-                for ( const auto& [field, value] : block.value() )
-                {
-                    const auto text = value.to_string();
-                    if ( !text.has_value() )
-                        continue;
-
-                    Common::UUID named;
-                    if ( !Detail::ParseIdString( text.value(), named ) || named.IsNull() )
-                        continue;
-                    if ( byId.find( named ) == byId.end() )
-                        continue;
-
-                    bool registered = false;
-                    for ( const EntityReferenceRow& row : kEntityReferences )
-                    {
-                        if ( componentKey == row.ComponentKey && field == row.Field )
-                        {
-                            registered = true;
-                            break;
-                        }
-                    }
-                    if ( !registered )
-                        found.push_back( UnregisteredReference{ record, componentKey, field, named } );
-                }
+                         bool registered = false;
+                         for ( const EntityReferenceRow& row : kEntityReferences )
+                         {
+                             if ( componentKey == row.ComponentKey && field == row.Field )
+                             {
+                                 registered = true;
+                                 break;
+                             }
+                         }
+                         if ( !registered )
+                             found.push_back(
+                                  UnregisteredReference{ record, componentKey, std::string( field ), named } );
+                     } );
             }
         }
         return found;
@@ -1054,9 +1047,9 @@ namespace Desert::Core::Rules
         std::vector<std::optional<World::Landscape::LandscapeTileRect>> tileRect( records.size() );
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( !records[record].Components.get( std::string( kLandscapeTileComponent ) ).has_value() )
+            if ( !Detail::PayloadOf( records[record], kLandscapeTileComponent ).has_value() )
                 continue;
-            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId );
+            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId, plan.Issues );
             if ( !tileRect[record].has_value() )
                 plan.UnplacedLandscapeTiles.push_back( record );
         }
@@ -1084,15 +1077,12 @@ namespace Desert::Core::Rules
                 if ( row.Kind != ReferenceKind::Containment )
                     continue;
 
-                const auto payload = data.Components.get( std::string( row.ComponentKey ) );
-                if ( !payload.has_value() )
-                    continue;
-                const auto block = payload.value().to_object();
+                const auto block = Detail::BlockOf( data, row.ComponentKey, plan.Issues );
                 if ( !block.has_value() )
                     continue;
 
                 Common::UUID target;
-                if ( !Detail::ReadReference( block.value(), row.Field, target ) || target.IsNull() )
+                if ( !Detail::ReadReference( *block, row.Field, target, plan.Issues ) || target.IsNull() )
                     continue;
 
                 const auto found = byId.find( target );
@@ -1180,7 +1170,7 @@ namespace Desert::Core::Rules
         {
             for ( const std::size_t member : group.Members )
             {
-                const AlwaysLoadedReason reason = Detail::GlobalReasonOf( records[member] );
+                const AlwaysLoadedReason reason = Detail::GlobalReasonOf( records[member], plan.Issues );
                 // Author outranks Component, and the first member in file order names it.
                 if ( reason != AlwaysLoadedReason::None &&
                      ( group.Reason == AlwaysLoadedReason::None ||
@@ -1202,7 +1192,7 @@ namespace Desert::Core::Rules
                     points.emplace_back( rect->MinX, rect->MaxZ );
                     points.emplace_back( rect->MaxX, rect->MaxZ );
                 }
-                else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
+                else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points, plan.Issues ) )
                     ++plan.PointOnlyRecords;
                 for ( const glm::vec2& point : points )
                 {

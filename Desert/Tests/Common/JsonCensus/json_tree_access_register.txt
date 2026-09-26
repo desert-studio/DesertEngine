@@ -4,8 +4,6 @@
 Desert/Desert/Source/Engine/Assets/Prefab/PrefabOverrides.cpp | JS1c-S4: prefab overrides walk component blocks through Node
 Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp | JS1c-S5: the foreign-key merge walks Nodes
 Desert/Desert/Source/Engine/Core/Serialize/SceneSerializer.cpp | JS1c-S5: the scene document is parsed once and walked through Node
-Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c-S6: cell payload keys collected through Node
-Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c-S6: BlockOf returns a Node, Read* become Node getters
 Desert/Tests/Editor/ControlProtocol/control_protocol_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Editor/PreferenceOwnership/preference_ownership_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/AssetHandleInverse/asset_handle_inverse_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
