@@ -584,11 +584,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   Both together (B2 after B3): 456 / 354 / 147 / 42 = 999.
     //   JS1c S1 +1 Raw: Json::Node::m_Value, the call-scoped view of a document (row in the register):
     //   457 / 354 / 147 / 42 = 1000.
-    EXPECT_EQ( CountOf( Form::Raw ), 457 );
+    //   B7fix +5 Raw: ReflectionSerializer walks nested structs on an explicit stack (misc-no-recursion);
+    //   SerializeReflected's Frame::{Type, Base, Field} and DeserializeReflected's Frame::{Type, Base},
+    //   call-scoped (rows in the register): 462 / 354 / 147 / 42 = 1005.
+    EXPECT_EQ( CountOf( Form::Raw ), 462 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
     EXPECT_EQ( CountOf( Form::Unique ), 147 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 1000 )
+    EXPECT_EQ( (int)Members().size(), 1005 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

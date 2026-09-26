@@ -82,7 +82,7 @@ namespace DocumentTest
         std::int64_t               I0   = std::numeric_limits<std::int64_t>::min();
         std::int64_t               I1   = std::numeric_limits<std::int64_t>::max();
         std::uint32_t              U0   = std::numeric_limits<std::uint32_t>::max();
-        std::uint64_t              U1   = std::uint64_t( std::numeric_limits<std::int64_t>::max() );
+        std::uint64_t              U1   = static_cast<std::uint64_t>( std::numeric_limits<std::int64_t>::max() );
         int                        N    = -42;
         bool                       Flag = false;
         std::string                Text = "quote\" slash\\ tab\t unicode \xC3\xA9 \xE2\x82\xAC";
@@ -115,6 +115,14 @@ namespace
     {
         EXPECT_TRUE( result ) << result.GetError();
         return result ? result.GetValue() : T{};
+    }
+
+    // The member the test expects to be there (a missing one fails the test and reads as a null view).
+    Json::Node Member( const Json::Node& node, std::string_view key )
+    {
+        const auto member = node.Find( key );
+        EXPECT_TRUE( member ) << node.Where().ToString() << " has no member '" << key << "'";
+        return member ? *member : Json::Node();
     }
 
     Json::Path LightPath()
@@ -185,11 +193,11 @@ TEST( JsonDocument, FindGetAndIterationKeepFileOrderAndPaths )
     const auto root = Json::Root( doc, Json::Path{}.Key( "Entities" ).Record( "7" ) );
 
     EXPECT_FALSE( root.Find( "absent" ) );
-    EXPECT_FALSE( root.Find( "z" )->Find( "inside-a-number" ) );
+    EXPECT_FALSE( Member( root, "z" ).Find( "inside-a-number" ) );
     const auto missing = root.Get( "Light" );
     ASSERT_FALSE( missing );
     EXPECT_EQ( missing.GetError(), "Entities[id=7].Light: missing — the format requires it" );
-    const auto notObject = root.Find( "z" )->Get( "k" );
+    const auto notObject = Member( root, "z" ).Get( "k" );
     EXPECT_EQ( notObject.GetError(), "Entities[id=7].z: expected object, found integer 1" );
 
     std::vector<std::string> names;
@@ -203,7 +211,7 @@ TEST( JsonDocument, FindGetAndIterationKeepFileOrderAndPaths )
          .ForEachElement( [&]( std::size_t i, const Json::Node& element )
                           { elements.push_back( std::to_string( i ) + ":" + element.Where().ToString() ); } );
     EXPECT_EQ( elements, ( std::vector<std::string>{ "0:Entities[id=7].a.q[0]", "1:Entities[id=7].a.q[1]" } ) );
-    EXPECT_EQ( &root.Find( "m" )->Raw(), &root.Find( "m" )->Raw() )
+    EXPECT_EQ( &Member( root, "m" ).Raw(), &Member( root, "m" ).Raw() )
          << "a Node is a view: it must not copy the value it looks at";
 }
 
@@ -279,7 +287,7 @@ TEST( JsonDocument, RightTypedValuesAreReadAndAbsentKeysAreNotIssues )
 
     // ReadInto on something that is not an object reports the object itself.
     Json::Issues onNumber;
-    Json::Root( doc, LightPath() ).Find( "Count" )->ReadInto( "x", absent, onNumber );
+    Member( Json::Root( doc, LightPath() ), "Count" ).ReadInto( "x", absent, onNumber );
     ASSERT_EQ( onNumber.size(), 1u );
     EXPECT_EQ( Json::Describe( onNumber[0] ), "Entities[id=7].Light.Count: expected object, found real 9.0" );
 }
@@ -315,12 +323,12 @@ TEST( JsonDocument, ABlockIsReadWholeOrDroppedWhole )
     const auto doc  = MustParse( R"({"Good":{"A":5,"Future":true},"Bad":{"A":6,"B":7},"Arr":[1,2]})" );
     const auto root = Json::Root( doc, LightPath() );
 
-    const auto good = root.Find( "Good" )->AsBlock<Block>();
+    const auto good = Member( root, "Good" ).AsBlock<Block>();
     ASSERT_TRUE( good ) << good.GetError();
     EXPECT_EQ( good.GetValue().A, 5 );
     EXPECT_EQ( good.GetValue().B, "b" ) << "a missing member keeps its in-struct default";
 
-    const auto bad = root.Find( "Bad" )->AsBlock<Block>();
+    const auto bad = Member( root, "Bad" ).AsBlock<Block>();
     ASSERT_FALSE( bad );
     EXPECT_NE( bad.GetError().find( "Entities[id=7].Light.Bad: field 'B'" ), std::string::npos ) << bad.GetError();
 
@@ -353,30 +361,30 @@ TEST( JsonDocument, AsIsStrictUnlessTheTypeSaysOpen )
                     R"("Shared":{"Old":2}})" );
     const auto root = Json::Root( doc, Json::Path{}.Key( "Settings" ) );
 
-    const auto unknown = root.Find( "Unknown" )->As<Strict>();
+    const auto unknown = Member( root, "Unknown" ).As<Strict>();
     ASSERT_FALSE( unknown );
     EXPECT_EQ( unknown.GetError(),
                "Settings.Unknown: field 'Extra': unknown key — the format does not declare it" );
 
-    const auto missing = root.Find( "Missing" )->As<Strict>();
+    const auto missing = Member( root, "Missing" ).As<Strict>();
     ASSERT_FALSE( missing );
     EXPECT_NE( missing.GetError().find( "field 'Required': missing" ), std::string::npos ) << missing.GetError();
 
-    const auto carried = root.Find( "Carry" )->As<Carrier>();
+    const auto carried = Member( root, "Carry" ).As<Carrier>();
     ASSERT_TRUE( carried ) << carried.GetError();
     EXPECT_EQ( carried.GetValue().Known, 3 );
     EXPECT_EQ( Json::Write( carried.GetValue() ), R"({"Known":3,"Extra":4})" )
          << "the unknown key is carried back";
 
-    const auto shared = root.Find( "Shared" )->As<Shared>();
+    const auto shared = Member( root, "Shared" ).As<Shared>();
     ASSERT_TRUE( shared ) << shared.GetError();
     EXPECT_EQ( shared.GetValue().Added, 5 );
 }
 
 TEST( JsonDocument, ObjectBuilderKeepsInsertionOrderAndSpellsEachKind )
 {
-    Json::Object inner = Json::ObjectBuilder().Set( "k", 1 ).Build();
-    Json::Object built = Json::ObjectBuilder()
+    const Json::Object inner = Json::ObjectBuilder().Set( "k", 1 ).Build();
+    Json::Object       built = Json::ObjectBuilder()
                               .Set( "z", true )
                               .Set( "a", 2 )
                               .Set( "r", 0.5f )

@@ -184,7 +184,8 @@ TEST( SceneAssetGuidRoundTrip, AWellFormedReferenceReadsWithNoIssue )
     ASSERT_TRUE( parsed );
     Common::Json::Issues issues;
     const auto           ref = Desert::Assets::ReadAssetGuidRef( Common::Json::Root( parsed.GetValue() ), issues );
-    ASSERT_TRUE( ref.has_value() );
+    if ( !ref.has_value() )
+        FAIL() << "a well-formed reference must read";
     EXPECT_EQ( ref->Path, "Scenes/A.desce" );
     EXPECT_TRUE( issues.empty() );
 }

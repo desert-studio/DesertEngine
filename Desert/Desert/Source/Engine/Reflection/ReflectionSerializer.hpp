@@ -73,7 +73,7 @@ namespace Desert::Reflection
         Common::Json::Value::Array array;
         for ( const auto& element : *static_cast<const Vector*>( field ) )
             array.push_back( Common::Json::Detail::ToValue( static_cast<Stored>( element ) ) );
-        return Common::Json::Value( std::move( array ) );
+        return { std::move( array ) };
     }
 
     // Reads the array back under the wrong-type rule, and a vector is ONE field: any element of the wrong

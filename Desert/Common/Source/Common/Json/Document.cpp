@@ -5,6 +5,7 @@
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <limits>
 #include <string>
 
 namespace Common::Json
@@ -179,7 +180,7 @@ namespace Common::Json
     ResultStr<bool> Node::AsBool() const
     {
         if ( const auto* v = std::get_if<bool>( &m_Value->variant() ) )
-            return MakeSuccess( bool( *v ) );
+            return MakeSuccess( *v );
         return MakeError<bool>( m_Path.ToString() + ": expected bool, found " +
                                 Detail::DescribeFound( *m_Value ) );
     }
@@ -187,7 +188,7 @@ namespace Common::Json
     ResultStr<double> Node::AsNumber() const
     {
         if ( const auto* v = std::get_if<double>( &m_Value->variant() ) )
-            return MakeSuccess( double( *v ) );
+            return MakeSuccess( *v );
         if ( const auto* v = std::get_if<std::int64_t>( &m_Value->variant() ) )
             return MakeSuccess( static_cast<double>( *v ) );
         return MakeError<double>( m_Path.ToString() + ": expected number, found " +
@@ -197,7 +198,7 @@ namespace Common::Json
     ResultStr<std::int64_t> Node::AsInteger() const
     {
         if ( const auto* v = std::get_if<std::int64_t>( &m_Value->variant() ) )
-            return MakeSuccess( std::int64_t( *v ) );
+            return MakeSuccess( *v );
         if ( const auto* d = std::get_if<double>( &m_Value->variant() ) )
         {
             constexpr double kUpperBound = 9223372036854775808.0; // 2^63, the first value int64 lacks
@@ -232,7 +233,7 @@ namespace Common::Json
                 break;
             }
             const auto digit = static_cast<std::uint64_t>( character - '0' );
-            if ( value > ( ~std::uint64_t( 0 ) - digit ) / 10 )
+            if ( value > ( std::numeric_limits<std::uint64_t>::max() - digit ) / 10 )
             {
                 ok = false;
                 break;
@@ -247,8 +248,11 @@ namespace Common::Json
 
     ResultStr<Value> Parse( std::string_view json )
     {
+        // yyjson_read_opts takes a mutable buffer (it writes into it only in insitu mode, which is off here);
+        // a private copy gives it one without casting const away from the caller's text.
+        std::string     buffer( json );
         yyjson_read_err error{};
-        yyjson_doc* doc = yyjson_read_opts( const_cast<char*>( json.data() ), json.size(), 0, nullptr, &error );
+        yyjson_doc*     doc = yyjson_read_opts( buffer.data(), buffer.size(), 0, nullptr, &error );
         if ( doc == nullptr )
             return MakeError<Value>( "document: not JSON at byte " + std::to_string( error.pos ) + ": " +
                                      ( error.msg != nullptr ? error.msg : "unknown error" ) );

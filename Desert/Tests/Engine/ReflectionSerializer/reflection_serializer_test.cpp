@@ -179,7 +179,7 @@ TEST( ReflectionSerializer, MissingKeysKeepDefaults )
     dst.Name  = "unchanged";
     dst.Count = 777;
 
-    Common::Json::Object partial; // no keys at all
+    const Common::Json::Object partial; // no keys at all
     EXPECT_TRUE( Read( type, &dst, partial ).empty() );
 
     EXPECT_FLOAT_EQ( dst.Scale, 12.5f );

@@ -52,6 +52,7 @@
 
 #include <Engine/ECS/Components.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <format>
 #include <optional>
@@ -295,7 +296,7 @@ namespace Desert::Core::Serialize
                  else if ( layer.Name.size() > World::Landscape::kLandscapeMaxWeightLayerName )
                      refusal = std::format( "layer '{}' is {} bytes long, the limit is {}", layer.Name,
                                             layer.Name.size(), World::Landscape::kLandscapeMaxWeightLayerName );
-                 else if ( !( layer.Hardness >= 0.0f && layer.Hardness <= 1.0f ) )
+                 else if ( std::isnan( layer.Hardness ) || layer.Hardness < 0.0f || layer.Hardness > 1.0f )
                      refusal =
                           std::format( "layer '{}' has Hardness {}, outside 0..1", layer.Name, layer.Hardness );
                  else
@@ -306,7 +307,7 @@ namespace Desert::Core::Serialize
                      read.push_back( std::move( layer ) );
              } );
         if ( refusal )
-            return Common::MakeError<Layers>( std::move( *refusal ) );
+            return Common::MakeError<Layers>( *refusal );
         return Common::MakeSuccess( std::move( read ) );
     }
 

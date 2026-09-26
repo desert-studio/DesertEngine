@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -35,10 +36,14 @@ namespace Desert::Reflection
         {
             switch ( size )
             {
-                case 1:  return *static_cast<const int8_t*>( p );
-                case 2:  return *static_cast<const int16_t*>( p );
-                case 8:  return *static_cast<const int64_t*>( p );
-                default: return *static_cast<const int32_t*>( p );
+                case 1:
+                    return *static_cast<const int8_t*>( p );
+                case 2:
+                    return *static_cast<const int16_t*>( p );
+                case 8:
+                    return *static_cast<const int64_t*>( p );
+                default:
+                    return *static_cast<const int32_t*>( p );
             }
         }
 
@@ -62,28 +67,33 @@ namespace Desert::Reflection
         {
             switch ( size )
             {
-                case 1:  *static_cast<int8_t*>( p )  = static_cast<int8_t>( value ); break;
-                case 2:  *static_cast<int16_t*>( p ) = static_cast<int16_t>( value ); break;
-                case 8:  *static_cast<int64_t*>( p ) = value; break;
-                default: *static_cast<int32_t*>( p ) = static_cast<int32_t>( value ); break;
+                case 1:
+                    *static_cast<int8_t*>( p ) = static_cast<int8_t>( value );
+                    break;
+                case 2:
+                    *static_cast<int16_t*>( p ) = static_cast<int16_t>( value );
+                    break;
+                case 8:
+                    *static_cast<int64_t*>( p ) = value;
+                    break;
+                default:
+                    *static_cast<int32_t*>( p ) = static_cast<int32_t>( value );
+                    break;
             }
         }
     } // namespace
 
-    Common::Json::Object SerializeReflected( const TypeInfo& type, const void* obj, const AssetResolver* resolver )
+    namespace
     {
-        Common::Json::Object out;
-        const auto* base = static_cast<const std::byte*>( obj );
-
-        for ( const auto& field : type.Fields )
+        // Writes one field that is not a nested struct (SerializeReflected walks those).
+        void WriteField( Common::Json::Object& out, const FieldInfo& field, const void* p,
+                         const AssetResolver* resolver )
         {
-            const void* p = base + field.Offset;
-
             // Containers route through the codegen-emitted typed lambda (the switch can't iterate vectors).
             if ( field.IsContainer && field.SerializeContainer )
             {
                 out[field.Name] = field.SerializeContainer( p );
-                continue;
+                return;
             }
 
             switch ( field.Type )
@@ -134,16 +144,52 @@ namespace Desert::Reflection
                     else
                         out[field.Name] = static_cast<int64_t>( *static_cast<const uint64_t*>( p ) );
                     break;
-                case FieldType::Struct:
-                    if ( field.StructType )
-                        out[field.Name] = SerializeReflected( *field.StructType, p, resolver );
-                    break;
+                case FieldType::Struct: // nested structs are walked by SerializeReflected's own stack
                 default:
                     break;
             }
         }
+    } // namespace
 
-        return out;
+    Common::Json::Object SerializeReflected( const TypeInfo& type, const void* obj, const AssetResolver* resolver )
+    {
+        // Reflected structs nest (a Struct field names another TypeInfo), so the walk keeps its own stack
+        // rather than recursing: one frame per struct being written. A finished nested struct goes into its
+        // parent under its field name the moment it completes — the key order a recursive writer produces.
+        struct Frame
+        {
+            const TypeInfo*      Type;
+            const std::byte*     Base;
+            const FieldInfo*     Field; // the parent's field this struct is written under; null at the root
+            std::size_t          Next;
+            Common::Json::Object Out;
+        };
+        std::vector<Frame> stack;
+        stack.push_back( { &type, static_cast<const std::byte*>( obj ), nullptr, 0, {} } );
+        while ( true )
+        {
+            Frame& top = stack.back();
+            if ( top.Next == top.Type->Fields.size() )
+            {
+                if ( stack.size() == 1 )
+                    return std::move( top.Out );
+                Common::Json::Object done  = std::move( top.Out );
+                const FieldInfo*     field = top.Field;
+                stack.pop_back();
+                stack.back().Out[field->Name] = Common::Json::Value( std::move( done ) );
+                continue;
+            }
+            const FieldInfo& field = top.Type->Fields[top.Next++];
+            const void*      p     = top.Base + field.Offset;
+            // A container goes through its typed lambda (WriteField) whatever its element type.
+            if ( field.Type == FieldType::Struct && !( field.IsContainer && field.SerializeContainer ) )
+            {
+                if ( field.StructType )
+                    stack.push_back( { field.StructType, static_cast<const std::byte*>( p ), &field, 0, {} } );
+                continue;
+            }
+            WriteField( top.Out, field, p, resolver );
+        }
     }
 
     uint64_t ResolveGuidRef( const AssetResolver& resolver, const std::string& text, const std::string& path,
@@ -184,27 +230,17 @@ namespace Desert::Reflection
         return 0;
     }
 
-    void DeserializeReflected( const TypeInfo& type, void* obj, const Common::Json::Node& src,
-                               Common::Json::Issues& issues, const AssetResolver* resolver )
+    namespace
     {
-        using Common::Json::Kind;
-        if ( !src.ExpectKind( Kind::Object, issues ) )
-            return;
-        auto* base = static_cast<std::byte*>( obj );
-
-        for ( const auto& field : type.Fields )
+        // Reads one field that is not a nested struct (DeserializeReflected walks those).
+        void ReadField( const FieldInfo& field, void* p, const Common::Json::Node& g, Common::Json::Issues& issues,
+                        const AssetResolver* resolver )
         {
-            const auto found = src.Find( field.Name );
-            if ( !found )
-                continue; // missing key — keep the field's current value
-
-            const Common::Json::Node& g = *found;
-            void*                     p = base + field.Offset;
-
+            using Common::Json::Kind;
             if ( field.IsContainer && field.DeserializeContainer )
             {
                 field.DeserializeContainer( p, g, issues );
-                continue;
+                return;
             }
 
             switch ( field.Type )
@@ -307,13 +343,54 @@ namespace Desert::Reflection
                         g.Report( issues, "asset path or integer handle" );
                     break;
                 }
-                case FieldType::Struct:
-                    if ( field.StructType )
-                        DeserializeReflected( *field.StructType, p, g, issues, resolver );
-                    break;
+                case FieldType::Struct: // nested structs are walked by DeserializeReflected's own stack
                 default:
                     break;
             }
+        }
+    } // namespace
+
+    void DeserializeReflected( const TypeInfo& type, void* obj, const Common::Json::Node& src,
+                               Common::Json::Issues& issues, const AssetResolver* resolver )
+    {
+        using Common::Json::Kind;
+        if ( !src.ExpectKind( Kind::Object, issues ) )
+            return;
+
+        // Reflected structs nest, so the walk keeps its own stack rather than recursing (SerializeReflected
+        // explains why); a frame is one struct, finished in field order before its parent resumes, which
+        // keeps the Issues in the order a recursive reader reported them.
+        struct Frame
+        {
+            const TypeInfo*    Type;
+            std::byte*         Base;
+            Common::Json::Node Src;
+            std::size_t        Next;
+        };
+        std::vector<Frame> stack;
+        stack.push_back( { &type, static_cast<std::byte*>( obj ), src, 0 } );
+        while ( !stack.empty() )
+        {
+            Frame& top = stack.back();
+            if ( top.Next == top.Type->Fields.size() )
+            {
+                stack.pop_back();
+                continue;
+            }
+            const FieldInfo& field = top.Type->Fields[top.Next++];
+            const auto       found = top.Src.Find( field.Name );
+            if ( !found )
+                continue; // missing key — keep the field's current value
+
+            void* p = top.Base + field.Offset;
+            // A container goes through its typed lambda (ReadField) whatever its element type.
+            if ( field.Type == FieldType::Struct && !( field.IsContainer && field.DeserializeContainer ) )
+            {
+                if ( field.StructType && found->ExpectKind( Kind::Object, issues ) )
+                    stack.push_back( { field.StructType, static_cast<std::byte*>( p ), *found, 0 } );
+                continue;
+            }
+            ReadField( field, p, *found, issues, resolver );
         }
     }
 } // namespace Desert::Reflection

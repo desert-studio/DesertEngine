@@ -116,7 +116,7 @@ namespace Desert::Core::Serialize
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
-                    return Common::Json::Value( Common::Json::Object{} );
+                    return { Common::Json::Object{} };
                 const auto& comp     = e.GetComponent<TComponent>();
                 auto        resolver = MakeAssetResolver( mgr );
                 return Reflection::SerializeReflected( *type, &( comp.*member ), &resolver );
@@ -181,7 +181,7 @@ namespace Desert::Core::Serialize
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
             s.Serialize = []( ECS::Entity, const Assets::AssetManager& ) -> Common::Json::Value
-            { return Common::Json::Value( Common::Json::Object{} ); };
+            { return { Common::Json::Object{} }; };
             s.Deserialize =
                  []( ECS::Entity e, const Common::Json::Node&, const Assets::AssetManager&, Common::Json::Issues& )
             {
@@ -211,7 +211,7 @@ namespace Desert::Core::Serialize
             {
                 Common::Json::Object object;
                 object[field] = Common::Json::Value( e.GetComponent<TComponent>().*member );
-                return Common::Json::Value( object );
+                return { object };
             };
             s.Deserialize = [field, member]( ECS::Entity e, const Common::Json::Node&           g,
                                              const Assets::AssetManager&, Common::Json::Issues& issues )
@@ -900,7 +900,7 @@ namespace Desert::Core::Serialize
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
-                    return Common::Json::Value( Common::Json::Object{} );
+                    return { Common::Json::Object{} };
                 auto resolver = MakeAssetResolver( mgr );
                 return Reflection::SerializeReflected( *type, &e.GetComponent<TComponent>(), &resolver );
             };
@@ -1606,7 +1606,7 @@ namespace Desert::Core::Serialize
                          if ( key != "ScenePath" )
                              out.Set( key, value.Raw() );
                      } );
-                return Common::Json::Value( std::move( out ).Build() );
+                return { std::move( out ).Build() };
             };
             s.Deserialize = [reflected = s.Deserialize]( ECS::Entity entity, const Common::Json::Node& g,
                                                          const Assets::AssetManager& assetManager,

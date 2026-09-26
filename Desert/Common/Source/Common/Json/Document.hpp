@@ -263,7 +263,7 @@ namespace Common::Json
 
     [[nodiscard]] inline Node Root( const Value& value, Path path = {} )
     {
-        return Node( value, std::move( path ) );
+        return { value, std::move( path ) };
     }
     // A Node over a temporary would dangle as soon as the full expression ends.
     Node Root( const Value&& value, Path path = {} ) = delete;
@@ -285,9 +285,7 @@ namespace Common::Json
             using U = std::remove_cvref_t<T>;
             if constexpr ( std::is_same_v<U, Value> )
                 return value;
-            else if constexpr ( std::is_same_v<U, Object> )
-                return Value( value );
-            else if constexpr ( std::is_same_v<U, bool> )
+            else if constexpr ( std::is_same_v<U, Object> || std::is_same_v<U, bool> )
                 return Value( value );
             else if constexpr ( std::is_enum_v<U> )
                 return Value( rfl::enum_to_string( value ) );
@@ -304,7 +302,7 @@ namespace Common::Json
                 Value::Array array;
                 for ( glm::length_t i = 0; i < U::length(); ++i )
                     array.emplace_back( static_cast<double>( value[i] ) );
-                return Value( std::move( array ) );
+                return { std::move( array ) };
             }
             else
                 return FromStruct( value );
