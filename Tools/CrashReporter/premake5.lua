@@ -72,7 +72,9 @@ project "DesertCrashReporter"
         defines { "DESERT_PLATFORM_WINDOWS" }
         -- opengl32 is the ImGui OpenGL3 backend's only link dependency; it loads every entry point it
         -- needs through its own bundled loader, so there is no GLAD/GLEW here.
-        links { "opengl32.lib", "Shell32.lib" }
+        -- Dwmapi carries DwmSetWindowAttribute, which is how the borderless window asks Windows 11
+        -- for rounded corners; User32 carries the window subclassing behind our own title bar.
+        links { "opengl32.lib", "Shell32.lib", "Dwmapi.lib", "User32.lib" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
