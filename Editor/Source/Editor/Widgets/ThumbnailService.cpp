@@ -342,7 +342,11 @@ namespace Desert::Editor
         if ( !m_Renderer && !AcquireRenderer() )
             return; // the queue is kept, not dropped: a slot freed later drains it
 
+        m_Budget.EndFrame();
+        const auto tickBegan = std::chrono::steady_clock::now();
         m_Renderer->Tick();
+        m_Budget.Spend(
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - tickBegan ).count() );
 
         // Settle the capture that was dispatched — the one still waited for, or one the give-up below
         // stopped waiting for and whose PNG the renderer wrote anyway (ThumbnailFreshness::Capture, TH1c).
@@ -394,7 +398,8 @@ namespace Desert::Editor
             return;
         }
 
-        if ( m_Renderer->HasPending() )
+        // The previous capture's main-thread cost is repaid before the next one starts.
+        if ( m_Renderer->HasPending() || !m_Budget.MayDispatch() )
             return;
 
         // Drain anything the queue no longer owes. A request can sit here for seconds — the drain rate

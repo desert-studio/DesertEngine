@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
+#include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -228,6 +229,7 @@ namespace Desert::Editor
         ThumbnailFreshness::Capture m_Capture;
         int                         m_InFlightTicks = 0;
         int                         m_IdleTicks     = 0; // consecutive frames with no work
+        ThumbnailEncode::CaptureBudget m_Budget; // paces dispatch by main-thread ms (TH3)
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
         // stretch of scarcity rather than one per frame, and cleared — with its own line — the moment one
         // comes free, because "it is running again" is as much news as "it stopped".

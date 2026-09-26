@@ -10,6 +10,20 @@
 
 namespace Desert::Graphic
 {
+    /// A GPU->host copy in flight (Image2D::BeginReadbackRGBA8). Created and destroyed on the thread that
+    /// owns the device; ReadRGBA8 alone may run on a worker, and only after IsComplete() said yes.
+    class ImageReadback
+    {
+    public:
+        virtual ~ImageReadback() = default;
+
+        /// Has the GPU finished the copy? Never blocks.
+        NO_DISCARD virtual bool IsComplete() const = 0;
+
+        /// The copied pixels as tightly packed RGBA8. Refused, by name, while the copy is still running.
+        NO_DISCARD virtual Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const = 0;
+    };
+
     class Image2D;
     class Image3D;
 
@@ -125,6 +139,16 @@ namespace Desert::Graphic
         {
             return Common::MakeError<std::vector<uint8_t>>(
                  "Image2D::ReadPixelsRGBA8 not supported by this backend" );
+        }
+
+        /// The same readback, split at the GPU: the copy is recorded and submitted NOW and nobody waits for
+        /// it. The caller polls ImageReadback::IsComplete() on later frames and then reads the pixels — on
+        /// any thread. ReadPixelsRGBA8 blocks the calling thread until the GPU has finished the whole queue
+        /// in front of the copy; a thumbnail capture on the main thread paid that as a frame stall (TH3).
+        NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8()
+        {
+            return Common::MakeError<std::shared_ptr<ImageReadback>>(
+                 "Image2D::BeginReadbackRGBA8 not supported by this backend" );
         }
 
         // Re-uploads tightly-packed pixel data into the EXISTING GPU image without recreating it — the

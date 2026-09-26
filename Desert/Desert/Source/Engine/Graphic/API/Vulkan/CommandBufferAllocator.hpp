@@ -25,6 +25,26 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkResult> RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer );
         Common::ResultStr<VkResult> RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer );
 
+        /// A one-off graphics submission that nobody waited for: the buffer, the pool that allocated it and
+        /// the fence its completion signals. The buffer is freed only by RT_ReleaseSubmitted.
+        struct Submitted
+        {
+            VkCommandBuffer Buffer = VK_NULL_HANDLE;
+            VkCommandPool   Pool   = VK_NULL_HANDLE;
+            VkFence         Fence  = VK_NULL_HANDLE;
+        };
+
+        /// Ends and submits @p commandBuffer on the graphics queue WITHOUT waiting for it — the caller polls
+        /// IsComplete() on later frames. The flush above blocks the calling thread until the GPU is done,
+        /// which is what made a thumbnail readback a main-thread stall (TH3).
+        Common::ResultStr<Submitted> RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer );
+
+        /// True once the submission's fence has signalled. Never blocks.
+        [[nodiscard]] bool IsComplete( const Submitted& submitted ) const;
+
+        /// Waits for the fence (normally already signalled), then frees the buffer and destroys the fence.
+        void RT_ReleaseSubmitted( const Submitted& submitted );
+
         /// Destroys the nine command pools, and with them every command buffer ever allocated from one.
         /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is a namespace-scope
         /// static, so a destructor would run at __cxa_finalize, long after vkDestroyDevice. Called from

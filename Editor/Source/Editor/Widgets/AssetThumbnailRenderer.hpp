@@ -8,6 +8,10 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Assets/Common.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
+#include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 
@@ -72,7 +76,8 @@ namespace Desert::Editor
                      const Assets::AssetHandle& material = Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) );
 
         // Is a capture in flight? Gates requests to one at a time.
-        [[nodiscard]] bool HasPending() const { return m_Phase != 0; }
+        // Pending until the picture is ON DISK: the GPU copy and the worker's encode are part of the capture.
+        [[nodiscard]] bool HasPending() const { return m_Phase != 0 || m_Readback != nullptr; }
 
         // Advance the capture state machine. Call ONCE per frame. Renders the pending material; on the
         // second frame it reads back the first frame's render and writes the PNG.
@@ -132,6 +137,24 @@ namespace Desert::Editor
         // How a MATERIAL capture is drawn. Meaningless unless m_PendingSubject is Material.
         ThumbnailSubject::Preview m_PendingPreview = ThumbnailSubject::Preview::Sphere;
         int                 m_Phase = 0; // 0 = idle, else = remaining render frames (capture on the last)
+
+        // THE CAPTURE AFTER THE LAST RENDER FRAME, off the frame (TH3). The copy is submitted and polled by
+        // its fence on later Ticks; downscale and PNG run on a JobSystem worker. What each stage cost is
+        // carried to the one log line written when the picture lands.
+        struct Encoded
+        {
+            Common::BoolResultStr Written = Common::MakeSuccess( true );
+            double                ReadMs  = 0.0;
+            double                BoxMs   = 0.0;
+            double                PngMs   = 0.0;
+        };
+        void                                   AdvanceReadback();
+        std::shared_ptr<Graphic::ImageReadback> m_Readback;
+        std::future<Encoded>                   m_Encode;
+        std::string                            m_ReadbackPng;
+        std::chrono::steady_clock::time_point  m_ReadbackBegan;
+        double                                 m_ReadbackSubmitMs = 0.0;
+        int                                    m_ReadbackFrames   = 0;
 
         // Frames the dome has left to settle before the warm-up counts. Reset whenever a bake is seen
         // running, so the window is measured from the END of the bake rather than from the request.

@@ -377,6 +377,7 @@ namespace Desert::Editor
         const size_t sig = DirectorySignature( m_CurrentDir->AssetPath );
         if ( sig != m_DirSignature )
         {
+            LOG_DEBUG( "[FileExplorer] '{}' changed on disk — rescanning.", m_CurrentDir->AssetPath );
             m_DirSignature = sig;
             QueueRefresh();
         }
@@ -397,6 +398,11 @@ namespace Desert::Editor
         }
 
         PrefetchCurrentFolderThumbnails();
+
+        // THE POLL'S BASELINE IS THE FOLDER JUST ENTERED. Left at the previous folder's signature, the first
+        // poll after every navigation saw a "change" and rescanned a folder that had just been read (TH3).
+        m_DirSignature = DirectorySignature( m_CurrentDir->AssetPath );
+        m_PollCounter  = 0;
 
         // Record in the back/forward history, unless this navigation IS a back/forward.
         if ( !m_NavigatingHistory )

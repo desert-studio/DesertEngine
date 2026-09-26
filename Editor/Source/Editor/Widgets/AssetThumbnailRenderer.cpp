@@ -1,5 +1,6 @@
 #include "AssetThumbnailRenderer.hpp"
 
+#include <Editor/Widgets/ThumbnailEncode.hpp>
 #include <Editor/Widgets/ThumbnailFraming.hpp>
 
 #include <Engine/ECS/Components.hpp>
@@ -11,6 +12,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
 
@@ -20,7 +22,6 @@
 #include <cmath>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); just declare here.
-#include <stb_image/stb_image_write.h>
 
 namespace Desert::Editor
 {
@@ -60,6 +61,10 @@ namespace Desert::Editor
 
     AssetThumbnailRenderer::~AssetThumbnailRenderer()
     {
+        // The worker holds the readback and writes a file: it finishes before the device it reads from goes.
+        if ( m_Encode.valid() )
+            m_Encode.wait();
+        m_Readback.reset();
         if ( !m_Inited )
             return;
 
@@ -537,6 +542,11 @@ namespace Desert::Editor
 
     void AssetThumbnailRenderer::Tick()
     {
+        if ( m_Readback )
+        {
+            AdvanceReadback();
+            return;
+        }
         if ( m_Phase == 0 )
             return;
         EnsureInit();
@@ -575,90 +585,25 @@ namespace Desert::Editor
 
         // Final count: the PREVIOUS (warm) frame's render is submitted + (after this wait) finished, so the
         // framebuffer readback returns it. (This frame's render isn't submitted yet, so it doesn't interfere.)
-        const auto captureBegan = std::chrono::steady_clock::now();
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        const auto idled = std::chrono::steady_clock::now();
-
-        std::chrono::steady_clock::time_point read    = idled;
-        std::chrono::steady_clock::time_point boxed   = idled;
-        std::chrono::steady_clock::time_point written = idled;
-
+        // NO DEVICE IDLE AND NO WAIT HERE (TH3). The copy is recorded behind every frame already on the queue
+        // (BeginReadbackRGBA8 carries the whole-queue barrier) and polled by its fence on later Ticks.
+        const auto began = std::chrono::steady_clock::now();
         if ( auto finalImage = m_Scene->GetFinalImage() )
         {
-            // THE SIZE MISMATCH BELOW USED TO BE THE ONLY REPORT, and it was a report about the wrong
-            // thing: a refused readback also came back as an empty vector, so "the staging buffer could
-            // not be allocated" was printed as "returned 0 bytes, expected 4194304". The readback now
-            // says why, and the size check keeps its own, separate meaning.
-            const auto readback = finalImage->ReadPixelsRGBA8();
-            read                = std::chrono::steady_clock::now();
-            if ( !readback.IsSuccess() )
+            auto readback = finalImage->BeginReadbackRGBA8();
+            if ( readback.IsSuccess() )
             {
-                LOG_ERROR( "[AssetThumbnailRenderer] readback for '{}' was refused: {} — no thumbnail "
-                           "written.",
-                           m_PendingPng, readback.GetError() );
-            }
-            else if ( const std::vector<uint8_t>& src = readback.GetValue();
-                      src.size() == static_cast<size_t>( kRenderSize ) * kRenderSize * 4 )
-            {
-                // Supersample downscale kRenderSize -> kSize via NxN box filter (clean anti-aliased edges).
-                // Supersample downscale kRenderSize -> kSize (NxN box filter). The framebuffer readback is
-                // already upright, so write rows in order and do NOT stbi-flip (a single flip — which used to
-                // be on — made asymmetric meshes like the statue come out head-down; symmetric previews hid it).
-                constexpr uint32_t   F = kRenderSize / kSize;
-                std::vector<uint8_t> out( static_cast<size_t>( kSize ) * kSize * 4 );
-                for ( uint32_t y = 0; y < kSize; ++y )
-                    for ( uint32_t x = 0; x < kSize; ++x )
-                        for ( uint32_t c = 0; c < 4; ++c )
-                        {
-                            uint32_t sum = 0;
-                            for ( uint32_t sy = 0; sy < F; ++sy )
-                                for ( uint32_t sx = 0; sx < F; ++sx )
-                                    sum += src[( ( ( y * F + sy ) * kRenderSize + ( x * F + sx ) ) * 4 ) + c];
-                            out[( ( y * kSize + x ) * 4 ) + c] = static_cast<uint8_t>( sum / ( F * F ) );
-                        }
-
-                boxed = std::chrono::steady_clock::now();
-
-                std::error_code ec;
-                std::filesystem::create_directories( std::filesystem::path( m_PendingPng ).parent_path(), ec );
-                stbi_flip_vertically_on_write( 0 ); // readback is already upright — no flip
-
-                // WRITE ASIDE, THEN RENAME. stbi_write_png streams straight into the destination, so an
-                // editor that dies mid-write leaves a truncated PNG at the cache path — a file that is
-                // "fresh" by modification time and cannot be decoded, which is precisely the state the
-                // freshness rule cannot repair (it would say "show it" forever). A rename is atomic on
-                // every filesystem this runs on, so the destination only ever holds a complete image.
-                const std::string temp = m_PendingPng + ".part";
-                if ( stbi_write_png( temp.c_str(), kSize, kSize, 4, out.data(), kSize * 4 ) )
-                {
-                    std::filesystem::rename( temp, m_PendingPng, ec );
-                    if ( ec )
-                    {
-                        LOG_ERROR( "[AssetThumbnailRenderer] '{}' was rendered but could not be moved into "
-                                   "place from '{}': {}. No thumbnail was written.",
-                                   m_PendingPng, temp, ec.message() );
-                        std::error_code cleanupEc;
-                        std::filesystem::remove( temp, cleanupEc );
-                    }
-                }
-                else
-                {
-                    LOG_ERROR( "[AssetThumbnailRenderer] stbi_write_png refused to write '{}' ({}x{} RGBA8). "
-                               "No thumbnail was written.",
-                               temp, kSize, kSize );
-                }
-                written = std::chrono::steady_clock::now();
+                m_Readback         = readback.GetValue();
+                m_ReadbackPng      = m_PendingPng;
+                m_ReadbackBegan    = began;
+                m_ReadbackFrames   = 0;
+                m_ReadbackSubmitMs = std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                                began )
+                                          .count();
             }
             else
-            {
-                // A readback whose size does not match the framebuffer we asked for is the one way this
-                // path can silently produce nothing, and it used to do so in complete silence: no PNG, no
-                // line, and the service one level up reporting "no preview produced" with no reason.
-                LOG_ERROR( "[AssetThumbnailRenderer] readback for '{}' returned {} bytes, expected {} "
-                           "({}x{} RGBA8) — no thumbnail written.",
-                           m_PendingPng, src.size(), static_cast<size_t>( kRenderSize ) * kRenderSize * 4,
-                           kRenderSize, kRenderSize );
-            }
+                LOG_ERROR( "[AssetThumbnailRenderer] readback for '{}' was refused: {} — no thumbnail written.",
+                           m_PendingPng, readback.GetError() );
         }
         else
         {
@@ -667,22 +612,63 @@ namespace Desert::Editor
                        m_PendingPng, kRenderFrames );
         }
 
-        // THE COST OF ONE CAPTURE, split, because the four parts are not comparable and the budget
-        // question ("can the whole project be pre-rendered?") is entirely decided by which of them
-        // dominates. Debug level: one line per asset is right for a log file and wrong for the console.
-        const auto ms = []( auto from, auto to )
-        { return std::chrono::duration<double, std::milli>( to - from ).count(); };
-        LOG_DEBUG( "[Thumbnails] captured '{}' in {:.0f} ms (device idle {:.0f}, readback {:.0f}, "
-                   "downscale {:.0f}, png {:.0f}) at {}px from a {}px render",
-                   std::filesystem::path( m_PendingPng ).filename().string(), ms( captureBegan, written ),
-                   ms( captureBegan, idled ), ms( idled, read ), ms( read, boxed ), ms( boxed, written ), kSize,
-                   kRenderSize );
-
-        // DEBUG: when true, never finish — keep re-rendering THIS thumbnail every frame so its passes
-        // (SkyboxPass etc.) appear in every editor frame and can be grabbed with RenderDoc (F12). The
-        // preview render is recorded into the editor's in-flight frame, so the capture includes it.
-        // TEMPORARY — set back to false (or delete) after the capture.
         static constexpr bool kDebugLoopForCapture = false;
         m_Phase = kDebugLoopForCapture ? kRenderFrames : 0;
+    }
+
+    void AssetThumbnailRenderer::AdvanceReadback()
+    {
+        ++m_ReadbackFrames;
+        if ( !m_Encode.valid() )
+        {
+            if ( !m_Readback->IsComplete() )
+                return;
+            // Read, downscale and write on a worker. The readback is shared so the object outlives the job
+            // even if this renderer is torn down first (the destructor waits for the job anyway).
+            m_Encode = Common::JobSystem::Get().Async(
+                 [readback = m_Readback, png = m_ReadbackPng]() -> Encoded
+                 {
+                     using Clock      = std::chrono::steady_clock;
+                     const auto ms    = []( Clock::time_point from, Clock::time_point to )
+                     { return std::chrono::duration<double, std::milli>( to - from ).count(); };
+                     Encoded    out;
+                     const auto t0     = Clock::now();
+                     auto       pixels = readback->ReadRGBA8();
+                     const auto t1     = Clock::now();
+                     out.ReadMs        = ms( t0, t1 );
+                     if ( !pixels.IsSuccess() )
+                     {
+                         out.Written = Common::MakeError<bool>( pixels.GetError() );
+                         return out;
+                     }
+                     auto       boxed = ThumbnailEncode::Downscale( pixels.GetValue(), kRenderSize, kSize );
+                     const auto t2    = Clock::now();
+                     out.BoxMs        = ms( t1, t2 );
+                     if ( !boxed.IsSuccess() )
+                     {
+                         out.Written = Common::MakeError<bool>( boxed.GetError() );
+                         return out;
+                     }
+                     out.Written = ThumbnailEncode::WritePng( boxed.GetValue(), kSize, png );
+                     out.PngMs   = ms( t2, Clock::now() );
+                     return out;
+                 } );
+            return;
+        }
+        if ( m_Encode.wait_for( std::chrono::seconds( 0 ) ) != std::future_status::ready )
+            return;
+
+        const Encoded encoded = m_Encode.get();
+        m_Readback.reset(); // staging buffer and fence go back on the device thread
+        if ( !encoded.Written.IsSuccess() )
+            LOG_ERROR( "[AssetThumbnailRenderer] '{}': {} — no thumbnail written.", m_ReadbackPng,
+                       encoded.Written.GetError() );
+        LOG_DEBUG( "[Thumbnails] captured '{}' in {:.0f} ms over {} frames (main: submit {:.1f}; worker: read "
+                   "{:.0f}, downscale {:.0f}, png {:.0f}) at {}px from a {}px render",
+                   std::filesystem::path( m_ReadbackPng ).filename().string(),
+                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - m_ReadbackBegan )
+                        .count(),
+                   m_ReadbackFrames, m_ReadbackSubmitMs, encoded.ReadMs, encoded.BoxMs, encoded.PngMs, kSize,
+                   kRenderSize );
     }
 } // namespace Desert::Editor

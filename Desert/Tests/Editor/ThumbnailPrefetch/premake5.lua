@@ -17,6 +17,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Editor/Source/Editor/Widgets/ThumbnailPrefetch.cpp",
+        "%{wks.location}/Editor/Source/Editor/Widgets/ThumbnailEncode.cpp",
         "%{wks.location}/ThirdParty/stb/stb_image.cpp",
     }
 

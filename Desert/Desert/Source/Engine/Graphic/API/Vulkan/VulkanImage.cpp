@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/PixelPack.hpp> // the one packer this and the swapchain readback share
 #include <Engine/Graphic/RenderConfig.hpp>
 
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <thread>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -623,25 +625,93 @@ namespace Desert::Graphic::API::Vulkan
         TransitionLayout( cmd, originalLayout );
     }
 
+    namespace
+    {
+        /// One submitted image->buffer copy. Owns the staging buffer and the submission; both are released
+        /// on the device thread by the destructor, which waits for the fence first if it has to.
+        class VulkanImageReadback final : public ImageReadback
+        {
+        public:
+            VulkanImageReadback( VkBuffer staging, VmaAllocation allocation, uint64_t bytes, std::size_t pixels,
+                                 Graphic::PackedPixelSource source, CommandBufferAllocator::Submitted submitted )
+                : m_Staging( staging ), m_Allocation( allocation ), m_Bytes( bytes ), m_Pixels( pixels ),
+                  m_Source( source ), m_Submitted( submitted )
+            {
+            }
+
+            VulkanImageReadback( const VulkanImageReadback& )            = delete;
+            VulkanImageReadback& operator=( const VulkanImageReadback& ) = delete;
+            VulkanImageReadback( VulkanImageReadback&& )                 = delete;
+            VulkanImageReadback& operator=( VulkanImageReadback&& )      = delete;
+
+            ~VulkanImageReadback() override
+            {
+                CommandBufferAllocator::GetInstance().RT_ReleaseSubmitted( m_Submitted );
+                Allocator()->RT_DestroyBuffer( m_Staging, m_Allocation );
+            }
+
+            bool IsComplete() const override
+            {
+                return CommandBufferAllocator::GetInstance().IsComplete( m_Submitted );
+            }
+
+            Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const override
+            {
+                if ( !IsComplete() )
+                    return Common::MakeError<std::vector<uint8_t>>(
+                         "ReadRGBA8: the GPU copy has not completed yet; poll IsComplete() first" );
+                std::vector<uint8_t> raw( static_cast<std::size_t>( m_Bytes ) );
+                MappedMemory         mapped = Allocator()->MapMemory( m_Allocation );
+                const auto           read   = mapped.ReadInto( raw.data(), raw.size() );
+                if ( !read.IsSuccess() )
+                    return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadRGBA8: {}", read.GetError() );
+                mapped.Unmap();
+                return Common::MakeSuccess( Graphic::PackToRGBA8( raw.data(), raw.size(), m_Pixels, m_Source ) );
+            }
+
+        private:
+            static VulkanAllocator* Allocator()
+            {
+                return SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                     ->GetVulkanAllocator()
+                     .get();
+            }
+
+            VkBuffer                          m_Staging;
+            VmaAllocation                     m_Allocation;
+            uint64_t                          m_Bytes;
+            std::size_t                       m_Pixels;
+            Graphic::PackedPixelSource        m_Source;
+            CommandBufferAllocator::Submitted m_Submitted;
+        };
+    } // namespace
+
     Common::ResultStr<std::vector<uint8_t>> VulkanImage2D::ReadPixelsRGBA8()
     {
-        // EVERY ARM OF THIS FUNCTION USED TO RETURN `{}` AND MEAN SOMETHING DIFFERENT BY IT. An
-        // uninitialised image, a format the packer does not know, a staging allocation that failed, a
-        // command buffer that could not be taken and a readback that refused all produced one empty
-        // vector — which is also exactly what a legitimately empty picture would produce. The two
-        // callers that cache thumbnails cannot tell "not ready, ask again" from "there is nothing here",
-        // so they either cached a blank PNG for good or retried forever. Contract §1.4.
+        // The blocking form is the split one plus a wait: one copy path, so the two cannot drift apart.
+        auto begun = BeginReadbackRGBA8();
+        if ( !begun.IsSuccess() )
+            return Common::MakeError<std::vector<uint8_t>>( begun.GetError() );
+        const std::shared_ptr<ImageReadback>& readback = begun.GetValue();
+        while ( !readback->IsComplete() )
+        {
+            if ( !Graphic::DeviceLost::AllowWork() )
+                return Common::MakeError<std::vector<uint8_t>>(
+                     "ReadPixelsRGBA8: the device was lost while the copy was in flight" );
+            std::this_thread::yield();
+        }
+        return readback->ReadRGBA8();
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
+    {
+        using Result   = std::shared_ptr<ImageReadback>;
         const uint32_t w = m_Specification.Width;
         const uint32_t h = m_Specification.Height;
         if ( w == 0 || h == 0 || m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<std::vector<uint8_t>>(
-                 "ReadPixelsRGBA8: the image is {}x{} and its VkImage is {}", w, h,
-                 m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
+            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: the image is {}x{} and its VkImage is {}",
+                                                       w, h, m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
 
-        // The engine's format vocabulary, mapped to the pack's own. The MAPPING belongs here, where the
-        // ImageFormat enum is; the PACK is shared with the swapchain readback next door (PixelPack.hpp),
-        // because two copies of the channel swizzle is how one capture ends up with red and blue exchanged
-        // and gets reported as a rendering defect.
         const auto                 fmt = m_Specification.Format;
         Graphic::PackedPixelSource source{};
         switch ( fmt )
@@ -656,9 +726,8 @@ namespace Desert::Graphic::API::Vulkan
                 source = Graphic::PackedPixelSource::RGBA32F;
                 break;
             default:
-                return Common::MakeFormattedError<std::vector<uint8_t>>(
-                     "ReadPixelsRGBA8: image format {} has no RGBA8 packing",
-                     static_cast<int>( fmt ) ); // only colour formats the pack knows
+                return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
+                                                           static_cast<int>( fmt ) ); // only colour formats the pack knows
         }
 
         auto allocator =
@@ -671,45 +740,40 @@ namespace Desert::Graphic::API::Vulkan
                                        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT };
         auto allocRes = allocator->RT_AllocateBuffer( "ThumbReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
         if ( !allocRes.IsSuccess() )
-            return Common::MakeFormattedError<std::vector<uint8_t>>(
-                 "ReadPixelsRGBA8: {} byte readback buffer failed: {}", srcSize, allocRes.GetError() );
+            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: {} byte readback buffer failed: {}",
+                                                       srcSize, allocRes.GetError() );
         VmaAllocation stagingAlloc = allocRes.GetValue();
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadPixelsRGBA8: no command buffer: {}",
-                                                                     cmdAlloc.GetError() );
+            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: no command buffer: {}",
+                                                       cmdAlloc.GetError() );
         }
         const VkCommandBuffer cmd      = cmdAlloc.GetValue();
         const VkImageLayout   original = m_Resource.Layout;
-        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL );
+        // EXPLICIT, WHOLE-QUEUE DEPENDENCIES instead of a device idle. The copy is submitted behind every
+        // frame already on the graphics queue, so waiting on all their writes here is what the callers'
+        // WaitDeviceIdle used to buy; the release barrier orders the next frame's render into this image
+        // after the copy's read.
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT );
         VkBufferImageCopy copy = { .imageSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1 },
                                    .imageExtent      = { w, h, 1 } };
         vkCmdCopyImageToBuffer( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &copy );
-        TransitionLayout( cmd, original == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                                                                     : original );
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-
-        std::vector<uint8_t> raw( static_cast<size_t>( srcSize ) );
+        TransitionLayout( cmd,
+                          original == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : original,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                          VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT );
+        auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitCommandBufferGraphic( cmd );
+        if ( !submitted.IsSuccess() )
         {
-            // The READBACK direction, and the one this class of defect is nastiest in: unchecked, the
-            // null was the memcpy's SOURCE, so the crash landed inside libc with no frame of ours on it.
-            MappedMemory readback = allocator->MapMemory( stagingAlloc );
-            const auto   read     = readback.ReadInto( raw.data(), static_cast<size_t>( srcSize ) );
-            if ( !read.IsSuccess() )
-            {
-                const std::string reason = read.GetError();
-                readback.Unmap();
-                allocator->RT_DestroyBuffer( staging, stagingAlloc );
-                return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadPixelsRGBA8: {}", reason );
-            }
+            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: {}", submitted.GetError() );
         }
-        allocator->RT_DestroyBuffer( staging, stagingAlloc );
-
-        return Common::MakeSuccess(
-             Graphic::PackToRGBA8( raw.data(), raw.size(), static_cast<size_t>( w ) * h, source ) );
+        return Common::MakeSuccess<Result>( std::make_shared<VulkanImageReadback>(
+             staging, stagingAlloc, srcSize, static_cast<std::size_t>( w ) * h, source, submitted.GetValue() ) );
     }
 
     void VulkanImage2D::TransitionLayout( VkCommandBuffer cmd, VkImageLayout newLayout, uint32_t mip )
