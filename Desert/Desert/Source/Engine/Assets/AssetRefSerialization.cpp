@@ -34,4 +34,13 @@ namespace Desert::Assets
                               site.Kind, ref.Guid, ref.Path, site.Kind ) );
         return Common::MakeSuccess( std::move( *resolved ) );
     }
+
+    std::optional<AssetGuidRef> ReadAssetGuidRef( const Common::Json::Node& stored, Common::Json::Issues& issues )
+    {
+        auto ref = stored.As<AssetGuidRef>();
+        if ( ref )
+            return ref.ExtractValue();
+        stored.Report( issues, "{Guid, Path} as two strings" );
+        return std::nullopt;
+    }
 } // namespace Desert::Assets

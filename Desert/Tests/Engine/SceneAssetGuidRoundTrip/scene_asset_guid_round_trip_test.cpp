@@ -6,6 +6,7 @@
 // The asset table below stands in for the registry the callers inject: the shader half resolves through the
 // asset manager to a NAME, the scene half through the content registry to a PATH, and both write from a row.
 
+#include <Common/Json/Document.hpp>
 #include <Engine/Assets/AssetRefSerialization.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -149,4 +150,42 @@ int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ScenePathForRef read {Guid, Path} with to_string().value_or( "" ): a number where the GUID belongs became an
+// empty GUID, refused as "states no GUID" without naming the field's place or the value the file holds.
+TEST( SceneAssetGuidRoundTrip, ANonStringGuidIsAnIssueAtTheFieldNotAnEmptyGuid )
+{
+    const auto parsed = Common::Json::Parse( R"({"Guid":5,"Path":"Scenes/Inner.desce"})" );
+    ASSERT_TRUE( parsed );
+    const Common::Json::Path where =
+         Common::Json::Path().Key( "Entities" ).Record( "9" ).Key( "UIRenderTexture" ).Key( "Scene" );
+    Common::Json::Issues issues;
+    const auto ref = Desert::Assets::ReadAssetGuidRef( Common::Json::Root( parsed.GetValue(), where ), issues );
+    EXPECT_FALSE( ref.has_value() );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, where.ToString() );
+}
+
+TEST( SceneAssetGuidRoundTrip, ANonStringPathIsAnIssueNotAnEmptyHint )
+{
+    const auto parsed = Common::Json::Parse( R"({"Guid":"0360e95b58dfbe52537bafa34a79606d","Path":[1]})" );
+    ASSERT_TRUE( parsed );
+    Common::Json::Issues issues;
+    EXPECT_FALSE(
+         Desert::Assets::ReadAssetGuidRef( Common::Json::Root( parsed.GetValue() ), issues ).has_value() );
+    EXPECT_EQ( issues.size(), 1u );
+}
+
+TEST( SceneAssetGuidRoundTrip, AWellFormedReferenceReadsWithNoIssue )
+{
+    const auto parsed =
+         Common::Json::Parse( R"({"Guid":"0360e95b58dfbe52537bafa34a79606d","Path":"Scenes/A.desce"})" );
+    ASSERT_TRUE( parsed );
+    Common::Json::Issues issues;
+    const auto           ref = Desert::Assets::ReadAssetGuidRef( Common::Json::Root( parsed.GetValue() ), issues );
+    if ( !ref.has_value() )
+        FAIL() << "a well-formed reference must read";
+    EXPECT_EQ( ref->Path, "Scenes/A.desce" );
+    EXPECT_TRUE( issues.empty() );
 }

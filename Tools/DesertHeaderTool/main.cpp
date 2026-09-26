@@ -774,44 +774,13 @@ namespace
     // Uses decltype( T::field ) so the exact vector type never has to be re-spelled here.
     void EmitContainerLambdas( std::ostream& o, const Field& f )
     {
-        std::string serExpr, deserStmt;
-        const std::string& et = f.elemFieldType;
-        if ( et == "Bool" )
-        {
-            serExpr   = "::rfl::Generic( e )";
-            deserStmt = "{ auto x = e.to_bool(); v.push_back( x.has_value() ? x.value() : false ); }";
-        }
-        else if ( et == "Int" || et == "UInt" )
-        {
-            serExpr   = "::rfl::Generic( static_cast<int64_t>( e ) )";
-            deserStmt = "{ auto x = e.to_int64(); v.push_back( static_cast<Elem>( x.has_value() ? x.value() : (int64_t)0 ) ); }";
-        }
-        else if ( et == "Float" || et == "Double" )
-        {
-            serExpr   = "::rfl::Generic( static_cast<double>( e ) )";
-            deserStmt = "{ auto x = e.to_double(); v.push_back( static_cast<Elem>( x.has_value() ? x.value() : 0.0 ) ); }";
-        }
-        else if ( et == "String" )
-        {
-            serExpr   = "::rfl::Generic( e )";
-            deserStmt = "{ auto x = e.to_string(); v.push_back( x.has_value() ? x.value() : std::string{} ); }";
-        }
-        else // AssetHandle
-        {
-            serExpr   = "::rfl::Generic( static_cast<int64_t>( static_cast<uint64_t>( e ) ) )";
-            deserStmt = "{ auto x = e.to_int64(); v.push_back( Elem( static_cast<uint64_t>( x.has_value() ? x.value() : (int64_t)0 ) ) ); }";
-        }
-
+        // An asset handle is stored as its 64-bit id; every other element type as itself. Both halves live in
+        // ReflectionSerializer.hpp, where the reader applies the wrong-type rule.
+        const std::string vector = "decltype( T::" + f.name + " )";
+        const std::string stored = f.elemFieldType == "AssetHandle" ? vector + ", std::uint64_t" : vector;
         o << ", .IsContainer = true"
-          << ", .SerializeContainer = []( const void* p ) -> ::rfl::Generic { "
-          << "const auto& v = *static_cast<const decltype( T::" << f.name << " )*>( p ); "
-          << "::rfl::Generic::Array arr; for ( const auto& e : v ) arr.push_back( " << serExpr << " ); "
-          << "return ::rfl::Generic( std::move( arr ) ); }"
-          << ", .DeserializeContainer = []( void* p, const ::rfl::Generic& g ) { "
-          << "auto& v = *static_cast<decltype( T::" << f.name << " )*>( p ); v.clear(); "
-          << "auto a = g.to_array(); if ( !a.has_value() ) return; "
-          << "using Elem = std::decay_t<decltype( v )>::value_type; "
-          << "for ( const auto& e : a.value() ) " << deserStmt << " }";
+          << ", .SerializeContainer = ::Desert::Reflection::WriteContainer<" << stored << ">"
+          << ", .DeserializeContainer = ::Desert::Reflection::ReadContainer<" << stored << ">";
     }
 
     void Generate( std::ostream& o, const std::vector<ReflectedType>& types )
@@ -837,6 +806,7 @@ namespace
         o << "// NOLINTBEGIN\n\n";
         o << "#include <Engine/Reflection/TypeRegistrar.hpp>\n";
         o << "#include <Engine/Reflection/ReflectionRegistry.hpp>\n";
+        o << "#include <Engine/Reflection/ReflectionSerializer.hpp>\n";
         o << "#include <cstddef>\n";
         o << "#include <cstdint>\n";
         o << "#include <string>\n";

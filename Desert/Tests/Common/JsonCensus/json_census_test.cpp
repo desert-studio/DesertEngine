@@ -72,6 +72,15 @@ namespace
                std::regex_search( code, kHandBuilt );
     }
 
+    // What counts as walking a value tree past the facade (JS1c): calling the library's own accessors on a
+    // Json::Value instead of reading it through a Json::Node. The names are the library's; a file that uses them
+    // reads a document without a path, so its errors cannot say which entity and component a bad value is in.
+    bool WalksValueTreeDirectly( const std::string& source )
+    {
+        static const std::regex kAccessor( R"(\.(to_object|to_array|to_int64|to_double|variant)\s*\(\s*\))" );
+        return std::regex_search( StripLineComments( source ), kAccessor );
+    }
+
     bool IsAllowedByRule( const std::string& rel )
     {
         return rel.starts_with( "Desert/Common/Source/Common/Json/" ) ||
@@ -117,11 +126,10 @@ namespace
         std::string Why;
     };
 
-    std::vector<Row> Register( const std::string& root )
+    std::vector<Row> Register( const std::string& root, const std::string& file = "json_census_register.txt" )
     {
         std::vector<Row>   rows;
-        std::istringstream lines(
-             ReadAll( fs::path( root ) / "Desert/Tests/Common/JsonCensus/json_census_register.txt" ) );
+        std::istringstream lines( ReadAll( fs::path( root ) / "Desert/Tests/Common/JsonCensus" / file ) );
         std::string line;
         while ( std::getline( lines, line ) )
         {
@@ -145,6 +153,47 @@ TEST( JsonCensus, TheDetectorSeesEveryForm )
     EXPECT_FALSE( UsesJsonDirectly( "auto r = Common::Json::Read<Foo>( text );" ) );
     EXPECT_FALSE( IsAllowedByRule( "Editor/Source/Editor/NewPanel.cpp" ) );
     EXPECT_TRUE( IsAllowedByRule( "Tools/SceneMigrator/Source/SceneMigration.cpp" ) );
+
+    EXPECT_TRUE( WalksValueTreeDirectly( "const auto object = block.to_object();" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "auto a = v.to_array ( );" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "if ( auto i = g.to_int64(); i ) {}" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "double d = g.to_double().value();" ) );
+    EXPECT_TRUE( WalksValueTreeDirectly( "std::get_if<Object>( &g.variant() );" ) );
+    EXPECT_FALSE( WalksValueTreeDirectly( "    // g.to_object() is what Node replaces\nint x = 0;" ) );
+    EXPECT_FALSE( WalksValueTreeDirectly( "node.Find( \"Settings\" )->AsNumber();" ) );
+}
+
+// JS1c: a value tree is read through Json::Node (Common/Json/Document.hpp), which carries the path every issue
+// names. Same two-sided register as above, in its own file so each row names the JS1c step that removes it.
+TEST( JsonCensus, ValueTreesAreReadThroughNodes )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "run from inside the repository";
+
+    const auto                 rows = Register( root, "json_tree_access_register.txt" );
+    std::map<std::string, int> registered;
+    for ( const Row& row : rows )
+    {
+        EXPECT_FALSE( row.Why.empty() ) << row.File << ": a register row must say who removes it and why";
+        EXPECT_EQ( registered[row.File]++, 0 ) << row.File << " is registered twice";
+    }
+
+    std::set<std::string> users;
+    for ( const std::string& rel : SourceFiles( root ) )
+    {
+        if ( IsAllowedByRule( rel ) || !WalksValueTreeDirectly( ReadAll( fs::path( root ) / rel ) ) )
+            continue;
+        users.insert( rel );
+        EXPECT_TRUE( registered.contains( rel ) )
+             << rel << " walks a Json::Value with the library's accessors (.to_object() / .to_array() / "
+             << ".to_int64() / .to_double() / .variant()). Read it through Json::Node (Common/Json/Document.hpp).";
+    }
+    EXPECT_FALSE( users.empty() ) << "the tree-access detector found nothing at all: it has gone blind";
+
+    for ( const Row& row : rows )
+        EXPECT_TRUE( users.contains( row.File ) )
+             << row.File
+             << " no longer walks value trees directly (or no longer exists): delete its register row.";
 }
 
 TEST( JsonCensus, JsonIsSpokenOnlyThroughTheFacade )

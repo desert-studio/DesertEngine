@@ -2,6 +2,7 @@
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneStitchRules.hpp>
@@ -306,18 +307,24 @@ namespace Desert::Runtime::Factory
                     continue;
                 }
 
+                // The override is read at its own place ("Overrides.Light.Intensity"), so a wrong-typed field
+                // names the component and field it came from.
+                const Common::Json::Path where = Common::Json::Path().Key( "Overrides" ).Key( key );
+                Common::Json::Issues     issues;
                 if ( serializer->Has( entity ) )
                 {
-                    serializer->Deserialize(
-                         entity, Assets::MergePayload( serializer->Serialize( entity, assetManager ), fields ),
-                         assetManager );
+                    const Common::Json::Value merged =
+                         Assets::MergePayload( serializer->Serialize( entity, assetManager ), fields );
+                    serializer->Deserialize( entity, Common::Json::Root( merged, where ), assetManager, issues );
                 }
                 else
                 {
                     // The instance has a component the prefab does not. There is nothing to merge onto,
                     // and the diff recorded the whole payload for exactly this case.
-                    serializer->Deserialize( entity, fields, assetManager );
+                    serializer->Deserialize( entity, Common::Json::Root( fields, where ), assetManager, issues );
                 }
+                if ( !issues.empty() )
+                    Common::Json::ReportIssues( issues, "prefab override" );
             }
         }
         return missed;

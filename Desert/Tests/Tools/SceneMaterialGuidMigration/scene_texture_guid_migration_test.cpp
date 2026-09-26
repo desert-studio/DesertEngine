@@ -23,6 +23,26 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 namespace Migration = Desert::Migration;
 namespace fs        = std::filesystem;
@@ -284,7 +304,7 @@ TEST( SkyboxReferenceWriter, AnAssignedSkyboxIsWrittenAsItsGuidAndItsProjectKey 
     Desert::ECS::SkyboxComponent back;
     int                          asked = 0;
     const auto                   again = SkyResolver( &asked );
-    Desert::Reflection::DeserializeReflected( SkyboxType(), &back, out, &again );
+    ReadReflectedValue( SkyboxType(), &back, out, &again );
     EXPECT_EQ( static_cast<uint64_t>( back.SkyboxHandle ), SkyHandle() );
     EXPECT_EQ( asked, 1 ) << "the GUID is the identity and is asked first";
 }
@@ -304,7 +324,7 @@ TEST( SkyboxReferenceWriter, ABareStringIsNoLongerReadAsASkybox )
     in["SkyboxHandle"] = std::string( kSkyKey );
     Desert::ECS::SkyboxComponent sky;
     const auto                   resolver = SkyResolver();
-    Desert::Reflection::DeserializeReflected( SkyboxType(), &sky, in, &resolver );
+    ReadReflectedValue( SkyboxType(), &sky, in, &resolver );
     EXPECT_EQ( static_cast<uint64_t>( sky.SkyboxHandle ), 0u );
 }
 
@@ -317,6 +337,6 @@ TEST( SkyboxReferenceWriter, AGuidWhosePathHoldsAnotherAssetStaysEmpty )
     in["SkyboxHandle"] = ref;
     Desert::ECS::SkyboxComponent sky;
     const auto                   resolver = SkyResolver();
-    Desert::Reflection::DeserializeReflected( SkyboxType(), &sky, in, &resolver );
+    ReadReflectedValue( SkyboxType(), &sky, in, &resolver );
     EXPECT_EQ( static_cast<uint64_t>( sky.SkyboxHandle ), 0u );
 }

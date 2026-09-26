@@ -34,6 +34,26 @@
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 using namespace Desert::Core::Serialize;
 
@@ -328,7 +348,7 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
             continue;
 
         Desert::Core::SceneSettings settings;
-        Desert::Reflection::DeserializeReflected( *settingsType, &settings, block.value() );
+        ReadReflectedValue( *settingsType, &settings, block.value() );
         rfl::Generic::Object written = Desert::Reflection::SerializeReflected( *settingsType, &settings );
 
         // AN ASSET HANDLE HAS TWO ON-DISK FORMS AND THIS SUITE CANNOT PRODUCE THE RIGHT ONE. The saver

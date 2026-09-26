@@ -5,6 +5,7 @@
 
 #include <Engine/Reflection/TypeRegistrar.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
+#include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <string>

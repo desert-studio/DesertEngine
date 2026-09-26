@@ -1,6 +1,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Common/Json/Document.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
@@ -443,11 +444,16 @@ namespace Desert::Core
         if ( scene.Settings.has_value() )
         {
             if ( const auto* st = Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
-                if ( auto obj = scene.Settings->to_object(); obj.has_value() )
-                {
-                    auto resolver = Serialize::MakeAssetResolver( *m_AssetManager );
-                    Reflection::DeserializeReflected( *st, &m_Scene->GetSettings(), obj.value(), &resolver );
-                }
+            {
+                // The wrong-type rule: a bad value keeps its default and is named, the load continues.
+                Common::Json::Issues issues;
+                auto                 resolver = Serialize::MakeAssetResolver( *m_AssetManager );
+                Reflection::DeserializeReflected(
+                     *st, &m_Scene->GetSettings(),
+                     Common::Json::Root( *scene.Settings, Common::Json::Path().Key( "Settings" ) ), issues,
+                     &resolver );
+                Common::Json::ReportIssues( issues, "scene settings" );
+            }
         }
 
         // IF THIS WORLD SAYS IT IS PARTITIONED, SAY WHAT THE PARTITION IS AND WHAT IT COST.

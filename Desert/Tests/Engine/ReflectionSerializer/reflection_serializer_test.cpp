@@ -5,6 +5,8 @@
 
 #include <glm/glm.hpp>
 
+#include <Common/Json/Document.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <cstddef>
@@ -17,6 +19,20 @@
 // and covers each FieldType, a nested struct, a byte-sized enum, and the missing-key "keep default" rule.
 
 using namespace Desert::Reflection;
+
+namespace
+{
+    // Reads `src` rooted at "Sample" and returns what the reader refused.
+    Common::Json::Issues Read( const TypeInfo& type, void* obj, const Common::Json::Object& src,
+                               const AssetResolver* resolver = nullptr )
+    {
+        const Common::Json::Value value( src );
+        Common::Json::Issues      issues;
+        DeserializeReflected( type, obj, Common::Json::Root( value, Common::Json::Path().Key( "Sample" ) ), issues,
+                              resolver );
+        return issues;
+    }
+} // namespace
 
 namespace
 {
@@ -116,10 +132,10 @@ TEST( ReflectionSerializer, RoundTripsEveryFieldType )
     const TypeInfo type = MakeSampleType();
     const Sample   src  = MakePopulated();
 
-    const rfl::Generic::Object obj = SerializeReflected( type, &src );
+    const Common::Json::Object obj = SerializeReflected( type, &src );
 
     Sample dst; // factory defaults
-    DeserializeReflected( type, &dst, obj );
+    EXPECT_TRUE( Read( type, &dst, obj ).empty() );
 
     EXPECT_EQ( dst.Flag, src.Flag );
     EXPECT_EQ( dst.Count, src.Count );
@@ -145,7 +161,7 @@ TEST( ReflectionSerializer, ByteSizedEnumDoesNotCorruptNeighbours )
     src.Child           = { -1.5f, 99 };
 
     Sample dst;
-    DeserializeReflected( type, &dst, SerializeReflected( type, &src ) );
+    EXPECT_TRUE( Read( type, &dst, SerializeReflected( type, &src ) ).empty() );
 
     EXPECT_EQ( dst.ModeVal, Mode::C );
     EXPECT_FLOAT_EQ( dst.Child.X, -1.5f );
@@ -163,8 +179,8 @@ TEST( ReflectionSerializer, MissingKeysKeepDefaults )
     dst.Name  = "unchanged";
     dst.Count = 777;
 
-    rfl::Generic::Object partial; // no keys at all
-    DeserializeReflected( type, &dst, partial );
+    const Common::Json::Object partial; // no keys at all
+    EXPECT_TRUE( Read( type, &dst, partial ).empty() );
 
     EXPECT_FLOAT_EQ( dst.Scale, 12.5f );
     EXPECT_EQ( dst.Name, "unchanged" );
@@ -224,7 +240,7 @@ namespace
             return 0;
 
         Slot dst;
-        DeserializeReflected( type, &dst, obj.value() );
+        EXPECT_TRUE( Read( type, &dst, obj.value() ).empty() );
         return dst.Handle;
     }
 } // namespace
@@ -265,14 +281,133 @@ TEST( ReflectionSerializer, AnAssetHandleStoredAsAPathIsRefusedWithoutAResolverR
     // a legitimate value ("unset") and the caller cannot tell the two apart.
     const TypeInfo type = MakeSlotType();
 
-    rfl::Generic::Object obj;
+    Common::Json::Object obj;
     obj["Handle"] = std::string( "cooked:Textures/T_Checker.tex" );
 
     Slot dst{ 12345ull };
-    DeserializeReflected( type, &dst, obj );
+    EXPECT_TRUE( Read( type, &dst, obj ).empty() );
 
     EXPECT_EQ( dst.Handle, 12345ull ) << "a named asset that could not be resolved overwrote the field "
                                          "with 0, which reads as 'the artist left this empty'";
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE WRONG-TYPE RULE (Common/Json/Document.hpp). A reflected Float holding a string used to become 0.0
+// with nothing logged, and a wrong-typed Bool/String/Vec/Struct was skipped with nothing logged either.
+// Now every one is an Issue naming its full path, the field keeps its value, and the walk continues.
+// ---------------------------------------------------------------------------------------------------
+
+TEST( ReflectionSerializer, AWrongTypedFloatIsAnIssueAndKeepsItsValue )
+{
+    const TypeInfo type = MakeSampleType();
+    Sample         dst;
+    dst.Scale = 12.5f;
+
+    Common::Json::Object obj;
+    obj["Scale"]      = std::string( "large" );
+    obj["Count"]      = static_cast<int64_t>( 9 );
+    const auto issues = Read( type, &dst, obj );
+
+    EXPECT_FLOAT_EQ( dst.Scale, 12.5f ) << "a string in a float field was substituted";
+    EXPECT_EQ( dst.Count, 9 ) << "the walk stopped at the bad field";
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, "Sample.Scale" );
+    EXPECT_EQ( issues[0].Expected, "number" );
+    EXPECT_NE( issues[0].Found.find( "large" ), std::string::npos ) << issues[0].Found;
+}
+
+TEST( ReflectionSerializer, EveryWrongTypedFieldKindIsAnIssueWithItsPath )
+{
+    const TypeInfo type   = MakeSampleType();
+    const Sample   before = MakePopulated();
+    Sample         dst    = before;
+
+    Common::Json::Object child;
+    child["X"] = true;
+    Common::Json::Object obj;
+    obj["Flag"]    = std::string( "yes" );
+    obj["Count"]   = static_cast<int64_t>( 1 ) << 40; // outside int32
+    obj["UCount"]  = static_cast<int64_t>( -1 );
+    obj["Precise"] = Common::Json::Object{};
+    obj["Name"]    = 3.0;
+    obj["V2"]      = Common::Json::Value::Array{ Common::Json::Value( 1.0 ) }; // wrong length
+    obj["V3"]      = std::string( "1 2 3" );
+    obj["V4"] =
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( 2.0 ),
+                                     Common::Json::Value( std::string( "3" ) ), Common::Json::Value( 4.0 ) };
+    obj["ModeVal"]    = static_cast<int64_t>( 300 ); // does not fit the 1-byte enum
+    obj["Child"]      = child;
+    const auto issues = Read( type, &dst, obj );
+
+    std::vector<std::string> paths;
+    for ( const auto& issue : issues )
+        paths.push_back( issue.Path );
+    EXPECT_EQ( paths, ( std::vector<std::string>{ "Sample.Flag", "Sample.Count", "Sample.UCount", "Sample.Precise",
+                                                  "Sample.Name", "Sample.V2", "Sample.V3", "Sample.V4",
+                                                  "Sample.ModeVal", "Sample.Child.X" } ) );
+    EXPECT_EQ( dst.Flag, before.Flag );
+    EXPECT_EQ( dst.Count, before.Count );
+    EXPECT_EQ( dst.UCount, before.UCount );
+    EXPECT_DOUBLE_EQ( dst.Precise, before.Precise );
+    EXPECT_EQ( dst.Name, before.Name );
+    EXPECT_EQ( dst.V2, before.V2 );
+    EXPECT_EQ( dst.V3, before.V3 );
+    EXPECT_EQ( dst.V4, before.V4 ) << "a vec was read half-way";
+    EXPECT_EQ( dst.ModeVal, before.ModeVal );
+    EXPECT_FLOAT_EQ( dst.Child.X, before.Child.X );
+}
+
+TEST( ReflectionSerializer, AStructFieldThatIsNotAnObjectIsAnIssue )
+{
+    const TypeInfo       type = MakeSampleType();
+    Sample               dst  = MakePopulated();
+    Common::Json::Object obj;
+    obj["Child"]      = static_cast<int64_t>( 5 );
+    const auto issues = Read( type, &dst, obj );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, "Sample.Child" );
+    EXPECT_EQ( issues[0].Expected, "object" );
+}
+
+TEST( ReflectionSerializer, AHandleOfNoAcceptedFormIsAnIssue )
+{
+    const TypeInfo       type = MakeSlotType();
+    Slot                 dst{ 777ull };
+    Common::Json::Object obj;
+    obj["Handle"]     = true;
+    const auto issues = Read( type, &dst, obj );
+    EXPECT_EQ( dst.Handle, 777ull );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, "Sample.Handle" );
+}
+
+TEST( ReflectionSerializer, AContainerReadsWholeOrKeepsItsValue )
+{
+    // The codegen's halves of a std::vector field, as DesertHeaderTool emits them.
+    struct Holder
+    {
+        std::vector<float> Values{ 1.0f, 2.0f };
+    };
+    FieldInfo f = Field( "Values", FieldType::Unknown, offsetof( Holder, Values ), sizeof( std::vector<float> ) );
+    f.IsContainer          = true;
+    f.SerializeContainer   = WriteContainer<std::vector<float>>;
+    f.DeserializeContainer = ReadContainer<std::vector<float>>;
+    TypeInfo type;
+    type.Fields.push_back( f );
+
+    Holder src;
+    src.Values = { 3.0f, 4.0f, 5.0f };
+    Holder dst;
+    EXPECT_TRUE( Read( type, &dst, SerializeReflected( type, &src ) ).empty() );
+    EXPECT_EQ( dst.Values, src.Values );
+
+    Common::Json::Object bad;
+    bad["Values"] =
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( std::string( "x" ) ) };
+    const auto issues = Read( type, &dst, bad );
+    EXPECT_EQ( dst.Values, src.Values ) << "one bad element must not shorten the vector";
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, "Sample.Values[1]" );
 }
 
 int main( int argc, char** argv )

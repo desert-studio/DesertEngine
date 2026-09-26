@@ -24,6 +24,26 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 namespace Migration = Desert::Migration;
 namespace fs        = std::filesystem;
@@ -248,7 +268,7 @@ TEST( SpriteReferenceWriter, AnAssignedButtonSpriteIsWrittenAsItsGuidAndReadBack
     Desert::ECS::UIButtonData back;
     int                       asked = 0;
     const auto                again = SpriteResolver( &asked );
-    Desert::Reflection::DeserializeReflected( type, &back, out, &again );
+    ReadReflectedValue( type, &back, out, &again );
     EXPECT_EQ( static_cast<uint64_t>( back.HoverSprite ), SpriteHandle() );
     EXPECT_EQ( static_cast<uint64_t>( back.Sprite ), 0u );
     EXPECT_EQ( asked, 1 ) << "the GUID is the identity and is asked first";
@@ -270,6 +290,6 @@ TEST( SpriteReferenceWriter, ABareStringIsNoLongerReadAsASprite )
     in["Sprite"] = std::string( kSpriteKey );
     Desert::ECS::UIPanelData panel;
     const auto               resolver = SpriteResolver();
-    Desert::Reflection::DeserializeReflected( TypeNamed( "UIPanelData" ), &panel, in, &resolver );
+    ReadReflectedValue( TypeNamed( "UIPanelData" ), &panel, in, &resolver );
     EXPECT_EQ( static_cast<uint64_t>( panel.Sprite ), 0u );
 }

@@ -1,5 +1,6 @@
 #include "EntitySerializer.hpp"
 #include "ComponentRegistry.hpp"
+#include <Common/Json/Document.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
@@ -88,12 +89,23 @@ namespace Desert::Core::Serialize
         // ---- Components (generic, registry-driven) ----
         // ExtraFields holds component payloads keyed by registry key — for both new saves and legacy
         // files where the same keys lived directly at the entity's top level.
+        // Each block is read at its place in the scene, so a wrong-typed value names its entity, component and
+        // field ("Entities[id=4127].Light.Intensity"); the entity's issues are reported in one line.
+        const Common::Json::Path entities = Common::Json::Path().Key( "Entities" );
+        const Common::Json::Path record =
+             entity.HasComponent<ECS::UUIDComponent>()
+                  ? entities.Record( entity.GetComponent<ECS::UUIDComponent>().UUID.ToString() )
+                  : entities;
+        Common::Json::Issues issues;
         for ( const auto& serializer : ComponentRegistry::Get().All() )
         {
             auto found = data.Components.get( serializer.Key );
             if ( found.has_value() )
-                serializer.Deserialize( entity, found.value(), assetManager );
+                serializer.Deserialize( entity, Common::Json::Root( found.value(), record.Key( serializer.Key ) ),
+                                        assetManager, issues );
         }
+        if ( !issues.empty() )
+            Common::Json::ReportIssues( issues, "scene component" );
 
         // ---- Prefab link (meta) ----
         if ( data.PrefabPath )

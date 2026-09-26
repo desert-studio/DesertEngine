@@ -6,8 +6,10 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
+#include <vector>
+
+#include <glm/glm.hpp>
 
 namespace Desert::Reflection
 {
@@ -20,64 +22,12 @@ namespace Desert::Reflection
             return assetType == "SkyboxAsset" || assetType == "TextureAsset";
         }
 
-        // Accepts a JSON number stored either as integer or floating point.
-        //
-        // FOR FLOATING-POINT FIELDS ONLY. It used to serve the integral cases as well, and a 64-bit
-        // value does not survive that: `double` has 53 bits of mantissa, so every integer above 2^53
-        // (9 007 199 254 740 992) is rounded to the nearest representable neighbour. Measured on a real
-        // asset handle, which is a 64-bit FNV-1a hash and therefore lands in that range essentially
-        // always: 5355760296319878840 came back as 5355760296319879168, off by 328 — 594 times past the
-        // point where doubles stop counting. The corruption was OURS and not the JSON library's:
-        // rfl::json writes and reads that same value exactly, including values above 2^63, and
-        // rfl::Generic keeps integers in an int64_t alternative that never touches a double.
-        double AsNumber( const rfl::Generic& g )
+        void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )
         {
-            if ( auto d = g.to_double(); d.has_value() )
-                return d.value();
-            if ( auto i = g.to_int64(); i.has_value() )
-                return static_cast<double>( i.value() );
-            return 0.0;
-        }
-
-        // The integral counterpart: every bit of a stored integer, or nothing. Returning an optional
-        // rather than a 0 default is deliberate — 0 is a MEANINGFUL handle value ("unset"), so a
-        // silent 0 on a malformed field is DC §1.4's substitution, and the callers below log instead.
-        std::optional<int64_t> AsInteger( const rfl::Generic& g )
-        {
-            if ( auto i = g.to_int64(); i.has_value() )
-                return i.value();
-            // A whole number written with a decimal point (`5.0`) is a legitimate JSON spelling of an
-            // integer, and the code this replaces accepted it (it asked for a double FIRST), so a file
-            // carrying one must keep loading. It is accepted only when the value is integral AND inside
-            // int64's range — outside it the conversion is undefined behaviour, and a double that large
-            // has already lost the exact integer it claims to be, which is the whole subject here.
-            if ( auto d = g.to_double(); d.has_value() )
-            {
-                const double     v           = d.value();
-                constexpr double kUpperBound = 9223372036854775808.0; // 2^63, the first value int64 lacks
-                constexpr double kLowerBound = -9223372036854775808.0;
-                if ( v >= kLowerBound && v < kUpperBound && v == static_cast<double>( static_cast<int64_t>( v ) ) )
-                    return static_cast<int64_t>( v );
-            }
-            return std::nullopt;
-        }
-
-        void WriteVec( rfl::Generic::Object& out, const std::string& name, const float* v, int count )
-        {
-            rfl::Generic::Array arr;
+            Common::Json::Value::Array arr;
             for ( int i = 0; i < count; ++i )
-                arr.push_back( rfl::Generic( static_cast<double>( v[i] ) ) );
+                arr.emplace_back( static_cast<double>( v[i] ) );
             out[name] = std::move( arr );
-        }
-
-        void ReadVec( const rfl::Generic& g, float* v, int count )
-        {
-            auto arr = g.to_array();
-            if ( !arr.has_value() )
-                return;
-            const auto& a = arr.value();
-            for ( int i = 0; i < count && i < static_cast<int>( a.size() ); ++i )
-                v[i] = static_cast<float>( AsNumber( a[i] ) );
         }
 
         // Enums can have any integral underlying type (enum class : uint8_t, etc.). Read/write exactly
@@ -86,10 +36,30 @@ namespace Desert::Reflection
         {
             switch ( size )
             {
-                case 1:  return *static_cast<const int8_t*>( p );
-                case 2:  return *static_cast<const int16_t*>( p );
-                case 8:  return *static_cast<const int64_t*>( p );
-                default: return *static_cast<const int32_t*>( p );
+                case 1:
+                    return *static_cast<const int8_t*>( p );
+                case 2:
+                    return *static_cast<const int16_t*>( p );
+                case 8:
+                    return *static_cast<const int64_t*>( p );
+                default:
+                    return *static_cast<const int32_t*>( p );
+            }
+        }
+
+        // An enum's stored integer fits the field when ReadIntBySize could have produced it.
+        bool FitsIntBySize( std::size_t size, int64_t value )
+        {
+            switch ( size )
+            {
+                case 1:
+                    return value >= INT8_MIN && value <= INT8_MAX;
+                case 2:
+                    return value >= INT16_MIN && value <= INT16_MAX;
+                case 8:
+                    return true;
+                default:
+                    return value >= INT32_MIN && value <= INT32_MAX;
             }
         }
 
@@ -97,28 +67,33 @@ namespace Desert::Reflection
         {
             switch ( size )
             {
-                case 1:  *static_cast<int8_t*>( p )  = static_cast<int8_t>( value ); break;
-                case 2:  *static_cast<int16_t*>( p ) = static_cast<int16_t>( value ); break;
-                case 8:  *static_cast<int64_t*>( p ) = value; break;
-                default: *static_cast<int32_t*>( p ) = static_cast<int32_t>( value ); break;
+                case 1:
+                    *static_cast<int8_t*>( p ) = static_cast<int8_t>( value );
+                    break;
+                case 2:
+                    *static_cast<int16_t*>( p ) = static_cast<int16_t>( value );
+                    break;
+                case 8:
+                    *static_cast<int64_t*>( p ) = value;
+                    break;
+                default:
+                    *static_cast<int32_t*>( p ) = static_cast<int32_t>( value );
+                    break;
             }
         }
     } // namespace
 
-    rfl::Generic::Object SerializeReflected( const TypeInfo& type, const void* obj, const AssetResolver* resolver )
+    namespace
     {
-        rfl::Generic::Object out;
-        const auto* base = static_cast<const std::byte*>( obj );
-
-        for ( const auto& field : type.Fields )
+        // Writes one field that is not a nested struct (SerializeReflected walks those).
+        void WriteField( Common::Json::Object& out, const FieldInfo& field, const void* p,
+                         const AssetResolver* resolver )
         {
-            const void* p = base + field.Offset;
-
             // Containers route through the codegen-emitted typed lambda (the switch can't iterate vectors).
             if ( field.IsContainer && field.SerializeContainer )
             {
                 out[field.Name] = field.SerializeContainer( p );
-                continue;
+                return;
             }
 
             switch ( field.Type )
@@ -158,10 +133,10 @@ namespace Desert::Reflection
                     {
                         // SCNE 29 (skybox) / 30 (texture): the GUID is the identity, the key only locates it.
                         const uint64_t       handle = *static_cast<const uint64_t*>( p );
-                        rfl::Generic::Object ref;
+                        Common::Json::Object ref;
                         ref["Guid"]     = resolver->ToGuid( handle, field.Meta.AssetType );
                         ref["Path"]     = resolver->ToPath( handle, field.Meta.AssetType );
-                        out[field.Name] = rfl::Generic( std::move( ref ) );
+                        out[field.Name] = Common::Json::Value( std::move( ref ) );
                     }
                     else if ( resolver != nullptr && resolver->ToPath )
                         out[field.Name] =
@@ -169,16 +144,52 @@ namespace Desert::Reflection
                     else
                         out[field.Name] = static_cast<int64_t>( *static_cast<const uint64_t*>( p ) );
                     break;
-                case FieldType::Struct:
-                    if ( field.StructType )
-                        out[field.Name] = SerializeReflected( *field.StructType, p, resolver );
-                    break;
+                case FieldType::Struct: // nested structs are walked by SerializeReflected's own stack
                 default:
                     break;
             }
         }
+    } // namespace
 
-        return out;
+    Common::Json::Object SerializeReflected( const TypeInfo& type, const void* obj, const AssetResolver* resolver )
+    {
+        // Reflected structs nest (a Struct field names another TypeInfo), so the walk keeps its own stack
+        // rather than recursing: one frame per struct being written. A finished nested struct goes into its
+        // parent under its field name the moment it completes — the key order a recursive writer produces.
+        struct Frame
+        {
+            const TypeInfo*      Type;
+            const std::byte*     Base;
+            const FieldInfo*     Field; // the parent's field this struct is written under; null at the root
+            std::size_t          Next;
+            Common::Json::Object Out;
+        };
+        std::vector<Frame> stack;
+        stack.push_back( { &type, static_cast<const std::byte*>( obj ), nullptr, 0, {} } );
+        while ( true )
+        {
+            Frame& top = stack.back();
+            if ( top.Next == top.Type->Fields.size() )
+            {
+                if ( stack.size() == 1 )
+                    return std::move( top.Out );
+                Common::Json::Object done  = std::move( top.Out );
+                const FieldInfo*     field = top.Field;
+                stack.pop_back();
+                stack.back().Out[field->Name] = Common::Json::Value( std::move( done ) );
+                continue;
+            }
+            const FieldInfo& field = top.Type->Fields[top.Next++];
+            const void*      p     = top.Base + field.Offset;
+            // A container goes through its typed lambda (WriteField) whatever its element type.
+            if ( field.Type == FieldType::Struct && !( field.IsContainer && field.SerializeContainer ) )
+            {
+                if ( field.StructType != nullptr )
+                    stack.push_back( { field.StructType, static_cast<const std::byte*>( p ), &field, 0, {} } );
+                continue;
+            }
+            WriteField( top.Out, field, p, resolver );
+        }
     }
 
     uint64_t ResolveGuidRef( const AssetResolver& resolver, const std::string& text, const std::string& path,
@@ -219,102 +230,105 @@ namespace Desert::Reflection
         return 0;
     }
 
-    void DeserializeReflected( const TypeInfo& type, void* obj, const rfl::Generic::Object& src,
-                               const AssetResolver* resolver )
+    namespace
     {
-        auto* base = static_cast<std::byte*>( obj );
-
-        for ( const auto& field : type.Fields )
+        // Reads one field that is not a nested struct (DeserializeReflected walks those).
+        void ReadField( const FieldInfo& field, void* p, const Common::Json::Node& g, Common::Json::Issues& issues,
+                        const AssetResolver* resolver )
         {
-            auto found = src.get( field.Name );
-            if ( !found.has_value() )
-                continue; // missing key — keep the field's default value
-
-            const rfl::Generic& g = found.value();
-            void*               p = base + field.Offset;
-
+            using Common::Json::Kind;
             if ( field.IsContainer && field.DeserializeContainer )
             {
-                field.DeserializeContainer( p, g );
-                continue;
+                field.DeserializeContainer( p, g, issues );
+                return;
             }
 
             switch ( field.Type )
             {
                 case FieldType::Bool:
-                    if ( auto b = g.to_bool(); b.has_value() )
-                        *static_cast<bool*>( p ) = b.value();
+                    g.ReadValue( *static_cast<bool*>( p ), issues );
                     break;
                 case FieldType::Int:
-                    if ( const auto v = AsInteger( g ) )
-                        *static_cast<int32_t*>( p ) = static_cast<int32_t>( *v );
+                    g.ReadValue( *static_cast<int32_t*>( p ), issues );
                     break;
                 case FieldType::UInt:
-                    if ( const auto v = AsInteger( g ) )
-                        *static_cast<uint32_t*>( p ) = static_cast<uint32_t>( *v );
+                    g.ReadValue( *static_cast<uint32_t*>( p ), issues );
                     break;
                 case FieldType::Float:
-                    *static_cast<float*>( p ) = static_cast<float>( AsNumber( g ) );
+                    g.ReadValue( *static_cast<float*>( p ), issues );
                     break;
                 case FieldType::Double:
-                    *static_cast<double*>( p ) = AsNumber( g );
+                    g.ReadValue( *static_cast<double*>( p ), issues );
                     break;
                 case FieldType::String:
-                    if ( auto s = g.to_string(); s.has_value() )
-                        *static_cast<std::string*>( p ) = s.value();
+                    g.ReadValue( *static_cast<std::string*>( p ), issues );
                     break;
                 case FieldType::Vec2:
-                    ReadVec( g, static_cast<float*>( p ), 2 );
+                    g.ReadValue( *static_cast<glm::vec2*>( p ), issues );
                     break;
                 case FieldType::Vec3:
-                    ReadVec( g, static_cast<float*>( p ), 3 );
+                    g.ReadValue( *static_cast<glm::vec3*>( p ), issues );
                     break;
                 case FieldType::Vec4:
-                    ReadVec( g, static_cast<float*>( p ), 4 );
+                    g.ReadValue( *static_cast<glm::vec4*>( p ), issues );
                     break;
                 case FieldType::Enum:
-                    if ( const auto v = AsInteger( g ) )
-                        WriteIntBySize( p, field.Size, *v );
+                {
+                    // Stored as the enumerator's integer, at the width of the field (SerializeReflected).
+                    const auto v = g.AsInteger();
+                    if ( v && FitsIntBySize( field.Size, v.GetValue() ) )
+                        WriteIntBySize( p, field.Size, v.GetValue() );
+                    else
+                        g.Report( issues,
+                                  "integer enumerator of a " + std::to_string( field.Size ) + "-byte enum" );
                     break;
+                }
                 case FieldType::AssetHandle:
                 {
                     // A raw integer is what the writer emits with no resolver, for every type alike, so
                     // it takes the raw-handle route below; only a reference form reaches the GUID branch.
-                    if ( IsStoredByGuid( field.Meta.AssetType ) && !AsInteger( g ) )
+                    const auto integer = g.AsInteger();
+                    if ( IsStoredByGuid( field.Meta.AssetType ) && !integer )
                     {
-                        const auto ref = g.to_object();
-                        if ( ref.has_value() && resolver != nullptr )
+                        const auto text = g.AsString();
+                        if ( g.GetKind() == Kind::Object && resolver != nullptr )
                         {
-                            const auto text = [&]( const char* key )
-                            {
-                                const auto v = ref.value().get( key );
-                                return v.has_value() ? v.value().to_string().value_or( std::string() )
-                                                     : std::string();
-                            };
-                            *static_cast<uint64_t*>( p ) =
-                                 ResolveGuidRef( *resolver, text( "Guid" ), text( "Path" ),
-                                                 field.Meta.AssetType.c_str(), "field '" + field.Name + "'" );
+                            std::string       guid;
+                            std::string       path;
+                            const std::size_t before = issues.size();
+                            g.ReadInto( "Guid", guid, issues );
+                            g.ReadInto( "Path", path, issues );
+                            // A wrong-typed Guid or Path is an Issue already; resolving the half that did
+                            // read would name a different reference than the file states.
+                            if ( issues.size() == before )
+                                *static_cast<uint64_t*>( p ) =
+                                     ResolveGuidRef( *resolver, guid, path, field.Meta.AssetType.c_str(),
+                                                     "field '" + g.Where().ToString() + "'" );
                         }
-                        else if ( ref.has_value() ||
-                                  ( g.to_string().has_value() && !g.to_string().value().empty() ) )
+                        else if ( g.GetKind() == Kind::Object || ( text && !text.GetValue().empty() ) )
+                        {
                             LOG_ERROR( "[Reflection] Field '{0}' is a {1} reference in a form this build does not "
                                        "read (a {{Guid, Path}} object with no resolver, or a pre-SCNE-30 bare "
                                        "string - run the SceneMigrator); the field keeps its default.",
-                                       field.Name, field.Meta.AssetType );
+                                       g.Where().ToString(), field.Meta.AssetType );
+                        }
+                        else if ( !text )
+                            g.Report( issues, "{Guid, Path} object or integer handle" );
                         break;
                     }
-                    if ( auto s = g.to_string(); s.has_value() )
+                    if ( const auto s = g.AsString() )
                     {
                         // A path/key. Without a resolver there is nothing that can turn it into a handle,
                         // and quietly leaving the field at zero is what made a texture slot look like an
                         // empty slot (DC §1.4).
                         if ( resolver && resolver->FromPath )
-                            *static_cast<uint64_t*>( p ) = resolver->FromPath( s.value(), field.Meta.AssetType );
-                        else if ( !s.value().empty() )
+                            *static_cast<uint64_t*>( p ) =
+                                 resolver->FromPath( s.GetValue(), field.Meta.AssetType );
+                        else if ( !s.GetValue().empty() )
                             LOG_ERROR( "[Reflection] Field '{0}' names the asset '{1}' but was deserialized "
                                        "with no asset resolver, so the reference cannot be turned into a "
                                        "handle; the field keeps its default.",
-                                       field.Name, s.value() );
+                                       g.Where().ToString(), s.GetValue() );
                         break;
                     }
 
@@ -323,24 +337,60 @@ namespace Desert::Reflection
                     // one, 5355760296319878840 loaded back as 5355760296319879168. The int64 the file
                     // carries is reinterpreted rather than converted, so handles above 2^63 (which the
                     // path hash produces about half the time) survive as well.
-                    if ( const auto v = AsInteger( g ) )
-                        *static_cast<uint64_t*>( p ) = static_cast<uint64_t>( *v );
+                    if ( integer )
+                        *static_cast<uint64_t*>( p ) = static_cast<uint64_t>( integer.GetValue() );
                     else
-                        LOG_ERROR( "[Reflection] Field '{0}' holds neither an asset path nor an integer "
-                                   "handle; the field keeps its default.",
-                                   field.Name );
+                        g.Report( issues, "asset path or integer handle" );
                     break;
                 }
-                case FieldType::Struct:
-                    if ( field.StructType )
-                    {
-                        if ( auto o = g.to_object(); o.has_value() )
-                            DeserializeReflected( *field.StructType, p, o.value(), resolver );
-                    }
-                    break;
+                case FieldType::Struct: // nested structs are walked by DeserializeReflected's own stack
                 default:
                     break;
             }
+        }
+    } // namespace
+
+    void DeserializeReflected( const TypeInfo& type, void* obj, const Common::Json::Node& src,
+                               Common::Json::Issues& issues, const AssetResolver* resolver )
+    {
+        using Common::Json::Kind;
+        if ( !src.ExpectKind( Kind::Object, issues ) )
+            return;
+
+        // Reflected structs nest, so the walk keeps its own stack rather than recursing (SerializeReflected
+        // explains why); a frame is one struct, finished in field order before its parent resumes, which
+        // keeps the Issues in the order a recursive reader reported them.
+        struct Frame
+        {
+            const TypeInfo*    Type;
+            std::byte*         Base;
+            Common::Json::Node Src;
+            std::size_t        Next;
+        };
+        std::vector<Frame> stack;
+        stack.push_back( { &type, static_cast<std::byte*>( obj ), src, 0 } );
+        while ( !stack.empty() )
+        {
+            Frame& top = stack.back();
+            if ( top.Next == top.Type->Fields.size() )
+            {
+                stack.pop_back();
+                continue;
+            }
+            const FieldInfo& field = top.Type->Fields[top.Next++];
+            const auto       found = top.Src.Find( field.Name );
+            if ( !found )
+                continue; // missing key — keep the field's current value
+
+            void* p = top.Base + field.Offset;
+            // A container goes through its typed lambda (ReadField) whatever its element type.
+            if ( field.Type == FieldType::Struct && !( field.IsContainer && field.DeserializeContainer ) )
+            {
+                if ( field.StructType != nullptr && found->ExpectKind( Kind::Object, issues ) )
+                    stack.push_back( { field.StructType, static_cast<std::byte*>( p ), *found, 0 } );
+                continue;
+            }
+            ReadField( field, p, *found, issues, resolver );
         }
     }
 } // namespace Desert::Reflection

@@ -48,13 +48,32 @@
 
 #include <string>
 #include <vector>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 using Desert::Assets::CloudModellingBlob;
 using Desert::Assets::CloudProceduralFieldParams;
 using Desert::Assets::CloudProceduralRegionOriginKm;
 using Desert::Assets::CloudProceduralSpecies;
 using Desert::Assets::GenerateCloudProceduralBlobs;
-using Desert::Reflection::DeserializeReflected;
 using Desert::Reflection::ReflectionRegistry;
 using Desert::Reflection::TypeInfo;
 
@@ -159,7 +178,7 @@ TEST( SceneCloudLayoutDefault, AV6PayloadWithNoLayoutKeysBindsNoPainting )
              << "', so it is not the pre-phase file it claims to be and this suite is testing itself";
 
     Desert::ECS::VolumetricCloudData layer;
-    DeserializeReflected( CloudType(), &layer, payload );
+    ReadReflectedValue( CloudType(), &layer, payload );
 
     // The settings that were in the file AND still belong to the component arrived, so the deserialiser
     // ran and the rest of the test is about absence rather than about nothing having happened. Coverage,

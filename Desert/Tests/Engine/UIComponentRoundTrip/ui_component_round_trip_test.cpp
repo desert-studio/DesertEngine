@@ -29,9 +29,28 @@
 
 #include <cstdint>
 #include <string>
+#include <Common/Json/Document.hpp>
+
+namespace
+{
+    // DeserializeReflected reads a Json::Node and collects wrong-typed values as Issues; every fixture this
+    // file feeds it is well-typed, so an Issue is a failure here.
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Value& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        Common::Json::Issues issues;
+        Desert::Reflection::DeserializeReflected( type, obj, Common::Json::Root( src ), issues, resolver );
+        for ( const auto& issue : issues )
+            ADD_FAILURE() << Common::Json::Describe( issue );
+    }
+    void ReadReflectedValue( const Desert::Reflection::TypeInfo& type, void* obj, const Common::Json::Object& src,
+                             const Desert::Reflection::AssetResolver* resolver = nullptr )
+    {
+        ReadReflectedValue( type, obj, Common::Json::Value( src ), resolver );
+    }
+} // namespace
 
 using Desert::Reflection::AssetResolver;
-using Desert::Reflection::DeserializeReflected;
 using Desert::Reflection::ReflectionRegistry;
 using Desert::Reflection::SerializeReflected;
 using Desert::Reflection::TypeInfo;
@@ -158,7 +177,7 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
          << "the stored locator is an absolute path, i.e. a directory that exists on one machine only";
 
     ECS::UICanvasData read;
-    DeserializeReflected( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
+    ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle )
          << "the canvas background did not come back: the setting is dead in the only way that matters, "
@@ -189,7 +208,7 @@ TEST( UIComponentRoundTrip, EveryAuthoredCanvasFieldComesBack )
     const auto          object   = SerializeReflected( Type( "UICanvasData" ), &written, &resolver );
 
     ECS::UICanvasData read;
-    DeserializeReflected( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
+    ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( read.ScaleMode, written.ScaleMode );
     EXPECT_EQ( read.RenderMode, written.RenderMode );
@@ -219,7 +238,7 @@ TEST( UIComponentRoundTrip, TheElementStyleSurvivesTheTrip )
     const auto          object   = SerializeReflected( Type( "UIStyleData" ), &written, &resolver );
 
     ECS::UIStyleData read;
-    DeserializeReflected( Type( "UIStyleData" ), &read, ThroughJsonText( object ), &resolver );
+    ReadReflectedValue( Type( "UIStyleData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_EQ( read.Source, written.Source );
     EXPECT_EQ( read.Style, written.Style );
@@ -243,7 +262,7 @@ TEST( UIComponentRoundTrip, EveryListViewFieldComesBack )
     const auto          object   = SerializeReflected( Type( "UIListViewData" ), &written, &resolver );
 
     ECS::UIListViewData read;
-    DeserializeReflected( Type( "UIListViewData" ), &read, ThroughJsonText( object ), &resolver );
+    ReadReflectedValue( Type( "UIListViewData" ), &read, ThroughJsonText( object ), &resolver );
 
     EXPECT_FLOAT_EQ( read.ScrollY, written.ScrollY );
     EXPECT_FLOAT_EQ( read.ItemHeight, written.ItemHeight );
@@ -269,7 +288,7 @@ TEST( UIComponentRoundTrip, TheImageAndPanelSpriteSlotsTakeTheSameRoute )
         const auto object = SerializeReflected( Type( "UIImageData" ), &written, &resolver );
 
         ECS::UIImageData read;
-        DeserializeReflected( Type( "UIImageData" ), &read, ThroughJsonText( object ), &resolver );
+        ReadReflectedValue( Type( "UIImageData" ), &read, ThroughJsonText( object ), &resolver );
         EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle );
     }
     {
@@ -278,7 +297,7 @@ TEST( UIComponentRoundTrip, TheImageAndPanelSpriteSlotsTakeTheSameRoute )
         const auto object = SerializeReflected( Type( "UIPanelData" ), &written, &resolver );
 
         ECS::UIPanelData read;
-        DeserializeReflected( Type( "UIPanelData" ), &read, ThroughJsonText( object ), &resolver );
+        ReadReflectedValue( Type( "UIPanelData" ), &read, ThroughJsonText( object ), &resolver );
         EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kResolvedHandle );
     }
 }
@@ -303,7 +322,7 @@ TEST( UIComponentRoundTrip, ARawHandleSurvivesTheJsonTextExactlyAtEverySize )
 
         ECS::UICanvasData read;
         read.Sprite = Desert::Assets::AssetHandle( 0xDEADBEEFull ); // so "unchanged" cannot pass as "read"
-        DeserializeReflected( Type( "UICanvasData" ), &read, ThroughJsonText( object ), nullptr );
+        ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), nullptr );
 
         EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), handle )
              << "handle " << handle
@@ -327,7 +346,7 @@ TEST( UIComponentRoundTrip, AFieldTheRecordDoesNotMentionKeepsWhatItHad )
     read.Sprite         = Desert::Assets::AssetHandle( kMeasuredHandle );
     read.ReferenceWidth = 640.0f;
 
-    DeserializeReflected( Type( "UICanvasData" ), &read, ThroughJsonText( partial ), nullptr );
+    ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( partial ), nullptr );
 
     EXPECT_FALSE( read.Visible ) << "the one field the record DID state was not read";
     EXPECT_EQ( static_cast<uint64_t>( read.Sprite ), kMeasuredHandle )
@@ -383,7 +402,7 @@ TEST( UIComponentRoundTrip, AReferenceThatResolvesToNothingReachesTheResolverRat
 
     ECS::UICanvasData read;
     read.Sprite = Desert::Assets::AssetHandle( 7ull );
-    DeserializeReflected( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &counting );
+    ReadReflectedValue( Type( "UICanvasData" ), &read, ThroughJsonText( object ), &counting );
 
     EXPECT_EQ( asked, 1 ) << "the stored reference never reached the resolver, so nothing could report "
                              "that it did not resolve";
@@ -411,7 +430,7 @@ TEST( UIComponentRoundTrip, TheRenderTransformSurvivesTheTrip )
     const auto object = SerializeReflected( Type( "UILayoutData" ), &written, nullptr );
 
     ECS::UILayoutData read;
-    DeserializeReflected( Type( "UILayoutData" ), &read, ThroughJsonText( object ), nullptr );
+    ReadReflectedValue( Type( "UILayoutData" ), &read, ThroughJsonText( object ), nullptr );
 
     EXPECT_FLOAT_EQ( read.Rotation, -37.5f );
     EXPECT_FLOAT_EQ( read.Scale.x, 1.75f );
@@ -435,7 +454,7 @@ TEST( UIComponentRoundTrip, ALayoutRecordFromBeforeTheTransformExistedLeavesItNe
     old["ClipContents"]      = rfl::Generic( false );
 
     ECS::UILayoutData read; // its defaults ARE the neutral transform
-    DeserializeReflected( Type( "UILayoutData" ), &read, ThroughJsonText( old ), nullptr );
+    ReadReflectedValue( Type( "UILayoutData" ), &read, ThroughJsonText( old ), nullptr );
 
     EXPECT_FLOAT_EQ( read.Rotation, 0.0f );
     EXPECT_FLOAT_EQ( read.Scale.x, 1.0f ) << "an old scene came back with its element scaled away";

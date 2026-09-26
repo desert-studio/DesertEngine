@@ -19,6 +19,8 @@
 
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 
+#include <Common/Json/Document.hpp>
+
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
@@ -37,6 +39,22 @@ using Desert::Core::Serialize::WriteComponent;
 
 namespace
 {
+    // Where the reads below are rooted, so an Issue's path can be compared whole.
+    Common::Json::Path BlockPath()
+    {
+        return Common::Json::Path().Key( "Entities" ).Record( "7" ).Key( "Block" );
+    }
+
+    // ReadComponent at a component's place in a scene; the Issues are what the load would report.
+    template <class TComponent>
+    Common::Json::Issues ReadAt( const rfl::Generic::Object& block, TComponent& read )
+    {
+        const rfl::Generic   value( block );
+        Common::Json::Issues issues;
+        ReadComponent( Common::Json::Root( value, BlockPath() ), read, issues );
+        return issues;
+    }
+
     // What a `.desce` holds between the two halves of the trip: JSON TEXT. Staying in `rfl::Generic`
     // would hide exactly the class of defect the UUID rule in AuthoredComponentIO.hpp is about — a
     // value that is fine in the tree and wrong on disk.
@@ -56,7 +74,7 @@ namespace
     TComponent RoundTrip( const TComponent& written )
     {
         TComponent read;
-        ReadComponent( ThroughJsonText( WriteComponent( written ) ), read );
+        ReadAt( ThroughJsonText( WriteComponent( written ) ), read );
         return read;
     }
 
@@ -328,7 +346,7 @@ TEST( AuthoredComponentRoundTrip, AMorphBlockWhoseTwoListsDisagreeIsRepairedNotT
                                             rfl::Generic( std::string( "C" ) ) } );
 
     ECS::MorphComponent read;
-    ReadComponent( ThroughJsonText( block ), read );
+    ReadAt( ThroughJsonText( block ), read );
 
     EXPECT_EQ( read.Weights.size(), 2u );
     EXPECT_EQ( read.TargetNames.size(), read.Weights.size() )
@@ -429,7 +447,7 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
     ECS::FoliageComponent foliage;
     foliage.Density       = 42.0f;
     foliage.AlignToNormal = false;
-    ReadComponent( rfl::Generic::Object{}, foliage );
+    ReadAt( rfl::Generic::Object{}, foliage );
     EXPECT_FLOAT_EQ( foliage.Density, 42.0f ) << "an empty block reset a float to its struct default";
     EXPECT_FALSE( foliage.AlignToNormal )
          << "an empty block turned a false flag back to true — the exact way a marker registration "
@@ -438,21 +456,21 @@ TEST( AuthoredComponentRoundTrip, AnAbsentKeyLeavesTheFieldAsItIs )
     ECS::LocomotionComponent locomotion;
     locomotion.RunClip  = "Anim_Sprint";
     locomotion.RunSpeed = 999.0f;
-    ReadComponent( rfl::Generic::Object{}, locomotion );
+    ReadAt( rfl::Generic::Object{}, locomotion );
     EXPECT_EQ( locomotion.RunClip, "Anim_Sprint" );
     EXPECT_FLOAT_EQ( locomotion.RunSpeed, 999.0f );
 
     ECS::SocketAttachmentComponent socket;
     socket.Target   = Common::UUID( 777ull );
     socket.BoneName = "mixamorig:Head";
-    ReadComponent( rfl::Generic::Object{}, socket );
+    ReadAt( rfl::Generic::Object{}, socket );
     EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 777ull );
     EXPECT_EQ( socket.BoneName, "mixamorig:Head" );
 
     ECS::MorphComponent morph;
     morph.Weights     = { 0.5f };
     morph.TargetNames = { "Smile" };
-    ReadComponent( rfl::Generic::Object{}, morph );
+    ReadAt( rfl::Generic::Object{}, morph );
     ASSERT_EQ( morph.Weights.size(), 1u );
     EXPECT_FLOAT_EQ( morph.Weights[0], 0.5f );
     EXPECT_EQ( morph.TargetNames.size(), 1u );
@@ -470,7 +488,7 @@ TEST( AuthoredComponentRoundTrip, AKeyOfTheWrongTypeIsRefusedRatherThanSilentlyZ
 
     ECS::FoliageComponent foliage;
     foliage.Density = 42.0f;
-    ReadComponent( ThroughJsonText( block ), foliage );
+    ReadAt( ThroughJsonText( block ), foliage );
 
     EXPECT_FLOAT_EQ( foliage.Density, 42.0f );
     EXPECT_TRUE( foliage.AlignToNormal );
@@ -525,7 +543,7 @@ TEST( AuthoredComponentRoundTrip, AnOldLandscapeBlockReadsNoLayers )
     rfl::Generic::Object block;
     block["QuadsPerTile"] = rfl::Generic( static_cast<int64_t>( 63 ) );
     ECS::LandscapeComponent read;
-    ReadComponent( ThroughJsonText( block ), read );
+    ReadAt( ThroughJsonText( block ), read );
     EXPECT_EQ( read.QuadsPerTile, 63u );
     EXPECT_TRUE( read.Layers.empty() );
 }
@@ -535,7 +553,7 @@ TEST( AuthoredComponentRoundTrip, AnOldLandscapeBlockReadsNoLayers )
 TEST( AuthoredComponentRoundTrip, AnEmptyLayerListReplacesTheCurrentOne )
 {
     ECS::LandscapeComponent current = TwoLayerLandscape();
-    ReadComponent( ThroughJsonText( WriteComponent( ECS::LandscapeComponent{} ) ), current );
+    ReadAt( ThroughJsonText( WriteComponent( ECS::LandscapeComponent{} ) ), current );
     EXPECT_TRUE( current.Layers.empty() );
 }
 
@@ -559,17 +577,17 @@ TEST( AuthoredComponentRoundTrip, ABadLayerListIsRefusedWhole )
     for ( const auto& block : bad )
     {
         ECS::LandscapeComponent current = TwoLayerLandscape();
-        ReadComponent( ThroughJsonText( block ), current );
+        ReadAt( ThroughJsonText( block ), current );
         ASSERT_EQ( current.Layers.size(), 2u );
         EXPECT_EQ( current.Layers[0].Name, "Grass" );
         EXPECT_EQ( current.Layers[1].Name, "Puddles" );
     }
     // The longest legal name is accepted: the limit is inclusive, as the tile blob's is.
     ECS::LandscapeComponent current;
-    ReadComponent( ThroughJsonText(
-                        withLayers( { { std::string( Desert::World::Landscape::kLandscapeMaxWeightLayerName, 'x' ),
-                                        0.5f, false, glm::vec3( 1.0f ) } } ) ),
-                   current );
+    ReadAt( ThroughJsonText(
+                 withLayers( { { std::string( Desert::World::Landscape::kLandscapeMaxWeightLayerName, 'x' ), 0.5f,
+                                 false, glm::vec3( 1.0f ) } } ) ),
+            current );
     EXPECT_EQ( current.Layers.size(), 1u );
 }
 
@@ -610,7 +628,7 @@ TEST( AuthoredComponentRoundTrip, ALandscapeTileCoordinateThatDoesNotFitIsRefuse
     ECS::LandscapeTileComponent tile;
     tile.TileX = 5;
     tile.TileZ = 6;
-    ReadComponent( ThroughJsonText( block ), tile );
+    ReadAt( ThroughJsonText( block ), tile );
     EXPECT_EQ( tile.TileX, 5 );
     EXPECT_EQ( tile.TileZ, 6 );
 }
@@ -619,4 +637,45 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// THE SILENT READS THE OLD READERS MADE (JS1c S3). Each of these values was accepted by
+// AuthoredIO::ReadUUID/ReadFloat without a word: `std::stoull` reads "12abc" as 12 and "-1" as UINT64_MAX (a
+// socket re-targeted at an entity nobody named), and a double cast to float turns 1e300 into infinity. The
+// wrong-type rule refuses each one with the field's full path, and the field keeps its value.
+TEST( AuthoredComponentRoundTrip, AnIdWithTrailingJunkIsRefusedNotReadAsItsDigits )
+{
+    ECS::SocketAttachmentComponent socket;
+    socket.Target = Common::UUID( 42 );
+    rfl::Generic::Object block;
+    block["Target"]   = rfl::Generic( std::string( "12abc" ) );
+    const auto issues = ReadAt( block, socket );
+    EXPECT_EQ( static_cast<uint64_t>( socket.Target ), 42u );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Target" ).ToString() );
+}
+
+TEST( AuthoredComponentRoundTrip, ANegativeIdIsRefusedNotWrappedToTheLargestId )
+{
+    ECS::ProjectileComponent projectile;
+    projectile.Owner = Common::UUID( 42 );
+    rfl::Generic::Object block;
+    block["Owner"]    = rfl::Generic( std::string( "-1" ) );
+    const auto issues = ReadAt( block, projectile );
+    EXPECT_EQ( static_cast<uint64_t>( projectile.Owner ), 42u );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Owner" ).ToString() );
+}
+
+TEST( AuthoredComponentRoundTrip, ANumberAFloatCannotHoldIsRefusedNotReadAsInfinity )
+{
+    ECS::FoliageComponent foliage;
+    const float           density = foliage.Density;
+    rfl::Generic::Object  block;
+    block["Density"]  = rfl::Generic( 1e300 );
+    const auto issues = ReadAt( ThroughJsonText( block ), foliage );
+    EXPECT_EQ( foliage.Density, density );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, BlockPath().Key( "Density" ).ToString() );
+    EXPECT_EQ( issues[0].Expected, "number" );
 }
