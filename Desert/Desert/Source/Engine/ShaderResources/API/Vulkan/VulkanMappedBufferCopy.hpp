@@ -36,6 +36,11 @@ namespace Desert::ShaderResources::API::Vulkan
             return m_Mapping.Write( data, size, offset );
         }
 
+        [[nodiscard]] uint64_t HeldBytes() const noexcept override
+        {
+            return m_Size;
+        }
+
         [[nodiscard]] ViewCopyBinding Binding() const
         {
             ViewCopyBinding out;

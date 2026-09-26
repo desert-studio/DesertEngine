@@ -313,9 +313,9 @@ TEST( ThumbnailSweep, OneScanReportsAtMostItsLimit )
 //
 // The guarantee is STRUCTURAL rather than numeric, so it is asserted structurally: the sweep never builds
 // a renderer, it only appends to ThumbnailService's queues, and that service holds exactly one renderer
-// behind RendererSlotBudget. Asserted by reading the sources because the alternative — reaching a
+// behind ViewBudget. Asserted by reading the sources because the alternative — reaching a
 // sustained six-of-six — needs several scene views open at once, which no test can arrange (the same
-// argument RendererSlotBudget's own suite makes for itself).
+// argument the ViewBudget suite makes for itself).
 // ---------------------------------------------------------------------------------------------------
 TEST( ThumbnailSweep, TheSweepBuildsNoRendererOfItsOwn )
 {
@@ -351,7 +351,7 @@ TEST( ThumbnailSweep, PaintedPicturesClaimNoSlotAndRenderedOnesClaimAtMostOne )
     EXPECT_FALSE( ThumbnailFormats::NeedsRendererSlot( ThumbnailFormats::Producer::Painted ) )
          << "a painted picture is claimed to need a renderer slot. It is a decode and a fill on a "
             "JobSystem worker; saying otherwise would make a project of clouds wait behind "
-            "RendererSlotBudget for a resource it never touches.";
+            "ViewBudget for a resource it never touches.";
     EXPECT_TRUE( ThumbnailFormats::NeedsRendererSlot( ThumbnailFormats::Producer::RenderedMaterial ) );
     EXPECT_TRUE( ThumbnailFormats::NeedsRendererSlot( ThumbnailFormats::Producer::RenderedMesh ) );
 
@@ -403,4 +403,27 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// 6. THE SERVICE ASKS THE BYTE BUDGET AS BACKGROUND WORK.
+//
+// Background keeps the main view's forecast free; a UserSurface entitlement here would let a queue of
+// thumbnails eat the memory the next view a person opens needs. Asserted on the source, like section 5:
+// a refusal needs a device near its budget, which no suite can arrange (Desert/Tests/Engine/ViewBudget
+// proves the rule itself).
+// ---------------------------------------------------------------------------------------------------
+TEST( ThumbnailSweep, TheServiceAsksTheViewBudgetAsBackgroundWork )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const std::string code = ReadFile( root + "Editor/Source/Editor/Widgets/ThumbnailService.cpp" );
+    ASSERT_FALSE( code.empty() );
+
+    EXPECT_NE( code.find( "MayCreateView(" ), std::string::npos )
+         << "ThumbnailService builds its renderer without asking the view budget";
+    EXPECT_NE( code.find( "Demand::Background" ), std::string::npos )
+         << "ThumbnailService asks the view budget, but not as Background work";
+    EXPECT_EQ( code.find( "Demand::UserSurface" ), std::string::npos )
+         << "ThumbnailService claims the UserSurface entitlement: thumbnails would take the last byte";
 }
