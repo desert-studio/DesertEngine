@@ -25,7 +25,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cstdint>
 #include <string>
@@ -82,16 +82,13 @@ namespace
     }
 
     // What a `.desce` actually holds between the two halves of the trip: JSON text.
-    rfl::Generic::Object ThroughJsonText( const rfl::Generic::Object& written )
+    Common::Json::Object ThroughJsonText( const Common::Json::Object& written )
     {
-        const std::string text   = rfl::json::write( rfl::Generic( written ) );
-        const auto        parsed = rfl::json::read<rfl::Generic>( text );
-        EXPECT_TRUE( parsed.has_value() ) << "what the serializer wrote is not valid JSON: " << text;
-        if ( !parsed.has_value() )
-            return {};
-        const auto object = parsed.value().to_object();
-        EXPECT_TRUE( object.has_value() );
-        return object.has_value() ? object.value() : rfl::Generic::Object{};
+        const std::string text   = Common::Json::Write( written );
+        const auto        parsed = Common::Json::Read<Common::Json::Object>( text );
+        EXPECT_TRUE( parsed ) << "what the serializer wrote is not a JSON object: " << text << " - "
+                              << parsed.GetError();
+        return parsed ? parsed.GetValue() : Common::Json::Object{};
     }
 
     // THE ONE PLACE A TEXTURE REFERENCE BECOMES A STRING AND BACK, stubbed. The real resolver stores
@@ -158,13 +155,17 @@ TEST( UIComponentRoundTrip, ACanvasBackgroundSurvivesTheTripAndIsStoredByProject
 
     const auto stored = object.get( "Sprite" );
     ASSERT_TRUE( stored.has_value() ) << "the canvas wrote no Sprite field at all";
-    const auto ref = stored.value().to_object();
-    ASSERT_TRUE( ref.has_value() ) << "the sprite was written as something other than a {Guid, Path} "
-                                      "reference (SCNE 30) - a bare key or a raw id is not an identity";
+    const Common::Json::Node ref = Common::Json::Root( stored.value() );
+    ASSERT_EQ( ref.GetKind(), Common::Json::Kind::Object )
+         << "the sprite was written as something other than a {Guid, Path} "
+            "reference (SCNE 30) - a bare key or a raw id is not an identity";
     const auto field = [&]( const char* key ) -> std::string
     {
-        const auto v = ref.value().get( key );
-        return v.has_value() ? v.value().to_string().value_or( std::string() ) : std::string();
+        const auto v = ref.Find( key );
+        if ( !v.has_value() )
+            return std::string();
+        const auto text = v->AsString();
+        return text ? text.GetValue() : std::string();
     };
     EXPECT_EQ( field( "Guid" ), kResolvedGuidText ) << "the identity half of the reference is not the GUID";
     const std::string path = field( "Path" );
@@ -339,8 +340,8 @@ TEST( UIComponentRoundTrip, ARawHandleSurvivesTheJsonTextExactlyAtEverySize )
 // from every scene written before it.
 TEST( UIComponentRoundTrip, AFieldTheRecordDoesNotMentionKeepsWhatItHad )
 {
-    rfl::Generic::Object partial;
-    partial["Visible"] = rfl::Generic( false );
+    Common::Json::Object partial;
+    partial["Visible"] = Common::Json::Value( false );
 
     ECS::UICanvasData read;
     read.Sprite         = Desert::Assets::AssetHandle( kMeasuredHandle );
@@ -445,13 +446,18 @@ TEST( UIComponentRoundTrip, TheRenderTransformSurvivesTheTrip )
 TEST( UIComponentRoundTrip, ALayoutRecordFromBeforeTheTransformExistedLeavesItNeutral )
 {
     // Exactly the keys UI_ElementProbe.desce carries for a UILayout, and not one more.
-    rfl::Generic::Object old;
-    old["AnchorMin"]         = rfl::Generic( rfl::Generic::Array{ rfl::Generic( 0.0 ), rfl::Generic( 0.0 ) } );
-    old["AnchorMax"]         = rfl::Generic( rfl::Generic::Array{ rfl::Generic( 1.0 ), rfl::Generic( 1.0 ) } );
-    old["OffsetMin"]         = rfl::Generic( rfl::Generic::Array{ rfl::Generic( 0.0 ), rfl::Generic( 0.0 ) } );
-    old["OffsetMax"]         = rfl::Generic( rfl::Generic::Array{ rfl::Generic( 0.0 ), rfl::Generic( 0.0 ) } );
-    old["CustomMinimumSize"] = rfl::Generic( rfl::Generic::Array{ rfl::Generic( 0.0 ), rfl::Generic( 0.0 ) } );
-    old["ClipContents"]      = rfl::Generic( false );
+    Common::Json::Object old;
+    old["AnchorMin"] = Common::Json::Value(
+         Common::Json::Value::Array{ Common::Json::Value( 0.0 ), Common::Json::Value( 0.0 ) } );
+    old["AnchorMax"] = Common::Json::Value(
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( 1.0 ) } );
+    old["OffsetMin"] = Common::Json::Value(
+         Common::Json::Value::Array{ Common::Json::Value( 0.0 ), Common::Json::Value( 0.0 ) } );
+    old["OffsetMax"] = Common::Json::Value(
+         Common::Json::Value::Array{ Common::Json::Value( 0.0 ), Common::Json::Value( 0.0 ) } );
+    old["CustomMinimumSize"] = Common::Json::Value(
+         Common::Json::Value::Array{ Common::Json::Value( 0.0 ), Common::Json::Value( 0.0 ) } );
+    old["ClipContents"] = Common::Json::Value( false );
 
     ECS::UILayoutData read; // its defaults ARE the neutral transform
     ReadReflectedValue( Type( "UILayoutData" ), &read, ThroughJsonText( old ), nullptr );

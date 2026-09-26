@@ -21,7 +21,7 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -59,20 +59,16 @@ using namespace Desert::Core::Serialize;
 
 namespace
 {
-    rfl::Generic::Object Parse( const std::string& json )
+    Common::Json::Object Parse( const std::string& json )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( json );
-        EXPECT_TRUE( parsed.has_value() ) << json;
-        if ( !parsed.has_value() )
-            return {};
-        const auto object = parsed.value().to_object();
-        EXPECT_TRUE( object.has_value() ) << json;
-        return object.has_value() ? object.value() : rfl::Generic::Object{};
+        const auto parsed = Common::Json::Read<Common::Json::Object>( json );
+        EXPECT_TRUE( parsed ) << json << " - " << parsed.GetError();
+        return parsed ? parsed.GetValue() : Common::Json::Object{};
     }
 
-    std::string Write( const rfl::Generic::Object& object )
+    std::string Write( const Common::Json::Object& object )
     {
-        return rfl::json::write( object );
+        return Common::Json::Write( object );
     }
 
     KeyIsOurs Owns( std::vector<std::string> names )
@@ -143,17 +139,18 @@ namespace
 
     // Every key of `source`, at every depth, as "a.b.c" -> the value's JSON. What the loss test
     // compares, because "is anything gone" is a question about the whole tree and not one level.
-    void Flatten( const rfl::Generic::Object& source, const std::string& prefix,
+    void Flatten( const Common::Json::Node& source, const std::string& prefix,
                   std::map<std::string, std::string>& into )
     {
-        for ( const auto& [key, value] : source )
-        {
-            const std::string path = prefix.empty() ? key : prefix + "." + key;
-            if ( const auto nested = value.to_object(); nested.has_value() )
-                Flatten( nested.value(), path, into );
-            else
-                into[path] = rfl::json::write( value );
-        }
+        source.ForEachMember(
+             [&]( std::string_view key, const Common::Json::Node& value )
+             {
+                 const std::string path = prefix.empty() ? std::string( key ) : prefix + "." + std::string( key );
+                 if ( value.GetKind() == Common::Json::Kind::Object )
+                     Flatten( value, path, into );
+                 else
+                     into[path] = Common::Json::Write( value.Raw() );
+             } );
     }
 } // namespace
 
@@ -248,7 +245,7 @@ namespace
 {
     // A document of `count` entity records shaped like a generated world's (a transform, a mesh block and
     // one foreign key each), with the fresh side in REVERSED order so no record is found by luck of place.
-    std::pair<rfl::Generic::Object, rfl::Generic::Object> WorldOf( const int count )
+    std::pair<Common::Json::Object, Common::Json::Object> WorldOf( const int count )
     {
         std::string source = R"({"SceneName":"W","Entities":[)";
         std::string fresh  = R"({"SceneName":"W","Entities":[)";
@@ -279,8 +276,11 @@ namespace
             best               = std::min(
                  best,
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count() );
-            EXPECT_EQ( merged.get( "Entities" ).value().to_array().value().size(),
-                       static_cast<std::size_t>( count ) );
+            const Common::Json::Value mergedValue( merged );
+            std::size_t               entities = 0;
+            if ( const auto list = Common::Json::Root( mergedValue ).Find( "Entities" ) )
+                list->ForEachElement( [&]( std::size_t, const Common::Json::Node& ) { ++entities; } );
+            EXPECT_EQ( entities, static_cast<std::size_t>( count ) );
         }
         return best;
     }
@@ -343,13 +343,13 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
         const auto stated   = document.get( "Settings" );
         if ( !stated.has_value() )
             continue;
-        const auto block = stated.value().to_object();
-        if ( !block.has_value() )
+        const auto block = Common::Json::Root( stated.value() ).As<Common::Json::Object>();
+        if ( !block )
             continue;
 
         Desert::Core::SceneSettings settings;
-        ReadReflectedValue( *settingsType, &settings, block.value() );
-        rfl::Generic::Object written = Desert::Reflection::SerializeReflected( *settingsType, &settings );
+        ReadReflectedValue( *settingsType, &settings, block.GetValue() );
+        Common::Json::Object written = Desert::Reflection::SerializeReflected( *settingsType, &settings );
 
         // AN ASSET HANDLE HAS TWO ON-DISK FORMS AND THIS SUITE CANNOT PRODUCE THE RIGHT ONE. The saver
         // passes SerializeReflected an asset RESOLVER, which writes a handle as a path string; without
@@ -362,15 +362,17 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
         // measurement, because it looks like evidence.
         for ( const auto& field : settingsType->Fields )
             if ( field.Type == Desert::Reflection::FieldType::AssetHandle )
-                if ( const auto asStated = block.value().get( field.Name ); asStated.has_value() )
+                if ( const auto asStated = block.GetValue().get( field.Name ); asStated.has_value() )
                     written[field.Name] = asStated.value();
 
-        const rfl::Generic::Object merged = MergeObjects( written, block.value(), NothingIsOurs() );
+        const Common::Json::Object merged = MergeObjects( written, block.GetValue(), NothingIsOurs() );
 
         std::map<std::string, std::string> before;
         std::map<std::string, std::string> after;
-        Flatten( block.value(), "", before );
-        Flatten( merged, "", after );
+        const Common::Json::Value          blockValue( block.GetValue() );
+        const Common::Json::Value          mergedValue( merged );
+        Flatten( Common::Json::Root( blockValue ), "", before );
+        Flatten( Common::Json::Root( mergedValue ), "", after );
 
         for ( const auto& [key, value] : before )
         {
@@ -387,7 +389,7 @@ TEST( ForeignKeysCorpus, NoSceneOnDiskLosesAnythingItSaysWhenItIsWrittenBack )
                                                         "that does not declare it";
         }
 
-        if ( rfl::json::write( merged ) == rfl::json::write( block.value() ) )
+        if ( Common::Json::Write( merged ) == Common::Json::Write( block.GetValue() ) )
             ++canonical;
     }
 
