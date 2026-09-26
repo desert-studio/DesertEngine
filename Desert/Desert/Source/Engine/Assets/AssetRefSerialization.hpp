@@ -2,6 +2,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Json/Document.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
 
 #include <filesystem>
@@ -42,4 +43,10 @@ namespace Desert::Assets
                                                                      const AssetRefSite&               site );
     [[nodiscard]] Common::ResultStr<std::string>
     ResolveAssetGuidRef( const AssetGuidRef& ref, const AssetGuidResolver& resolver, const AssetRefSite& site );
+
+    // A stored {Guid, Path} read STRICTLY (both members, both strings, nothing else): any other shape is an Issue
+    // at the reference's own path and no reference - never a non-string GUID read as "" and refused as "states
+    // no GUID" without saying which value the file holds.
+    [[nodiscard]] std::optional<AssetGuidRef> ReadAssetGuidRef( const Common::Json::Node& stored,
+                                                                Common::Json::Issues&     issues );
 } // namespace Desert::Assets

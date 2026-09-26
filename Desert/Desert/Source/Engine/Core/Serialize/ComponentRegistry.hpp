@@ -3,7 +3,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Document.hpp>
 
 #include <functional>
 #include <string>
@@ -26,8 +26,12 @@ namespace Desert::Core::Serialize
         std::string Key; // JSON key under the entity's "Components" object
 
         std::function<bool( ECS::Entity )>                                                   Has;
-        std::function<rfl::Generic( ECS::Entity, const Assets::AssetManager& )>               Serialize;
-        std::function<void( ECS::Entity, const rfl::Generic&, const Assets::AssetManager& )>  Deserialize;
+        std::function<Common::Json::Value( ECS::Entity, const Assets::AssetManager& )>       Serialize;
+        // `block` carries its place in the scene ("Entities[id=4127].Light"); a wrong-typed value is appended to
+        // `issues` with its full path and the caller reports the entity's issues in one line.
+        std::function<void( ECS::Entity, const Common::Json::Node& block, const Assets::AssetManager&,
+                            Common::Json::Issues& issues )>
+             Deserialize;
     };
 
     // Process-wide table of component serializers, built once. Adding a new serializable component means

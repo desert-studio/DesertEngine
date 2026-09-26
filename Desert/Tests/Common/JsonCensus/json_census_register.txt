@@ -3,8 +3,6 @@
 # A row whose file is already clean is a failure: delete the row when the file moves to the facade.
 Desert/Common/Source/Common/Content/CanonicalText.cpp | KEEP: the canonical-layout printer walks yyjson documents itself; it is the layout, not a protocol
 Desert/Desert/Source/Engine/Core/Scene.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
-Desert/Desert/Source/Engine/Core/Serialize/ComponentRegistry.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.hpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade

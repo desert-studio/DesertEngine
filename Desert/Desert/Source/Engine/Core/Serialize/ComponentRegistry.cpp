@@ -98,38 +98,6 @@ namespace Desert::Core::Serialize
 
         // Builds a handler for a component whose serializable payload is a reflected data block. Adding a
         // PROPERTY field to that block automatically extends serialization — no code change here.
-        // Where a component block of `e` sits in the scene document, so a wrong-typed value names its entity,
-        // component and field ("Entities[id=4127].Light.Intensity"). Built here until the registry threads the
-        // load's own Path and Issues through Deserialize (JS1c S4).
-        Common::Json::Path ComponentPath( ECS::Entity e, const std::string& key )
-        {
-            const Common::Json::Path entities = Common::Json::Path().Key( "Entities" );
-            const Common::Json::Path record =
-                 e.HasComponent<ECS::UUIDComponent>()
-                      ? entities.Record( e.GetComponent<ECS::UUIDComponent>().UUID.ToString() )
-                      : entities;
-            return record.Key( key );
-        }
-
-        // A component block's wrong-typed values: one error line per component (the wrong-type rule,
-        // Common/Json/Document.hpp); the fields keep their values and the load continues.
-        void ReportComponentIssues( const Common::Json::Issues& issues )
-        {
-            if ( !issues.empty() )
-                Common::Json::ReportIssues( issues, "scene component" );
-        }
-
-        // A Ser-struct component block read whole at its place in the scene: a wrong-typed member drops the
-        // WHOLE block (the entity goes without the component) and is reported with the block's full path.
-        template <class T>
-        std::optional<T> ReadComponentBlock( ECS::Entity e, const Common::Json::Value& g, const std::string& key )
-        {
-            Common::Json::Issues issues;
-            auto                 block = ReadBlock<T>( Common::Json::Root( g, ComponentPath( e, key ) ), issues );
-            ReportComponentIssues( issues );
-            return block;
-        }
-
         template <class TComponent, class TData>
         ComponentSerializer MakeReflected( std::string key, std::string typeName, TData TComponent::*member )
         {
@@ -143,24 +111,23 @@ namespace Desert::Core::Serialize
             // field is written as a raw 64-bit id and read back as one: the id is minted at load time from
             // the file path, so it does not survive a restart, and the component comes back pointing at
             // nothing with no error anywhere.
-            s.Serialize = [member, typeName]( ECS::Entity e, const Assets::AssetManager& mgr ) -> rfl::Generic
+            s.Serialize = [member, typeName]( ECS::Entity                 e,
+                                              const Assets::AssetManager& mgr ) -> Common::Json::Value
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
-                    return rfl::Generic( rfl::Generic::Object{} );
+                    return Common::Json::Value( Common::Json::Object{} );
                 const auto& comp     = e.GetComponent<TComponent>();
                 auto        resolver = MakeAssetResolver( mgr );
                 return Reflection::SerializeReflected( *type, &( comp.*member ), &resolver );
             };
 
-            s.Deserialize = [member, typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g,
-                                                             const Assets::AssetManager& mgr )
+            s.Deserialize = [member, typeName]( ECS::Entity e, const Common::Json::Node& block,
+                                                const Assets::AssetManager& mgr, Common::Json::Issues& issues )
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
                     return;
-                Common::Json::Issues issues;
-                const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
                 if ( block.ExpectKind( Common::Json::Kind::Object, issues ) )
                 {
                     auto& comp     = e.HasComponent<TComponent>() ? e.GetComponent<TComponent>()
@@ -168,7 +135,6 @@ namespace Desert::Core::Serialize
                     auto  resolver = MakeAssetResolver( mgr );
                     Reflection::DeserializeReflected( *type, &( comp.*member ), block, issues, &resolver );
                 }
-                ReportComponentIssues( issues );
             };
 
             return s;
@@ -185,19 +151,11 @@ namespace Desert::Core::Serialize
 
         // BY GUID through the content registry, which indexes scenes by their header GUID (AF6f): a scene
         // moved or renamed keeps its GUID, so `Path` is only named in the error and never looked up.
-        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic&         block,
+        Common::ResultStr<std::string> ScenePathForRef( const Assets::AssetGuidRef& ref,
                                                         const Assets::AssetRefSite& site )
         {
-            const auto fields = block.to_object();
-            const auto text   = [&]( const char* key ) -> std::string
-            {
-                if ( !fields.has_value() )
-                    return {};
-                const auto value = fields.value().get( key );
-                return value.has_value() ? value.value().to_string().value_or( "" ) : std::string();
-            };
             return Assets::ResolveAssetGuidRef(
-                 Assets::AssetGuidRef{ text( "Guid" ), text( "Path" ) },
+                 ref,
                  []( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
                  {
                      const Common::Utils::AssetRegistryEntry* row =
@@ -222,9 +180,10 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
-            s.Serialize = []( ECS::Entity, const Assets::AssetManager& ) -> rfl::Generic
-            { return rfl::Generic( rfl::Generic::Object{} ); };
-            s.Deserialize = []( ECS::Entity e, const rfl::Generic&, const Assets::AssetManager& )
+            s.Serialize = []( ECS::Entity, const Assets::AssetManager& ) -> Common::Json::Value
+            { return Common::Json::Value( Common::Json::Object{} ); };
+            s.Deserialize =
+                 []( ECS::Entity e, const Common::Json::Node&, const Assets::AssetManager&, Common::Json::Issues& )
             {
                 if ( !e.HasComponent<TComponent>() )
                     e.AddComponent<TComponent>();
@@ -248,38 +207,28 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
-            s.Serialize = [field, member]( ECS::Entity e, const Assets::AssetManager& ) -> rfl::Generic
+            s.Serialize = [field, member]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
-                rfl::Generic::Object object;
-                object[field] = rfl::Generic( e.GetComponent<TComponent>().*member );
-                return rfl::Generic( object );
+                Common::Json::Object object;
+                object[field] = Common::Json::Value( e.GetComponent<TComponent>().*member );
+                return Common::Json::Value( object );
             };
-            s.Deserialize =
-                 [key = s.Key, field, member]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Deserialize = [field, member]( ECS::Entity e, const Common::Json::Node&           g,
+                                             const Assets::AssetManager&, Common::Json::Issues& issues )
             {
                 auto& comp =
                      e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
 
-                const auto object = g.to_object();
-                if ( !object.has_value() )
+                if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
+                    return;
+                const auto value = g.Find( field );
+                if ( !value )
                 {
-                    LOG_WARN( "[Scene] component '{0}' is not an object; '{1}' kept its default.", key, field );
+                    issues.push_back(
+                         { g.Where().Key( field ).ToString(), "bool", "nothing (the member is absent)" } );
                     return;
                 }
-                const auto value = object.value().get( field );
-                if ( !value.has_value() )
-                {
-                    LOG_WARN( "[Scene] component '{0}' carries no '{1}'; it kept its default.", key, field );
-                    return;
-                }
-                const auto flag = value.value().to_bool();
-                if ( !flag.has_value() )
-                {
-                    LOG_WARN( "[Scene] component '{0}' has a non-boolean '{1}'; it kept its default.", key,
-                              field );
-                    return;
-                }
-                comp.*member = flag.value();
+                value->ReadValue( comp.*member, issues );
             };
             return s;
         }
@@ -299,19 +248,17 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> rfl::Generic
-            { return rfl::Generic( WriteComponent( e.GetComponent<TComponent>() ) ); };
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            { return Common::Json::Value( WriteComponent( e.GetComponent<TComponent>() ) ); };
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& block, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
             {
-                Common::Json::Issues issues;
-                const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
                 if ( block.ExpectKind( Common::Json::Kind::Object, issues ) )
                 {
                     auto& comp = e.HasComponent<TComponent>() ? e.GetComponent<TComponent>()
                                                               : e.AddComponent<TComponent>();
                     ReadComponent( block, comp, issues );
                 }
-                ReportComponentIssues( issues );
             };
             return s;
         }
@@ -334,22 +281,17 @@ namespace Desert::Core::Serialize
         ComponentSerializer MakeLandscapeTile()
         {
             ComponentSerializer s = MakeAuthored<ECS::LandscapeTileComponent>( "LandscapeTile" );
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& block, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
             {
-                Common::Json::Issues issues;
-                const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
                 if ( !block.ExpectKind( Common::Json::Kind::Object, issues ) )
-                {
-                    ReportComponentIssues( issues );
                     return;
-                }
                 auto& comp = e.HasComponent<ECS::LandscapeTileComponent>()
                                   ? e.GetComponent<ECS::LandscapeTileComponent>()
                                   : e.AddComponent<ECS::LandscapeTileComponent>();
 
                 const std::string before = comp.HeightFile;
                 ReadComponent( block, comp, issues );
-                ReportComponentIssues( issues );
                 if ( comp.Heights && comp.HeightFile == before )
                     return;
 
@@ -422,7 +364,7 @@ namespace Desert::Core::Serialize
             s.Key = "Script";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::ScriptComponent>(); };
 
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 const auto&                sc = e.GetComponent<ECS::ScriptComponent>();
                 ScriptCompSer              ser;
@@ -439,9 +381,10 @@ namespace Desert::Core::Serialize
                 return Common::Json::FromStruct( ser );
             };
 
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
             {
-                auto ser = ReadComponentBlock<ScriptCompSer>( e, g, key );
+                auto ser = ReadBlock<ScriptCompSer>( g, issues );
                 if ( !ser )
                     return;
                 auto& sc = e.HasComponent<ECS::ScriptComponent>() ? e.GetComponent<ECS::ScriptComponent>()
@@ -953,23 +896,21 @@ namespace Desert::Core::Serialize
             s.Key = std::move( key );
             s.Has = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
 
-            s.Serialize = [typeName]( ECS::Entity e, const Assets::AssetManager& mgr ) -> rfl::Generic
+            s.Serialize = [typeName]( ECS::Entity e, const Assets::AssetManager& mgr ) -> Common::Json::Value
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
-                    return rfl::Generic( rfl::Generic::Object{} );
+                    return Common::Json::Value( Common::Json::Object{} );
                 auto resolver = MakeAssetResolver( mgr );
                 return Reflection::SerializeReflected( *type, &e.GetComponent<TComponent>(), &resolver );
             };
 
-            s.Deserialize =
-                 [typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& mgr )
+            s.Deserialize = [typeName]( ECS::Entity e, const Common::Json::Node& block,
+                                        const Assets::AssetManager& mgr, Common::Json::Issues& issues )
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
                     return;
-                Common::Json::Issues issues;
-                const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
                 if ( block.ExpectKind( Common::Json::Kind::Object, issues ) )
                 {
                     auto  resolver = MakeAssetResolver( mgr );
@@ -977,7 +918,6 @@ namespace Desert::Core::Serialize
                                                                   : e.AddComponent<TComponent>();
                     Reflection::DeserializeReflected( *type, &comp, block, issues, &resolver );
                 }
-                ReportComponentIssues( issues );
             };
 
             return s;
@@ -1059,7 +999,7 @@ namespace Desert::Core::Serialize
             s.Key = "StaticMesh";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::StaticMeshComponent>(); };
 
-            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto&                    smc = entity.GetComponent<ECS::StaticMeshComponent>();
                 Assets::StaticMeshComponentSer meshSer;
@@ -1111,10 +1051,10 @@ namespace Desert::Core::Serialize
                 return Common::Json::FromStruct( meshSer );
             };
 
-            s.Deserialize = [key = s.Key]( ECS::Entity entity, const rfl::Generic& g,
-                                           const Assets::AssetManager& assetManager )
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::StaticMeshComponentSer>( entity, g, key );
+                auto parsed = ReadBlock<Assets::StaticMeshComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& meshData = parsed.value();
@@ -1182,7 +1122,7 @@ namespace Desert::Core::Serialize
             s.Key = "InstancedStaticMesh";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::InstancedStaticMeshComponent>(); };
 
-            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto& ism = entity.GetComponent<ECS::InstancedStaticMeshComponent>();
                 Assets::InstancedStaticMeshComponentSer ser;
@@ -1228,10 +1168,10 @@ namespace Desert::Core::Serialize
                 return Common::Json::FromStruct( ser );
             };
 
-            s.Deserialize = [key = s.Key]( ECS::Entity entity, const rfl::Generic& g,
-                                           const Assets::AssetManager& assetManager )
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::InstancedStaticMeshComponentSer>( entity, g, key );
+                auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& data = parsed.value();
@@ -1288,7 +1228,7 @@ namespace Desert::Core::Serialize
             s.Key = "Material";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::MaterialComponent>(); };
 
-            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto&                  mc = entity.GetComponent<ECS::MaterialComponent>();
                 Assets::MaterialComponentSer ser;
@@ -1327,10 +1267,10 @@ namespace Desert::Core::Serialize
                 return Common::Json::FromStruct( ser );
             };
 
-            s.Deserialize = [key = s.Key]( ECS::Entity entity, const rfl::Generic& g,
-                                           const Assets::AssetManager& assetManager )
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::MaterialComponentSer>( entity, g, key );
+                auto parsed = ReadBlock<Assets::MaterialComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& data = parsed.value();
@@ -1378,7 +1318,7 @@ namespace Desert::Core::Serialize
             s.Key = "SkinnedMesh";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::SkinnedMeshComponent>(); };
 
-            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto&                     smc = entity.GetComponent<ECS::SkinnedMeshComponent>();
                 Assets::SkinnedMeshComponentSer meshSer;
@@ -1414,10 +1354,10 @@ namespace Desert::Core::Serialize
                 return Common::Json::FromStruct( meshSer );
             };
 
-            s.Deserialize = [key = s.Key]( ECS::Entity entity, const rfl::Generic& g,
-                                           const Assets::AssetManager& assetManager )
+            s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::SkinnedMeshComponentSer>( entity, g, key );
+                auto parsed = ReadBlock<Assets::SkinnedMeshComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& meshData = parsed.value();
@@ -1455,7 +1395,7 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = "UIAnim";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 const auto&                d = e.GetComponent<ECS::UIAnimComponent>().Data;
                 Assets::UIAnimComponentSer ser;
@@ -1474,9 +1414,10 @@ namespace Desert::Core::Serialize
                 }
                 return Common::Json::FromStruct( ser );
             };
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::UIAnimComponentSer>( e, g, key );
+                auto parsed = ReadBlock<Assets::UIAnimComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& d    = parsed.value();
@@ -1509,7 +1450,7 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = "Text";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::TextComponent>(); };
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 const auto& tc = e.GetComponent<ECS::TextComponent>();
                 // The font is an asset HANDLE in memory and persists as the ROOT-TAGGED KEY its handle is
@@ -1522,9 +1463,10 @@ namespace Desert::Core::Serialize
                                               tc.Billboard };
                 return Common::Json::FromStruct( ser );
             };
-            s.Deserialize = [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& )
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                                Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::TextComponentSer>( e, g, key );
+                auto parsed = ReadBlock<Assets::TextComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& d        = parsed.value();
@@ -1548,7 +1490,7 @@ namespace Desert::Core::Serialize
             ComponentSerializer s;
             s.Key       = "Animation";
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
-            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
                 const auto&                   ac = e.GetComponent<ECS::AnimationComponent>();
                 Assets::AnimationComponentSer ser;
@@ -1572,10 +1514,10 @@ namespace Desert::Core::Serialize
                 }
                 return Common::Json::FromStruct( ser );
             };
-            s.Deserialize =
-                 [key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& assetManager )
+            s.Deserialize = []( ECS::Entity e, const Common::Json::Node& g,
+                                const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
-                auto parsed = ReadComponentBlock<Assets::AnimationComponentSer>( e, g, key );
+                auto parsed = ReadBlock<Assets::AnimationComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
                 const auto& d = parsed.value();
@@ -1643,52 +1585,59 @@ namespace Desert::Core::Serialize
             // Everything else in the block is the reflected data as it was.
             ComponentSerializer s = MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
                  "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data );
-            s.Serialize = [reflected = s.Serialize]( ECS::Entity                 entity,
-                                                     const Assets::AssetManager& assetManager ) -> rfl::Generic
+            s.Serialize = [reflected =
+                                s.Serialize]( ECS::Entity                 entity,
+                                              const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {
-                const auto           block = reflected( entity, assetManager ).to_object();
-                const auto&          path  = entity.GetComponent<ECS::UIRenderTextureComponent>().Data.ScenePath;
-                rfl::Generic::Object out;
+                const Common::Json::Value block = reflected( entity, assetManager );
+                const auto& path = entity.GetComponent<ECS::UIRenderTextureComponent>().Data.ScenePath;
+                Common::Json::ObjectBuilder out;
                 if ( !path.empty() )
                 {
                     const std::string context = EntityContext( entity );
                     if ( auto ref = SceneRefForPath( path, { "scene", "UIRenderTexture.Scene", context } ) )
-                    {
-                        rfl::Generic::Object scene;
-                        scene["Guid"] = ref.GetValue().Guid;
-                        scene["Path"] = ref.GetValue().Path;
-                        out["Scene"]  = rfl::Generic( std::move( scene ) );
-                    }
+                        out.Set( "Scene", Common::Json::FromStruct( ref.GetValue() ) );
                     else
                         LOG_ERROR( "[Scene] {} - the scene slot is written EMPTY", ref.GetError() );
                 }
-                if ( block.has_value() )
-                    for ( const auto& [key, value] : block.value() )
-                        if ( key != "ScenePath" )
-                            out[key] = value;
-                return { std::move( out ) };
+                Common::Json::Root( block ).ForEachMember(
+                     [&]( std::string_view key, const Common::Json::Node& value )
+                     {
+                         if ( key != "ScenePath" )
+                             out.Set( key, value.Raw() );
+                     } );
+                return Common::Json::Value( std::move( out ).Build() );
             };
-            s.Deserialize = [reflected = s.Deserialize]( ECS::Entity entity, const rfl::Generic& g,
-                                                         const Assets::AssetManager& assetManager )
+            s.Deserialize = [reflected = s.Deserialize]( ECS::Entity entity, const Common::Json::Node& g,
+                                                         const Assets::AssetManager& assetManager,
+                                                         Common::Json::Issues&       issues )
             {
-                const auto block = g.to_object();
-                if ( !block.has_value() )
+                if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
                     return;
                 // `ScenePath` is not read: a SCNE 31 file names its scene by GUID, and the version gate
                 // refuses an older file before any block is read.
-                rfl::Generic::Object rest;
-                for ( const auto& [key, value] : block.value() )
-                    if ( key != "Scene" && key != "ScenePath" )
-                        rest[key] = value;
-                reflected( entity, rfl::Generic( rest ), assetManager );
+                Common::Json::ObjectBuilder rest;
+                g.ForEachMember(
+                     [&]( std::string_view key, const Common::Json::Node& value )
+                     {
+                         if ( key != "Scene" && key != "ScenePath" )
+                             rest.Set( key, value.Raw() );
+                     } );
+                const Common::Json::Value restBlock( std::move( rest ).Build() );
+                reflected( entity, Common::Json::Root( restBlock, g.Where() ), assetManager, issues );
 
                 auto& data       = entity.GetComponent<ECS::UIRenderTextureComponent>().Data;
                 data.ScenePath   = {};
-                const auto scene = block.value().get( "Scene" );
-                if ( !scene.has_value() )
+                const auto scene = g.Find( "Scene" );
+                if ( !scene )
                     return; // no scene, which the element draws as the magenta error fill
+                // A {Guid, Path} of the wrong shape is an Issue at `...UIRenderTexture.Scene` in the entity's
+                // one error line, never an empty GUID that reads as "no scene".
+                const auto ref = Assets::ReadAssetGuidRef( *scene, issues );
+                if ( !ref )
+                    return;
                 const std::string context = EntityContext( entity );
-                const auto path = ScenePathForRef( scene.value(), { "scene", "UIRenderTexture.Scene", context } );
+                const auto        path    = ScenePathForRef( *ref, { "scene", "UIRenderTexture.Scene", context } );
                 if ( path )
                     data.ScenePath = path.GetValue();
                 else
