@@ -178,6 +178,29 @@ TEST( ImportedMeshAsset, FreshnessIsTheSourceHashNotItsTime )
          << "changed content must not silently keep the previous entry's identity";
 }
 
+// StaticMeshCookAvailable is the gate ThumbnailSubject::ResolveMesh and MeshDnD::ResolveOrImport ask
+// before treating a source as cooked (AF4h). Both used to ask `exists(cooked)` alone, which - because an
+// import never writes `cooked` any more - answered "not cooked" for a freshly imported mesh forever: the
+// asset browser fell back to the type icon and a drag-drop placed nothing, with no error to say why. This
+// is that decision, isolated from the AssetManager/renderer both call sites also carry.
+TEST( ImportedMeshAsset, CookAvailableWithoutABesideSourceFile )
+{
+    const Project      project;
+    Ser::MeshAssetData imported;
+    AddPlane( imported, "Grid", 4, 0.0f, Common::Content::AssetGuid::Generate() );
+    const fs::path cooked = Editor::CookPaths::MeshAsset( project.Source );
+
+    EXPECT_FALSE( Editor::StaticMeshCookAvailable( cooked, project.Source ) )
+         << "nothing imported yet: neither a beside-source file nor a DDC envelope exists";
+
+    ASSERT_TRUE( Editor::WriteImportedMeshAsset( imported, {}, project.Source ).IsSuccess() );
+
+    std::error_code ec;
+    EXPECT_FALSE( fs::exists( cooked, ec ) ) << "AF4h: the import must not have written a file beside its source";
+    EXPECT_TRUE( Editor::StaticMeshCookAvailable( cooked, project.Source ) )
+         << "the DDC envelope alone must be enough - this is exactly what a fresh import leaves behind";
+}
+
 TEST( ImportedMeshAsset, LodSiblingsBecomeSourceModels )
 {
     const auto         a = Common::Content::AssetGuid::Generate();

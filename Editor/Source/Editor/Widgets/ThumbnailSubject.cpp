@@ -1,6 +1,7 @@
 #include "ThumbnailSubject.hpp"
 
 #include <Editor/Import/CookPaths.hpp>
+#include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/MeshMaterial.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
@@ -107,12 +108,16 @@ namespace Desert::Editor::ThumbnailSubject
     Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager, const std::string& sourcePath )
     {
         // A PURE PATH COMPUTATION, hoisted above every filesystem question: CookPaths::MeshAsset is
-        // an extension swap, no stat. The `exists` check below is the filesystem question
-        // and it stays where it is.
+        // an extension swap, no stat. The gate below is the filesystem/DDC question and it stays where
+        // it is.
         const std::string cooked = CookPaths::MeshAsset( sourcePath ).generic_string();
 
-        std::error_code ec;
-        if ( !std::filesystem::exists( cooked, ec ) )
+        // AF4h: an import never writes `cooked` to disk any more (the source envelope lives in the DDC,
+        // keyed by `sourcePath`'s bytes), so `exists(cooked)` alone answered "not cooked" for every
+        // freshly imported mesh forever, degrading it to the type icon. StaticMeshCookAvailable covers
+        // both a hand-authored `.stmesh` (exists(cooked) is true, identity path) and an import (a fresh
+        // DDC envelope under `sourcePath`).
+        if ( !StaticMeshCookAvailable( cooked, sourcePath ) )
         {
             return Common::MakeFormattedError<Mesh>(
                  "'{}' has not been cooked, so there is no '{}' to photograph. Meshes load only from the "

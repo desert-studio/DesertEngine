@@ -35,6 +35,15 @@ namespace Desert::Editor
     // Bytes, not times: a `touch` or a fresh checkout does not re-import.
     bool ImportedMeshAssetIsFresh( const std::filesystem::path& source );
 
+    // THE GATE EVERY READER OF A STATIC MESH SOURCE NEEDS BEFORE TREATING IT AS "COOKED" (AF4h). @p cooked
+    // existing on disk covers a hand-authored `.stmesh` (no import involved, so nothing else applies) and a
+    // legacy beside-source file not yet overwritten by a re-import; @p source having a fresh DDC envelope
+    // covers every import since AF4h, which never writes @p cooked at all. `exists(cooked)` alone — what
+    // every reader used to ask — answers "not cooked" for a freshly imported mesh forever, degrading it to
+    // the generic type icon (or, for MeshDnD::ResolveOrImport, failing the drop outright) with nothing in
+    // the log to say why.
+    bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source );
+
     enum class MeshAssetWrite
     {
         Written,

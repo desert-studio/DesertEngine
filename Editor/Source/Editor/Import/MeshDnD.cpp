@@ -1,6 +1,7 @@
 #include <Common/Content/ContentScan.hpp>
 #include "MeshDnD.hpp"
 #include "ImportManager.hpp"
+#include "ImportedMeshAsset.hpp"
 #include "CookPaths.hpp"
 
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -163,11 +164,15 @@ namespace Desert::Editor::MeshDnD
             return existing->GetMetadata().Handle;
         }
 
-        // Not cooked yet -> cook the source (Assimp parse -> Cooked/Meshes/*.stmesh).
-        if ( !std::filesystem::exists( cookedStr ) )
+        // Not cooked yet -> cook the source (Assimp parse -> Cooked/Meshes/*.stmesh). AF4h: an import
+        // never writes `cookedStr` to disk any more (the source envelope lives in the DDC), so
+        // `exists(cookedStr)` alone answered "not cooked" for every freshly imported mesh forever and the
+        // drop silently placed nothing. StaticMeshCookAvailable also accepts a fresh DDC envelope for
+        // `sourcePath`.
+        if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             Importer().Import( sourcePath );
 
-        if ( !std::filesystem::exists( cookedStr ) )
+        if ( !StaticMeshCookAvailable( cookedStr, sourcePath ) )
             return Common::UUID::Null(); // cook failed / produced a skinned mesh (.skmesh) instead
 
         // Create + register + load the cooked static mesh, return its handle.

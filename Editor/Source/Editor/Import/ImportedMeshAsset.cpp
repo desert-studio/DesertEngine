@@ -147,6 +147,12 @@ namespace Desert::Editor
              .has_value();
     }
 
+    bool StaticMeshCookAvailable( const std::filesystem::path& cooked, const std::filesystem::path& source )
+    {
+        std::error_code ec;
+        return std::filesystem::exists( cooked, ec ) || ImportedMeshAssetIsFresh( source );
+    }
+
     Common::ResultStr<MeshAssetWrite> WriteImportedMeshAsset( const Ser::MeshAssetData&                 imported,
                                                               std::span<const Assets::MeshMaterialSlot> named,
                                                               const std::filesystem::path&              source )
