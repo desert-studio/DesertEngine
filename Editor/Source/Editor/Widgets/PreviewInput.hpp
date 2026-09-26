@@ -97,4 +97,25 @@ namespace Desert::Editor
 
         return result;
     }
+
+    // WHO THE WHEEL BELONGS TO over a preview. An Interactive preview (the Material Editor, the asset viewers)
+    // zooms with it and must CLAIM it, or ImGui also scrolls the window the preview sits in: the model zooms
+    // while the whole panel slides away under the cursor. A Static preview (a Details row) never zooms, so the
+    // wheel passes through and keeps scrolling the Details panel exactly as it did.
+    enum class PreviewWheelOwner : uint8_t
+    {
+        PassThrough, // the parent window scrolls; the preview ignores the wheel
+        Zoom,        // the preview zooms and the caller claims the wheel from the parent (SetItemUsingMouseWheel)
+    };
+
+    [[nodiscard]] inline PreviewWheelOwner WheelOwner( const PreviewInteraction mode, const bool hovered,
+                                                       const float wheel ) noexcept
+    {
+        if ( mode != PreviewInteraction::Interactive || !hovered )
+            return PreviewWheelOwner::PassThrough;
+        // Claimed while hovered even on a frame with no wheel: ImGui routes the wheel by key ownership, and an
+        // owner taken only on the frame the wheel moves is taken after the parent has already scrolled.
+        static_cast<void>( wheel );
+        return PreviewWheelOwner::Zoom;
+    }
 } // namespace Desert::Editor

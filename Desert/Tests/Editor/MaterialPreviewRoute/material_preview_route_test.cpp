@@ -328,21 +328,23 @@ TEST_F( MaterialPreviewRoute, TheVolumeDomainTakesTheDomeRoute )
 // picker -- which is precisely the model this design rejects.
 TEST_F( MaterialPreviewRoute, TheShapeComboBelongsToTheSurfaceDomainAlone )
 {
+    // The combo lives on the VIEWPORT's toolbar since the document became a viewport column beside the
+    // details (UE's Material Editor layout); the rule it carries did not move with it and is asserted there.
     const std::string code = Code( "Editor/Source/Editor/Panels/MaterialEditor/MaterialEditorPanel.cpp" );
-    const std::string body = FunctionBody( code, "MaterialEditorPanel::DrawToolbar" );
+    const std::string body = FunctionBody( code, "MaterialEditorPanel::DrawViewportToolbar" );
 
-    ASSERT_FALSE( body.empty() ) << "MaterialEditorPanel::DrawToolbar not found — re-point this guard rather "
-                                    "than deleting it.";
+    ASSERT_FALSE( body.empty() ) << "MaterialEditorPanel::DrawViewportToolbar not found — re-point this guard "
+                                    "rather than deleting it.";
 
     const std::string surfaceOnly = BlockAfter( body, "ShaderDomain::Surface" );
     ASSERT_FALSE( surfaceOnly.empty() )
-         << "the toolbar no longer gates anything on the Surface domain, so the Shape combo is offered for "
-            "every domain — including the ones whose content has exactly one shape or no shape at all.";
+         << "the viewport toolbar no longer gates anything on the Surface domain, so the Shape combo is offered "
+            "for every domain — including the ones whose content has exactly one shape or no shape at all.";
 
-    EXPECT_NE( surfaceOnly.find( "\"Shape\"" ), std::string::npos )
+    EXPECT_NE( surfaceOnly.find( "\"##preview_shape\"" ), std::string::npos )
          << "the Shape combo is not inside the Surface-domain gate. It is a surface control: it must exist "
             "where it means something instead of being shown and disabled everywhere else.";
-    EXPECT_EQ( CountOf( body, "\"Shape\"" ), CountOf( surfaceOnly, "\"Shape\"" ) )
+    EXPECT_EQ( CountOf( body, "\"##preview_shape\"" ), CountOf( surfaceOnly, "\"##preview_shape\"" ) )
          << "a Shape combo is drawn OUTSIDE the Surface-domain gate as well. One copy inside the gate does "
             "not help if another is unconditional — a cubemap material would still be offered Cube/Plane.";
 }
