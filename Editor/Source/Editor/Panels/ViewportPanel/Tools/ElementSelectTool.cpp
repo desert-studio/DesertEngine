@@ -122,7 +122,7 @@ namespace Desert::Editor::Tools
         // edges (TopologyProvider->GetGroupEdgeEdges).
         void DrawGroupEdges( const Painter& paint )
         {
-            for ( int g = 0; g < paint.Topology.Edges.Num(); ++g )
+            for ( int g = 0; g < static_cast<int32_t>( paint.Topology.Edges.size() ); ++g )
                 for ( const int e : paint.Topology.GetGroupEdgeEdges( g ) )
                     paint.Edge( e, kGroupEdgeColour, kGroupEdgeWidth );
         }
