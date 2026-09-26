@@ -833,7 +833,7 @@ namespace Desert::Editor
 
                     if ( m_AssetManager )
                     {
-                        for ( const auto& [candidate, matKey, matPath, matGuid] :
+                        for ( const auto& [candidate, matKey, matPath, matGuid, matGuidName, matGuidSkinned] :
                               Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
                         {
                             const std::string matName = matPath.stem().string();
