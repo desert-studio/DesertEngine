@@ -5,6 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/ContentChunks.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Editor/Import/MeshDeriver.hpp>
@@ -5664,6 +5665,12 @@ namespace Desert::Editor
                    }
                    return Common::MakeSuccess( true );
                } } );
+
+        // The Build Settings panel's "Create default ContentChunks.json", reachable by a script: the
+        // packager refuses a project with no chunk scheme, and the way out must not need a mouse.
+        commands.push_back(
+             { "Build", "Create Default ContentChunks.json", []() -> Common::BoolResultStr
+               { return Common::Content::WriteDefaultChunkScheme( Common::Content::ChunkSchemePath() ); } } );
 
         return commands;
     }

@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -67,14 +68,22 @@ namespace Common::Content
         return MakeSuccess( std::move( scheme ) );
     }
 
+    namespace
+    {
+        ChunkSchemeJson ToJson( const ChunkScheme& scheme )
+        {
+            ChunkSchemeJson out;
+            out.AlwaysBase = scheme.AlwaysBase;
+            out.Chunks.reserve( scheme.Chunks.size() );
+            for ( const auto& rule : scheme.Chunks )
+                out.Chunks.push_back( ChunkRuleJson{ rule.Name, rule.Roots } );
+            return out;
+        }
+    } // namespace
+
     std::string WriteChunkScheme( const ChunkScheme& scheme )
     {
-        ChunkSchemeJson out;
-        out.AlwaysBase = scheme.AlwaysBase;
-        out.Chunks.reserve( scheme.Chunks.size() );
-        for ( const auto& rule : scheme.Chunks )
-            out.Chunks.push_back( ChunkRuleJson{ rule.Name, rule.Roots } );
-        return Json::Write( out );
+        return Json::Write( ToJson( scheme ) );
     }
 
     fs::path ChunkSchemePath()
@@ -83,6 +92,39 @@ namespace Common::Content
         // content is DIVIDED and is not itself content, so a scan that enumerated it would offer a
         // build setting in an asset picker.
         return Constants::Path::CurrentProjectRoot().ProjectDir / "ContentChunks.json";
+    }
+
+    ResultStr<ChunkScheme> LoadChunkScheme( const fs::path& path )
+    {
+        if ( !Utils::FileSystem::Exists( path ) )
+            return MakeFormattedError<ChunkScheme>(
+                 "no chunk scheme at {} — packaging needs the project to state how its content is divided. "
+                 "Create the default one-archive scheme (Build Settings: \"Create default ContentChunks.json\", "
+                 "or the "
+                 "palette command Build > Create Default ContentChunks.json) and edit it to add chunks",
+                 path.string() );
+        const auto text = Utils::FileSystem::ReadFileContent( path );
+        if ( !text )
+            return MakeFormattedError<ChunkScheme>( "{} exists but could not be read: {}", path.string(),
+                                                    text.GetError() );
+        auto parsed = ParseChunkScheme( text.GetValue() );
+        if ( !parsed )
+            return MakeFormattedError<ChunkScheme>( "{}: {}", path.string(), parsed.GetError() );
+        return parsed;
+    }
+
+    BoolResultStr WriteDefaultChunkScheme( const fs::path& path )
+    {
+        if ( Utils::FileSystem::Exists( path ) )
+            return MakeFormattedError<bool>( "{} already exists; the default scheme never replaces one",
+                                             path.string() );
+        // Through the facade's writer: the file is committed and hand-edited, so it gets the canonical
+        // layout every other text asset has, not rfl's single line.
+        const auto written = Json::WriteFileAtomic( path, ToJson( ChunkScheme{} ) );
+        if ( !written )
+            return MakeFormattedError<bool>( "could not write the default chunk scheme to {}: {}", path.string(),
+                                             written.GetError() );
+        return MakeSuccess( true );
     }
 
     const std::vector<std::string>& ChunkPlan::Names() const
