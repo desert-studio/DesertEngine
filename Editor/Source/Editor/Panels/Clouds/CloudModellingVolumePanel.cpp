@@ -8,6 +8,8 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudModellingCatalogue.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -61,9 +63,14 @@ namespace Desert::Editor
         {
             if ( assets )
             {
-                if ( const auto asset = assets->FindByHandle<Assets::CloudModellingVolumeAsset>( subject ) )
+                if ( const auto asset = assets->ProbeByHandle<Assets::CloudModellingVolumeAsset>( subject ) )
                     return asset->GetMetadata().Filepath.filename().string();
             }
+            // Not created yet (the kind is created on demand, AL1-2): the registry row names the file
+            // without the title having to create the shell the constructor is about to create anyway.
+            if ( const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::CloudModellingVolume,
+                                                                  static_cast<uint64_t>( subject ) ) )
+                return row->Path.filename().string();
             return "Cloud Modelling Volume";
         }
     } // namespace
@@ -93,14 +100,18 @@ namespace Desert::Editor
         if ( !assets )
             return;
 
-        const auto asset =
-             assets->FindByHandle<Assets::CloudModellingVolumeAsset>( Assets::AssetHandle( Subject().Owner ) );
-        if ( !asset )
+        // CREATED FROM THE REGISTRY ROW when nothing has named the body yet: hero-cloud bodies have no boot
+        // stage (AL1-2), so a subject opened by handle usually has no shell, and a lookup alone came up empty.
+        const auto created = Assets::CreateFromRegistryRow<Assets::CloudModellingVolumeAsset>(
+             assets->weak_from_this(), Assets::AssetHandle( Subject().Owner ),
+             Common::Content::ContentKind::CloudModellingVolume );
+        if ( !created )
         {
-            m_Status        = "This body is not registered - the log says why. Save would create it anew.";
+            m_Status        = "This body cannot be opened: " + created.GetError() + ". Save would create it anew.";
             m_StatusIsError = true;
             return;
         }
+        const auto& asset = created.GetValue();
 
         m_SubjectPath = asset->GetMetadata().Filepath;
 

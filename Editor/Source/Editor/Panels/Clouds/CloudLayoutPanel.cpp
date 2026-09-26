@@ -9,6 +9,8 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -79,9 +81,13 @@ namespace Desert::Editor
         {
             if ( assets )
             {
-                if ( const auto asset = assets->FindByHandle<Assets::CloudLayoutAsset>( subject ) )
+                if ( const auto asset = assets->ProbeByHandle<Assets::CloudLayoutAsset>( subject ) )
                     return asset->GetMetadata().Filepath.filename().string();
             }
+            // Not created yet (the kind is created on demand, AL1-2): the registry row names the file.
+            if ( const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::CloudLayout,
+                                                                  static_cast<uint64_t>( subject ) ) )
+                return row->Path.filename().string();
             return "Cloud Layout";
         }
     } // namespace
@@ -101,8 +107,18 @@ namespace Desert::Editor
         if ( !m_Assets )
             return;
 
-        const auto painting =
-             m_Assets->FindByHandle<Assets::CloudLayoutAsset>( Assets::AssetHandle( Subject().Owner ) );
+        // CREATED FROM THE REGISTRY ROW when nothing has named the painting yet: layouts have no boot stage
+        // (AL1-2), so a subject opened by handle usually has no shell, and a lookup alone came up blank.
+        const auto created = Assets::CreateFromRegistryRow<Assets::CloudLayoutAsset>(
+             m_Assets->weak_from_this(), Assets::AssetHandle( Subject().Owner ),
+             Common::Content::ContentKind::CloudLayout );
+        if ( !created )
+        {
+            m_Status        = "This painting cannot be opened: " + created.GetError();
+            m_StatusIsError = true;
+            return;
+        }
+        const auto& painting = created.GetValue();
 
         // REGISTERED IS NOT LOADED — see the identical note in CloudNoiseVolumePanel::LoadSubject. A
         // painting the manager knows about but has not read yet answers false to IsReadyForUse, and this
