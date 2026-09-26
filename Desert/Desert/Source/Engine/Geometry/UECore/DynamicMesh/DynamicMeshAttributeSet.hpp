@@ -115,7 +115,7 @@ namespace Desert::Geometry
                                  bool& bIsTangentSeamOut ) const;
 
         /** @return true if the given vertex is a seam vertex in any overlay */
-        [[nodiscard]] virtual bool IsSeamVertex( int VID, bool bBoundaryIsSeam = true ) const;
+        [[nodiscard]] virtual bool IsSeamVertex( int VID, bool bBoundaryIsSeam ) const;
 
         /** @return true if the given vertex is a seam intersection vertex in any overlay */
         [[nodiscard]] virtual bool IsSeamIntersectionVertex( int32_t VertexID ) const;

@@ -6,6 +6,7 @@
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
 
 #include <Common/Core/Core.hpp>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 
@@ -899,18 +900,17 @@ template <typename RealType, int ElementSize>
 bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamVertex( int vid, bool bBoundaryIsSeam ) const
 {
     // @todo can we do this more efficiently? At minimum we are looking up each triangle twice...
-    for ( const int edgeid : m_ParentMesh->VtxEdgesItr( vid ) )
-    {
-        if ( !bBoundaryIsSeam && m_ParentMesh->IsBoundaryEdge( edgeid ) )
-        {
-            continue;
-        }
-        if ( IsSeamEdge( edgeid ) )
-        {
-            return true;
-        }
-    }
-    return false;
+    // VtxEdgesItr does not satisfy std::ranges::input_range, so the iterator-pair form.
+    auto Edges = m_ParentMesh->VtxEdgesItr( vid );
+    return std::any_of( Edges.begin(), Edges.end(),
+                        [this, bBoundaryIsSeam]( const int edgeid )
+                        {
+                            if ( !bBoundaryIsSeam && m_ParentMesh->IsBoundaryEdge( edgeid ) )
+                            {
+                                return false;
+                            }
+                            return IsSeamEdge( edgeid );
+                        } );
 }
 
 template <typename RealType, int ElementSize>
@@ -1291,7 +1291,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const DynamicMesh3:
         const int idx_base_c = IndexUtil::GetOtherTriIndex( idx_base_a1, idx_base_b1 );
 
         // create new element at lerp position
-        NewElemID = AppendElement( (RealType)0 );
+        NewElemID = AppendElement( static_cast<RealType>( 0 ) );
         SetElementFromLerp( NewElemID, Triangle0[idx_base_a1], Triangle0[idx_base_b1], splitInfo.SplitT );
 
         // rewrite triangle 0
@@ -1331,7 +1331,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnSplitEdge( const DynamicMesh3:
         if ( !bHasSharedUVEdge )
         {
             // create new element at lerp position
-            OtherNewElemID = AppendElement( (RealType)0 );
+            OtherNewElemID = AppendElement( static_cast<RealType>( 0 ) );
             SetElementFromLerp( OtherNewElemID, Triangle1[idx_base_a2], Triangle1[idx_base_b2], splitInfo.SplitT );
         }
 
@@ -1656,7 +1656,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnPokeTriangle( const DynamicMes
     Index3i Triangle = GetTriangle( PokeInfo.OriginalTriangle );
 
     // create new element at barycentric position
-    const int        CenterElemID = AppendElement( (RealType)0 );
+    const int        CenterElemID = AppendElement( static_cast<RealType>( 0 ) );
     const glm::dvec3 BaryCoords( static_cast<double>( PokeInfo.BaryCoords.x ),
                                  static_cast<double>( PokeInfo.BaryCoords.y ),
                                  static_cast<double>( PokeInfo.BaryCoords.z ) );
@@ -1784,8 +1784,9 @@ void DynamicMeshOverlay<RealType, ElementSize>::SetElementFromLerp( int SetEleme
     const double Beta     = ( static_cast<double>( 1 ) - Alpha );
     for ( int i = 0; i < ElementSize; ++i )
     {
-        const double LerpValue   = Beta * (double)m_Elements[IndexA + i] + Alpha * (double)m_Elements[IndexB + i];
-        m_Elements[IndexSet + i] = (RealType)LerpValue;
+        const double LerpValue = Beta * static_cast<double>( m_Elements[IndexA + i] ) +
+                                 Alpha * static_cast<double>( m_Elements[IndexB + i] );
+        m_Elements[IndexSet + i] = static_cast<RealType>( LerpValue );
     }
 }
 
@@ -1799,10 +1800,10 @@ void DynamicMeshOverlay<RealType, ElementSize>::SetElementFromBary( int SetEleme
     const int IndexC   = ElementSize * ElementC;
     for ( int i = 0; i < ElementSize; ++i )
     {
-        const double BaryValue = BaryCoords.x * (double)m_Elements[IndexA + i] +
-                                 BaryCoords.y * (double)m_Elements[IndexB + i] +
-                                 BaryCoords.z * (double)m_Elements[IndexC + i];
-        m_Elements[IndexSet + i] = (RealType)BaryValue;
+        const double BaryValue = BaryCoords.x * static_cast<double>( m_Elements[IndexA + i] ) +
+                                 BaryCoords.y * static_cast<double>( m_Elements[IndexB + i] ) +
+                                 BaryCoords.z * static_cast<double>( m_Elements[IndexC + i] );
+        m_Elements[IndexSet + i] = static_cast<RealType>( BaryValue );
     }
 }
 
@@ -1885,7 +1886,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::CheckValidity( bool /*bAllowNonM
 
     // Check that the per-triangle data matches the number of triangles in the parent mesh.
     CheckOrFailF( ( m_ParentMesh == nullptr ) ||
-                  m_ElementTriangles.Num() == static_cast<size_t>( m_ParentMesh->MaxTriangleID() * 3 ) );
+                  m_ElementTriangles.Num() == static_cast<size_t>( m_ParentMesh->MaxTriangleID() ) * 3 );
 
     // check that parent vtx of a non-isolated element is actually a vertex
     for ( const int elemid : ElementIndicesItr() )
@@ -1973,7 +1974,7 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSameAs( const DynamicMeshOverl
             return false;
         }
 
-        for ( int Idx = 0; Idx < m_ElementsRefCounts.GetMaxIndex(); Idx++ )
+        for ( int Idx = 0; Idx < static_cast<int>( m_ElementsRefCounts.GetMaxIndex() ); Idx++ )
         {
             if ( m_ElementsRefCounts.GetRefCount( Idx ) != Other.m_ElementsRefCounts.GetRefCount( Idx ) )
             {

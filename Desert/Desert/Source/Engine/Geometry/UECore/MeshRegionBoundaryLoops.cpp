@@ -7,6 +7,8 @@
 
 #include "Engine/Geometry/UECore/IndexUtil.hpp"
 
+#include <algorithm>
+
 using namespace Desert::Geometry;
 
 void EdgeSpan::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn )
@@ -80,12 +82,7 @@ bool EdgeLoop::InitializeFromVertices( const DynamicMesh3& Mesh, const std::vect
 
 bool EdgeLoop::IsBoundaryLoop( const DynamicMesh3& Mesh ) const
 {
-    for ( const int Eid : Edges )
-    {
-        if ( !Mesh.IsBoundaryEdge( Eid ) )
-            return false;
-    }
-    return true;
+    return std::ranges::all_of( Edges, [&Mesh]( const int Eid ) { return Mesh.IsBoundaryEdge( Eid ); } );
 }
 
 MeshRegionBoundaryLoops::MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,

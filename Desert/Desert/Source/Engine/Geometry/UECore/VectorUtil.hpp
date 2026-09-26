@@ -43,7 +43,7 @@ namespace Desert::Geometry::VectorUtil
         const glm::vec<3, RealType> Edge1( V1 - V0 );
         const glm::vec<3, RealType> Edge2( V2 - V0 );
         const glm::vec<3, RealType> Cross = glm::cross( Edge2, Edge1 );
-        return (RealType)0.5 * glm::length( Cross );
+        return static_cast<RealType>( 0.5 ) * glm::length( Cross );
     }
 
     template <typename RealType>

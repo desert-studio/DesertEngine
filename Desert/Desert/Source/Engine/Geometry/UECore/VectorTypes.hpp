@@ -32,8 +32,8 @@ namespace Desert::Geometry
             Vector.z *= invLength;
             return length;
         }
-        Vector.x = Vector.y = Vector.z = (T)0;
-        return (T)0;
+        Vector.x = Vector.y = Vector.z = static_cast<T>( 0 );
+        return static_cast<T>( 0 );
     }
 
     template <typename T>
@@ -42,10 +42,10 @@ namespace Desert::Geometry
         T length = glm::length( Vector );
         if ( length > Epsilon )
         {
-            T invLength = ( (T)1 ) / length;
+            T invLength = ( static_cast<T>( 1 ) ) / length;
             return glm::vec<3, T>( Vector.x * invLength, Vector.y * invLength, Vector.z * invLength );
         }
-        return glm::vec<3, T>( (T)0, (T)0, (T)0 );
+        return glm::vec<3, T>( static_cast<T>( 0 ), static_cast<T>( 0 ), static_cast<T>( 0 ) );
     }
 
     template <typename T>

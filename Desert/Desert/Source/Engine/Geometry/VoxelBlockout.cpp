@@ -147,10 +147,8 @@ namespace Desert::Geometry::VoxelBlockout
         };
         if ( inLayer( m_Cells, m_Unit, m_Origin ) )
             return true;
-        for ( const Layer& l : m_Frozen )
-            if ( inLayer( l.Cells, l.Unit, l.Origin ) )
-                return true;
-        return false;
+        return std::ranges::any_of( m_Frozen, [&inLayer]( const Layer& l )
+                                    { return inLayer( l.Cells, l.Unit, l.Origin ); } );
     }
 
     bool Volume::FaceHidden( const CellMap& cells, const glm::ivec3& c, const Cell& data, int f, float unit,

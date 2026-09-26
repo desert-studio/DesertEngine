@@ -101,7 +101,8 @@ namespace Desert::Geometry
                 const Index3i ElTri = TangentOverlays[Idx]->GetTriangle( TID );
                 for ( int SubIdx = 0; SubIdx < 3; SubIdx++ )
                 {
-                    TangentOverlays[Idx]->SetElement( ElTri[SubIdx], (glm::vec3)TV[TID * 3 + SubIdx] );
+                    TangentOverlays[Idx]->SetElement( ElTri[SubIdx],
+                                                      static_cast<glm::vec3>( TV[TID * 3 + SubIdx] ) );
                 }
             }
         }
@@ -147,8 +148,9 @@ namespace Desert::Geometry
                 const glm::dvec3 ReconsBitangent =
                      VectorUtil::Bitangent( VtxNormal, ProjectedTangent, BitangentSign );
 
-                SetPerTriangleTangent( TriangleID, j, Normalized( (glm::vec<3, RealType>)ProjectedTangent ),
-                                       Normalized( (glm::vec<3, RealType>)ReconsBitangent ) );
+                SetPerTriangleTangent( TriangleID, j,
+                                       Normalized( static_cast<glm::vec<3, RealType>>( ProjectedTangent ) ),
+                                       Normalized( static_cast<glm::vec<3, RealType>>( ReconsBitangent ) ) );
             }
         }
     }

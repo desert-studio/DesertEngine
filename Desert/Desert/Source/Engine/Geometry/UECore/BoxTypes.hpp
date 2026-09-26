@@ -43,8 +43,9 @@ namespace Desert::Geometry
 
         [[nodiscard]] glm::vec<3, RealType> Center() const
         {
-            return glm::vec<3, RealType>( ( Min.x + Max.x ) * (RealType)0.5, ( Min.y + Max.y ) * (RealType)0.5,
-                                          ( Min.z + Max.z ) * (RealType)0.5 );
+            return glm::vec<3, RealType>( ( Min.x + Max.x ) * static_cast<RealType>( 0.5 ),
+                                          ( Min.y + Max.y ) * static_cast<RealType>( 0.5 ),
+                                          ( Min.z + Max.z ) * static_cast<RealType>( 0.5 ) );
         }
 
         [[nodiscard]] glm::vec<3, RealType> Extents() const

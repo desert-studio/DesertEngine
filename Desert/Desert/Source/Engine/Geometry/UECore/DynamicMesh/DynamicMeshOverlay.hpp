@@ -266,9 +266,10 @@ namespace Desert::Geometry
                 }
             }
 
-            assert( ElementIDOffset == m_ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
+            assert( static_cast<size_t>( ElementIDOffset ) ==
+                    m_ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
             m_ParentVertices.Add( ToAppend.m_ParentVertices );
-            for ( int32_t Idx = 0; Idx < ToAppend.m_ParentVertices.Num(); ++Idx )
+            for ( int32_t Idx = 0; Idx < static_cast<int32_t>( ToAppend.m_ParentVertices.Num() ); ++Idx )
             {
                 int32_t& Parent = m_ParentVertices[Idx + ElementIDOffset];
                 if ( Parent != IndexConstants::InvalidID )
@@ -305,13 +306,13 @@ namespace Desert::Geometry
         /** @return the number of in-use Elements in the overlay */
         [[nodiscard]] int ElementCount() const
         {
-            return (int)m_ElementsRefCounts.GetCount();
+            return static_cast<int>( m_ElementsRefCounts.GetCount() );
         }
         /** @return the maximum element index in the overlay. This may be larger than the count if Elements have
          * been deleted. */
         [[nodiscard]] int MaxElementID() const
         {
-            return (int)m_ElementsRefCounts.GetMaxIndex();
+            return static_cast<int>( m_ElementsRefCounts.GetMaxIndex() );
         }
         /** @return true if this element index is in use */
         [[nodiscard]] bool IsElement( int vID ) const
@@ -677,14 +678,14 @@ namespace Desert::Geometry
             int32_t       ElemIndex0 = m_ElementTriangles[TriIndex] * ElementSize;
             int32_t       ElemIndex1 = m_ElementTriangles[TriIndex + 1] * ElementSize;
             int32_t       ElemIndex2 = m_ElementTriangles[TriIndex + 2] * ElementSize;
-            const auto    Bary0      = (AsType)BaryCoords[0];
-            const auto    Bary1      = (AsType)BaryCoords[1];
-            const auto    Bary2      = (AsType)BaryCoords[2];
+            const auto    Bary0      = static_cast<AsType>( BaryCoords[0] );
+            const auto    Bary1      = static_cast<AsType>( BaryCoords[1] );
+            const auto    Bary2      = static_cast<AsType>( BaryCoords[2] );
             for ( int32_t i = 0; i < ElementSize; ++i )
             {
-                DataOut[i] = Bary0 * (AsType)m_Elements[ElemIndex0 + i] +
-                             Bary1 * (AsType)m_Elements[ElemIndex1 + i] +
-                             Bary2 * (AsType)m_Elements[ElemIndex2 + i];
+                DataOut[i] = Bary0 * static_cast<AsType>( m_Elements[ElemIndex0 + i] ) +
+                             Bary1 * static_cast<AsType>( m_Elements[ElemIndex1 + i] ) +
+                             Bary2 * static_cast<AsType>( m_Elements[ElemIndex2 + i] );
             }
         }
 

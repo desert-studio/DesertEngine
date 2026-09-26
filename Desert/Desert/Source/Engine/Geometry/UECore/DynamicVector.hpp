@@ -259,7 +259,7 @@ namespace Desert::Geometry
         /** @return iterator at end of vector */
         Iterator end()
         {
-            return Iterator{ this, (unsigned int)GetLength() };
+            return Iterator{ this, static_cast<unsigned int>( GetLength() ) };
         }
 
         /*
@@ -310,7 +310,7 @@ namespace Desert::Geometry
         /** @return iterator at end of vector */
         [[nodiscard]] ConstIterator end() const
         {
-            return ConstIterator{ this, (unsigned int)GetLength() };
+            return ConstIterator{ this, static_cast<unsigned int>( GetLength() ) };
         }
 
     private:
@@ -532,18 +532,19 @@ namespace Desert::Geometry
         [[nodiscard]] Index2i AsIndex2( unsigned int TopIndex ) const
         {
             assert( N >= 2 );
-            return { (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1] };
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ) };
         }
         [[nodiscard]] Index3i AsIndex3( unsigned int TopIndex ) const
         {
             assert( N >= 3 );
-            return { (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1], (int)m_Data[TopIndex * N + 2] };
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ),
+                     static_cast<int>( m_Data[TopIndex * N + 2] ) };
         }
         [[nodiscard]] Index4i AsIndex4( unsigned int TopIndex ) const
         {
             assert( N >= 4 );
-            return { (int)m_Data[TopIndex * N + 0], (int)m_Data[TopIndex * N + 1], (int)m_Data[TopIndex * N + 2],
-                     (int)m_Data[TopIndex * N + 3] };
+            return { static_cast<int>( m_Data[TopIndex * N + 0] ), static_cast<int>( m_Data[TopIndex * N + 1] ),
+                     static_cast<int>( m_Data[TopIndex * N + 2] ), static_cast<int>( m_Data[TopIndex * N + 3] ) };
         }
 
     private:

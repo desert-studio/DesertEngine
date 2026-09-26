@@ -96,7 +96,7 @@ namespace Desert::Geometry
             m_FreeIndices.Add( Other.m_FreeIndices );
             for ( size_t Idx = OrigFree, N = m_FreeIndices.Num(); Idx < N; ++Idx )
             {
-                m_FreeIndices[Idx] += OrigNum;
+                m_FreeIndices[Idx] += static_cast<int>( OrigNum );
             }
             m_UsedCount += Other.m_UsedCount;
         }
@@ -293,7 +293,7 @@ namespace Desert::Geometry
             {
                 if ( m_RefCounts[Index] == INVALID_REF_COUNT )
                 {
-                    m_FreeIndices[FreeIndicesIndex++] = Index;
+                    m_FreeIndices[FreeIndicesIndex++] = static_cast<int>( Index );
                 }
             }
         }
@@ -422,7 +422,7 @@ namespace Desert::Geometry
 
         [[nodiscard]] IndexIterator BeginIndices() const
         {
-            return { this, (int)0, static_cast<int>( m_RefCounts.GetLength() ) };
+            return { this, 0, static_cast<int>( m_RefCounts.GetLength() ) };
         }
 
         [[nodiscard]] IndexIterator EndIndices() const
@@ -514,20 +514,18 @@ namespace Desert::Geometry
 
             [[nodiscard]] FilteredIterator<int, IndexIterator> begin() const
             {
-                return FilteredIterator<int, IndexIterator>( m_enumerable.begin(), m_enumerable.end(),
-                                                             m_FilterFunc );
+                return { m_enumerable.begin(), m_enumerable.end(), m_FilterFunc };
             }
 
             [[nodiscard]] FilteredIterator<int, IndexIterator> end() const
             {
-                return FilteredIterator<int, IndexIterator>( m_enumerable.end(), m_enumerable.end(),
-                                                             m_FilterFunc );
+                return { m_enumerable.end(), m_enumerable.end(), m_FilterFunc };
             }
         };
 
         FilteredEnumerable FilteredIndices( std::function<bool( int )> FilterFunc ) const
         {
-            return FilteredEnumerable( Indices(), std::move( FilterFunc ) );
+            return { Indices(), std::move( FilterFunc ) };
         }
 
         [[nodiscard]] size_t GetByteCount() const

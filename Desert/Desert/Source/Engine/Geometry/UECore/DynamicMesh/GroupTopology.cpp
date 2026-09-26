@@ -7,18 +7,14 @@
 
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
+#include <algorithm>
+
 using namespace Desert::Geometry;
 
 bool GroupTopology::GroupEdge::IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const
 {
-    for ( const int VertexID : Span.Vertices )
-    {
-        if ( Vertices.contains( VertexID ) )
-        {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of( Span.Vertices,
+                                [&Vertices]( const int VertexID ) { return Vertices.contains( VertexID ); } );
 }
 
 GroupTopology::GroupTopology( const DynamicMesh3* MeshIn, bool bAutoBuild ) : m_Mesh( MeshIn )
