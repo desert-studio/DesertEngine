@@ -230,6 +230,36 @@ TEST_F( LedgerFixture, ALoadAfterTheBootIsCountedSeparatelyAndTheBootTotalIsNotC
     EXPECT_NE( report.find( "in-frame: 1 load(s)" ), std::string::npos ) << report;
 }
 
+TEST_F( LedgerFixture, TheReportNamesTheSLOWESTInFrameLoadsNotTheFirstOnes )
+{
+    SyncLoadLedger::NoteBootFinished();
+
+    // Twenty cheap in-frame loads and ONE expensive one placed past the per-load log cap: the case the
+    // cap alone got wrong, because the load worth opening arrived after the sixteenth warning and was
+    // only counted.
+    constexpr int kCheap = 20;
+    for ( int i = 0; i < kCheap; ++i )
+    {
+        if ( i == 18 )
+        {
+            const LoadTimingScope slow( "late_and_slow.stmesh" );
+            Work( 15 );
+        }
+        const LoadTimingScope cheap( "cheap_" + std::to_string( i ) + ".stmesh" );
+    }
+
+    const std::string report = SyncLoadLedger::Report();
+    const std::size_t header = report.find( "slowest in-frame load(s) by their OWN time (16 of 21):" );
+    ASSERT_NE( header, std::string::npos ) << report;
+    const std::size_t first = report.find( "\n    ", header );
+    ASSERT_NE( first, std::string::npos ) << report;
+    EXPECT_NE( report.substr( first, report.find( '\n', first + 1 ) - first ).find( "late_and_slow.stmesh" ),
+               std::string::npos )
+         << "the slowest in-frame load must be named first:\n"
+         << report;
+    EXPECT_NE( report.find( "the other 5 took at most" ), std::string::npos ) << report;
+}
+
 TEST_F( LedgerFixture, ZeroInFrameLoadsAfterABootIsPrintedAsARESULT )
 {
     {

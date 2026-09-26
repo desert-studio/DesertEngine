@@ -74,6 +74,13 @@ namespace Desert::Graphic
         /// bit what it was before clouds reached the bake at all.
         bool Marched = false;
 
+        /// true when this view HAS a cloud layer whose inputs are still arriving: a noise volume or a
+        /// painted layout on a worker, the first modelling bake in flight, or a sky-occlusion volume the
+        /// frame has not yet had a chance to write. A panorama baked now would be baked again the moment
+        /// they land (measured on Clouds_Protocol: 372 ms sky-only, then 477 ms, then 461 ms), so the sky
+        /// waits for them instead. A resource that FAILED is not pending: that layer bakes without clouds.
+        bool InputsPending = false;
+
         /// Whether SkyOcclusionVolume holds a reconstruction that may be read. It is the SCREEN march's
         /// own gate, carried so the baked dome self-occludes exactly as much as the visible one does — and
         /// it is folded into the fingerprint below, because the volume is only written from the frame the
