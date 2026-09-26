@@ -376,7 +376,9 @@ TEST( TwoBoneWitness, TheShippedRigIsTheChainThisSuiteDescribes )
     const std::string meshGuidText = Common::Content::AssetGuidToText( *meshGuid );
     const std::string scene        = ReadFile( RepoRoot() + kSceneFile );
     ASSERT_FALSE( scene.empty() ) << "could not read " << kSceneFile;
-    EXPECT_NE( scene.find( R"("MeshGuid": ")" + meshGuidText + "\"" ), std::string::npos )
+    // Named outside the macro: MSVC mis-lexes a raw string followed by \" inside a macro argument (C2017).
+    const std::string meshGuidField = R"("MeshGuid": ")" + meshGuidText + "\"";
+    EXPECT_NE( scene.find( meshGuidField ), std::string::npos )
          << kSceneFile << " does not name the witness mesh by its header GUID " << meshGuidText
          << ", so the scene that places the rig would resolve to no mesh at all.";
 }
