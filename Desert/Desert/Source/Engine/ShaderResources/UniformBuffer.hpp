@@ -53,6 +53,11 @@ namespace Desert::ShaderResources
             return m_UniformModel.Name;
         }
 
+        // The field route's bookkeeping on the ACTIVE view's copy for the current frame (ViewCopiedBlock): the
+        // newest field version it holds, and the note that it now holds everything up to `version`.
+        [[nodiscard]] virtual uint64_t ActiveAppliedVersion() const          = 0;
+        virtual void                   NoteActiveApplied( uint64_t version ) = 0;
+
     protected:
         ShaderLayout::UniformBuffer m_UniformModel;
 

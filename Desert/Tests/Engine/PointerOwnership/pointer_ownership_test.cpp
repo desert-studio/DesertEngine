@@ -1040,7 +1040,7 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     // REFUSED rather than written is the whole content of this test — destroying an executor destroys
     // descriptor sets a submitted frame may still be reading, which corrupts a frame instead of crashing
     // a process. So the window is the condition, and here it is where it can fail.
-    constexpr uint32_t kWindow = 9; // 3 frames in flight x 3 slots, a plausible DirtyLifetime()
+    constexpr uint32_t kWindow = 9; // 3 frames in flight x 3 slots, a plausible ExecutorRetireWindow()
 
     // Nothing may be retired inside the window, and the EDGE belongs to the GPU: an entry last used
     // exactly `window` frames ago is still reachable by the oldest frame in flight.
@@ -1061,12 +1061,12 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     EXPECT_FALSE( MayRetireExecutor( 100, 50, kWindow ) );
 
     // A window of zero would mean "retire on the next frame", which is inside the in-flight range for
-    // every real configuration. It is not reachable through PropertyDirty::DirtyLifetime() -- that
+    // every real configuration. It is not reachable through ExecutorRetireWindow() -- that
     // function floors frames-in-flight at 3 -- and the sweep must not invent its own number.
     const std::string src = ReadRepoFile( "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.cpp" );
-    EXPECT_NE( src.find( "PropertyDirty::DirtyLifetime()" ), std::string::npos )
-         << "Render2D::RetireUnusedExecutors no longer takes its window from the material properties' "
-            "own frame window. A literal here is a second answer to 'how long does a frame live', and the "
+    EXPECT_NE( src.find( "ExecutorRetireWindow()" ), std::string::npos )
+         << "Render2D::RetireUnusedExecutors no longer takes its window from ExecutorRetireWindow(). A literal "
+            "here is a second answer to 'how long does a frame live', and the "
             "two would drift.";
     EXPECT_NE( src.find( "MayRetireExecutor(" ), std::string::npos )
          << "the sweep no longer goes through the tested predicate.";
