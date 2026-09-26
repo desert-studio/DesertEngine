@@ -413,7 +413,7 @@ namespace Desert::Editor
 
     void FileExplorerPanel::PrefetchCurrentFolderThumbnails()
     {
-        if ( !m_CurrentDir )
+        if ( m_CurrentDir == nullptr )
             return;
 
         // The same picture each Draw*Thumbnail below will pass to ThumbnailCache::Get, and the same
@@ -422,7 +422,7 @@ namespace Desert::Editor
         std::vector<ThumbnailPrefetch::Item> items;
         for ( const DirectoryInformation* entry : m_CurrentDir->Children )
         {
-            if ( !entry || !entry->IsFile || entry->Hidden )
+            if ( entry == nullptr || !entry->IsFile || entry->Hidden )
                 continue;
             switch ( entry->Type )
             {

@@ -85,7 +85,7 @@ namespace Desert::Editor
         m_Waiting.clear();
         for ( Item& item : items )
         {
-            if ( m_Ready.count( item.Picture ) )
+            if ( m_Ready.contains( item.Picture ) )
                 continue;
             const bool running = std::any_of( m_InFlight.begin(), m_InFlight.end(),
                                               [&]( const InFlight& f ) { return f.Picture == item.Picture; } );
@@ -169,7 +169,7 @@ namespace Desert::Editor
     {
         while ( !Idle() )
         {
-            for ( InFlight& f : m_InFlight )
+            for ( const InFlight& f : m_InFlight )
                 f.Result.wait();
             Tick();
         }
@@ -178,7 +178,7 @@ namespace Desert::Editor
     void ThumbnailPrefetch::Clear()
     {
         m_Waiting.clear();
-        for ( InFlight& f : m_InFlight )
+        for ( const InFlight& f : m_InFlight )
             f.Result.wait(); // a job must not outlive the store it reports to
         m_InFlight.clear();
         m_Ready.clear();
