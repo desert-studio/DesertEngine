@@ -201,9 +201,10 @@ namespace Desert::Editor::Splash
             m_Window.opaque             = NO;
             m_Window.backgroundColor    = [NSColor clearColor];
             m_Window.hasShadow          = YES;
-            // Above the editor's own window while that one is still hidden, and above the terminal that
-            // started it — the place every engine's splash sits.
-            m_Window.level = NSFloatingWindowLevel;
+            // A normal window: brought to the front once as it appears (orderFrontRegardless below), then it
+            // stacks like any other — the owner switches to other windows while the editor loads, and a
+            // floating splash stayed above all of them.
+            m_Window.level = NSNormalWindowLevel;
             m_Window.title = @"Desert Engine";
             // Moved by its background, as the editor's title bar moves the editor. The drag is the window
             // server's once AppKit has handed it the draggable region, so it does not wait on the loading
