@@ -10,10 +10,13 @@
 
 #include "WorldPartitionPanel.hpp"
 
+#include "../../Core/CommandHistory.hpp"
+
 #include <ranges>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 
 #include <ImGui/imgui.h>
@@ -32,6 +35,9 @@ namespace Desert::Editor
 
     namespace
     {
+        // The action's one name, from the rules header, so the button and the palette cannot drift apart.
+        const std::string kConvertButtonLabel{ ::Desert::Core::Rules::kConvertToWorldPartitionLabel };
+
         // UE's minimum on-screen grid cell (SWorldPartitionEditorGrid2D PaintGrid): finer levels would be noise.
         constexpr double kMinGridPixels = 24.0;
         constexpr float  kDashSegments  = 64.0f;
@@ -63,6 +69,53 @@ namespace Desert::Editor
 
         // Below this the legend (five rows in Play) covers the cells; a smaller window scrolls instead.
         constexpr float kMinMapPixels = 240.0f;
+
+        // One history entry for "the world's partition changed": the block before and the block after.
+        //
+        // WEAK, not shared. A history entry that owned the scene would keep a closed world alive for as
+        // long as the undo stack remembered it; ICommand's contract is that an entry whose target is
+        // gone returns false and is discarded, and a weak pointer is how that is DETECTED rather than
+        // assumed. The scene is addressed as a whole object because the partition is a property of the
+        // world itself and has no id of its own.
+        class ConvertToWorldPartitionCommand final : public ICommand
+        {
+        public:
+            ConvertToWorldPartitionCommand( std::weak_ptr<::Desert::Core::Scene>                    scene,
+                                            std::optional<::Desert::Core::WorldPartitionSerialized> before,
+                                            ::Desert::Core::WorldPartitionSerialized                after )
+                 : m_Scene( std::move( scene ) ), m_Before( std::move( before ) ), m_After( std::move( after ) )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return "Convert to World Partition";
+            }
+
+            bool Undo() override
+            {
+                return Apply( m_Before );
+            }
+
+            bool Redo() override
+            {
+                return Apply( m_After );
+            }
+
+        private:
+            bool Apply( const std::optional<::Desert::Core::WorldPartitionSerialized>& partition )
+            {
+                const std::shared_ptr<::Desert::Core::Scene> scene = m_Scene.lock();
+                if ( !scene )
+                    return false;
+                scene->SetWorldPartition( partition );
+                return true;
+            }
+
+            std::weak_ptr<::Desert::Core::Scene>                    m_Scene;
+            std::optional<::Desert::Core::WorldPartitionSerialized> m_Before;
+            ::Desert::Core::WorldPartitionSerialized                m_After;
+        };
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
@@ -86,11 +139,13 @@ namespace Desert::Editor
     {
         m_EditPlanStale = false;
         m_EditPlan.reset();
+        m_PlanSource.reset();
         if ( !m_Scene )
         {
             m_EditPlanStatus = "No active scene.";
             return;
         }
+        m_PlanSource = m_Scene->GetWorldPartition();
         // The loader's own path from a scene to a plan, so the map shows the partition Play and the cook make.
         const std::string json   = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).SerializeToJson();
         auto              parsed = ::Desert::Core::ParseLoadableScene( "<World Partition panel>", json );
@@ -131,6 +186,11 @@ namespace Desert::Editor
                 m_EditPlanStale = true; // Stop rebuilt the scene: the old plan's indices describe nothing now
         }
 
+        // The scene's partition changed under the panel - a conversion, or the undo of one. Cheap enough
+        // to ask every frame (two floats per grid); rebuilding the plan is not, which is why it is asked.
+        if ( !playing && m_Scene && m_Scene->GetWorldPartition() != m_PlanSource )
+            m_EditPlanStale = true;
+
         if ( !playing && m_EditPlanStale )
             RebuildEditPlan();
 
@@ -147,6 +207,18 @@ namespace Desert::Editor
             ImGui::SameLine();
             if ( ImGui::Button( "Refresh" ) )
                 RebuildEditPlan();
+            // Offered only where it can do something. On a world that is already partitioned the action
+            // still EXISTS in the command palette and still refuses by name there - hiding the button is
+            // a statement about the button, not about the rule.
+            if ( m_Scene && !m_Scene->GetWorldPartition().has_value() )
+            {
+                ImGui::SameLine();
+                if ( ImGui::Button( kConvertButtonLabel.c_str() ) )
+                {
+                    const Common::BoolResultStr converted = ConvertSceneToWorldPartition();
+                    m_ConvertStatus = converted.IsSuccess() ? std::string() : converted.GetError();
+                }
+            }
         }
         ImGui::SameLine();
         if ( ImGui::Button( "Focus" ) )
@@ -170,6 +242,9 @@ namespace Desert::Editor
             partition = &m_EditPartition;
         }
 
+        if ( !m_ConvertStatus.empty() )
+            ImGui::TextColored( ImVec4( 1.0f, 0.5f, 0.35f, 1.0f ), "%s", m_ConvertStatus.c_str() );
+
         if ( plan == nullptr || partition->Grids.empty() )
         {
             ImGui::TextDisabled( "%s",
@@ -187,6 +262,29 @@ namespace Desert::Editor
                              static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()
+    {
+        if ( !m_Scene )
+            return Common::MakeError( kConvertButtonLabel + ": there is no active scene." );
+
+        const auto converted = ::Desert::Core::Rules::ConvertToWorldPartition( m_Scene->GetSceneName(),
+                                                                               m_Scene->GetWorldPartition() );
+        if ( !converted.IsSuccess() )
+            return Common::MakeError( converted.GetError() );
+
+        std::optional<::Desert::Core::WorldPartitionSerialized> before = m_Scene->GetWorldPartition();
+        const ::Desert::Core::WorldPartitionSerialized&         after  = converted.GetValue();
+        m_Scene->SetWorldPartition( after );
+        // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
+        // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
+        CommandHistory::Get().PushCommand(
+             std::make_unique<ConvertToWorldPartitionCommand>( m_Scene, std::move( before ), after ) );
+
+        m_EditPlanStale = true;
+        m_FocusPending  = true;
+        return BOOLSUCCESS;
     }
 
     void WorldPartitionPanel::DrawMap( const WorldPartitionPlan&                       plan,

@@ -43,6 +43,7 @@ namespace Desert::Editor
 {
     class ImportManager;
     class FileExplorerPanel;
+    class WorldPartitionPanel;
     class ViewportPanel;
 
     class EditorLayer : public Common::Layer
@@ -517,6 +518,9 @@ namespace Desert::Editor
         Runtime::AssetHotReload                      m_AssetHotReload; // .demat/.shader live reload
 
         FileExplorerPanel* m_FileExplorerPanel = nullptr; // non-owning (lives in m_Panels)
+        // Non-owning (lives in m_Panels). Kept because the command palette offers the panel's Convert
+        // action, and a palette entry has to reach the object that owns the action.
+        WorldPartitionPanel* m_WorldPartitionPanel = nullptr;
 
         // m_MainScene is the ACTIVE document — rebound to the focused viewport's scene so the 100+ existing
         // call sites (play/save/gizmo/autosave) operate on it without change. m_PrimaryScene keeps a handle

@@ -196,6 +196,11 @@ namespace Desert::Core
                                                 SceneTextSubsystems() );
         m_Scene->SetAssetHeader( scene.Header );
         scene.SceneName = m_Scene->GetSceneName();
+        // STATED BY THE WRITER, not left to the foreign-key merge below. Until the scene held the block
+        // itself, this key was written by nobody and survived only as an unknown key the merge copied
+        // across — which meant a partition the editor CREATED (Rules::ConvertToWorldPartition) had
+        // nowhere to be written to, because the source document had no such key to preserve.
+        scene.WorldPartition = m_Scene->GetWorldPartition();
 
         // Helper to check if any ancestor has a PrefabComponent
         auto isPrefabChild = [&]( ECS::Entity entity ) -> bool
@@ -374,6 +379,9 @@ namespace Desert::Core
 
         const SceneSerialized scene = loadable.ExtractValue();
         m_Scene->SetAssetHeader( scene.Header );
+        // The block the file states, kept on the scene rather than only reported below: it is what the
+        // editor's World Partition panel edits and what the next save writes back.
+        m_Scene->SetWorldPartition( scene.WorldPartition );
         phases.Lap( "parse the file into typed records (version gate)", scene.Entities.size() );
 
         LOG_INFO( "Loading scene: {0}", scene.SceneName );
