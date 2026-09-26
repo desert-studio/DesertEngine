@@ -1,13 +1,12 @@
 // Ported from UE 5.8 ModelingComponents/Private/ModelingToolTargetUtil.cpp:302-335, adapted: see the header.
 #include "ModelingToolTarget.hpp"
 
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 
 #include <filesystem>
-#include <fstream>
 #include <map>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -45,13 +44,14 @@ namespace Desert::Editor
         auto& slot = lifted[assetFile.string()];
         if ( !slot.second || slot.first != stamp )
         {
-            std::ifstream in( assetFile, std::ios::binary );
-            if ( !in )
-                return Common::MakeFormattedError<ToolTargetMesh>( "static mesh {} cannot be opened",
-                                                                   assetFile.string() );
-            std::ostringstream bytes;
-            bytes << in.rdbuf();
-            auto mesh = LiftStaticMeshBytes( bytes.str(), assetFile.string() );
+            // THE LOADER'S READ, NOT THE FILE'S BYTES: a .stmesh is a MeshSourceAsset (AF4d) and what the entity
+            // draws is its render form from the DDC (StaticMeshAsset::LoadFromFile). Lifting that same form keeps
+            // the target in the space the viewport picks in (import scale / up axis applied), and a file that is
+            // not a source asset is refused here by name exactly as the loader refuses it.
+            const auto raw = Assets::LoadMeshPlatformData( assetFile );
+            if ( !raw.IsSuccess() )
+                return Common::MakeError<ToolTargetMesh>( raw.GetError() );
+            auto mesh = LiftStaticMeshBytes( raw.GetValue(), assetFile.string() );
             if ( !mesh.IsSuccess() )
                 return Common::MakeError<ToolTargetMesh>( mesh.GetError() );
             slot = { stamp, mesh.ExtractValue() };

@@ -19,6 +19,8 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshAssetArrays.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp", -- CG3: the lift reads the source asset
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp", -- CG3: ...and its render form from the DDC
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/SmallListSet.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/UECore/DynamicMesh/DynamicMesh3_Queries.cpp",
