@@ -4,11 +4,17 @@
 
 #include "Engine/Geometry/MeshCore/IndexTypes.hpp"
 
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace Desert::Geometry
