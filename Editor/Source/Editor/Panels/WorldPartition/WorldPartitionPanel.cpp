@@ -87,7 +87,7 @@ namespace Desert::Editor
             {
             }
 
-            std::string GetLabel() const override
+            [[nodiscard]] std::string GetLabel() const override
             {
                 return "Convert to World Partition";
             }
