@@ -29,6 +29,7 @@ project "DesertCrashReporter"
 
     files {
         "Source/**.hpp",
+        "Resources/*.rc",
         "Source/**.cpp",
 
         "../../ThirdParty/ImGui/imgui.cpp",
@@ -75,6 +76,10 @@ project "DesertCrashReporter"
         -- Dwmapi carries DwmSetWindowAttribute, which is how the borderless window asks Windows 11
         -- for rounded corners; User32 carries the window subclassing behind our own title bar.
         links { "opengl32.lib", "Shell32.lib", "Dwmapi.lib", "User32.lib" }
+        -- rc.exe resolves an ICON path against its include dirs, not against the .rc file, so
+        -- the directory holding AppIcon.ico is named here; without it the resource compiles
+        -- empty and the build still succeeds, which looks exactly like an icon-cache problem.
+        resincludedirs { "%{wks.location}/Tools/CrashReporter/Resources" }
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }
