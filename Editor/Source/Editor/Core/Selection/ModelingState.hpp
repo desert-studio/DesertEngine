@@ -174,6 +174,9 @@ namespace Desert::Editor::Core
         bool GenerateCollision = true;
 
         bool ReqAccept         = false; // one-shot: commit the blockout, start a fresh one
+        // With ReqAccept: the tool bar's Accept - end the tool too, but only once the commit succeeded
+        // (a refused Accept keeps the tool open; BlockoutSession.hpp).
+        bool ReqAcceptEndsTool = false;
         bool ReqCancel         = false; // one-shot: delete the in-progress blockout
         bool ReqClear          = false; // one-shot: clear the cells (keep editing)
         bool ReqResetFromActor = false; // one-shot: put the grid origin on the selected entity

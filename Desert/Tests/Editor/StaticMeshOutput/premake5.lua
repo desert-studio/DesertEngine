@@ -39,6 +39,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
         "%{wks.location}/Editor/Source/Editor/Import/MeshDeriver.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/VoxelBlockout.cpp", -- CG1: the blockout Accept writes
     }
 
     includedirs {
