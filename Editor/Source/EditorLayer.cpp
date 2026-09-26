@@ -3853,6 +3853,7 @@ namespace Desert::Editor
                 // THE CENTRE IS WHOLE. An asset document is a tab beside the level, the way Unreal opens an
                 // asset editor: it gets the full work area while it is the active tab. The split-off
                 // document column this replaced (layout option B.1) left a Material Editor ~400 px wide.
+                ImGuiID center = dockspace_id;
                 ImGuiID right  = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.20f, nullptr, &center );
                 ImGuiID left   = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.22f, nullptr, &center );
                 ImGuiID bottom = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Down, 0.28f, nullptr, &center );
