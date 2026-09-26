@@ -97,6 +97,8 @@ namespace Desert::Runtime
         GetCloudNoiseService()->BindAssetManager( assets );
         GetCloudModellingService()->BindAssetManager( assets );
         GetCloudLayoutService()->BindAssetManager( assets );
+        GetTextureService()->BindAssetManager( assets );
+        GetMaterialService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()

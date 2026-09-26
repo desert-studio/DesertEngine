@@ -56,6 +56,16 @@ namespace Desert::Assets
         /// also the honest answer: they asked for the same file and the same read served them.
         std::unordered_map<AssetHandle, std::vector<uint64_t>> Waiting;
 
+        /// WHO IS READING A WAITING HANDLE: a worker, or `FlushOne` on the caller's thread. Claimed under
+        /// `Lock` before `Load()` starts, so exactly one of the two reads the file and settles `Waiting`;
+        /// the other either skips (a worker that lost to a flush) or waits (a flush that lost to a worker).
+        enum class Reader : uint8_t
+        {
+            Worker,
+            Flush
+        };
+        std::unordered_map<AssetHandle, Reader> Readers;
+
         uint64_t              NextId = 1;
         std::atomic<uint64_t> Started{ 0 };
         std::atomic<uint64_t> Cancels{ 0 };
@@ -233,6 +243,14 @@ namespace Desert::Assets
                          // This is the half of `Cancel()` that actually saves work, and it is why a scene
                          // that was closed while loading does not sit through its own content.
                          skip = record->CancelRequested;
+                         if ( const auto reader = inner->Readers.find( handle );
+                              reader != inner->Readers.end() && reader->second == State::Reader::Flush )
+                         {
+                             // FlushOne took this read onto the caller's thread and settles it there.
+                             inner->InFlight.fetch_sub( 1, std::memory_order_relaxed );
+                             return;
+                         }
+                         inner->Readers[handle] = State::Reader::Worker;
                      }
 
                      if ( !skip )
@@ -252,6 +270,7 @@ namespace Desert::Assets
 
                      {
                          const std::lock_guard<std::mutex> guard( inner->Lock );
+                         inner->Readers.erase( handle );
                          SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
@@ -303,6 +322,80 @@ namespace Desert::Assets
 
         for ( const auto& record : completed )
             record->Ready( record->Payload, record->Outcome, record->Error );
+    }
+
+    bool AsyncAssetLoader::FlushOne( const AssetHandle& handle )
+    {
+        State& state = *m_State;
+
+        std::shared_ptr<State::Record> reader;
+        bool                           mustWait = false;
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            if ( const auto waiting = state.Waiting.find( handle ); waiting != state.Waiting.end() )
+            {
+                if ( state.Readers.find( handle ) != state.Readers.end() )
+                    mustWait = true; // a worker is inside Load() already; the file is not read twice
+                else
+                {
+                    for ( const uint64_t id : waiting->second )
+                        if ( const auto live = state.Live.find( id ); live != state.Live.end() )
+                        {
+                            reader = live->second;
+                            break;
+                        }
+                    if ( reader )
+                        state.Readers[handle] = State::Reader::Flush;
+                }
+            }
+        }
+
+        if ( reader )
+        {
+            // ON THIS THREAD AND WITHOUT AN AsyncLoadMarker, deliberately: a flush is a synchronous load the
+            // caller asked for, and SyncLoadLedger has to count it as one (as in-frame, inside a frame).
+            LoadOutcome outcome = LoadOutcome::Loaded;
+            std::string error;
+            if ( const auto loaded = reader->Payload->Load(); !loaded )
+            {
+                outcome = LoadOutcome::Failed;
+                error   = loaded.GetError();
+            }
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            state.Readers.erase( handle );
+            SettleWaitingLocked( state, handle, outcome, error );
+        }
+        else if ( mustWait )
+        {
+            for ( ;; )
+            {
+                {
+                    const std::lock_guard<std::mutex> guard( state.Lock );
+                    if ( state.Waiting.find( handle ) == state.Waiting.end() )
+                        break;
+                }
+                std::this_thread::yield();
+            }
+        }
+
+        // Deliver only THIS handle's settled requests; every other completion keeps its place for Pump.
+        std::vector<std::shared_ptr<State::Record>> completed;
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            std::erase_if( state.Done,
+                           [&]( const uint64_t id )
+                           {
+                               const auto live = state.Live.find( id );
+                               if ( live == state.Live.end() || live->second->Handle != handle )
+                                   return false;
+                               completed.push_back( live->second );
+                               state.Live.erase( live );
+                               return true;
+                           } );
+        }
+        for ( const auto& record : completed )
+            record->Ready( record->Payload, record->Outcome, record->Error );
+        return !completed.empty();
     }
 
     size_t AsyncAssetLoader::Outstanding() const
@@ -369,6 +462,7 @@ namespace Desert::Assets
             state.Done.clear();
             state.Cancelled.clear();
             state.Waiting.clear();
+            state.Readers.clear();
         }
 
         // SPIN RATHER THAN CONDITION-VARIABLE, and it is a deliberate trade for a path that runs twice in

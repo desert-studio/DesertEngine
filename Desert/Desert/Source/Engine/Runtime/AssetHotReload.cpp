@@ -251,6 +251,9 @@ namespace Desert::Runtime
     {
         auto* materialService = ResourceRegistry::GetMaterialService();
 
+        // ONLY MATERIALS SOMETHING ASKED FOR (AL1-4): the boot no longer creates a shell per `.demat`, so
+        // this walk sees exactly the materials MaterialService discovered on use. An edit to a file nobody
+        // has asked for is not missed: that material is read fresh when it is first asked for.
         for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::SurfaceMaterialAsset>() )
         {
             if ( !asset )

@@ -13,7 +13,6 @@
 #include "Mesh/StaticMeshAsset.hpp"
 #include "Mesh/SkinnedMeshAsset.hpp"
 #include "Mesh/AnimationAsset.hpp"
-#include "TextureAsset.hpp"
 #include "CloudTypeAsset.hpp"
 #include "AnimGraphAsset.hpp"
 #include "ControlRigAsset.hpp"
@@ -52,9 +51,8 @@ namespace Desert::Assets
         // rule that applies to one of them.
         // The kinds `PreloadCookedAssetsAndMaterials` creates, in its order: the stage's work, counted.
         constexpr std::array kCookedAssetKinds = {
-             Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::Texture,
-             Common::Content::ContentKind::Animation,  Common::Content::ContentKind::Skeleton,
-             Common::Content::ContentKind::Material,   Common::Content::ContentKind::SkinnedMesh };
+             Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::Animation,
+             Common::Content::ContentKind::Skeleton, Common::Content::ContentKind::SkinnedMesh };
 
         // Progress across several ProcessAssetKind calls: one count of the whole call's rows.
         struct RowProgress
@@ -132,15 +130,13 @@ namespace Desert::Assets
     {
         RowProgress rows{ &progress, 0, CookedAssetRowCount() };
         // Meshes are scanned as UNPARSED shells (loadAfterCreate=false): the handle is path-derived in the
-        // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy). Textures/materials
-        // are cheap to parse (small metadata) so they load now to expose their stored handle / external id,
-        // but their GPU build is still deferred (RegisterAsset, below).
+        // ctor, so the big .stmesh parse + GPU build are deferred to the first Get (lazy).
         ProcessAssetKind<StaticMeshAsset>( Common::Content::ContentKind::StaticMesh, m_AssetManager,
                                            AssetPriority::Low, &rows,
                                            /*loadAfterCreate=*/false );
 
-        ProcessAssetKind<TextureAsset>( Common::Content::ContentKind::Texture, m_AssetManager, AssetPriority::Low,
-                                        &rows );
+        // TEXTURES AND MATERIALS ARE NOT HERE (AL1-4): TextureService and MaterialService discover a handle
+        // from its content-registry row on first use and read it through AsyncAssetLoader.
 
         // The count is kept because the animation library's population needs it, and needing it is what
         // makes the ordering a compile-time fact rather than a line-order convention: `PopulateLibrary` at
@@ -152,18 +148,13 @@ namespace Desert::Assets
         ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
                                          AssetPriority::Low, &rows );
 
-        // Materials are editable CONTENT (the project's Materials/ dir): imported (per-mesh
-        // subfolders) and editor-created both land here, in the unified .demat format.
-        ProcessAssetKind<SurfaceMaterialAsset>( Common::Content::ContentKind::Material, m_AssetManager,
-                                                AssetPriority::Low, &rows );
-
         ProcessAssetKind<SkinnedMeshAsset>( Common::Content::ContentKind::SkinnedMesh, m_AssetManager,
                                             AssetPriority::Low, &rows,
                                             /*loadAfterCreate=*/false );
 
         if ( auto manager = m_AssetManager.lock() )
         {
-            // WHAT THESE THREE LOOPS ARE FOR, now that it is no longer "so that scene loading works".
+            // WHAT THE MESH LOOP IS FOR, now that it is no longer "so that scene loading works".
             //
             // They register EVERY asset under the two content roots, including the great majority no scene
             // references: that is what the Content Browser, the thumbnail sweep, the material and mesh
@@ -179,16 +170,8 @@ namespace Desert::Assets
             // run. That ordering is still true and still wanted; it is no longer LOAD-BEARING, and a
             // safety net nobody can see is a safety net somebody removes.
             //
-            // Register SHELLS only — the GPU build (texture upload / mesh buffers / material instance) is
-            // deferred to the first Get (lazy, cascades from a spawned entity). Textures/materials are
-            // loaded first (cheap metadata) so their stored handle / external id is known for the map key.
-            for ( const auto& [handle, textureAsset] : manager->FindAllByType<Assets::TextureAsset>() )
-            {
-                if ( !textureAsset->IsReadyForUse() )
-                    textureAsset->Load();
-                Runtime::ResourceRegistry::GetTextureService()->RegisterAsset( textureAsset );
-            }
-
+            // Register SHELLS only — the mesh buffers are built on the first Get (lazy, cascades from a
+            // spawned entity). Textures and materials left this loop set in AL1-4 (discovered on demand).
             for ( const auto& [handle, meshAsset] : manager->FindAllByType<Assets::MeshAsset>() )
             {
                 // The manager travels WITH the shell. A .skmesh names its skeleton by a signature stored
@@ -203,13 +186,6 @@ namespace Desert::Assets
                     LOG_ERROR( "Mesh shell '{}' could not be registered: {}",
                                meshAsset->GetMetadata().Filepath.string(), registered.GetError() );
                 }
-            }
-
-            for ( const auto& [handle, materialAsset] : manager->FindAllByType<Assets::MaterialAsset>() )
-            {
-                if ( !materialAsset->IsReadyForUse() )
-                    materialAsset->Load();
-                Runtime::ResourceRegistry::GetMaterialService()->RegisterAsset( materialAsset );
             }
 
             // THE FOURTH REGISTER LOOP, and the reason it is here rather than in a layer. The animation
