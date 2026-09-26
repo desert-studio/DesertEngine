@@ -687,8 +687,9 @@ namespace Desert::Editor::Tools
         }
         else
         {
-            // The committed selection stays highlighted (a repeat Push/Pull acts on it)...
-            if ( m_HasSel )
+            // The committed selection stays highlighted (a repeat Push/Pull acts on it) while the tool runs;
+            // once it ends (Accept / Cancel / another tool) the overlay goes with it.
+            if ( toolActive && m_HasSel )
             {
                 const float planeW = planeWorldOf( m_Plane.Na, m_Plane.Sign, m_Plane.Cell );
                 drawRect( m_Sel.UMin, m_Sel.UMax, m_Sel.VMin, m_Sel.VMax, m_Plane.Na, planeW,
@@ -971,6 +972,11 @@ namespace Desert::Editor::Tools
         auto&       smc    = entity.HasComponent<ECS::StaticMeshComponent>()
                                   ? entity.GetComponent<ECS::StaticMeshComponent>()
                                   : entity.AddComponent<ECS::StaticMeshComponent>();
+        // Every baked triangle uses material 0, so the component needs slot 0 (empty = the default material).
+        // Without it Output: Static Mesh refuses the write ("uses material slot 0, the asset has 0 slots"),
+        // Accept never completes, and the tool keeps the piece as its own in-progress entity.
+        if ( smc.MaterialSlots.empty() )
+            smc.MaterialSlots.resize( 1 );
 
         // The quads become an EditMesh - the entity's source of truth, the thing the scene saves - and the
         // render mesh is derived from it (EditableMesh.hpp). The weld joins each quad's corners with its
