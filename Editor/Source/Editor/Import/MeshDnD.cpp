@@ -25,16 +25,17 @@ namespace Desert::Editor::MeshDnD
             return s_Importer;
         }
 
-        // Source (Resources/Assets/Meshes/foo.obj) -> deterministic cooked path (Cooked/Meshes/foo.stmesh).
+        // Source (Resources/Assets/Meshes/foo.obj) -> its mesh asset beside it
+        // (Resources/Assets/Meshes/foo.stmesh).
         std::filesystem::path CookedStaticMeshPath( const std::string& sourcePath )
         {
-            return CookPaths::CookedMesh( sourcePath, ".stmesh" );
+            return CookPaths::MeshAsset( sourcePath );
         }
 
         // Same, for a rigged source that cooks to a skinned mesh (Cooked/Meshes/foo.skmesh).
         std::filesystem::path CookedSkinnedMeshPath( const std::string& sourcePath )
         {
-            return CookPaths::CookedMesh( sourcePath, ".skmesh" );
+            return CookPaths::CookedSkinned( sourcePath, ".skmesh" );
         }
 
         // Register every texture asset (`.detex` of kind Texture under the assets root) into the AssetManager +

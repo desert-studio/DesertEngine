@@ -26,15 +26,11 @@ namespace Desert::Graphic
             }
         }
 
-        // The backend is asked EVERY time, not only while dirty: a clean value can still be owed a
-        // descriptor write when the view's copy of the buffer was re-made (ViewCopiedBlock.hpp,
-        // DescriptorCopyRecord). The backend decides; the dirty window is consumed exactly as before.
+        // The backend is asked EVERY time: whether this view's set needs a write is the set's own record
+        // (DescriptorCopyRecord: the copy it points at and the version it applied), not a flag here.
         void Apply( MaterialBackend* backend ) override
         {
-            const bool dirty = IsDirty();
             backend->ApplyUniformBuffer( this );
-            if ( dirty )
-                MarkClean();
         }
 
         void UpdateFields()
@@ -62,11 +58,16 @@ namespace Desert::Graphic
             // the write is attempted again next frame instead of being reported as delivered. Marking a
             // field clean after a write that refused is the same false claim EnsureMapped closed one
             // paragraph above; this closes the other half of it.
-            bool        allWritten = true;
-            std::string firstFailure;
+            // Only fields NEWER than what the active view's copy for this frame has applied. A copy that did
+            // not exist a moment ago (EnsureMapped just made and seeded it) has applied nothing and takes every
+            // written field once — the bytes its seed already holds, so that write is idempotent.
+            const uint64_t applied    = m_Buffer->ActiveAppliedVersion();
+            uint64_t       newest     = applied;
+            bool           allWritten = true;
+            std::string    firstFailure;
             for ( auto& field : m_FieldProperties )
             {
-                if ( !field.IsDirty() )
+                if ( field.GetVersion() <= applied )
                     continue;
 
                 const auto wrote = m_Buffer->SetData( field.GetLocalData().Data, field.GetFieldInfo().Size,
@@ -76,20 +77,26 @@ namespace Desert::Graphic
                     allWritten = false;
                     if ( firstFailure.empty() )
                         firstFailure = field.GetFieldInfo().Name + ": " + wrote.GetError();
-                    continue; // still dirty, so the next frame tries again
+                    continue;
                 }
-                field.MarkClean();
+                newest = field.GetVersion() > newest ? field.GetVersion() : newest;
             }
 
+            // The copy's version is NOT advanced past a refused write, so the next frame retries every field
+            // this copy is still behind on (the delivered ones again, harmlessly).
             if ( !allWritten )
-                LOG_ERROR( "[UB] '{}': one or more fields were not uploaded and stay dirty -- {}",
+            {
+                LOG_ERROR( "[UB] '{}': one or more fields were not uploaded and stay pending for this view -- {}",
                            m_Buffer->GetName(), firstFailure );
+                return;
+            }
 
-            MarkDirty(); // every slot owes itself this write
+            m_Buffer->NoteActiveApplied( newest );
+            NoteWritten();
         }
 
-        // A field stays dirty for frames-in-flight frames, so this returns true until every per-frame
-        // buffer copy has received the new data. Used to keep flushing this UB across the whole window.
+        // True while the ACTIVE view's copy for this frame is behind some field's latest write. Each
+        // (view x frame) copy catches up on its own, however late it first records.
         //
         // A whole-filled buffer answers NO regardless of what its field counters say. Those counters
         // start dirty for every field of every buffer (FieldProperty's constructor), so before this
@@ -102,9 +109,10 @@ namespace Desert::Graphic
             if ( m_Fill == ShaderResources::FillKind::Whole )
                 return false;
 
+            const uint64_t applied = m_Buffer->ActiveAppliedVersion();
             for ( const auto& field : m_FieldProperties )
             {
-                if ( field.IsDirty() )
+                if ( field.GetVersion() > applied )
                     return true;
             }
             return false;
@@ -179,7 +187,7 @@ namespace Desert::Graphic
                            "frame's block -- {}",
                            m_Buffer->GetName(), wrote.GetError() );
 
-            MarkDirty(); // every slot owes itself this write
+            NoteWritten();
         }
 
         const auto& GetUniform() const

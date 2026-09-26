@@ -111,7 +111,7 @@ namespace
         {"id":2,"Tag":"Inst","PrefabPath":"p.deprefab","PrefabOverrides":[{"Path":[],
           "Skybox":{"SkyboxHandle":)" +
                skyboxValue + R"(}}]},
-        {"id":3,"Tag":"Rock","Material":{"ShaderName":"PBR","Textures":[{"Name":"Albedo","TextureHandle":)" +
+        {"id":3,"Tag":"Rock","Material":{"Textures":[{"Name":"Albedo","TextureHandle":)" +
                textureHandle + R"(}]}}]})";
     }
 

@@ -19,57 +19,60 @@ namespace Desert::Editor
 {
     namespace Ser = Assets::Serialization;
 
-    void BakeStaticMeshLODs( Ser::MeshAssetData& data )
-    {
-        if ( data.IsSkinned )
-            return;
-        for ( auto& sm : data.Submeshes )
-        {
-            if ( !sm.LODs.empty() )
-                continue; // authored LODs already folded in -> don't regenerate
-
-            const uint32_t triCount = sm.IndexCount / 3;
-            if ( triCount < 8 || sm.VertexCount == 0 ||
-                 sm.VertexOffset + sm.VertexCount > data.StaticVertices.size() )
-                continue;
-
-            std::vector<float> pos;
-            pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
-            for ( uint32_t v = 0; v < sm.VertexCount; ++v )
-            {
-                const auto& p = data.StaticVertices[sm.VertexOffset + v].Position;
-                pos.push_back( p.x );
-                pos.push_back( p.y );
-                pos.push_back( p.z );
-            }
-
-            std::vector<Desert::Index> localTris;
-            localTris.reserve( triCount );
-            const uint32_t triStart = sm.IndexOffset / 3;
-            if ( triStart + triCount > data.Indices.size() )
-                continue;
-            for ( uint32_t t = 0; t < triCount; ++t )
-            {
-                const auto& idx = data.Indices[triStart + t];
-                localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
-            }
-
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
-            sm.LODs.clear();
-            sm.LODs.reserve( levels.size() );
-            for ( const auto& lvl : levels )
-            {
-                std::vector<Ser::IndexData> tris;
-                tris.reserve( lvl.size() );
-                for ( const auto& tri : lvl )
-                    tris.push_back( { tri.V1, tri.V2, tri.V3 } );
-                sm.LODs.push_back( std::move( tris ) );
-            }
-        }
-    }
-
     namespace
     {
+        // Bakes each static submesh's LOD triangle sets (meshopt) into SubmeshData.LODs, so the load path skips
+        // the simplification pass. Submeshes that already carry LODs (folded from authored source models) are
+        // kept.
+        void BakeStaticMeshLODs( Ser::MeshAssetData& data )
+        {
+            if ( data.IsSkinned )
+                return;
+            for ( auto& sm : data.Submeshes )
+            {
+                if ( !sm.LODs.empty() )
+                    continue; // authored LODs already folded in -> don't regenerate
+
+                const uint32_t triCount = sm.IndexCount / 3;
+                if ( triCount < 8 || sm.VertexCount == 0 ||
+                     sm.VertexOffset + sm.VertexCount > data.StaticVertices.size() )
+                    continue;
+
+                std::vector<float> pos;
+                pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
+                for ( uint32_t v = 0; v < sm.VertexCount; ++v )
+                {
+                    const auto& p = data.StaticVertices[sm.VertexOffset + v].Position;
+                    pos.push_back( p.x );
+                    pos.push_back( p.y );
+                    pos.push_back( p.z );
+                }
+
+                std::vector<Desert::Index> localTris;
+                localTris.reserve( triCount );
+                const uint32_t triStart = sm.IndexOffset / 3;
+                if ( triStart + triCount > data.Indices.size() )
+                    continue;
+                for ( uint32_t t = 0; t < triCount; ++t )
+                {
+                    const auto& idx = data.Indices[triStart + t];
+                    localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
+                }
+
+                const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
+                sm.LODs.clear();
+                sm.LODs.reserve( levels.size() );
+                for ( const auto& lvl : levels )
+                {
+                    std::vector<Ser::IndexData> tris;
+                    tris.reserve( lvl.size() );
+                    for ( const auto& tri : lvl )
+                        tris.push_back( { tri.V1, tri.V2, tri.V3 } );
+                    sm.LODs.push_back( std::move( tris ) );
+                }
+            }
+        }
+
         // Source axes -> the engine's (+Y up, centimetres). FromFile and Y: the importer already resolved the
         // file's own hierarchy into Y-up, so only the scale remains; Z: +Z up becomes +Y up (x, y, z) ->
         // (x, z, -y), a rotation, so winding and handedness are kept.
@@ -80,10 +83,7 @@ namespace Desert::Editor
                 m = glm::rotate( glm::mat4( 1.0f ), glm::radians( -90.0f ), glm::vec3( 1.0f, 0.0f, 0.0f ) ) * m;
             return m;
         }
-    } // namespace
 
-    namespace
-    {
         // One source model built to render form: its MeshAssetData (submesh j draws material slot MaterialIds[j];
         // ToRenderMesh emits one submesh per distinct material ID, ascending) and the IDs themselves.
         struct BuiltModel
@@ -139,15 +139,24 @@ namespace Desert::Editor
                 return Common::MakeFormattedError<BuiltModel>( "'{}' LOD{}: {}", asset.Name, lod,
                                                                data.GetError() );
             built.Data = data.ExtractValue();
+            // A section is named by its material slot: the slot table is the one place the source names its
+            // sections, so the render form repeats it rather than inventing a second name. An unnamed slot keeps
+            // the bridge's "MaterialID <n>" (the source format allows unnamed slots).
+            for ( size_t j = 0; j < built.Data.Submeshes.size() && j < built.MaterialIds.size(); ++j )
+            {
+                const std::string& slotName =
+                     asset.Source.MaterialSlots[static_cast<size_t>( built.MaterialIds[j] )].Name;
+                if ( !slotName.empty() )
+                    built.Data.Submeshes[j].Name = slotName;
+            }
             return Common::MakeSuccess( std::move( built ) );
         }
 
-        // Folds the authored LOD models into LOD0's render form (moved here from the importer's
-        // FoldExternalLODMeshes, Editor/Import/LODFold.cpp): LOD0 submesh j (material m) keeps its vertex block
-        // and faces, and each model k >= 1 appends its material-m vertices INTO that block and its material-m
-        // faces, offset to them and still submesh-local, as LOD level k. The draw path therefore treats them
-        // exactly like simplified LODs (index sets drawn with baseVertex = Submesh.VertexOffset). Sections pair
-        // by material slot, not by name: a source model has no node names, only slots.
+        // Folds the authored LOD models into LOD0's render form: LOD0 submesh j (material m) keeps its vertex
+        // block and faces, and each model k >= 1 appends its material-m vertices INTO that block and its
+        // material-m faces, offset to them and still submesh-local, as LOD level k. The draw path therefore treats
+        // them exactly like simplified LODs (index sets drawn with baseVertex = Submesh.VertexOffset). Sections
+        // pair by material slot, not by name: a source model has no node names, only slots.
         Common::ResultStr<Ser::MeshAssetData> FoldSourceModelLODs( const std::string& name, BuiltModel lod0,
                                                                    const std::vector<BuiltModel>& lods )
         {

@@ -129,6 +129,14 @@ namespace
         {
             return m_Block.GetContents();
         }
+        [[nodiscard]] uint64_t ActiveAppliedVersion() const override
+        {
+            return m_Block.ActiveAppliedVersion( CurrentFrame() );
+        }
+        void NoteActiveApplied( uint64_t version ) override
+        {
+            m_Block.NoteActiveApplied( CurrentFrame(), version );
+        }
 
         // What the frame context (the view every write outside an ActiveViewScope lands in) holds.
         [[nodiscard]] std::optional<std::vector<std::byte>> Copy( uint32_t frame ) const

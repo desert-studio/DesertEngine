@@ -40,8 +40,23 @@ namespace Desert::ShaderResources
 
         [[nodiscard]] virtual Common::BoolResultStr Write( const void* data, uint32_t size, uint32_t offset ) = 0;
 
+        // The newest field version (Graphic::PropertyVersion) the field route has written into THIS copy. A new
+        // copy starts at 0, behind every write, and takes each written field once (its seed already holds the
+        // bytes, so that is idempotent). Kept per copy because "dirty" is a question about one (view x frame)
+        // copy: a copy another view brought up to date is not up to date itself.
+        [[nodiscard]] uint64_t GetAppliedVersion() const noexcept
+        {
+            return m_AppliedVersion;
+        }
+
+        void NoteApplied( const uint64_t version ) noexcept
+        {
+            m_AppliedVersion = version;
+        }
+
     private:
         const uint64_t m_Id;
+        uint64_t       m_AppliedVersion = 0;
     };
 
     /**
@@ -154,6 +169,26 @@ namespace Desert::ShaderResources
             return Common::MakeSuccess( true );
         }
 
+        // The version the ACTIVE view's copy for `frameIndex` has applied; 0 (behind every write) when that copy
+        // does not exist yet.
+        [[nodiscard]] uint64_t ActiveAppliedVersion( const uint32_t frameIndex ) const
+        {
+            const Graphic::IViewResourceCopy* existing =
+                 Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            return existing != nullptr ? static_cast<const IBlockCopy*>( existing )->GetAppliedVersion() : 0;
+        }
+
+        // Records that the ACTIVE view's copy for `frameIndex` holds every field write up to `version`. A copy
+        // that does not exist has applied nothing, so there is nothing to record.
+        void NoteActiveApplied( const uint32_t frameIndex, const uint64_t version )
+        {
+            if ( Graphic::IViewResourceCopy* existing =
+                      Graphic::ViewResourceRegistry::Active().Find( m_Key, frameIndex ) )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                static_cast<IBlockCopy*>( existing )->NoteApplied( version );
+        }
+
         // Writes into the active view's copy and into the CPU image future copies are seeded from.
         [[nodiscard]] Common::BoolResultStr Write( const void* data, const uint32_t size, const uint32_t offset,
                                                    const uint32_t frameIndex, const CopyMaker& make )
@@ -199,32 +234,36 @@ namespace Desert::ShaderResources
     };
 
     /**
-     * @brief Which copy each binding of one descriptor set points at, and whether it has to be rewritten.
+     * @brief What each binding of one descriptor set was last written with: the resource (a buffer copy's id,
+     * or an image view's handle) and the property version (Graphic::PropertyVersion) it carried.
      *
-     * A set was written only while its property was dirty. With per-view copies that is not enough: close
-     * a preview (its copies go to deferred deletion), open another that reuses the same renderer slot, and
-     * the slot's set still points at the destroyed buffer while the property reports itself clean — a
-     * use-after-free on the GPU. So the set is also rewritten whenever the copy the view would bind now is
-     * not the copy the set was last written with.
+     * The set is rewritten when either differs from what the view would bind now. The resource half closes the
+     * closed-preview use-after-free: a set pointing at a copy that was dropped with its view must be rewritten
+     * although nothing was written to the property. The version half replaces the per-slot dirty countdown: a
+     * set that has not applied the property's latest write is behind, however many frames later it is bound.
      */
     class DescriptorCopyRecord
     {
     public:
-        [[nodiscard]] bool NeedsWrite( const uint32_t binding, const uint64_t copyId,
-                                       const bool propertyDirty ) const
+        [[nodiscard]] bool NeedsWrite( const uint32_t binding, const uint64_t resourceId,
+                                       const uint64_t propertyVersion ) const
         {
-            if ( propertyDirty )
-                return true;
             const auto it = m_Bound.find( binding );
-            return it == m_Bound.end() || it->second != copyId;
+            return it == m_Bound.end() || it->second.ResourceId != resourceId ||
+                   it->second.Version != propertyVersion;
         }
 
-        void NoteWritten( const uint32_t binding, const uint64_t copyId )
+        void NoteWritten( const uint32_t binding, const uint64_t resourceId, const uint64_t propertyVersion )
         {
-            m_Bound[binding] = copyId;
+            m_Bound[binding] = Written{ resourceId, propertyVersion };
         }
 
     private:
-        std::unordered_map<uint32_t, uint64_t> m_Bound; // binding -> IBlockCopy::GetId()
+        struct Written
+        {
+            uint64_t ResourceId = 0;
+            uint64_t Version    = 0;
+        };
+        std::unordered_map<uint32_t, Written> m_Bound;
     };
 } // namespace Desert::ShaderResources

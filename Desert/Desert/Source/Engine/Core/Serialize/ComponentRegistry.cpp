@@ -13,12 +13,15 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cstring>
+#include <format>
 #include <optional>
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetRefSerialization.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
@@ -26,6 +29,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
@@ -157,6 +161,46 @@ namespace Desert::Core::Serialize
             };
 
             return s;
+        }
+
+        // The scene a UIRenderTexture names, as SCNE 31 states it: the `.desce` header GUID (read through the
+        // VFS first, like every identity) and the file's stable key for the reader.
+        Common::ResultStr<Assets::AssetGuidRef> SceneRefForPath( const std::string&          path,
+                                                                 const Assets::AssetRefSite& site )
+        {
+            return Assets::WriteAssetGuidRef( Assets::ReadTextHeaderGuid( path ), std::filesystem::path( path ),
+                                              site );
+        }
+
+        // BY GUID through the content registry, which indexes scenes by their header GUID (AF6f): a scene
+        // moved or renamed keeps its GUID, so `Path` is only named in the error and never looked up.
+        Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic&         block,
+                                                        const Assets::AssetRefSite& site )
+        {
+            const auto fields = block.to_object();
+            const auto text   = [&]( const char* key ) -> std::string
+            {
+                if ( !fields.has_value() )
+                    return {};
+                const auto value = fields.value().get( key );
+                return value.has_value() ? value.value().to_string().value_or( "" ) : std::string();
+            };
+            return Assets::ResolveAssetGuidRef(
+                 Assets::AssetGuidRef{ text( "Guid" ), text( "Path" ) },
+                 []( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
+                 {
+                     const Common::Utils::AssetRegistryEntry* row =
+                          Assets::ContentRegistry::Get().FindByGuidReference( guid, {} );
+                     if ( row == nullptr || row->Kind != "Scene" )
+                         return std::nullopt;
+                     return Common::AssetHandle::PathForStableKey( row->Key ).generic_string();
+                 },
+                 site );
+        }
+
+        std::string EntityContext( ECS::Entity entity )
+        {
+            return std::format( "entity '{}'", entity.GetComponent<ECS::TagComponent>().Tag );
         }
 
         // A marker component (no data, e.g. FolderComponent): presence IS the state. Serializes as an empty
@@ -1238,7 +1282,16 @@ namespace Desert::Core::Serialize
             {
                 const auto&                  mc = entity.GetComponent<ECS::MaterialComponent>();
                 Assets::MaterialComponentSer ser;
-                ser.ShaderName = mc.ShaderName;
+                if ( !mc.ShaderName.empty() )
+                {
+                    // BY GUID (SCNE 31): the runtime binds by name, the file names the shader's identity.
+                    const std::string context = EntityContext( entity );
+                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName,
+                                                                 { "shader", "Material.Shader", context } ) )
+                        ser.Shader = ref.ExtractValue();
+                    else
+                        LOG_ERROR( "[Scene] {} - the shader slot is written EMPTY", ref.GetError() );
+                }
 
                 if ( !mc.Params.empty() )
                 {
@@ -1272,8 +1325,17 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& mc      = entity.AddComponent<ECS::MaterialComponent>();
-                mc.ShaderName = data.ShaderName;
+                auto& mc = entity.AddComponent<ECS::MaterialComponent>();
+                if ( data.Shader.has_value() )
+                {
+                    const std::string context = EntityContext( entity );
+                    if ( auto name = Assets::FindShaderNameByRef( assetManager, *data.Shader,
+                                                                  { "shader", "Material.Shader", context } ) )
+                        mc.ShaderName = name.ExtractValue();
+                    else
+                        LOG_ERROR( "[Scene] {} - the entity draws with no shader until it names one",
+                                   name.GetError() );
+                }
 
                 if ( data.Params.has_value() )
                     for ( const auto& p : *data.Params )
@@ -1566,8 +1628,65 @@ namespace Desert::Core::Serialize
                                                                             &ECS::UIButtonComponent::Data ) );
         Register( MakeReflected<ECS::UIIconComponent, ECS::UIIconData>( "UIIcon", "UIIconData",
                                                                         &ECS::UIIconComponent::Data ) );
-        Register( MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
-             "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data ) );
+        {
+            // BY GUID (SCNE 31), like a material's shader: the runtime field is the path the host opens, the
+            // file states `"Scene": {Guid, Path}` - the scene's header GUID, and its key for the reader.
+            // Everything else in the block is the reflected data as it was.
+            ComponentSerializer s = MakeReflected<ECS::UIRenderTextureComponent, ECS::UIRenderTextureData>(
+                 "UIRenderTexture", "UIRenderTextureData", &ECS::UIRenderTextureComponent::Data );
+            s.Serialize = [reflected = s.Serialize]( ECS::Entity                 entity,
+                                                     const Assets::AssetManager& assetManager ) -> rfl::Generic
+            {
+                const auto           block = reflected( entity, assetManager ).to_object();
+                const auto&          path  = entity.GetComponent<ECS::UIRenderTextureComponent>().Data.ScenePath;
+                rfl::Generic::Object out;
+                if ( !path.empty() )
+                {
+                    const std::string context = EntityContext( entity );
+                    if ( auto ref = SceneRefForPath( path, { "scene", "UIRenderTexture.Scene", context } ) )
+                    {
+                        rfl::Generic::Object scene;
+                        scene["Guid"] = ref.GetValue().Guid;
+                        scene["Path"] = ref.GetValue().Path;
+                        out["Scene"]  = rfl::Generic( std::move( scene ) );
+                    }
+                    else
+                        LOG_ERROR( "[Scene] {} - the scene slot is written EMPTY", ref.GetError() );
+                }
+                if ( block.has_value() )
+                    for ( const auto& [key, value] : block.value() )
+                        if ( key != "ScenePath" )
+                            out[key] = value;
+                return { std::move( out ) };
+            };
+            s.Deserialize = [reflected = s.Deserialize]( ECS::Entity entity, const rfl::Generic& g,
+                                                         const Assets::AssetManager& assetManager )
+            {
+                const auto block = g.to_object();
+                if ( !block.has_value() )
+                    return;
+                // `ScenePath` is not read: a SCNE 31 file names its scene by GUID, and the version gate
+                // refuses an older file before any block is read.
+                rfl::Generic::Object rest;
+                for ( const auto& [key, value] : block.value() )
+                    if ( key != "Scene" && key != "ScenePath" )
+                        rest[key] = value;
+                reflected( entity, rfl::Generic( rest ), assetManager );
+
+                auto& data       = entity.GetComponent<ECS::UIRenderTextureComponent>().Data;
+                data.ScenePath   = {};
+                const auto scene = block.value().get( "Scene" );
+                if ( !scene.has_value() )
+                    return; // no scene, which the element draws as the magenta error fill
+                const std::string context = EntityContext( entity );
+                const auto path = ScenePathForRef( scene.value(), { "scene", "UIRenderTexture.Scene", context } );
+                if ( path )
+                    data.ScenePath = path.GetValue();
+                else
+                    LOG_ERROR( "[Scene] {} - the element draws the magenta error fill", path.GetError() );
+            };
+            Register( std::move( s ) );
+        }
 
         Register( MakeReflected<ECS::UIBindingComponent, ECS::UIBindingData>( "UIBinding", "UIBindingData",
                                                                               &ECS::UIBindingComponent::Data ) );

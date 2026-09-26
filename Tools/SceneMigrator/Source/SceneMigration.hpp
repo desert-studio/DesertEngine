@@ -345,12 +345,23 @@ namespace Desert::Migration
     //                   The refusals are 29's: a missing file, a file outside the assets root, or one stating
     //                   no texture GUID REFUSES the file, naming the slot (MigrateSpriteGuidsV29ToV30).
     inline constexpr int kSceneVersionSpriteGuids = 30;
+    //  31             - A MATERIAL COMPONENT NAMES ITS SHADER BY HEADER GUID (T7i). `Material.ShaderName` held
+    //                   the shader's file stem; it becomes `"Shader": {"Guid": <the .shader header GUID>,
+    //                   "Path": "engine:Shaders/<relative>"}`, the form MATL 4 gave the `.demat`, in entity
+    //                   records and prefab-override records. An empty name becomes no key (absent = no
+    //                   shader). A stem no `.shader` under <assetsRoot>/../Shaders carries, two files with
+    //                   that stem, or a file stating no header GUID REFUSES the file, naming the entity
+    //                   (MigrateShaderSceneGuidsV30ToV31). In the same step a UIRenderTexture's `ScenePath` (a
+    //                   working-directory path "Resources/Assets/Scenes/X.desce") becomes `"Scene": {"Guid":
+    //                   <the .desce header GUID>, "Path": "assets:Scenes/X.desce"}`; an empty path becomes no
+    //                   key, and a path naming no Scene with a GUID REFUSES the file, naming the entity.
+    inline constexpr int kSceneVersionShaderGuids = 31;
 
     // The last step this tool knows and the generation the engine requires are ONE number, and this is
     // where that is checked. If a schema step is ever added here without raising Core::kSceneVersion, the
     // tool would stamp files at a version the loader refuses - every scene in the repository would stop
     // opening at once, and the file that caused it would look correct in isolation.
-    static_assert( kSceneVersionSpriteGuids == kSceneVersion,
+    static_assert( kSceneVersionShaderGuids == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1486,6 +1497,14 @@ namespace Desert::Migration
                                                             std::vector<Assets::EntityData>& entities,
                                                             const std::filesystem::path&     assetsRoot );
 
+    // Raises every Material component's `ShaderName` (a file stem) from v30 to `"Shader": {Guid, Path}`, and
+    // every UIRenderTexture's `ScenePath` to `"Scene": {Guid, Path}`, in entity records and their
+    // prefab-override records. The report is the texture steps' shape: Rewritten
+    // counts the names now stated by GUID, UnknownNames non-empty REFUSES the file. IDEMPOTENT: a block with
+    // no `ShaderName` is left as it is. SHELF LIFE: deleted once no v30 file remains.
+    TextureGuidsMigrationReport MigrateShaderSceneGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
+                                                                 const std::filesystem::path&     assetsRoot );
+
     struct TextureAssetRefsMigrationReport
     {
         int Rewritten = 0; // strings that now name a texture asset
@@ -1656,6 +1675,8 @@ namespace Desert::Migration
         TextureGuidsMigrationReport      TextureGuids;
         bool                             SpriteGuidsRaised = false; // below kSceneVersionSpriteGuids
         TextureGuidsMigrationReport      SpriteGuids;
+        bool                             ShaderSceneGuidsRaised = false; // below kSceneVersionShaderGuids
+        TextureGuidsMigrationReport      ShaderSceneGuids;
 
         bool Changed() const
         {
@@ -1665,7 +1686,8 @@ namespace Desert::Migration
                    DebugViewRaised || ScriptRootRaised || ServiceAssetRootRaised || GrassGenerationRaised ||
                    TextKeySigilRaised || AnimGraphRaised || EditMeshRaised || ProceduralTerrainRaised ||
                    TextureAssetRefsRaised || SiblingOrderRaised || TextHeaderRaised || RetiredKeysRaised ||
-                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised || SpriteGuidsRaised;
+                   MaterialGuidsRaised || MeshGuidsRaised || TextureGuidsRaised || SpriteGuidsRaised ||
+                   ShaderSceneGuidsRaised;
         }
     };
 

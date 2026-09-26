@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a04bf3ba2301b7795ecd486ea5a5af32",
         "Versions": {
-            "SCNE": 30,
+            "SCNE": 31,
             "UNIT": 1
         },
         "Dependencies": []
@@ -18,7 +18,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MeshPath": "Cooked/Meshes/StaticProbe.stmesh"
+                "MeshPath": "Resources/Assets/Meshes/StaticProbe.stmesh"
             }
         },
         {

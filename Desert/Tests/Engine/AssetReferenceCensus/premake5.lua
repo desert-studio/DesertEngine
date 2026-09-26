@@ -15,6 +15,9 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
+        -- A mesh is a MeshSourceAsset (AF4d): its header states the MSAS subsystem, and its material slots
+        -- are references this census counts, read by the engine's own ReadMeshSourceAssetFile.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
     }
 
     includedirs {

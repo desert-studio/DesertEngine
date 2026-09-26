@@ -958,7 +958,7 @@ namespace Desert::Editor
         return m_Fill == Fill::SkyDome && m_Renderer && m_Renderer->IsCloudVolumeBaking();
     }
 
-    bool PreviewViewport::Draw( UI::UIHelper& uiHelper, const ImVec2& size )
+    PreviewInputResult PreviewViewport::Draw( UI::UIHelper& uiHelper, const ImVec2& size, PreviewInteraction mode )
     {
         const ImVec2 drawSize( std::max( size.x, 16.0f ), std::max( size.y, 16.0f ) );
         const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -1032,10 +1032,18 @@ namespace Desert::Editor
         }
 
         if ( !m_HasContent )
-            return false;
+            return {};
 
-        bool interacting = false;
+        const bool dome = ( m_Fill == Fill::SkyDome );
 
+        PreviewInputEvents events;
+        events.Hovered       = hovered;
+        events.Active        = active;
+        events.RightDown     = ImGui::IsMouseDown( ImGuiMouseButton_Right );
+        events.DoubleClicked = ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left );
+        events.Dome          = dome;
+        events.MouseDelta    = { ImGui::GetIO().MouseDelta.x, ImGui::GetIO().MouseDelta.y };
+        events.Wheel         = ImGui::GetIO().MouseWheel;
         // HOLD L AND DRAG TO MOVE THE SUN — UE's binding, and the one control in this widget that changes
         // what the material looks like rather than where it is looked at from. It is the whole reason a
         // preview is worth opening twice: a material reads completely differently under a low sun, and
@@ -1046,93 +1054,81 @@ namespace Desert::Editor
         // behind it all turn together. UE also binds K to the environment, and this widget does not — see
         // the report; with a preset sky an environment rotation IS the sun's azimuth, and the engine has
         // no rotation for a cubemap environment to offer instead.
-        const bool lightDrag = ImGui::IsKeyDown( ImGuiKey_L );
-        m_DraggingLight      = false;
+        events.LightKeyDown = ImGui::IsKeyDown( ImGuiKey_L );
 
-        // LMB-drag orbits, RMB-drag pans — the same split as the main viewport, so the muscle memory
-        // carries over. Panning moves the orbit's focus in the camera's own screen plane.
-        if ( active )
+        const PreviewInputResult input = PreviewInput( mode, events );
+
+        m_DraggingLight = ( input.SunDelta.x != 0.0f || input.SunDelta.y != 0.0f );
+        if ( m_DraggingLight )
         {
-            const ImVec2 delta = ImGui::GetIO().MouseDelta;
-            if ( delta.x != 0.0f || delta.y != 0.0f )
-            {
-                if ( lightDrag )
-                {
-                    // Degrees per pixel, and slower vertically: the elevation has a quarter of the yaw's
-                    // range to travel, so a shared rate would make the sun jump from noon to sunset in a
-                    // few pixels.
-                    constexpr float kSunYawPerPixel   = 0.45f;
-                    constexpr float kSunPitchPerPixel = 0.25f;
-                    m_Setup.SunYawDegrees -= delta.x * kSunYawPerPixel;
-                    // Wrapped rather than clamped: a bearing has no ends, and a sun that stuck at 180
-                    // would be an artist dragging against a wall halfway round the compass.
-                    if ( m_Setup.SunYawDegrees > 180.0f )
-                        m_Setup.SunYawDegrees -= 360.0f;
-                    if ( m_Setup.SunYawDegrees < -180.0f )
-                        m_Setup.SunYawDegrees += 360.0f;
+            // Degrees per pixel, and slower vertically: the elevation has a quarter of the yaw's range to
+            // travel, so a shared rate would make the sun jump from noon to sunset in a few pixels.
+            constexpr float kSunYawPerPixel   = 0.45f;
+            constexpr float kSunPitchPerPixel = 0.25f;
+            m_Setup.SunYawDegrees -= input.SunDelta.x * kSunYawPerPixel;
+            // Wrapped rather than clamped: a bearing has no ends, and a sun that stuck at 180 would be an
+            // artist dragging against a wall halfway round the compass.
+            if ( m_Setup.SunYawDegrees > 180.0f )
+                m_Setup.SunYawDegrees -= 360.0f;
+            if ( m_Setup.SunYawDegrees < -180.0f )
+                m_Setup.SunYawDegrees += 360.0f;
 
-                    // Clamped just above the horizon rather than at it: a sun AT zero elevation is the
-                    // degenerate case the sky pass warns about (below the horizon it renders night), and
-                    // stopping at 1 degree keeps every drag inside a lit sky.
-                    m_Setup.SunPitchDegrees =
-                         std::clamp( m_Setup.SunPitchDegrees - delta.y * kSunPitchPerPixel, 1.0f, 89.0f );
-                    m_DraggingLight = true;
-                }
-                else if ( ImGui::IsMouseDown( ImGuiMouseButton_Right ) )
-                {
-                    // Screen-proportional: one pixel moves the focus by the same fraction of the framed
-                    // object at any zoom, so panning never feels different when you are close in.
-                    const float     cp = std::cos( m_Pitch );
-                    const glm::vec3 forward{ -cp * std::sin( m_Yaw ), -std::sin( m_Pitch ),
-                                             -cp * std::cos( m_Yaw ) };
-                    const glm::vec3 right = glm::normalize( glm::cross( forward, glm::vec3( 0, 1, 0 ) ) );
-                    const glm::vec3 up    = glm::normalize( glm::cross( right, forward ) );
-
-                    const float speed = m_Distance / std::max( drawSize.y, 1.0f );
-                    m_Focus += ( -right * delta.x + up * delta.y ) * speed;
-                }
-                else
-                {
-                    // In the dome this is not an orbit but a turn of the head; the arithmetic is the same
-                    // and the sign convention is handled where the camera is built (ApplyCamera).
-                    constexpr float kOrbitSpeed = 0.008f; // radians per pixel
-                    m_Yaw -= delta.x * kOrbitSpeed;
-                    m_Pitch = std::clamp( m_Pitch + delta.y * kOrbitSpeed, -kPitchLimit, kPitchLimit );
-                }
-            }
-            interacting = true;
+            // Clamped just above the horizon rather than at it: a sun AT zero elevation is the degenerate
+            // case the sky pass warns about (below the horizon it renders night), and stopping at 1 degree
+            // keeps every drag inside a lit sky.
+            m_Setup.SunPitchDegrees =
+                 std::clamp( m_Setup.SunPitchDegrees - input.SunDelta.y * kSunPitchPerPixel, 1.0f, 89.0f );
         }
 
-        const bool dome = ( m_Fill == Fill::SkyDome );
+        if ( input.PanDelta.x != 0.0f || input.PanDelta.y != 0.0f )
+        {
+            // Screen-proportional: one pixel moves the focus by the same fraction of the framed object at
+            // any zoom, so panning never feels different when you are close in. Panning moves the orbit's
+            // focus in the camera's own screen plane.
+            const float     cp = std::cos( m_Pitch );
+            const glm::vec3 forward{ -cp * std::sin( m_Yaw ), -std::sin( m_Pitch ), -cp * std::cos( m_Yaw ) };
+            const glm::vec3 right = glm::normalize( glm::cross( forward, glm::vec3( 0, 1, 0 ) ) );
+            const glm::vec3 up    = glm::normalize( glm::cross( right, forward ) );
+
+            const float speed = m_Distance / std::max( drawSize.y, 1.0f );
+            m_Focus += ( -right * input.PanDelta.x + up * input.PanDelta.y ) * speed;
+        }
+
+        if ( input.OrbitDelta.x != 0.0f || input.OrbitDelta.y != 0.0f )
+        {
+            // In the dome this is not an orbit but a turn of the head; the arithmetic is the same and the
+            // sign convention is handled where the camera is built (ApplyCamera).
+            constexpr float kOrbitSpeed = 0.008f; // radians per pixel
+            m_Yaw -= input.OrbitDelta.x * kOrbitSpeed;
+            m_Pitch = std::clamp( m_Pitch + input.OrbitDelta.y * kOrbitSpeed, -kPitchLimit, kPitchLimit );
+        }
+
+        if ( input.Wheel != 0.0f )
+        {
+            // Multiplicative so the zoom feels the same at every distance, clamped so the asset can neither
+            // be swallowed by the near plane nor lost to a dot.
+            m_Distance = std::clamp( m_Distance * std::exp( -input.Wheel * 0.12f ), m_FrameRadius * 0.6f,
+                                     m_FrameRadius * 20.0f );
+        }
+
+        if ( input.Reframe )
+            ResetView();
 
         if ( hovered )
         {
-            // NO ZOOM IN THE DOME. There is nothing to approach — the subject is the sky — and the wheel's
-            // clamp is expressed in a framed radius the dome does not have, so leaving it live would have
-            // moved an observer who is meant to be standing on the ground.
-            const float wheel = dome ? 0.0f : ImGui::GetIO().MouseWheel;
-            if ( wheel != 0.0f )
-            {
-                // Multiplicative so the zoom feels the same at every distance, clamped so the asset can
-                // neither be swallowed by the near plane nor lost to a dot.
-                m_Distance  = std::clamp( m_Distance * std::exp( -wheel * 0.12f ), m_FrameRadius * 0.6f,
-                                          m_FrameRadius * 20.0f );
-                interacting = true;
-            }
-            if ( ImGui::IsMouseDoubleClicked( ImGuiMouseButton_Left ) )
-            {
-                ResetView();
-                interacting = true;
-            }
             ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
-            // Two tooltips because the two cameras genuinely do different things, and one sentence that
-            // promised panning and zoom in a view that has neither would be describing a different widget.
-            ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
-                                      "to reset"
-                                    : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
-                                      "to move the sun - double-click to reset" );
+            // One sentence per camera, because they genuinely do different things: a promise of panning and
+            // zoom in a view that has neither would be describing a different widget, and a Static row that
+            // advertised dragging would be describing the editor window it opens.
+            if ( mode == PreviewInteraction::Static )
+                ImGui::SetTooltip( "Double-click to open" );
+            else
+                ImGui::SetTooltip( dome ? "Drag to look around - hold L and drag to move the sun - double-click "
+                                          "to reset"
+                                        : "Drag to orbit - right-drag to pan - wheel to zoom - hold L and drag "
+                                          "to move the sun - double-click to reset" );
         }
 
-        return interacting;
+        return input;
     }
 } // namespace Desert::Editor

@@ -8,11 +8,6 @@
 
 namespace Desert::Editor
 {
-    // Bakes each static submesh's LOD triangle sets (meshopt) into SubmeshData.LODs, so the load path skips the
-    // simplification pass. Skinned meshes and submeshes that already carry LODs (authored ones folded in by
-    // from authored source models) are left as they are.
-    void BakeStaticMeshLODs( Assets::Serialization::MeshAssetData& data );
-
     // THE MESH BUILDER (UE FStaticMeshBuilder::Build), registered with Assets::SetMeshPlatformDataBuilder.
     // SRCE is stored as the file gave it; the import settings are applied HERE, so changing one re-derives
     // instead of re-importing: UniformScale and UpAxis are baked into the vertices (Geometry::TransformMesh,
