@@ -26,6 +26,7 @@
 
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Content/MeshBinaryHeader.hpp>
@@ -4024,6 +4025,23 @@ namespace Desert::Migration
                 }
             }
 
+            // Rewrites Material.ShaderName; no step above writes it.
+            if ( statedSceneVersion < kSceneVersionShaderGuids )
+            {
+                report.ShaderGuidsRaised = true;
+                report.ShaderGuids       = MigrateShaderGuidsV30ToV31( entities, assetsRoot );
+                if ( !report.ShaderGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.ShaderGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused =
+                         "'" + name + "': " + std::to_string( report.ShaderGuids.UnknownNames.size() ) +
+                         " shader name(s) cannot be raised to a header GUID: " + names + ". Nothing was written.";
+                    return;
+                }
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;
@@ -4042,6 +4060,96 @@ namespace Desert::Migration
                    std::to_string( kSceneVersion ) + "/v" + std::to_string( kUnitVersion ) + ". " + why;
         }
     } // namespace
+
+    namespace
+    {
+        // The `.shader` whose file stem is `name` under <assetsRoot>/../Shaders, as MATL 4 states it: its header
+        // GUID and its "engine:Shaders/<relative>" key. Exactly one file, stating a GUID; anything else refuses.
+        Common::ResultStr<Assets::AssetGuidRef> ShaderRefForName( const std::string&           name,
+                                                                  const std::filesystem::path& assetsRoot )
+        {
+            const std::filesystem::path        shaders = assetsRoot.parent_path() / "Shaders";
+            std::vector<std::filesystem::path> hits;
+            std::error_code                    ec;
+            for ( std::filesystem::recursive_directory_iterator it( shaders, ec ), end; !ec && it != end;
+                  it.increment( ec ) )
+                if ( it->is_regular_file() && it->path().extension() == ".shader" && it->path().stem() == name )
+                    hits.push_back( it->path() );
+            if ( ec )
+                return Common::MakeError<Assets::AssetGuidRef>( "cannot list '" + shaders.generic_string() +
+                                                                "': " + ec.message() );
+            if ( hits.size() != 1 )
+                return Common::MakeError<Assets::AssetGuidRef>( "is carried by " + std::to_string( hits.size() ) +
+                                                                " .shader file(s) under '" +
+                                                                shaders.generic_string() + "', not exactly one" );
+            const Common::Content::AssetGuid guid = Assets::ReadShaderHeaderGuid( hits.front() );
+            if ( guid.IsNull() )
+                return Common::MakeError<Assets::AssetGuidRef>( "names '" + hits.front().generic_string() +
+                                                                "', which states no header GUID" );
+            return Common::MakeSuccess( Assets::AssetGuidRef{
+                 Common::Content::AssetGuidToText( guid ),
+                 "engine:Shaders/" + hits.front().lexically_relative( shaders ).generic_string() } );
+        }
+
+        void RaiseShaderGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                               const std::filesystem::path& assetsRoot, TextureGuidsMigrationReport& report )
+        {
+            const auto payload = components.get( "Material" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() || !fields.value().get( "ShaderName" ).has_value() )
+                return; // no material, or raised by an earlier run
+            const std::string    where = tag + " > Material.ShaderName";
+            rfl::Generic::Object raised;
+            for ( const auto& [key, value] : fields.value() )
+            {
+                if ( key != "ShaderName" )
+                {
+                    raised[key] = value;
+                    continue;
+                }
+                const auto name = value.to_string();
+                if ( !name.has_value() )
+                {
+                    report.UnknownNames.push_back( where + " is " + Describe( value ) + ", not a shader name" );
+                    return;
+                }
+                if ( name.value().empty() )
+                    continue; // no shader, which SCNE 31 states by absence
+                const auto ref = ShaderRefForName( name.value(), assetsRoot );
+                if ( !ref )
+                {
+                    report.UnknownNames.push_back( where + " = '" + name.value() + "' " + ref.GetError() );
+                    return;
+                }
+                rfl::Generic::Object shader;
+                shader["Guid"]   = ref.GetValue().Guid;
+                shader["Path"]   = ref.GetValue().Path;
+                raised["Shader"] = rfl::Generic( std::move( shader ) );
+                ++report.Rewritten;
+            }
+            components["Material"] = rfl::Generic( std::move( raised ) );
+        }
+    } // namespace
+
+    TextureGuidsMigrationReport MigrateShaderGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
+                                                            const std::filesystem::path&     assetsRoot )
+    {
+        TextureGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseShaderGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaiseShaderGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
+                                  assetsRoot, report );
+        }
+        return report;
+    }
 
     SiblingOrderMigrationReport MigrateSiblingOrderV24ToV25( std::vector<Assets::EntityData>& entities )
     {

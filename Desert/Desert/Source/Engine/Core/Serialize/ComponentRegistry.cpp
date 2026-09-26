@@ -25,6 +25,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
@@ -1209,7 +1210,15 @@ namespace Desert::Core::Serialize
             {
                 const auto&                  mc = entity.GetComponent<ECS::MaterialComponent>();
                 Assets::MaterialComponentSer ser;
-                ser.ShaderName = mc.ShaderName;
+                if ( !mc.ShaderName.empty() )
+                {
+                    // BY GUID (SCNE 31): the runtime binds by name, the file names the shader's identity.
+                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName ) )
+                        ser.Shader = ref.ExtractValue();
+                    else
+                        LOG_ERROR( "[Scene] Material on '{}': {} - the shader slot is written EMPTY",
+                                   entity.GetComponent<ECS::TagComponent>().Tag, ref.GetError() );
+                }
 
                 if ( !mc.Params.empty() )
                 {
@@ -1243,8 +1252,16 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& mc      = entity.AddComponent<ECS::MaterialComponent>();
-                mc.ShaderName = data.ShaderName;
+                auto& mc = entity.AddComponent<ECS::MaterialComponent>();
+                if ( data.Shader.has_value() )
+                {
+                    if ( auto name = Assets::FindShaderNameByRef( assetManager, *data.Shader ) )
+                        mc.ShaderName = name.ExtractValue();
+                    else
+                        LOG_ERROR(
+                             "[Scene] Material on '{}': {} - the entity draws with no shader until it names one",
+                             entity.GetComponent<ECS::TagComponent>().Tag, name.GetError() );
+                }
 
                 if ( data.Params.has_value() )
                     for ( const auto& p : *data.Params )

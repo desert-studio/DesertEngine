@@ -1205,6 +1205,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionTextureGuids << "->v"
                 << Desert::Migration::kSceneVersionSpriteGuids << " (" << report.SpriteGuids.Rewritten
                 << " UI sprite / splash reference(s) now state the .detex header GUID)";
+        if ( report.ShaderGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionSpriteGuids << "->v"
+                << Desert::Migration::kSceneVersionShaderGuids << " (" << report.ShaderGuids.Rewritten
+                << " material shader name(s) now state the .shader header GUID)";
         if ( report.TextHeaderRaised )
             out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
                 << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";

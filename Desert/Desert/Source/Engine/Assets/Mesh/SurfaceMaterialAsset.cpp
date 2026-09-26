@@ -84,21 +84,14 @@ namespace Desert::Assets
         m_ShaderName.clear();
         if ( manager == nullptr )
             return;
-        // BY GUID, the shader's identity (ShaderAsset adopts HandleForGuid of its header GUID): a shader moved
-        // or renamed keeps its GUID, so `Path` is only named in the error.
-        const Common::Content::AssetGuid guid   = m_Data.ShaderGuid();
-        const auto                       shader = guid.IsNull()
-                                                       ? nullptr
-                                                       : manager->FindByHandle<ShaderAsset>( Common::AssetHandle(
-                                        static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
-        if ( shader == nullptr )
+        const auto name = FindShaderNameByRef( *manager, *m_Data.Shader );
+        if ( !name )
         {
-            LOG_ERROR( "Material '{}': shader {} ('{}') is not a shader this project has loaded; the material "
-                       "draws nothing until it names one",
-                       m_Metadata.Filepath.string(), m_Data.Shader->Guid, m_Data.Shader->Path );
+            LOG_ERROR( "Material '{}': {}; the material draws nothing until it names one",
+                       m_Metadata.Filepath.string(), name.GetError() );
             return;
         }
-        m_ShaderName = shader->GetMetadata().Filepath.stem().string();
+        m_ShaderName = name.GetValue();
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::StateShaderByName( MaterialData& data, const AssetManager& manager,
@@ -109,19 +102,14 @@ namespace Desert::Assets
             data.SetShader( {}, {} );
             return BOOLSUCCESS;
         }
-        for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
-        {
-            const Common::Filepath& file = shader->GetMetadata().Filepath;
-            if ( file.stem().string() != name )
-                continue;
-            const Common::Content::AssetGuid guid = ReadShaderHeaderGuid( file );
-            if ( guid.IsNull() )
-                return Common::MakeError(
-                     std::format( "shader '{}' ({}) states no header GUID to name it by", name, file.string() ) );
-            data.SetShader( guid, Common::AssetHandle::StableKeyForPath( file ) );
-            return BOOLSUCCESS;
-        }
-        return Common::MakeError( std::format( "no loaded shader is named '{}'", name ) );
+        const auto ref = FindShaderRefByName( manager, name );
+        if ( !ref )
+            return Common::MakeError( ref.GetError() );
+        const auto guid = Common::Content::AssetGuidFromText( ref.GetValue().Guid );
+        if ( !guid )
+            return Common::MakeError( guid.GetError() );
+        data.SetShader( guid.GetValue(), ref.GetValue().Path );
+        return BOOLSUCCESS;
     }
 
     void SurfaceMaterialAsset::ResolveDependencies( AssetManager& manager )

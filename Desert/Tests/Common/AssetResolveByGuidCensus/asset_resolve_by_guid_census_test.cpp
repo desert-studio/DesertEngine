@@ -74,8 +74,9 @@ namespace
          PathOnlyRow{ ContentKind::Skeleton, "no header format: a .skeleton states no GUID (AF4 mesh programme)" },
          PathOnlyRow{ ContentKind::Animation, "no header format: an .anim states no GUID (AF4 mesh programme)" },
          PathOnlyRow{ ContentKind::Shader,
-                      "the .shader header (T7j) and a .demat's Shader {Guid, Path} (T7k, MATL 4) are by GUID; "
-                      "a scene's MaterialComponent still names its shader by file stem (T7i)" },
+                      "every stored reference is by GUID - the .shader header (T7j), a .demat's Shader (T7k, "
+                      "MATL 4) and a scene's Material.Shader (T7i, SCNE 31) - but the registry route this census "
+                      "moves a file through still locates a .shader by path" },
          PathOnlyRow{ ContentKind::CloudNoiseVolume, "raw DCNV file, no DAST envelope: states no GUID (AF10e)" },
          PathOnlyRow{ ContentKind::CloudModellingVolume,
                       "raw DCMV file, no DAST envelope; StoredFormFor(CloudModellingVolumeAsset) = AssetsRelative "
