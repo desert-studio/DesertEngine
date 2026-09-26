@@ -3,6 +3,7 @@
 #include "CloudDocumentOpen.hpp"
 
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
@@ -140,23 +141,10 @@ namespace Desert::Editor
                "How much longer this kind's patches are ALONG THE WIND than across it. 1 is round; above 1 "
                "they are drawn out downwind into bands, which is what makes fibrous cirrus read as cirrus." },
         };
-
-        // The document's VISIBLE title: the subject's file name. Computed before the base class is
-        // constructed — ISubjectDocument bakes the title in its own constructor and holds it for the
-        // window's life — so it is a free function rather than a member.
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets )
-            {
-                if ( const auto asset = assets->FindByHandle<Assets::CloudTypeAsset>( subject ) )
-                    return asset->GetMetadata().Filepath.filename().string();
-            }
-            return "Cloud Type";
-        }
     } // namespace
 
     CloudTypePanel::CloudTypePanel( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-         : ISubjectDocument( SubjectTitle( subject, assets ),
+         : ISubjectDocument( AssetSubjectTitle<Assets::CloudTypeAsset>( subject, assets, "Cloud Type" ),
                              AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudType ) ) ),
            m_Assets( assets )
     {
