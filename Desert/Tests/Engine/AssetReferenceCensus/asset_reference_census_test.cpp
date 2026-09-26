@@ -58,10 +58,12 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -568,6 +570,148 @@ TEST( AssetReferenceCensus, EveryAssetReferenceInShippedContentIsSpelledAsAStrin
             "resolver; find that caller and give it one, then re-save the file."
          << "\n(Names excluded as ambiguous, i.e. declared under more than one field type: " << ambiguous.size()
          << ")";
+}
+
+// ── A reference that names a file by PATH alone ─────────────────────────────────────────────────────
+
+// A path is a locator, not an identity: a reference that states a path and no GUID loads as an empty slot
+// (M10_MeshSlot drew nothing for three scene generations). Three spellings carry a GUID beside a path, and
+// each is judged here: `XPath` beside `XGuid` (MeshPath / MeshGuid), `XPaths` beside `XGuids` element by
+// element (MaterialPaths / MaterialGuids), and the reference object `{"Guid": ..., "Path": ...}` (sprites,
+// skybox, shader, scene). A PrefabPath has no GUID field at all, so it is outside this census.
+namespace
+{
+    // The GUID fields that sit beside a path field. The mesh components serialize by hand, so the generated
+    // reflection does not list them and cannot be the source; a new `XGuid` beside an `XPath` joins here.
+    const std::set<std::string> kGuidFieldNames{ "MeshGuid", "MaterialGuids" };
+
+    std::string StringOr( const rfl::Generic& value )
+    {
+        return value.to_string().value_or( "" );
+    }
+
+    // Appends "file: where = 'path' states no GUID" for every path-only reference under `node`.
+    void PathsWithoutGuid( const rfl::Generic& node, const std::string& where,
+                           const std::set<std::string>& guidNames, std::vector<std::string>& offences )
+    {
+        if ( const auto array = node.to_array() )
+        {
+            for ( size_t i = 0; i < array.value().size(); ++i )
+                PathsWithoutGuid( array.value()[i], where + "[" + std::to_string( i ) + "]", guidNames, offences );
+            return;
+        }
+        const auto object = node.to_object();
+        if ( !object )
+            return;
+        const auto& fields = object.value();
+
+        const auto refPath = fields.get( "Path" );
+        const auto refGuid = fields.get( "Guid" );
+        if ( refPath && refGuid && !StringOr( refPath.value() ).empty() && StringOr( refGuid.value() ).empty() )
+            offences.push_back( where + " = '" + StringOr( refPath.value() ) + "' states no GUID" );
+
+        for ( const auto& [key, value] : fields )
+        {
+            const bool many = key.size() > 5 && key.compare( key.size() - 5, 5, "Paths" ) == 0;
+            const bool one  = !many && key.size() > 4 && key.compare( key.size() - 4, 4, "Path" ) == 0;
+            if ( one || many )
+            {
+                const std::string guidKey =
+                     key.substr( 0, key.size() - ( many ? 5 : 4 ) ) + ( many ? "Guids" : "Guid" );
+                if ( guidNames.count( guidKey ) != 0 )
+                {
+                    const auto guid = fields.get( guidKey );
+                    if ( one && !StringOr( value ).empty() && ( !guid || StringOr( guid.value() ).empty() ) )
+                        offences.push_back( where + "." + key + " = '" + StringOr( value ) + "' states no " +
+                                            guidKey );
+                    const auto paths = value.to_array();
+                    if ( many && paths )
+                    {
+                        std::optional<rfl::Generic::Array> guids;
+                        if ( guid )
+                        {
+                            if ( auto array = guid.value().to_array() )
+                                guids = std::move( array.value() );
+                        }
+                        for ( size_t i = 0; i < paths.value().size(); ++i )
+                        {
+                            const std::string path = StringOr( paths.value()[i] );
+                            const bool        stated =
+                                 guids && i < guids.value().size() && !StringOr( guids.value()[i] ).empty();
+                            if ( !path.empty() && !stated )
+                                offences.push_back( where + "." + key + "[" + std::to_string( i ) + "] = '" +
+                                                    path + "' states no " + guidKey + "[" + std::to_string( i ) +
+                                                    "]" );
+                        }
+                    }
+                }
+            }
+            PathsWithoutGuid( value, where + "." + key, guidNames, offences );
+        }
+    }
+} // namespace
+
+TEST( AssetReferenceCensus, NoReferenceInShippedContentNamesItsAssetByPathAlone )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "repository root not found from the test's working directory";
+    const std::set<std::string>& guidNames = kGuidFieldNames;
+    std::vector<std::string>     offences;
+    size_t                       documents = 0;
+    for ( const char* subdir : { "Scenes", "Prefabs" } )
+    {
+        const fs::path dir = root + "Editor/Resources/Assets/" + subdir;
+        if ( !fs::exists( dir ) )
+            continue;
+        for ( const auto& entry : fs::recursive_directory_iterator( dir ) )
+        {
+            const auto extension = entry.path().extension();
+            if ( !entry.is_regular_file() || ( extension != ".desce" && extension != ".deprefab" ) )
+                continue;
+            // The editor's gitignored crash-recovery copies are not content (see the census above).
+            bool autosave = false;
+            for ( const auto& part : entry.path() )
+                autosave = autosave || part == "Autosave";
+            if ( autosave )
+                continue;
+            const auto parsed = rfl::json::read<rfl::Generic>( ReadAll( entry.path() ) );
+            if ( !parsed )
+                continue; // parsing is SceneVersionGate's subject, not this one
+            ++documents;
+            PathsWithoutGuid( parsed.value(),
+                              fs::relative( entry.path(), root + "Editor/Resources/Assets" ).generic_string(),
+                              guidNames, offences );
+        }
+    }
+    ASSERT_GT( documents, 50u ) << "only " << documents << " documents were walked — the sweep found nothing";
+
+    std::string report;
+    for ( const auto& offence : offences )
+        report += "\n  " + offence;
+    EXPECT_TRUE( offences.empty() )
+         << offences.size() << " reference(s) in shipped content name an asset by PATH alone:" << report
+         << "\n\nThe loader resolves a reference by its GUID; the path is a locator. Give "
+            "the file its GUIDs with the migrator (scripts/Dev/migrate.sh --write), "
+            "not by hand.";
+}
+
+TEST( AssetReferenceCensus, TheByPathCensusReportsEachSpellingOfAPathOnlyReference )
+{
+    const std::set<std::string> guidNames{ "MeshGuid", "MaterialGuids" };
+    const auto                  parsed = rfl::json::read<rfl::Generic>( R"({"Entities":[
+        {"StaticMesh":{"MeshPath":"M.stmesh","MaterialPaths":["A.demat","B.demat"],"MaterialGuids":["g",""]}},
+        {"SkinnedMesh":{"MeshPath":"S.skmesh","MeshGuid":"g"}},
+        {"Sprite":{"Guid":"","Path":"assets:T.detex"},"PrefabPath":"P.deprefab"},
+        {"Sprite":{"Guid":"","Path":""}}]})" );
+    ASSERT_TRUE( parsed.has_value() );
+    std::vector<std::string> offences;
+    PathsWithoutGuid( parsed.value(), "doc", guidNames, offences );
+    std::sort( offences.begin(), offences.end() ); // the walk follows the object's key order
+
+    ASSERT_EQ( offences.size(), 3u ) << "a stated GUID, an empty reference and a PrefabPath are not offences";
+    EXPECT_EQ( offences[0], "doc.Entities[0].StaticMesh.MaterialPaths[1] = 'B.demat' states no MaterialGuids[1]" );
+    EXPECT_EQ( offences[1], "doc.Entities[0].StaticMesh.MeshPath = 'M.stmesh' states no MeshGuid" );
+    EXPECT_EQ( offences[2], "doc.Entities[2].Sprite = 'assets:T.detex' states no GUID" );
 }
 
 // ── The property the census depends on ─────────────────────────────────────────────────────────────

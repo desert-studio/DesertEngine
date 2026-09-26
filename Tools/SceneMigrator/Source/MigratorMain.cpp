@@ -1235,6 +1235,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionSpriteGuids << "->v"
                 << Desert::Migration::kSceneVersionShaderGuids << " (" << report.ShaderSceneGuids.Rewritten
                 << " material shader / render-texture scene reference(s) now state the header GUID)";
+        if ( report.PathOnlyMeshGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
+                << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
+                << " path-only mesh reference(s) now state the mesh header GUID)";
         if ( report.TextHeaderRaised )
             out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
                 << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";

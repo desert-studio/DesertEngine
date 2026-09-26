@@ -50,9 +50,9 @@ namespace
     {
         return std::string( "{" ) + V26Header( kSceneGuid ) +
                R"(,"SceneName":"S","Entities":[
-        {"id":1,"Tag":"Rock","StaticMesh":{"MeshPath":"m","MaterialGuids":[-42]}},
-        {"id":2,"Tag":"Trooper","SkinnedMesh":{"MeshPath":"m","MaterialGuids":[7]}},
-        {"id":3,"Tag":"Forest","InstancedStaticMesh":{"MeshPath":"m","MaterialGuids":[0]}}]})";
+        {"id":1,"Tag":"Rock","StaticMesh":{"MeshPath":"","MaterialGuids":[-42]}},
+        {"id":2,"Tag":"Trooper","SkinnedMesh":{"MeshPath":"","MaterialGuids":[7]}},
+        {"id":3,"Tag":"Forest","InstancedStaticMesh":{"MeshPath":"","MaterialGuids":[0]}}]})";
     }
 
     // What that scene should look like once already at v27, stating GUID text directly: built from the
@@ -64,18 +64,18 @@ namespace
                                          // parses this string only to read its component text back out, never
                                          // through MigrateScene, so the stated schema number plays no part in it.
                R"(,"SceneName":"S","Entities":[
-        {"id":1,"Tag":"Rock","StaticMesh":{"MeshPath":"m","MaterialGuids":[")" +
+        {"id":1,"Tag":"Rock","StaticMesh":{"MeshPath":"","MaterialGuids":[")" +
                textA + R"("]}},
-        {"id":2,"Tag":"Trooper","SkinnedMesh":{"MeshPath":"m","MaterialGuids":[")" +
+        {"id":2,"Tag":"Trooper","SkinnedMesh":{"MeshPath":"","MaterialGuids":[")" +
                textB + R"("]}},
-        {"id":3,"Tag":"Forest","InstancedStaticMesh":{"MeshPath":"m","MaterialGuids":[""]}}]})";
+        {"id":3,"Tag":"Forest","InstancedStaticMesh":{"MeshPath":"","MaterialGuids":[""]}}]})";
     }
 
     std::string OneUnknownSlotScene()
     {
         return std::string( "{" ) + V26Header( kSceneGuid ) +
                R"(,"SceneName":"S","Entities":[
-        {"id":1,"Tag":"Bad","StaticMesh":{"MeshPath":"m","MaterialGuids":[999]}}]})";
+        {"id":1,"Tag":"Bad","StaticMesh":{"MeshPath":"","MaterialGuids":[999]}}]})";
     }
 
     Migration::SceneSerialized Parse( const std::string& json )
@@ -155,7 +155,7 @@ std::string OneUnknownSlotPrefab()
 {
     return std::string( "{" ) + V26Header( kSceneGuid ) +
            R"(,"Name":"P","Root":1,"Entities":[
-        {"id":1,"Tag":"Bad","StaticMesh":{"MeshPath":"m","MaterialGuids":[999]}}]})";
+        {"id":1,"Tag":"Bad","StaticMesh":{"MeshPath":"","MaterialGuids":[999]}}]})";
 }
 
 TEST( SceneMaterialGuidMigration, MigratePrefabRefusesTheSameUnknownId )
