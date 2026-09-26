@@ -7,9 +7,9 @@
 // way UE's handlers inherit them (a new triangle copies its source triangle's MaterialID and group).
 #include <gtest/gtest.h>
 
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp>
-#include <Engine/Geometry/UECore/Polygroups/PolygroupSet.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
+#include <Engine/Geometry/MeshCore/Polygroups/PolygroupSet.hpp>
 
 #include <random>
 #include <vector>

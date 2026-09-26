@@ -5,9 +5,9 @@
 // into its own face. The subdivided cube (each face 2x2 quads) gives spans of two mesh edges, whose middle vertex
 // is split by the span interior unlink (ReconcileTriangleSets) before the terminator and junction unlinks.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
-#include "Engine/Geometry/UECore/MapLookup.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
+#include "Engine/Geometry/MeshCore/MapLookup.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/MeshBevel.hpp"
 
 #include <gtest/gtest.h>
 

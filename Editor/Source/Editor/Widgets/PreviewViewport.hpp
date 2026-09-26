@@ -8,6 +8,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 
 #include <Editor/Widgets/PreviewInput.hpp>
+#include <Editor/Widgets/PreviewRenderGate.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -252,6 +253,31 @@ namespace Desert::Editor
 
         void Clear();
 
+        // WHAT THE CALLER KNOWS ABOUT ITS SUBJECT that this widget cannot see: the parameter values of the
+        // material it draws, its shader's rebuild count. The widget re-renders when this number moves
+        // (Editor/Widgets/PreviewRenderGate.hpp); a caller that never sets it gets re-renders on the
+        // widget's own changes only (content, setup, camera, size).
+        void SetContentFingerprint( uint64_t fingerprint )
+        {
+            m_ContentFingerprint = fingerprint;
+        }
+
+        // The toolbar's Realtime toggle, Unreal's: render every frame instead of only when the picture changed.
+        void SetRealtime( bool realtime )
+        {
+            m_Realtime = realtime;
+        }
+        [[nodiscard]] bool IsRealtime() const
+        {
+            return m_Realtime;
+        }
+        // Whether the last Update() recorded a render (false: the pane showed the previous image). For the
+        // control channel and the profiler reading, which otherwise cannot tell an idle preview from a live one.
+        [[nodiscard]] bool RenderedLastUpdate() const
+        {
+            return m_RenderedLastUpdate;
+        }
+
         // What is filling the pane right now. The panel reads it to label its own controls (a Shape combo
         // means nothing for a dome) and a test reads it to pin the routing.
         [[nodiscard]] Fill GetFill() const
@@ -344,6 +370,8 @@ namespace Desert::Editor
         // before its first frame do not, and the first Render resizes it.
         void EnsureInit( const Graphic::ViewExtent& extent = Graphic::kUnsizedViewExtent );
         void ApplyCamera( uint32_t width, uint32_t height );
+        // The orbit distance at which the current content fits a pane of @p aspect (width / height) whole.
+        [[nodiscard]] float FittedDistance( float aspect ) const;
         // Write m_Setup onto the scene's entities. Called from Update(), every frame: the writes are a
         // handful of component fields, and doing them unconditionally is what removes the "the panel
         // edited the struct but forgot to push it" failure entirely.
@@ -394,7 +422,7 @@ namespace Desert::Editor
         // the panel owns the widget, across selections of the same kind).
         float     m_Yaw      = -0.6f; // radians
         float     m_Pitch    = 0.5f;
-        float     m_Distance = 3.0f; // world units, derived from the content's bounds on ResetView
+        float     m_Zoom     = 1.0f; // the wheel's multiple of the fitted distance; 1 = the subject exactly fits
         glm::vec3 m_Focus{ 0.0f };
         float     m_FrameRadius = 1.0f;                  // bounding radius of the current content
         glm::vec3 m_FrameHalfExtent{ 0.5f, 0.5f, 0.5f }; // half-size of its box, for the exact fit
@@ -403,16 +431,21 @@ namespace Desert::Editor
         // corners of that box. Using one rule for both leaves the other one small in frame.
         bool m_FrameIsRound = false;
 
-        // NOTE: the preview renders every frame ON PURPOSE. Skipping frames when nothing changed was tried
-        // and reverted: the target does not survive as a still image between frames, so the preview simply
-        // went blank. It also was not worth it — the second scene render measured ~6% of the frame, while
-        // the editor's real cost at the time was the Logs panel rebuilding its row list per frame.
-        // Anything reviving this must first make the last rendered image persist across skipped frames.
+        // WHETHER UPDATE RENDERS (PreviewRenderGate). The picture is re-rendered only when something it is made of
+        // changed, and for a settle window after; otherwise the pane shows the last image, which persists: the
+        // target Draw() samples is the tonemap renderer's framebuffer, created with the view and rewritten only
+        // by a render. An August attempt at skipping frames (76e2f2488) was reverted as "went blank" with no
+        // cause named; the ME1e capture of an idle, gated preview shows the image intact.
         //
-        // What the revert left behind was a RequestRender() with an empty body and four callers marking the
-        // moments the cached image went stale — a dirty flag for a cache that no longer exists. Removed:
-        // five deletions, no behaviour change, because there was no behaviour. The knowledge above is worth
-        // keeping; a function that performs it is not.
+        // m_ContentRevision counts every Set*/Clear/InvalidatePipelines and the late framing of a mesh;
+        // m_SetupRevision every change ApplySetup finds. Counters, not copies: a std::function or a SceneSetup
+        // is not something to hash every frame when "it changed" is already known where it changes.
+        PreviewRenderGate::State m_Gate;
+        uint64_t                 m_ContentRevision    = 0;
+        uint64_t                 m_SetupRevision      = 0;
+        uint64_t                 m_ContentFingerprint = 0;
+        bool                     m_Realtime           = false;
+        bool                     m_RenderedLastUpdate = false;
 
         // The preview world. Public through Setup(); see SceneSetup for why it lives here.
         SceneSetup m_Setup;

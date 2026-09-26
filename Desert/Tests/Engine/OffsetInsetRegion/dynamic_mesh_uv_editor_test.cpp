@@ -3,8 +3,8 @@
 // a cylinder the vertex frames turn around the axis, so the rotation from a neighbour's frame into the seed's
 // frame carries the whole map. A cylinder is developable: the exponential map must unroll it with edge lengths
 // kept.
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 
 #include <gtest/gtest.h>
 

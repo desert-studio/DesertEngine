@@ -2,8 +2,8 @@
 // region has a zero-energy conformal map, a similarity of itself: every UV angle must equal its 3D angle, and the
 // square's corners must stay right angles (a boundary pinned to a circle would open them to 180 degrees). A
 // spherical cap is not developable: angles move, but no triangle may flip or collapse.
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
 
 #include <gtest/gtest.h>
 
