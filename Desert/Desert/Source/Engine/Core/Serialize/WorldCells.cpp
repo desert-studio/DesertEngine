@@ -336,7 +336,7 @@ namespace Desert::Core::WorldCells
              Rules::PlanWorldPartition( records, *scene.WorldPartition, BoundsFrom( registries ) );
         // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
         // names every one of them once, after the reference walk below has added its own.
-        Common::Json::Issues issues = plan.Issues;
+        Common::Json::Issues issues    = plan.Issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
 
         CookedWorld cooked;
@@ -395,8 +395,7 @@ namespace Desert::Core::WorldCells
                 const auto   block = Rules::Detail::BlockOf( records[record], reference.ComponentKey, issues );
                 Common::UUID target;
                 if ( !block.has_value() ||
-                     !Rules::Detail::ReadReference( *block, reference.Field, target, issues ) ||
-                     target.IsNull() )
+                     !Rules::Detail::ReadReference( *block, reference.Field, target, issues ) || target.IsNull() )
                     continue;
                 const auto found = byId.find( target );
                 if ( found == byId.end() || unitOf[found->second] == unitOf[record] )

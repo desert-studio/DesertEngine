@@ -779,9 +779,8 @@ namespace Desert::Core::Rules
         // The GUID a mesh block names, written as GUID text (SCNE 28). Absent or empty text is the null GUID:
         // the block names no asset the bounds source could answer for. A value that is not GUID text is an
         // Issue, and is the null GUID too.
-        [[nodiscard]] inline Common::Content::AssetGuid ReadGuid( const Common::Json::Node& block,
-                                                                  std::string_view          field,
-                                                                  Common::Json::Issues&     issues )
+        [[nodiscard]] inline Common::Content::AssetGuid
+        ReadGuid( const Common::Json::Node& block, std::string_view field, Common::Json::Issues& issues )
         {
             std::string text;
             block.ReadInto( field, text, issues );
