@@ -5302,12 +5302,12 @@ namespace Desert::Editor
         }
 
         // FOLDERS, one "Open folder: <path under the assets root>" entry each (the ONE folder command — the
-        // Assets window's own per-shown-folder duplicate that took an absolute path is gone): brings the Assets browser forward ON that folder. Derived from the
-        // SAME content enumeration as the "Open" entries above (every folder that holds content, each ancestor
-        // up to the assets root included), not from a second walk of the disk: that one call sees a mounted
-        // .dpak as well as loose files, and the ContentScanners gate holds every content walk to it. A folder
-        // with no file anywhere beneath it is therefore not offered, which is the packaged project's truth
-        // too. The label is the path under the assets root.
+        // Assets window's own per-shown-folder duplicate that took an absolute path is gone): brings the Assets
+        // browser forward ON that folder. Derived from the SAME content enumeration as the "Open" entries above
+        // (every folder that holds content, each ancestor up to the assets root included), not from a second walk
+        // of the disk: that one call sees a mounted .dpak as well as loose files, and the ContentScanners gate
+        // holds every content walk to it. A folder with no file anywhere beneath it is therefore not offered,
+        // which is the packaged project's truth too. The label is the path under the assets root.
         {
             const std::filesystem::path assetsRoot =
                  std::filesystem::path( Common::Constants::Path::ASSETS_PATH ).lexically_normal();
