@@ -1,11 +1,11 @@
 // reflect-cpp MUST be included before any header that pulls <windows.h>, otherwise the min/max
 // macros break its templates (C2589). NOMINMAX guards the rest of the TU.
 #ifndef NOMINMAX
-    #define NOMINMAX
+#define NOMINMAX
 #endif
 #include <rflcpp/rfl.hpp>
 #include <Editor/Core/DragPayloads.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 
@@ -81,10 +81,10 @@ namespace Desert::Editor
 
         struct Manifest
         {
-            std::string                             Name;
-            std::optional<std::string>              Author;
+            std::string                                  Name;
+            std::optional<std::string>                   Author;
             std::optional<std::vector<ManifestMaterial>> Materials;
-            std::vector<ManifestItem>               Items;
+            std::vector<ManifestItem>                    Items;
         };
 
         std::string ToLower( std::string s )
@@ -290,9 +290,9 @@ namespace Desert::Editor
                 stateTexture( "u_MetallicTexture", metallic );
                 stateTexture( "u_AOTexture", ao );
                 stateTexture( "u_OpacityTexture", opacity );
-                data.Header               = header;
-                data                      = Assets::StampMaterialHeader( std::move( data ) );
-                auto text                 = Assets::WriteMaterialJson( data );
+                data.Header = header;
+                data        = Assets::StampMaterialHeader( std::move( data ) );
+                auto text   = Assets::WriteMaterialJson( data );
                 if ( !text )
                 {
                     LOG_ERROR( "[Collections] material '{}' was not cooked: {}", key, text.GetError() );
@@ -428,8 +428,8 @@ namespace Desert::Editor
     {
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
-        m_Thumbs         = std::make_unique<ThumbnailCache>();
-        m_ImportManager  = std::make_unique<ImportManager>();
+        m_Thumbs        = std::make_unique<ThumbnailCache>();
+        m_ImportManager = std::make_unique<ImportManager>();
         Rescan();
     }
 
@@ -437,7 +437,7 @@ namespace Desert::Editor
     {
         m_Collections.clear();
 
-        std::error_code ec;
+        std::error_code             ec;
         const std::filesystem::path root( CollectionsRoot() );
         if ( !std::filesystem::exists( root, ec ) )
             return;
@@ -456,15 +456,14 @@ namespace Desert::Editor
                 LOG_WARN( "[Collections] {}", raw.GetError() );
                 continue;
             }
-            const auto parsed = rfl::json::read<Manifest>( raw.GetValue() );
-            if ( !parsed.has_value() )
+            const auto parsed = Common::Json::Read<Manifest>( raw.GetValue() );
+            if ( !parsed )
             {
-                LOG_WARN( "[Collections] Failed to parse {}: {}", manifestPath.string(),
-                          parsed.error().what() );
+                LOG_WARN( "[Collections] Failed to parse {}: {}", manifestPath.string(), parsed.GetError() );
                 continue;
             }
 
-            const auto&      m = parsed.value();
+            const auto& m = parsed.GetValue();
 
             // Materialize the manifest's detected materials into .demat files (once) so meshes resolve them.
             if ( m_AssetManager && m_ImportManager )
@@ -558,8 +557,7 @@ namespace Desert::Editor
         // Build the filtered index list first so the grid is contiguous.
         std::vector<int> shown;
         for ( int i = 0; i < (int)m_Collections.size(); ++i )
-            if ( searchLower.empty() ||
-                 ToLower( m_Collections[i].Name ).find( searchLower ) != std::string::npos )
+            if ( searchLower.empty() || ToLower( m_Collections[i].Name ).find( searchLower ) != std::string::npos )
                 shown.push_back( i );
 
         DrawGrid( cardW, 12.0f, (int)shown.size(),
@@ -605,8 +603,7 @@ namespace Desert::Editor
 
         std::vector<int> shown;
         for ( int i = 0; i < (int)coll.Items.size(); ++i )
-            if ( searchLower.empty() ||
-                 ToLower( coll.Items[i].Name ).find( searchLower ) != std::string::npos )
+            if ( searchLower.empty() || ToLower( coll.Items[i].Name ).find( searchLower ) != std::string::npos )
                 shown.push_back( i );
 
         DrawGrid( cardW, 12.0f, (int)shown.size(),
@@ -618,8 +615,8 @@ namespace Desert::Editor
                       if ( ImGui::BeginDragDropSource( ImGuiDragDropFlags_None ) )
                       {
                           // Same payload the File Explorer emits, so mesh drop targets (Foliage etc.) work.
-                          ImGui::SetDragDropPayload( ::Desert::Editor::DragPayloads::MeshAsset, item.MeshPath.c_str(),
-                                                     item.MeshPath.size() + 1 );
+                          ImGui::SetDragDropPayload( ::Desert::Editor::DragPayloads::MeshAsset,
+                                                     item.MeshPath.c_str(), item.MeshPath.size() + 1 );
                           ImGui::Text( ICON_MDI_CUBE_OUTLINE " %s", item.Name.c_str() );
                           ImGui::EndDragDropSource();
                       }

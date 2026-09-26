@@ -20,6 +20,5 @@ Desert/Tests/Engine/SceneStitch/scene_stitch_test.cpp | JS1d: test reads its fix
 Desert/Tests/Engine/UIComponentRoundTrip/ui_component_round_trip_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Editor/Source/Editor/Core/Control/ControlProtocol.hpp | JS1d: editor/tools protocol moves to the facade
 Editor/Source/Editor/Core/EditorPreferences.cpp | JS1d: editor/tools protocol moves to the facade
 Tools/DesertCtl/Source/Main.cpp | JS1d: editor/tools protocol moves to the facade

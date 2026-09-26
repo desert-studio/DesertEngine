@@ -318,7 +318,7 @@ namespace Desert::Editor
                                                                              : TextureIntentSource::Authored;
         const Assets::TextureBuildSettings buildSettings{ asset.Import.Settings, kBlockEncoderVersion };
         const uint64_t                     ddcKey = Assets::TextureDerivedDataKey( sourceHash, buildSettings );
-        const uint64_t cookSignature = CookSignature( kBlockEncoderVersion, authored.Intent );
+        const uint64_t                     cookSignature = CookSignature( kBlockEncoderVersion, authored.Intent );
 
         // A SOURCE FORMAT IS AN INPUT, NOT A STORAGE FORMAT — `Docs/Textures/T2_CONTAINER_DECISION.md`.
         // This is the ONE place in the project that decodes one, and everything downstream reads the
@@ -507,7 +507,7 @@ namespace Desert::Editor
                     LOG_INFO( "[TextureImporter] '{0}' is stored as BC7 on a measurement alone ({1:.2f} dB, "
                               "worst texel off by {2}, {3} bytes instead of {4}): no intent is authored "
                               "for it, so there is nothing to cross-check the choice against. Put a "
-                              "'{{\"Intent\": \"...\"}}' in '{5}' to say what it is for.",
+                              R"('{{"Intent": "..."}}' in '{5}' to say what it is for.)",
                               abs, probe.Grade.Psnr, probe.Grade.MaxAbsoluteDelta, probe.Pixels.size(),
                               data.Pixels.size(), assetPath.filename().string() );
                     data.Format = probeFormat;

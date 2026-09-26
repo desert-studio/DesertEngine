@@ -44,7 +44,7 @@ namespace FbxSplit
         bool FindResourcesRoot( const std::filesystem::path& fbxAbs, std::filesystem::path& resourcesDir )
         {
             for ( std::filesystem::path p = fbxAbs.parent_path(); !p.empty() && p != p.root_path();
-                  p = p.parent_path() )
+                  p                       = p.parent_path() )
             {
                 if ( p.filename() == "Resources" )
                 {
@@ -64,8 +64,7 @@ namespace FbxSplit
 
         bool EndsWith( const std::string& s, const std::string& suffix )
         {
-            return s.size() >= suffix.size() &&
-                   s.compare( s.size() - suffix.size(), suffix.size(), suffix ) == 0;
+            return s.size() >= suffix.size() && s.compare( s.size() - suffix.size(), suffix.size(), suffix ) == 0;
         }
 
         // PBR texture slots we recognise from filename suffixes (Poly Haven / industry convention).
@@ -105,18 +104,29 @@ namespace FbxSplit
 
             // Ordered longest/most-specific first.
             static const std::pair<const char*, MapType> kSuffixes[] = {
-                { "_nor_gl", MapType::Normal },    { "_nor_dx", MapType::Normal },
-                { "_normal", MapType::Normal },    { "_nrm", MapType::Normal },
-                { "_nor", MapType::Normal },       { "_roughness", MapType::Roughness },
-                { "_rough", MapType::Roughness },  { "_rgh", MapType::Roughness },
-                { "_metalness", MapType::Metallic },{ "_metallic", MapType::Metallic },
-                { "_metal", MapType::Metallic },   { "_basecolor", MapType::Albedo },
-                { "_albedo", MapType::Albedo },    { "_diffuse", MapType::Albedo },
-                { "_diff", MapType::Albedo },      { "_color", MapType::Albedo },
-                { "_col", MapType::Albedo },       { "_alb", MapType::Albedo },
-                { "_opacity", MapType::Opacity },  { "_alpha", MapType::Opacity },
-                { "_mask", MapType::Opacity },     { "_opac", MapType::Opacity },
-                { "_ao", MapType::AO },
+                 { "_nor_gl", MapType::Normal },
+                 { "_nor_dx", MapType::Normal },
+                 { "_normal", MapType::Normal },
+                 { "_nrm", MapType::Normal },
+                 { "_nor", MapType::Normal },
+                 { "_roughness", MapType::Roughness },
+                 { "_rough", MapType::Roughness },
+                 { "_rgh", MapType::Roughness },
+                 { "_metalness", MapType::Metallic },
+                 { "_metallic", MapType::Metallic },
+                 { "_metal", MapType::Metallic },
+                 { "_basecolor", MapType::Albedo },
+                 { "_albedo", MapType::Albedo },
+                 { "_diffuse", MapType::Albedo },
+                 { "_diff", MapType::Albedo },
+                 { "_color", MapType::Albedo },
+                 { "_col", MapType::Albedo },
+                 { "_alb", MapType::Albedo },
+                 { "_opacity", MapType::Opacity },
+                 { "_alpha", MapType::Opacity },
+                 { "_mask", MapType::Opacity },
+                 { "_opac", MapType::Opacity },
+                 { "_ao", MapType::AO },
             };
             for ( const auto& [suffix, type] : kSuffixes )
             {
@@ -141,7 +151,7 @@ namespace FbxSplit
 
         struct MaterialDef
         {
-            std::string Stem;                                 // shared base name (also the material Name)
+            std::string Stem; // shared base name (also the material Name)
             // `= {}` and not merely "they default anyway": every slot below is OPTIONAL, and the
             // aggregate initialisations of this struct name only the stem. Stating it at the declaration
             // is what makes the empty ones a decision rather than a truncated initialiser list.
@@ -167,18 +177,17 @@ namespace FbxSplit
                 {
                     if ( !entry.is_regular_file( ec ) )
                         continue;
-                    const std::string extLower      = ToLower( entry.path().extension().string() );
+                    const std::string extLower = ToLower( entry.path().extension().string() );
                     if ( FormatRank( extLower ) == kNotAnImage )
                         continue;
 
-                    std::string materialStem;
-                    const MapType type =
-                         ClassifyTexture( ToLower( entry.path().stem().string() ), materialStem );
+                    std::string   materialStem;
+                    const MapType type = ClassifyTexture( ToLower( entry.path().stem().string() ), materialStem );
                     if ( type == MapType::None || materialStem.empty() )
                         continue;
 
-                    std::filesystem::path rel = std::filesystem::relative( entry.path(), projectDir, ec );
-                    const std::string relPath = ec ? entry.path().generic_string() : rel.generic_string();
+                    std::filesystem::path rel     = std::filesystem::relative( entry.path(), projectDir, ec );
+                    const std::string     relPath = ec ? entry.path().generic_string() : rel.generic_string();
 
                     MaterialDef* def = nullptr;
                     for ( auto& m : mats )
@@ -204,13 +213,26 @@ namespace FbxSplit
                     };
                     switch ( type )
                     {
-                        case MapType::Albedo:    take( def->Albedo, def->AlbedoExt ); break;
-                        case MapType::Opacity:   take( def->Opacity, def->OpacityExt ); break;
-                        case MapType::Normal:    take( def->Normal, def->NormalExt ); break;
-                        case MapType::Roughness: take( def->Roughness, def->RoughnessExt ); break;
-                        case MapType::Metallic:  take( def->Metallic, def->MetallicExt ); break;
-                        case MapType::AO:        take( def->AO, def->AOExt ); break;
-                        default: break;
+                        case MapType::Albedo:
+                            take( def->Albedo, def->AlbedoExt );
+                            break;
+                        case MapType::Opacity:
+                            take( def->Opacity, def->OpacityExt );
+                            break;
+                        case MapType::Normal:
+                            take( def->Normal, def->NormalExt );
+                            break;
+                        case MapType::Roughness:
+                            take( def->Roughness, def->RoughnessExt );
+                            break;
+                        case MapType::Metallic:
+                            take( def->Metallic, def->MetallicExt );
+                            break;
+                        case MapType::AO:
+                            take( def->AO, def->AOExt );
+                            break;
+                        default:
+                            break;
                     }
                 }
             }
@@ -223,8 +245,8 @@ namespace FbxSplit
         {
             if ( mats.empty() )
                 return -1;
-            const std::string cat = ToLower( category );
-            int               best = 0;
+            const std::string cat     = ToLower( category );
+            int               best    = 0;
             size_t            bestLen = 0;
             for ( size_t i = 0; i < mats.size(); ++i )
             {
@@ -306,8 +328,12 @@ namespace FbxSplit
                 pos[i].x      = xf.a1 * v.x + xf.a2 * v.y + xf.a3 * v.z + xf.a4;
                 pos[i].y      = xf.b1 * v.x + xf.b2 * v.y + xf.b3 * v.z + xf.b4;
                 pos[i].z      = xf.c1 * v.x + xf.c2 * v.y + xf.c3 * v.z + xf.c4;
-                mn.x = std::min( mn.x, pos[i].x ); mn.y = std::min( mn.y, pos[i].y ); mn.z = std::min( mn.z, pos[i].z );
-                mx.x = std::max( mx.x, pos[i].x ); mx.y = std::max( mx.y, pos[i].y ); mx.z = std::max( mx.z, pos[i].z );
+                mn.x          = std::min( mn.x, pos[i].x );
+                mn.y          = std::min( mn.y, pos[i].y );
+                mn.z          = std::min( mn.z, pos[i].z );
+                mx.x          = std::max( mx.x, pos[i].x );
+                mx.y          = std::max( mx.y, pos[i].y );
+                mx.z          = std::max( mx.z, pos[i].z );
             }
             const aiVector3D offset( ( mn.x + mx.x ) * 0.5f, mn.y, ( mn.z + mx.z ) * 0.5f );
 
@@ -328,11 +354,16 @@ namespace FbxSplit
                 {
                     const auto& n = mesh->mNormals[i];
                     // Rotate/scale by the 3x3 (no translation), then renormalize.
-                    float nx = xf.a1 * n.x + xf.a2 * n.y + xf.a3 * n.z;
-                    float ny = xf.b1 * n.x + xf.b2 * n.y + xf.b3 * n.z;
-                    float nz = xf.c1 * n.x + xf.c2 * n.y + xf.c3 * n.z;
+                    float       nx  = xf.a1 * n.x + xf.a2 * n.y + xf.a3 * n.z;
+                    float       ny  = xf.b1 * n.x + xf.b2 * n.y + xf.b3 * n.z;
+                    float       nz  = xf.c1 * n.x + xf.c2 * n.y + xf.c3 * n.z;
                     const float len = std::sqrt( nx * nx + ny * ny + nz * nz );
-                    if ( len > 1e-8f ) { nx /= len; ny /= len; nz /= len; }
+                    if ( len > 1e-8f )
+                    {
+                        nx /= len;
+                        ny /= len;
+                        nz /= len;
+                    }
                     f << "vn " << nx << ' ' << ny << ' ' << nz << '\n';
                 }
 
@@ -390,7 +421,7 @@ namespace FbxSplit
         // Keep the pack self-contained: write the .obj outputs INTO the collection folder (next to the FBX),
         // not Resources/Mesh — so the engine's Assets view isn't polluted with pack contents. Manifest paths
         // are relative to the project dir (parent of "Resources") so they read "Resources/Collections/.../...".
-        std::filesystem::path resourcesDir, projectDir;
+        std::filesystem::path       resourcesDir, projectDir;
         const std::filesystem::path meshDir = fbxAbs.parent_path() / "meshes";
         if ( FindResourcesRoot( fbxAbs, resourcesDir ) )
         {
@@ -405,7 +436,7 @@ namespace FbxSplit
 
         // Map each mesh index -> its node's WORLD transform (first node that references it). FBX keeps geometry
         // in tiny local space and the real size/placement in the node hierarchy.
-        std::vector<aiMatrix4x4> meshXf( scene->mNumMeshes );      // identity by default
+        std::vector<aiMatrix4x4> meshXf( scene->mNumMeshes ); // identity by default
         std::vector<bool>        meshHasXf( scene->mNumMeshes, false );
         std::function<void( const aiNode*, const aiMatrix4x4& )> walk =
              [&]( const aiNode* node, const aiMatrix4x4& parent )
@@ -457,15 +488,15 @@ namespace FbxSplit
             }
 
             // Working-dir-relative source path (forward slashes) — the manifest payload + engine cook key.
-            std::filesystem::path rel = std::filesystem::relative( objPath, projectDir, ec );
-            const std::string     meshRel = ec ? objPath.generic_string() : rel.generic_string();
-            const int matIndex = BestMaterialForCategory( stem, materials );
+            std::filesystem::path rel      = std::filesystem::relative( objPath, projectDir, ec );
+            const std::string     meshRel  = ec ? objPath.generic_string() : rel.generic_string();
+            const int             matIndex = BestMaterialForCategory( stem, materials );
             if ( !items.empty() )
                 items += ",\n";
-            items += "    { \"Name\": \"" + name + "\", \"Category\": \"" + stem + "\", \"Mesh\": \"" +
-                     meshRel + "\"";
+            items +=
+                 R"(    { "Name": ")" + name + R"(", "Category": ")" + stem + R"(", "Mesh": ")" + meshRel + R"(")";
             if ( matIndex >= 0 )
-                items += ", \"Material\": " + std::to_string( matIndex );
+                items += R"(, "Material": )" + std::to_string( matIndex );
             items += " }";
             ++result.MeshCount;
         }
@@ -491,24 +522,34 @@ namespace FbxSplit
             if ( !materialsJson.empty() )
                 materialsJson += ",\n";
             const bool cutout = !m.Opacity.empty();
-            materialsJson += "    { \"Name\": \"" + m.Stem + "\"";
+            materialsJson += R"(    { "Name": ")" + m.Stem + R"(")";
             field( "Albedo", m.Albedo );
             field( "Opacity", m.Opacity );
             field( "Normal", m.Normal );
             field( "Roughness", m.Roughness );
             field( "Metallic", m.Metallic );
             field( "AO", m.AO );
-            materialsJson += std::string( ", \"AlphaCutoff\": " ) + ( cutout ? "0.5" : "0.0" );
-            materialsJson += std::string( ", \"TwoSided\": " ) + ( cutout ? "true" : "false" );
+            materialsJson += std::string( R"(, "AlphaCutoff": )" ) + ( cutout ? "0.5" : "0.0" );
+            materialsJson += std::string( R"(, "TwoSided": )" ) + ( cutout ? "true" : "false" );
             materialsJson += " }";
         }
 
         const std::string  collName = fbxAbs.parent_path().filename().string();
         std::ostringstream mf;
-        mf << "{\n  \"Name\": \"" << collName << "\",\n  \"Author\": \"FbxMeshSplitter\",\n";
+        mf << "{\n  "
+              R"("Name": ")"
+           << collName
+           << R"(",)"
+              "\n  "
+              R"("Author": "FbxMeshSplitter",)"
+              "\n";
         if ( !materialsJson.empty() )
-            mf << "  \"Materials\": [\n" << materialsJson << "\n  ],\n";
-        mf << "  \"Items\": [\n" << items << "\n  ]\n}\n";
+            mf << R"(  "Materials": [)"
+                  "\n"
+               << materialsJson << "\n  ],\n";
+        mf << R"(  "Items": [)"
+              "\n"
+           << items << "\n  ]\n}\n";
 
         // The manifest DID call close() — and then never looked at the stream again, so a failed flush
         // still produced result.Success = true and a ManifestPath the caller would go on to read. A

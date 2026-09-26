@@ -45,7 +45,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -143,18 +143,19 @@ namespace Desert::Editor
                                       "it exists but could not be read (" + raw.GetError() + ")" };
         }
 
-        const auto parsed = rfl::json::read<TextureIntentFileData>( raw.GetValue() );
+        const auto parsed = Common::Json::Read<TextureIntentFileData>( raw.GetValue() );
         if ( !parsed )
         {
             return TextureIntentRead{ TextureIntentSource::Malformed, Core::Formats::TextureIntent::Unspecified,
-                                      "it is not readable as {\"Intent\": \"<name>\"}" };
+                                      R"(it is not readable as {"Intent": "<name>"})" };
         }
 
-        const Core::Formats::TextureIntent intent = Core::Formats::TextureIntentFromName( parsed.value().Intent );
+        const Core::Formats::TextureIntent intent =
+             Core::Formats::TextureIntentFromName( parsed.GetValue().Intent );
         if ( intent == Core::Formats::TextureIntent::Count )
         {
             return TextureIntentRead{ TextureIntentSource::Malformed, Core::Formats::TextureIntent::Unspecified,
-                                      "it names the intent '" + parsed.value().Intent +
+                                      "it names the intent '" + parsed.GetValue().Intent +
                                            "', which is not one of: " + TextureIntentVocabulary() };
         }
 
