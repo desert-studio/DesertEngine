@@ -189,7 +189,7 @@ namespace
     {
         auto imported = DynamicMeshFromRenderMesh( render );
         EXPECT_TRUE( imported.IsSuccess() );
-        return std::move( imported.GetValue().Mesh );
+        return imported.GetValue().Mesh;
     }
 
     RenderMeshData Export( const DynamicMesh3& mesh )

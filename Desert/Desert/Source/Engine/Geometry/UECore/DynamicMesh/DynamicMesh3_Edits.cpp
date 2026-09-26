@@ -149,9 +149,9 @@ int DynamicMesh3::AppendTriangle( const Index3i& tv, int gid )
 
     // look up edges. if any already have two triangles, this would
     // create non-manifold geometry and so we do not allow it
-    bool      boundary0;
-    bool      boundary1;
-    bool      boundary2;
+    bool      boundary0 = false;
+    bool      boundary1 = false;
+    bool      boundary2 = false;
     int const e0 = FindEdgeInternal( tv[0], tv[1], boundary0 );
     int const e1 = FindEdgeInternal( tv[1], tv[2], boundary1 );
     int const e2 = FindEdgeInternal( tv[2], tv[0], boundary2 );
@@ -505,8 +505,8 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
         m_Edges[iCurE] = m_Edges[iLastE];
 
         // replace edge in vertex edges lists
-        int v0 = m_Edges[iCurE].Vert[0];
-        int v1 = m_Edges[iCurE].Vert[1];
+        int const v0 = m_Edges[iCurE].Vert[0];
+        int const v1 = m_Edges[iCurE].Vert[1];
         m_VertexEdgeLists.Replace( v0, [iLastE]( int eid ) { return eid == iLastE; }, iCurE );
         m_VertexEdgeLists.Replace( v1, [iLastE]( int eid ) { return eid == iLastE; }, iCurE );
 
@@ -598,8 +598,8 @@ MeshResult DynamicMesh3::RemoveVertex( int vID, bool bPreserveManifold )
         {
             Index3i  tri = GetTriangle( tid );
             int const j   = IndexUtil::FindTriIndex( vID, tri );
-            int       oa  = tri[( j + 1 ) % 3];
-            int       ob  = tri[( j + 2 ) % 3];
+            int const oa  = tri[( j + 1 ) % 3];
+            int const ob  = tri[( j + 2 ) % 3];
             int const eid = FindEdge( oa, ob );
             if ( IsBoundaryEdge( eid ) )
             {
@@ -937,19 +937,18 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         UpdateChangeStamps( true, true );
         return MeshResult::Ok;
     }
-    else // interior triangle branch
-    {
-        // look up other triangle
-        int const t1                  = m_Edges[eab].Tri[1];
-        SplitInfo.OriginalTriangles.B = t1;
-        Index3i const T1tv            = GetTriangle( t1 );
-        int const     d               = IndexUtil::FindTriOtherVtx( a, b, T1tv );
+    // interior triangle branch
+    // look up other triangle
+    int const t1                  = m_Edges[eab].Tri[1];
+    SplitInfo.OriginalTriangles.B = t1;
+    Index3i const T1tv            = GetTriangle( t1 );
+    int const     d               = IndexUtil::FindTriOtherVtx( a, b, T1tv );
 
-        // RefCount overflow check. Conservatively leave room for
-        // extra increments from other operations.
-        if ( m_VertexRefCounts.GetRawRefCount( d ) > RefCountVector::INVALID_REF_COUNT - 3 )
-        {
-            return MeshResult::Failed_HitValenceLimit;
+    // RefCount overflow check. Conservatively leave room for
+    // extra increments from other operations.
+    if ( m_VertexRefCounts.GetRawRefCount( d ) > RefCountVector::INVALID_REF_COUNT - 3 )
+    {
+        return MeshResult::Failed_HitValenceLimit;
         }
 
         // create vertex
@@ -1032,7 +1031,6 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
 
         UpdateChangeStamps( true, true );
         return MeshResult::Ok;
-    }
 }
 
 MeshResult DynamicMesh3::SplitEdge( int vA, int vB, EdgeSplitInfo& SplitInfo )
@@ -1063,10 +1061,10 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     const Edge  Edge = m_Edges[eab];
     int         a    = Edge.Vert[0];
     int         b    = Edge.Vert[1];
-    int         t0   = Edge.Tri[0];
-    int         t1   = Edge.Tri[1];
-    Index3i     T0tv = GetTriangle( t0 );
-    Index3i     T1tv = GetTriangle( t1 );
+    int const     t0   = Edge.Tri[0];
+    int const     t1   = Edge.Tri[1];
+    Index3i const T0tv = GetTriangle( t0 );
+    Index3i const T1tv = GetTriangle( t1 );
     int const   c    = IndexUtil::OrientTriEdgeAndFindOtherVtx( a, b, T0tv );
     int const   d    = IndexUtil::FindTriOtherVtx( a, b, T1tv );
     if ( c == InvalidID || d == InvalidID )
@@ -1788,10 +1786,10 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
     int const x   = c;
     c            = d;
     d            = x; // joinable bdry edges have opposing orientations, so flip to get ac and b/d correspondences
-    glm::dvec3 Va = GetVertex( a );
-    glm::dvec3 Vb = GetVertex( b );
-    glm::dvec3 Vc = GetVertex( c );
-    glm::dvec3 Vd = GetVertex( d );
+    glm::dvec3 const Va = GetVertex( a );
+    glm::dvec3 const Vb = GetVertex( b );
+    glm::dvec3 const Vc = GetVertex( c );
+    glm::dvec3 const Vd = GetVertex( d );
     if ( bCheckValidOrientation && ( glm::length2( ( Va - Vc ) ) + glm::length2( ( Vb - Vd ) ) ) >
                                         ( glm::length2( ( Va - Vd ) ) + glm::length2( ( Vb - Vc ) ) ) )
     {
@@ -1839,7 +1837,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
     {
         int ea      = 0;
         int ec      = 0;
-        int other_v = ( b == d ) ? b : -1;
+        int const other_v = ( b == d ) ? b : -1;
         for ( int const cnbr : VtxVerticesItr( c ) )
         {
             if ( cnbr != other_v && ( ea = FindEdge( a, cnbr ) ) != InvalidID )
@@ -1849,10 +1847,8 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
                 {
                     return MeshResult::Failed_InvalidNeighbourhood;
                 }
-                else
-                {
-                    MaxAdjBoundaryMerges[0]++;
-                }
+
+                MaxAdjBoundaryMerges[0]++;
             }
         }
     }
@@ -1860,7 +1856,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
     {
         int eb      = 0;
         int ed      = 0;
-        int other_v = ( a == c ) ? a : -1;
+        int const other_v = ( a == c ) ? a : -1;
         for ( int const dnbr : VtxVerticesItr( d ) )
         {
             if ( dnbr != other_v && ( eb = FindEdge( b, dnbr ) ) != InvalidID )
@@ -1870,10 +1866,8 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
                 {
                     return MeshResult::Failed_InvalidNeighbourhood;
                 }
-                else
-                {
-                    MaxAdjBoundaryMerges[1]++;
-                }
+
+                MaxAdjBoundaryMerges[1]++;
             }
         }
     }

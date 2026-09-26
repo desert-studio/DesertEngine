@@ -84,13 +84,13 @@ DynamicMesh3::DynamicMesh3( DynamicMesh3&& Other )
 }
 DynamicMesh3::~DynamicMesh3() = default;
 
-const DynamicMesh3& DynamicMesh3::operator=( const DynamicMesh3& CopyMesh )
+DynamicMesh3& DynamicMesh3::operator=( const DynamicMesh3& CopyMesh )
 {
     Copy( CopyMesh );
     return *this;
 }
 
-const DynamicMesh3& DynamicMesh3::operator=( DynamicMesh3&& Other )
+DynamicMesh3& DynamicMesh3::operator=( DynamicMesh3&& Other )
 {
     if ( this != &Other )
     {
@@ -674,10 +674,8 @@ Index3i DynamicMesh3::GetTriNeighbourTris( int tID ) const
         }
         return nbr_t;
     }
-    else
-    {
-        return InvalidTriangle;
-    }
+
+    return InvalidTriangle;
 }
 
 void DynamicMesh3::EnumerateVertexTriangles( int32_t VertexID, std::function<void( int32_t )> ApplyFunc ) const
@@ -787,8 +785,8 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
         Index3i e;
         for ( int j = 0; j < 3; ++j )
         {
-            int a = tv[j];
-            int b = tv[( j + 1 ) % 3];
+            int const a = tv[j];
+            int const b = tv[( j + 1 ) % 3];
             e[j] = FindEdge( a, b );
             CheckOrFailF( e[j] != InvalidID );
             CheckOrFailF( EdgeHasTriangle( e[j], tID ) );
@@ -812,8 +810,8 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
             CheckOrFailF( TriHasNeighbourTri( tOther, tID ) );
 
             // edge must have same two verts as tri for same index
-            int      a  = tv[j];
-            int      b  = tv[( j + 1 ) % 3];
+            int const a  = tv[j];
+            int const b  = tv[( j + 1 ) % 3];
             Index2i  ev = GetEdgeV( te[j] );
             CheckOrFailF( IndexUtil::SamePairUnordered( a, b, ev[0], ev[1] ) );
 
@@ -955,15 +953,15 @@ int DynamicMesh3::AddTriangleInternal( int a, int b, int c, int e0, int e1, int 
 int DynamicMesh3::ReplaceEdgeVertex( int eID, int vOld, int vNew )
 {
     Index2i&  Verts = m_Edges[eID].Vert;
-    int       a     = Verts[0];
-    int       b     = Verts[1];
+    int const a     = Verts[0];
+    int const b     = Verts[1];
     if ( a == vOld )
     {
         Verts[0] = std::min( b, vNew );
         Verts[1] = std::max( b, vNew );
         return 0;
     }
-    else if ( b == vOld )
+    if ( b == vOld )
     {
         Verts[0] = std::min( a, vNew );
         Verts[1] = std::max( a, vNew );
@@ -978,8 +976,8 @@ int DynamicMesh3::ReplaceEdgeVertex( int eID, int vOld, int vNew )
 int DynamicMesh3::ReplaceEdgeTriangle( int eID, int tOld, int tNew )
 {
     Index2i&  Tris = m_Edges[eID].Tri;
-    int       a    = Tris[0];
-    int       b    = Tris[1];
+    int const a    = Tris[0];
+    int const b    = Tris[1];
     if ( a == tOld )
     {
         if ( tNew == InvalidID )
@@ -993,7 +991,7 @@ int DynamicMesh3::ReplaceEdgeTriangle( int eID, int tOld, int tNew )
         }
         return 0;
     }
-    else if ( b == tOld )
+    if ( b == tOld )
     {
         Tris[1] = tNew;
         return 1;
@@ -1082,10 +1080,8 @@ int DynamicMesh3::FindEdge( int vA, int vB ) const
         return m_VertexEdgeLists.Find(
              vMin, [&]( int32_t eid ) { return ( m_Edges[eid].Vert[1] == vMax ); }, InvalidID );
     }
-    else
-    {
-        return InvalidID;
-    }
+
+    return InvalidID;
 
     // this is slower, likely because it creates func<> every time. can we do w/o that?
     // return VertexEdgeLists.Find(vI, (eid) => { return Edges[4 * eid + 1] == vO; }, InvalidID);

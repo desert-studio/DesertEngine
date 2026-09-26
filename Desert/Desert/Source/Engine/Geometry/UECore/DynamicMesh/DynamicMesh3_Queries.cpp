@@ -19,10 +19,8 @@ Index2i DynamicMesh3::GetEdgeOpposingV( int eID ) const
         int const d = IndexUtil::FindTriOtherVtxUnsafe( a, b, m_Triangles[Edge.Tri[1]] );
         return { c, d };
     }
-    else
-    {
-        return { c, InvalidID };
-    }
+
+    return { c, InvalidID };
 }
 
 int DynamicMesh3::GetVtxBoundaryEdges( int vID, int& e0, int& e1 ) const
@@ -105,7 +103,6 @@ int DynamicMesh3::GetVtxTriangleCount( int vID ) const
                                      {
                                          N++;
                                      }
-                                     const int et1 = Edge.Tri[1];
                                      if ( Edge.Tri[1] != InvalidID &&
                                           TriHasSequentialVertices( Edge.Tri[1], vID, vOther ) )
                                      {
@@ -337,10 +334,8 @@ bool DynamicMesh3::IsBoundaryTriangle( int tID ) const
         return IsBoundaryEdge( TriEdgeIDs[0] ) || IsBoundaryEdge( TriEdgeIDs[1] ) ||
                IsBoundaryEdge( TriEdgeIDs[2] );
     }
-    else
-    {
-        return false;
-    }
+
+    return false;
 }
 
 Index2i DynamicMesh3::GetOrientedBoundaryEdgeV( int eID ) const
@@ -350,8 +345,8 @@ Index2i DynamicMesh3::GetOrientedBoundaryEdgeV( int eID ) const
         const Edge Edge = m_Edges[eID];
         if ( Edge.Tri[1] == InvalidID )
         {
-            int             a   = Edge.Vert[0];
-            int             b   = Edge.Vert[1];
+            int const       a   = Edge.Vert[0];
+            int const       b   = Edge.Vert[1];
             int const       ti  = Edge.Tri[0];
             const Index3i&  tri = m_Triangles[ti];
             int const       ai  = IndexUtil::FindEdgeIndexInTri( a, b, tri );
@@ -570,8 +565,8 @@ bool DynamicMesh3::IsBowtieVertex( int vID ) const
         const Index3i&  tv       = m_Triangles[i];
         const Index3i&  te       = m_TriangleEdges[i];
         int const       vert_idx = IndexUtil::FindTriIndex( vID, tv );
-        int             e1       = te[vert_idx];
-        int             e2       = te[( vert_idx + 2 ) % 3];
+        int const       e1       = te[vert_idx];
+        int const       e2       = te[( vert_idx + 2 ) % 3];
         int const       next_eid = ( e1 == prev_eid ) ? e2 : e1;
         if ( next_eid == start_eid )
         {
@@ -862,9 +857,9 @@ double DynamicMesh3::GetTriSolidAngle( int tID, const glm::dvec3& p ) const
     const glm::dvec3 TV[3]    = { m_Vertices[Triangle[0]] - p, m_Vertices[Triangle[1]] - p,
                                   m_Vertices[Triangle[2]] - p };
 
-    double       la  = glm::length( TV[0] );
-    double       lb  = glm::length( TV[1] );
-    double       lc  = glm::length( TV[2] );
+    double const la  = glm::length( TV[0] );
+    double const lb  = glm::length( TV[1] );
+    double const lc  = glm::length( TV[2] );
     double const top = ( la * lb * lc ) + glm::dot( TV[0], TV[1] ) * lc + glm::dot( TV[1], TV[2] ) * la +
                        glm::dot( TV[2], TV[0] ) * lb;
     double const bottom = TV[0].x * ( TV[1].y * TV[2].z - TV[2].y * TV[1].z ) -
@@ -882,7 +877,7 @@ double DynamicMesh3::GetTriInternalAngleR( int tID, int i ) const
     {
         return AngleR( Normalized( TV[1] - TV[0] ), Normalized( TV[2] - TV[0] ) );
     }
-    else if ( i == 1 )
+    if ( i == 1 )
     {
         return AngleR( Normalized( TV[0] - TV[1] ), Normalized( TV[2] - TV[1] ) );
     }

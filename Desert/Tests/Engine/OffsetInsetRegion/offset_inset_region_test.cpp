@@ -27,11 +27,11 @@ namespace
         // clockwise front (see DynamicMeshRenderConversion.hpp), so each triangle takes corners 0, 2, 1.
         const int Quads[6][4] = { { 0, 2, 3, 1 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
                                   { 2, 6, 7, 3 }, { 0, 4, 6, 2 }, { 1, 3, 7, 5 } };
-        for ( int f = 0; f < 6; ++f )
+        for ( auto Quad : Quads )
         {
             const int g = M.AllocateTriangleGroup();
-            M.AppendTriangle( Quads[f][0], Quads[f][2], Quads[f][1], g );
-            M.AppendTriangle( Quads[f][0], Quads[f][3], Quads[f][2], g );
+            M.AppendTriangle( Quad[0], Quad[2], Quad[1], g );
+            M.AppendTriangle( Quad[0], Quad[3], Quad[2], g );
         }
         return M;
     }

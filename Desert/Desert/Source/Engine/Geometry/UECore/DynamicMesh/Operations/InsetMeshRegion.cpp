@@ -151,8 +151,7 @@ namespace Desert::Geometry
             for ( int32_t StripIndex = 0; StripIndex < static_cast<int32_t>( QuadStrips.size() ); ++StripIndex )
             {
                 const std::vector<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
-                float                AccumUVTranslation = 0;
-                glm::dvec3                  FirstAxisX{};
+                float                       AccumUVTranslation = 0;
                 glm::dvec3                  FrameUp{};
                 for ( int32_t k = 0; k < static_cast<int32_t>( QuadStrips[StripIndex].size() ); k++ )
                 {

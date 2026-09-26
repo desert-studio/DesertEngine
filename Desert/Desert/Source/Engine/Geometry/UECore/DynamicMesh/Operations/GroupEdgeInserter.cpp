@@ -614,9 +614,9 @@ namespace Desert::Geometry
 
             if ( ChangedTrisOut != nullptr )
             {
-                for ( int32_t i = 0; i < static_cast<int32_t>( CutPath.size() ); ++i )
+                for ( auto& i : CutPath )
                 {
-                    const MeshSurfacePoint& Point = CutPath[i].first;
+                    const MeshSurfacePoint& Point = i.first;
                     if ( Point.PointType == SurfacePointType::Edge )
                     {
                         const Index2i EdgeTris = Mesh.GetEdgeT( Point.ElementID );

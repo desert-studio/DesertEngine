@@ -245,8 +245,8 @@ namespace Desert::Geometry
         DynamicMesh3( DynamicMesh3&& MoveMesh );
 
         /** Copy and move assignment */
-        const DynamicMesh3& operator=( const DynamicMesh3& CopyMesh );
-        const DynamicMesh3& operator=( DynamicMesh3&& MoveMesh );
+        DynamicMesh3& operator=( const DynamicMesh3& CopyMesh );
+        DynamicMesh3& operator=( DynamicMesh3&& MoveMesh );
 
         /** Destructor */
         virtual ~DynamicMesh3();
