@@ -134,24 +134,23 @@ namespace Desert::Runtime
         if ( asset->IsReadyForUse() )
             return BOOLSUCCESS;
 
-        // A read Get() already started is FINISHED here rather than repeated: FlushOne drains that one
-        // request on this thread, and SyncLoadLedger counts it as the synchronous load it is.
-        if ( const auto live = m_Requests.find( asset->GetMetadata().Handle ); live != m_Requests.end() )
-        {
-            Assets::AsyncAssetLoader::Get().FlushOne( asset->GetMetadata().Handle );
-            if ( asset->IsReadyForUse() )
-                return BOOLSUCCESS;
-        }
+        // ONE LOADING PATH (AL1-4, plan §2.4(c)). The walks that need the data NOW (CreateRuntimeInstance,
+        // ResolveOverrides, ShaderNameOf, the editor) go through the same request Get() starts, finished on
+        // this thread by FlushOne: no second read of a file a worker is already reading, the shader resolved
+        // by the one completion, and SyncLoadLedger counting it as the synchronous load it is.
+        const auto handle = asset->GetMetadata().Handle;
+        if ( !RequestIfUnread( asset ) )
+            Assets::AsyncAssetLoader::Get().FlushOne( handle );
 
-        if ( const auto loaded = asset->Load(); !loaded )
+        if ( !asset->IsReadyForUse() )
         {
-            // Loudly, and then the caller decides. A material that cannot be re-read is a surface that
-            // will draw with the shader's own defaults, and the ONLY place that knows which file it was is
-            // here — see the header for the round trip that found this.
-            LOG_ERROR( "[MaterialService] '{}' was released and could not be read back: {}. Anything drawn "
-                       "with it falls back to the shader's default parameters.",
-                       asset->GetMetadata().Filepath.string(), loaded.GetError() );
-            return loaded;
+            // Loudly, and then the caller decides. A material that cannot be read is a surface that will
+            // draw with the shader's own defaults, and the ONLY place that knows which file it was is here.
+            LOG_ERROR( "[MaterialService] '{}' could not be read. Anything drawn with it falls back to the "
+                       "shader's default parameters.",
+                       asset->GetMetadata().Filepath.string() );
+            return Common::MakeFormattedError<bool>( "material '{}' could not be read",
+                                                     asset->GetMetadata().Filepath.string() );
         }
 
         return BOOLSUCCESS;

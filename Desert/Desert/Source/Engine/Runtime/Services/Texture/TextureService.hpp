@@ -5,6 +5,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Graphic/Texture.hpp>
+#include <Engine/Runtime/Services/Texture/TextureWaiters.hpp>
 
 #include <memory>
 #include <unordered_map>
@@ -58,8 +59,6 @@ namespace Desert::Runtime
             Assets::LoadRequest                   Request;
             /// Latched so a corrupt file is not re-read every frame.
             bool Failed = false;
-            /// Materials that drew a slot default while this texture was Pending.
-            std::vector<Assets::AssetHandle> Waiters;
         };
 
         Entry* FindOrDiscover( const Assets::AssetHandle& handle ) const;
@@ -71,5 +70,7 @@ namespace Desert::Runtime
         mutable std::unordered_map<Assets::AssetHandle, Entry> m_Entries;
         mutable std::unordered_set<Assets::AssetHandle>        m_ReportedMissing;
         std::weak_ptr<Assets::AssetManager>                    m_Assets;
+        /// Materials that drew a slot default while a texture was Pending.
+        mutable TextureWaiters m_Waiters;
     };
 } // namespace Desert::Runtime

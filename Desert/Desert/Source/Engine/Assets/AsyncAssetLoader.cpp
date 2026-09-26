@@ -9,6 +9,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Desert::Assets
@@ -56,15 +57,13 @@ namespace Desert::Assets
         /// also the honest answer: they asked for the same file and the same read served them.
         std::unordered_map<AssetHandle, std::vector<uint64_t>> Waiting;
 
-        /// WHO IS READING A WAITING HANDLE: a worker, or `FlushOne` on the caller's thread. Claimed under
-        /// `Lock` before `Load()` starts, so exactly one of the two reads the file and settles `Waiting`;
-        /// the other either skips (a worker that lost to a flush) or waits (a flush that lost to a worker).
-        enum class Reader : uint8_t
-        {
-            Worker,
-            Flush
-        };
-        std::unordered_map<AssetHandle, Reader> Readers;
+        /// THE JOB THAT OWNS THE READ of a waiting handle, by the id of the request that submitted it.
+        /// `FlushOne` takes the read by erasing the ticket; a job whose ticket is gone (or belongs to a
+        /// later read of the same handle) skips without reading or settling. Without it a job queued behind
+        /// a flush read the file a second time after the flush had settled it.
+        std::unordered_map<AssetHandle, uint64_t> Tickets;
+        /// Handles a worker is inside `Load()` for; a flush of one of these waits instead of reading.
+        std::unordered_set<AssetHandle> WorkerReading;
 
         uint64_t              NextId = 1;
         std::atomic<uint64_t> Started{ 0 };
@@ -216,6 +215,7 @@ namespace Desert::Assets
             else
             {
                 state.Waiting[record->Handle] = { record->Id };
+                state.Tickets[record->Handle] = record->Id;
                 submit                        = true;
             }
         }
@@ -224,12 +224,13 @@ namespace Desert::Assets
         {
             state.Started.fetch_add( 1, std::memory_order_relaxed );
             const AssetHandle handle = record->Handle;
+            const uint64_t    ticket = record->Id;
             // THE STATE IS CAPTURED BY POINTER, and its lifetime is the process's: the loader is a
             // function-local static, so the only way a worker could outlive it is a job still running at
             // exit -- which `ShutdownAndDrain` is there to make impossible.
             State* inner = m_State.get();
             Common::JobSystem::Get().Submit(
-                 [record, handle, inner]
+                 [record, handle, ticket, inner]
                  {
                      inner->InFlight.fetch_add( 1, std::memory_order_relaxed );
 
@@ -243,14 +244,14 @@ namespace Desert::Assets
                          // This is the half of `Cancel()` that actually saves work, and it is why a scene
                          // that was closed while loading does not sit through its own content.
                          skip = record->CancelRequested;
-                         if ( const auto reader = inner->Readers.find( handle );
-                              reader != inner->Readers.end() && reader->second == State::Reader::Flush )
+                         if ( const auto owner = inner->Tickets.find( handle );
+                              owner == inner->Tickets.end() || owner->second != ticket )
                          {
-                             // FlushOne took this read onto the caller's thread and settles it there.
+                             // FlushOne took this read onto the caller's thread and settled it there.
                              inner->InFlight.fetch_sub( 1, std::memory_order_relaxed );
                              return;
                          }
-                         inner->Readers[handle] = State::Reader::Worker;
+                         inner->WorkerReading.insert( handle );
                      }
 
                      if ( !skip )
@@ -270,7 +271,8 @@ namespace Desert::Assets
 
                      {
                          const std::lock_guard<std::mutex> guard( inner->Lock );
-                         inner->Readers.erase( handle );
+                         inner->WorkerReading.erase( handle );
+                         inner->Tickets.erase( handle );
                          SettleWaitingLocked( *inner, handle, outcome, error );
                      }
 
@@ -334,7 +336,7 @@ namespace Desert::Assets
             const std::lock_guard<std::mutex> guard( state.Lock );
             if ( const auto waiting = state.Waiting.find( handle ); waiting != state.Waiting.end() )
             {
-                if ( state.Readers.find( handle ) != state.Readers.end() )
+                if ( state.WorkerReading.count( handle ) != 0 )
                     mustWait = true; // a worker is inside Load() already; the file is not read twice
                 else
                 {
@@ -345,7 +347,7 @@ namespace Desert::Assets
                             break;
                         }
                     if ( reader )
-                        state.Readers[handle] = State::Reader::Flush;
+                        state.Tickets.erase( handle ); // the queued job now skips
                 }
             }
         }
@@ -362,7 +364,6 @@ namespace Desert::Assets
                 error   = loaded.GetError();
             }
             const std::lock_guard<std::mutex> guard( state.Lock );
-            state.Readers.erase( handle );
             SettleWaitingLocked( state, handle, outcome, error );
         }
         else if ( mustWait )
@@ -462,7 +463,8 @@ namespace Desert::Assets
             state.Done.clear();
             state.Cancelled.clear();
             state.Waiting.clear();
-            state.Readers.clear();
+            state.Tickets.clear();
+            state.WorkerReading.clear();
         }
 
         // SPIN RATHER THAN CONDITION-VARIABLE, and it is a deliberate trade for a path that runs twice in

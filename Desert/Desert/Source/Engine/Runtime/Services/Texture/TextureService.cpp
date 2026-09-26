@@ -104,10 +104,8 @@ namespace Desert::Runtime
                  else
                      Build( handle, it->second );
 
-                 // Re-found: Build does not insert, but the waiters are moved out before anything that could.
-                 const auto waiters = std::move( m_Entries[handle].Waiters );
-                 for ( const auto& material : waiters )
-                     ResourceRegistry::GetMaterialService()->Invalidate( material );
+                 m_Waiters.Settle( handle, []( const Assets::AssetHandle& material )
+                                   { ResourceRegistry::GetMaterialService()->Invalidate( material ); } );
              },
              [this, handle]
              {
@@ -151,7 +149,7 @@ namespace Desert::Runtime
                                            const Assets::AssetHandle& material ) const
     {
         if ( const auto it = m_Entries.find( texture ); it != m_Entries.end() && it->second.Request.IsValid() )
-            it->second.Waiters.push_back( material );
+            m_Waiters.Add( texture, material );
     }
 
     std::string TextureService::GetSourcePath( const Assets::AssetHandle& handle ) const
@@ -172,5 +170,6 @@ namespace Desert::Runtime
     {
         m_Entries.clear();
         m_ReportedMissing.clear();
+        m_Waiters.Clear();
     }
 } // namespace Desert::Runtime
