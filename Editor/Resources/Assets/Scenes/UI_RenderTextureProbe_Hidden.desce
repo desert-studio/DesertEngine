@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "23e83d23f9f87b1a6d231428dcf92b9d",
         "Versions": {
-            "SCNE": 30,
+            "SCNE": 31,
             "UNIT": 1
         },
         "Dependencies": []
@@ -197,7 +197,10 @@
                 "FitHeight": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/UI_RenderTextureWorld.desce",
+                "Scene": {
+                    "Guid": "2025ba58183936d3ece25958990b0cca",
+                    "Path": "assets:Scenes/UI_RenderTextureWorld.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -278,7 +281,10 @@
                 "FitHeight": false
             },
             "UIRenderTexture": {
-                "ScenePath": "Resources/Assets/Scenes/NoSuchSceneAtAll.desce",
+                "Scene": {
+                    "Guid": "badbadbadbadbadbadbadbadbadbad00",
+                    "Path": "assets:Scenes/NoSuchSceneAtAll.desce"
+                },
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0
@@ -359,7 +365,6 @@
                 "FitHeight": false
             },
             "UIRenderTexture": {
-                "ScenePath": "",
                 "Tint": [1.0, 1.0, 1.0],
                 "Opacity": 1.0,
                 "ResolutionScale": 1.0

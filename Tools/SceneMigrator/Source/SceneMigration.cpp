@@ -26,6 +26,7 @@
 
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Content/MeshBinaryHeader.hpp>
@@ -4024,6 +4025,24 @@ namespace Desert::Migration
                 }
             }
 
+            // Rewrites Material.ShaderName and UIRenderTexture.ScenePath; no step above writes either.
+            if ( statedSceneVersion < kSceneVersionShaderGuids )
+            {
+                report.ShaderSceneGuidsRaised = true;
+                report.ShaderSceneGuids       = MigrateShaderSceneGuidsV30ToV31( entities, assetsRoot );
+                if ( !report.ShaderSceneGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.ShaderSceneGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.ShaderSceneGuids.UnknownNames.size() ) +
+                                     " shader/scene reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
             if ( statedSceneVersion < kSceneVersion )
             {
                 report.RetiredKeysRaised = true;
@@ -4042,6 +4061,189 @@ namespace Desert::Migration
                    std::to_string( kSceneVersion ) + "/v" + std::to_string( kUnitVersion ) + ". " + why;
         }
     } // namespace
+
+    namespace
+    {
+        // The `.shader` whose file stem is `name` under <assetsRoot>/../Shaders, as MATL 4 states it: its header
+        // GUID and its "engine:Shaders/<relative>" key. Exactly one file, stating a GUID; anything else refuses.
+        Common::ResultStr<Assets::AssetGuidRef> ShaderRefForName( const std::string&           name,
+                                                                  const std::filesystem::path& assetsRoot )
+        {
+            const std::filesystem::path        shaders = assetsRoot.parent_path() / "Shaders";
+            std::vector<std::filesystem::path> hits;
+            std::error_code                    ec;
+            for ( std::filesystem::recursive_directory_iterator it( shaders, ec ), end; !ec && it != end;
+                  it.increment( ec ) )
+                if ( it->is_regular_file() && it->path().extension() == ".shader" && it->path().stem() == name )
+                    hits.push_back( it->path() );
+            if ( ec )
+                return Common::MakeError<Assets::AssetGuidRef>( "cannot list '" + shaders.generic_string() +
+                                                                "': " + ec.message() );
+            if ( hits.size() != 1 )
+                return Common::MakeError<Assets::AssetGuidRef>( "is carried by " + std::to_string( hits.size() ) +
+                                                                " .shader file(s) under '" +
+                                                                shaders.generic_string() + "', not exactly one" );
+            // A plain read: this tool runs without the engine's file-system layer (and its platform frameworks).
+            std::ifstream in( hits.front(), std::ios::binary );
+            if ( !in )
+                return Common::MakeError<Assets::AssetGuidRef>( "names '" + hits.front().generic_string() +
+                                                                "', which cannot be opened" );
+            const std::string source( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
+            const auto        header = Common::Content::ReadShaderHeader( source );
+            if ( !header )
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     "names '" + hits.front().generic_string() +
+                     "', whose header does not parse: " + header.GetError() );
+            const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<Assets::AssetGuidRef>( "names '" + hits.front().generic_string() +
+                                                                "', which states no header GUID" );
+            return Common::MakeSuccess( Assets::AssetGuidRef{
+                 Common::Content::AssetGuidToText( guid.GetValue() ),
+                 "engine:Shaders/" + hits.front().lexically_relative( shaders ).generic_string() } );
+        }
+
+        void RaiseShaderGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                               const std::filesystem::path& assetsRoot, TextureGuidsMigrationReport& report )
+        {
+            const auto payload = components.get( "Material" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() || !fields.value().get( "ShaderName" ).has_value() )
+                return; // no material, or raised by an earlier run
+            const std::string    where = tag + " > Material.ShaderName";
+            rfl::Generic::Object raised;
+            for ( const auto& [key, value] : fields.value() )
+            {
+                if ( key != "ShaderName" )
+                {
+                    raised[key] = value;
+                    continue;
+                }
+                const auto name = value.to_string();
+                if ( !name.has_value() )
+                {
+                    report.UnknownNames.push_back( where + " is " + Describe( value ) + ", not a shader name" );
+                    return;
+                }
+                if ( name.value().empty() )
+                    continue; // no shader, which SCNE 31 states by absence
+                const auto ref = ShaderRefForName( name.value(), assetsRoot );
+                if ( !ref )
+                {
+                    report.UnknownNames.push_back( where + " = '" + name.value() + "' " + ref.GetError() );
+                    return;
+                }
+                rfl::Generic::Object shader;
+                shader["Guid"]   = ref.GetValue().Guid;
+                shader["Path"]   = ref.GetValue().Path;
+                raised["Shader"] = rfl::Generic( std::move( shader ) );
+                ++report.Rewritten;
+            }
+            components["Material"] = rfl::Generic( std::move( raised ) );
+        }
+
+        // The `.desce` a v30 UIRenderTexture.ScenePath names, as the reference SCNE 31 states: its header GUID
+        // and its "assets:<relative>" key. The path is working-directory relative as the editor opens it
+        // ("Resources/Assets/Scenes/X.desce"), so it is re-rooted at <assetsRoot>: the one prefix the corpus
+        // spells. A path outside that prefix, a missing file, another kind or no GUID refuses.
+        Common::ResultStr<Assets::AssetGuidRef> SceneRefForPath( const std::string&           scenePath,
+                                                                 const std::filesystem::path& assetsRoot )
+        {
+            constexpr std::string_view kPrefix = "Resources/Assets/";
+            if ( scenePath.rfind( kPrefix, 0 ) != 0 )
+                return Common::MakeError<Assets::AssetGuidRef>( "is not under '" + std::string( kPrefix ) +
+                                                                "', the root scenes are opened from" );
+            const std::string           relative = scenePath.substr( kPrefix.size() );
+            const std::filesystem::path file     = assetsRoot / relative;
+            std::ifstream               in( file, std::ios::binary );
+            if ( !in )
+                return Common::MakeError<Assets::AssetGuidRef>( "names no file ('" + file.generic_string() +
+                                                                "' cannot be opened)" );
+            const auto object = Common::Content::ReadTextHeaderObject( in );
+            if ( !object )
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     "names '" + file.generic_string() + "', whose header does not read: " + object.GetError() );
+            const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
+            if ( !header )
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     "names '" + file.generic_string() + "', whose header does not parse: " + header.GetError() );
+            if ( header.GetValue().Kind != "Scene" )
+                return Common::MakeError<Assets::AssetGuidRef>( "names '" + file.generic_string() +
+                                                                "', which is a " + header.GetValue().Kind +
+                                                                ", not a Scene" );
+            const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<Assets::AssetGuidRef>( "names '" + file.generic_string() +
+                                                                "', which states no header GUID" );
+            return Common::MakeSuccess( Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ),
+                                                              "assets:" + relative } );
+        }
+
+        void RaiseSceneGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                              const std::filesystem::path& assetsRoot, TextureGuidsMigrationReport& report )
+        {
+            const auto payload = components.get( "UIRenderTexture" );
+            if ( !payload.has_value() )
+                return;
+            const auto fields = payload.value().to_object();
+            if ( !fields.has_value() || !fields.value().get( "ScenePath" ).has_value() )
+                return; // no render texture, or raised by an earlier run
+            const std::string    where = tag + " > UIRenderTexture.ScenePath";
+            rfl::Generic::Object raised;
+            for ( const auto& [key, value] : fields.value() )
+            {
+                if ( key != "ScenePath" )
+                {
+                    raised[key] = value;
+                    continue;
+                }
+                const auto path = value.to_string();
+                if ( !path.has_value() )
+                {
+                    report.UnknownNames.push_back( where + " is " + Describe( value ) + ", not a scene path" );
+                    return;
+                }
+                if ( path.value().empty() )
+                    continue; // no scene, which SCNE 31 states by absence
+                const auto ref = SceneRefForPath( path.value(), assetsRoot );
+                if ( !ref )
+                {
+                    report.UnknownNames.push_back( where + " = '" + path.value() + "' " + ref.GetError() );
+                    return;
+                }
+                rfl::Generic::Object scene;
+                scene["Guid"]   = ref.GetValue().Guid;
+                scene["Path"]   = ref.GetValue().Path;
+                raised["Scene"] = rfl::Generic( std::move( scene ) );
+                ++report.Rewritten;
+            }
+            components["UIRenderTexture"] = rfl::Generic( std::move( raised ) );
+        }
+    } // namespace
+
+    TextureGuidsMigrationReport MigrateShaderSceneGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
+                                                                 const std::filesystem::path&     assetsRoot )
+    {
+        TextureGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaiseShaderGuids( entity.Components, tag, assetsRoot, report );
+            RaiseSceneGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+            {
+                const std::string where = tag + " > PrefabOverrides[" + std::to_string( i ) + "]";
+                RaiseShaderGuids( overrides[i].Components, where, assetsRoot, report );
+                RaiseSceneGuids( overrides[i].Components, where, assetsRoot, report );
+            }
+        }
+        return report;
+    }
 
     SiblingOrderMigrationReport MigrateSiblingOrderV24ToV25( std::vector<Assets::EntityData>& entities )
     {
