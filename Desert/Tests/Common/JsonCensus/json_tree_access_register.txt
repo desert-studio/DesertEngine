@@ -8,9 +8,6 @@ Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp | JS1c-S6: cell payloa
 Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c-S6: BlockOf returns a Node, Read* become Node getters
 Desert/Tests/Engine/CloudProtocolScene/cloud_protocol_scene_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/CornellSymmetry/cornell_symmetry_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/LocalizedContentCensus/localized_content_census_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/MaterialRequestAgreement/material_request_agreement_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
-Desert/Tests/Engine/SceneDebugFields/scene_debug_fields_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/SceneForeignKeys/scene_foreign_keys_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/SceneStitch/scene_stitch_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node
 Desert/Tests/Engine/UIComponentRoundTrip/ui_component_round_trip_test.cpp | JS1d: test reads its fixture tree; follows its format onto Node

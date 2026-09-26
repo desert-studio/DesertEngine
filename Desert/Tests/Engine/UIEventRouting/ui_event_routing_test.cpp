@@ -554,7 +554,7 @@ TEST( UIEventPersistence, PhaseAndStopPropagationSurviveTheRoundTrip )
     authored.Phase           = ECS::UIEventPhase::Tunnel;
     authored.StopPropagation = true;
 
-    const rfl::Generic::Object written = SerializeReflected( *type, &authored, nullptr );
+    const Common::Json::Object written = SerializeReflected( *type, &authored, nullptr );
 
     ECS::UIPointerEventsData reloaded;
     ReadReflectedValue( *type, &reloaded, written, nullptr );
@@ -574,8 +574,8 @@ TEST( UIEventPersistence, AListenerSavedBeforeTheseFieldsExistedComesBackWithThe
     const TypeInfo* type = ReflectionRegistry::Get().Find( "UIPointerEventsData" );
     ASSERT_NE( type, nullptr );
 
-    rfl::Generic::Object old; // exactly what a pre-change scene file holds for this component
-    old["OnDownMessage"] = rfl::Generic( std::string( "open:settings" ) );
+    Common::Json::Object old; // exactly what a pre-change scene file holds for this component
+    old["OnDownMessage"] = Common::Json::Value( std::string( "open:settings" ) );
 
     // Default-constructed, because that is what the load path hands the deserializer: ComponentRegistry's
     // MakeReflected deserializes into `AddComponent<T>()` on an entity that does not have one yet.
@@ -599,8 +599,8 @@ TEST( UIEventPersistence, AnAbsentKeyLeavesTheTargetUntouchedRatherThanResetting
     const TypeInfo* type = ReflectionRegistry::Get().Find( "UIPointerEventsData" );
     ASSERT_NE( type, nullptr );
 
-    rfl::Generic::Object old;
-    old["OnDownMessage"] = rfl::Generic( std::string( "open:settings" ) );
+    Common::Json::Object old;
+    old["OnDownMessage"] = Common::Json::Value( std::string( "open:settings" ) );
 
     ECS::UIPointerEventsData live;
     live.Phase           = ECS::UIEventPhase::Tunnel;
