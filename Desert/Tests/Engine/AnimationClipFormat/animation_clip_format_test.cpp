@@ -9,6 +9,7 @@
 // playback ever read (Animator::ResolveTrack binds by NAME), so the field is gone from the format. The two
 // census tests below pin that: a field cannot come back without a line here saying so.
 
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -52,6 +53,33 @@ namespace
         ch.BoneName = bone;
         ch.Positions.push_back( { 0, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
         return ch;
+    }
+    // THE MIGRATION STOPS AT GENERATION 3, whose version is a top-level `Version`; the header raise
+    // (Tools/SceneMigrator) cuts that member and states the version in the header instead. The struct is the
+    // current generation and reads strictly, so the member is taken off here the way the raise takes it off
+    // -- after checking it says 3 -- rather than read leniently past it.
+    Common::ResultStr<Ser::AnimationAssetData> ReadGenerationThree( const std::string& text )
+    {
+        const auto parsed = Common::Json::Parse( text );
+        if ( !parsed )
+            return Common::MakeError<Ser::AnimationAssetData>( parsed.GetError() );
+        const Common::Json::Node root    = Common::Json::Root( parsed.GetValue() );
+        const auto               version = root.Get( "Version" );
+        if ( !version )
+            return Common::MakeError<Ser::AnimationAssetData>( version.GetError() );
+        const auto stated = version.GetValue().AsInteger();
+        if ( !stated || stated.GetValue() != Ser::kAnimationLastVersionMember )
+            return Common::MakeError<Ser::AnimationAssetData>( "the migration did not stop at generation 3" );
+
+        Common::Json::ObjectBuilder body;
+        root.ForEachMember(
+             [&]( std::string_view name, const Common::Json::Node& member )
+             {
+                 if ( name != "Version" )
+                     body.Set( name, member.Raw() );
+             } );
+        const Common::Json::Value raised( body.Build() );
+        return Common::Json::Root( raised ).As<Ser::AnimationAssetData>();
     }
 } // namespace
 
@@ -240,8 +268,8 @@ TEST( AnimationClipFormat, TheMigrationMovesSecondsOntoTicksAndDerivesTheDisplay
     EXPECT_EQ( report.DisplayRateNumerator, 8 );
     EXPECT_FALSE( report.DisplayRateIsAFallback );
 
-    const auto read = Common::Json::Read<Ser::AnimationAssetData>( migrated.GetValue() );
-    ASSERT_TRUE( read.IsSuccess() );
+    const auto read = ReadGenerationThree( migrated.GetValue() );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
     const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( read.GetValue() );
     ASSERT_TRUE( built ) << built.GetError();
 
@@ -293,7 +321,9 @@ TEST( AnimationClipFormat, ANewlyWrittenClipCarriesNoBoneIndex )
     EXPECT_EQ( json.find( "BoneIndex" ), std::string::npos ) << json;
 }
 
-TEST( AnimationClipFormat, ASkeletonCookedWithTheOldBoneIndexStillLoads )
+// The field is gone from the format and the reader is strict, so a skeleton that still states it is refused
+// NAMING the key -- it does not load with the key silently dropped. No committed .skeleton carries it.
+TEST( AnimationClipFormat, ASkeletonStillStatingTheOldBoneIndexIsRefusedByName )
 {
     const std::string legacy =
          R"({"Signature":4699069763035776985,"Bones":[{"BoneIndex":0,"Name":"Root",)"
@@ -301,9 +331,8 @@ TEST( AnimationClipFormat, ASkeletonCookedWithTheOldBoneIndexStillLoads )
          R"("LocalBindTransform":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}]})";
 
     const auto read = Common::Json::Read<Ser::SkeletonAssetData>( legacy );
-    ASSERT_TRUE( read.IsSuccess() );
-    ASSERT_EQ( read.GetValue().Bones.size(), 1u );
-    EXPECT_EQ( read.GetValue().Bones[0].Name, "Root" );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "Bones.BoneIndex" ), std::string::npos ) << read.GetError();
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -589,8 +618,8 @@ TEST( AnimationClipFormat, TheMigrationToGenerationThreeKeepsEveryAuthoredKeySHA
          << "this step ADDS no shapes — a non-zero count here means it overwrote authored ones";
     EXPECT_EQ( report.SectionsWritten, 1 ) << "…and it is not a relabelling: the file gained a section";
 
-    const auto reread = Common::Json::Read<Ser::AnimationAssetData>( migrated.GetValue() );
-    ASSERT_TRUE( reread.IsSuccess() );
+    const auto reread = ReadGenerationThree( migrated.GetValue() );
+    ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
     const auto& out = reread.GetValue();
     ASSERT_EQ( out.Channels.size(), 1U );
     ASSERT_EQ( out.Channels[0].Positions.size(), 1U );
@@ -609,8 +638,8 @@ TEST( AnimationClipFormat, AMigratedClipSTATESOneWholeClipAbsoluteSectionAtFullW
     const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( GenerationTwoJson(), report );
     ASSERT_TRUE( migrated ) << migrated.GetError();
 
-    const auto reread = Common::Json::Read<Ser::AnimationAssetData>( migrated.GetValue() );
-    ASSERT_TRUE( reread.IsSuccess() );
+    const auto reread = ReadGenerationThree( migrated.GetValue() );
+    ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
     const auto& out = reread.GetValue();
 
     EXPECT_NE( migrated.GetValue().find( R"("Version":3)" ), std::string::npos )

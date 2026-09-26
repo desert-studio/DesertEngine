@@ -171,7 +171,7 @@ namespace
             return scene;
 
         Common::Json::Issues issues;
-        for ( const EntityData& record : parsed->Entities )
+        for ( const EntityData& record : parsed.GetValue().Entities )
         {
             if ( const auto block = record.Components.get( "Landscape" ); block.has_value() )
                 ReadComponent( Common::Json::Root( block.value() ), scene.Root, issues );

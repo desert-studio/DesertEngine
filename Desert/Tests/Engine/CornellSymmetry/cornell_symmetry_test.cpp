@@ -77,7 +77,7 @@
 // future reader does not re-derive it, and asserts only that the POINT light is the symmetric one, which
 // is what makes the claim above well-formed.
 
-#include <Common/Json/Json.hpp>
+#include <Common/Json/Document.hpp>
 #include <gtest/gtest.h>
 
 #include "CornellSymmetryReference.hpp"
@@ -130,7 +130,7 @@ namespace
 
     Common::Json::Object ParseObject( const std::string& json, const std::string& what )
     {
-        const auto parsed = Common::Json::Read<Common::Json::Value>( json );
+        const auto parsed = Common::Json::Parse( json );
         EXPECT_TRUE( parsed.IsSuccess() ) << what;
         if ( !parsed.IsSuccess() )
             return {};

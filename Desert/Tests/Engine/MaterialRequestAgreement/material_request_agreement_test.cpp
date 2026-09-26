@@ -29,7 +29,7 @@
 // generated-from relation and not the "two copies that must not drift" shape — which is why the failure
 // message tells you to fix the FILE.
 
-#include <Common/Json/Json.hpp>
+#include <Common/Json/Document.hpp>
 #include <gtest/gtest.h>
 
 #include <Editor/Core/DemoMaterials.hpp>
@@ -68,11 +68,11 @@ namespace
     }
 
     // The .demat as data. Read generically rather than through MaterialData's own rfl schema so the
-    // suite links nothing — the question is about two lists of named vec4s and needs no engine.
+    // suite links only Common — the question is about two lists of named vec4s and needs no engine.
     MaterialData LoadMaterialFile( const std::string& path )
     {
         MaterialData data;
-        const auto   parsed = Common::Json::Read<Common::Json::Value>( ReadAll( path ) );
+        const auto   parsed = Common::Json::Parse( ReadAll( path ) );
         EXPECT_TRUE( parsed.IsSuccess() ) << path;
         if ( !parsed.IsSuccess() )
             return data;
