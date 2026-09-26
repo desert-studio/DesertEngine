@@ -1,7 +1,7 @@
 #include "UIRenderTextureCache.hpp"
 
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Core/RendererSlotBudget.hpp>
+#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
@@ -81,26 +81,20 @@ namespace Desert::Graphic::Render2D
             return nullptr;
         }
 
-        // ASKED BEFORE ANYTHING IS BUILT, through the SHARED rule and not a comparison written out here:
-        // the Details preview and the thumbnail service ask the same question with different
-        // entitlements, and two spellings of one policy is how they come to disagree
-        // (Engine/Core/RendererSlotBudget.hpp).
-        //
-        // UserSurface, and that is the entitlement: an author put this element on a canvas and a player is
-        // looking at the rect it occupies. It is allowed the last slot for the same reason the Details
-        // preview is — refusing it would be refusing the thing that was asked for.
-        const uint32_t live = SceneRenderer::GetLiveRendererCount();
-        if ( !Engine::RendererSlotBudget::MayClaim( Engine::RendererSlotBudget::Demand::UserSurface, live,
-                                                    EngineContext::kMaxRendererSlots ) )
+        // ASKED BEFORE ANYTHING IS BUILT, through the shared byte rule (Engine/Core/ViewBudget.hpp) and not a
+        // comparison written out here: the Details preview and the thumbnail service ask the same question
+        // with different entitlements. UserSurface: an author put this element on a canvas and a player is
+        // looking at its rect, so it may take the last byte, as the Details preview may.
+        if ( const auto may =
+                  MayCreateView( Engine::ViewBudget::Demand::UserSurface, "UI render texture " + demand.ScenePath,
+                                 kPreviewViewProfile, ViewExtent{ demand.Width, demand.Height } );
+             !may )
         {
-            if ( ShouldSay( m_Refused, element, "slots" ) )
+            if ( ShouldSay( m_Refused, element, "budget" ) )
             {
-                LOG_WARN( "[UI] render-texture element {} (scene '{}') refused: all {} of {} renderer slots "
-                          "are in use, and a slot comes back only when the surface holding it is destroyed. "
-                          "It draws the magenta error fill. Hide or remove another render-texture element, "
-                          "or close a scene view, and it will build on the next frame.",
-                          static_cast<uint32_t>( element ), demand.ScenePath, live,
-                          EngineContext::kMaxRendererSlots );
+                LOG_WARN( "[UI] render-texture element {} draws the magenta error fill: {}. Hide or remove "
+                          "another render-texture element, or close a view, and it builds on the next frame.",
+                          static_cast<uint32_t>( element ), may.GetError() );
             }
             return nullptr;
         }

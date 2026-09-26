@@ -13,6 +13,7 @@
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
+#include <Engine/Core/ViewBudget.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
@@ -310,6 +311,14 @@ namespace Desert::Graphic
         // How many SceneRenderers are alive right now. Every one of them pays for its own baked sky
         // environment, which is why the bake announces its cost with this number beside it.
         static uint32_t GetLiveRendererCount();
+
+        // Device memory this view holds: its targets' forecast at its current extent (ViewTargetCensus,
+        // the same table the view's build is checked against). What the view-budget rule counts as
+        // "open views hold" (Engine/Core/ViewBudget.hpp).
+        [[nodiscard]] uint64_t HeldBytes() const;
+
+        // Every live view and what it holds, for the budget's refusal text and its usage stand-in.
+        [[nodiscard]] static std::vector<Engine::ViewBudget::HeldView> LiveHoldings();
 
         const auto& GetMainCamera() const
         {

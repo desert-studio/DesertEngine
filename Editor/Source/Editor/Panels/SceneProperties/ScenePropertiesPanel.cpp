@@ -13,7 +13,7 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Widgets/Controls/Controls.hpp>
 #include <ImGui/imgui.h>
-#include <Engine/Core/RendererSlotBudget.hpp>
+#include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -155,40 +155,31 @@ namespace Desert::Editor
         if ( m_Preview )
             return true;
 
-        // NOT WHEN THERE IS NO SLOT LEFT TO GIVE IT.
+        // NOT WHEN THE DEVICE CANNOT HOLD IT. A live preview owns a full SceneRenderer, and this panel is the
+        // easiest way in the editor to build one: it appears the moment anything with a mesh is CLICKED.
         //
-        // A live preview owns a full SceneRenderer, and a SceneRenderer that finds every one of the six
-        // slots taken does NOT fail — it records into slot 0 and shares the main viewport's per-frame state
-        // (Engine/Core/RendererSlotPool.hpp). That reads as "the preview moves when I move the scene
-        // camera", it has no error message, and it is worth days to find. This panel is the easiest way in
-        // the editor to reach that state: opening a sixth surface costs a deliberate click, but the
-        // Details preview appears the moment anything with a mesh is CLICKED.
+        // Through the shared byte rule (Engine/Core/ViewBudget.hpp), not a comparison written out here:
+        // ThumbnailService asks the same question as Background work. This one is a UserSurface — somebody
+        // clicked an entity and is looking at the row — so it may take the last byte.
         //
-        // Through the SHARED rule, not a comparison written out here: ThumbnailService asks the same
-        // question with a different entitlement, and two spellings of one policy is how they come to
-        // disagree (Engine/Core/RendererSlotBudget.hpp). This one is a UserSurface — somebody clicked an
-        // entity and is looking at the row — so it is allowed the last slot; the background captures are
-        // not, which is what keeps a picture in the cache for the moment this refusal fires.
-        //
-        // Declining is checked every frame, not once: a scene view or a material window closing hands its
-        // slot back, and the next frame builds the preview after all.
-        if ( !Engine::RendererSlotBudget::MayClaim( Engine::RendererSlotBudget::Demand::UserSurface,
-                                                    Graphic::SceneRenderer::GetLiveRendererCount(),
-                                                    EngineContext::kMaxRendererSlots ) )
+        // Checked every frame, not once: a view closing frees its memory, and the next frame builds the
+        // preview after all.
+        if ( const auto may = Graphic::MayCreateView(
+                  Engine::ViewBudget::Demand::UserSurface, "Details preview", Graphic::kPreviewViewProfile,
+                  Graphic::ViewExtent{ kPreviewRenderSize, kPreviewRenderSize } );
+             !may )
         {
-            // Once per stretch of scarcity, not once per frame: this is a state the user can leave by
-            // closing a window, and a line every frame would bury the log it belongs in.
-            if ( !m_PreviewSlotRefused )
+            // Once per stretch of scarcity, not once per frame: a line every frame would bury the log.
+            if ( !m_PreviewBudgetRefused )
             {
-                m_PreviewSlotRefused = true;
-                LOG_WARN( "[Details] all {} renderer slots are in use — the 3D Model row is showing its "
-                          "cached thumbnail instead of a live preview. Close a scene view or a material "
-                          "window to get the live one back.",
-                          EngineContext::kMaxRendererSlots );
+                m_PreviewBudgetRefused = true;
+                LOG_WARN( "[Details] the 3D Model row is showing its cached thumbnail instead of a live "
+                          "preview: {}. Close a scene view or a material window to get the live one back.",
+                          may.GetError() );
             }
             return false;
         }
-        m_PreviewSlotRefused = false;
+        m_PreviewBudgetRefused = false;
         m_Preview            = std::make_unique<PreviewViewport>();
         return true;
     }

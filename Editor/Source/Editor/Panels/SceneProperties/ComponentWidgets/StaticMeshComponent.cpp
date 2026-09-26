@@ -166,7 +166,7 @@ namespace Desert::Editor
         // The obvious arrangement — show the live preview, and ask for a cached picture only on the frames
         // there is no live one — asks for the fallback at exactly the moment it cannot be produced. What
         // takes the live preview away is a shortage of renderer slots, and a capture needs a renderer slot
-        // too; the service refuses to take the last one (Engine/Core/RendererSlotBudget.hpp), and
+        // too; the service refuses to take the last one (Engine/Core/ViewBudget.hpp), and
         // rightly, so the row would sit on "queued" for as long as the shortage lasted. Measured, not
         // reasoned: with the request placed after the branch, a selected mesh produced no capture at all
         // and the log showed the queue draining a material nobody had asked this row for.

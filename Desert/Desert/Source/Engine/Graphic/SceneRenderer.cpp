@@ -12,6 +12,8 @@
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/RendererSlotPool.hpp>
+
+#include <mutex>
 #include <Common/Core/Units.hpp>
 
 #include <Common/Core/Profiler.hpp>
@@ -439,7 +441,36 @@ namespace Desert::Graphic
             static Engine::RendererSlotPool pool;
             return pool;
         }
+
+        // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
+        // destroyed from panels and from the UI producer, not only from one loop.
+        std::mutex& LiveRenderersMutex()
+        {
+            static std::mutex mutex;
+            return mutex;
+        }
+        std::vector<const SceneRenderer*>& LiveRenderers()
+        {
+            static std::vector<const SceneRenderer*> live;
+            return live;
+        }
     } // namespace
+
+    uint64_t SceneRenderer::HeldBytes() const
+    {
+        return SumViewTargets( ViewTargetCensus( m_ViewProfile, m_ViewExtent.Width, m_ViewExtent.Height ) )
+             .Total();
+    }
+
+    std::vector<Engine::ViewBudget::HeldView> SceneRenderer::LiveHoldings()
+    {
+        const std::scoped_lock                    lock( LiveRenderersMutex() );
+        std::vector<Engine::ViewBudget::HeldView> held;
+        held.reserve( LiveRenderers().size() );
+        for ( const SceneRenderer* renderer : LiveRenderers() )
+            held.push_back( { renderer->m_ViewResources.GetName(), renderer->HeldBytes() } );
+        return held;
+    }
 
     uint32_t SceneRenderer::GetLiveRendererCount()
     {
@@ -451,6 +482,10 @@ namespace Desert::Graphic
            m_ViewResources( "renderer slot " + std::to_string( m_SlotLease.RecordingSlot() ) ),
            m_ViewProfile( profile ), m_ViewExtent( extent )
     {
+        {
+            const std::scoped_lock lock( LiveRenderersMutex() );
+            LiveRenderers().push_back( this );
+        }
         if ( !m_SlotLease.IsValid() )
         {
             // More live renderers than slots: the newcomer records into slot 0 and says so, because the
@@ -472,6 +507,10 @@ namespace Desert::Graphic
     SceneRenderer::~SceneRenderer()
     try
     {
+        {
+            const std::scoped_lock lock( LiveRenderersMutex() );
+            std::erase( LiveRenderers(), this );
+        }
         if ( !m_SlotLease.IsValid() )
             return;
 

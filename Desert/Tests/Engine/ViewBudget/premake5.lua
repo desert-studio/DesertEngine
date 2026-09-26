@@ -1,6 +1,6 @@
--- "A user surface may take the last renderer slot; background work may not."
+-- "Background work keeps the main view's forecast free in bytes; a user surface may take the last byte."
 --
--- RendererSlotBudget.hpp is header-only and depends on nothing at all, which is the point: reaching a
+-- ViewBudget.hpp is header-only and depends on nothing at all, which is the point: reaching a
 -- sustained six-of-six by hand needs several scene views open at once, and those live behind a menu the
 -- editor's control channel cannot click. Measured on this machine — five material documents opened in a
 -- row touch 6/6 for one frame and fall back to 3/6 within eight seconds — so a FRAME cannot prove this
@@ -22,7 +22,7 @@ project(test_name)
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
-        -- <Engine/Core/RendererSlotBudget.hpp>. The ENGINE source root and not the engine LIBRARY: the
+        -- <Engine/Core/ViewBudget.hpp>. The ENGINE source root and not the engine LIBRARY: the
         -- header includes only <cstdint>, so this suite still links `Common` alone and still needs no
         -- device. Adding `Desert` here would link a Vulkan renderer to assert six comparisons.
         "%{wks.location}/Desert/Desert/Source",

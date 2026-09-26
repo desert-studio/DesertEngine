@@ -16,7 +16,7 @@
 //      it does not draw" a load-bearing property of the slot budget rather than an optimisation — if a
 //      hidden element is still asked about, six elements on a canvas hold six slots forever and the
 //      seventh can never build. No frame can show this: the refusal it produces needs a sustained
-//      six-of-six, which is the same thing RendererSlotBudget's own suite cannot photograph either.
+//      six-of-six, which is the same thing the ViewBudget suite cannot photograph either.
 //
 //   3. THE SIZE IS THE ELEMENT'S, WITH ResolutionScale ON IT. The backend allocates a target from this
 //      number and cannot recompute it — anchors, canvas scale and layout groups are the walk's business.
@@ -345,7 +345,7 @@ TEST( UIRenderTexture, AHiddenElementIsNotAskedAboutAtAllAndThatIsHowItsSlotCome
     // other surface in the process, and the refusal would be permanent and unexplainable.
     //
     // This cannot be a frame. Reaching a sustained six-of-six needs several live renderers held open at
-    // once, which is the same state RendererSlotBudget's own suite argues no picture can hold.
+    // once, which is the same state the ViewBudget suite argues no picture can hold.
     Fixture       f;
     StubSource    source( /*answers=*/true );
     UIViewContext ctx;

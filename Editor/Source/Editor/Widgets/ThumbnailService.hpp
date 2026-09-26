@@ -69,7 +69,7 @@ namespace Desert::Editor
      * clicked for it, and what it produces is the picture a row shows precisely WHILE the person cannot
      * have a live preview. Taking the sixth slot would therefore starve the surface they are opening in
      * order to render its consolation prize. The entitlement is stated once, for both consumers of it, in
-     * Engine/Core/RendererSlotBudget.hpp; when it says no, the queue is kept and the refusal is LOGGED,
+     * Engine/Core/ViewBudget.hpp; when it says no, the queue is kept and the refusal is LOGGED,
      * because a queue that quietly stops draining reads exactly like a queue with nothing in it.
      */
     class ThumbnailService
@@ -100,7 +100,7 @@ namespace Desert::Editor
          * A SECOND QUEUE, AND IT IS NOT SYMMETRY FOR ITS OWN SAKE. The two queues differ in the only
          * thing this class rations: a capture costs one of six renderer slots and drains at roughly one
          * asset per two seconds; a paint costs a file read and a fill on a JobSystem worker, claims no
-         * slot at all, and cannot be refused by RendererSlotBudget because it never asks. Putting them in
+         * slot at all, and cannot be refused by ViewBudget because it never asks. Putting them in
          * ONE queue would make every cloud asset wait behind whatever mesh happened to be in front of it
          * — and, worse, would make a project with six windows open (where the renderer is refused) stop
          * producing cloud thumbnails for a reason that has nothing to do with them.
@@ -223,7 +223,7 @@ namespace Desert::Editor
         // Already said out loud that there was no slot to spare. Latched so the warning is one line per
         // stretch of scarcity rather than one per frame, and cleared — with its own line — the moment one
         // comes free, because "it is running again" is as much news as "it stopped".
-        bool m_SlotRefused = false;
+        bool m_BudgetRefused = false;
 
         // What this run of the queue did, reported once when it drains. A capture that succeeds used to
         // say nothing at all, so "the editor is rendering previews" and "the editor has stopped bothering"

@@ -1,7 +1,8 @@
 #include "ThumbnailService.hpp"
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
-#include <Engine/Core/RendererSlotBudget.hpp>
+#include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
@@ -167,7 +168,7 @@ namespace Desert::Editor
         m_InFlightTicks = 0;
         m_Captured      = 0;
         m_Skipped       = 0;
-        m_SlotRefused   = false;
+        m_BudgetRefused = false;
 
         // ~AssetThumbnailRenderer idles the device and releases the scene before the renderer, which is what
         // returns the slot. Identical to the idle path above — the DIFFERENCE is only that this one is not
@@ -187,32 +188,29 @@ namespace Desert::Editor
         // Background, and that is the whole entitlement: a capture is work nobody asked for by name, and
         // the picture it makes is what the Details row shows precisely when the live preview could not be
         // had. Taking the last slot would starve the surface the person is about to open AND would be
-        // taking it to produce the consolation prize for not having it (Engine/Core/RendererSlotBudget.hpp).
-        const uint32_t live = Graphic::SceneRenderer::GetLiveRendererCount();
-        if ( !Engine::RendererSlotBudget::MayClaim( Engine::RendererSlotBudget::Demand::Background, live,
-                                                    EngineContext::kMaxRendererSlots ) )
+        // taking it to produce the consolation prize for not having it (Engine/Core/ViewBudget.hpp).
+        const auto may = Graphic::MayCreateView(
+             Engine::ViewBudget::Demand::Background, "asset thumbnail", Graphic::kThumbnailViewProfile,
+             Graphic::ViewExtent{ AssetThumbnailRenderer::RenderSide(), AssetThumbnailRenderer::RenderSide() } );
+        if ( !may )
         {
             // IT SAYS SO. A queue that quietly stops draining is indistinguishable from a queue that has
-            // nothing in it, and "nothing to do" is the reading a person will reach for — the same empty
-            // successful answer the contract forbids. Once per stretch of scarcity, because the state ends
-            // when a window is closed and a line per frame would bury the log it belongs in.
-            if ( !m_SlotRefused )
+            // nothing in it. Once per stretch of scarcity, because a line per frame would bury the log.
+            if ( !m_BudgetRefused )
             {
-                m_SlotRefused = true;
-                LOG_WARN( "[Thumbnails] {} of {} renderer slots are in use — {} preview(s) are waiting "
-                          "rather than taking the last one. Close a scene view, a material window or an "
-                          "asset preview and they will render.",
-                          live, EngineContext::kMaxRendererSlots, m_Queue.size() );
+                m_BudgetRefused = true;
+                LOG_WARN( "[Thumbnails] {} preview(s) are waiting rather than eat the main view's reserve: {}. "
+                          "Close a scene view, a material window or an asset preview and they will render.",
+                          m_Queue.size(), may.GetError() );
             }
             return false;
         }
 
-        if ( m_SlotRefused )
+        if ( m_BudgetRefused )
         {
-            m_SlotRefused = false;
-            LOG_INFO( "[Thumbnails] a renderer slot came free ({} of {} in use) — {} waiting preview(s) "
-                      "will now render.",
-                      live, EngineContext::kMaxRendererSlots, m_Queue.size() );
+            m_BudgetRefused = false;
+            LOG_INFO( "[Thumbnails] device memory came free — {} waiting preview(s) will now render.",
+                      m_Queue.size() );
         }
         m_Renderer = std::make_unique<AssetThumbnailRenderer>();
         return true;
