@@ -6,12 +6,14 @@
 # Why: on 09-26 the owner found DerivedDataCache/ (bucket files) and Assets/Library/ in the root of a Windows tree
 # after a run: tests without a project wrote relative to the working directory, which is the tree root here.
 
-# The tree as git sees it, ignored entries included (collapsed to their top directory): a suite that writes into
-# the checkout shows up here as a new line, whether .gitignore hides it or not. Git does not list EMPTY
-# directories, and a scratch file removed at teardown leaves exactly that (RegistryProbe/Content/ sat in the root
-# unseen), so the root's own entries are listed too.
+# The tree as git sees it: untracked files one by one (a write into a directory that was ALREADY untracked, like an
+# editor's leftover Meshes/Modeling/, is a new line too), ignored entries only as the path their .gitignore pattern
+# names (--ignored=matching: build/ is one line, not four thousand, so a write into an ignored directory that
+# already existed is not seen). A suite that writes into the checkout shows up here as a new line, whether
+# .gitignore hides it or not. Git does not list EMPTY directories, and a scratch file removed at teardown leaves
+# exactly that (RegistryProbe/Content/ sat in the root unseen), so the root's own entries are listed too.
 tree_state() {
-    { git status --porcelain --ignored --untracked-files=normal 2>/dev/null
+    { git status --porcelain --ignored=matching --untracked-files=all 2>/dev/null
       for e in * .[!.]*; do [ -e "$e" ] && printf '?? %s\n' "$e"; done; } | LC_ALL=C sort -u
 }
 
