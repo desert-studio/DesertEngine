@@ -2092,18 +2092,37 @@ namespace Desert::Migration
                  MeshFileLocation{ start, project, ( project / meshPath ).lexically_normal() } );
         }
 
-        // The GUID the v3 header of the mesh file `file` states; a file stating none is an error.
+        // The GUID the mesh file `file` states. Two headers carry one: the cooked v3 mesh binary, and the
+        // DAST envelope a source mesh asset (.stmesh) is written in. A file stating neither, a file of
+        // another kind, or the null GUID is an error.
         Common::ResultStr<Common::Content::AssetGuid> MeshFileHeaderGuid( const std::filesystem::path& file )
         {
-            std::ifstream in( file, std::ios::binary );
-            std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
-            in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
-            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
-            const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
-            if ( !guid || guid->IsNull() )
+            {
+                std::ifstream in( file, std::ios::binary );
+                std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+                in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+                prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+                const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
+                if ( guid && !guid->IsNull() )
+                    return Common::MakeSuccess( Common::Content::AssetGuid( *guid ) );
+            }
+            // Record-only: the migrator links no subsystem table, it only reads what the header states.
+            const auto header =
+                 Common::Content::ReadAssetHeader( file, Common::Content::AssetHeaderReadContext{ {}, true } );
+            if ( !header )
                 return Common::MakeFormattedError<Common::Content::AssetGuid>(
-                     "{}", "'" + file.generic_string() + "' states no mesh GUID (not a v3 mesh)" );
-            return Common::MakeSuccess( Common::Content::AssetGuid( *guid ) );
+                     "{}", "'" + file.generic_string() +
+                                "' states no mesh GUID (not a v3 mesh; envelope: " + header.GetError() + ")" );
+            const auto& asset = header.GetValue();
+            if ( asset.Kind != Common::Content::ContentKind::StaticMesh &&
+                 asset.Kind != Common::Content::ContentKind::SkinnedMesh )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() + "' is not a mesh (kind " +
+                                std::string( Common::Content::KindName( asset.Kind ) ) + ")" );
+            if ( asset.Guid.IsNull() )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() + "' states the null GUID" );
+            return Common::MakeSuccess( asset.Guid );
         }
 
         // The header GUID of the mesh `meshPath` names, after checking that `oldHandle` is that file's

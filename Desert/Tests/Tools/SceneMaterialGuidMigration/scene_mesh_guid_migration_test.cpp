@@ -6,6 +6,7 @@
 #include <SceneMigration.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -231,4 +232,46 @@ TEST( ScenePathOnlyMeshGuidMigration, AMeshStatingNoGuidRefuses )
 TEST( ScenePathOnlyMeshGuidMigration, TheEngineRequiresThePathOnlyMeshGeneration )
 {
     EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionPathOnlyMeshGuids );
+}
+
+namespace
+{
+    // A source mesh asset as the editor writes it: a DAST envelope of kind `kind` stating kMeshGuid,
+    // at <assets root>/Meshes/Probe.stmesh. No v3 mesh-binary header anywhere in the file.
+    void WriteEnvelopeMesh( const Project& project, Common::Content::ContentKind kind )
+    {
+        fs::create_directories( project.AssetsRoot / "Meshes" );
+        Common::Content::AssetEnvelope envelope;
+        envelope.Asset.Kind = kind;
+        envelope.Asset.Guid = kMeshGuid;
+        envelope.Sections.push_back( { Common::Content::EnvelopeSection::Payload,
+                                       Common::Content::EnvelopeCodec::Stored,
+                                       { std::byte{ 1 }, std::byte{ 2 } } } );
+        const auto written =
+             Common::Content::WriteAssetEnvelopeFile( project.AssetsRoot / "Meshes" / "Probe.stmesh", envelope );
+        ASSERT_TRUE( written ) << written.GetError();
+    }
+} // namespace
+
+TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopedSourceMeshGivesItsHeaderGuid )
+{
+    const Project project( "pathonly_envelope" );
+    WriteEnvelopeMesh( project, Common::Content::ContentKind::StaticMesh );
+    auto       scene  = Parse( V31PathOnlyScene( "Meshes/Probe.stmesh" ) );
+    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+
+    ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
+    EXPECT_EQ( report.PathOnlyMeshGuids.Rewritten, 2 );
+    EXPECT_EQ( Occurrences( rfl::json::write( scene ), kMeshGuidText ), 2u );
+}
+
+TEST( ScenePathOnlyMeshGuidMigration, AnEnvelopeOfAnotherKindRefuses )
+{
+    const Project project( "pathonly_envelope_kind" );
+    WriteEnvelopeMesh( project, Common::Content::ContentKind::Texture );
+    auto       scene  = Parse( V31PathOnlyScene( "Meshes/Probe.stmesh" ) );
+    const auto report = Migration::MigrateScene( scene, project.AssetsRoot, "", {} );
+
+    ASSERT_FALSE( report.Refused.empty() );
+    EXPECT_NE( report.Refused.find( "is not a mesh" ), std::string::npos ) << report.Refused;
 }
