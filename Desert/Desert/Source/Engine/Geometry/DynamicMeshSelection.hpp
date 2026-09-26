@@ -13,15 +13,17 @@
 // GeometrySelectionUtil.
 
 #include "Engine/Geometry/EditMeshSelection.hpp"
+// The complete types, not forward declarations: this adapter is the editor's door to the two MeshCore types a
+// selection is made of (MeshElementSelection holds the mesh and owns the topology), and the MeshCore include
+// gate (scripts/CI/MeshCoreIncludes.sh) lets only the Geometry adapters include MeshCore/ from outside it.
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
 
 #include <cstdint>
 #include <vector>
 
 namespace Desert::Geometry
 {
-    class DynamicMesh3;
-    class GroupTopology;
-
     // Which topology Vertex / Edge picking runs on - UE's two Modeling Mode editors. Group (PolyEdit): an edge
     // is a GROUP edge (the span between two corners shared by two groups; a diagonal inside a group is not
     // pickable) and a vertex is a group CORNER. Triangle (TriEdit): every mesh edge and vertex.

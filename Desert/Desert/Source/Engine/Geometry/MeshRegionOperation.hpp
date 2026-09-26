@@ -11,7 +11,7 @@
 // a mesh; so the result's tangents are recomputed from its normals and UV layer 0 (FMeshTangents, per triangle).
 
 #include "Engine/Geometry/DynamicMeshSelection.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 

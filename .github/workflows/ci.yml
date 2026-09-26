@@ -94,6 +94,11 @@ jobs:
       - name: Repo-only includes
         run: ./scripts/CI/RepoOnlyIncludes.sh
 
+      # The ported UE GeometryCore (Engine/Geometry/MeshCore) is reached only through the Geometry adapters;
+      # a new direct include from anywhere else must be a named, reasoned row of the gate's allow-list.
+      - name: MeshCore includes
+        run: ./scripts/CI/MeshCoreIncludes.sh
+
       # A standard symbol must be answered for by THIS repository's text. `sky_panorama_test.cpp`
       # called std::clamp with only <cmath> included: libc++ reaches <algorithm> from there and MSVC
       # does not, so it compiled on every developer machine and failed on Windows Debug -- and it sat

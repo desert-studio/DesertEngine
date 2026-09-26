@@ -500,9 +500,9 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
     //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2
     //   Shared): 400 / 345 / 131 / 39 = 915.
-    //   P8a (2026-09-24) brought the ported UE GeometryCore in: Raw +12, the register's UECore rows (back-
-    //   references to the parent mesh, iterators and enumerables over their container, views over a mesh the
-    //   caller holds); Unique +7, DynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
+    //   P8a (2026-09-24) brought the ported UE GeometryCore in: Raw +12, the register's UECore (now MeshCore) rows
+    //   (back- references to the parent mesh, iterators and enumerables over their container, views over a mesh
+    //   the caller holds); Unique +7, DynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
     //   material / polygroup layers and DynamicVector::Blocks (UE's TArray<Block*> + delete, owned by type
     //   here); Shared +3 and Weak +1, EditMeshBridge's view cache (weak key, shared EditMesh view) and the
     //   EditMesh views the selection tools hold. Members retyped from EditMesh to DynamicMesh3 do not move.
@@ -520,7 +520,7 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //     +14 Raw, each with a register row -- GroupTopology::Mesh, MeshTangents::Mesh,
     //     InsetMeshRegion::Mesh, MergeCoincidentMeshEdges::Mesh and ::EdgesToMerge, OffsetMeshRegion::Mesh,
     //     SimpleHoleFiller::Mesh, DynamicMeshEditor::Mesh, MeshBoundaryLoops::Mesh,
-    //     MeshRegionBoundaryLoops::Mesh, MeshConnectedComponents::Mesh (all UECore/DynamicMesh operation
+    //     MeshRegionBoundaryLoops::Mesh, MeshConnectedComponents::Mesh (all MeshCore/DynamicMesh operation
     //     classes, non-owning Mesh built at the call site over the caller's DynamicMesh3 -- same HostOutlivesUs
     //     shape as P8a's MeshNormals::Mesh), plus DynamicMeshSelection.cpp's DynamicMeshElements::m_Topology
     //     (CallScoped, an argument pack) and the new ActiveToolBar.hpp's ActiveToolLabel::Icon/::Name (two
