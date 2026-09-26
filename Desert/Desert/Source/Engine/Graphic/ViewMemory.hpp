@@ -165,10 +165,10 @@ namespace Desert::Graphic
         [[nodiscard]] Decision Observe( const bool drawable ) noexcept
         {
             Decision decision;
-            decision.SkipFrame     = !drawable;
-            decision.AnnounceStop  = !drawable && !m_Skipping;
+            decision.SkipFrame      = !drawable;
+            decision.AnnounceStop   = !drawable && !m_Skipping;
             decision.AnnounceResume = drawable && m_Skipping;
-            m_Skipping             = !drawable;
+            m_Skipping              = !drawable;
             return decision;
         }
 

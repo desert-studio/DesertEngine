@@ -252,7 +252,7 @@ TEST( DrawableArea, EveryMinimiseIsAnnouncedNotOnlyTheFirstOne )
     using namespace Desert::Graphic;
     DrawableAreaGate gate;
 
-    int announcedStops = 0;
+    int announcedStops   = 0;
     int announcedResumes = 0;
     for ( int cycle = 0; cycle < 3; ++cycle )
     {
