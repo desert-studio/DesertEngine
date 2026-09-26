@@ -545,7 +545,8 @@ namespace FbxSplit
         // still produced result.Success = true and a ManifestPath the caller would go on to read. A
         // close whose result nobody reads is the same silence as no close at all; that is why the
         // verdict lives in WriteWholeFile and not at the call sites.
-        if ( std::string error; !WriteWholeFile( manifestPath, Desert::Editor::WriteCollectionManifest( manifest ), error ) )
+        if ( std::string error;
+             !WriteWholeFile( manifestPath, Desert::Editor::WriteCollectionManifest( manifest ), error ) )
         {
             result.Error = "Could not write manifest: " + error;
             return result;

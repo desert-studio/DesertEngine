@@ -29,7 +29,8 @@ namespace
         void SetUp() override
         {
             const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-            m_Dir = std::filesystem::temp_directory_path() / ( "desert_collection_manifest_" + std::to_string( stamp ) );
+            m_Dir            = std::filesystem::temp_directory_path() /
+                    ( "desert_collection_manifest_" + std::to_string( stamp ) );
             std::filesystem::create_directories( m_Dir );
         }
         void TearDown() override
@@ -62,22 +63,26 @@ namespace
     CollectionManifest SplitterShaped()
     {
         CollectionManifest manifest;
-        manifest.Name   = R"(Oak "Grove" \ Pack)";
-        manifest.Author = "FbxMeshSplitter";
-        manifest.Materials =
-             std::vector<CollectionManifestMaterial>{ { .Name        = "bark",
-                                                        .Albedo      = R"(Resources/Collections/Oak "Grove"/bark_albedo.png)",
-                                                        .Normal      = "Resources/Collections/Oak/bark_normal.png",
-                                                        .AlphaCutoff = 0.0f,
-                                                        .TwoSided    = false },
-                                                      { .Name        = "leaf",
-                                                        .Albedo      = "Resources/Collections/Oak/leaf_albedo.png",
-                                                        .Opacity     = "Resources/Collections/Oak/leaf_opacity.png",
-                                                        .AlphaCutoff = 0.5f,
-                                                        .TwoSided    = true } };
-        manifest.Items = { { .Name = "trunk", .Category = R"(Oak "Grove")", .Mesh = "Resources/Mesh/Oak/trunk.obj", .Material = 0 },
-                           { .Name = "leaves", .Category = "Oak", .Mesh = R"(Resources/Mesh/Oak\leaves.obj)", .Material = 1 },
-                           { .Name = "stump", .Mesh = "Resources/Mesh/Oak/stump.obj" } };
+        manifest.Name      = R"(Oak "Grove" \ Pack)";
+        manifest.Author    = "FbxMeshSplitter";
+        manifest.Materials = std::vector<CollectionManifestMaterial>{
+             { .Name        = "bark",
+               .Albedo      = R"(Resources/Collections/Oak "Grove"/bark_albedo.png)",
+               .Normal      = "Resources/Collections/Oak/bark_normal.png",
+               .AlphaCutoff = 0.0f,
+               .TwoSided    = false },
+             { .Name        = "leaf",
+               .Albedo      = "Resources/Collections/Oak/leaf_albedo.png",
+               .Opacity     = "Resources/Collections/Oak/leaf_opacity.png",
+               .AlphaCutoff = 0.5f,
+               .TwoSided    = true } };
+        manifest.Items = {
+             { .Name     = "trunk",
+               .Category = R"(Oak "Grove")",
+               .Mesh     = "Resources/Mesh/Oak/trunk.obj",
+               .Material = 0 },
+             { .Name = "leaves", .Category = "Oak", .Mesh = R"(Resources/Mesh/Oak\leaves.obj)", .Material = 1 },
+             { .Name = "stump", .Mesh = "Resources/Mesh/Oak/stump.obj" } };
         return manifest;
     }
 
@@ -142,7 +147,8 @@ TEST_F( CollectionManifestFile, WhatTheSplitterWritesThePanelReadsBackUnchanged 
 
 TEST_F( CollectionManifestFile, AMemberOfTheWrongTypeIsRefusedAndNamed )
 {
-    const WrongTypeManifest wrong{ .Name = "Oak", .Items = { { .Name = "trunk", .Mesh = "m.obj", .Material = "bark" } } };
+    const WrongTypeManifest wrong{ .Name  = "Oak",
+                                   .Items = { { .Name = "trunk", .Mesh = "m.obj", .Material = "bark" } } };
     const auto              read = Load( Save( Common::Json::Write( wrong ) ) );
     ASSERT_FALSE( read ) << "Material as a string was accepted";
     EXPECT_NE( read.GetError().find( "Items" ), std::string::npos ) << read.GetError();
