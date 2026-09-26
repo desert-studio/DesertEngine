@@ -46,6 +46,36 @@ namespace Desert::Graphic
         return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( "Unknown RenderingAPI" );
     }
 
+    Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
+    GraphicsPipeline::CreateAsync( const GraphicsPipelineSpecification& spec )
+    {
+        if ( const auto buildable = CheckGraphicsPipelineSpecification( spec ); !buildable )
+            return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( buildable.GetError() );
+
+        switch ( RendererAPI::GetAPIType() )
+        {
+            case RendererAPIType::None:
+                return Common::MakeError<std::shared_ptr<GraphicsPipeline>>(
+                     "GraphicsPipeline '" + spec.DebugName + "': no rendering API is selected." );
+            case RendererAPIType::Vulkan:
+            {
+                auto pipeline = std::make_shared<API::Vulkan::VulkanPipeline>( spec );
+                pipeline->InvalidateAsync();
+                // UNBUILT here means the leaf refused before any compile was handed out (its reason is
+                // logged); Compiling/Built/Failed all mean the driver has it.
+                if ( pipeline->GetBuildState() == API::Vulkan::VulkanPipeline::BuildState::Unbuilt )
+                {
+                    return Common::MakeError<std::shared_ptr<GraphicsPipeline>>(
+                         "GraphicsPipeline '" + spec.DebugName +
+                         "': the Vulkan pipeline was not built (see the error above)." );
+                }
+                return Common::MakeSuccess<std::shared_ptr<GraphicsPipeline>>( std::move( pipeline ) );
+            }
+        }
+        DESERT_VERIFY( false, "Unknown RenderingAPI" );
+        return Common::MakeError<std::shared_ptr<GraphicsPipeline>>( "Unknown RenderingAPI" );
+    }
+
     Common::ResultStr<std::shared_ptr<ComputePipeline>>
     ComputePipeline::Create( const ComputePipelineSpecification& spec )
     {

@@ -251,6 +251,17 @@ namespace Desert::Graphic
          */
         NO_DISCARD static Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
         Create( const GraphicsPipelineSpecification& spec );
+
+        /**
+         * Create's refusals, synchronously, and then the driver compile on the JobSystem (PSO1). The
+         * pipeline draws from the frame its compile lands; until then the draws through it are skipped and
+         * counted by PipelineBuilds, which ContentGate waits on. A driver refusal on the worker is logged
+         * with its VkResult and leaves the pipeline unbuilt (reported by name at the first draw).
+         * PipelineCache::GetOrCreate is the one caller: material and mesh pipelines, which appear with
+         * content. Pipelines a system builds once at renderer start keep the synchronous Create.
+         */
+        NO_DISCARD static Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
+        CreateAsync( const GraphicsPipelineSpecification& spec );
     };
 
     // --- Compute Pipeline ---

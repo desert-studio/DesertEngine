@@ -1,5 +1,6 @@
 -- Where the driver pipeline blob lives, which header guards it, when it is rewritten -- pure, no device.
--- PipelineCacheFile.cpp is compiled in (std only), so the suite needs neither Vulkan nor the engine.
+-- Also the process-wide count of pipelines still in the driver, and that ContentGate waits for it.
+-- PipelineCacheFile.cpp and ContentGate.cpp are compiled in (std only), so the suite needs neither Vulkan nor the engine.
 local deps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
 local test_name = path.getname(_SCRIPT_DIR)
@@ -15,6 +16,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Graphic/PipelineCacheFile.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/ContentGate.cpp",
     }
 
     includedirs {

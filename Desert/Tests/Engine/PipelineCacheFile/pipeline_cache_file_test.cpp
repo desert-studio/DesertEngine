@@ -1,7 +1,11 @@
 // The per-user driver pipeline cache (PSO1): path, device header, in-run persist schedule. No device.
 #include <gtest/gtest.h>
 
+#include <Engine/Assets/ContentGate.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
+
+#include <thread>
 
 using namespace Desert::Graphic::PipelineCacheFile;
 using namespace std::chrono_literals;
@@ -87,6 +91,56 @@ TEST( PipelineCacheFile, PersistsDuringTheRunNotOnlyAtExit )
     EXPECT_TRUE( schedule.Due( 9, t0 + 2s ) ) << "due once the interval has passed and pipelines were built";
     EXPECT_FALSE( schedule.Due( 9, t0 + 60s ) ) << "no new pipelines, no rewrite";
     EXPECT_TRUE( schedule.Due( 10, t0 + 60s ) );
+}
+
+TEST( PipelineBuilds, CountsPendingAndStartedMonotonically )
+{
+    Desert::Graphic::PipelineBuilds::Tracker builds;
+    builds.OnStarted();
+    builds.OnStarted();
+    EXPECT_EQ( builds.Pending(), 2u );
+    builds.OnFinished();
+    EXPECT_EQ( builds.Pending(), 1u );
+    EXPECT_EQ( builds.Started(), 2u ) << "started never goes down: ContentGate reads it as 'asked this frame'";
+}
+
+TEST( PipelineBuilds, WaitIdleReturnsOnlyAfterTheLastCompileFinished )
+{
+    Desert::Graphic::PipelineBuilds::Tracker builds;
+    builds.OnStarted();
+    std::atomic<bool> finished{ false };
+    std::thread       worker( [&] {
+        std::this_thread::sleep_for( 50ms );
+        finished = true;
+        builds.OnFinished();
+    } );
+    builds.WaitIdle();
+    EXPECT_TRUE( finished ) << "hot reload would replace a shader a compile is still reading";
+    worker.join();
+}
+
+// The editor's splash and the runtime's loading screen: the gate is fed loader + pipelines (ContentWorkNow),
+// so a pipeline still in the driver keeps the world Loading exactly like an asset read would.
+TEST( PipelineBuilds, ContentGateWaitsForAPipelineStillInTheDriver )
+{
+    using Desert::Assets::ContentGate;
+    using Desert::Assets::ContentState;
+    Desert::Graphic::PipelineBuilds::Tracker builds;
+    ContentGate                              gate( ContentState::Ready );
+    const size_t                             assetsOutstanding = 0;
+    const uint64_t                           assetsStarted     = 7;
+    gate.BeginWorld( assetsStarted + builds.Started() );
+
+    builds.OnStarted(); // the first frame asked for a material: its pipeline went to a worker
+    for ( int frame = 0; frame < 10; ++frame )
+        EXPECT_FALSE( gate.Tick( assetsOutstanding + builds.Pending(), assetsStarted + builds.Started() ) );
+    EXPECT_TRUE( gate.Loading() ) << "opened while a pipeline was still compiling: that frame skips the mesh";
+
+    builds.OnFinished();
+    bool opened = false;
+    for ( int frame = 0; frame < 3 && !opened; ++frame )
+        opened = gate.Tick( assetsOutstanding + builds.Pending(), assetsStarted + builds.Started() );
+    EXPECT_TRUE( opened );
 }
 
 int main( int argc, char** argv )

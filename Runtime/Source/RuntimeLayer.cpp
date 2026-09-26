@@ -20,6 +20,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetPreloader.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/Core/SceneRenderCollectors.hpp>
@@ -301,7 +302,7 @@ namespace Desert::Player
         // TriggerSplash() is NOT called here any more. It used to start the authored splash at the top of
         // the boot, so the duration a designer picked was spent racing a file read instead of being seen;
         // it is armed on the tick the gate opens (OnContentReady), over a world that is actually there.
-        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
 
         m_Boot.LogSummary();
         // AND HERE THE BOOT IS OVER, which is what turns every later synchronous load into a reported
@@ -442,7 +443,7 @@ namespace Desert::Player
         // is a second world handed over at run time — its clouds, its layouts, its themes are read on
         // demand exactly like the first one's — so a loading state that covered only the boot would ship
         // the defect back into the game the moment a door was opened.
-        m_Content.BeginWorld( Assets::AsyncAssetLoader::Get().StartedCount() );
+        m_Content.BeginWorld( Assets::ContentWorkNow().Started );
         m_LoadingFramesPresented = 0;
         LOG_INFO( "[Runtime] Switched scene: {}", path );
     }
@@ -627,8 +628,8 @@ namespace Desert::Player
         // The marker this replaced said the same thing to the LOG and to nothing else. A log line is not
         // a state: nothing could branch on it, so the frames it described were presented anyway.
         {
-            const auto& loader = Assets::AsyncAssetLoader::Get();
-            if ( m_Content.Tick( loader.Outstanding(), loader.StartedCount() ) )
+            const auto work = Assets::ContentWorkNow();
+            if ( m_Content.Tick( work.Outstanding, work.Started ) )
                 OnContentReady();
         }
 
