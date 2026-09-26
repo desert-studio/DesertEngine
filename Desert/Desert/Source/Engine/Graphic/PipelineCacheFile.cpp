@@ -1,5 +1,7 @@
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 
+#include <Common/Settings/MachineSettings.hpp>
+
 #include <cstring>
 #include <format>
 
@@ -32,9 +34,28 @@ namespace Desert::Graphic::PipelineCacheFile
         }
     } // namespace
 
-    std::filesystem::path Directory( const std::filesystem::path& userDir, const std::string_view projectName )
+    namespace
     {
-        return userDir / "PipelineCache" / std::filesystem::path( std::string( projectName ) );
+        std::optional<Host> s_Host;
+    } // namespace
+
+    void DeclareHost( const Host host )
+    {
+        s_Host = host;
+    }
+
+    std::optional<Host> DeclaredHost()
+    {
+        return s_Host;
+    }
+
+    std::filesystem::path Directory( const Host host, const std::filesystem::path& userDir,
+                                     const std::string_view projectName )
+    {
+        const std::filesystem::path root = userDir / "PipelineCache";
+        if ( host == Host::Game )
+            return root;
+        return root / Common::Settings::UserFolderName( projectName );
     }
 
     std::string FileName( const DeviceIdentity& identity )

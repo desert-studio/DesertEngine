@@ -31,10 +31,26 @@ namespace Desert::Graphic::PipelineCacheFile
         bool operator==( const DeviceIdentity& ) const = default;
     };
 
-    // <userDir>/PipelineCache/<project>/ — per user because the directory is the user's, per project because
-    // two projects' pipelines have nothing in common and one shared blob would only grow and be rewritten by
-    // whichever project ran last.
-    std::filesystem::path Directory( const std::filesystem::path& userDir, std::string_view projectName );
+    // WHICH BINARY is running decides whose per-user directory the blob belongs to (PKG1).
+    enum class Host
+    {
+        Editor, // the engine installation's user directory, `~/.desertengine` (ProjectContext::ConfigDirectory)
+        Game    // the product's own, Common::Settings::GameUserDirectory(<.deproj Name>)
+    };
+
+    // Declared once by the host's CreateApplication before the Application exists, because the device reads
+    // it while it is being created. Undeclared (a suite that makes a device) is a logged refusal to persist,
+    // never a guessed directory.
+    void                DeclareHost( Host host );
+    std::optional<Host> DeclaredHost();
+
+    // Game:   <userDir>/PipelineCache/ — userDir is already this product's, so nothing else shares it.
+    // Editor: <userDir>/PipelineCache/<project Name>/ — one editor opens many projects, and two projects'
+    //         pipelines have nothing in common: one shared blob would only grow and be rewritten by whichever
+    //         project ran last. The Name is the `.deproj` Name, not the folder's (a moved or cloned project
+    //         keeps its cache), made one path segment by Common::Settings::UserFolderName.
+    std::filesystem::path Directory( Host host, const std::filesystem::path& userDir,
+                                     std::string_view projectName );
 
     // "<vendor>-<device>-<driver>-<uuid>.bin", all lowercase hex: two GPUs in one machine, or a driver
     // update, get files of their own instead of overwriting one blob the other will throw away.

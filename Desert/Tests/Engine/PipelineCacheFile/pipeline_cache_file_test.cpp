@@ -21,11 +21,37 @@ namespace
     }
 } // namespace
 
-TEST( PipelineCacheFile, LivesInTheUsersDirectoryPerProject )
+TEST( PipelineCacheFile, GameKeepsItInTheProductsOwnDirectory )
 {
-    const auto dir = Directory( "/home/u/.desertengine", "Sandbox" );
+    // GameUserDirectory(Name) is already this product's, so no project segment is added under it.
+    const std::filesystem::path player = "/Users/p/Library/Application Support/My Game";
+    EXPECT_EQ( Directory( Host::Game, player, "My Game" ), player / "PipelineCache" );
+}
+
+TEST( PipelineCacheFile, EditorKeepsOneFolderPerProjectName )
+{
+    const auto dir = Directory( Host::Editor, "/home/u/.desertengine", "Sandbox" );
     EXPECT_EQ( dir, std::filesystem::path( "/home/u/.desertengine/PipelineCache/Sandbox" ) );
-    EXPECT_NE( Directory( "/home/u/.desertengine", "Other" ), dir );
+    EXPECT_NE( Directory( Host::Editor, "/home/u/.desertengine", "Other" ), dir );
+}
+
+TEST( PipelineCacheFile, EditorProjectNameIsOneSafeSegment )
+{
+    // A `.deproj` Name is data: separators, relative names and Windows-refused characters must not leave
+    // <userDir>/PipelineCache or produce a path Windows cannot create.
+    const std::filesystem::path root = "/home/u/.desertengine/PipelineCache";
+    EXPECT_EQ( Directory( Host::Editor, "/home/u/.desertengine", "../../etc/x" ), root / ".._.._etc_x" );
+    EXPECT_EQ( Directory( Host::Editor, "/home/u/.desertengine", "a\\b:c<d>e\"f|g?h*" ),
+               root / "a_b_c_d_e_f_g_h_" );
+    EXPECT_EQ( Directory( Host::Editor, "/home/u/.desertengine", ".." ), root / "DesertGame" );
+    EXPECT_EQ( Directory( Host::Editor, "/home/u/.desertengine", "" ), root / "DesertGame" );
+}
+
+TEST( PipelineCacheFile, HostIsUndeclaredUntilMainDeclaresIt )
+{
+    EXPECT_FALSE( DeclaredHost().has_value() );
+    DeclareHost( Host::Game );
+    EXPECT_EQ( DeclaredHost(), Host::Game );
 }
 
 TEST( PipelineCacheFile, FileNameCarriesVendorDeviceDriverAndUuid )

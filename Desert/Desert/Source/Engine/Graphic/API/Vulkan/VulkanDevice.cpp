@@ -1,4 +1,5 @@
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Engine/Project/ProjectContext.hpp>
 #include <Common/Core/DestructorGuard.hpp>
@@ -550,18 +551,28 @@ namespace Desert::Graphic::API::Vulkan
         // its own folder). Our header refuses another device's or a torn file with a reason; the driver's
         // own header check stays behind it.
         m_PipelineIdentity = PipelineIdentity( m_PhysicalDevice->GetVulkanPhysicalDevice() );
-        std::string initial;
+        std::string                                  initial;
+        const std::optional<PipelineCacheFile::Host> host = PipelineCacheFile::DeclaredHost();
         if ( !Project::ProjectContext::HasProject() )
         {
             LOG_ERROR( "[PipelineCache] no project is open, so there is no per-user cache path; pipelines "
                        "build uncached and nothing is persisted this run" );
         }
+        else if ( !host )
+        {
+            LOG_ERROR( "[PipelineCache] the host never declared itself editor or game "
+                       "(PipelineCacheFile::DeclareHost), so there is no per-user cache path; pipelines build "
+                       "uncached and nothing is persisted this run" );
+        }
         else
         {
-            const std::filesystem::path dir = PipelineCacheFile::Directory(
-                 Project::ProjectContext::ConfigDirectory(),
-                 std::filesystem::path( Project::ProjectContext::Directory() ).filename().string() );
-            std::error_code ec;
+            const std::string&          name = Project::ProjectContext::Current().Name;
+            const std::filesystem::path userDir =
+                 *host == PipelineCacheFile::Host::Game
+                      ? Common::Settings::GameUserDirectory( name )
+                      : std::filesystem::path( Project::ProjectContext::ConfigDirectory() );
+            const std::filesystem::path dir = PipelineCacheFile::Directory( *host, userDir, name );
+            std::error_code             ec;
             std::filesystem::create_directories( dir, ec );
             if ( ec )
             {

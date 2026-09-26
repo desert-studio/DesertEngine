@@ -257,13 +257,8 @@ namespace Common::Settings
 
     std::filesystem::path GameUserDirectory( const std::string& product )
     {
-        // A `.deproj` Name reaches a PATH here, so it is sanitised rather than trusted: separators and
-        // the two relative names are what turn a product name into a write somewhere else entirely.
-        std::string safe;
-        for ( const char c : product )
-            safe += ( c == '/' || c == '\\' || c == ':' ) ? '_' : c;
-        if ( safe.empty() || safe == "." || safe == ".." )
-            safe = "DesertGame";
+        // A `.deproj` Name reaches a PATH here, so it is sanitised rather than trusted.
+        const std::string safe = UserFolderName( product );
 
         // ASKED OF THE COMPILER, NOT OF THE BUILD SYSTEM. `DESERT_PLATFORM_*` comes from a per-project
         // premake block that every test suite forgets (Common/Core/Core.hpp §DESERT_DEBUG_BREAK records
