@@ -11,6 +11,8 @@
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Assets/CloudNoiseVolumeGenerator.hpp>
 #include <Engine/Assets/CloudNoiseVolumeSheet.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -92,7 +94,8 @@ namespace Desert::Editor
     CloudNoiseVolumePanel::CloudNoiseVolumePanel( const Assets::AssetHandle& subject,
                                                   Assets::AssetManager*      assets )
          : ISubjectDocument(
-                AssetSubjectTitle<Assets::CloudNoiseVolumeAsset>( subject, assets, "Cloud Noise Volume" ),
+                AssetSubjectTitle<Assets::CloudNoiseVolumeAsset>(
+                     subject, assets, Common::Content::ContentKind::CloudNoiseVolume, "Cloud Noise Volume" ),
                 AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::CloudNoiseVolume ) ) ),
            m_Assets( assets )
     {
@@ -104,8 +107,19 @@ namespace Desert::Editor
         if ( !assets )
             return;
 
-        const auto asset =
-             assets->FindByHandle<Assets::CloudNoiseVolumeAsset>( Assets::AssetHandle( Subject().Owner ) );
+        // CREATED FROM THE REGISTRY ROW when nothing has named the volume yet: noise volumes have no boot
+        // stage (AL1-2), so a subject opened by handle (the command palette, the Content Browser) is
+        // usually one no shell exists for, and a lookup alone came up as an empty window.
+        const auto created = Assets::CreateFromRegistryRow<Assets::CloudNoiseVolumeAsset>(
+             assets->weak_from_this(), Assets::AssetHandle( Subject().Owner ),
+             Common::Content::ContentKind::CloudNoiseVolume );
+        if ( !created )
+        {
+            m_Status        = "This volume cannot be opened: " + created.GetError();
+            m_StatusIsError = true;
+            return;
+        }
+        const auto& asset = created.GetValue();
 
         // REGISTERED IS NOT LOADED, and this window used to read the two as one. An asset the manager knows
         // about but has not read yet answers false to IsReadyForUse, and the panel gave up on it — so a

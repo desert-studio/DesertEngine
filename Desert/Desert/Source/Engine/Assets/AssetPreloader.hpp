@@ -65,22 +65,10 @@ namespace Desert::Assets
         // @p stop is asked before each program; true ends the preload there, the rest unregistered.
         void               PreloadShaders( const ItemProgress& progress = {}, const StopRequested& stop = {} );
         static std::size_t ShaderRowCount();
-        // Cloud noise volumes (`.dcnv`). Scanned so the type asset's slot can offer them by name and so a
-        // type that names one finds it already loaded; no GPU work happens here, the renderer uploads.
-        void PreloadCloudNoiseVolumes();
-        // Cloud types (`.decloudtype`). MUST run after PreloadCloudNoiseVolumes: a type names its noise
-        // volume by path and binds it in ResolveDependencies, which the AssetManager calls the moment the
-        // type is created — a volume that is not in the manager yet resolves to nothing and the type
-        // renders with the default edge instead of its own.
+        // Cloud types (`.decloudtype`). The noise volume a type names is bound by GUID in ResolveDependencies
+        // against the content registry, not against a loaded shell: noise volumes, hero-cloud bodies and
+        // painted layouts are created on demand by their services (AL1-2) and have no stage here.
         void PreloadCloudTypes();
-        // Sculpted hero-cloud bodies (`.dcmv`). Independent of the two above — a body names no other
-        // asset and no other asset names it — so its position in the order is free; it is last because
-        // a scene without one still has a sky and this is the stage a project may have nothing in.
-        void PreloadCloudModellingVolumes();
-        // Painted cloud layouts (`.dclayout`). Independent of the three above — a layout names no other
-        // asset and no other asset names it — so its position in the order is free; it is last because a
-        // scene without one still has a sky, which is the state every shipped scene is in.
-        void PreloadCloudLayouts();
         // UI themes (`.detheme`). MUST run after the font scan the FontService does on demand is
         // reachable — it is, because the service registers a font path the moment it is asked — and it is
         // independent of every cloud stage above. A canvas without a theme still draws, which is the

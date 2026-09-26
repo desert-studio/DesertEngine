@@ -17,9 +17,16 @@
 // and answers with exactly the policy its author wrote. Reverting the primitive's miss path to
 // DESERT_VERIFY kills this suite outright.
 
+#include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+
+#include <Common/Content/ContentKinds.hpp>
+#include <Common/Core/AssetPathIndex.hpp>
+#include <Common/Core/Constants.hpp>
 
 #include <gtest/gtest.h>
 
@@ -239,4 +246,76 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// AN ON-DEMAND CLOUD KIND WHOSE FILE IS GONE IS AN ERROR THAT NAMES IT (AL1-2). The boot no longer creates a
+// shell for every `.dclayout`; the service creates one from the registry row when a scene names the handle.
+// When the row outlives its file, the answer must carry the path and the GUID - the old outcome was a
+// clear sky and one generic line, with nothing saying which file to restore.
+TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGuid )
+{
+    namespace Path            = Common::Constants::Path;
+    namespace ContentRegistry = Desert::Assets::ContentRegistry;
+    using Common::Content::ContentKind;
+
+    fs::path repo;
+    for ( const char* prefix : { "", "../", "../../", "../../../", "../../../../" } )
+        if ( fs::is_directory( fs::path( prefix ) / "Editor/Resources/Assets/Clouds/Layouts" ) )
+        {
+            repo = fs::absolute( fs::path( prefix ).empty() ? fs::path( "." ) : fs::path( prefix ) );
+            break;
+        }
+    ASSERT_FALSE( repo.empty() ) << "could not locate the repository root from the working directory";
+    const fs::path source = repo / "Editor/Resources/Assets/Clouds/Layouts/PTP_Channels_Green.dclayout";
+    ASSERT_TRUE( fs::exists( source ) );
+
+    const Path::ProjectRootState saved   = Path::CurrentProjectRoot();
+    const fs::path               project = fs::temp_directory_path() / "al1_on_demand_cloud_project";
+    fs::remove_all( project );
+    Path::SetProjectRoot( project, "Assets" );
+    const fs::path layouts = *Common::Content::KindSpec( ContentKind::CloudLayout ).Root;
+    fs::create_directories( layouts );
+    const fs::path file = layouts / "Painted.dclayout";
+    fs::copy_file( source, file );
+
+    ContentRegistry::ResetForTest();
+    ASSERT_TRUE( ContentRegistry::Gather() );
+    const auto rows = ContentRegistry::Rows( ContentKind::CloudLayout );
+    ASSERT_EQ( rows.size(), 1u );
+    ASSERT_TRUE( rows.front().Guid.has_value() ) << "the fixture layout states no GUID in its header";
+    const Desert::Assets::AssetHandle handle = rows.front().Handle;
+    const std::string                 guid   = Common::Content::AssetGuidToText( *rows.front().Guid );
+
+    {
+        // The file is there: the shell is created unread, under the number it was asked for.
+        const auto manager = std::make_shared<Desert::Assets::AssetManager>();
+        const auto created = Desert::Assets::CreateFromRegistryRow<Desert::Assets::CloudLayoutAsset>(
+             manager, handle, ContentKind::CloudLayout );
+        ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
+        EXPECT_EQ( created.GetValue()->GetMetadata().Handle, handle );
+    }
+    {
+        // The same number asked for as another kind has no row of that kind. A fresh manager: one that
+        // already holds the shell answers from it before the registry is consulted.
+        const auto manager   = std::make_shared<Desert::Assets::AssetManager>();
+        const auto wrongKind = Desert::Assets::CreateFromRegistryRow<Desert::Assets::CloudLayoutAsset>(
+             manager, handle, ContentKind::CloudNoiseVolume );
+        ASSERT_FALSE( wrongKind.IsSuccess() );
+        EXPECT_NE( wrongKind.GetError().find( "no row of that kind" ), std::string::npos ) << wrongKind.GetError();
+    }
+
+    fs::remove( file );
+    {
+        const auto manager = std::make_shared<Desert::Assets::AssetManager>();
+        const auto missing = Desert::Assets::CreateFromRegistryRow<Desert::Assets::CloudLayoutAsset>(
+             manager, handle, ContentKind::CloudLayout );
+        ASSERT_FALSE( missing.IsSuccess() ) << "a row whose file is gone produced a shell";
+        EXPECT_NE( missing.GetError().find( file.string() ), std::string::npos ) << missing.GetError();
+        EXPECT_NE( missing.GetError().find( guid ), std::string::npos ) << missing.GetError();
+    }
+
+    Path::SetProjectRoot( saved.ProjectDir, saved.AssetsRoot );
+    ContentRegistry::ResetForTest();
+    Common::AssetPathIndex::Clear();
+    fs::remove_all( project );
 }

@@ -1165,9 +1165,9 @@ namespace Desert::Editor
                         preview = "(missing)";
                         if ( assetMgr )
                         {
-                            if ( auto body = assetMgr->FindByHandle<Assets::CloudModellingVolumeAsset>(
-                                      Common::UUID( *volumeHandle ) ) )
-                                preview = body->GetMetadata().Filepath.filename().string();
+                            if ( const auto row = Assets::ContentRegistry::RowOf(
+                                      Common::Content::ContentKind::CloudModellingVolume, *volumeHandle ) )
+                                preview = row->Path.filename().string();
                         }
                     }
 

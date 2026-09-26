@@ -1,5 +1,8 @@
 #include "CloudLayoutService.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
+
 #include <Common/Core/Logger.hpp>
 
 namespace Desert::Runtime
@@ -112,6 +115,9 @@ namespace Desert::Runtime
         // for; this is the state every scene in the repository ships in and the bake's "no painting".
         if ( handle == 0 )
             return Assets::AssetRef<const Assets::CloudLayoutData>::Null();
+        // Unannounced: create the shell from the registry row (AL1-2); a failure is logged once.
+        if ( m_Layouts.find( handle ) == m_Layouts.end() && m_Reported.find( handle ) == m_Reported.end() )
+            Discover( handle );
 
         const auto it = m_Layouts.find( handle );
         if ( it == m_Layouts.end() )
@@ -176,5 +182,26 @@ namespace Desert::Runtime
 
         m_Layouts.clear();
         m_Reported.clear();
+    }
+    bool CloudLayoutService::Discover( const Assets::AssetHandle& handle )
+    {
+        // AL1-2: the boot no longer announces every file of this kind; the first reference creates the
+        // shell from its registry row, and the read still goes through BeginRead / AsyncAssetLoader.
+        auto created = Assets::CreateFromRegistryRow<Assets::CloudLayoutAsset>(
+             m_Assets, handle, Common::Content::ContentKind::CloudLayout );
+        if ( !created )
+        {
+            m_Reported.insert( handle );
+            LOG_ERROR( "[Clouds] Cloud layout {} cannot be used (the layer places its clouds procedurally): {}",
+                       static_cast<uint64_t>( handle ), created.GetError() );
+            return false;
+        }
+        Announce( created.GetValue() );
+        return true;
+    }
+
+    void CloudLayoutService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
     }
 } // namespace Desert::Runtime

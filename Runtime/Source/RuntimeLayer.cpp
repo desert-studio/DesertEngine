@@ -1,4 +1,6 @@
 #include "RuntimeLayer.hpp"
+
+#include <Engine/Runtime/ResourceRegistry.hpp>
 #include "RuntimeShot.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -130,6 +132,7 @@ namespace Desert::Player
         // bind pose, and no editor session could reproduce it.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
+        Desert::Runtime::ResourceRegistry::BindOnDemandAssets( m_AssetManager );
         // The game's view IS the window, so here — and only here — the window's size is the view's.
         const auto window = EngineContext::GetInstance().GetWindow();
         m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
@@ -185,16 +188,7 @@ namespace Desert::Player
         m_Boot.Run( "Preloading meshes, textures and materials",
                     [this] { m_AssetPreloader->PreloadCookedAssetsAndMaterials(); } );
         m_Boot.Run( "Preloading skyboxes", [this] { m_AssetPreloader->PreloadSkyboxes(); } );
-        m_Boot.Run( "Preloading cloud noise volumes", [this] { m_AssetPreloader->PreloadCloudNoiseVolumes(); } );
-        // MUST follow the volumes: a type binds the one it names.
         m_Boot.Run( "Preloading cloud types", [this] { m_AssetPreloader->PreloadCloudTypes(); } );
-        // order-free: a body names nothing and is named by nothing but a scene
-        m_Boot.Run( "Preloading cloud modelling volumes",
-                    [this] { m_AssetPreloader->PreloadCloudModellingVolumes(); } );
-        // Missing here too, and for the same reason it was missing from the editor: PreloadCloudLayouts
-        // was written, tested and never called, so a packaged game rendered every painted sky
-        // procedurally. Order-free like the line above.
-        m_Boot.Run( "Preloading cloud layouts", [this] { m_AssetPreloader->PreloadCloudLayouts(); } );
         // The UI themes (Ю13). HERE AND NOT ONLY IN THE EDITOR, because this is the process that ships:
         // a canvas whose theme the player's build never scanned draws every element's own colour, which
         // is a game that looks right in the editor and wrong on the player's machine — the worst shape a

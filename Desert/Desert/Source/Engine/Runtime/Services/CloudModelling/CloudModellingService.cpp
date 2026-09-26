@@ -1,5 +1,8 @@
 #include "CloudModellingService.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
+
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 
@@ -115,6 +118,9 @@ namespace Desert::Runtime
         // explain, where an empty noise slot resolving to the shipped default is a sky they expect.
         if ( handle == 0 )
             return Assets::AssetRef<Assets::CloudModellingVolumeAsset>::Null();
+        // Unannounced: create the shell from the registry row (AL1-2); a failure is logged once.
+        if ( m_Volumes.find( handle ) == m_Volumes.end() && m_Reported.find( handle ) == m_Reported.end() )
+            Discover( handle );
 
         const auto it = m_Volumes.find( handle );
         if ( it == m_Volumes.end() )
@@ -272,5 +278,27 @@ namespace Desert::Runtime
         m_Atlas.reset();
         m_AtlasSlabs.clear();
         m_AtlasRevisions.clear();
+    }
+    bool CloudModellingService::Discover( const Assets::AssetHandle& handle )
+    {
+        // AL1-2: the boot no longer announces every file of this kind; the first reference creates the
+        // shell from its registry row, and the read still goes through BeginRead / AsyncAssetLoader.
+        auto created = Assets::CreateFromRegistryRow<Assets::CloudModellingVolumeAsset>(
+             m_Assets, handle, Common::Content::ContentKind::CloudModellingVolume );
+        if ( !created )
+        {
+            m_Reported.insert( handle );
+            LOG_ERROR(
+                 "[Clouds] Cloud modelling volume {} cannot be used (the hero cloud naming it will not draw): {}",
+                 static_cast<uint64_t>( handle ), created.GetError() );
+            return false;
+        }
+        Announce( created.GetValue() );
+        return true;
+    }
+
+    void CloudModellingService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
+    {
+        m_Assets = assets;
     }
 } // namespace Desert::Runtime
