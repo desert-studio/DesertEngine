@@ -7,7 +7,7 @@
 #include <cmath>
 #include <unordered_set>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 namespace Desert::Assets
 {
@@ -185,11 +185,11 @@ namespace Desert::Assets
         if ( auto headed = RefuseTextWithoutHeader( text, kUIThemeFormatVersion, 1 ); !headed )
             return Common::MakeFormattedError<UIThemeData>( "{}", headed.GetError() );
 
-        const auto parsed = rfl::json::read<UIThemeData>( text );
+        const auto parsed = Common::Json::Read<UIThemeData>( text );
         if ( !parsed )
-            return Common::MakeFormattedError<UIThemeData>( "{}", parsed.error().what() );
+            return Common::MakeFormattedError<UIThemeData>( "{}", parsed.GetError() );
 
-        UIThemeData data = parsed.value();
+        UIThemeData data = parsed.GetValue();
 
         if ( auto header = CheckStatedHeader( data.Header, Common::Content::ContentKind::UITheme,
                                               kUIThemeSchemaTag, kUIThemeFormatVersion, UIThemeTextSubsystems() );
@@ -207,7 +207,7 @@ namespace Desert::Assets
         UIThemeData out = data;
         out.Header =
              StampTextHeader( data.Header, Common::Content::ContentKind::UITheme, UIThemeTextSubsystems() );
-        return rfl::json::write( out, YYJSON_WRITE_PRETTY );
+        return Common::Json::Write( out );
     }
 
     Common::ResultStr<UIThemeRuntime>

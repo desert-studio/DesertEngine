@@ -50,10 +50,22 @@ namespace Common::Json
         std::uint32_t    Version = 0;
     };
 
-    // A member of type CarriedKeys holds every key of the object the struct does not declare, and writes them
-    // back flat at the struct's own level: a file shared between builds keeps the settings of the other build
-    // instead of losing them on the first save of this one.
-    using CarriedKeys = rfl::ExtraFields<rfl::Generic>;
+    // An untyped JSON value: a payload whose struct only its owner knows (a component block of an entity
+    // record, keyed by the registry that owns it). It is read and written like any struct, and two values are
+    // the same when their Write text is.
+    using Value = rfl::Generic;
+
+    // A JSON object of untyped values, keyed by member name.
+    using Object = rfl::Generic::Object;
+
+    // A member of type KeyedValues holds every key of the object the struct does not declare, flat at the
+    // struct's own level: the open-ended content of a record (an entity's component blocks, one key each), or
+    // the rest of a document a probe reads only one member of.
+    using KeyedValues = rfl::ExtraFields<Value>;
+
+    // KeyedValues that exist to be written BACK: a file shared between builds keeps the settings of the
+    // other build instead of losing them on the first save of this one.
+    using CarriedKeys = KeyedValues;
 
     namespace Detail
     {

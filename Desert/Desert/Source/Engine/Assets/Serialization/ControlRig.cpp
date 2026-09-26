@@ -17,7 +17,7 @@
 #include <span>
 #include <unordered_set>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 namespace Desert::Assets::Serialization
 {
@@ -756,13 +756,13 @@ namespace Desert::Assets::Serialization
             return Common::MakeFormattedError<ControlRigData>( "control rig {}", headed.GetError() );
         }
 
-        const auto parsed = rfl::json::read<ControlRigData>( text );
+        const auto parsed = Common::Json::Read<ControlRigData>( text );
         if ( !parsed )
         {
-            return Common::MakeFormattedError<ControlRigData>( "{}", parsed.error().what() );
+            return Common::MakeFormattedError<ControlRigData>( "{}", parsed.GetError() );
         }
 
-        ControlRigData data = parsed.value();
+        ControlRigData data = parsed.GetValue();
 
         if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::ControlRig,
                                                       Assets::kControlRigSchemaTag, kControlRigVersion,
@@ -785,7 +785,7 @@ namespace Desert::Assets::Serialization
         ControlRigData out = data;
         out.Header         = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::ControlRig,
                                                       ControlRigTextSubsystems() );
-        return rfl::json::write( out, YYJSON_WRITE_PRETTY );
+        return Common::Json::Write( out );
     }
 
     Common::ResultStr<ControlRigData> LoadControlRigFile( const std::filesystem::path& path )

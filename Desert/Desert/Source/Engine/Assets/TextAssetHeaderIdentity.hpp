@@ -1,13 +1,18 @@
 #pragma once
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Core.hpp>
+#include <Common/Core/UUID.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/VFS.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <array>
+#include <filesystem>
 #include <span>
 #include <sstream>
 #include <string>
@@ -61,6 +66,39 @@ namespace Desert::Assets
     [[nodiscard]] inline Common::Content::AssetGuid ReadShaderHeaderGuid( const Common::Filepath& filepath )
     {
         return GuidOfHeader( Common::Content::ReadShaderHeader( ReadTextForIdentity( filepath ) ) );
+    }
+
+    // WHAT A TEXT ASSET NAMED BY A PATH IS: the file its load opens and the GUID that file's header states.
+    struct TextAssetIdentity
+    {
+        std::filesystem::path      File;
+        Common::Content::AssetGuid Guid;
+
+        [[nodiscard]] Common::UUID Handle() const
+        {
+            return Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( Guid ) ) );
+        }
+        [[nodiscard]] std::string StableKey() const
+        {
+            return Common::AssetHandle::StableKeyForPath( File );
+        }
+    };
+
+    // THE ONE RULE FOR A HEADER-GUID KIND'S CONSTRUCTOR: identity and bytes come from the SAME file, the one
+    // the registry says the load opens (ContentRegistry::FileToOpen, past every redirector a move left). Each
+    // loader opens `ContentRegistry::FileToOpen( m_Metadata.Filepath )` for its bytes. Reading the header at
+    // the requested path instead made an OLD path, after a move, adopt the REDIRECTOR's GUID: a second asset
+    // for the same content, publishing it under another handle (AF10d found it in the string table; AF10e
+    // closed it for every header-GUID kind). A path the registry does not know is its own file.
+    // The header reader is the kind's: a JSON header object by default, the first-line comment for a .shader
+    // (ReadShaderHeaderGuid) - the rule is the same for both, only the spelling of the header differs.
+    using HeaderGuidReader = Common::Content::AssetGuid ( * )( const Common::Filepath& );
+    [[nodiscard]] inline TextAssetIdentity ReadTextAssetIdentity( const Common::Filepath& requested,
+                                                                  HeaderGuidReader readGuid = &ReadTextHeaderGuid )
+    {
+        std::filesystem::path            file = ContentRegistry::FileToOpen( requested );
+        const Common::Content::AssetGuid guid = readGuid( file );
+        return { std::move( file ), guid };
     }
 
     // THE HEADER A REWRITE OF `target` STATES: the GUID the file already there states, minted only for a new

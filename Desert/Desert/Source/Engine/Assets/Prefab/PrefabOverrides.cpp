@@ -1,20 +1,18 @@
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-
 namespace Desert::Assets
 {
     namespace
     {
-        // TWO PAYLOADS ARE THE SAME WHEN THEIR TEXT IS. rfl::Generic is a variant tree with no equality
+        // TWO PAYLOADS ARE THE SAME WHEN THEIR TEXT IS. Json::Value is a variant tree with no equality
         // operator, and writing a hand-rolled recursive comparison for it would be a second definition of
         // "same value" living beside the writer's — the shape this file exists to avoid. The text is the
         // definition the file itself uses, and both sides of every comparison are produced by the same
         // reflected walk over the same type, so key order is a property of the type rather than of the
         // caller.
-        [[nodiscard]] bool SameGeneric( const rfl::Generic& a, const rfl::Generic& b )
+        [[nodiscard]] bool SameGeneric( const Common::Json::Value& a, const Common::Json::Value& b )
         {
-            return rfl::json::write( a ) == rfl::json::write( b );
+            return Common::Json::Write( a ) == Common::Json::Write( b );
         }
 
         template <typename T>
@@ -28,8 +26,8 @@ namespace Desert::Assets
         }
     } // namespace
 
-    std::optional<rfl::Generic> DiffPayload( const rfl::Generic& base, const rfl::Generic& live,
-                                             PrefabDiffReport* report )
+    std::optional<Common::Json::Value> DiffPayload( const Common::Json::Value& base,
+                                                    const Common::Json::Value& live, PrefabDiffReport* report )
     {
         const auto baseObject = base.to_object();
         const auto liveObject = live.to_object();
@@ -44,7 +42,7 @@ namespace Desert::Assets
             return live;
         }
 
-        rfl::Generic::Object differing;
+        Common::Json::Object differing;
         for ( const auto& [field, value] : liveObject.value() )
         {
             const auto inBase = baseObject.value().get( field );
@@ -73,7 +71,7 @@ namespace Desert::Assets
         return { differing };
     }
 
-    rfl::Generic MergePayload( const rfl::Generic& current, const rfl::Generic& partial )
+    Common::Json::Value MergePayload( const Common::Json::Value& current, const Common::Json::Value& partial )
     {
         const auto currentObject = current.to_object();
         const auto partialObject = partial.to_object();
@@ -85,7 +83,7 @@ namespace Desert::Assets
             return partial;
         }
 
-        rfl::Generic::Object merged = currentObject.value();
+        Common::Json::Object merged = currentObject.value();
         for ( const auto& [field, value] : partialObject.value() )
         {
             merged[field] = value;

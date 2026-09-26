@@ -13,7 +13,7 @@
 #include <string>
 #include <unordered_set>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 namespace Desert::Assets::Serialization
 {
@@ -266,13 +266,13 @@ namespace Desert::Assets::Serialization
             }
         }
 
-        const auto parsed = rfl::json::read<RetargetAssetData>( text );
+        const auto parsed = Common::Json::Read<RetargetAssetData>( text );
         if ( !parsed )
         {
-            return Common::MakeFormattedError<RetargetAssetData>( "{}", parsed.error().what() );
+            return Common::MakeFormattedError<RetargetAssetData>( "{}", parsed.GetError() );
         }
 
-        RetargetAssetData data = parsed.value();
+        RetargetAssetData data = parsed.GetValue();
 
         if ( auto header = Assets::CheckStatedHeader( data.Header, Common::Content::ContentKind::Retarget,
                                                       Assets::kRetargetSchemaTag, kRetargetVersion,
@@ -312,7 +312,7 @@ namespace Desert::Assets::Serialization
         out.Header            = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::Retarget,
                                                          RetargetTextSubsystems() );
         out.Header->Dependencies = { data.SourceSkeleton.Guid };
-        return rfl::json::write( out, YYJSON_WRITE_PRETTY );
+        return Common::Json::Write( out );
     }
 
     Common::ResultStr<RetargetAssetData> LoadRetargetFile( const std::filesystem::path& path )
