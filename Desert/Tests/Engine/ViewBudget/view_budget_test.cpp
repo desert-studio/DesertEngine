@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <string>
 
 namespace
 {
@@ -92,6 +93,33 @@ TEST( ViewBudget, TheCommandLineCeilingReplacesTheDriversAndIsNamed )
     EXPECT_EQ( reading.UsageBytes, 500 * kMiB ) << "the override moves the ceiling, not the usage";
     EXPECT_FALSE( VB::MayCreate( VB::Demand::UserSurface, 13 * kMiB, 0, reading ).Ok );
     EXPECT_NE( VB::DescribeCeiling( reading ).find( "--view-budget-mib" ), std::string::npos );
+}
+
+// A resize that would go over is refused with the growth as its request; a shrink is never refused, even
+// with nothing free, because it releases more than it takes; and the refusal names the view and the numbers.
+TEST( ViewBudget, AResizeOnlyNeedsItsGrowthAndIsRefusedByNameWithTheNumbers )
+{
+    using namespace Desert::Engine::ViewBudget;
+    constexpr uint64_t kMiB = 1024ull * 1024ull;
+    Reading            reading;
+    reading.CeilingBytes = 100 * kMiB;
+    reading.UsageBytes   = 90 * kMiB;
+    reading.UsageKnown   = true;
+    reading.Source       = CeilingSource::DriverBudget;
+
+    EXPECT_TRUE( MayResize( 40 * kMiB, 50 * kMiB, reading ).Ok ) << "growth of exactly what is free was refused";
+    const Verdict over = MayResize( 40 * kMiB, 51 * kMiB, reading );
+    EXPECT_FALSE( over.Ok );
+    EXPECT_EQ( over.RequestBytes, 11 * kMiB ) << "the refusal must state the growth, not the whole new size";
+    EXPECT_EQ( over.FreeBytes, 10 * kMiB );
+
+    reading.UsageBytes = 100 * kMiB;
+    EXPECT_TRUE( MayResize( 40 * kMiB, 30 * kMiB, reading ).Ok ) << "a shrink was refused on a full device";
+
+    const std::string text = DescribeRefusal( "Scene View", over, reading, { { "Scene View", 40 * kMiB } } );
+    EXPECT_NE( text.find( "Scene View" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "11.0 MiB" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( "100.0 MiB" ), std::string::npos ) << text;
 }
 
 int main( int argc, char** argv )

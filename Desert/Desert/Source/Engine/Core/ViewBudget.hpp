@@ -125,6 +125,21 @@ namespace Desert::Engine::ViewBudget
         return verdict;
     }
 
+    /**
+     * @brief May an open view resize its targets from @p currentBytes to @p resizedBytes?
+     *
+     * The resize releases the old targets, so only the growth has to fit: shrinking is always allowed, and
+     * growing asks MayCreate for the difference as a user surface (a view being resized is on screen). A
+     * refusal leaves the view at its old size: its old targets are still valid, which a half-done rebuild
+     * would not be. The verdict's RequestBytes is the growth, so the refusal text states what was missing.
+     */
+    [[nodiscard]] constexpr Verdict MayResize( const uint64_t currentBytes, const uint64_t resizedBytes,
+                                               const Reading& reading ) noexcept
+    {
+        const uint64_t growth = resizedBytes > currentBytes ? resizedBytes - currentBytes : 0;
+        return MayCreate( Demand::UserSurface, growth, 0, reading );
+    }
+
     /// One open view and what it holds (SceneRenderer::HeldBytes), for the refusal text.
     struct HeldView
     {

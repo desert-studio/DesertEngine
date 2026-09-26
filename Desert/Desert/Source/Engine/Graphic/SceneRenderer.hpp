@@ -434,6 +434,10 @@ namespace Desert::Graphic
         // cascade framebuffers exist from that moment until this renderer dies.
         ViewProfile m_ViewProfile;
 
+        // The last size a Resize() was refused at by the view budget, so the refusal is logged once and not
+        // every frame the panel keeps asking. Empty once a resize succeeds.
+        ViewExtent m_RefusedResize{};
+
         // The surface's size: the constructor's until the first Resize(), then the last one's. The build
         // reads it and nothing reads the window, so a view never holds targets larger than its surface.
         ViewExtent m_ViewExtent;

@@ -1,6 +1,7 @@
 #include "UIRenderTextureCache.hpp"
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
@@ -63,7 +64,7 @@ namespace Desert::Graphic::Render2D
         m_Captures.clear();
         m_Demanded.clear();
         m_Refused.clear();
-        LOG_INFO( "[UI] render-texture cache reset: {} capture(s) destroyed, {} renderer slot(s) returned",
+        LOG_INFO( "[UI] render-texture cache reset: {} capture(s) destroyed, {} view(s) returned",
                   released, released );
     }
 
@@ -83,11 +84,11 @@ namespace Desert::Graphic::Render2D
 
         // ASKED BEFORE ANYTHING IS BUILT, through the shared byte rule (Engine/Core/ViewBudget.hpp) and not a
         // comparison written out here: the Details preview and the thumbnail service ask the same question
-        // with different entitlements. UserSurface: an author put this element on a canvas and a player is
-        // looking at its rect, so it may take the last byte, as the Details preview may.
-        if ( const auto may =
-                  MayCreateView( Engine::ViewBudget::Demand::UserSurface, "UI render texture " + demand.ScenePath,
-                                 kPreviewViewProfile, ViewExtent{ demand.Width, demand.Height } );
+        // with different entitlements. What is asked for is RequestUIRenderTextureView's, and the renderer
+        // below is built from the same request.
+        const UIRenderTextureViewRequest request = RequestUIRenderTextureView( demand.Width, demand.Height );
+        if ( const auto may = MayCreateView( request.Who, "UI render texture " + demand.ScenePath, request.Profile,
+                                             request.Extent );
              !may )
         {
             if ( ShouldSay( m_Refused, element, "budget" ) )
@@ -129,7 +130,7 @@ namespace Desert::Graphic::Render2D
         // shadow budget would make six of them cost 2 GB of shadow maps alone. Passed to the CONSTRUCTOR
         // because MeshRenderer allocates from it inside Init() — a value arriving later is read by nothing.
         capture.Renderer =
-             std::make_unique<SceneRenderer>( ViewExtent{ demand.Width, demand.Height }, kPreviewViewProfile );
+             std::make_unique<SceneRenderer>( request.Extent, request.Profile );
         capture.Scene    = std::make_shared<Core::Scene>( "UIRenderTexture", capture.Renderer.get() );
 
         // THE WORLD NEEDS SOMETHING TO COLLECT IT. A Core::Scene adds no ECS systems of its own, so

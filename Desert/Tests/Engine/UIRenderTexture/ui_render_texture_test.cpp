@@ -33,6 +33,7 @@
 #include <Engine/UI/UICanvasLayout.hpp>
 #include <Engine/UI/UICanvasRenderer2D.hpp>
 #include <Engine/UI/UIRenderTextureSource.hpp>
+#include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 
 #include <gtest/gtest.h>
 
@@ -503,6 +504,26 @@ TEST( UIRenderTexture, TintAndOpacityReachTheDrawnQuad )
         found = true;
     }
     EXPECT_TRUE( found ) << "no batch was bound to the world at all";
+}
+
+// The budget question the cache asks, and the view it builds from the same answer. A background demand here
+// would let an asset thumbnail's reserve refuse an element a player is looking at; a profile or extent other
+// than the built one would check a forecast for a different view than the one allocated.
+TEST( UIRenderTexture, TheBudgetIsAskedForTheElementsOwnViewAsAUserSurface )
+{
+    using namespace Desert;
+    const auto request = Graphic::Render2D::RequestUIRenderTextureView( 320, 180 );
+    EXPECT_EQ( request.Who, Engine::ViewBudget::Demand::UserSurface );
+    EXPECT_EQ( request.Extent.Width, 320u );
+    EXPECT_EQ( request.Extent.Height, 180u );
+    EXPECT_TRUE( request.Profile == Graphic::kPreviewViewProfile );
+
+    // The entitlement end to end through the shared rule: a request that exactly fills what is free passes
+    // for this element, where a background demand keeping any reserve would be refused.
+    Engine::ViewBudget::Reading reading;
+    reading.CeilingBytes = 1000;
+    reading.UsageBytes   = 400;
+    EXPECT_TRUE( Engine::ViewBudget::MayCreate( request.Who, 600, 1, reading ).Ok );
 }
 
 int main( int argc, char** argv )

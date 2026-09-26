@@ -13,6 +13,8 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/RendererSlotPool.hpp>
 
+#include <Engine/Graphic/ViewBudgetGate.hpp>
+
 #include <mutex>
 #include <Common/Core/Units.hpp>
 
@@ -1334,6 +1336,23 @@ namespace Desert::Graphic
         // that its camera turns square, and a rebuild would idle the device for identical targets.
         if ( m_ViewExtent == ViewExtent{ width, height } )
             return;
+        // A GROWTH THAT DOES NOT FIT IS REFUSED BEFORE ANYTHING IS DESTROYED: the view keeps its old targets
+        // and its old extent, so it still draws, only not at the new size. Said once per refused size, since
+        // the panel asks again every frame it stays that size.
+        if ( m_TargetFramebuffer )
+        {
+            const ViewExtent requested{ width, height };
+            if ( const auto may = MayResizeView( m_ViewResources.GetName(), m_ViewProfile, m_ViewExtent, requested );
+                 !may )
+            {
+                if ( !( m_RefusedResize == requested ) )
+                    LOG_WARN( "[ViewBudget] {}. The view keeps its {}x{} targets.", may.GetError(),
+                              m_ViewExtent.Width, m_ViewExtent.Height );
+                m_RefusedResize = requested;
+                return;
+            }
+            m_RefusedResize = ViewExtent{};
+        }
         m_ViewExtent = ViewExtent{ width, height };
         // Before the first build there is no target yet and the extent is all there is to update: the
         // build reads it.

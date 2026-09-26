@@ -78,4 +78,18 @@ namespace Desert::Graphic
         return Common::MakeError<bool>(
              Engine::ViewBudget::DescribeRefusal( viewName, verdict, reading, SceneRenderer::LiveHoldings() ) );
     }
+
+    Common::BoolResultStr MayResizeView( const std::string_view viewName, const ViewProfile& profile,
+                                         const ViewExtent& from, const ViewExtent& to )
+    {
+        const uint64_t current = SumViewTargets( ViewTargetCensus( profile, from.Width, from.Height ) ).Total();
+        const uint64_t resized = SumViewTargets( ViewTargetCensus( profile, to.Width, to.Height ) ).Total();
+        const Engine::ViewBudget::Reading reading = ReadViewBudget();
+        const Engine::ViewBudget::Verdict verdict = Engine::ViewBudget::MayResize( current, resized, reading );
+        if ( verdict.Ok )
+            return Common::MakeSuccess( true );
+        return Common::MakeFormattedError<bool>(
+             "Resize {}x{} -> {}x{} refused: {}", from.Width, from.Height, to.Width, to.Height,
+             Engine::ViewBudget::DescribeRefusal( viewName, verdict, reading, SceneRenderer::LiveHoldings() ) );
+    }
 } // namespace Desert::Graphic

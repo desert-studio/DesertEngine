@@ -28,4 +28,13 @@ namespace Desert::Graphic
      */
     [[nodiscard]] Common::BoolResultStr MayCreateView( Engine::ViewBudget::Demand who, std::string_view viewName,
                                                        const ViewProfile& profile, const ViewExtent& extent );
+
+    /**
+     * @brief Asked BEFORE an open view rebuilds its targets at @p to: does the growth over @p from fit?
+     *
+     * A refusal names the view, both sizes, the growth, the ceiling and its source, the usage and every open
+     * view's holding; the caller keeps its old targets (Engine::ViewBudget::MayResize).
+     */
+    [[nodiscard]] Common::BoolResultStr MayResizeView( std::string_view viewName, const ViewProfile& profile,
+                                                       const ViewExtent& from, const ViewExtent& to );
 } // namespace Desert::Graphic
