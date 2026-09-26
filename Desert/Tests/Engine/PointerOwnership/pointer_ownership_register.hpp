@@ -135,11 +135,11 @@ namespace Desert::Tests::PointerCensus
          "comes from a local or a member of the caller";
 
     // ----------------------------------------------------------------------------------------------
-    // THE 137 ROWS. Sorted by file and line, which is the order the scan reports them in.
+    // THE ROWS. Sorted by file and line, which is the order the scan reports them in.
     // ----------------------------------------------------------------------------------------------
     //
     // The table is kept out of the formatter's hands: one row is three lines — where, what, why — and
-    // reflowing it packs several rows onto a line and makes the 145 unreadable as a list. The directive
+    // reflowing it packs several rows onto a line and makes the table unreadable as a list. The directive
     // must be exactly this string; trailing text after "off" makes clang-format ignore it.
     // clang-format off
     inline const std::vector<Row>& Register()
@@ -1714,10 +1714,6 @@ namespace Desert::Tests::PointerCensus
           "EdgePoint", "NearEdge", Guard::CallScoped,
           "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
           "generation; the EdgePoint itself dies at the end of the texel" },
-        { "Desert/Desert/Source/Engine/Text/Msdf.cpp",
-          "EdgePoint", "NearEdge", Guard::CallScoped,
-          "the edge that won this texel's channel, inside the Shape the caller owns for the whole "
-          "generation; the EdgePoint dies at the end of the texel" },
         { "Desert/Desert/Source/Engine/UI/UICanvasContext.hpp",
           "UIViewContext", "Registry", Guard::FrameScoped,
           "the scene registry, handed to the UI pass for one frame and never stored past it" },
