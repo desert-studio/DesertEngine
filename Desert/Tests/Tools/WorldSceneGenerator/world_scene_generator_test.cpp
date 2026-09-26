@@ -33,7 +33,8 @@
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -41,6 +42,7 @@
 #include <fstream>
 #include <cctype>
 #include <cstring>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -117,12 +119,23 @@ namespace
         return Generate( out, args, bytes );
     }
 
-    rfl::Generic::Object Document( const std::string& json )
+    // The generated scene as a JSON object, read through the facade (strict): what MergeSceneDocument takes.
+    Common::Json::Object Document( const std::string& json )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( json );
-        if ( !parsed.has_value() )
-            return {};
-        return parsed.value().to_object().value_or( rfl::Generic::Object{} );
+        auto parsed = Common::Json::Read<Common::Json::Object>( json );
+        EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+        return parsed.IsSuccess() ? parsed.GetValue() : Common::Json::Object{};
+    }
+
+    // The generated scene through the strict facade read; a refusal fails the test with its path, and the
+    // optional keeps the call sites' has_value()/-> shape.
+    std::optional<SceneSerialized> ReadScene( const std::string& bytes )
+    {
+        auto parsed = Common::Json::Read<SceneSerialized>( bytes );
+        EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+        if ( !parsed.IsSuccess() )
+            return std::nullopt;
+        return std::move( parsed.GetValue() );
     }
 
     // A counting mint, like the corpus suites use: a scene whose records all carry ids must never call it.
@@ -249,8 +262,8 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
     ASSERT_EQ( GenerateSmoke( Scratch() / "grow_2.desce", small, { "--cells", "2" } ), 0 ) << small;
     ASSERT_EQ( GenerateSmoke( Scratch() / "grow_4.desce", large, { "--cells", "4" } ), 0 ) << large;
 
-    const auto smallScene = rfl::json::read<SceneSerialized>( small );
-    const auto largeScene = rfl::json::read<SceneSerialized>( large );
+    const auto smallScene = ReadScene( small );
+    const auto largeScene = ReadScene( large );
     ASSERT_TRUE( smallScene.has_value() );
     ASSERT_TRUE( largeScene.has_value() );
 
@@ -266,7 +279,7 @@ TEST( WorldSceneGenerator, TheSamePlaceInTheWorldHoldsTheSameBuildings )
                 auto copy = entity;
                 copy.id   = std::nullopt;
                 copy.Tag  = std::nullopt;
-                found.push_back( rfl::json::write( copy ) );
+                found.push_back( Common::Json::Write( copy ) );
             }
         return found;
     };
@@ -298,7 +311,7 @@ TEST( WorldSceneGenerator, TheShippedPresetIsTheWorldTheProgrammeArguedFor )
     // is asserted without writing 12 MB inside a unit test.
     ASSERT_EQ( Generate( out, { "--preset", "world", "--per-cell", "1" }, bytes ), 0 ) << bytes;
 
-    const auto scene = rfl::json::read<SceneSerialized>( bytes );
+    const auto scene = ReadScene( bytes );
     ASSERT_TRUE( scene.has_value() );
 
     // 32 x 32 cells: 1024 grounds + 1024 buildings + Sun, Sky, Camera.
@@ -337,7 +350,7 @@ TEST( WorldSceneGenerator, EveryObjectSITSInTheCellItsNameClaims )
     std::string bytes;
     ASSERT_EQ( GenerateSmoke( Scratch() / "cells.desce", bytes, { "--cells", "4" } ), 0 ) << bytes;
 
-    const auto scene = rfl::json::read<SceneSerialized>( bytes );
+    const auto scene = ReadScene( bytes );
     ASSERT_TRUE( scene.has_value() );
 
     constexpr float kCell   = 25600.0f;
@@ -386,7 +399,7 @@ TEST( WorldSceneGenerator, EveryBuildingsBaseSitsOnTheGroundPlane )
     std::string bytes;
     ASSERT_EQ( GenerateSmoke( Scratch() / "standing.desce", bytes ), 0 ) << bytes;
 
-    const auto scene = rfl::json::read<SceneSerialized>( bytes );
+    const auto scene = ReadScene( bytes );
     ASSERT_TRUE( scene.has_value() );
 
     int standing = 0;
@@ -430,7 +443,7 @@ TEST( WorldSceneGenerator, TheGeneratedSceneStatesBothVersionIntegersExplicitly 
     std::string bytes;
     ASSERT_EQ( GenerateSmoke( Scratch() / "versions.desce", bytes ), 0 ) << bytes;
 
-    const auto parsed = rfl::json::read<SceneSerialized>( bytes );
+    const auto parsed = ReadScene( bytes );
     ASSERT_TRUE( parsed.has_value() );
 
     // Bound once, then guarded once. Reaching through the Result on every line gives the reader - and
@@ -460,8 +473,8 @@ TEST( WorldSceneGenerator, TheGeneratedSceneIsUnchangedByAWholeDocumentRoundTrip
     ASSERT_FALSE( document.size() == 0 );
 
     const auto nothingIsOurs = []( const std::string& ) { return false; };
-    EXPECT_EQ( rfl::json::write( MergeSceneDocument( document, document, nothingIsOurs ) ),
-               rfl::json::write( document ) );
+    EXPECT_EQ( Common::Json::Write( MergeSceneDocument( document, document, nothingIsOurs ) ),
+               Common::Json::Write( document ) );
 }
 
 // And the Settings block is the CANONICAL one: exactly the fields this build's SceneSettings declares, no
@@ -505,7 +518,7 @@ TEST( WorldSceneGenerator, EveryRecordBecomesItsOwnEntityWithNothingShadowedMint
     std::string bytes;
     ASSERT_EQ( GenerateSmoke( Scratch() / "stitch.desce", bytes, { "--cells", "4" } ), 0 ) << bytes;
 
-    const auto scene = rfl::json::read<SceneSerialized>( bytes );
+    const auto scene = ReadScene( bytes );
     ASSERT_TRUE( scene.has_value() );
 
     size_t           minted = 0;
@@ -532,62 +545,64 @@ TEST( WorldSceneGenerator, EveryMaterialTheSceneNamesResolvesAndItsGuidIsThatFil
     std::string bytes;
     ASSERT_EQ( GenerateSmoke( Scratch() / "materials.desce", bytes ), 0 ) << bytes;
 
-    const auto document = Document( bytes );
-    const auto entities = document.get( "Entities" );
-    ASSERT_TRUE( entities.has_value() );
-    const auto records = entities->to_array();
-    ASSERT_TRUE( records.has_value() );
+    const auto parsed = Common::Json::Parse( bytes );
+    ASSERT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+    const auto entities = Common::Json::Root( parsed.GetValue() ).Get( "Entities" );
+    ASSERT_TRUE( entities.IsSuccess() ) << entities.GetError();
+
+    // Every element of a string array, or the test fails naming the element's path.
+    const auto strings = []( const Common::Json::Node& list )
+    {
+        std::vector<std::string> out;
+        list.ForEachElement(
+             [&]( std::size_t, const Common::Json::Node& element )
+             {
+                 const auto text = element.AsString();
+                 EXPECT_TRUE( text.IsSuccess() ) << text.GetError();
+                 out.push_back( text.IsSuccess() ? text.GetValue() : std::string() );
+             } );
+        return out;
+    };
 
     int checked = 0;
-    for ( const auto& record : records.value() )
-    {
-        const auto fields = record.to_object();
-        if ( !fields.has_value() )
-            continue;
-        const auto mesh = fields->get( "StaticMesh" );
-        if ( !mesh.has_value() )
-            continue;
-        const auto meshFields = mesh->to_object();
-        ASSERT_TRUE( meshFields.has_value() );
+    entities.GetValue().ForEachElement(
+         [&]( std::size_t, const Common::Json::Node& record )
+         {
+             const auto mesh = record.Find( "StaticMesh" );
+             if ( !mesh )
+                 return;
+             const auto paths = mesh->Get( "MaterialPaths" );
+             const auto guids = mesh->Get( "MaterialGuids" );
+             ASSERT_TRUE( paths.IsSuccess() ) << "a mesh with no material path: " << paths.GetError();
+             ASSERT_TRUE( guids.IsSuccess() ) << "a mesh with no material guid - the editor would add one on "
+                                                 "the first save, and the round trip above would stop holding: "
+                                              << guids.GetError();
+             const auto pathList = strings( paths.GetValue() );
+             const auto guidList = strings( guids.GetValue() );
+             ASSERT_EQ( pathList.size(), guidList.size() );
 
-        const auto paths = meshFields->get( "MaterialPaths" );
-        const auto guids = meshFields->get( "MaterialGuids" );
-        ASSERT_TRUE( paths.has_value() ) << "a mesh with no material path";
-        ASSERT_TRUE( guids.has_value() ) << "a mesh with no material guid - the editor would add one on "
-                                            "the first save, and the round trip above would stop holding";
+             for ( size_t i = 0; i < pathList.size(); ++i )
+             {
+                 const std::string&          relative = pathList[i];
+                 const std::filesystem::path onDisk   = std::filesystem::path( AssetsRoot() ) / relative;
+                 ASSERT_TRUE( std::filesystem::exists( onDisk ) ) << relative << " names no file on disk";
 
-        const auto pathList = paths->to_array();
-        const auto guidList = guids->to_array();
-        ASSERT_TRUE( pathList.has_value() );
-        ASSERT_TRUE( guidList.has_value() );
-        ASSERT_EQ( pathList->size(), guidList->size() );
+                 const auto material = Common::Json::Parse( ReadAll( onDisk ) );
+                 ASSERT_TRUE( material.IsSuccess() ) << relative << ": " << material.GetError();
+                 const auto header = Common::Json::Root( material.GetValue() ).Get( "Header" );
+                 ASSERT_TRUE( header.IsSuccess() ) << relative << " states no Header";
+                 const auto guid = header.GetValue().Get( "Guid" );
+                 ASSERT_TRUE( guid.IsSuccess() ) << relative << " Header states no Guid";
+                 const auto guidText = guid.GetValue().AsString();
+                 ASSERT_TRUE( guidText.IsSuccess() ) << relative << ": " << guidText.GetError();
 
-        for ( size_t i = 0; i < pathList->size(); ++i )
-        {
-            const auto relative = ( *pathList )[i].to_string();
-            ASSERT_TRUE( relative.has_value() );
-
-            const std::filesystem::path onDisk = std::filesystem::path( AssetsRoot() ) / *relative;
-            ASSERT_TRUE( std::filesystem::exists( onDisk ) ) << *relative << " names no file on disk";
-
-            const auto material = rfl::json::read<rfl::Generic>( ReadAll( onDisk ) );
-            ASSERT_TRUE( material.has_value() );
-            const auto header = material->to_object().value().get( "Header" );
-            ASSERT_TRUE( header.has_value() ) << *relative << " states no Header";
-            const auto guid = header->to_object().value().get( "Guid" );
-            ASSERT_TRUE( guid.has_value() ) << *relative << " Header states no Guid";
-            const auto guidText = guid->to_string();
-            ASSERT_TRUE( guidText.has_value() ) << *relative << " Header.Guid is not a string";
-
-            // SCNE 27: a slot names the material by its header GUID's TEXT, so the relation is string
-            // equality with the file's own Header.Guid - no number, no register, no lossy accessor.
-            const auto entry = ( *guidList )[i].to_string();
-            ASSERT_TRUE( entry.has_value() ) << *relative << ": the scene's MaterialGuids entry is not a string";
-            EXPECT_EQ( *entry, *guidText )
-                 << *relative << ": the scene's MaterialGuids entry is not this file's header GUID";
-            ++checked;
-        }
-    }
+                 // SCNE 27: a slot names the material by its header GUID's TEXT, so the relation is string
+                 // equality with the file's own Header.Guid - no number, no register, no lossy accessor.
+                 EXPECT_EQ( guidList[i], guidText.GetValue() )
+                      << relative << ": the scene's MaterialGuids entry is not this file's header GUID";
+                 ++checked;
+             }
+         } );
     EXPECT_GT( checked, 0 ) << "the sweep found no material reference at all";
 }
 
@@ -632,7 +647,7 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
 {
     std::string plain;
     ASSERT_EQ( GenerateSmoke( Scratch() / "unpartitioned.desce", plain ), 0 ) << plain;
-    EXPECT_FALSE( rfl::json::read<SceneSerialized>( plain )->WorldPartition.has_value() );
+    EXPECT_FALSE( ReadScene( plain )->WorldPartition.has_value() );
 
     const auto               out = Scratch() / "partitioned.desce";
     const std::vector<std::string> args{ "--out",    out.string(), "--assets",   AssetsRoot(),
@@ -641,7 +656,7 @@ TEST( WorldSceneGenerator, PartitionWritesOneGridOfTheTileSizeAndThePlanKeepsFix
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    const auto scene = ReadScene( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)
@@ -709,7 +724,7 @@ TEST( WorldSceneGenerator, EveryBuildingFitsItsTileSoNothingIsPromoted )
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    const auto scene = ReadScene( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() && scene->WorldPartition.has_value() );
     for ( const auto& entity : scene->Entities )
     {
@@ -740,7 +755,7 @@ TEST( WorldSceneGenerator, PartitionCellAndLoadingRangeShapeTheGridAndNeedPartit
     std::ostringstream       refused;
     ASSERT_EQ( Desert::WorldGen::RunWorldGen( args, reported, refused ), 0 ) << refused.str();
 
-    const auto scene = rfl::json::read<SceneSerialized>( ReadAll( out ) );
+    const auto scene = ReadScene( ReadAll( out ) );
     ASSERT_TRUE( scene.has_value() );
     ASSERT_TRUE( scene->WorldPartition.has_value() );
     ASSERT_EQ( scene->WorldPartition->Grids.size(), 1u ); // NOLINT(bugprone-unchecked-optional-access)

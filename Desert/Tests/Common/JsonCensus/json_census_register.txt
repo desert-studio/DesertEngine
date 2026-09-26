@@ -22,5 +22,4 @@ Desert/Tests/Engine/UIComponentRoundTrip/ui_component_round_trip_test.cpp | JS1d
 Desert/Tests/Engine/UIEventRouting/ui_event_routing_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Editor/Source/EditorLayer.cpp | JS1d: editor/tools protocols move to the facade
