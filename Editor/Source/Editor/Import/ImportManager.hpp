@@ -19,7 +19,7 @@ namespace Desert::Editor
 
         // force = re-cook even if an up-to-date cooked output already exists (Rebuild Cooked Assets).
         // The verdict is what the background startup cook (EditorLayer::DrainBackgroundCook) acts on.
-        CookVerdict  Import( const std::filesystem::path& path, bool force = false );
+        CookVerdict Import( const std::filesystem::path& path, bool force = false );
         // The mesh sources under `root` the bulk cook reaches (`.blend` excluded: a headless Blender run is
         // imported on demand only).
         static std::vector<std::filesystem::path> MeshSources( const std::filesystem::path& root );

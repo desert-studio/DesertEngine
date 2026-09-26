@@ -6666,12 +6666,15 @@ namespace Desert::Editor
 
     void EditorLayer::ReloadRecookedMesh( const std::filesystem::path& source )
     {
-        // THE HANDLE IS THE PATH'S (AssetHandle::FromCookedPath), not the envelope's: the Pending asset the
-        // scene already names and the asset the fresh cook resolves to are the same handle, so nothing in the
-        // scene is rewritten. A mismatch would be a scene pointing at a mesh that will never arrive — say so.
+        // THE PENDING ASSET AND THE COOKED ONE MUST BE THE SAME HANDLE: the scene already names the Pending one,
+        // and nothing rewrites the scene when the cook lands. The handle comes from the asset's path (or a
+        // header stated in the file at that path), never from the envelope the cook minted, so it holds — and a
+        // drift would be a scene pointing at a mesh that never arrives, so it is checked, not assumed.
         const std::filesystem::path staticPath = CookPaths::MeshAsset( source );
+        std::optional<uint64_t>     pendingHandle;
         if ( const auto pending = m_AssetManager->FindByPath<Assets::MeshAsset>( staticPath.generic_string() ) )
         {
+            pendingHandle = static_cast<uint64_t>( pending->GetMetadata().Handle );
             // The failed load is dropped with the built GPU mesh; the shell stays, so the next draw reads the
             // fresh entry through the path a first use takes.
             if ( const auto unloaded = pending->Unload(); !unloaded )
@@ -6687,11 +6690,12 @@ namespace Desert::Editor
                        source.string() );
             return;
         }
-        const uint64_t named = static_cast<uint64_t>( Common::AssetHandle::FromCookedPath( staticPath ) );
-        if ( !resolved.Skinned && static_cast<uint64_t>( resolved.Handle ) != named )
-            LOG_ERROR( "[BackgroundCook] '{}' resolved to handle {} but the scene names it by {}", source.string(),
-                       static_cast<uint64_t>( resolved.Handle ), named );
-        LOG_INFO( "[BackgroundCook] '{}' cooked; its asset now resolves", source.string() );
+        if ( pendingHandle && *pendingHandle != static_cast<uint64_t>( resolved.Handle ) )
+            LOG_ERROR( "[BackgroundCook] '{}' was Pending as handle {} and resolved as {} after its cook; the "
+                       "scene's reference no longer reaches it",
+                       source.string(), *pendingHandle, static_cast<uint64_t>( resolved.Handle ) );
+        LOG_INFO( "[BackgroundCook] '{}' cooked; its asset now resolves{}", source.string(),
+                  pendingHandle ? " under the handle it was Pending as" : "" );
     }
 
     void EditorLayer::DrainBackgroundCook()
@@ -7013,8 +7017,8 @@ namespace Desert::Editor
 
         if ( m_BackgroundCook && m_BackgroundCook->Outstanding() > 0 )
         {
-            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu of %zu mesh source(s)", m_BackgroundCook->Outstanding(),
-                                 m_BackgroundCook->Total() );
+            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu of %zu mesh source(s)",
+                                 m_BackgroundCook->Outstanding(), m_BackgroundCook->Total() );
             ImGui::SameLine( 0.0f, 12.0f );
         }
 

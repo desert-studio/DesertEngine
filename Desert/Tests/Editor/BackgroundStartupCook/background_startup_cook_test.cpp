@@ -39,9 +39,8 @@ namespace
         const auto                  after  = Common::AssetHandle::FromCookedPath( cooked );
         EXPECT_EQ( static_cast<uint64_t>( before ), static_cast<uint64_t>( after ) );
         EXPECT_NE( static_cast<uint64_t>( before ), 0u );
-        EXPECT_NE( static_cast<uint64_t>( before ),
-                   static_cast<uint64_t>( Common::AssetHandle::FromCookedPath(
-                        "Resources/Assets/Meshes/base_basic_pbr.stmesh" ) ) );
+        EXPECT_NE( static_cast<uint64_t>( before ), static_cast<uint64_t>( Common::AssetHandle::FromCookedPath(
+                                                         "Resources/Assets/Meshes/base_basic_pbr.stmesh" ) ) );
     }
 
     TEST( BackgroundStartupCook, TheQueueRunsNothingOnTheCallerAndCountsWhatIsOutstanding )
