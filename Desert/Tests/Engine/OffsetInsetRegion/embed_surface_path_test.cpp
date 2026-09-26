@@ -72,11 +72,11 @@ TEST( EmbedSurfacePath, StraightEdgePathAcrossAQuadBecomesMeshEdges )
     const glm::dvec3 p0( 50, 0, Size );
     const glm::dvec3 p1( 50, 50, Size );
     const glm::dvec3 p2( 50, Size, Size );
-    path.Path.emplace_back( EdgePoint( mesh, 4, 5, p0 ), 2 );
-    path.Path.emplace_back( EdgePoint( mesh, 4, 6, p1 ), 3 );
-    path.Path.emplace_back( EdgePoint( mesh, 7, 6, p2 ), DynamicMesh3::InvalidID );
+    path.m_Path.emplace_back( EdgePoint( mesh, 4, 5, p0 ), 2 );
+    path.m_Path.emplace_back( EdgePoint( mesh, 4, 6, p1 ), 3 );
+    path.m_Path.emplace_back( EdgePoint( mesh, 7, 6, p2 ), DynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
-    EXPECT_LT( Distance( path.Path[1].first.Pos( &mesh ), p1 ), 1e-9 );
+    EXPECT_LT( Distance( path.m_Path[1].first.Pos( &mesh ), p1 ), 1e-9 );
 
     std::vector<int> pathVertices;
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
@@ -95,12 +95,12 @@ TEST( EmbedSurfacePath, TriangleEndPointsArePokedAndTheEndIsRelocatedAfterTheSpl
     const glm::dvec3 start( 60, 20, Size );
     const glm::dvec3 cross( 50, 50, Size );
     const glm::dvec3 end( 40, 80, Size );
-    path.Path.emplace_back( MeshSurfacePoint( 2, glm::dvec3( 0.4, 0.4, 0.2 ) ), 2 );
-    path.Path.emplace_back( EdgePoint( mesh, 4, 6, cross ), 3 );
-    path.Path.emplace_back( MeshSurfacePoint( 3, glm::dvec3( 0.2, 0.4, 0.4 ) ), DynamicMesh3::InvalidID );
+    path.m_Path.emplace_back( MeshSurfacePoint( 2, glm::dvec3( 0.4, 0.4, 0.2 ) ), 2 );
+    path.m_Path.emplace_back( EdgePoint( mesh, 4, 6, cross ), 3 );
+    path.m_Path.emplace_back( MeshSurfacePoint( 3, glm::dvec3( 0.2, 0.4, 0.4 ) ), DynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
-    ASSERT_LT( Distance( path.Path[0].first.Pos( &mesh ), start ), 1e-9 );
-    ASSERT_LT( Distance( path.Path[2].first.Pos( &mesh ), end ), 1e-9 );
+    ASSERT_LT( Distance( path.m_Path[0].first.Pos( &mesh ), start ), 1e-9 );
+    ASSERT_LT( Distance( path.m_Path[2].first.Pos( &mesh ), end ), 1e-9 );
 
     std::vector<int> pathVertices;
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
@@ -116,10 +116,10 @@ TEST( EmbedSurfacePath, PathStartingInsideATriangleGetsItsFirstVertexAtThatExact
     // a vertex, nor on an edge, nor the centroid a poke without its barycentric coordinate would land on.
     const glm::dvec3 start( 50, 20, Size );
     const glm::dvec3 corner( Size, 0, Size ); // vertex 5
-    path.Path.emplace_back( MeshSurfacePoint( 2, glm::dvec3( 0.5, 0.3, 0.2 ) ), 2 );
-    path.Path.emplace_back( MeshSurfacePoint( 5 ), DynamicMesh3::InvalidID );
+    path.m_Path.emplace_back( MeshSurfacePoint( 2, glm::dvec3( 0.5, 0.3, 0.2 ) ), 2 );
+    path.m_Path.emplace_back( MeshSurfacePoint( 5 ), DynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
-    ASSERT_LT( Distance( path.Path[0].first.Pos( &mesh ), start ), 1e-9 );
+    ASSERT_LT( Distance( path.m_Path[0].first.Pos( &mesh ), start ), 1e-9 );
 
     std::vector<int> pathVertices;
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
@@ -138,12 +138,12 @@ TEST( EmbedSurfacePath, AppendedPathDoesNotRepeatTheSharedVertexUnlessAsked )
         DynamicMesh3     mesh = Cube();
         std::vector<int> pathVertices;
         MeshSurfacePath  first( &mesh );
-        first.Path.emplace_back( MeshSurfacePoint( 5 ), 2 );
-        first.Path.emplace_back( MeshSurfacePoint( 6 ), DynamicMesh3::InvalidID );
+        first.m_Path.emplace_back( MeshSurfacePoint( 5 ), 2 );
+        first.m_Path.emplace_back( MeshSurfacePoint( 6 ), DynamicMesh3::InvalidID );
         ASSERT_TRUE( first.EmbedSimplePath( pathVertices, dedupe ) );
         MeshSurfacePath second( &mesh );
-        second.Path.emplace_back( MeshSurfacePoint( 6 ), 3 );
-        second.Path.emplace_back( MeshSurfacePoint( 7 ), DynamicMesh3::InvalidID );
+        second.m_Path.emplace_back( MeshSurfacePoint( 6 ), 3 );
+        second.m_Path.emplace_back( MeshSurfacePoint( 7 ), DynamicMesh3::InvalidID );
         ASSERT_TRUE( second.EmbedSimplePath( pathVertices, dedupe ) );
         const std::vector<int> expected = dedupe ? std::vector<int>{ 5, 6, 7 } : std::vector<int>{ 5, 6, 6, 7 };
         EXPECT_EQ( std::vector<int>( pathVertices.begin(), pathVertices.end() ), expected ) << "dedupe " << dedupe;
@@ -155,9 +155,9 @@ TEST( EmbedSurfacePath, PathThatLeavesItsWalkingTriangleIsNotConnected )
 {
     DynamicMesh3    mesh = Cube();
     MeshSurfacePath path( &mesh );
-    path.Path.emplace_back( EdgePoint( mesh, 4, 5, glm::dvec3( 50, 0, Size ) ),
-                            0 ); // triangle 0 is the bottom face
-    path.Path.emplace_back( EdgePoint( mesh, 4, 6, glm::dvec3( 50, 50, Size ) ), DynamicMesh3::InvalidID );
+    path.m_Path.emplace_back( EdgePoint( mesh, 4, 5, glm::dvec3( 50, 0, Size ) ),
+                              0 ); // triangle 0 is the bottom face
+    path.m_Path.emplace_back( EdgePoint( mesh, 4, 6, glm::dvec3( 50, 50, Size ) ), DynamicMesh3::InvalidID );
     EXPECT_FALSE( path.IsConnected() );
 }
 
@@ -166,13 +166,13 @@ TEST( DistPoint3Triangle3, BarycentricCoordinatesOfTheClosestPoint )
     const Triangle3d     tri( glm::dvec3( 0, 0, 0 ), glm::dvec3( 100, 0, 0 ), glm::dvec3( 0, 100, 0 ) );
     DistPoint3Triangle3d above( glm::dvec3( 20, 30, 7 ), tri );
     EXPECT_NEAR( above.GetSquared(), 49.0, 1e-9 );
-    EXPECT_NEAR( above.TriangleBaryCoords[0], 0.5, 1e-12 );
-    EXPECT_NEAR( above.TriangleBaryCoords[1], 0.2, 1e-12 );
-    EXPECT_NEAR( above.TriangleBaryCoords[2], 0.3, 1e-12 );
+    EXPECT_NEAR( above.m_TriangleBaryCoords[0], 0.5, 1e-12 );
+    EXPECT_NEAR( above.m_TriangleBaryCoords[1], 0.2, 1e-12 );
+    EXPECT_NEAR( above.m_TriangleBaryCoords[2], 0.3, 1e-12 );
     // Outside across the hypotenuse: the closest point is (50,50,0) on edge 1-2.
     DistPoint3Triangle3d outside( glm::dvec3( 60, 60, 0 ), tri );
     EXPECT_NEAR( outside.GetSquared(), 200.0, 1e-9 );
-    EXPECT_NEAR( outside.TriangleBaryCoords[0], 0.0, 1e-12 );
-    EXPECT_NEAR( outside.TriangleBaryCoords[1], 0.5, 1e-12 );
-    EXPECT_NEAR( outside.TriangleBaryCoords[2], 0.5, 1e-12 );
+    EXPECT_NEAR( outside.m_TriangleBaryCoords[0], 0.0, 1e-12 );
+    EXPECT_NEAR( outside.m_TriangleBaryCoords[1], 0.5, 1e-12 );
+    EXPECT_NEAR( outside.m_TriangleBaryCoords[2], 0.5, 1e-12 );
 }

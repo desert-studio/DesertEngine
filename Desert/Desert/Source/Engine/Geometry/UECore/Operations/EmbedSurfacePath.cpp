@@ -125,7 +125,7 @@ namespace Desert::Geometry
                 {
                     BestTriID      = TriID;
                     BestTriDistSq  = DistSq;
-                    BestBaryCoords = TriDist.TriangleBaryCoords;
+                    BestBaryCoords = TriDist.m_TriangleBaryCoords;
                 }
             }
             DESERT_VERIFY_WARN( Mesh->IsTriangle( BestTriID ) );
@@ -137,17 +137,17 @@ namespace Desert::Geometry
 
     bool MeshSurfacePath::IsConnected() const
     {
-        for ( int Idx = 1, LastIdx = 0; Idx < static_cast<int32_t>( Path.size() ); LastIdx = Idx++ )
+        for ( int Idx = 1, LastIdx = 0; Idx < static_cast<int32_t>( m_Path.size() ); LastIdx = Idx++ )
         {
-            const int WalkingOnTri = Path[LastIdx].second;
-            if ( !Mesh->IsTriangle( WalkingOnTri ) )
+            const int WalkingOnTri = m_Path[LastIdx].second;
+            if ( !m_Mesh->IsTriangle( WalkingOnTri ) )
             {
                 return false;
             }
             const int Inds[2] = { LastIdx, Idx };
             for ( const int Ind : Inds )
             {
-                const MeshSurfacePoint& P = Path[Ind].first;
+                const MeshSurfacePoint& P = m_Path[Ind].first;
                 switch ( P.PointType )
                 {
                     case SurfacePointType::Triangle:
@@ -157,13 +157,13 @@ namespace Desert::Geometry
                         }
                         break;
                     case SurfacePointType::Edge:
-                        if ( !Mesh->GetEdgeT( P.ElementID ).Contains( WalkingOnTri ) )
+                        if ( !m_Mesh->GetEdgeT( P.ElementID ).Contains( WalkingOnTri ) )
                         {
                             return false;
                         }
                         break;
                     case SurfacePointType::Vertex:
-                        if ( !Mesh->GetTriangle( WalkingOnTri ).Contains( P.ElementID ) )
+                        if ( !m_Mesh->GetTriangle( WalkingOnTri ).Contains( P.ElementID ) )
                         {
                             return false;
                         }
@@ -180,13 +180,13 @@ namespace Desert::Geometry
         // used to track where the new vertices for *this* path start; used for bDoNotDuplicateFirstVertexID
         const int32_t InitialPathIdx = static_cast<int32_t>( PathVertices.size() );
 
-        if ( Path.empty() )
+        if ( m_Path.empty() )
         {
             return true;
         }
 
-        const int32_t            PathNum   = static_cast<int32_t>( Path.size() );
-        const MeshSurfacePoint&  OrigEndPt = Path[PathNum - 1].first;
+        const int32_t           PathNum   = static_cast<int32_t>( m_Path.size() );
+        const MeshSurfacePoint& OrigEndPt = m_Path[PathNum - 1].first;
         // If FinalTri is split or poked, we will need to re-locate the last point in the path
         int  StartProcessIdx         = 0;
         int  EndSimpleProcessIdx     = PathNum - 1;
@@ -196,26 +196,26 @@ namespace Desert::Geometry
             EndSimpleProcessIdx     = PathNum - 2;
             bEndPointSpecialProcess = true;
         }
-        MeshSurfacePoint  EndPtUpdated = Path.back().first;
-        const glm::dvec3  EndPtPos     = OrigEndPt.Pos( Mesh );
+        MeshSurfacePoint EndPtUpdated = m_Path.back().first;
+        const glm::dvec3 EndPtPos     = OrigEndPt.Pos( m_Mesh );
 
-        if ( Path[0].first.PointType == SurfacePointType::Triangle )
+        if ( m_Path[0].first.PointType == SurfacePointType::Triangle )
         {
             // poke triangle, and place initial vertex
             DynamicMesh3::PokeTriangleInfo PokeInfo;
-            if ( !Common::EnsureOrWarn( Mesh->PokeTriangle( Path[0].first.ElementID, Path[0].first.BaryCoord,
-                                                            PokeInfo ) == MeshResult::Ok,
+            if ( !Common::EnsureOrWarn( m_Mesh->PokeTriangle( m_Path[0].first.ElementID, m_Path[0].first.BaryCoord,
+                                                              PokeInfo ) == MeshResult::Ok,
                                         "Mesh->PokeTriangle( Path[0].first.ElementID, Path[0].first.BaryCoord, "
                                         "PokeInfo ) == MeshResult::Ok" ) )
             {
                 return false;
             }
             if ( EndPtUpdated.PointType == SurfacePointType::Triangle &&
-                 Path[0].first.ElementID == EndPtUpdated.ElementID )
+                 m_Path[0].first.ElementID == EndPtUpdated.ElementID )
             {
                 const std::array<int, 3> EndCandidateTris{ PokeInfo.NewTriangles.A, PokeInfo.NewTriangles.B,
                                                            PokeInfo.OriginalTriangle };
-                EndPtUpdated = RelocateTrianglePointAfterRefinement( Mesh, EndPtPos, EndCandidateTris,
+                EndPtUpdated = RelocateTrianglePointAfterRefinement( m_Mesh, EndPtPos, EndCandidateTris,
                                                                      SnapElementThresholdSq );
             }
             PathVertices.push_back( PokeInfo.NewVertex );
@@ -224,18 +224,18 @@ namespace Desert::Geometry
 
         for ( int32_t PathIdx = StartProcessIdx; PathIdx <= EndSimpleProcessIdx; PathIdx++ )
         {
-            if ( !Common::EnsureOrWarn( Path[PathIdx].first.PointType != SurfacePointType::Triangle,
+            if ( !Common::EnsureOrWarn( m_Path[PathIdx].first.PointType != SurfacePointType::Triangle,
                                         "Path[PathIdx].first.PointType != SurfacePointType::Triangle" ) )
             {
                 // Input assumptions violated -- Simple path can only have Triangle points at the very first and/or
                 // last points!  Would need a more powerful embed function to handle this case.
                 return false;
             }
-            const MeshSurfacePoint& Pt = Path[PathIdx].first;
+            const MeshSurfacePoint& Pt = m_Path[PathIdx].first;
             if ( Pt.PointType == SurfacePointType::Edge )
             {
                 DynamicMesh3::EdgeSplitInfo SplitInfo;
-                if ( !Common::EnsureOrWarn( Mesh->SplitEdge( Pt.ElementID, SplitInfo, Pt.GetEdgeSplitParam() ) ==
+                if ( !Common::EnsureOrWarn( m_Mesh->SplitEdge( Pt.ElementID, SplitInfo, Pt.GetEdgeSplitParam() ) ==
                                                  MeshResult::Ok,
                                             "Mesh->SplitEdge( Pt.ElementID, SplitInfo, Pt.GetEdgeSplitParam() ) "
                                             "== MeshResult::Ok" ) )
@@ -251,7 +251,7 @@ namespace Desert::Geometry
                                                            ? SplitInfo.NewTriangles.A
                                                            : SplitInfo.NewTriangles.B };
                     EndPtUpdated =
-                         RelocateTrianglePointAfterRefinement( Mesh, EndPtPos, TriInds, SnapElementThresholdSq );
+                         RelocateTrianglePointAfterRefinement( m_Mesh, EndPtPos, TriInds, SnapElementThresholdSq );
                 }
                 else if ( PathIdx != PathNum - 1 && EndPtUpdated.PointType == SurfacePointType::Edge &&
                           Pt.ElementID == EndPtUpdated.ElementID )
@@ -264,7 +264,7 @@ namespace Desert::Geometry
             else
             {
                 DESERT_VERIFY_WARN( Pt.PointType == SurfacePointType::Vertex );
-                DESERT_VERIFY_WARN( Mesh->IsVertex( Pt.ElementID ) );
+                DESERT_VERIFY_WARN( m_Mesh->IsVertex( Pt.ElementID ) );
                 // make sure we don't add a duplicate vertex for the very first vertex (occurs when appending paths
                 // sequentially)
                 if ( !bDoNotDuplicateFirstVertexID ||
@@ -281,8 +281,8 @@ namespace Desert::Geometry
             if ( EndPtUpdated.PointType == SurfacePointType::Triangle )
             {
                 DynamicMesh3::PokeTriangleInfo PokeInfo;
-                if ( !Common::EnsureOrWarn( Mesh->PokeTriangle( EndPtUpdated.ElementID, EndPtUpdated.BaryCoord,
-                                                                PokeInfo ) == MeshResult::Ok,
+                if ( !Common::EnsureOrWarn( m_Mesh->PokeTriangle( EndPtUpdated.ElementID, EndPtUpdated.BaryCoord,
+                                                                  PokeInfo ) == MeshResult::Ok,
                                             "Mesh->PokeTriangle( EndPtUpdated.ElementID, EndPtUpdated.BaryCoord, "
                                             "PokeInfo ) == MeshResult::Ok" ) )
                 {
@@ -293,8 +293,9 @@ namespace Desert::Geometry
             else if ( EndPtUpdated.PointType == SurfacePointType::Edge )
             {
                 DynamicMesh3::EdgeSplitInfo SplitInfo;
-                if ( !Common::EnsureOrWarn( Mesh->SplitEdge( EndPtUpdated.ElementID, SplitInfo,
-                                                             EndPtUpdated.GetEdgeSplitParam() ) == MeshResult::Ok,
+                if ( !Common::EnsureOrWarn( m_Mesh->SplitEdge( EndPtUpdated.ElementID, SplitInfo,
+                                                               EndPtUpdated.GetEdgeSplitParam() ) ==
+                                                 MeshResult::Ok,
                                             "Mesh->SplitEdge( EndPtUpdated.ElementID, SplitInfo, "
                                             "EndPtUpdated.GetEdgeSplitParam() ) == MeshResult::Ok" ) )
                 {

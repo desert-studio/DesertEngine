@@ -168,7 +168,7 @@ namespace
                 for ( const int t : p.Old.TriangleIds() )
                     seeds.push_back( { t, t } );
             else
-                for ( const auto& group : p.Topology.Groups )
+                for ( const auto& group : p.Topology.m_Groups )
                     seeds.push_back( { group.GroupID, group.GroupID } );
             for ( const auto& [oldId, newId] : seeds )
             {
@@ -259,7 +259,7 @@ namespace
 TEST( DynamicMeshSelection, CubeSelectsWhatTheEditMeshPathSelects )
 {
     auto p = Build( Cube() );
-    ASSERT_EQ( static_cast<int32_t>( p->Topology.Groups.size() ), 6 );
+    ASSERT_EQ( static_cast<int32_t>( p->Topology.m_Groups.size() ), 6 );
     EXPECT_EQ( CompareOperations( *p ), ( 8 + 18 + 12 + 6 ) * 7 );
     EXPECT_GT( ComparePicks( *p, { 180.0f, 140.0f, 220.0f }, { 0.0f, 0.0f, 0.0f } ), 50 );
     std::cout << "[ pick ] vertex/edge: same " << p->PickSame << ", other " << p->PickOther << ", hit/miss differ "
@@ -270,7 +270,7 @@ TEST( DynamicMeshSelection, CubeSelectsWhatTheEditMeshPathSelects )
 TEST( DynamicMeshSelection, CylinderSelectsWhatTheEditMeshPathSelects )
 {
     auto p = Build( Cylinder() );
-    ASSERT_EQ( static_cast<int32_t>( p->Topology.Groups.size() ), 3 );
+    ASSERT_EQ( static_cast<int32_t>( p->Topology.m_Groups.size() ), 3 );
     EXPECT_EQ( CompareOperations( *p ), ( 18 + 48 + 32 + 3 ) * 7 );
     EXPECT_GT( ComparePicks( *p, { 150.0f, 220.0f, 180.0f }, { 0.0f, 50.0f, 0.0f } ), 50 );
     std::cout << "[ pick ] vertex/edge: same " << p->PickSame << ", other " << p->PickOther << ", hit/miss differ "
@@ -386,7 +386,7 @@ namespace
 TEST( DynamicMeshSelection, GroupEdgePickSkipsTheDiagonalInsideAGroup )
 {
     auto p = Build( SplitCube() );
-    ASSERT_EQ( static_cast<int32_t>( p->Topology.Groups.size() ), 6 );
+    ASSERT_EQ( static_cast<int32_t>( p->Topology.m_Groups.size() ), 6 );
     int diagonal = -1;
     for ( const int e : p->New.EdgeIndicesItr() )
     {
@@ -438,7 +438,7 @@ TEST( DynamicMeshSelection, GroupEdgePickSelectsEveryMeshEdgeOfTheGroupEdge )
 TEST( DynamicMeshSelection, GroupVertexPickIsAGroupCorner )
 {
     auto p = Build( SplitCube() );
-    ASSERT_EQ( static_cast<int32_t>( p->Topology.Corners.size() ), 8 );
+    ASSERT_EQ( static_cast<int32_t>( p->Topology.m_Corners.size() ), 8 );
     const glm::vec3  centre( 0.0f, 0.0f, 50.0f );
     const PickView   front = ViewThrough( { 0.0f, 0.0f, 400.0f }, centre );
     const ElementHit tri = PickElement( p->New, p->Topology, ElementMode::Vertex, front, TopologyLevel::Triangle );

@@ -22,11 +22,11 @@ void MeshConnectedComponents::FindTrianglesConnectedToSeeds(
 {
     // initial active set contains all valid triangles
     std::vector<uint8_t> ActiveSet;
-    const int32_t   NumTriangles = Mesh->MaxTriangleID();
+    const int32_t        NumTriangles = m_Mesh->MaxTriangleID();
     ActiveSet.assign( NumTriangles, static_cast<uint8_t>( ProcessingState::Invalid ) );
     for ( int32_t Tid = 0; Tid < NumTriangles; ++Tid )
     {
-        if ( Mesh->IsTriangle( Tid ) )
+        if ( m_Mesh->IsTriangle( Tid ) )
         {
             ActiveSet[Tid] = static_cast<uint8_t>( ProcessingState::Unprocessed );
         }
@@ -39,7 +39,7 @@ void MeshConnectedComponents::FindTriComponents(
      const std::vector<int32_t>& SeedList, std::vector<uint8_t>& ActiveSet,
      const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate )
 {
-    Components.clear();
+    m_Components.clear();
 
     std::vector<int32_t> ComponentQueue;
     ComponentQueue.reserve( 256 );
@@ -63,7 +63,7 @@ void MeshConnectedComponents::FindTriComponents(
                 FindTriComponent( Component, ComponentQueue, ActiveSet );
             }
             RemoveFromActiveSet( Component, ActiveSet );
-            Components.push_back( std::move( Component ) );
+            m_Components.push_back( std::move( Component ) );
 
             ComponentQueue.clear();
         }
@@ -81,7 +81,7 @@ void MeshConnectedComponents::FindTriComponent( Component& Component, std::vecto
         ActiveSet[CurTriangle] = static_cast<uint8_t>( ProcessingState::Done );
         Component.Indices.push_back( CurTriangle );
 
-        const Index3i TriNbrTris = Mesh->GetTriNeighbourTris( CurTriangle );
+        const Index3i TriNbrTris = m_Mesh->GetTriNeighbourTris( CurTriangle );
         for ( int j = 0; j < 3; ++j )
         {
             const int NbrTri = TriNbrTris[j];
@@ -107,7 +107,7 @@ void MeshConnectedComponents::FindTriComponent(
         ActiveSet[CurTriangle] = static_cast<uint8_t>( ProcessingState::Done );
         Component.Indices.push_back( CurTriangle );
 
-        const Index3i TriNbrTris = Mesh->GetTriNeighbourTris( CurTriangle );
+        const Index3i TriNbrTris = m_Mesh->GetTriNeighbourTris( CurTriangle );
         for ( int j = 0; j < 3; ++j )
         {
             const int NbrTri = TriNbrTris[j];

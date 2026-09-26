@@ -79,14 +79,14 @@ namespace
 
 void MeshNormals::SetCount( int Count, bool bClearToZero )
 {
-    if ( static_cast<int32_t>( Normals.size() ) < Count )
+    if ( static_cast<int32_t>( m_Normals.size() ) < Count )
     {
-        Normals.resize( Count );
+        m_Normals.resize( Count );
     }
     if ( bClearToZero )
     {
-        std::memset( Normals.data(), 0,
-                     static_cast<size_t>( static_cast<int32_t>( Normals.size() ) ) * sizeof( glm::dvec3 ) );
+        std::memset( m_Normals.data(), 0,
+                     static_cast<size_t>( static_cast<int32_t>( m_Normals.size() ) ) * sizeof( glm::dvec3 ) );
     }
 }
 
@@ -98,62 +98,62 @@ void MeshNormals::CopyToVertexNormals( DynamicMesh3* SetMesh, bool bInvert ) con
     }
 
     float sign = ( bInvert ) ? -1.0f : 1.0f;
-    int const N    = std::min( static_cast<int32_t>( Normals.size() ), SetMesh->MaxVertexID() );
+    int const N    = std::min( static_cast<int32_t>( m_Normals.size() ), SetMesh->MaxVertexID() );
     for ( int vi = 0; vi < N; ++vi )
     {
-        if ( Mesh->IsVertex( vi ) && SetMesh->IsVertex( vi ) )
+        if ( m_Mesh->IsVertex( vi ) && SetMesh->IsVertex( vi ) )
         {
-            SetMesh->SetVertexNormal( vi, sign * (glm::vec3)Normals[vi] );
+            SetMesh->SetVertexNormal( vi, sign * (glm::vec3)m_Normals[vi] );
         }
     }
 }
 
 void MeshNormals::GetVertexNormalsFromOverlayNormals( CombineSplitNormalsMethod CombineSplitNormals )
 {
-    assert( Mesh );
+    assert( m_Mesh );
 
     // no overlay to copy from
-    if ( !Mesh->HasAttributes() || !Mesh->Attributes()->PrimaryNormals() )
+    if ( !m_Mesh->HasAttributes() || !m_Mesh->Attributes()->PrimaryNormals() )
     {
-        Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0, 0, 1 ) );
+        m_Normals.assign( m_Mesh->MaxVertexID(), glm::dvec3( 0, 0, 1 ) );
         return;
     }
 
-    const DynamicMeshNormalOverlay* NormalOverlay = Mesh->Attributes()->PrimaryNormals();
+    const DynamicMeshNormalOverlay* NormalOverlay = m_Mesh->Attributes()->PrimaryNormals();
     if ( CombineSplitNormals == CombineSplitNormalsMethod::Average )
     {
-        Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0 ) );
-        for ( int32_t const TID : Mesh->TriangleIndicesItr() )
+        m_Normals.assign( m_Mesh->MaxVertexID(), glm::dvec3( 0 ) );
+        for ( int32_t const TID : m_Mesh->TriangleIndicesItr() )
         {
             if ( NormalOverlay->IsSetTriangle( TID ) )
             {
-                Index3i   TriV = Mesh->GetTriangle( TID );
+                Index3i   TriV = m_Mesh->GetTriangle( TID );
                 glm::vec3 A{}, B{}, C{};
                 NormalOverlay->GetTriElements( TID, A, B, C );
-                Normals[TriV.A] += (glm::dvec3)A;
-                Normals[TriV.B] += (glm::dvec3)B;
-                Normals[TriV.C] += (glm::dvec3)C;
+                m_Normals[TriV.A] += (glm::dvec3)A;
+                m_Normals[TriV.B] += (glm::dvec3)B;
+                m_Normals[TriV.C] += (glm::dvec3)C;
             }
         }
 
-        for ( int32_t k = 0; k < static_cast<int32_t>( Normals.size() ); ++k )
+        for ( int32_t k = 0; k < static_cast<int32_t>( m_Normals.size() ); ++k )
         {
-            Normalize( Normals[k] );
+            Normalize( m_Normals[k] );
         }
     }
     else // CombineSplitNormalsMethod::CopyAny
     {
-        Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0, 0, 1 ) );
-        for ( int32_t const TID : Mesh->TriangleIndicesItr() )
+        m_Normals.assign( m_Mesh->MaxVertexID(), glm::dvec3( 0, 0, 1 ) );
+        for ( int32_t const TID : m_Mesh->TriangleIndicesItr() )
         {
             if ( NormalOverlay->IsSetTriangle( TID ) )
             {
-                Index3i   TriV = Mesh->GetTriangle( TID );
+                Index3i   TriV = m_Mesh->GetTriangle( TID );
                 glm::vec3 A{}, B{}, C{};
                 NormalOverlay->GetTriElements( TID, A, B, C );
-                Normals[TriV.A] = (glm::dvec3)A;
-                Normals[TriV.B] = (glm::dvec3)B;
-                Normals[TriV.C] = (glm::dvec3)C;
+                m_Normals[TriV.A] = (glm::dvec3)A;
+                m_Normals[TriV.B] = (glm::dvec3)B;
+                m_Normals[TriV.C] = (glm::dvec3)C;
             }
         }
     }
@@ -164,30 +164,30 @@ void MeshNormals::CopyToOverlay( DynamicMeshNormalOverlay* NormalOverlay, bool b
     float sign = ( bInvert ) ? -1.0f : 1.0f;
     for ( int ElemIdx : NormalOverlay->ElementIndicesItr() )
     {
-        NormalOverlay->SetElement( ElemIdx, sign * (glm::vec3)Normals[ElemIdx] );
+        NormalOverlay->SetElement( ElemIdx, sign * (glm::vec3)m_Normals[ElemIdx] );
     }
 }
 
 void MeshNormals::Compute_FaceAvg_AreaWeighted()
 {
-    SetCount( Mesh->MaxVertexID(), true );
+    SetCount( m_Mesh->MaxVertexID(), true );
 
-    for ( int TriIdx : Mesh->TriangleIndicesItr() )
+    for ( int TriIdx : m_Mesh->TriangleIndicesItr() )
     {
         glm::dvec3 TriNormal{}, TriCentroid{};
         double    TriArea;
-        Mesh->GetTriInfo( TriIdx, TriNormal, TriArea, TriCentroid );
+        m_Mesh->GetTriInfo( TriIdx, TriNormal, TriArea, TriCentroid );
         TriNormal *= TriArea;
 
-        Index3i Triangle = Mesh->GetTriangle( TriIdx );
-        Normals[Triangle.A] += TriNormal;
-        Normals[Triangle.B] += TriNormal;
-        Normals[Triangle.C] += TriNormal;
+        Index3i Triangle = m_Mesh->GetTriangle( TriIdx );
+        m_Normals[Triangle.A] += TriNormal;
+        m_Normals[Triangle.B] += TriNormal;
+        m_Normals[Triangle.C] += TriNormal;
     }
 
-    for ( int VertIdx : Mesh->VertexIndicesItr() )
+    for ( int VertIdx : m_Mesh->VertexIndicesItr() )
     {
-        Normalize( Normals[VertIdx] );
+        Normalize( m_Normals[VertIdx] );
     }
 }
 
@@ -200,44 +200,44 @@ void MeshNormals::Compute_FaceAvg( bool bWeightByArea, bool bWeightByAngle )
     }
 
     // most general case
-    SetCount( Mesh->MaxVertexID(), true );
+    SetCount( m_Mesh->MaxVertexID(), true );
 
-    for ( int TriIdx : Mesh->TriangleIndicesItr() )
+    for ( int TriIdx : m_Mesh->TriangleIndicesItr() )
     {
         glm::dvec3 TriNormal{}, TriCentroid{};
         double    TriArea;
-        Mesh->GetTriInfo( TriIdx, TriNormal, TriArea, TriCentroid );
+        m_Mesh->GetTriInfo( TriIdx, TriNormal, TriArea, TriCentroid );
         glm::dvec3 TriNormalWeights =
-             GetVertexWeightsOnTriangle( Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
+             GetVertexWeightsOnTriangle( m_Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
 
-        Index3i Triangle = Mesh->GetTriangle( TriIdx );
-        Normals[Triangle.A] += TriNormal * TriNormalWeights[0];
-        Normals[Triangle.B] += TriNormal * TriNormalWeights[1];
-        Normals[Triangle.C] += TriNormal * TriNormalWeights[2];
+        Index3i Triangle = m_Mesh->GetTriangle( TriIdx );
+        m_Normals[Triangle.A] += TriNormal * TriNormalWeights[0];
+        m_Normals[Triangle.B] += TriNormal * TriNormalWeights[1];
+        m_Normals[Triangle.C] += TriNormal * TriNormalWeights[2];
     }
 
-    for ( int VertIdx : Mesh->VertexIndicesItr() )
+    for ( int VertIdx : m_Mesh->VertexIndicesItr() )
     {
-        Normalize( Normals[VertIdx] );
+        Normalize( m_Normals[VertIdx] );
     }
 }
 
 void MeshNormals::Compute_Triangle()
 {
-    int NumTriangles = Mesh->MaxTriangleID();
+    int NumTriangles = m_Mesh->MaxTriangleID();
     SetCount( NumTriangles, false );
     for ( int32_t Index = 0; Index < NumTriangles; ++Index )
     {
-        if ( Mesh->IsTriangle( Index ) )
+        if ( m_Mesh->IsTriangle( Index ) )
         {
-            Normals[Index] = Mesh->GetTriNormal( Index );
+            m_Normals[Index] = m_Mesh->GetTriNormal( Index );
         }
     }
 }
 
 void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 {
-    assert( static_cast<int32_t>( Normals.size() ) >= Mesh->MaxTriangleID() );
+    assert( static_cast<int32_t>( m_Normals.size() ) >= m_Mesh->MaxTriangleID() );
 
     // We're going to look through the triangles and set any zero normals
     // to the normal of their neighbor, preferring to go toward the neighbor
@@ -251,7 +251,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
         WalkedTidsOut.clear();
         NonDegenerateNeighborTidOut = DynamicMesh3::InvalidID;
 
-        assert( StartTid != DynamicMesh3::InvalidID && Normals[StartTid] == glm::dvec3( 0 ) );
+        assert( StartTid != DynamicMesh3::InvalidID && m_Normals[StartTid] == glm::dvec3( 0 ) );
 
         // We don't like recursion, so we use a little stack instead to help us prioritize
         // the longer-side neighbors in our walk.
@@ -269,7 +269,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             }
 
             // See if we've reached a non-degenerate triangle
-            if ( Normals[CurrentTid] != glm::dvec3( 0 ) )
+            if ( m_Normals[CurrentTid] != glm::dvec3( 0 ) )
             {
                 NonDegenerateNeighborTidOut = CurrentTid;
                 return;
@@ -278,7 +278,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             WalkedTidsOut.insert( CurrentTid );
 
             // Sanity check so we don't go forever
-            if ( static_cast<int32_t>( WalkedTidsOut.size() ) > Mesh->MaxTriangleID() )
+            if ( static_cast<int32_t>( WalkedTidsOut.size() ) > m_Mesh->MaxTriangleID() )
             {
                 assert( false );
                 return;
@@ -287,10 +287,10 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             // Otherwise, get neighbors and corresponding squared edge lengths.
             int32_t  NeighborTids[3];
             double   SquaredEdgeLengths[3];
-            Index3i  TriEdges = Mesh->GetTriEdges( CurrentTid );
+            Index3i  TriEdges = m_Mesh->GetTriEdges( CurrentTid );
             for ( int i = 0; i < 3; ++i )
             {
-                Index2i       Tids     = Mesh->GetEdgeT( TriEdges[i] );
+                Index2i       Tids     = m_Mesh->GetEdgeT( TriEdges[i] );
                 int32_t const OtherTid = ( Tids.A == CurrentTid ) ? Tids.B : Tids.A;
                 NeighborTids[i]   = OtherTid;
 
@@ -301,7 +301,7 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
                 else
                 {
                     glm::dvec3 Vert1{}, Vert2{};
-                    Mesh->GetEdgeV( TriEdges[i], Vert1, Vert2 );
+                    m_Mesh->GetEdgeV( TriEdges[i], Vert1, Vert2 );
                     SquaredEdgeLengths[i] = DistanceSquared( Vert1, Vert2 );
                 }
             }
@@ -340,9 +340,9 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 
     std::unordered_set<int32_t> CurrentWalkedTids;
 
-    for ( int32_t const Tid : Mesh->TriangleIndicesItr() )
+    for ( int32_t const Tid : m_Mesh->TriangleIndicesItr() )
     {
-        if ( Normals[Tid] == glm::dvec3( 0 ) && !IslandDegenerates.contains( Tid ) )
+        if ( m_Normals[Tid] == glm::dvec3( 0 ) && !IslandDegenerates.contains( Tid ) )
         {
             // Find a normal to use
             CurrentWalkedTids.clear();
@@ -359,12 +359,12 @@ void MeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             else
             {
                 // Apply the neighbor normal.
-                glm::dvec3 NormalToUse = Normals[NonDegenerateNeighborTid];
+                glm::dvec3 NormalToUse = m_Normals[NonDegenerateNeighborTid];
                 assert( NormalToUse != glm::dvec3( 0 ) );
 
                 for ( int32_t const WalkedTid : CurrentWalkedTids )
                 {
-                    Normals[WalkedTid] = NormalToUse;
+                    m_Normals[WalkedTid] = NormalToUse;
                 }
             }
         } // end if normal is zero
@@ -383,7 +383,7 @@ void MeshNormals::Compute_Overlay_FaceAvg( const DynamicMeshNormalOverlay* Norma
     // most general case
     SetCount( NormalOverlay->MaxElementID(), true );
 
-    for ( int TriIdx : Mesh->TriangleIndicesItr() )
+    for ( int TriIdx : m_Mesh->TriangleIndicesItr() )
     {
         Index3i Tri = NormalOverlay->GetTriangle( TriIdx );
         if ( Tri.A == INDEX_NONE )
@@ -392,23 +392,23 @@ void MeshNormals::Compute_Overlay_FaceAvg( const DynamicMeshNormalOverlay* Norma
         }
 
         glm::dvec3 V0{}, V1{}, V2{};
-        Mesh->GetTriVertices( TriIdx, V0, V1, V2 );
+        m_Mesh->GetTriVertices( TriIdx, V0, V1, V2 );
 
         glm::dvec3 TriNormal{};
         double    TriArea;
         TriNormal = VectorUtil::NormalArea( V0, V1, V2, TriArea );
         glm::dvec3 TriNormalWeights =
-             GetVertexWeightsOnTriangle( Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
+             GetVertexWeightsOnTriangle( m_Mesh, TriIdx, TriArea, bWeightByArea, bWeightByAngle );
 
         for ( int j = 0; j < 3; ++j )
         {
-            Normals[Tri[j]] += TriNormal * TriNormalWeights[j];
+            m_Normals[Tri[j]] += TriNormal * TriNormalWeights[j];
         }
     }
 
     for ( int ElemIdx : NormalOverlay->ElementIndicesItr() )
     {
-        Normalize( Normals[ElemIdx] );
+        Normalize( m_Normals[ElemIdx] );
     }
 }
 
@@ -416,11 +416,11 @@ void MeshNormals::Compute_Overlay_FaceAvg_AreaWeighted( const DynamicMeshNormalO
 {
     SetCount( NormalOverlay->MaxElementID(), true );
 
-    for ( int TriIdx : Mesh->TriangleIndicesItr() )
+    for ( int TriIdx : m_Mesh->TriangleIndicesItr() )
     {
         glm::dvec3 TriNormal{}, TriCentroid{};
         double    TriArea;
-        Mesh->GetTriInfo( TriIdx, TriNormal, TriArea, TriCentroid );
+        m_Mesh->GetTriInfo( TriIdx, TriNormal, TriArea, TriCentroid );
         TriNormal *= TriArea;
 
         Index3i Tri = NormalOverlay->GetTriangle( TriIdx );
@@ -428,14 +428,14 @@ void MeshNormals::Compute_Overlay_FaceAvg_AreaWeighted( const DynamicMeshNormalO
         {
             if ( Tri[j] != DynamicMesh3::InvalidID )
             {
-                Normals[Tri[j]] += TriNormal;
+                m_Normals[Tri[j]] += TriNormal;
             }
         }
     }
 
     for ( int ElemIdx : NormalOverlay->ElementIndicesItr() )
     {
-        Normalize( Normals[ElemIdx] );
+        Normalize( m_Normals[ElemIdx] );
     }
 }
 

@@ -74,7 +74,7 @@ namespace
     // otherwise each endpoint of the boundary's spans is shared by exactly two of them.
     void ExpectBoundariesClose( const GroupTopology& Topo )
     {
-        for ( const auto& Group : Topo.Groups )
+        for ( const auto& Group : Topo.m_Groups )
             for ( const auto& Boundary : Group.Boundaries )
             {
                 ASSERT_GT( static_cast<int32_t>( Boundary.GroupEdges.size() ), 0 );
@@ -103,7 +103,7 @@ namespace
     void ExpectGroupEdgesPartition( const DynamicMesh3& Mesh, const GroupTopology& Topo )
     {
         std::map<int, int> Owner;
-        for ( int G = 0; G < static_cast<int32_t>( Topo.Edges.size() ); ++G )
+        for ( int G = 0; G < static_cast<int32_t>( Topo.m_Edges.size() ); ++G )
             for ( int Eid : Topo.GetGroupEdgeEdges( G ) )
             {
                 EXPECT_EQ( Owner.count( Eid ), 0u ) << "mesh edge " << Eid << " in two group edges";
@@ -127,10 +127,10 @@ TEST( GroupTopology, CubeHasSixGroupsEightCornersTwelveEdges )
     const DynamicMesh3  Mesh      = MakeCube( Groups );
     GroupTopology       Topo( &Mesh, false );
     ASSERT_TRUE( Topo.RebuildTopology() ) << Topo.Failure();
-    EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 6 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 8 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 12 );
-    for ( const auto& G : Topo.Groups )
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 6 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 8 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 12 );
+    for ( const auto& G : Topo.m_Groups )
     {
         ASSERT_EQ( static_cast<int32_t>( G.Boundaries.size() ), 1 );
         EXPECT_EQ( static_cast<int32_t>( G.Boundaries[0].GroupEdges.size() ), 4 );
@@ -138,13 +138,13 @@ TEST( GroupTopology, CubeHasSixGroupsEightCornersTwelveEdges )
         EXPECT_EQ( static_cast<int32_t>( G.NeighbourGroupIDs.size() ), 4 );
         EXPECT_EQ( static_cast<int32_t>( G.Triangles.size() ), 2 );
     }
-    for ( int E = 0; E < static_cast<int32_t>( Topo.Edges.size() ); ++E )
+    for ( int E = 0; E < static_cast<int32_t>( Topo.m_Edges.size() ); ++E )
     {
         EXPECT_TRUE( Topo.IsSimpleGroupEdge( E ) );
         EXPECT_FALSE( Topo.IsIsolatedLoop( E ) );
-        EXPECT_NE( Topo.Edges[E].Groups.A, Topo.Edges[E].Groups.B );
+        EXPECT_NE( Topo.m_Edges[E].Groups.A, Topo.m_Edges[E].Groups.B );
     }
-    for ( int C = 0; C < static_cast<int32_t>( Topo.Corners.size() ); ++C )
+    for ( int C = 0; C < static_cast<int32_t>( Topo.m_Corners.size() ); ++C )
     {
         std::vector<int> NbrEdges, NbrCorners, NbrGroups;
         Topo.FindCornerNbrEdges( C, NbrEdges );
@@ -169,15 +169,15 @@ TEST( GroupTopology, CappedCylinderHasNoCornersAndTwoClosedLoops )
     const DynamicMesh3  Mesh = MakeCylinder( N, true );
     GroupTopology       Topo( &Mesh, true );
     EXPECT_TRUE( Topo.Failure().empty() ) << Topo.Failure();
-    EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 3 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 0 );
-    ASSERT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 2 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 3 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 0 );
+    ASSERT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 2 );
     for ( int E = 0; E < 2; ++E )
     {
         EXPECT_TRUE( Topo.IsIsolatedLoop( E ) );
         EXPECT_EQ( static_cast<int32_t>( Topo.GetGroupEdgeEdges( E ).size() ), N );
         EXPECT_EQ( static_cast<int32_t>( Topo.GetGroupEdgeVertices( E ).size() ), N + 1 );
-        EXPECT_EQ( Topo.Edges[E].Groups.A, 1 ); // the side (1) is the lower group of both loops
+        EXPECT_EQ( Topo.m_Edges[E].Groups.A, 1 ); // the side (1) is the lower group of both loops
     }
     ASSERT_NE( Topo.FindGroupByID( 1 ), nullptr );
     EXPECT_EQ( static_cast<int32_t>( Topo.FindGroupByID( 1 )->Boundaries.size() ), 2 );
@@ -193,17 +193,17 @@ TEST( GroupTopology, OpenTubeLoopsLieOnTheMeshBorder )
 {
     const DynamicMesh3 Mesh = MakeCylinder( 8, false );
     GroupTopology      Topo( &Mesh, true );
-    ASSERT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 1 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 0 );
-    ASSERT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 2 );
+    ASSERT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 1 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 0 );
+    ASSERT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 2 );
     for ( int E = 0; E < 2; ++E )
     {
         EXPECT_TRUE( Topo.IsBoundaryEdge( E ) );
-        EXPECT_EQ( Topo.Edges[E].Groups.B, DynamicMesh3::InvalidID );
+        EXPECT_EQ( Topo.m_Edges[E].Groups.B, DynamicMesh3::InvalidID );
     }
-    for ( const auto& B : Topo.Groups[0].Boundaries )
+    for ( const auto& B : Topo.m_Groups[0].Boundaries )
         EXPECT_TRUE( B.bIsOnBoundary );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Groups[0].NeighbourGroupIDs.size() ), 0 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups[0].NeighbourGroupIDs.size() ), 0 );
     ExpectBoundariesClose( Topo );
     ExpectGroupEdgesPartition( Mesh, Topo );
 }
@@ -213,9 +213,9 @@ TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
     const int           Groups[6] = { 0, 7, 0, 0, 0, 0 }; // face 1 (z = Side) is group 7
     const DynamicMesh3  Mesh      = MakeCube( Groups );
     GroupTopology       Topo( &Mesh, true );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 2 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 0 );
-    ASSERT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 1 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 2 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 0 );
+    ASSERT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 1 );
     EXPECT_TRUE( Topo.IsIsolatedLoop( 0 ) );
     EXPECT_EQ( static_cast<int32_t>( Topo.GetGroupEdgeEdges( 0 ).size() ), 4 );
     std::unordered_set<int> Verts;
@@ -235,10 +235,10 @@ TEST( GroupTopology, TriangleTopologyIsTheMeshItself )
     const int              Groups[6] = { 0, 1, 2, 3, 4, 5 };
     const DynamicMesh3     Mesh      = MakeCube( Groups );
     TriangleGroupTopology  Topo( &Mesh, true );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Groups.size() ), 12 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Corners.size() ), 8 );
-    EXPECT_EQ( static_cast<int32_t>( Topo.Edges.size() ), 18 );
-    for ( const auto& G : Topo.Groups )
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 12 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 8 );
+    EXPECT_EQ( static_cast<int32_t>( Topo.m_Edges.size() ), 18 );
+    for ( const auto& G : Topo.m_Groups )
         EXPECT_EQ( static_cast<int32_t>( G.NeighbourGroupIDs.size() ), 3 );
     ExpectBoundariesClose( Topo );
     ExpectGroupEdgesPartition( Mesh, Topo );

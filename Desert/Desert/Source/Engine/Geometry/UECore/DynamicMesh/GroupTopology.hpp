@@ -45,7 +45,7 @@ namespace Desert::Geometry
 
         const DynamicMesh3* GetMesh() const
         {
-            return Mesh;
+            return m_Mesh;
         }
 
         /** Rebuilds groups, corners and group edges. False if a group's boundary could not be walked; see Failure.
@@ -53,12 +53,12 @@ namespace Desert::Geometry
         virtual bool       RebuildTopology();
         const std::string& Failure() const
         {
-            return FailureReason;
+            return m_FailureReason;
         }
 
         virtual int GetGroupID( int TriangleID ) const
         {
-            return std::max( 0, Mesh->GetTriangleGroup( TriangleID ) );
+            return std::max( 0, m_Mesh->GetTriangleGroup( TriangleID ) );
         }
 
         /** A corner is a mesh vertex where three or more group edges meet (a mesh-border edge counts as one). */
@@ -67,7 +67,7 @@ namespace Desert::Geometry
             int         VertexID = IndexConstants::InvalidID;
             std::vector<int> NeighbourGroupIDs;
         };
-        std::vector<Corner> Corners;
+        std::vector<Corner> m_Corners;
 
         /** One closed boundary of a group, as the ordered group edges around it. */
         struct GroupBoundary
@@ -84,7 +84,7 @@ namespace Desert::Geometry
             std::vector<GroupBoundary>  Boundaries;
             std::vector<int>            NeighbourGroupIDs;
         };
-        std::vector<Group> Groups;
+        std::vector<Group> m_Groups;
 
         /** The mesh-edge span between two corners (or a closed loop with no corners) shared by two groups. */
         struct GroupEdge
@@ -100,7 +100,7 @@ namespace Desert::Geometry
             }
             bool IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const;
         };
-        std::vector<GroupEdge> Edges;
+        std::vector<GroupEdge> m_Edges;
 
         int                GetCornerVertexID( int CornerID ) const;
         [[nodiscard]] int32_t GetCornerIDFromVertexID( int32_t VertexID ) const;
@@ -129,11 +129,11 @@ namespace Desert::Geometry
                                                  std::vector<int32_t>&         Triangles ) const;
 
     protected:
-        const DynamicMesh3*  Mesh = nullptr;
-        std::vector<int>     GroupIDToGroupIndexMap; // fast lookup of the index in Groups, given a GroupID
-        std::vector<int>     EmptyArray;
-        std::unordered_map<int32_t, int32_t> VertexIDToCornerIDMap;
-        std::string          FailureReason;
+        const DynamicMesh3* m_Mesh = nullptr;
+        std::vector<int>    m_GroupIDToGroupIndexMap; // fast lookup of the index in Groups, given a GroupID
+        std::vector<int>    m_EmptyArray;
+        std::unordered_map<int32_t, int32_t> m_VertexIDToCornerIDMap;
+        std::string                          m_FailureReason;
 
         bool     ShouldVertBeCorner( int VertexID ) const;
         bool     GenerateBoundaryAndGroupEdges( Group&                                Group,

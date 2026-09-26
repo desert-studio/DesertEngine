@@ -63,14 +63,14 @@ namespace Desert::Geometry
         if ( !Attributes || !ParentMesh.IsVertex( ParentVID ) )
             return;
         for ( int32_t i = 0, I = Attributes->NumUVLayers(); i < I; ++i )
-            WeldSplitUVs( ParentVID, *Attributes->GetUVLayer( i ), UVDistSqrdThreshold );
+            WeldSplitUVs( ParentVID, *Attributes->GetUVLayer( i ), m_UVDistSqrdThreshold );
         for ( int32_t i = 0, I = Attributes->NumNormalLayers(); i < I; ++i )
         {
-            const float DotThreshold = ( i == 0 ) ? NormalVecDotThreshold : TangentVecDotThreshold;
+            const float DotThreshold = ( i == 0 ) ? m_NormalVecDotThreshold : m_TangentVecDotThreshold;
             WeldSplitUnitVectors( ParentVID, *Attributes->GetNormalLayer( i ), DotThreshold );
         }
         if ( DynamicMeshColorOverlay* Overlay = Attributes->PrimaryColors() )
-            WeldSplitColors( ParentVID, *Overlay, ColorDistSqrdThreshold );
+            WeldSplitColors( ParentVID, *Overlay, m_ColorDistSqrdThreshold );
     }
 
     void SplitAttributeWelder::WeldSplitElements( DynamicMesh3& ParentMesh )

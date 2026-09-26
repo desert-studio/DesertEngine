@@ -28,10 +28,10 @@ namespace Desert::Geometry
 
     protected:
         /** The parent mesh this overlay belongs to */
-        DynamicMesh3* ParentMesh;
+        DynamicMesh3* m_ParentMesh;
 
         /** List of per-triangle attribute values */
-        DynamicVector<AttribValueType> AttribValues;
+        DynamicVector<AttribValueType> m_AttribValues;
 
         using Super = DynamicMeshAttributeBase;
 
@@ -42,13 +42,13 @@ namespace Desert::Geometry
         /** Create an empty overlay */
         DynamicMeshTriangleAttribute()
         {
-            ParentMesh = nullptr;
+            m_ParentMesh = nullptr;
         }
 
         /** Create an overlay for the given parent mesh */
         DynamicMeshTriangleAttribute( DynamicMesh3* ParentMeshIn, bool bAutoInit = true )
         {
-            ParentMesh = ParentMeshIn;
+            m_ParentMesh = ParentMeshIn;
             if ( bAutoInit )
             {
                 Initialize();
@@ -59,19 +59,19 @@ namespace Desert::Geometry
         /** @set the parent mesh for this overlay.  Only safe for use during FDynamicMesh move */
         void Reparent( DynamicMesh3* ParentMeshIn )
         {
-            ParentMesh = ParentMeshIn;
+            m_ParentMesh = ParentMeshIn;
         }
 
     public:
         /** @return the parent mesh for this overlay */
         const DynamicMesh3* GetParentMesh() const
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
         /** @return the parent mesh for this overlay */
         DynamicMesh3* GetParentMesh()
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
 
         virtual DynamicMeshAttributeBase* MakeNew( DynamicMesh3* ParentMeshIn ) const override
@@ -94,7 +94,7 @@ namespace Desert::Geometry
         void Copy( const DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& Copy )
         {
             CopyParentClassData( Copy );
-            AttribValues = Copy.AttribValues;
+            m_AttribValues = Copy.m_AttribValues;
         }
 
         virtual DynamicMeshAttributeBase* MakeCompactCopy( const DynamicMeshCompactMaps& CompactMaps,
@@ -121,14 +121,14 @@ namespace Desert::Geometry
                     CopyValue( TID, ToTID );
                 }
             }
-            AttribValues.Resize( ParentMesh->MaxTriangleID() * AttribDimension );
+            m_AttribValues.Resize( m_ParentMesh->MaxTriangleID() * AttribDimension );
         }
 
         void CompactCopy( const DynamicMeshCompactMaps&                                         CompactMaps,
                           const DynamicMeshTriangleAttribute<AttribValueType, AttribDimension>& ToCopy )
         {
             CopyParentClassData( ToCopy );
-            assert( CompactMaps.NumTriangleMappings() <= int( ToCopy.AttribValues.Num() / AttribDimension ) );
+            assert( CompactMaps.NumTriangleMappings() <= int( ToCopy.m_AttribValues.Num() / AttribDimension ) );
             AttribValueType Data[AttribDimension];
             for ( int TID = 0, NumTID = CompactMaps.NumTriangleMappings(); TID < NumTID; TID++ )
             {
@@ -145,9 +145,9 @@ namespace Desert::Geometry
         /** Initialize the attribute values with InitialValue, and resize to the parent mesh's max triangle ID */
         void Initialize( AttribValueType InitialValue )
         {
-            assert( ParentMesh != nullptr );
-            AttribValues.Resize( ParentMesh->MaxTriangleID() * AttribDimension );
-            AttribValues.Fill( InitialValue );
+            assert( m_ParentMesh != nullptr );
+            m_AttribValues.Resize( m_ParentMesh->MaxTriangleID() * AttribDimension );
+            m_AttribValues.Fill( InitialValue );
         }
 
         void Initialize()
@@ -160,7 +160,7 @@ namespace Desert::Geometry
             int k = NewTriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                AttribValues.InsertAt( Data[i], k + i );
+                m_AttribValues.InsertAt( Data[i], k + i );
             }
         }
 
@@ -171,9 +171,9 @@ namespace Desert::Geometry
         virtual bool Append( const DynamicAttributeBase& Source, const DynamicMesh3::AppendInfo& Info ) override
         {
             int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
-            if ( NewMaxID * AttribDimension > AttribValues.Num() )
+            if ( NewMaxID * AttribDimension > m_AttribValues.Num() )
             {
-                AttribValues.SetNum( NewMaxID * AttribDimension );
+                m_AttribValues.SetNum( NewMaxID * AttribDimension );
             }
 
             AttribValueType BufferData[AttribDimension];
@@ -193,7 +193,7 @@ namespace Desert::Geometry
         virtual void AppendDefaulted( const DynamicMesh3::AppendInfo& Info ) override
         {
             int32_t const NewMaxID = Info.NumTriangle + Info.TriangleOffset;
-            AttribValues.SetMinimumSize( NewMaxID * AttribDimension, GetDefaultAttributeValue() );
+            m_AttribValues.SetMinimumSize( NewMaxID * AttribDimension, GetDefaultAttributeValue() );
         }
 
         virtual bool CopyOut( int RawID, void* Buffer, int BufferSize ) const override
@@ -206,7 +206,7 @@ namespace Desert::Geometry
             int              k          = RawID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                BufferData[i] = AttribValues[k + i];
+                BufferData[i] = m_AttribValues[k + i];
             }
             return true;
         }
@@ -220,7 +220,7 @@ namespace Desert::Geometry
             int              k          = RawID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                AttribValues[k + i] = BufferData[i];
+                m_AttribValues[k + i] = BufferData[i];
             }
             return true;
         }
@@ -231,7 +231,7 @@ namespace Desert::Geometry
             int k = TriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                Data[i] = AttribValues[k + i];
+                Data[i] = m_AttribValues[k + i];
             }
         }
 
@@ -242,7 +242,7 @@ namespace Desert::Geometry
             int k = TriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                Data[i] = AttribValues[k + i];
+                Data[i] = m_AttribValues[k + i];
             }
         }
 
@@ -252,7 +252,7 @@ namespace Desert::Geometry
             int k = TriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                AttribValues[k + i] = Data[i];
+                m_AttribValues[k + i] = Data[i];
             }
         }
 
@@ -263,7 +263,7 @@ namespace Desert::Geometry
             int k = TriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                AttribValues[k + i] = Data[i];
+                m_AttribValues[k + i] = Data[i];
             }
         }
 
@@ -273,7 +273,7 @@ namespace Desert::Geometry
             int k = TriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                AttribValues[k + i] = SingleValue;
+                m_AttribValues[k + i] = SingleValue;
             }
         }
 
@@ -286,14 +286,14 @@ namespace Desert::Geometry
             int kB = ToTriangleID * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                AttribValues.InsertAt( AttribValues[kA + i], kB + i );
+                m_AttribValues.InsertAt( m_AttribValues[kA + i], kB + i );
             }
         }
 
         /** Returns true if the parent-mesh edge is a "Seam" in this overlay */
         bool IsBorderEdge( int EdgeID, bool bMeshBoundaryIsBorder = true ) const
         {
-            Index2i EdgeTris = ParentMesh->GetEdgeT( EdgeID );
+            Index2i EdgeTris = m_ParentMesh->GetEdgeT( EdgeID );
             if ( EdgeTris.B == DynamicMesh3::InvalidID )
             {
                 return bMeshBoundaryIsBorder;
@@ -302,7 +302,7 @@ namespace Desert::Geometry
             int kB = EdgeTris.B * AttribDimension;
             for ( int i = 0; i < AttribDimension; ++i )
             {
-                if ( AttribValues[kA + i] != AttribValues[kB + i] )
+                if ( m_AttribValues[kA + i] != m_AttribValues[kB + i] )
                 {
                     return true;
                 }
@@ -371,9 +371,9 @@ namespace Desert::Geometry
                 return;
             }
             size_t NeededSize = ( ( (size_t)TriangleID + 1 ) * AttribDimension );
-            if ( NeededSize > AttribValues.Num() )
+            if ( NeededSize > m_AttribValues.Num() )
             {
-                AttribValues.Resize( NeededSize, GetDefaultAttributeValue() );
+                m_AttribValues.Resize( NeededSize, GetDefaultAttributeValue() );
             }
         }
 
@@ -392,14 +392,14 @@ namespace Desert::Geometry
         {
             if ( !bIgnoreDataLayout )
             {
-                if ( AttribValues.Num() != Other.AttribValues.Num() )
+                if ( m_AttribValues.Num() != Other.AttribValues.Num() )
                 {
                     return false;
                 }
 
-                for ( int Idx = 0, NumValues = AttribValues.Num(); Idx < NumValues; Idx++ )
+                for ( int Idx = 0, NumValues = m_AttribValues.Num(); Idx < NumValues; Idx++ )
                 {
-                    if ( AttribValues[Idx] != Other.AttribValues[Idx] )
+                    if ( m_AttribValues[Idx] != Other.AttribValues[Idx] )
                     {
                         return false;
                     }
@@ -407,8 +407,8 @@ namespace Desert::Geometry
             }
             else
             {
-                RefCountVector::IndexIterator       ItTid    = ParentMesh->GetTrianglesRefCounts().BeginIndices();
-                const RefCountVector::IndexIterator ItTidEnd = ParentMesh->GetTrianglesRefCounts().EndIndices();
+                RefCountVector::IndexIterator       ItTid = m_ParentMesh->GetTrianglesRefCounts().BeginIndices();
+                const RefCountVector::IndexIterator ItTidEnd = m_ParentMesh->GetTrianglesRefCounts().EndIndices();
                 RefCountVector::IndexIterator       ItTidOther =
                      Other.ParentMesh->GetTrianglesRefCounts().BeginIndices();
                 const RefCountVector::IndexIterator ItTidEndOther =
@@ -418,7 +418,7 @@ namespace Desert::Geometry
                 {
                     for ( int32_t i = 0; i < AttribDimension; ++i )
                     {
-                        const AttribValueType AttribValue = AttribValues[*ItTid * AttribDimension + i];
+                        const AttribValueType AttribValue = m_AttribValues[*ItTid * AttribDimension + i];
                         const AttribValueType AttribValueOther =
                              Other.AttribValues[*ItTidOther * AttribDimension + i];
                         if ( AttribValue != AttribValueOther )
@@ -451,8 +451,8 @@ namespace Desert::Geometry
         virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const override
         {
             // just check that the values buffer is big enough
-            if ( !ParentMesh || ParentMesh->MaxTriangleID() < 0 ||
-                 static_cast<size_t>( ParentMesh->MaxTriangleID() ) * AttribDimension > AttribValues.Num() )
+            if ( !m_ParentMesh || m_ParentMesh->MaxTriangleID() < 0 ||
+                 static_cast<size_t>( m_ParentMesh->MaxTriangleID() ) * AttribDimension > m_AttribValues.Num() )
             {
                 switch ( FailMode )
                 {
@@ -472,7 +472,7 @@ namespace Desert::Geometry
 
         [[nodiscard]] size_t GetByteCount() const override
         {
-            return AttribValues.GetByteCount();
+            return m_AttribValues.GetByteCount();
         }
     };
 
@@ -504,12 +504,12 @@ namespace Desert::Geometry
 
         inline RealType GetValue( int TriangleID ) const
         {
-            return this->AttribValues[TriangleID];
+            return this->m_AttribValues[TriangleID];
         }
 
         inline void SetValue( int TriangleID, RealType Value )
         {
-            this->AttribValues[TriangleID] = Value;
+            this->m_AttribValues[TriangleID] = Value;
         }
     };
 

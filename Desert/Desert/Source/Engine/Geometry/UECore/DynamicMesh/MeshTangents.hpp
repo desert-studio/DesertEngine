@@ -21,11 +21,11 @@ namespace Desert::Geometry
     {
     protected:
         /** Target Mesh */
-        const DynamicMesh3* Mesh = nullptr;
+        const DynamicMesh3* m_Mesh = nullptr;
         /** Set of computed tangents */
-        std::vector<glm::vec<3, RealType>> Tangents;
+        std::vector<glm::vec<3, RealType>> m_Tangents;
         /** Set of computed bitangents */
-        std::vector<glm::vec<3, RealType>> Bitangents;
+        std::vector<glm::vec<3, RealType>> m_Bitangents;
 
     public:
         MeshTangents() = default;
@@ -37,17 +37,17 @@ namespace Desert::Geometry
 
         void SetMesh( const DynamicMesh3* MeshIn )
         {
-            this->Mesh = MeshIn;
+            this->m_Mesh = MeshIn;
         }
 
         const std::vector<glm::vec<3, RealType>>& GetTangents() const
         {
-            return Tangents;
+            return m_Tangents;
         }
 
         const std::vector<glm::vec<3, RealType>>& GetBitangents() const
         {
-            return Bitangents;
+            return m_Bitangents;
         }
 
         /**
@@ -55,23 +55,23 @@ namespace Desert::Geometry
          */
         void InitializeTriVertexTangents( bool bClearToZero )
         {
-            SetTangentCount( Mesh->MaxTriangleID() * 3, bClearToZero );
+            SetTangentCount( m_Mesh->MaxTriangleID() * 3, bClearToZero );
         }
 
         void SetPerTriangleTangent( int TriangleID, int TriVertIdx, const glm::vec<3, RealType>& Tangent,
                                     const glm::vec<3, RealType>& Bitangent )
         {
             const int k   = TriangleID * 3 + TriVertIdx;
-            Tangents[k]   = Tangent;
-            Bitangents[k] = Bitangent;
+            m_Tangents[k]   = Tangent;
+            m_Bitangents[k] = Bitangent;
         }
 
         void GetPerTriangleTangent( int TriangleID, int TriVertIdx, glm::vec<3, RealType>& TangentOut,
                                     glm::vec<3, RealType>& BitangentOut ) const
         {
             const int k  = TriangleID * 3 + TriVertIdx;
-            TangentOut   = Tangents[k];
-            BitangentOut = Bitangents[k];
+            TangentOut   = m_Tangents[k];
+            BitangentOut = m_Bitangents[k];
         }
 
         /**
@@ -92,15 +92,15 @@ namespace Desert::Geometry
     protected:
         void SetTangentCount( int Count, bool bClearToZero )
         {
-            if ( static_cast<int32_t>( Tangents.size() ) < Count )
-                Tangents.resize( Count );
-            if ( static_cast<int32_t>( Bitangents.size() ) < Count )
-                Bitangents.resize( Count );
+            if ( static_cast<int32_t>( m_Tangents.size() ) < Count )
+                m_Tangents.resize( Count );
+            if ( static_cast<int32_t>( m_Bitangents.size() ) < Count )
+                m_Bitangents.resize( Count );
             if ( bClearToZero )
             {
-                for ( glm::vec<3, RealType>& T : Tangents )
+                for ( glm::vec<3, RealType>& T : m_Tangents )
                     T = glm::vec<3, RealType>( 0 );
-                for ( glm::vec<3, RealType>& B : Bitangents )
+                for ( glm::vec<3, RealType>& B : m_Bitangents )
                     B = glm::vec<3, RealType>( 0 );
             }
         }

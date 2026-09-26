@@ -76,11 +76,11 @@ namespace Desert::Geometry
     class MeshSurfacePath
     {
     public:
-        DynamicMesh3* Mesh;
+        DynamicMesh3* m_Mesh;
         // Surface points paired with triangle to walk to get to next surface point
-        std::vector<std::pair<MeshSurfacePoint, int>> Path;
+        std::vector<std::pair<MeshSurfacePoint, int>> m_Path;
 
-        explicit MeshSurfacePath( DynamicMesh3* InMesh ) : Mesh( InMesh )
+        explicit MeshSurfacePath( DynamicMesh3* InMesh ) : m_Mesh( InMesh )
         {
         }
 

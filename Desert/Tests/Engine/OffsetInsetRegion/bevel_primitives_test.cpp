@@ -66,19 +66,19 @@ TEST( BevelPrimitives, DistLine3Line3SkewLines )
     DistLine3Line3d Distance( Line3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
                               Line3d( glm::dvec3( 3, 2, 5 ), glm::dvec3( 0, 1, 0 ) ) );
     EXPECT_NEAR( Distance.Get(), 5.0, Tol );
-    EXPECT_FALSE( Distance.bIsParallel );
-    ExpectNear( Distance.Line1ClosestPoint, glm::dvec3( 3, 0, 0 ), "line 1 closest" );
-    ExpectNear( Distance.Line2ClosestPoint, glm::dvec3( 3, 0, 5 ), "line 2 closest" );
-    EXPECT_NEAR( Distance.Line1Parameter, 3.0, Tol );
-    EXPECT_NEAR( Distance.Line2Parameter, -2.0, Tol );
+    EXPECT_FALSE( Distance.m_bIsParallel );
+    ExpectNear( Distance.m_Line1ClosestPoint, glm::dvec3( 3, 0, 0 ), "line 1 closest" );
+    ExpectNear( Distance.m_Line2ClosestPoint, glm::dvec3( 3, 0, 5 ), "line 2 closest" );
+    EXPECT_NEAR( Distance.m_Line1Parameter, 3.0, Tol );
+    EXPECT_NEAR( Distance.m_Line2Parameter, -2.0, Tol );
 
     // At 45 degrees the cross term of the solve matters: projections cross at (2, 0), 5 cm apart in Z.
     DistLine3Line3d Oblique( Line3d( glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
                              Line3d( glm::dvec3( 3, 1, 5 ), Normalized( glm::dvec3( 1, 1, 0 ) ) ) );
     EXPECT_NEAR( Oblique.Get(), 5.0, Tol );
-    ExpectNear( Oblique.Line1ClosestPoint, glm::dvec3( 2, 0, 0 ), "oblique line 1 closest" );
-    ExpectNear( Oblique.Line2ClosestPoint, glm::dvec3( 2, 0, 5 ), "oblique line 2 closest" );
-    EXPECT_NEAR( Oblique.Line2Parameter, -std::sqrt( 2.0 ), Tol );
+    ExpectNear( Oblique.m_Line1ClosestPoint, glm::dvec3( 2, 0, 0 ), "oblique line 1 closest" );
+    ExpectNear( Oblique.m_Line2ClosestPoint, glm::dvec3( 2, 0, 5 ), "oblique line 2 closest" );
+    EXPECT_NEAR( Oblique.m_Line2Parameter, -std::sqrt( 2.0 ), Tol );
 }
 
 TEST( BevelPrimitives, DistLine3Line3ParallelLines )
@@ -86,9 +86,9 @@ TEST( BevelPrimitives, DistLine3Line3ParallelLines )
     DistLine3Line3d Distance( Line3d( glm::dvec3( 4, 0, 0 ), glm::dvec3( 1, 0, 0 ) ),
                               Line3d( glm::dvec3( -9, 3, 4 ), glm::dvec3( -1, 0, 0 ) ) );
     EXPECT_NEAR( Distance.GetSquared(), 25.0, Tol );
-    EXPECT_TRUE( Distance.bIsParallel );
-    ExpectNear( Distance.Line1ClosestPoint, glm::dvec3( 4, 0, 0 ), "line 1 origin" );
-    ExpectNear( Distance.Line2ClosestPoint, glm::dvec3( 4, 3, 4 ), "projection onto line 2" );
+    EXPECT_TRUE( Distance.m_bIsParallel );
+    ExpectNear( Distance.m_Line1ClosestPoint, glm::dvec3( 4, 0, 0 ), "line 1 origin" );
+    ExpectNear( Distance.m_Line2ClosestPoint, glm::dvec3( 4, 3, 4 ), "projection onto line 2" );
 }
 
 TEST( BevelPrimitives, InsetPairIsMidpointOfClosestPoints )

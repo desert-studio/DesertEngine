@@ -31,18 +31,18 @@ namespace Desert::Geometry
         /** Get optional identifier for this attribute set. */
         [[nodiscard]] std::string GetName() const
         {
-            return Name;
+            return m_Name;
         }
 
         /** Set optional identifier for this attribute set. */
         void SetName( std::string NameIn )
         {
-            Name = NameIn;
+            m_Name = NameIn;
         }
 
     protected:
         /** Optional std::string identifier for this attribute set. Not guaranteed to be unique. */
-        std::string Name = std::string();
+        std::string m_Name = std::string();
 
     public:
         /** Allocate a new copy of the attribute layer, optionally with a different parent */
@@ -173,7 +173,7 @@ namespace Desert::Geometry
          */
         virtual void CopyParentClassData( const DynamicAttributeBase<ParentType>& Other )
         {
-            Name = Other.Name;
+            m_Name = Other.m_Name;
         }
     };
 
@@ -188,7 +188,7 @@ namespace Desert::Geometry
     protected:
         // not managed by the base class; we should be able to register any attributes here that we want to be
         // automatically updated
-        std::vector<DynamicAttributeBase<ParentType>*> RegisteredAttributes;
+        std::vector<DynamicAttributeBase<ParentType>*> m_RegisteredAttributes;
 
         /**
          * Stores the given attribute pointer in the attribute register, so that it will be updated with mesh
@@ -196,17 +196,17 @@ namespace Desert::Geometry
          */
         void RegisterExternalAttribute( DynamicAttributeBase<ParentType>* Attribute )
         {
-            RegisteredAttributes.push_back( Attribute );
+            m_RegisteredAttributes.push_back( Attribute );
         }
 
         void UnregisterExternalAttribute( DynamicAttributeBase<ParentType>* Attribute )
         {
-            std::erase( RegisteredAttributes, Attribute );
+            std::erase( m_RegisteredAttributes, Attribute );
         }
 
         void ResetRegisteredAttributes()
         {
-            RegisteredAttributes.clear();
+            m_RegisteredAttributes.clear();
         }
 
     public:
@@ -214,47 +214,47 @@ namespace Desert::Geometry
 
         int NumRegisteredAttributes() const
         {
-            return RegisteredAttributes.Num();
+            return m_RegisteredAttributes.Num();
         }
 
         DynamicAttributeBase<ParentType>* GetRegisteredAttribute( int Idx ) const
         {
-            return RegisteredAttributes[Idx];
+            return m_RegisteredAttributes[Idx];
         }
 
         // These functions are called by the DynamicMesh3 to update the various
         // attributes when the parent mesh topology has been modified.
         virtual void OnNewTriangle( int TriangleID, bool bInserted )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnNewTriangle( TriangleID, bInserted );
             }
         }
         virtual void OnNewVertex( int VertexID, bool bInserted )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnNewVertex( VertexID, bInserted );
             }
         }
         virtual void OnRemoveTriangle( int TriangleID )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnRemoveTriangle( TriangleID );
             }
         }
         virtual void OnRemoveVertex( int VertexID )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnRemoveVertex( VertexID );
             }
         }
         virtual void OnReverseTriOrientation( int TriangleID )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnReverseTriOrientation( TriangleID );
             }
@@ -270,7 +270,7 @@ namespace Desert::Geometry
         virtual bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const
         {
             bool bValid = true;
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 bValid = A->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;
             }
@@ -281,35 +281,35 @@ namespace Desert::Geometry
     public:
         virtual void OnSplitEdge( const DynamicMeshInfo::EdgeSplitInfo& SplitInfo )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnSplitEdge( SplitInfo );
             }
         }
         virtual void OnFlipEdge( const DynamicMeshInfo::EdgeFlipInfo& FlipInfo )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnFlipEdge( FlipInfo );
             }
         }
         virtual void OnCollapseEdge( const DynamicMeshInfo::EdgeCollapseInfo& CollapseInfo )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnCollapseEdge( CollapseInfo );
             }
         }
         virtual void OnPokeTriangle( const DynamicMeshInfo::PokeTriangleInfo& PokeInfo )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnPokeTriangle( PokeInfo );
             }
         }
         virtual void OnMergeEdges( const DynamicMeshInfo::MergeEdgesInfo& MergeInfo )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnMergeEdges( MergeInfo );
             }
@@ -331,7 +331,7 @@ namespace Desert::Geometry
                 return;
             }
 
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnMergeVertices( MergeInfo );
             }
@@ -339,7 +339,7 @@ namespace Desert::Geometry
         virtual void OnSplitVertex( const DynamicMeshInfo::VertexSplitInfo& SplitInfo,
                                     const std::span<const int>&             TrianglesToUpdate )
         {
-            for ( DynamicAttributeBase<ParentType>* A : RegisteredAttributes )
+            for ( DynamicAttributeBase<ParentType>* A : m_RegisteredAttributes )
             {
                 A->OnSplitVertex( SplitInfo, TrianglesToUpdate );
             }

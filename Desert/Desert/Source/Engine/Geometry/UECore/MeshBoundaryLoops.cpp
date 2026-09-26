@@ -36,17 +36,18 @@ namespace
 
 int MeshBoundaryLoops::FindLoopContainingVertex( int VertexID ) const
 {
-    for ( int li = 0; li < static_cast<int32_t>( Loops.size() ); ++li )
-        if ( ( std::find( Loops[li].Vertices.begin(), Loops[li].Vertices.end(), VertexID ) !=
-               Loops[li].Vertices.end() ) )
+    for ( int li = 0; li < static_cast<int32_t>( m_Loops.size() ); ++li )
+        if ( ( std::find( m_Loops[li].Vertices.begin(), m_Loops[li].Vertices.end(), VertexID ) !=
+               m_Loops[li].Vertices.end() ) )
             return li;
     return -1;
 }
 
 int MeshBoundaryLoops::FindLoopContainingEdge( int EdgeID ) const
 {
-    for ( int li = 0; li < static_cast<int32_t>( Loops.size() ); ++li )
-        if ( ( std::find( Loops[li].Edges.begin(), Loops[li].Edges.end(), EdgeID ) != Loops[li].Edges.end() ) )
+    for ( int li = 0; li < static_cast<int32_t>( m_Loops.size() ); ++li )
+        if ( ( std::find( m_Loops[li].Edges.begin(), m_Loops[li].Edges.end(), EdgeID ) !=
+               m_Loops[li].Edges.end() ) )
             return li;
     return -1;
 }
@@ -55,13 +56,13 @@ bool MeshBoundaryLoops::Compute()
 {
     // Triangles are assumed consistently oriented, so a closed boundary loop is followed by walking edges in
     // order.
-    Loops.clear();
-    Spans.clear();
-    bSawOpenSpans = bFellBackToSpansOnFailure = false;
-    if ( Mesh->IsClosed() )
+    m_Loops.clear();
+    m_Spans.clear();
+    m_bSawOpenSpans = m_bFellBackToSpansOnFailure = false;
+    if ( m_Mesh->IsClosed() )
         return true;
 
-    const int    NE = Mesh->MaxEdgeID();
+    const int         NE = m_Mesh->MaxEdgeID();
     std::vector<bool> UsedEdge;
     UsedEdge.assign( NE, false );
     std::vector<int> LoopEdges;
@@ -71,7 +72,7 @@ bool MeshBoundaryLoops::Compute()
 
     for ( int Eid = 0; Eid < NE; ++Eid )
     {
-        if ( !Mesh->IsEdge( Eid ) || UsedEdge[Eid] || !Mesh->IsBoundaryEdge( Eid ) )
+        if ( !m_Mesh->IsEdge( Eid ) || UsedEdge[Eid] || !m_Mesh->IsBoundaryEdge( Eid ) )
             continue;
 
         const int EStart = Eid;
@@ -82,7 +83,7 @@ bool MeshBoundaryLoops::Compute()
         bool bIsOpenSpan = false;
         while ( !bClosed )
         {
-            const Index2i  Ev    = Mesh->GetOrientedBoundaryEdgeV( ECur );
+            const Index2i  Ev    = m_Mesh->GetOrientedBoundaryEdgeV( ECur );
             int            CureB = Ev.B;
             if ( bIsOpenSpan )
                 CureB = Ev.A;
@@ -91,7 +92,7 @@ bool MeshBoundaryLoops::Compute()
 
             int       E0       = -1;
             int       E1       = 1;
-            const int BdryNbrs = Mesh->GetVtxBoundaryEdges( CureB, E0, E1 );
+            const int BdryNbrs = m_Mesh->GetVtxBoundaryEdges( CureB, E0, E1 );
             if ( BdryNbrs < 2 )
             {
                 // an endpoint vertex: continue the span from the other end of the chain
@@ -117,7 +118,7 @@ bool MeshBoundaryLoops::Compute()
                 else
                 {
                     AllE.clear();
-                    const int NumBe = Mesh->GetAllVtxBoundaryEdges( CureB, AllE );
+                    const int NumBe = m_Mesh->GetAllVtxBoundaryEdges( CureB, AllE );
                     ENext           = FindLeftTurnEdge( ECur, CureB, AllE, NumBe, UsedEdge );
                     if ( ENext == -1 )
                     {
@@ -156,10 +157,10 @@ bool MeshBoundaryLoops::Compute()
 
         if ( bIsOpenSpan )
         {
-            bSawOpenSpans = true;
+            m_bSawOpenSpans = true;
             ReverseInPlace( LoopEdges );
-            Spans.push_back( EdgeSpan{} );
-            Spans[static_cast<int32_t>( Spans.size() ) - 1].InitializeFromEdges( *Mesh, LoopEdges );
+            m_Spans.push_back( EdgeSpan{} );
+            m_Spans[static_cast<int32_t>( m_Spans.size() ) - 1].InitializeFromEdges( *m_Mesh, LoopEdges );
         }
         else if ( !Bowties.empty() )
         {
@@ -168,21 +169,21 @@ bool MeshBoundaryLoops::Compute()
             {
                 if ( !Subloops.Spans.empty() )
                 {
-                    bFellBackToSpansOnFailure = true;
+                    m_bFellBackToSpansOnFailure = true;
                     for ( const EdgeSpan& Span : Subloops.Spans )
-                        Spans.push_back( Span );
+                        m_Spans.push_back( Span );
                 }
             }
             else
             {
                 for ( const EdgeLoop& Loop : Subloops.Loops )
-                    Loops.push_back( Loop );
+                    m_Loops.push_back( Loop );
             }
         }
         else
         {
-            Loops.push_back( EdgeLoop{} );
-            Loops[static_cast<int32_t>( Loops.size() ) - 1].Initialize( LoopVerts, LoopEdges );
+            m_Loops.push_back( EdgeLoop{} );
+            m_Loops[static_cast<int32_t>( m_Loops.size() ) - 1].Initialize( LoopVerts, LoopEdges );
         }
         LoopEdges.clear();
         LoopVerts.clear();
@@ -194,8 +195,8 @@ bool MeshBoundaryLoops::Compute()
 glm::dvec3 MeshBoundaryLoops::GetVertexNormal( int Vid ) const
 {
     glm::dvec3 N = glm::dvec3( 0 );
-    for ( int Ti : Mesh->VtxTrianglesItr( Vid ) )
-        N += Mesh->GetTriNormal( Ti );
+    for ( int Ti : m_Mesh->VtxTrianglesItr( Vid ) )
+        N += m_Mesh->GetTriNormal( Ti );
     Normalize( N );
     return N;
 }
@@ -205,9 +206,9 @@ int MeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std::
 {
     // the normal at the bowtie vertex is the plane the turn angles are measured in
     const glm::dvec3 N      = GetVertexNormal( BowtieV );
-    const Index2i    Ev     = Mesh->GetEdgeV( IncomingE );
+    const Index2i    Ev     = m_Mesh->GetEdgeV( IncomingE );
     const int       OtherV = ( Ev.A == BowtieV ) ? Ev.B : Ev.A;
-    const glm::dvec3 Ab     = Mesh->GetVertex( BowtieV ) - Mesh->GetVertex( OtherV );
+    const glm::dvec3 Ab     = m_Mesh->GetVertex( BowtieV ) - m_Mesh->GetVertex( OtherV );
 
     int    BestE     = -1;
     double BestAngle = std::numeric_limits<double>::max();
@@ -216,10 +217,10 @@ int MeshBoundaryLoops::FindLeftTurnEdge( int IncomingE, int BowtieV, const std::
         const int BdryEid = BdryEdges[i];
         if ( UsedEdges[BdryEid] )
             continue;
-        const Index2i BdryEv = Mesh->GetOrientedBoundaryEdgeV( BdryEid );
+        const Index2i BdryEv = m_Mesh->GetOrientedBoundaryEdgeV( BdryEid );
         if ( BdryEv.A != BowtieV )
             continue; // must chain onto the end of the current edge, orientation-wise
-        const glm::dvec3 Bc     = Mesh->GetVertex( BdryEv.B ) - Mesh->GetVertex( BowtieV );
+        const glm::dvec3 Bc     = m_Mesh->GetVertex( BdryEv.B ) - m_Mesh->GetVertex( BowtieV );
         const double    AngleS = -PlaneAngleSignedD( Ab, Bc, N );
         if ( BestAngle == std::numeric_limits<double>::max() || AngleS < BestAngle )
         {
@@ -271,13 +272,13 @@ bool MeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<in
         if ( BvShortest == -1 )
         {
             // no simple sub-loop: what is left becomes a span
-            VerticesTemp.clear();
+            m_VerticesTemp.clear();
             for ( int i = 0; i < static_cast<int32_t>( LoopV.size() ); ++i )
                 if ( LoopV[i] != -1 )
-                    VerticesTemp.push_back( LoopV[i] );
+                    m_VerticesTemp.push_back( LoopV[i] );
             Subs.Spans.push_back( EdgeSpan{} );
             EdgeSpan& NewSpan = Subs.Spans[static_cast<int32_t>( Subs.Spans.size() ) - 1];
-            NewSpan.InitializeFromVertices( *Mesh, VerticesTemp );
+            NewSpan.InitializeFromVertices( *m_Mesh, m_VerticesTemp );
             NewSpan.BowtieVertices = Bowties;
             return false;
         }
@@ -288,26 +289,26 @@ bool MeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<in
         }
         assert( LoopV[StartI] == Bv && LoopV[EndI] == Bv );
 
-        VerticesTemp.clear();
-        ExtractSpan( LoopV, StartI, EndI, true, VerticesTemp );
+        m_VerticesTemp.clear();
+        ExtractSpan( LoopV, StartI, EndI, true, m_VerticesTemp );
         Subs.Loops.push_back( EdgeLoop{} );
         EdgeLoop& NewLoop = Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1];
-        NewLoop.InitializeFromVertices( *Mesh, VerticesTemp );
+        NewLoop.InitializeFromVertices( *m_Mesh, m_VerticesTemp );
         NewLoop.BowtieVertices = Bowties;
 
         if ( CountInList( LoopV, Bv ) < 2 )
             std::erase( Dupes, Bv );
     }
 
-    VerticesTemp.clear();
+    m_VerticesTemp.clear();
     for ( int i = 0; i < static_cast<int32_t>( LoopV.size() ); ++i )
         if ( LoopV[i] != -1 )
-            VerticesTemp.push_back( LoopV[i] );
-    if ( !VerticesTemp.empty() )
+            m_VerticesTemp.push_back( LoopV[i] );
+    if ( !m_VerticesTemp.empty() )
     {
         Subs.Loops.push_back( EdgeLoop{} );
         EdgeLoop& NewLoop = Subs.Loops[static_cast<int32_t>( Subs.Loops.size() ) - 1];
-        NewLoop.InitializeFromVertices( *Mesh, VerticesTemp );
+        NewLoop.InitializeFromVertices( *m_Mesh, m_VerticesTemp );
         NewLoop.BowtieVertices = Bowties;
     }
     return true;

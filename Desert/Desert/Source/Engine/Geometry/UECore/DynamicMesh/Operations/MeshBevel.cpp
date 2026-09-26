@@ -52,8 +52,8 @@ namespace Desert::Geometry
 
     void MeshBevel::Refuse( const std::string& Reason )
     {
-        if ( FailureReason.empty() )
-            FailureReason = "MeshBevel: " + Reason;
+        if ( m_FailureReason.empty() )
+            m_FailureReason = "MeshBevel: " + Reason;
     }
 
     bool MeshBevel::RefuseBowties( const DynamicMesh3& Mesh, const std::vector<int32_t>& MeshVertices )
@@ -70,13 +70,13 @@ namespace Desert::Geometry
 
     bool MeshBevel::InitializeFromGroupTopology( const DynamicMesh3& Mesh, const GroupTopology& Topology )
     {
-        FailureReason.clear();
-        for ( int32_t TopoEdgeID = 0; TopoEdgeID < static_cast<int32_t>( Topology.Edges.size() ); ++TopoEdgeID )
+        m_FailureReason.clear();
+        for ( int32_t TopoEdgeID = 0; TopoEdgeID < static_cast<int32_t>( Topology.m_Edges.size() ); ++TopoEdgeID )
         {
             if ( Topology.IsIsolatedLoop( TopoEdgeID ) )
             {
                 EdgeLoop NewLoop;
-                NewLoop.InitializeFromEdges( Mesh, Topology.Edges[TopoEdgeID].Span.Edges );
+                NewLoop.InitializeFromEdges( Mesh, Topology.m_Edges[TopoEdgeID].Span.Edges );
                 AddBevelEdgeLoop( Mesh, NewLoop );
             }
             else
@@ -84,27 +84,27 @@ namespace Desert::Geometry
                 AddBevelGroupEdge( Mesh, Topology, TopoEdgeID );
             }
         }
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         BuildVertexSets( Mesh );
-        return FailureReason.empty();
+        return m_FailureReason.empty();
     }
 
     bool MeshBevel::InitializeFromGroupTopologyEdges( const DynamicMesh3& Mesh, const GroupTopology& Topology,
                                                       const std::vector<int32_t>& GroupEdges )
     {
-        FailureReason.clear();
+        m_FailureReason.clear();
         for ( const int32_t TopoEdgeID : GroupEdges )
         {
-            if ( TopoEdgeID < 0 || TopoEdgeID >= static_cast<int32_t>( Topology.Edges.size() ) )
+            if ( TopoEdgeID < 0 || TopoEdgeID >= static_cast<int32_t>( Topology.m_Edges.size() ) )
             {
                 Refuse( "group edge " + std::to_string( TopoEdgeID ) + " is not in the topology (" +
-                        std::to_string( static_cast<int32_t>( Topology.Edges.size() ) ) + " edges)" );
+                        std::to_string( static_cast<int32_t>( Topology.m_Edges.size() ) ) + " edges)" );
                 return false;
             }
             // The all-edges initializer skips mesh-border group edges as UE does (a border has one side to cut);
             // an edge the caller NAMED is refused instead, so the request is never silently shrunk.
-            if ( AnyBoundaryEdge( Mesh, Topology.Edges[TopoEdgeID].Span.Edges ) )
+            if ( AnyBoundaryEdge( Mesh, Topology.m_Edges[TopoEdgeID].Span.Edges ) )
             {
                 Refuse( "group edge " + std::to_string( TopoEdgeID ) +
                         " lies on the mesh border and has no second side to bevel" );
@@ -113,7 +113,7 @@ namespace Desert::Geometry
             if ( Topology.IsIsolatedLoop( TopoEdgeID ) )
             {
                 EdgeLoop NewLoop;
-                NewLoop.InitializeFromEdges( Mesh, Topology.Edges[TopoEdgeID].Span.Edges );
+                NewLoop.InitializeFromEdges( Mesh, Topology.m_Edges[TopoEdgeID].Span.Edges );
                 AddBevelEdgeLoop( Mesh, NewLoop );
             }
             else
@@ -121,44 +121,44 @@ namespace Desert::Geometry
                 AddBevelGroupEdge( Mesh, Topology, TopoEdgeID );
             }
         }
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         BuildVertexSets( Mesh );
-        return FailureReason.empty();
+        return m_FailureReason.empty();
     }
 
     MeshBevel::BevelVertex* MeshBevel::GetBevelVertexFromVertexID( int32_t VertexID, int32_t* IndexOut )
     {
-        int32_t* FoundIndex = FindValue( VertexIDToIndexMap, VertexID );
+        int32_t* FoundIndex = FindValue( m_VertexIDToIndexMap, VertexID );
         if ( FoundIndex == nullptr )
             return nullptr;
         if ( IndexOut != nullptr )
             *IndexOut = *FoundIndex;
-        return &Vertices[*FoundIndex];
+        return &m_Vertices[*FoundIndex];
     }
 
     void MeshBevel::AddBevelGroupEdge( const DynamicMesh3& Mesh, const GroupTopology& Topology,
                                        int32_t GroupEdgeID )
     {
-        const std::vector<int32_t>& MeshEdgeList = Topology.Edges[GroupEdgeID].Span.Edges;
+        const std::vector<int32_t>& MeshEdgeList = Topology.m_Edges[GroupEdgeID].Span.Edges;
 
         // cannot bevel an edge on the mesh boundary
         if ( AnyBoundaryEdge( Mesh, MeshEdgeList ) )
             return;
-        if ( RefuseBowties( Mesh, Topology.Edges[GroupEdgeID].Span.Vertices ) )
+        if ( RefuseBowties( Mesh, Topology.m_Edges[GroupEdgeID].Span.Vertices ) )
             return;
 
-        const Index2i EdgeCornerIDs = Topology.Edges[GroupEdgeID].EndpointCorners;
+        const Index2i EdgeCornerIDs = Topology.m_Edges[GroupEdgeID].EndpointCorners;
 
         BevelEdge     Edge;
-        const int32_t NewBevelEdgeIndex = static_cast<int32_t>( Edges.size() );
+        const int32_t NewBevelEdgeIndex = static_cast<int32_t>( m_Edges.size() );
 
         // Find the mesh vertices at either end of the group edge; create a new bevel vertex or add to an existing
         // one.
         for ( int32_t ci = 0; ci < 2; ++ci )
         {
             const int32_t CornerID         = EdgeCornerIDs[ci];
-            const int32_t VertexID         = Topology.Corners[CornerID].VertexID;
+            const int32_t VertexID         = Topology.m_Corners[CornerID].VertexID;
             Edge.bEndpointBoundaryFlag[ci] = Mesh.IsBoundaryVertex( VertexID );
             const int32_t IncomingEdgeID   = ( ci == 0 ) ? MeshEdgeList[0] : MeshEdgeList.back();
             int32_t       BevelVertexIndex = -1;
@@ -167,10 +167,10 @@ namespace Desert::Geometry
             {
                 BevelVertex NewVertex;
                 NewVertex.VertexID = VertexID;
-                BevelVertexIndex   = static_cast<int32_t>( Vertices.size() );
-                Vertices.push_back( NewVertex );
-                VertexIDToIndexMap.insert_or_assign( VertexID, BevelVertexIndex );
-                VertInfo = &Vertices[BevelVertexIndex];
+                BevelVertexIndex   = static_cast<int32_t>( m_Vertices.size() );
+                m_Vertices.push_back( NewVertex );
+                m_VertexIDToIndexMap.insert_or_assign( VertexID, BevelVertexIndex );
+                VertInfo = &m_Vertices[BevelVertexIndex];
             }
             VertInfo->IncomingBevelMeshEdges.push_back( IncomingEdgeID );
             VertInfo->IncomingBevelEdgeIndices.push_back( NewBevelEdgeIndex );
@@ -179,8 +179,8 @@ namespace Desert::Geometry
 
         // save the edge span
         Edge.MeshEdges.insert( Edge.MeshEdges.end(), MeshEdgeList.begin(), MeshEdgeList.end() );
-        Edge.MeshVertices.insert( Edge.MeshVertices.end(), Topology.Edges[GroupEdgeID].Span.Vertices.begin(),
-                                  Topology.Edges[GroupEdgeID].Span.Vertices.end() );
+        Edge.MeshVertices.insert( Edge.MeshVertices.end(), Topology.m_Edges[GroupEdgeID].Span.Vertices.begin(),
+                                  Topology.m_Edges[GroupEdgeID].Span.Vertices.end() );
 
         Edge.MeshEdgeTris.reserve( static_cast<int32_t>( Edge.MeshEdges.size() ) );
         for ( const int32_t eid : Edge.MeshEdges )
@@ -190,8 +190,8 @@ namespace Desert::Geometry
         for ( const int32_t vid : Edge.MeshVertices )
             Edge.InitialPositions.push_back( Mesh.GetVertex( vid ) );
 
-        Edge.EdgeIndex = static_cast<int32_t>( Edges.size() );
-        Edges.push_back( std::move( Edge ) );
+        Edge.EdgeIndex = static_cast<int32_t>( m_Edges.size() );
+        m_Edges.push_back( std::move( Edge ) );
     }
 
     void MeshBevel::AddBevelEdgeLoop( const DynamicMesh3& Mesh, const EdgeLoop& MeshEdgeLoop )
@@ -214,7 +214,7 @@ namespace Desert::Geometry
         for ( const int32_t vid : Loop.MeshVertices )
             Loop.InitialPositions.push_back( Mesh.GetVertex( vid ) );
 
-        Loops.push_back( Loop );
+        m_Loops.push_back( Loop );
     }
 
     void MeshBevel::InitVertexSet( const DynamicMesh3& Mesh, BevelVertex& Vertex )
@@ -261,10 +261,10 @@ namespace Desert::Geometry
         if ( Vertex.VertexType != BevelVertexType::TerminatorVertex )
             return;
         const int32_t  OtherVertexID    = Vertex.TerminatorInfo.B;
-        const int32_t* OtherBevelVtxIdx = FindValue( VertexIDToIndexMap, OtherVertexID );
+        const int32_t* OtherBevelVtxIdx = FindValue( m_VertexIDToIndexMap, OtherVertexID );
         if ( OtherBevelVtxIdx == nullptr )
             return;
-        const BevelVertex& OtherVertex = Vertices[*OtherBevelVtxIdx];
+        const BevelVertex& OtherVertex = m_Vertices[*OtherBevelVtxIdx];
         if ( OtherVertex.VertexType != BevelVertexType::TerminatorVertex )
             return;
         const int32_t MeshEdgeID = Mesh.FindEdge( Vertex.VertexID, OtherVertex.VertexID );
@@ -280,11 +280,11 @@ namespace Desert::Geometry
     void MeshBevel::BuildVertexSets( const DynamicMesh3& Mesh )
     {
         // can be parallel
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
             InitVertexSet( Mesh, Vertex );
 
         // resolve terminator connections only once every vertex has its type
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
             FinalizeTerminatorVertex( Mesh, Vertex );
     }
 
@@ -545,7 +545,7 @@ namespace Desert::Geometry
 
     void MeshBevel::UnlinkEdges( DynamicMesh3& Mesh )
     {
-        for ( BevelEdge& Edge : Edges )
+        for ( BevelEdge& Edge : m_Edges )
             UnlinkBevelEdgeInterior( Mesh, Edge );
     }
 
@@ -661,10 +661,10 @@ namespace Desert::Geometry
             const int32_t Edge0 = BevelEdge.MeshEdges[k];
             const int32_t Edge1 = Mesh.FindEdge( BevelEdge.NewMeshVertices[k], BevelEdge.NewMeshVertices[k + 1] );
             BevelEdge.NewMeshEdges.push_back( Edge1 );
-            if ( Mesh.IsEdge( Edge1 ) && Edge0 != Edge1 && !MeshEdgePairs.contains( Edge0 ) )
+            if ( Mesh.IsEdge( Edge1 ) && Edge0 != Edge1 && !m_MeshEdgePairs.contains( Edge0 ) )
             {
-                MeshEdgePairs.insert_or_assign( Edge0, Edge1 );
-                MeshEdgePairs.insert_or_assign( Edge1, Edge0 );
+                m_MeshEdgePairs.insert_or_assign( Edge0, Edge1 );
+                m_MeshEdgePairs.insert_or_assign( Edge1, Edge0 );
             }
         }
     }
@@ -706,29 +706,29 @@ namespace Desert::Geometry
             const int32_t Edge1 =
                  Mesh.FindEdge( BevelLoop.NewMeshVertices[k], BevelLoop.NewMeshVertices[( k + 1 ) % N] );
             BevelLoop.NewMeshEdges.push_back( Edge1 );
-            if ( Mesh.IsEdge( Edge1 ) && Edge0 != Edge1 && !MeshEdgePairs.contains( Edge0 ) )
+            if ( Mesh.IsEdge( Edge1 ) && Edge0 != Edge1 && !m_MeshEdgePairs.contains( Edge0 ) )
             {
-                MeshEdgePairs.insert_or_assign( Edge0, Edge1 );
-                MeshEdgePairs.insert_or_assign( Edge1, Edge0 );
+                m_MeshEdgePairs.insert_or_assign( Edge0, Edge1 );
+                m_MeshEdgePairs.insert_or_assign( Edge1, Edge0 );
             }
         }
     }
 
     void MeshBevel::UnlinkLoops( DynamicMesh3& Mesh )
     {
-        for ( BevelLoop& Loop : Loops )
+        for ( BevelLoop& Loop : m_Loops )
             UnlinkBevelLoop( Mesh, Loop );
     }
 
     void MeshBevel::UnlinkVertices( DynamicMesh3& Mesh )
     {
         // All terminators before any junction, as in UE.
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType == BevelVertexType::TerminatorVertex )
                 UnlinkTerminatorVertex( Mesh, Vertex );
         }
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType == BevelVertexType::JunctionVertex )
                 UnlinkJunctionVertex( Mesh, Vertex );
@@ -748,10 +748,10 @@ namespace Desert::Geometry
                 const int32_t CurWedgeEdgeID    = Mesh.GetTriEdges( TriangleID )[OldWedgeEdgeIndex];
                 if ( OldWedgeEdgeID == CurWedgeEdgeID )
                     continue;
-                if ( !MeshEdgePairs.contains( OldWedgeEdgeID ) )
+                if ( !m_MeshEdgePairs.contains( OldWedgeEdgeID ) )
                 {
-                    MeshEdgePairs.insert_or_assign( OldWedgeEdgeID, CurWedgeEdgeID );
-                    MeshEdgePairs.insert_or_assign( CurWedgeEdgeID, OldWedgeEdgeID );
+                    m_MeshEdgePairs.insert_or_assign( OldWedgeEdgeID, CurWedgeEdgeID );
+                    m_MeshEdgePairs.insert_or_assign( CurWedgeEdgeID, OldWedgeEdgeID );
                 }
                 Wedge.BorderEdges[j] = CurWedgeEdgeID;
             }
@@ -780,7 +780,7 @@ namespace Desert::Geometry
 
     void MeshBevel::FixUpUnlinkedBevelEdges( const DynamicMesh3& Mesh )
     {
-        for ( BevelEdge& Edge : Edges )
+        for ( BevelEdge& Edge : m_Edges )
         {
             // A sub-edge whose "new" edge is still the old one (always so for a single-edge span, whose ends are
             // split by the vertex unlinks) takes its partner from the pairs those unlinks recorded.
@@ -791,7 +791,7 @@ namespace Desert::Geometry
                 const bool bNewEdgeIsOld = Edge.MeshEdges[Idx] == Edge.NewMeshEdges[Idx];
                 if ( !bSingleEdge && !bNewEdgeIsOld )
                     continue;
-                const int32_t* FoundOtherEdge = FindValue( MeshEdgePairs, Edge.MeshEdges[Idx] );
+                const int32_t* FoundOtherEdge = FindValue( m_MeshEdgePairs, Edge.MeshEdges[Idx] );
                 if ( FoundOtherEdge == nullptr )
                 {
                     Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": mesh edge " +
@@ -856,33 +856,34 @@ namespace Desert::Geometry
             std::vector<Line3d> InsetLines1;
         };
         std::vector<EdgePathInsetLines> AllInsetLines;
-        AllInsetLines.resize( static_cast<int32_t>( Edges.size() ) );
+        AllInsetLines.resize( static_cast<int32_t>( m_Edges.size() ) );
 
-        for ( int32_t k = 0; k < static_cast<int32_t>( Edges.size() ); ++k )
+        for ( int32_t k = 0; k < static_cast<int32_t>( m_Edges.size() ); ++k )
         {
-            BevelEdge& Edge = Edges[k];
-            ComputeInsetLineSegmentsFromEdges( Mesh, Edge.MeshEdges, InsetDistance, AllInsetLines[k].InsetLines0 );
+            BevelEdge& Edge = m_Edges[k];
+            ComputeInsetLineSegmentsFromEdges( Mesh, Edge.MeshEdges, m_InsetDistance,
+                                               AllInsetLines[k].InsetLines0 );
             SolveInsetVertexPositionsFromInsetLines( Mesh, AllInsetLines[k].InsetLines0, Edge.MeshVertices,
                                                      Edge.NewPositions0, false );
-            ComputeInsetLineSegmentsFromEdges( Mesh, Edge.NewMeshEdges, InsetDistance,
+            ComputeInsetLineSegmentsFromEdges( Mesh, Edge.NewMeshEdges, m_InsetDistance,
                                                AllInsetLines[k].InsetLines1 );
             SolveInsetVertexPositionsFromInsetLines( Mesh, AllInsetLines[k].InsetLines1, Edge.NewMeshVertices,
                                                      Edge.NewPositions1, false );
         }
 
-        for ( BevelLoop& Loop : Loops )
+        for ( BevelLoop& Loop : m_Loops )
         {
             std::vector<Line3d> InsetLines;
-            ComputeInsetLineSegmentsFromEdges( Mesh, Loop.MeshEdges, InsetDistance, InsetLines );
+            ComputeInsetLineSegmentsFromEdges( Mesh, Loop.MeshEdges, m_InsetDistance, InsetLines );
             SolveInsetVertexPositionsFromInsetLines( Mesh, InsetLines, Loop.MeshVertices, Loop.NewPositions0,
                                                      true );
-            ComputeInsetLineSegmentsFromEdges( Mesh, Loop.NewMeshEdges, InsetDistance, InsetLines );
+            ComputeInsetLineSegmentsFromEdges( Mesh, Loop.NewMeshEdges, m_InsetDistance, InsetLines );
             SolveInsetVertexPositionsFromInsetLines( Mesh, InsetLines, Loop.NewMeshVertices, Loop.NewPositions1,
                                                      true );
         }
 
         // Corners: each wedge vertex solves against the end inset lines of the bevel edges leaving it.
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType == BevelVertexType::Unknown )
                 continue;
@@ -893,13 +894,13 @@ namespace Desert::Geometry
                 std::vector<Line3d> SolveLines;
                 for ( const int32_t j : Vertex.IncomingBevelEdgeIndices )
                 {
-                    if ( Edges[j].MeshVertices[0] == Wedge.WedgeVertex )
+                    if ( m_Edges[j].MeshVertices[0] == Wedge.WedgeVertex )
                         SolveLines.push_back( AllInsetLines[j].InsetLines0[0] );
-                    else if ( Edges[j].MeshVertices.back() == Wedge.WedgeVertex )
+                    else if ( m_Edges[j].MeshVertices.back() == Wedge.WedgeVertex )
                         SolveLines.push_back( AllInsetLines[j].InsetLines0.back() );
-                    else if ( Edges[j].NewMeshVertices[0] == Wedge.WedgeVertex )
+                    else if ( m_Edges[j].NewMeshVertices[0] == Wedge.WedgeVertex )
                         SolveLines.push_back( AllInsetLines[j].InsetLines1[0] );
-                    else if ( Edges[j].NewMeshVertices.back() == Wedge.WedgeVertex )
+                    else if ( m_Edges[j].NewMeshVertices.back() == Wedge.WedgeVertex )
                         SolveLines.push_back( AllInsetLines[j].InsetLines1.back() );
                 }
 
@@ -941,7 +942,7 @@ namespace Desert::Geometry
                     {
                         DistLine3Line3d LineIntersection( SolveLines[0], MaxDotEdgeLine );
                         LineIntersection.Get();
-                        Wedge.NewPosition = LineIntersection.Line2ClosestPoint;
+                        Wedge.NewPosition = LineIntersection.m_Line2ClosestPoint;
                     }
                     Wedge.bHaveNewPosition = true;
                 }
@@ -973,19 +974,19 @@ namespace Desert::Geometry
             for ( int32_t k = InsetStart; k < Stop; ++k )
                 Mesh.SetVertex( VerticesIn[k], PositionsIn[k] );
         };
-        for ( const BevelEdge& Edge : Edges )
+        for ( const BevelEdge& Edge : m_Edges )
         {
             const int32_t InsetStart = Edge.bEndpointBoundaryFlag[0] ? 0 : 1;
             const int32_t InsetEnd   = Edge.bEndpointBoundaryFlag[1] ? 0 : 1;
             SetDisplacedPositions( Edge.MeshVertices, Edge.NewPositions0, InsetStart, InsetEnd );
             SetDisplacedPositions( Edge.NewMeshVertices, Edge.NewPositions1, InsetStart, InsetEnd );
         }
-        for ( const BevelLoop& Loop : Loops )
+        for ( const BevelLoop& Loop : m_Loops )
         {
             SetDisplacedPositions( Loop.MeshVertices, Loop.NewPositions0, 0, 0 );
             SetDisplacedPositions( Loop.NewMeshVertices, Loop.NewPositions1, 0, 0 );
         }
-        for ( const BevelVertex& Vertex : Vertices )
+        for ( const BevelVertex& Vertex : m_Vertices )
         {
             for ( const OneRingWedge& Wedge : Vertex.Wedges )
             {
@@ -1196,25 +1197,25 @@ namespace Desert::Geometry
 
     void MeshBevel::CreateBevelMeshing( DynamicMesh3& Mesh )
     {
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType == BevelVertexType::JunctionVertex &&
                  static_cast<int32_t>( Vertex.Wedges.size() ) > 2 )
                 AppendJunctionVertexPolygon( Mesh, Vertex );
         }
-        for ( BevelEdge& Edge : Edges )
+        for ( BevelEdge& Edge : m_Edges )
             AppendEdgeQuads( Mesh, Edge );
-        for ( BevelLoop& Loop : Loops )
+        for ( BevelLoop& Loop : m_Loops )
             AppendLoopQuads( Mesh, Loop );
         // Terminators last: the strip's end edge now exists and orients their triangle.
         std::unordered_set<Index2i> HandledQuadVtxPairs;
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType != BevelVertexType::TerminatorVertex )
                 continue;
             if ( Vertex.ConnectedBevelVertex >= 0 )
             {
-                BevelVertex& OtherVertex = Vertices[Vertex.ConnectedBevelVertex];
+                BevelVertex& OtherVertex = m_Vertices[Vertex.ConnectedBevelVertex];
                 Index2i      VtxPair( Vertex.VertexID, OtherVertex.VertexID );
                 VtxPair.Sort();
                 if ( !HandledQuadVtxPairs.contains( VtxPair ) )
@@ -1368,7 +1369,7 @@ namespace Desert::Geometry
         }
 
         // the rows of vertices of the QuadGridPatch of this strip
-        const int32_t           N = NumSubdivisions;
+        const int32_t                     N = m_NumSubdivisions;
         std::vector<std::vector<int32_t>> VertexSpans;
         VertexSpans.resize( N + 2 );
         // appends a column to VertexSpans, with new vertices on the interior of the edge between StartVID and
@@ -1407,7 +1408,7 @@ namespace Desert::Geometry
         {
             if ( BevelVertexIdx == -1 )
                 return nullptr;
-            const BevelVertex& Vtx = Vertices[BevelVertexIdx];
+            const BevelVertex& Vtx = m_Vertices[BevelVertexIdx];
             if ( Vtx.VertexType != BevelVertexType::JunctionVertex ||
                  static_cast<int32_t>( Vtx.Wedges.size() ) != 2 )
                 return nullptr;
@@ -1415,7 +1416,7 @@ namespace Desert::Geometry
             {
                 if ( EdgeIdx != CurBevelEdgeIdx )
                 {
-                    const BevelEdge& OtherEdge = Edges[EdgeIdx];
+                    const BevelEdge& OtherEdge = m_Edges[EdgeIdx];
                     return OtherEdge.StripQuadPatch.IsEmpty() ? nullptr : &OtherEdge.StripQuadPatch;
                 }
             }
@@ -1429,9 +1430,9 @@ namespace Desert::Geometry
         // SequentialQuadEdges may run against [BevelVertices.A, BevelVertices.B]; then the previous and next
         // patches are swapped
         const int32_t OriginalPrevVtxID =
-             ( Edge.BevelVertices.A >= 0 ) ? Vertices[Edge.BevelVertices.A].VertexID : -1;
+             ( Edge.BevelVertices.A >= 0 ) ? m_Vertices[Edge.BevelVertices.A].VertexID : -1;
         const int32_t OriginalNextVtxID =
-             ( Edge.BevelVertices.B >= 0 ) ? Vertices[Edge.BevelVertices.B].VertexID : -1;
+             ( Edge.BevelVertices.B >= 0 ) ? m_Vertices[Edge.BevelVertices.B].VertexID : -1;
         const Index2i EdgeStartQuadVerts( SequentialQuadEdges[0].EdgeV0.B, SequentialQuadEdges[0].EdgeV1.A );
         const Index2i EdgeEndQuadVerts( SequentialQuadEdges[NumEdges - 1].EdgeV0.A,
                                         SequentialQuadEdges[NumEdges - 1].EdgeV1.B );
@@ -1474,7 +1475,7 @@ namespace Desert::Geometry
                 Edge.StripQuads.push_back( QuadTris );
             }
         }
-        if ( FailureReason.empty() &&
+        if ( m_FailureReason.empty() &&
              !Edge.StripQuadPatch.InitializeFromQuadPatch( Mesh, QuadSpans, VertexSpans ) )
             Refuse( Where + ": its " + std::to_string( NumStrips ) + " x " + std::to_string( NumEdges ) +
                     " quads do not form a quad grid" );
@@ -1529,7 +1530,7 @@ namespace Desert::Geometry
         const bool bEdgeHasReverseOrder = static_cast<int32_t>( SequentialQuadEdges.size() ) > 1 &&
                                           SequentialQuadEdges[0].EdgeV0.B == SequentialQuadEdges[1].EdgeV0.A;
 
-        const int32_t           N = NumSubdivisions;
+        const int32_t                     N = m_NumSubdivisions;
         std::vector<std::vector<int32_t>> VertexSpans;
         VertexSpans.resize( N + 2 );
         auto AppendVertColumn = [&Mesh, &VertexSpans, N]( int32_t StartVID, int32_t EndVID )
@@ -1592,7 +1593,7 @@ namespace Desert::Geometry
                 Loop.StripQuads.push_back( QuadTris );
             }
         }
-        if ( FailureReason.empty() &&
+        if ( m_FailureReason.empty() &&
              !Loop.StripQuadPatch.InitializeFromQuadPatch( Mesh, QuadSpans, VertexSpans ) )
             Refuse( "bevel loop: its " + std::to_string( NumStrips ) + " x " + std::to_string( NumEdges ) +
                     " quads do not form a quad grid" );
@@ -1659,7 +1660,7 @@ namespace Desert::Geometry
 
     bool MeshBevel::HasRoundProfile() const
     {
-        return std::abs( RoundWeight ) > ZeroTolerance<float>;
+        return std::abs( m_RoundWeight ) > ZeroTolerance<float>;
     }
 
     void MeshBevel::AppendJunctionVertexPolygon_Multi( DynamicMesh3& Mesh, BevelVertex& Vertex )
@@ -1683,7 +1684,7 @@ namespace Desert::Geometry
             const int32_t   B = Vertex.Wedges[( wi + 1 ) % NumWedges].WedgeVertex;
             std::vector<int32_t> Side;
             // UE searches every bevel edge's end columns (IncomingBevelEdgeIndices might do, per its comment)
-            for ( const BevelEdge& Span : Edges )
+            for ( const BevelEdge& Span : m_Edges )
             {
                 if ( Span.StripQuadPatch.IsEmpty() )
                     continue;
@@ -1817,7 +1818,7 @@ namespace Desert::Geometry
         for ( int32_t k = 0; k < BoundaryLoops.GetLoopCount() && !bMapped; ++k )
         {
             std::vector<int32_t>& LoopVerts = BoundaryLoopVerts;
-            LoopVerts                  = BoundaryLoops.Loops[k].Vertices;
+            LoopVerts                       = BoundaryLoops.m_Loops[k].Vertices;
             if ( static_cast<int32_t>( LoopVerts.size() ) != NV )
                 continue;
             auto IndexOf = [&LoopVerts]( int32_t VertexID )
@@ -1960,7 +1961,7 @@ namespace Desert::Geometry
             Refuse( Where + ": ring-split edge " + std::to_string( RingSplitEdgeID ) + " no longer exists" );
             return;
         }
-        const BevelEdge&           IncomingEdge = Edges[Vertex.IncomingBevelEdgeIndices[0]];
+        const BevelEdge&           IncomingEdge = m_Edges[Vertex.IncomingBevelEdgeIndices[0]];
         const int32_t         FarVertexID  = Mesh.GetEdgeV( RingSplitEdgeID ).OtherElement( Vertex.VertexID );
         std::string           Error;
         const std::vector<int32_t> QuadStripEdgeVerts =
@@ -1989,10 +1990,10 @@ namespace Desert::Geometry
                                   std::to_string( Vertex1.VertexID );
         std::string           Error;
         const std::vector<int32_t> QuadStripEdgeVerts0 =
-             TerminatorColumn( Mesh, Edges[Vertex0.IncomingBevelEdgeIndices[0]].StripQuadPatch,
+             TerminatorColumn( Mesh, m_Edges[Vertex0.IncomingBevelEdgeIndices[0]].StripQuadPatch,
                                Vertex0.Wedges[0].WedgeVertex, Vertex0.Wedges[1].WedgeVertex, Error );
         const std::vector<int32_t> QuadStripEdgeVerts1 =
-             TerminatorColumn( Mesh, Edges[Vertex1.IncomingBevelEdgeIndices[0]].StripQuadPatch,
+             TerminatorColumn( Mesh, m_Edges[Vertex1.IncomingBevelEdgeIndices[0]].StripQuadPatch,
                                Vertex1.Wedges[0].WedgeVertex, Vertex1.Wedges[1].WedgeVertex, Error );
         if ( QuadStripEdgeVerts0.empty() || QuadStripEdgeVerts1.empty() )
         {
@@ -2042,20 +2043,20 @@ namespace Desert::Geometry
                     NormalsB[k] = MeshNormals::ComputeVertexNormal( Mesh, NewMeshVertices[k] );
                 }
             };
-            for ( BevelEdge& Edge : Edges )
+            for ( BevelEdge& Edge : m_Edges )
                 FillNormals( Edge.MeshVertices, Edge.NewMeshVertices, Edge.NormalsA, Edge.NormalsB );
-            for ( BevelLoop& Loop : Loops )
+            for ( BevelLoop& Loop : m_Loops )
                 FillNormals( Loop.MeshVertices, Loop.NewMeshVertices, Loop.NormalsA, Loop.NormalsB );
         }
 
         // Strips first: the junction polygons take their sides from the strips' end columns.
-        for ( BevelEdge& Edge : Edges )
+        for ( BevelEdge& Edge : m_Edges )
             AppendEdgeQuads_Multi( Mesh, Edge );
-        for ( BevelLoop& Loop : Loops )
+        for ( BevelLoop& Loop : m_Loops )
             AppendLoopQuads_Multi( Mesh, Loop );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return;
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType == BevelVertexType::JunctionVertex &&
                  static_cast<int32_t>( Vertex.Wedges.size() ) > 2 )
@@ -2063,13 +2064,13 @@ namespace Desert::Geometry
         }
         // Terminators last: the strip's end column now exists and orients their triangles.
         std::unordered_set<Index2i> HandledQuadVtxPairs;
-        for ( BevelVertex& Vertex : Vertices )
+        for ( BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.VertexType != BevelVertexType::TerminatorVertex )
                 continue;
             if ( Vertex.ConnectedBevelVertex >= 0 )
             {
-                BevelVertex& OtherVertex = Vertices[Vertex.ConnectedBevelVertex];
+                BevelVertex& OtherVertex = m_Vertices[Vertex.ConnectedBevelVertex];
                 Index2i      VtxPair( Vertex.VertexID, OtherVertex.VertexID );
                 VtxPair.Sort();
                 if ( !HandledQuadVtxPairs.contains( VtxPair ) )
@@ -2084,7 +2085,7 @@ namespace Desert::Geometry
             }
         }
         // All topology is final; the round profile only moves vertices.
-        if ( bRound && FailureReason.empty() )
+        if ( bRound && m_FailureReason.empty() )
             ApplyProfileShape_Round( Mesh );
     }
 
@@ -2114,8 +2115,8 @@ namespace Desert::Geometry
         ArcSplineCurve Curve;
         Curve.Pos0                = PosA;
         Curve.Pos1                = PosB;
-        const double TangentScale = std::abs( RoundWeight ) * std::numbers::sqrt2;
-        if ( RoundWeight >= 0 )
+        const double TangentScale = std::abs( m_RoundWeight ) * std::numbers::sqrt2;
+        if ( m_RoundWeight >= 0 )
         {
             Curve.Tangent0 = TangentScale * TangentA;
             Curve.Tangent1 = -TangentScale * TangentB;
@@ -2162,7 +2163,7 @@ namespace Desert::Geometry
         };
 
         // Loops have no junctions: every column gets its own arc (the last column repeats the first).
-        for ( BevelLoop& Loop : Loops )
+        for ( BevelLoop& Loop : m_Loops )
         {
             const QuadGridPatch& Patch = Loop.StripQuadPatch;
             for ( int32_t Col = 0; Col < Patch.NumVertexCols() - 1; ++Col )
@@ -2197,7 +2198,7 @@ namespace Desert::Geometry
         std::unordered_map<Index2i, ArcSplineCurve>   BorderCurves;
         std::vector<glm::dvec3>                       DeformNormals;
         DeformNormals.assign( Mesh.MaxVertexID(), glm::dvec3( 0 ) );
-        for ( BevelEdge& Edge : Edges )
+        for ( BevelEdge& Edge : m_Edges )
         {
             const QuadGridPatch&  Patch  = Edge.StripQuadPatch;
             const int32_t         NumVtx = static_cast<int32_t>( Edge.MeshVertices.size() );
@@ -2227,7 +2228,7 @@ namespace Desert::Geometry
                 if ( bIsEndpoint )
                 {
                     const BevelVertex& BevelVtx =
-                         Vertices[Side.Index == 0 ? Edge.BevelVertices.A : Edge.BevelVertices.B];
+                         m_Vertices[Side.Index == 0 ? Edge.BevelVertices.A : Edge.BevelVertices.B];
                     if ( BevelVtx.VertexType == BevelVertexType::JunctionVertex &&
                          static_cast<int32_t>( BevelVtx.IncomingBevelEdgeIndices.size() ) > 2 )
                     {
@@ -2275,7 +2276,7 @@ namespace Desert::Geometry
         };
 
         // Junction patches: 3 corners (PN triangle), 4 (blended curves), 5+ (mean-value blend of border frames).
-        for ( const BevelVertex& Vertex : Vertices )
+        for ( const BevelVertex& Vertex : m_Vertices )
         {
             if ( Vertex.InteriorVertices.empty() )
                 continue;
@@ -2315,7 +2316,7 @@ namespace Desert::Geometry
                 const glm::dvec3 b201 = b300 + NearEnd( *CurveC, bReversedC );
                 const glm::dvec3 E    = ( b210 + b120 + b021 + b012 + b102 + b201 ) / 6.0;
                 const glm::dvec3 V    = ( b300 + b030 + b003 ) / 3.0;
-                const glm::dvec3 b111 = E + RoundWeight * ( E - V ) / 2.0;
+                const glm::dvec3 b111 = E + m_RoundWeight * ( E - V ) / 2.0;
                 for ( const BevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
                 {
                     const double w = InteriorVtx.BorderFrameWeight[0].x;
@@ -2354,7 +2355,7 @@ namespace Desert::Geometry
                              Normalized( Mesh.GetVertex( Vertex.InteriorBorderLoop[( k + 1 ) % LoopN] ) -
                                          Mesh.GetVertex( Vertex.InteriorBorderLoop[( k - 1 + LoopN ) % LoopN] ) );
                         glm::dvec3 BorderFrameN = DeformNormals[BorderVID];
-                        if ( RoundWeight < 0 )
+                        if ( m_RoundWeight < 0 )
                         {
                             // Quaterniond(BorderFrameX, -45, true) * N, as Rodrigues' rotation
                             const double Angle = -0.78539816339744830962;
@@ -2425,38 +2426,38 @@ namespace Desert::Geometry
     {
         // UE's FixBowties is RefuseBowties at initialization; each phase below may Refuse.
         UnlinkEdges( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         UnlinkLoops( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         UnlinkVertices( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         FixUpUnlinkedBevelEdges( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         DisplaceVertices( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
-        if ( NumSubdivisions <= 0 )
+        if ( m_NumSubdivisions <= 0 )
             CreateBevelMeshing( Mesh );
         else
             CreateBevelMeshing_Multi( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
 
-        NewTriangles.clear();
-        for ( const BevelVertex& Vertex : Vertices )
-            NewTriangles.insert( NewTriangles.end(), Vertex.NewTriangles.begin(), Vertex.NewTriangles.end() );
-        for ( const BevelEdge& Edge : Edges )
-            QuadsToTris( Mesh, Edge.StripQuads, NewTriangles, false );
-        for ( const BevelLoop& Loop : Loops )
-            QuadsToTris( Mesh, Loop.StripQuads, NewTriangles, false );
+        m_NewTriangles.clear();
+        for ( const BevelVertex& Vertex : m_Vertices )
+            m_NewTriangles.insert( m_NewTriangles.end(), Vertex.NewTriangles.begin(), Vertex.NewTriangles.end() );
+        for ( const BevelEdge& Edge : m_Edges )
+            QuadsToTris( Mesh, Edge.StripQuads, m_NewTriangles, false );
+        for ( const BevelLoop& Loop : m_Loops )
+            QuadsToTris( Mesh, Loop.StripQuads, m_NewTriangles, false );
 
         ComputeNormals( Mesh );
         ComputeUVs( Mesh );
-        if ( !FailureReason.empty() )
+        if ( !m_FailureReason.empty() )
             return false;
         ComputeMaterialIDs( Mesh );
         return true;
@@ -2477,18 +2478,18 @@ namespace Desert::Geometry
                         " triangles starting at triangle " + std::to_string( Triangles[0] ) );
         };
         std::vector<int32_t> TriList;
-        for ( const BevelEdge& Edge : Edges )
+        for ( const BevelEdge& Edge : m_Edges )
         {
             QuadsToTris( Mesh, Edge.StripQuads, TriList, true );
             SetUVsOnTriRegion( TriList );
         }
-        for ( const BevelLoop& Loop : Loops )
+        for ( const BevelLoop& Loop : m_Loops )
         {
             QuadsToTris( Mesh, Loop.StripQuads, TriList, true );
             SetUVsOnTriRegion( TriList );
         }
         // vertices last: until the edges have UVs, the vertex polygons have no neighbour UV islands to scale by
-        for ( const BevelVertex& Vertex : Vertices )
+        for ( const BevelVertex& Vertex : m_Vertices )
             SetUVsOnTriRegion( Vertex.NewTriangles );
     }
 
@@ -2503,15 +2504,15 @@ namespace Desert::Geometry
             if ( !Triangles.empty() )
                 MeshNormals::InitializeOverlayRegionToPerVertexNormals( NormalOverlay, Triangles );
         };
-        for ( const BevelVertex& Vertex : Vertices )
+        for ( const BevelVertex& Vertex : m_Vertices )
             SetNormalsOnTriRegion( Vertex.NewTriangles );
         std::vector<int32_t> TriList;
-        for ( const BevelEdge& Edge : Edges )
+        for ( const BevelEdge& Edge : m_Edges )
         {
             QuadsToTris( Mesh, Edge.StripQuads, TriList, true );
             SetNormalsOnTriRegion( TriList );
         }
-        for ( const BevelLoop& Loop : Loops )
+        for ( const BevelLoop& Loop : m_Loops )
         {
             QuadsToTris( Mesh, Loop.StripQuads, TriList, true );
             SetNormalsOnTriRegion( TriList );
@@ -2530,8 +2531,8 @@ namespace Desert::Geometry
 
         if ( m_MaterialIDMode == MaterialIDMode::ConstantMaterialID )
         {
-            for ( const int32_t tid : NewTriangles )
-                MaterialIDs->SetValue( tid, SetConstantMaterialID );
+            for ( const int32_t tid : m_NewTriangles )
+                MaterialIDs->SetValue( tid, m_SetConstantMaterialID );
             return;
         }
 
@@ -2551,7 +2552,7 @@ namespace Desert::Geometry
             if ( static_cast<int32_t>( StripQuads.size() ) != NumEdges )
             {
                 for ( const Index2i& Quad : StripQuads )
-                    SetQuadMaterial( Quad, SetConstantMaterialID );
+                    SetQuadMaterial( Quad, m_SetConstantMaterialID );
                 return;
             }
             std::vector<int32_t> SawMaterialIDs;
@@ -2572,7 +2573,7 @@ namespace Desert::Geometry
                 }
                 if ( MatIDA != MatIDB )
                 {
-                    SetMatID = SetConstantMaterialID;
+                    SetMatID = m_SetConstantMaterialID;
                     if ( m_MaterialIDMode == MaterialIDMode::InferMaterialID )
                         AmbiguousEdges.push_back( k );
                 }
@@ -2585,13 +2586,13 @@ namespace Desert::Geometry
                     SetQuadMaterial( StripQuads[k], LowestMatID );
             }
         };
-        for ( const BevelEdge& Edge : Edges )
+        for ( const BevelEdge& Edge : m_Edges )
             SetEdgeMaterials( Edge.StripQuads, Edge.MeshEdgeTris );
-        for ( const BevelLoop& Loop : Loops )
+        for ( const BevelLoop& Loop : m_Loops )
             SetEdgeMaterials( Loop.StripQuads, Loop.MeshEdgeTris );
 
         // Each vertex polygon takes the most frequent material across its border (the strips and faces around it).
-        for ( const BevelVertex& Vertex : Vertices )
+        for ( const BevelVertex& Vertex : m_Vertices )
         {
             std::vector<int32_t> NbrMaterialIDs;
             std::vector<int32_t> NbrMaterialIDCounts;
@@ -2615,7 +2616,7 @@ namespace Desert::Geometry
                     NbrMaterialIDCounts[Index]++;
                 }
             }
-            int32_t SetMaterialID = SetConstantMaterialID;
+            int32_t SetMaterialID = m_SetConstantMaterialID;
             if ( !NbrMaterialIDs.empty() )
             {
                 int32_t MaxIndex = 0;

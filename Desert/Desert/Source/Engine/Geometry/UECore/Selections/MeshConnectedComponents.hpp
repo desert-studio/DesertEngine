@@ -19,7 +19,7 @@ namespace Desert::Geometry
     class MeshConnectedComponents
     {
     public:
-        const DynamicMesh3* Mesh;
+        const DynamicMesh3* m_Mesh;
 
         struct Component
         {
@@ -27,31 +27,31 @@ namespace Desert::Geometry
             std::vector<int> Indices;
         };
 
-        std::vector<Component> Components;
+        std::vector<Component> m_Components;
 
-        explicit MeshConnectedComponents( const DynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit MeshConnectedComponents( const DynamicMesh3* MeshIn ) : m_Mesh( MeshIn )
         {
         }
 
         [[nodiscard]] int32_t Num() const
         {
-            return static_cast<int32_t>( Components.size() );
+            return static_cast<int32_t>( m_Components.size() );
         }
         [[nodiscard]] const Component& GetComponent( int32_t Index ) const
         {
-            return Components[Index];
+            return m_Components[Index];
         }
         Component& GetComponent( int32_t Index )
         {
-            return Components[Index];
+            return m_Components[Index];
         }
         const Component& operator[]( int32_t Index ) const
         {
-            return Components[Index];
+            return m_Components[Index];
         }
         Component& operator[]( int32_t Index )
         {
-            return Components[Index];
+            return m_Components[Index];
         }
 
         /**

@@ -53,7 +53,7 @@ namespace Desert::Geometry
         // Inset the point to the intersection point of the two lines.
         DistLine3Line3d Distance( InsetEdgeLine1, InsetEdgeLine2 );
         Distance.GetSquared();
-        return 0.5 * ( Distance.Line1ClosestPoint + Distance.Line2ClosestPoint );
+        return 0.5 * ( Distance.m_Line1ClosestPoint + Distance.m_Line2ClosestPoint );
     }
 
     void SolveInsetVertexPositionsFromInsetLines( const DynamicMesh3&         Mesh,

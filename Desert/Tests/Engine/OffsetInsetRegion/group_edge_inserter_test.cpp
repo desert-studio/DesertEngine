@@ -87,9 +87,9 @@ namespace
 
     int GroupEdgeBetween( const GroupTopology& topology, int groupA, int groupB )
     {
-        for ( int e = 0; e < static_cast<int32_t>( topology.Edges.size() ); ++e )
+        for ( int e = 0; e < static_cast<int32_t>( topology.m_Edges.size() ); ++e )
         {
-            const Index2i g = topology.Edges[e].Groups;
+            const Index2i g = topology.m_Edges[e].Groups;
             if ( ( g.A == groupA && g.B == groupB ) || ( g.A == groupB && g.B == groupA ) )
                 return e;
         }
@@ -105,9 +105,9 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
 
     GroupTopology  topology( &mesh, true );
     int            groupEdge = -1;
-    for ( int e = 0; e < static_cast<int32_t>( topology.Edges.size() ); ++e )
+    for ( int e = 0; e < static_cast<int32_t>( topology.m_Edges.size() ); ++e )
     {
-        const Index2i g = topology.Edges[e].Groups;
+        const Index2i g = topology.m_Edges[e].Groups;
         if ( ( g.A == kPlusXGroup && g.B == kPlusZGroup ) || ( g.A == kPlusZGroup && g.B == kPlusXGroup ) )
             groupEdge = e;
     }
@@ -119,7 +119,7 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     params.Topology           = &topology;
     params.GroupEdgeID        = groupEdge;
     params.SortedInputLengths = &proportions;
-    params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
+    params.StartCornerID      = topology.m_Edges[groupEdge].EndpointCorners.A;
 
     std::unordered_set<int32_t>               newEids;
     GroupEdgeInserter::OptionalOutputParams   out;
@@ -128,7 +128,7 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
 
     EXPECT_EQ( GroupIDs( mesh ).size(), 10u );
     EXPECT_TRUE( mesh.IsClosed() );
-    EXPECT_EQ( static_cast<int32_t>( topology.Groups.size() ), 10 );
+    EXPECT_EQ( static_cast<int32_t>( topology.m_Groups.size() ), 10 );
 
     // The loop runs at y = 0 all the way round: every new edge lies in that plane, and every vertex is either
     // on it or on one of the cube's y = +-50 rings.
@@ -174,9 +174,9 @@ TEST( GroupEdgeInserter, GroupEdgeAcrossOneFaceSplitsOnlyThatFace )
     std::vector<int> alongX;
     for ( const int ge : group->Boundaries[0].GroupEdges )
     {
-        const Index2i v = mesh.GetEdgeV( topology.Edges[ge].Span.Edges[0] );
+        const Index2i v = mesh.GetEdgeV( topology.m_Edges[ge].Span.Edges[0] );
         if ( std::abs( mesh.GetVertex( v.A ).y - mesh.GetVertex( v.B ).y ) < 1e-6 )
-            alongX.push_back( topology.Edges[ge].Span.Edges[0] );
+            alongX.push_back( topology.m_Edges[ge].Span.Edges[0] );
     }
     ASSERT_EQ( alongX.size(), 2u );
 
@@ -196,7 +196,7 @@ TEST( GroupEdgeInserter, GroupEdgeAcrossOneFaceSplitsOnlyThatFace )
     ASSERT_TRUE( GroupEdgeInserter::InsertGroupEdge( params ) );
     EXPECT_EQ( GroupIDs( mesh ).size(), 7u );
     EXPECT_TRUE( mesh.IsClosed() );
-    EXPECT_EQ( static_cast<int32_t>( topology.Groups.size() ), 7 );
+    EXPECT_EQ( static_cast<int32_t>( topology.m_Groups.size() ), 7 );
 }
 
 // An OPEN strip: the cube without its -X face, so the faces around Y are -Z, +X, +Z with a hole on either end.
@@ -226,12 +226,12 @@ TEST( GroupEdgeInserter, EdgeLoopOnAnOpenStripWalksBothWays )
     params.Topology           = &topology;
     params.GroupEdgeID        = groupEdge;
     params.SortedInputLengths = &proportions;
-    params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
+    params.StartCornerID      = topology.m_Edges[groupEdge].EndpointCorners.A;
     ASSERT_TRUE( GroupEdgeInserter::InsertEdgeLoops( params ) );
 
     // -Z, +X and +Z are cut in two; +Y and -Y are not crossed.
     EXPECT_EQ( GroupIDs( mesh ).size(), 8u );
-    EXPECT_EQ( static_cast<int32_t>( topology.Groups.size() ), 8 );
+    EXPECT_EQ( static_cast<int32_t>( topology.m_Groups.size() ), 8 );
     for ( const int vid : mesh.VertexIndicesItr() )
     {
         const double y = mesh.GetVertex( vid ).y;

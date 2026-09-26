@@ -140,12 +140,12 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
     DynamicMesh3                 mesh = StripWithUVs( true );
     const DynamicMeshUVOverlay&  uv   = *mesh.Attributes()->GetUVLayer( 0 );
     MeshRegionBoundaryLoops      loops( &mesh, { 2, 3 } );
-    ASSERT_FALSE( loops.bFailed ) << loops.FailureReason;
-    ASSERT_EQ( static_cast<int32_t>( loops.Loops.size() ), 1 );
-    ASSERT_EQ( loops.Loops[0].GetVertexCount(), 4 );
+    ASSERT_FALSE( loops.m_bFailed ) << loops.m_FailureReason;
+    ASSERT_EQ( static_cast<int32_t>( loops.m_Loops.size() ), 1 );
+    ASSERT_EQ( loops.m_Loops[0].GetVertexCount(), 4 );
 
     MeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
-    ASSERT_TRUE( loops.GetLoopOverlayMap( loops.Loops[0], uv, map ) );
+    ASSERT_TRUE( loops.GetLoopOverlayMap( loops.m_Loops[0], uv, map ) );
     ASSERT_EQ( static_cast<int32_t>( map.size() ), 4 );
     for ( int v : { 2, 3, 4, 5 } )
     {
@@ -170,9 +170,9 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheEl
     DynamicMesh3                 mesh = StripWithUVs( false );
     const DynamicMeshUVOverlay&  uv   = *mesh.Attributes()->GetUVLayer( 0 );
     MeshRegionBoundaryLoops      loops( &mesh, { 2, 3 } );
-    ASSERT_EQ( static_cast<int32_t>( loops.Loops.size() ), 1 );
+    ASSERT_EQ( static_cast<int32_t>( loops.m_Loops.size() ), 1 );
     MeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
-    ASSERT_TRUE( loops.GetLoopOverlayMap( loops.Loops[0], uv, map ) );
+    ASSERT_TRUE( loops.GetLoopOverlayMap( loops.m_Loops[0], uv, map ) );
 
     ASSERT_EQ( mesh.RemoveTriangle( 2 ), MeshResult::Ok );
     ASSERT_EQ( mesh.RemoveTriangle( 3 ), MeshResult::Ok );
@@ -190,7 +190,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapRefusesALoopOfAnotherRegion )
     const DynamicMesh3            mesh = StripWithUVs( false );
     MeshRegionBoundaryLoops       quad0( &mesh, { 0, 1 } );
     const MeshRegionBoundaryLoops quad3( &mesh, { 6, 7 } );
-    ASSERT_EQ( static_cast<int32_t>( quad3.Loops.size() ), 1 );
+    ASSERT_EQ( static_cast<int32_t>( quad3.m_Loops.size() ), 1 );
     MeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
-    EXPECT_FALSE( quad0.GetLoopOverlayMap( quad3.Loops[0], *mesh.Attributes()->GetUVLayer( 0 ), map ) );
+    EXPECT_FALSE( quad0.GetLoopOverlayMap( quad3.m_Loops[0], *mesh.Attributes()->GetUVLayer( 0 ), map ) );
 }

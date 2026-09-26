@@ -19,14 +19,14 @@ namespace Desert::Geometry
     {
     protected:
         /** Target Mesh */
-        const DynamicMesh3* Mesh;
+        const DynamicMesh3* m_Mesh;
         /** Set of computed normals */
-        std::vector<glm::dvec3> Normals;
+        std::vector<glm::dvec3> m_Normals;
 
     public:
         MeshNormals()
         {
-            Mesh = nullptr;
+            m_Mesh = nullptr;
         }
 
         MeshNormals( const DynamicMesh3* Mesh )
@@ -36,12 +36,12 @@ namespace Desert::Geometry
 
         void SetMesh( const DynamicMesh3* MeshIn )
         {
-            this->Mesh = MeshIn;
+            this->m_Mesh = MeshIn;
         }
 
         const std::vector<glm::dvec3>& GetNormals() const
         {
-            return Normals;
+            return m_Normals;
         }
 
         /*
@@ -49,16 +49,16 @@ namespace Desert::Geometry
          */
         std::vector<glm::dvec3>&& MoveNormals()
         {
-            return std::move( Normals );
+            return std::move( m_Normals );
         }
 
         glm::dvec3& operator[]( int i )
         {
-            return Normals[i];
+            return m_Normals[i];
         }
         const glm::dvec3& operator[]( int i ) const
         {
-            return Normals[i];
+            return m_Normals[i];
         }
 
         /**

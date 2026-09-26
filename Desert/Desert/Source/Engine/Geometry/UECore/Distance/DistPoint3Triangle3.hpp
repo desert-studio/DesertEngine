@@ -16,15 +16,15 @@ namespace Desert::Geometry
     {
     public:
         // Input
-        glm::vec<3, Real> Point{};
-        Triangle3<Real>   Triangle;
+        glm::vec<3, Real> m_Point{};
+        Triangle3<Real>   m_Triangle;
 
         // Results
-        glm::vec<3, Real> TriangleBaryCoords{};
-        glm::vec<3, Real> ClosestTrianglePoint{};
+        glm::vec<3, Real> m_TriangleBaryCoords{};
+        glm::vec<3, Real> m_ClosestTrianglePoint{};
 
         DistPoint3Triangle3( const glm::vec<3, Real>& PointIn, const Triangle3<Real>& TriangleIn )
-             : Point( PointIn ), Triangle( TriangleIn )
+             : m_Point( PointIn ), m_Triangle( TriangleIn )
         {
         }
 
@@ -35,9 +35,9 @@ namespace Desert::Geometry
 
         Real ComputeResult()
         {
-            const glm::vec<3, Real> diff  = Point - Triangle.V[0];
-            const glm::vec<3, Real> edge0 = Triangle.V[1] - Triangle.V[0];
-            const glm::vec<3, Real> edge1 = Triangle.V[2] - Triangle.V[0];
+            const glm::vec<3, Real> diff  = m_Point - m_Triangle.V[0];
+            const glm::vec<3, Real> edge0 = m_Triangle.V[1] - m_Triangle.V[0];
+            const glm::vec<3, Real> edge1 = m_Triangle.V[2] - m_Triangle.V[0];
             const Real              a00   = glm::length2( edge0 );
             const Real              a01   = glm::dot( edge0, edge1 );
             const Real              a11   = glm::length2( edge1 );
@@ -181,9 +181,9 @@ namespace Desert::Geometry
                 }
             }
 
-            TriangleBaryCoords   = glm::vec<3, Real>( static_cast<Real>( 1 ) - p[0] - p[1], p[0], p[1] );
-            ClosestTrianglePoint = Triangle.V[0] + p[0] * edge0 + p[1] * edge1;
-            return DistanceSquared( Point, ClosestTrianglePoint );
+            m_TriangleBaryCoords   = glm::vec<3, Real>( static_cast<Real>( 1 ) - p[0] - p[1], p[0], p[1] );
+            m_ClosestTrianglePoint = m_Triangle.V[0] + p[0] * edge0 + p[1] * edge1;
+            return DistanceSquared( m_Point, m_ClosestTrianglePoint );
         }
 
     private:

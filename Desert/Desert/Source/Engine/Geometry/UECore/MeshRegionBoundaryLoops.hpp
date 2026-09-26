@@ -57,11 +57,11 @@ namespace Desert::Geometry
     class MeshRegionBoundaryLoops
     {
     public:
-        const DynamicMesh3*   Mesh = nullptr;
-        std::vector<EdgeLoop> Loops;
-        bool                 bFailed = false;
+        const DynamicMesh3*   m_Mesh = nullptr;
+        std::vector<EdgeLoop> m_Loops;
+        bool                  m_bFailed = false;
         /** Why Compute failed, with the vertex/edge that stopped it. Empty on success. */
-        std::string FailureReason;
+        std::string m_FailureReason;
 
         MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
                                  bool bAutoCompute = true );
@@ -94,13 +94,13 @@ namespace Desert::Geometry
                                                   const DynamicMeshOverlay<StorageType, ElementSize>& Overlay );
 
     private:
-        std::vector<bool> Triangles; // membership over [0, MaxTriangleID)
-        std::vector<bool> Edges;     // region-boundary membership over [0, MaxEdgeID)
-        std::vector<int>  EdgesRoi;
+        std::vector<bool> m_Triangles; // membership over [0, MaxTriangleID)
+        std::vector<bool> m_Edges;     // region-boundary membership over [0, MaxEdgeID)
+        std::vector<int>  m_EdgesRoi;
 
         bool IsEdgeOnBoundary( int Eid ) const
         {
-            return Edges[Eid];
+            return m_Edges[Eid];
         }
         bool     IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const;
         Index2i  GetOrientedEdgeVerts( int Eid, int TidIn ) const;

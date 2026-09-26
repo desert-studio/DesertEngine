@@ -30,13 +30,13 @@ namespace Desert::Geometry
 
         void Multiply( const std::vector<double>& In, std::vector<double>& Out ) const;
 
-        std::vector<int32_t> RowStart; // NumRows + 1 offsets into ColIndex/Values
-        std::vector<int32_t> ColIndex;
-        std::vector<double> Values;
+        std::vector<int32_t> m_RowStart; // NumRows + 1 offsets into ColIndex/Values
+        std::vector<int32_t> m_ColIndex;
+        std::vector<double>  m_Values;
 
     private:
-        int32_t NumRows = 0;
-        int32_t NumCols = 0;
+        int32_t m_NumRows = 0;
+        int32_t m_NumCols = 0;
     };
 
     /**
@@ -52,11 +52,11 @@ namespace Desert::Geometry
         void               Solve( const std::vector<double>& B, std::vector<double>& X ) const;
 
     private:
-        std::vector<int32_t> Perm;      // new index -> old index
-        std::vector<int32_t> FirstCol;  // first stored column of each permuted row
-        std::vector<int32_t> RowOffset; // start of each permuted row's envelope in Lower
-        std::vector<double> Lower;     // strictly-lower envelope rows of L
-        std::vector<double> Diagonal;  // D
+        std::vector<int32_t> m_Perm;      // new index -> old index
+        std::vector<int32_t> m_FirstCol;  // first stored column of each permuted row
+        std::vector<int32_t> m_RowOffset; // start of each permuted row's envelope in Lower
+        std::vector<double>  m_Lower;     // strictly-lower envelope rows of L
+        std::vector<double>  m_Diagonal;  // D
     };
 
     /**
@@ -78,10 +78,10 @@ namespace Desert::Geometry
         bool SolveUVs( std::vector<glm::dvec2>& OutUVs );
 
     private:
-        const DynamicMesh3&  Mesh;
-        bool                 bPreserveIrregularity;
-        std::vector<int32_t> ToIndex;  // vertex ID -> compact index, InvalidID for gaps
-        std::vector<int32_t> ToVertex; // compact index -> vertex ID
-        std::vector<int32_t> Boundary; // compact indices, in insertion order, no duplicates
+        const DynamicMesh3&  m_Mesh;
+        bool                 m_bPreserveIrregularity;
+        std::vector<int32_t> m_ToIndex;  // vertex ID -> compact index, InvalidID for gaps
+        std::vector<int32_t> m_ToVertex; // compact index -> vertex ID
+        std::vector<int32_t> m_Boundary; // compact indices, in insertion order, no duplicates
     };
 } // namespace Desert::Geometry

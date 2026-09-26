@@ -72,9 +72,9 @@ namespace Desert::Geometry
                     if ( CornerIDIn != InvalidID )
                     {
                         const GroupTopology::GroupEdge& SideEdge1 =
-                             Topology.Edges[Boundary.GroupEdges[( GroupEdgeIndex + 1 ) % 4]];
+                             Topology.m_Edges[Boundary.GroupEdges[( GroupEdgeIndex + 1 ) % 4]];
                         const GroupTopology::GroupEdge& SideEdge2 =
-                             Topology.Edges[Boundary.GroupEdges[( GroupEdgeIndex + 3 ) % 4]];
+                             Topology.m_Edges[Boundary.GroupEdges[( GroupEdgeIndex + 3 ) % 4]];
                         if ( SideEdge1.EndpointCorners.A == CornerIDIn )
                             CornerIDOut = SideEdge1.EndpointCorners.B;
                         else if ( SideEdge1.EndpointCorners.B == CornerIDIn )
@@ -117,7 +117,7 @@ namespace Desert::Geometry
                 return false;
             }
 
-            const GroupTopology::GroupEdge& GroupEdge = Params.Topology->Edges[GroupEdgeID];
+            const GroupTopology::GroupEdge& GroupEdge = Params.Topology->m_Edges[GroupEdgeID];
 
             // Our own copies, because we may need to iterate backwards relative to the order in the topology.
             const bool bGoBackward =
@@ -594,11 +594,11 @@ namespace Desert::Geometry
                     for ( const int32_t GroupEdgeID : Boundary.GroupEdges )
                     {
                         if ( Common::EnsureOrWarn(
-                                  GroupEdgeID < static_cast<int32_t>( Topology.Edges.size() ),
+                                  GroupEdgeID < static_cast<int32_t>( Topology.m_Edges.size() ),
                                   "GroupEdgeID < static_cast<int32_t>( Topology.Edges.size() )" ) )
                         {
-                            DisallowedVids.insert( Topology.Edges[GroupEdgeID].Span.Vertices.begin(),
-                                                   Topology.Edges[GroupEdgeID].Span.Vertices.end() );
+                            DisallowedVids.insert( Topology.m_Edges[GroupEdgeID].Span.Vertices.begin(),
+                                                   Topology.m_Edges[GroupEdgeID].Span.Vertices.end() );
                         }
                     }
                 }
@@ -630,7 +630,7 @@ namespace Desert::Geometry
             }
 
             MeshSurfacePath PathEmbedder( &Mesh );
-            PathEmbedder.Path = CutPath;
+            PathEmbedder.m_Path = CutPath;
             std::vector<int32_t> PathVertices;
             if ( !PathEmbedder.EmbedSimplePath( PathVertices, false ) )
             {
@@ -790,7 +790,7 @@ namespace Desert::Geometry
                 {
                     break;
                 }
-                NextGroupID = Params.Topology->Edges[NextEdgeID].OtherGroupID( NextGroupID );
+                NextGroupID = Params.Topology->m_Edges[NextEdgeID].OtherGroupID( NextGroupID );
                 bHaveNextGroup =
                      GetEdgeLoopOpposingEdgeAndCorner( *Params.Topology, NextGroupID, NextEdgeID, NextCornerID,
                                                        NextEdgeID, NextCornerID, NextBoundaryIndex, OptionalOut );
@@ -811,7 +811,7 @@ namespace Desert::Geometry
         assert( Params.GroupEdgeID != InvalidID );
         assert( Params.StartCornerID != InvalidID );
 
-        const GroupTopology::GroupEdge& GroupEdge = Params.Topology->Edges[Params.GroupEdgeID];
+        const GroupTopology::GroupEdge& GroupEdge = Params.Topology->m_Edges[Params.GroupEdgeID];
 
         // Check for a valid path forward or backward first: no edge splits if we have neither.
         const int32_t ForwardGroupID       = GroupEdge.Groups.A;

@@ -14,13 +14,13 @@ namespace Desert::Geometry
     {
     public:
         /** Applied as DistSquared(UVA, UVB) <= UVDistSqrdThreshold. */
-        float UVDistSqrdThreshold = 0.f;
+        float m_UVDistSqrdThreshold = 0.f;
         /** Applied as (ColorA - ColorB).SizeSquared() <= ColorDistSqrdThreshold. */
-        float ColorDistSqrdThreshold = 0.f;
+        float m_ColorDistSqrdThreshold = 0.f;
         /** Applied as Abs(1 - VecA.dot.VecB) <= NormalVecDotThreshold. */
-        float NormalVecDotThreshold = 0.f;
+        float m_NormalVecDotThreshold = 0.f;
         /** Applied as Abs(1 - VecA.dot.VecB) <= TangentVecDotThreshold, to tangents and bitangents. */
-        float TangentVecDotThreshold = 0.f;
+        float m_TangentVecDotThreshold = 0.f;
 
         /** Weld the split elements at ParentVID in each overlay that are within the matching threshold. */
         void WeldSplitElements( DynamicMesh3& ParentMesh, const int32_t ParentVID );

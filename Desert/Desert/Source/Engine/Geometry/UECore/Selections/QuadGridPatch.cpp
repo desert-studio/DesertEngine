@@ -29,10 +29,10 @@ namespace Desert::Geometry
             if ( static_cast<int32_t>( QuadRowsIn[j].size() ) != NumQ )
                 return false;
         }
-        NumVertexColsU = NumV;
-        NumVertexRowsV = static_cast<int32_t>( VertexSpansIn.size() );
-        VertexSpans    = VertexSpansIn;
-        QuadTriangles  = QuadRowsIn;
+        m_NumVertexColsU = NumV;
+        m_NumVertexRowsV = static_cast<int32_t>( VertexSpansIn.size() );
+        m_VertexSpans    = VertexSpansIn;
+        m_QuadTriangles  = QuadRowsIn;
 
         bool bAllOK = true;
         for ( int32_t j = 0; j < NumQuadRows && bAllOK; ++j )
@@ -40,11 +40,11 @@ namespace Desert::Geometry
             for ( int32_t k = 0; k < NumQ && bAllOK; ++k )
             {
                 // these should be the four vertices of the quad
-                const int32_t VertexA  = VertexSpans[j][k];
-                const int32_t VertexB  = VertexSpans[j][k + 1];
-                const int32_t VertexC  = VertexSpans[j + 1][k + 1];
-                const int32_t VertexD  = VertexSpans[j + 1][k];
-                Index2i&      QuadTris = QuadTriangles[j][k];
+                const int32_t VertexA  = m_VertexSpans[j][k];
+                const int32_t VertexB  = m_VertexSpans[j][k + 1];
+                const int32_t VertexC  = m_VertexSpans[j + 1][k + 1];
+                const int32_t VertexD  = m_VertexSpans[j + 1][k];
+                Index2i&      QuadTris = m_QuadTriangles[j][k];
                 if ( !Mesh.IsTriangle( QuadTris.A ) || !Mesh.IsTriangle( QuadTris.B ) )
                 {
                     bAllOK = false;
@@ -84,10 +84,10 @@ namespace Desert::Geometry
         }
         if ( !bAllOK )
         {
-            VertexSpans.clear();
-            QuadTriangles.clear();
-            NumVertexColsU = 0;
-            NumVertexRowsV = 0;
+            m_VertexSpans.clear();
+            m_QuadTriangles.clear();
+            m_NumVertexColsU = 0;
+            m_NumVertexRowsV = 0;
             return false;
         }
         return true;
@@ -95,18 +95,18 @@ namespace Desert::Geometry
 
     bool QuadGridPatch::GetVertexColumn( int32_t ColumnIndex, std::vector<int32_t>& VerticesOut ) const
     {
-        if ( VertexSpans.empty() || ColumnIndex < 0 ||
-             ColumnIndex >= static_cast<int32_t>( VertexSpans[0].size() ) )
+        if ( m_VertexSpans.empty() || ColumnIndex < 0 ||
+             ColumnIndex >= static_cast<int32_t>( m_VertexSpans[0].size() ) )
             return false;
         VerticesOut.clear();
-        for ( int32_t k = 0; k < static_cast<int32_t>( VertexSpans.size() ); ++k )
-            VerticesOut.push_back( VertexSpans[k][ColumnIndex] );
+        for ( int32_t k = 0; k < static_cast<int32_t>( m_VertexSpans.size() ); ++k )
+            VerticesOut.push_back( m_VertexSpans[k][ColumnIndex] );
         return true;
     }
 
     int32_t QuadGridPatch::FindColumnIndex( int32_t VertexID ) const
     {
-        for ( const std::vector<int32_t>& Span : VertexSpans )
+        for ( const std::vector<int32_t>& Span : m_VertexSpans )
         {
             for ( int32_t Index = 0; Index < static_cast<int32_t>( Span.size() ); ++Index )
             {

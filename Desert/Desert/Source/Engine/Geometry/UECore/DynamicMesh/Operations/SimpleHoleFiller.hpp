@@ -19,14 +19,14 @@ namespace Desert::Geometry
     class SimpleHoleFiller : public IHoleFiller
     {
     public:
-        DynamicMesh3* Mesh = nullptr;
-        EdgeLoop      Loop;
+        DynamicMesh3* m_Mesh = nullptr;
+        EdgeLoop      m_Loop;
 
-        int NewVertex = IndexConstants::InvalidID;
+        int m_NewVertex = IndexConstants::InvalidID;
         /** Why Fill returned false. Empty on success. */
-        std::string FailureReason;
+        std::string m_FailureReason;
 
-        SimpleHoleFiller( DynamicMesh3* MeshIn, EdgeLoop LoopIn ) : Mesh( MeshIn ), Loop( std::move( LoopIn ) )
+        SimpleHoleFiller( DynamicMesh3* MeshIn, EdgeLoop LoopIn ) : m_Mesh( MeshIn ), m_Loop( std::move( LoopIn ) )
         {
         }
 

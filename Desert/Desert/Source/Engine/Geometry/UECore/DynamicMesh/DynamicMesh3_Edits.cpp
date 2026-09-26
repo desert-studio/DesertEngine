@@ -9,25 +9,25 @@ using namespace Desert::Geometry;
 
 int DynamicMesh3::AppendVertex( const VertexInfo& VtxInfo )
 {
-    int vid = VertexRefCounts.Allocate();
-    Vertices.InsertAt( VtxInfo.Position, vid );
+    int vid = m_VertexRefCounts.Allocate();
+    m_Vertices.InsertAt( VtxInfo.Position, vid );
 
     if ( HasVertexNormals() )
     {
         glm::vec3 n = ( VtxInfo.bHaveN ) ? VtxInfo.Normal : glm::vec3( 0, 1, 0 );
-        VertexNormals->InsertAt( n, vid );
+        m_VertexNormals->InsertAt( n, vid );
     }
 
     if ( HasVertexColors() )
     {
         glm::vec3 c = ( VtxInfo.bHaveC ) ? VtxInfo.Color : glm::vec3( 1 );
-        VertexColors->InsertAt( c, vid );
+        m_VertexColors->InsertAt( c, vid );
     }
 
     if ( HasVertexUVs() )
     {
         glm::vec2 u = ( VtxInfo.bHaveUV ) ? VtxInfo.UV : glm::vec2( 0 );
-        VertexUVs->InsertAt( u, vid );
+        m_VertexUVs->InsertAt( u, vid );
     }
 
     AllocateEdgesList( vid );
@@ -41,19 +41,19 @@ int DynamicMesh3::AppendVertex( const VertexInfo& VtxInfo )
 
 int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
 {
-    const int vid = VertexRefCounts.Allocate();
-    Vertices.InsertAt( from.Vertices[fromVID], vid );
+    const int vid = m_VertexRefCounts.Allocate();
+    m_Vertices.InsertAt( from.m_Vertices[fromVID], vid );
 
     if ( HasVertexNormals() )
     {
         if ( from.HasVertexNormals() )
         {
-            const DynamicVector<glm::vec3>& FromNormals = from.VertexNormals.value();
-            VertexNormals->InsertAt( FromNormals[fromVID], vid );
+            const DynamicVector<glm::vec3>& FromNormals = from.m_VertexNormals.value();
+            m_VertexNormals->InsertAt( FromNormals[fromVID], vid );
         }
         else
         {
-            VertexNormals->InsertAt( { 0, 1, 0 }, vid ); // y-up
+            m_VertexNormals->InsertAt( { 0, 1, 0 }, vid ); // y-up
         }
     }
 
@@ -61,12 +61,12 @@ int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexColors() )
         {
-            const DynamicVector<glm::vec3>& FromColors = from.VertexColors.value();
-            VertexColors->InsertAt( FromColors[fromVID], vid );
+            const DynamicVector<glm::vec3>& FromColors = from.m_VertexColors.value();
+            m_VertexColors->InsertAt( FromColors[fromVID], vid );
         }
         else
         {
-            VertexColors->InsertAt( { 1, 1, 1 }, vid ); // white
+            m_VertexColors->InsertAt( { 1, 1, 1 }, vid ); // white
         }
     }
 
@@ -74,12 +74,12 @@ int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexUVs() )
         {
-            const DynamicVector<glm::vec2>& FromUVs = from.VertexUVs.value();
-            VertexUVs->InsertAt( FromUVs[fromVID], vid );
+            const DynamicVector<glm::vec2>& FromUVs = from.m_VertexUVs.value();
+            m_VertexUVs->InsertAt( FromUVs[fromVID], vid );
         }
         else
         {
-            VertexUVs->InsertAt( { 0, 0 }, vid );
+            m_VertexUVs->InsertAt( { 0, 0 }, vid );
         }
     }
 
@@ -94,35 +94,35 @@ int DynamicMesh3::AppendVertex( const DynamicMesh3& from, int fromVID )
 
 MeshResult DynamicMesh3::InsertVertex( int vid, const VertexInfo& info, bool bUnsafe )
 {
-    if ( VertexRefCounts.IsValid( vid ) )
+    if ( m_VertexRefCounts.IsValid( vid ) )
     {
         return MeshResult::Failed_VertexAlreadyExists;
     }
 
-    bool bOK = ( bUnsafe ) ? VertexRefCounts.AllocateAtUnsafe( vid ) : VertexRefCounts.AllocateAt( vid );
+    bool bOK = ( bUnsafe ) ? m_VertexRefCounts.AllocateAtUnsafe( vid ) : m_VertexRefCounts.AllocateAt( vid );
     if ( bOK == false )
     {
         return MeshResult::Failed_CannotAllocateVertex;
     }
 
-    Vertices.InsertAt( info.Position, vid );
+    m_Vertices.InsertAt( info.Position, vid );
 
     if ( HasVertexNormals() )
     {
         glm::vec3 n = ( info.bHaveN ) ? info.Normal : glm::vec3( 0, 1, 0 );
-        VertexNormals->InsertAt( n, vid );
+        m_VertexNormals->InsertAt( n, vid );
     }
 
     if ( HasVertexColors() )
     {
         glm::vec3 c = ( info.bHaveC ) ? info.Color : glm::vec3( 1 );
-        VertexColors->InsertAt( c, vid );
+        m_VertexColors->InsertAt( c, vid );
     }
 
     if ( HasVertexUVs() )
     {
         glm::vec2 u = ( info.bHaveUV ) ? info.UV : glm::vec2( 0 );
-        VertexUVs->InsertAt( u, vid );
+        m_VertexUVs->InsertAt( u, vid );
     }
 
     AllocateEdgesList( vid );
@@ -163,31 +163,31 @@ int DynamicMesh3::AppendTriangle( const Index3i& tv, int gid )
     if ( e0 != InvalidID && e1 != InvalidID && e2 != InvalidID )
     {
         // check if the triangle attached to edge e0 (tv[0] - tv[1]) also contains tv[2]
-        int ti = Edges[e0].Tri[0];
-        if ( Triangles[ti][0] == tv[2] || Triangles[ti][1] == tv[2] || Triangles[ti][2] == tv[2] )
+        int ti = m_Edges[e0].Tri[0];
+        if ( m_Triangles[ti][0] == tv[2] || m_Triangles[ti][1] == tv[2] || m_Triangles[ti][2] == tv[2] )
         {
             return DuplicateTriangleID;
         }
         // there's no other triangle on the edge to check -- if there were, we would have already returned
         // NonManifoldID
-        assert( Edges[e0].Tri[1] == InvalidID );
+        assert( m_Edges[e0].Tri[1] == InvalidID );
     }
 
     bool bHasGroups = HasTriangleGroups(); // have to check before changing .triangles
 
     // now safe to insert triangle
-    int tid = TriangleRefCounts.Allocate();
-    Triangles.InsertAt( tv, tid );
+    int tid = m_TriangleRefCounts.Allocate();
+    m_Triangles.InsertAt( tv, tid );
     if ( bHasGroups )
     {
-        TriangleGroups->InsertAt( gid, tid );
-        GroupIDCounter = std::max( GroupIDCounter, gid + 1 );
+        m_TriangleGroups->InsertAt( gid, tid );
+        m_GroupIDCounter = std::max( m_GroupIDCounter, gid + 1 );
     }
 
     // increment ref counts and update/create edges
-    VertexRefCounts.Increment( tv[0] );
-    VertexRefCounts.Increment( tv[1] );
-    VertexRefCounts.Increment( tv[2] );
+    m_VertexRefCounts.Increment( tv[0] );
+    m_VertexRefCounts.Increment( tv[1] );
+    m_VertexRefCounts.Increment( tv[2] );
 
     AddTriangleEdge( tid, tv[0], tv[1], 0, e0 );
     AddTriangleEdge( tid, tv[1], tv[2], 1, e1 );
@@ -202,7 +202,7 @@ int DynamicMesh3::AppendTriangle( const Index3i& tv, int gid )
 
 MeshResult DynamicMesh3::InsertTriangle( int tid, const Index3i& tv, int gid, bool bUnsafe )
 {
-    if ( TriangleRefCounts.IsValid( tid ) )
+    if ( m_TriangleRefCounts.IsValid( tid ) )
     {
         return MeshResult::Failed_TriangleAlreadyExists;
     }
@@ -230,24 +230,24 @@ MeshResult DynamicMesh3::InsertTriangle( int tid, const Index3i& tv, int gid, bo
         return MeshResult::Failed_WouldCreateNonmanifoldEdge;
     }
 
-    bool bOK = ( bUnsafe ) ? TriangleRefCounts.AllocateAtUnsafe( tid ) : TriangleRefCounts.AllocateAt( tid );
+    bool bOK = ( bUnsafe ) ? m_TriangleRefCounts.AllocateAtUnsafe( tid ) : m_TriangleRefCounts.AllocateAt( tid );
     if ( bOK == false )
     {
         return MeshResult::Failed_CannotAllocateTriangle;
     }
 
     // now safe to insert triangle
-    Triangles.InsertAt( tv, tid );
+    m_Triangles.InsertAt( tv, tid );
     if ( HasTriangleGroups() )
     {
-        TriangleGroups->InsertAt( gid, tid );
-        GroupIDCounter = std::max( GroupIDCounter, gid + 1 );
+        m_TriangleGroups->InsertAt( gid, tid );
+        m_GroupIDCounter = std::max( m_GroupIDCounter, gid + 1 );
     }
 
     // increment ref counts and update/create edges
-    VertexRefCounts.Increment( tv[0] );
-    VertexRefCounts.Increment( tv[1] );
-    VertexRefCounts.Increment( tv[2] );
+    m_VertexRefCounts.Increment( tv[0] );
+    m_VertexRefCounts.Increment( tv[1] );
+    m_VertexRefCounts.Increment( tv[2] );
 
     AddTriangleEdge( tid, tv[0], tv[1], 0, e0 );
     AddTriangleEdge( tid, tv[1], tv[2], 1, e1 );
@@ -266,16 +266,16 @@ int32_t DynamicMesh3::RemoveUnusedVertices()
     for ( int32_t VID = 0; VID < MaxVertexID(); ++VID )
     {
         // If vertex exists but is not referenced by any triangles
-        if ( VertexRefCounts.GetRefCount( VID ) == 1 )
+        if ( m_VertexRefCounts.GetRefCount( VID ) == 1 )
         {
             NumRemoved++;
-            VertexRefCounts.Decrement( VID );
+            m_VertexRefCounts.Decrement( VID );
             if ( HasAttributes() )
             {
                 Attributes()->OnRemoveVertex( VID );
             }
-            assert( VertexRefCounts.IsValid( VID ) == false ); // vertex should now not be valid
-            assert( VertexEdgeLists.GetCount( VID ) == 0 );    // vertex should not have had any edges attached
+            assert( m_VertexRefCounts.IsValid( VID ) == false ); // vertex should now not be valid
+            assert( m_VertexEdgeLists.GetCount( VID ) == 0 );    // vertex should not have had any edges attached
         }
     }
 
@@ -291,7 +291,7 @@ bool DynamicMesh3::HasUnusedVertices() const
     for ( int32_t VID = 0; VID < MaxVertexID(); ++VID )
     {
         // If vertex exists but is not referenced by any triangles
-        if ( VertexRefCounts.GetRefCount( VID ) == 1 )
+        if ( m_VertexRefCounts.GetRefCount( VID ) == 1 )
         {
             return true;
         }
@@ -326,46 +326,46 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
 
     // find first free vertex, and last used vertex
     int iLastV = MaxVertexID() - 1, iCurV = 0;
-    while ( iLastV >= 0 && VertexRefCounts.IsValidUnsafe( iLastV ) == false )
+    while ( iLastV >= 0 && m_VertexRefCounts.IsValidUnsafe( iLastV ) == false )
     {
         iLastV--;
     }
-    while ( iCurV < iLastV && VertexRefCounts.IsValidUnsafe( iCurV ) )
+    while ( iCurV < iLastV && m_VertexRefCounts.IsValidUnsafe( iCurV ) )
     {
         iCurV++;
     }
 
-    DynamicVector<unsigned short>& vref = VertexRefCounts.GetRawRefCountsUnsafe();
+    DynamicVector<unsigned short>& vref = m_VertexRefCounts.GetRawRefCountsUnsafe();
 
     while ( iCurV < iLastV )
     {
-        Vertices[iCurV] = Vertices[iLastV];
+        m_Vertices[iCurV] = m_Vertices[iLastV];
 
         // const int kc = iCurV * 3;
         // const int kl = iLastV * 3;
         if ( HasVertexNormals() )
         {
-            DynamicVector<glm::vec3>& Normals  = VertexNormals.value();
+            DynamicVector<glm::vec3>& Normals  = m_VertexNormals.value();
             Normals[iCurV]                     = Normals[iLastV];
         }
         if ( HasVertexColors() )
         {
-            DynamicVector<glm::vec3>& Colors  = VertexColors.value();
+            DynamicVector<glm::vec3>& Colors  = m_VertexColors.value();
             Colors[iCurV]                     = Colors[iLastV];
         }
         if ( HasVertexUVs() )
         {
-            DynamicVector<glm::vec2>& UVs  = VertexUVs.value();
+            DynamicVector<glm::vec2>& UVs  = m_VertexUVs.value();
             UVs[iCurV]                     = UVs[iLastV];
         }
 
-        for ( int eid : VertexEdgeLists.Values( iLastV ) )
+        for ( int eid : m_VertexEdgeLists.Values( iLastV ) )
         {
             // replace vertex in edges
             ReplaceEdgeVertex( eid, iLastV, iCurV );
 
             // replace vertex in triangles
-            const Index2i Tris = Edges[eid].Tri;
+            const Index2i Tris = m_Edges[eid].Tri;
             ReplaceTriangleVertex( Tris[0], iLastV, iCurV );
             if ( Tris[1] != InvalidID )
             {
@@ -378,7 +378,7 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
         vref[iLastV] = RefCountVector::INVALID_REF_COUNT;
 
         // move edge list
-        VertexEdgeLists.Move( iLastV, iCurV );
+        m_VertexEdgeLists.Move( iLastV, iCurV );
 
         if ( CompactInfo != nullptr )
         {
@@ -388,64 +388,64 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
         // move cur forward one, last back one, and  then search for next valid
         iLastV--;
         iCurV++;
-        while ( iLastV >= 0 && VertexRefCounts.IsValidUnsafe( iLastV ) == false )
+        while ( iLastV >= 0 && m_VertexRefCounts.IsValidUnsafe( iLastV ) == false )
         {
             iLastV--;
         }
-        while ( iCurV < iLastV && VertexRefCounts.IsValidUnsafe( iCurV ) )
+        while ( iCurV < iLastV && m_VertexRefCounts.IsValidUnsafe( iCurV ) )
         {
             iCurV++;
         }
     }
 
     // trim vertices data structures
-    VertexRefCounts.Trim( VertexCount() );
-    Vertices.Resize( VertexCount() );
+    m_VertexRefCounts.Trim( VertexCount() );
+    m_Vertices.Resize( VertexCount() );
     if ( HasVertexNormals() )
     {
-        VertexNormals->Resize( VertexCount() * 3 );
+        m_VertexNormals->Resize( VertexCount() * 3 );
     }
     if ( HasVertexColors() )
     {
-        VertexColors->Resize( VertexCount() * 3 );
+        m_VertexColors->Resize( VertexCount() * 3 );
     }
     if ( HasVertexUVs() )
     {
-        VertexUVs->Resize( VertexCount() * 2 );
+        m_VertexUVs->Resize( VertexCount() * 2 );
     }
 
-    VertexEdgeLists.Compact( VertexCount() );
+    m_VertexEdgeLists.Compact( VertexCount() );
 
     /** shift triangles **/
 
     // find first free triangle, and last valid triangle
     int iLastT = MaxTriangleID() - 1, iCurT = 0;
-    while ( iLastT >= 0 && TriangleRefCounts.IsValidUnsafe( iLastT ) == false )
+    while ( iLastT >= 0 && m_TriangleRefCounts.IsValidUnsafe( iLastT ) == false )
     {
         iLastT--;
     }
-    while ( iCurT < iLastT && TriangleRefCounts.IsValidUnsafe( iCurT ) )
+    while ( iCurT < iLastT && m_TriangleRefCounts.IsValidUnsafe( iCurT ) )
     {
         iCurT++;
     }
 
-    DynamicVector<unsigned short>& tref = TriangleRefCounts.GetRawRefCountsUnsafe();
+    DynamicVector<unsigned short>& tref = m_TriangleRefCounts.GetRawRefCountsUnsafe();
 
     while ( iCurT < iLastT )
     {
         // shift triangle
-        Triangles[iCurT]     = Triangles[iLastT];
-        TriangleEdges[iCurT] = TriangleEdges[iLastT];
+        m_Triangles[iCurT]     = m_Triangles[iLastT];
+        m_TriangleEdges[iCurT] = m_TriangleEdges[iLastT];
 
         if ( HasTriangleGroups() )
         {
-            TriangleGroups.value()[iCurT] = TriangleGroups.value()[iLastT];
+            m_TriangleGroups.value()[iCurT] = m_TriangleGroups.value()[iLastT];
         }
 
         // update edges
         for ( int j = 0; j < 3; ++j )
         {
-            int eid = TriangleEdges[iCurT][j];
+            int eid = m_TriangleEdges[iCurT][j];
             ReplaceEdgeTriangle( eid, iLastT, iCurT );
         }
 
@@ -461,54 +461,54 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
         // move cur forward one, last back one, and  then search for next valid
         iLastT--;
         iCurT++;
-        while ( iLastT >= 0 && TriangleRefCounts.IsValidUnsafe( iLastT ) == false )
+        while ( iLastT >= 0 && m_TriangleRefCounts.IsValidUnsafe( iLastT ) == false )
         {
             iLastT--;
         }
-        while ( iCurT < iLastT && TriangleRefCounts.IsValidUnsafe( iCurT ) )
+        while ( iCurT < iLastT && m_TriangleRefCounts.IsValidUnsafe( iCurT ) )
         {
             iCurT++;
         }
     }
 
     // trim triangles data structures
-    TriangleRefCounts.Trim( TriangleCount() );
-    Triangles.Resize( TriangleCount() );
-    TriangleEdges.Resize( TriangleCount() );
+    m_TriangleRefCounts.Trim( TriangleCount() );
+    m_Triangles.Resize( TriangleCount() );
+    m_TriangleEdges.Resize( TriangleCount() );
     if ( HasTriangleGroups() )
     {
-        TriangleGroups->Resize( TriangleCount() );
+        m_TriangleGroups->Resize( TriangleCount() );
     }
 
     /** shift edges **/
 
     // find first free edge, and last used edge
     int iLastE = MaxEdgeID() - 1, iCurE = 0;
-    while ( iLastE >= 0 && EdgeRefCounts.IsValidUnsafe( iLastE ) == false )
+    while ( iLastE >= 0 && m_EdgeRefCounts.IsValidUnsafe( iLastE ) == false )
     {
         iLastE--;
     }
-    while ( iCurE < iLastE && EdgeRefCounts.IsValidUnsafe( iCurE ) )
+    while ( iCurE < iLastE && m_EdgeRefCounts.IsValidUnsafe( iCurE ) )
     {
         iCurE++;
     }
 
-    DynamicVector<unsigned short>& eref = EdgeRefCounts.GetRawRefCountsUnsafe();
+    DynamicVector<unsigned short>& eref = m_EdgeRefCounts.GetRawRefCountsUnsafe();
 
     while ( iCurE < iLastE )
     {
-        Edges[iCurE] = Edges[iLastE];
+        m_Edges[iCurE] = m_Edges[iLastE];
 
         // replace edge in vertex edges lists
-        int v0 = Edges[iCurE].Vert[0], v1 = Edges[iCurE].Vert[1];
-        VertexEdgeLists.Replace( v0, [iLastE]( int eid ) { return eid == iLastE; }, iCurE );
-        VertexEdgeLists.Replace( v1, [iLastE]( int eid ) { return eid == iLastE; }, iCurE );
+        int v0 = m_Edges[iCurE].Vert[0], v1 = m_Edges[iCurE].Vert[1];
+        m_VertexEdgeLists.Replace( v0, [iLastE]( int eid ) { return eid == iLastE; }, iCurE );
+        m_VertexEdgeLists.Replace( v1, [iLastE]( int eid ) { return eid == iLastE; }, iCurE );
 
         // replace edge in triangles
-        ReplaceTriangleEdge( Edges[iCurE].Tri[0], iLastE, iCurE );
-        if ( Edges[iCurE].Tri[1] != InvalidID )
+        ReplaceTriangleEdge( m_Edges[iCurE].Tri[0], iLastE, iCurE );
+        if ( m_Edges[iCurE].Tri[1] != InvalidID )
         {
-            ReplaceTriangleEdge( Edges[iCurE].Tri[1], iLastE, iCurE );
+            ReplaceTriangleEdge( m_Edges[iCurE].Tri[1], iLastE, iCurE );
         }
 
         // shift triangle refcount to position
@@ -518,24 +518,24 @@ void DynamicMesh3::CompactInPlace( DynamicMeshCompactMaps* CompactInfo )
         // move cur forward one, last back one, and  then search for next valid
         iLastE--;
         iCurE++;
-        while ( iLastE >= 0 && EdgeRefCounts.IsValidUnsafe( iLastE ) == false )
+        while ( iLastE >= 0 && m_EdgeRefCounts.IsValidUnsafe( iLastE ) == false )
         {
             iLastE--;
         }
-        while ( iCurE < iLastE && EdgeRefCounts.IsValidUnsafe( iCurE ) )
+        while ( iCurE < iLastE && m_EdgeRefCounts.IsValidUnsafe( iCurE ) )
         {
             iCurE++;
         }
     }
 
     // trim edge data structures
-    EdgeRefCounts.Trim( EdgeCount() );
-    Edges.Resize( EdgeCount() );
+    m_EdgeRefCounts.Trim( EdgeCount() );
+    m_Edges.Resize( EdgeCount() );
 
     if ( HasAttributes() )
     {
         assert( CompactInfo ); // can this ever fail?
-        AttributeSet->CompactInPlace( *CompactInfo );
+        m_AttributeSet->CompactInPlace( *CompactInfo );
     }
 }
 MeshResult DynamicMesh3::ReverseTriOrientation( int tID )
@@ -570,7 +570,7 @@ void DynamicMesh3::ReverseOrientation( bool bFlipNormals )
     {
         for ( int vid : VertexIndicesItr() )
         {
-            DynamicVector<glm::vec3>& Normals  = VertexNormals.value();
+            DynamicVector<glm::vec3>& Normals  = m_VertexNormals.value();
             Normals[vid]                       = -Normals[vid];
         }
     }
@@ -579,7 +579,7 @@ void DynamicMesh3::ReverseOrientation( bool bFlipNormals )
 
 MeshResult DynamicMesh3::RemoveVertex( int vID, bool bPreserveManifold )
 {
-    if ( VertexRefCounts.IsValid( vID ) == false )
+    if ( m_VertexRefCounts.IsValid( vID ) == false )
     {
         return MeshResult::Failed_NotAVertex;
     }
@@ -617,14 +617,14 @@ MeshResult DynamicMesh3::RemoveVertex( int vID, bool bPreserveManifold )
         }
     }
 
-    if ( VertexRefCounts.GetRefCount( vID ) != 1 )
+    if ( m_VertexRefCounts.GetRefCount( vID ) != 1 )
     {
         return MeshResult::Failed_VertexStillReferenced;
     }
 
-    VertexRefCounts.Decrement( vID );
-    DESERT_VERIFY_WARN( VertexRefCounts.IsValid( vID ) == false );
-    VertexEdgeLists.Clear( vID );
+    m_VertexRefCounts.Decrement( vID );
+    DESERT_VERIFY_WARN( m_VertexRefCounts.IsValid( vID ) == false );
+    m_VertexEdgeLists.Clear( vID );
     if ( HasAttributes() )
     {
         Attributes()->OnRemoveVertex( vID );
@@ -635,7 +635,7 @@ MeshResult DynamicMesh3::RemoveVertex( int vID, bool bPreserveManifold )
 
 MeshResult DynamicMesh3::RemoveTriangle( int tID, bool bRemoveIsolatedVertices, bool bPreserveManifold )
 {
-    if ( !TriangleRefCounts.IsValid( tID ) )
+    if ( !m_TriangleRefCounts.IsValid( tID ) )
     {
         DESERT_VERIFY_WARN( false );
         return MeshResult::Failed_NotATriangle;
@@ -667,34 +667,34 @@ MeshResult DynamicMesh3::RemoveTriangle( int tID, bool bRemoveIsolatedVertices, 
     {
         int eid = te[j];
         ReplaceEdgeTriangle( eid, tID, InvalidID );
-        const Edge Edge = Edges[eid];
+        const Edge Edge = m_Edges[eid];
         if ( Edge.Tri[0] == InvalidID )
         {
             int a = Edge.Vert[0];
-            VertexEdgeLists.Remove( a, eid );
+            m_VertexEdgeLists.Remove( a, eid );
 
             int b = Edge.Vert[1];
-            VertexEdgeLists.Remove( b, eid );
+            m_VertexEdgeLists.Remove( b, eid );
 
-            EdgeRefCounts.Decrement( eid );
+            m_EdgeRefCounts.Decrement( eid );
         }
     }
 
     // free this triangle
-    TriangleRefCounts.Decrement( tID );
-    assert( TriangleRefCounts.IsValid( tID ) == false );
+    m_TriangleRefCounts.Decrement( tID );
+    assert( m_TriangleRefCounts.IsValid( tID ) == false );
 
     // Decrement vertex refcounts. If any hit 1 and we got remove-isolated flag,
     // we need to remove that vertex
     for ( int j = 0; j < 3; ++j )
     {
         int vid = tv[j];
-        VertexRefCounts.Decrement( vid );
-        if ( bRemoveIsolatedVertices && VertexRefCounts.GetRefCount( vid ) == 1 )
+        m_VertexRefCounts.Decrement( vid );
+        if ( bRemoveIsolatedVertices && m_VertexRefCounts.GetRefCount( vid ) == 1 )
         {
-            VertexRefCounts.Decrement( vid );
-            assert( VertexRefCounts.IsValid( vid ) == false );
-            VertexEdgeLists.Clear( vid );
+            m_VertexRefCounts.Decrement( vid );
+            assert( m_VertexRefCounts.IsValid( vid ) == false );
+            m_VertexEdgeLists.Clear( vid );
         }
     }
     if ( HasAttributes() )
@@ -728,7 +728,7 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
         te[2] = -1;
     }
 
-    if ( !TriangleRefCounts.IsValid( tID ) )
+    if ( !m_TriangleRefCounts.IsValid( tID ) )
     {
         assert( false );
         return MeshResult::Failed_NotATriangle;
@@ -770,12 +770,12 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
         if ( Edge.Tri[0] == InvalidID )
         {
             int a = Edge.Vert[0];
-            VertexEdgeLists.Remove( a, eid );
+            m_VertexEdgeLists.Remove( a, eid );
 
             int b = Edge.Vert[1];
-            VertexEdgeLists.Remove( b, eid );
+            m_VertexEdgeLists.Remove( b, eid );
 
-            EdgeRefCounts.Decrement( eid );
+            m_EdgeRefCounts.Decrement( eid );
         }
     }
 
@@ -788,12 +788,12 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
         {
             continue;
         }
-        VertexRefCounts.Decrement( vid );
-        if ( bRemoveIsolatedVertices && VertexRefCounts.GetRefCount( vid ) == 1 )
+        m_VertexRefCounts.Decrement( vid );
+        if ( bRemoveIsolatedVertices && m_VertexRefCounts.GetRefCount( vid ) == 1 )
         {
-            VertexRefCounts.Decrement( vid );
-            assert( VertexRefCounts.IsValid( vid ) == false );
-            VertexEdgeLists.Clear( vid );
+            m_VertexRefCounts.Decrement( vid );
+            assert( m_VertexRefCounts.IsValid( vid ) == false );
+            m_VertexEdgeLists.Clear( vid );
         }
     }
 
@@ -802,8 +802,8 @@ MeshResult DynamicMesh3::SetTriangle( int tID, const Index3i& newv, bool bRemove
     {
         if ( newv[j] != tv[j] )
         {
-            Triangles[tID][j] = newv[j];
-            VertexRefCounts.Increment( newv[j] );
+            m_Triangles[tID][j] = newv[j];
+            m_VertexRefCounts.Increment( newv[j] );
         }
     }
 
@@ -834,7 +834,7 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
     }
 
     // look up primary edge & triangle
-    const Edge  Edge = Edges[eab];
+    const Edge  Edge = m_Edges[eab];
     int         a = Edge.Vert[0], b = Edge.Vert[1];
     int         t0 = Edge.Tri[0];
     if ( t0 == InvalidID )
@@ -846,7 +846,7 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
 
     // RefCount overflow check. Conservatively leave room for
     // extra increments from other operations.
-    if ( VertexRefCounts.GetRawRefCount( c ) > RefCountVector::INVALID_REF_COUNT - 3 )
+    if ( m_VertexRefCounts.GetRawRefCount( c ) > RefCountVector::INVALID_REF_COUNT - 3 )
     {
         return MeshResult::Failed_HitValenceLimit;
     }
@@ -891,16 +891,16 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         int t2 = AddTriangleInternal( f, b, c, InvalidID, InvalidID, InvalidID );
         if ( HasTriangleGroups() )
         {
-            int group0 = TriangleGroups.value()[t0];
-            TriangleGroups->InsertAt( group0, t2 );
+            int group0 = m_TriangleGroups.value()[t0];
+            m_TriangleGroups->InsertAt( group0, t2 );
         }
 
         // rewrite edge bc, create edge af
         ReplaceEdgeTriangle( ebc, t0, t2 );
         int eaf = eab;
         ReplaceEdgeVertex( eaf, b, f );
-        VertexEdgeLists.Remove( b, eab );
-        VertexEdgeLists.Insert( f, eaf );
+        m_VertexEdgeLists.Remove( b, eab );
+        m_VertexEdgeLists.Insert( f, eaf );
 
         // create edges fb and fc
         int efb = AddEdgeInternal( f, b, t2 );
@@ -911,8 +911,8 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         SetTriangleEdgesInternal( t2, efb, ebc, efc );
 
         // update vertex refcounts
-        VertexRefCounts.Increment( c );
-        VertexRefCounts.Increment( f, 2 );
+        m_VertexRefCounts.Increment( c );
+        m_VertexRefCounts.Increment( f, 2 );
 
         SplitInfo.bIsBoundary   = true;
         SplitInfo.OtherVertices = Index2i( c, InvalidID );
@@ -931,14 +931,14 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
     else // interior triangle branch
     {
         // look up other triangle
-        int t1                        = Edges[eab].Tri[1];
+        int t1                        = m_Edges[eab].Tri[1];
         SplitInfo.OriginalTriangles.B = t1;
         Index3i  T1tv                 = GetTriangle( t1 );
         int      d                    = IndexUtil::FindTriOtherVtx( a, b, T1tv );
 
         // RefCount overflow check. Conservatively leave room for
         // extra increments from other operations.
-        if ( VertexRefCounts.GetRawRefCount( d ) > RefCountVector::INVALID_REF_COUNT - 3 )
+        if ( m_VertexRefCounts.GetRawRefCount( d ) > RefCountVector::INVALID_REF_COUNT - 3 )
         {
             return MeshResult::Failed_HitValenceLimit;
         }
@@ -975,10 +975,10 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         int t3 = AddTriangleInternal( f, d, b, InvalidID, InvalidID, InvalidID );
         if ( HasTriangleGroups() )
         {
-            int group0 = TriangleGroups.value()[t0];
-            TriangleGroups->InsertAt( group0, t2 );
-            int group1 = TriangleGroups.value()[t1];
-            TriangleGroups->InsertAt( group1, t3 );
+            int group0 = m_TriangleGroups.value()[t0];
+            m_TriangleGroups->InsertAt( group0, t2 );
+            int group1 = m_TriangleGroups.value()[t1];
+            m_TriangleGroups->InsertAt( group1, t3 );
         }
 
         // update the edges we found above, to point to triangles
@@ -990,8 +990,8 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         ReplaceEdgeVertex( eaf, b, f );
 
         // update a/b/f vertex-edges
-        VertexEdgeLists.Remove( b, eab );
-        VertexEdgeLists.Insert( f, eaf );
+        m_VertexEdgeLists.Remove( b, eab );
+        m_VertexEdgeLists.Insert( f, eaf );
 
         // create edges connected to f  (also updates vertex-edges)
         int efb = AddEdgeInternal( f, b, t2, t3 );
@@ -1005,9 +1005,9 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double sp
         SetTriangleEdgesInternal( t3, edf, edb, efb );
 
         // update vertex refcounts
-        VertexRefCounts.Increment( c );
-        VertexRefCounts.Increment( d );
-        VertexRefCounts.Increment( f, 4 );
+        m_VertexRefCounts.Increment( c );
+        m_VertexRefCounts.Increment( d );
+        m_VertexRefCounts.Increment( f, 4 );
 
         SplitInfo.bIsBoundary   = false;
         SplitInfo.OtherVertices = Index2i( c, d );
@@ -1050,7 +1050,7 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     }
 
     // find oriented edge [a,b], tris t0,t1, and other verts c in t0, d in t1
-    const Edge  Edge = Edges[eab];
+    const Edge  Edge = m_Edges[eab];
     int         a = Edge.Vert[0], b = Edge.Vert[1];
     int         t0 = Edge.Tri[0], t1 = Edge.Tri[1];
     Index3i     T0tv = GetTriangle( t0 ), T1tv = GetTriangle( t1 );
@@ -1099,18 +1099,18 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     SetTriangleEdgesInternal( t1, ecd, eca, ead );
 
     // remove old eab from verts a and b, and Decrement ref counts
-    if ( VertexEdgeLists.Remove( a, eab ) == false )
+    if ( m_VertexEdgeLists.Remove( a, eab ) == false )
     {
         assert( ( false ) && "DynamicMesh3.FlipEdge: first edge list remove failed" );
         return MeshResult::Failed_UnrecoverableError;
     }
-    if ( VertexEdgeLists.Remove( b, eab ) == false )
+    if ( m_VertexEdgeLists.Remove( b, eab ) == false )
     {
         assert( ( false ) && "DynamicMesh3.FlipEdge: second edge list remove failed" );
         return MeshResult::Failed_UnrecoverableError;
     }
-    VertexRefCounts.Decrement( a );
-    VertexRefCounts.Decrement( b );
+    m_VertexRefCounts.Decrement( a );
+    m_VertexRefCounts.Decrement( b );
     if ( IsVertex( a ) == false || IsVertex( b ) == false )
     {
         assert( ( false ) && "DynamicMesh3.FlipEdge: either a or b is not a vertex?" );
@@ -1118,10 +1118,10 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     }
 
     // add edge ecd to verts c and d, and increment ref counts
-    VertexEdgeLists.Insert( c, ecd );
-    VertexEdgeLists.Insert( d, ecd );
-    VertexRefCounts.Increment( c );
-    VertexRefCounts.Increment( d );
+    m_VertexEdgeLists.Insert( c, ecd );
+    m_VertexEdgeLists.Insert( d, ecd );
+    m_VertexRefCounts.Increment( c );
+    m_VertexRefCounts.Increment( d );
 
     // success! collect up results
     FlipInfo.EdgeID        = eab;
@@ -1184,8 +1184,8 @@ MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& 
             if ( ReplaceEdgeVertex( EdgeID, SplitInfo.OriginalVertex, SplitInfo.NewVertex ) != InvalidID )
             {
                 // if replace edge actually happened, also update VertexEdgeLists accordingly
-                DESERT_VERIFY_WARN( VertexEdgeLists.Remove( SplitInfo.OriginalVertex, EdgeID ) );
-                VertexEdgeLists.Insert( SplitInfo.NewVertex, EdgeID );
+                DESERT_VERIFY_WARN( m_VertexEdgeLists.Remove( SplitInfo.OriginalVertex, EdgeID ) );
+                m_VertexEdgeLists.Insert( SplitInfo.NewVertex, EdgeID );
             }
         }
     };
@@ -1202,9 +1202,9 @@ MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& 
         ProcessEdge( TriID, Triangle, TriEdges, SubIdx );
         ProcessEdge( TriID, Triangle, TriEdges, ( SubIdx + 2 ) % 3 );
 
-        Triangles[TriID][SubIdx] = SplitInfo.NewVertex;
-        VertexRefCounts.Decrement( SplitInfo.OriginalVertex ); // remove the triangle from the original vertex
-        VertexRefCounts.Increment( SplitInfo.NewVertex );
+        m_Triangles[TriID][SubIdx] = SplitInfo.NewVertex;
+        m_VertexRefCounts.Decrement( SplitInfo.OriginalVertex ); // remove the triangle from the original vertex
+        m_VertexRefCounts.Increment( SplitInfo.NewVertex );
     }
 
     if ( HasAttributes() )
@@ -1251,7 +1251,7 @@ MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double
         return MeshResult::Failed_NotAnEdge;
     }
 
-    const Edge  EdgeAB = Edges[eab];
+    const Edge  EdgeAB = m_Edges[eab];
     int         t0     = EdgeAB.Tri[0];
     if ( t0 == InvalidID )
     {
@@ -1284,9 +1284,9 @@ MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double
     //  than two triangles trying to share edge xb, which is disallowed.
     // Additionally, depending on options, we might not even allow such a collapse even if the
     //  both edges are boundary edges.
-    int edges_a_count = VertexEdgeLists.GetCount( a );
+    int edges_a_count = m_VertexEdgeLists.GetCount( a );
     int eac = InvalidID, ead = InvalidID, ebc = InvalidID, ebd = InvalidID;
-    for ( int eid_a : VertexEdgeLists.Values( a ) )
+    for ( int eid_a : m_VertexEdgeLists.Values( a ) )
     {
         int vax = GetOtherEdgeVertex( eid_a, a );
         if ( vax == c )
@@ -1303,7 +1303,7 @@ MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double
         {
             continue;
         }
-        for ( int eid_b : VertexEdgeLists.Values( b ) )
+        for ( int eid_b : m_VertexEdgeLists.Values( b ) )
         {
             if ( GetOtherEdgeVertex( eid_b, b ) == vax )
             {
@@ -1324,7 +1324,7 @@ MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double
         int edc = FindEdge( d, c );
         if ( edc != InvalidID )
         {
-            const Edge EdgeDC = Edges[edc];
+            const Edge EdgeDC = m_Edges[edc];
             if ( EdgeDC.Tri[1] != InvalidID )
             {
                 int edc_t0 = EdgeDC.Tri[0];
@@ -1460,12 +1460,12 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
     // 3) for other edges, replace a with b, and add that edge to b
     // 4) replace a with b in all triangles connected to a
     int tad = InvalidID, tac = InvalidID;
-    for ( int eid : VertexEdgeLists.Values( a ) )
+    for ( int eid : m_VertexEdgeLists.Values( a ) )
     {
         int o = GetOtherEdgeVertex( eid, a );
         if ( o == b )
         {
-            if ( VertexEdgeLists.Remove( b, eid ) != true )
+            if ( m_VertexEdgeLists.Remove( b, eid ) != true )
             {
                 assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case o == b" );
                 return MeshResult::Failed_UnrecoverableError;
@@ -1473,7 +1473,7 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         }
         else if ( o == c )
         {
-            if ( VertexEdgeLists.Remove( c, eid ) != true )
+            if ( m_VertexEdgeLists.Remove( c, eid ) != true )
             {
                 assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case o == c" );
                 return MeshResult::Failed_UnrecoverableError;
@@ -1482,7 +1482,7 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         }
         else if ( o == d )
         {
-            if ( VertexEdgeLists.Remove( d, eid ) != true )
+            if ( m_VertexEdgeLists.Remove( d, eid ) != true )
             {
                 assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case o == c, step 1" );
                 return MeshResult::Failed_UnrecoverableError;
@@ -1508,9 +1508,9 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
                     return MeshResult::Failed_UnrecoverableError;
                 }
                 // Edge (o,a) should no longer exist
-                VertexEdgeLists.Remove( o, eid );
-                EdgeRefCounts.Decrement( eid );
-                assert( EdgeRefCounts.IsValid( eid ) == false );
+                m_VertexEdgeLists.Remove( o, eid );
+                m_EdgeRefCounts.Decrement( eid );
+                assert( m_EdgeRefCounts.IsValid( eid ) == false );
             }
             else
             {
@@ -1519,13 +1519,13 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
                     assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove case else" );
                     return MeshResult::Failed_UnrecoverableError;
                 }
-                VertexEdgeLists.Insert( b, eid );
+                m_VertexEdgeLists.Insert( b, eid );
             }
         }
 
         // [TODO] perhaps we can already have unique tri list because of the manifold-nbrhood check we need to
         // do...
-        const Edge Edge = Edges[eid];
+        const Edge Edge = m_Edges[eid];
         for ( int j = 0; j < 2; ++j )
         {
             int t_j = Edge.Tri[j];
@@ -1538,8 +1538,8 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
                         assert( ( false ) && "DynamicMesh3::CollapseEdge: failed at remove last check" );
                         return MeshResult::Failed_UnrecoverableError;
                     }
-                    VertexRefCounts.Increment( b );
-                    VertexRefCounts.Decrement( a );
+                    m_VertexRefCounts.Increment( b );
+                    m_VertexRefCounts.Decrement( a );
                 }
             }
         }
@@ -1548,27 +1548,27 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
     if ( bIsBoundaryEdge == false )
     {
         // remove all edges from vtx a, then remove vtx a
-        VertexEdgeLists.Clear( a );
-        assert( VertexRefCounts.GetRefCount( a ) == 3 ); // in t0,t1, and initial ref
-        VertexRefCounts.Decrement( a, 3 );
-        assert( VertexRefCounts.IsValid( a ) == false );
+        m_VertexEdgeLists.Clear( a );
+        assert( m_VertexRefCounts.GetRefCount( a ) == 3 ); // in t0,t1, and initial ref
+        m_VertexRefCounts.Decrement( a, 3 );
+        assert( m_VertexRefCounts.IsValid( a ) == false );
 
         // remove triangles T0 and T1, and update b/c/d refcounts
-        TriangleRefCounts.Decrement( t0 );
-        TriangleRefCounts.Decrement( t1 );
-        VertexRefCounts.Decrement( c );
-        VertexRefCounts.Decrement( d );
-        VertexRefCounts.Decrement( b, 2 );
-        assert( TriangleRefCounts.IsValid( t0 ) == false );
-        assert( TriangleRefCounts.IsValid( t1 ) == false );
+        m_TriangleRefCounts.Decrement( t0 );
+        m_TriangleRefCounts.Decrement( t1 );
+        m_VertexRefCounts.Decrement( c );
+        m_VertexRefCounts.Decrement( d );
+        m_VertexRefCounts.Decrement( b, 2 );
+        assert( m_TriangleRefCounts.IsValid( t0 ) == false );
+        assert( m_TriangleRefCounts.IsValid( t1 ) == false );
 
         // remove edges ead, eab, eac
-        EdgeRefCounts.Decrement( ead );
-        EdgeRefCounts.Decrement( eab );
-        EdgeRefCounts.Decrement( eac );
-        assert( EdgeRefCounts.IsValid( ead ) == false );
-        assert( EdgeRefCounts.IsValid( eab ) == false );
-        assert( EdgeRefCounts.IsValid( eac ) == false );
+        m_EdgeRefCounts.Decrement( ead );
+        m_EdgeRefCounts.Decrement( eab );
+        m_EdgeRefCounts.Decrement( eac );
+        assert( m_EdgeRefCounts.IsValid( ead ) == false );
+        assert( m_EdgeRefCounts.IsValid( eab ) == false );
+        assert( m_EdgeRefCounts.IsValid( eac ) == false );
 
         // replace t0 and t1 in edges ebd and ebc that we kept
         ebd = FindEdgeFromTri( b, d, t1 );
@@ -1621,33 +1621,33 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         {
             if ( GetEdgeT( ebc ).A == InvalidID )
             {
-                VertexEdgeLists.Remove( b, ebc );
-                EdgeRefCounts.Decrement( ebc );
-                if ( VertexRefCounts.GetRefCount( c ) == 1 )
+                m_VertexEdgeLists.Remove( b, ebc );
+                m_EdgeRefCounts.Decrement( ebc );
+                if ( m_VertexRefCounts.GetRefCount( c ) == 1 )
                 {
-                    VertexEdgeLists.Clear( c );
-                    VertexRefCounts.Decrement( c );
+                    m_VertexEdgeLists.Clear( c );
+                    m_VertexRefCounts.Decrement( c );
                 }
                 else
                 {
                     // The vert must still be part of a bowtie. Still need to remove the deleted edge.
-                    VertexEdgeLists.Remove( c, ebc );
+                    m_VertexEdgeLists.Remove( c, ebc );
                 }
             }
             if ( GetEdgeT( ebd ).A == InvalidID )
             {
-                VertexEdgeLists.Remove( b, ebd );
-                VertexEdgeLists.Remove( d, ebd );
-                EdgeRefCounts.Decrement( ebd );
-                if ( VertexRefCounts.GetRefCount( d ) == 1 )
+                m_VertexEdgeLists.Remove( b, ebd );
+                m_VertexEdgeLists.Remove( d, ebd );
+                m_EdgeRefCounts.Decrement( ebd );
+                if ( m_VertexRefCounts.GetRefCount( d ) == 1 )
                 {
-                    VertexEdgeLists.Clear( d );
-                    VertexRefCounts.Decrement( d );
+                    m_VertexEdgeLists.Clear( d );
+                    m_VertexRefCounts.Decrement( d );
                 }
                 else
                 {
                     // The vert must still be part of a bowtie. Still need to remove the deleted edge.
-                    VertexEdgeLists.Remove( d, ebd );
+                    m_VertexEdgeLists.Remove( d, ebd );
                 }
             }
         }
@@ -1657,22 +1657,22 @@ MeshResult DynamicMesh3::CollapseEdge( int vKeep, int vRemove, double collapse_t
         //  boundary-edge path. this is basically same code as above, just not referencing t1/d
 
         // remove all edges from vtx a, then remove vtx a
-        VertexEdgeLists.Clear( a );
-        assert( VertexRefCounts.GetRefCount( a ) == 2 ); // in t0 and initial ref
-        VertexRefCounts.Decrement( a, 2 );
-        assert( VertexRefCounts.IsValid( a ) == false );
+        m_VertexEdgeLists.Clear( a );
+        assert( m_VertexRefCounts.GetRefCount( a ) == 2 ); // in t0 and initial ref
+        m_VertexRefCounts.Decrement( a, 2 );
+        assert( m_VertexRefCounts.IsValid( a ) == false );
 
         // remove triangle T0 and update b/c refcounts
-        TriangleRefCounts.Decrement( t0 );
-        VertexRefCounts.Decrement( c );
-        VertexRefCounts.Decrement( b );
-        assert( TriangleRefCounts.IsValid( t0 ) == false );
+        m_TriangleRefCounts.Decrement( t0 );
+        m_VertexRefCounts.Decrement( c );
+        m_VertexRefCounts.Decrement( b );
+        assert( m_TriangleRefCounts.IsValid( t0 ) == false );
 
         // remove edges eab and eac
-        EdgeRefCounts.Decrement( eab );
-        EdgeRefCounts.Decrement( eac );
-        assert( EdgeRefCounts.IsValid( eab ) == false );
-        assert( EdgeRefCounts.IsValid( eac ) == false );
+        m_EdgeRefCounts.Decrement( eab );
+        m_EdgeRefCounts.Decrement( eac );
+        assert( m_EdgeRefCounts.IsValid( eab ) == false );
+        assert( m_EdgeRefCounts.IsValid( eac ) == false );
 
         // replace t0 in edge ebc that we kept
         ebc = FindEdgeFromTri( b, c, t0 );
@@ -1881,7 +1881,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
         }
 
         // replace c w/ a in edges and tris connected to c, and move edges to a
-        for ( int eid : VertexEdgeLists.Values( c ) )
+        for ( int eid : m_VertexEdgeLists.Values( c ) )
         {
             if ( eid == eDiscard )
             {
@@ -1889,7 +1889,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
             }
             ReplaceEdgeVertex( eid, c, a );
             short       rc   = 0;
-            const Edge  Edge = Edges[eid];
+            const Edge  Edge = m_Edges[eid];
             if ( ReplaceTriangleVertex( Edge.Tri[0], c, a ) >= 0 )
             {
                 rc++;
@@ -1901,20 +1901,20 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
                     rc++;
                 }
             }
-            VertexEdgeLists.Insert( a, eid );
+            m_VertexEdgeLists.Insert( a, eid );
             if ( rc > 0 )
             {
-                VertexRefCounts.Increment( a, rc );
-                VertexRefCounts.Decrement( c, rc );
+                m_VertexRefCounts.Increment( a, rc );
+                m_VertexRefCounts.Decrement( c, rc );
             }
         }
-        VertexEdgeLists.Clear( c );
-        VertexRefCounts.Decrement( c );
+        m_VertexEdgeLists.Clear( c );
+        m_VertexRefCounts.Decrement( c );
         MergeInfo.RemovedVerts[0] = c;
     }
     else
     {
-        VertexEdgeLists.Remove( a, ecd );
+        m_VertexEdgeLists.Remove( a, ecd );
         MergeInfo.RemovedVerts[0] = InvalidID;
     }
     MergeInfo.KeptVerts[0] = a;
@@ -1928,7 +1928,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
         }
 
         // replace d w/ b in edges and tris connected to d, and move edges to b
-        for ( int eid : VertexEdgeLists.Values( d ) )
+        for ( int eid : m_VertexEdgeLists.Values( d ) )
         {
             if ( eid == eDiscard )
             {
@@ -1936,7 +1936,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
             }
             ReplaceEdgeVertex( eid, d, b );
             short       rc   = 0;
-            const Edge  Edge = Edges[eid];
+            const Edge  Edge = m_Edges[eid];
             if ( ReplaceTriangleVertex( Edge.Tri[0], d, b ) >= 0 )
             {
                 rc++;
@@ -1948,27 +1948,27 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
                     rc++;
                 }
             }
-            VertexEdgeLists.Insert( b, eid );
+            m_VertexEdgeLists.Insert( b, eid );
             if ( rc > 0 )
             {
-                VertexRefCounts.Increment( b, rc );
-                VertexRefCounts.Decrement( d, rc );
+                m_VertexRefCounts.Increment( b, rc );
+                m_VertexRefCounts.Decrement( d, rc );
             }
         }
-        VertexEdgeLists.Clear( d );
-        VertexRefCounts.Decrement( d );
+        m_VertexEdgeLists.Clear( d );
+        m_VertexRefCounts.Decrement( d );
         MergeInfo.RemovedVerts[1] = d;
     }
     else
     {
-        VertexEdgeLists.Remove( b, ecd );
+        m_VertexEdgeLists.Remove( b, ecd );
         MergeInfo.RemovedVerts[1] = InvalidID;
     }
     MergeInfo.KeptVerts[1] = b;
 
     // replace edge cd with edge ab in triangle tcd
     ReplaceTriangleEdge( tcd, ecd, eab );
-    EdgeRefCounts.Decrement( ecd );
+    m_EdgeRefCounts.Decrement( ecd );
 
     // update edge-tri adjacency
     SetEdgeTrianglesInternal( eab, tab, tcd );
@@ -2002,7 +2002,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
         {
             int edge_1 = edges_v[i];
             // Skip any non-boundary edge, or edge we've already removed via merging
-            if ( !EdgeRefCounts.IsValidUnsafe( edge_1 ) || !IsBoundaryEdge( edge_1 ) )
+            if ( !m_EdgeRefCounts.IsValidUnsafe( edge_1 ) || !IsBoundaryEdge( edge_1 ) )
             {
                 continue;
             }
@@ -2011,7 +2011,7 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
             {
                 int edge_2 = edges_v[j];
                 // Skip any non-boundary edge, or edge we've already removed via merging
-                if ( !EdgeRefCounts.IsValidUnsafe( edge_2 ) || !IsBoundaryEdge( edge_2 ) )
+                if ( !m_EdgeRefCounts.IsValidUnsafe( edge_2 ) || !IsBoundaryEdge( edge_2 ) )
                 {
                     continue;
                 }
@@ -2019,13 +2019,13 @@ MeshResult DynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpolati
                 if ( vert_1 == vert_2 )
                 {
                     // replace edge_2 w/ edge_1 in tri, update edge and vtx-edge-nbr lists
-                    int tri_1 = Edges[edge_1].Tri[0];
-                    int tri_2 = Edges[edge_2].Tri[0];
+                    int tri_1 = m_Edges[edge_1].Tri[0];
+                    int tri_2 = m_Edges[edge_2].Tri[0];
                     ReplaceTriangleEdge( tri_2, edge_2, edge_1 );
                     SetEdgeTrianglesInternal( edge_1, tri_1, tri_2 );
-                    VertexEdgeLists.Remove( v1, edge_2 );
-                    VertexEdgeLists.Remove( vert_1, edge_2 );
-                    EdgeRefCounts.Decrement( edge_2 );
+                    m_VertexEdgeLists.Remove( v1, edge_2 );
+                    m_VertexEdgeLists.Remove( vert_1, edge_2 );
+                    m_EdgeRefCounts.Decrement( edge_2 );
                     if ( FoundNum == 0 )
                     {
                         MergeInfo.ExtraRemovedEdges[vi] = edge_2;
@@ -2087,12 +2087,12 @@ MeshResult DynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double Inte
     }
 
     // See if we can resolve this as an edge weld
-    for ( int32_t const KeepAdjacentEid : VertexEdgeLists.Values( KeepVid ) )
+    for ( int32_t const KeepAdjacentEid : m_VertexEdgeLists.Values( KeepVid ) )
     {
         int32_t const KeepAdjacentVid = GetOtherEdgeVertex( KeepAdjacentEid, KeepVid );
 
         // See if the adjacent vert is also adjacent to DiscardVid
-        for ( int32_t const DiscardAdjacentEid : VertexEdgeLists.Values( DiscardVid ) )
+        for ( int32_t const DiscardAdjacentEid : m_VertexEdgeLists.Values( DiscardVid ) )
         {
             if ( GetOtherEdgeVertex( DiscardAdjacentEid, DiscardVid ) == KeepAdjacentVid )
             {
@@ -2143,11 +2143,11 @@ MeshResult DynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double Inte
     }
 
     // Replace DiscardVid w/ KeepVid in edges and tris connected to DiscardVid, and move edges to KeepVid
-    for ( int Eid : VertexEdgeLists.Values( DiscardVid ) )
+    for ( int Eid : m_VertexEdgeLists.Values( DiscardVid ) )
     {
         ReplaceEdgeVertex( Eid, DiscardVid, KeepVid );
         short       ReplaceCount = 0;
-        const Edge  Edge         = Edges[Eid];
+        const Edge  Edge         = m_Edges[Eid];
         if ( ReplaceTriangleVertex( Edge.Tri[0], DiscardVid, KeepVid ) >= 0 )
         {
             ReplaceCount++;
@@ -2159,15 +2159,15 @@ MeshResult DynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double Inte
                 ReplaceCount++;
             }
         }
-        VertexEdgeLists.Insert( KeepVid, Eid );
+        m_VertexEdgeLists.Insert( KeepVid, Eid );
         if ( ReplaceCount > 0 )
         {
-            VertexRefCounts.Increment( KeepVid, ReplaceCount );
-            VertexRefCounts.Decrement( DiscardVid, ReplaceCount );
+            m_VertexRefCounts.Increment( KeepVid, ReplaceCount );
+            m_VertexRefCounts.Decrement( DiscardVid, ReplaceCount );
         }
     }
-    VertexEdgeLists.Clear( DiscardVid );
-    VertexRefCounts.Decrement( DiscardVid );
+    m_VertexEdgeLists.Clear( DiscardVid );
+    m_VertexRefCounts.Decrement( DiscardVid );
 
     if ( HasAttributes() )
     {
@@ -2200,10 +2200,10 @@ MeshResult DynamicMesh3::PokeTriangle( int TriangleID, const glm::dvec3& BaryCoo
     int eaC = AddEdgeInternal( tv[0], center, -1, -1 );
     int ebC = AddEdgeInternal( tv[1], center, -1, -1 );
     int ecC = AddEdgeInternal( tv[2], center, -1, -1 );
-    VertexRefCounts.Increment( tv[0] );
-    VertexRefCounts.Increment( tv[1] );
-    VertexRefCounts.Increment( tv[2] );
-    VertexRefCounts.Increment( center, 3 );
+    m_VertexRefCounts.Increment( tv[0] );
+    m_VertexRefCounts.Increment( tv[1] );
+    m_VertexRefCounts.Increment( tv[2] );
+    m_VertexRefCounts.Increment( center, 3 );
 
     // old triangle becomes tri along first edge
     SetTriangleInternal( TriangleID, tv[0], tv[1], center );
@@ -2225,9 +2225,9 @@ MeshResult DynamicMesh3::PokeTriangle( int TriangleID, const glm::dvec3& BaryCoo
     // transfer groups
     if ( HasTriangleGroups() )
     {
-        int g = TriangleGroups.value()[TriangleID];
-        TriangleGroups->InsertAt( g, t1 );
-        TriangleGroups->InsertAt( g, t2 );
+        int g = m_TriangleGroups.value()[TriangleID];
+        m_TriangleGroups->InsertAt( g, t1 );
+        m_TriangleGroups->InsertAt( g, t2 );
     }
 
     PokeResult.OriginalTriangle = TriangleID;

@@ -199,7 +199,7 @@ namespace
     {
         static DynamicVector<int>& Triangles( DynamicMeshNormalOverlay& overlay )
         {
-            return overlay.*( &OverlayAccess::ElementTriangles );
+            return overlay.*( &OverlayAccess::m_ElementTriangles );
         }
     };
 } // namespace

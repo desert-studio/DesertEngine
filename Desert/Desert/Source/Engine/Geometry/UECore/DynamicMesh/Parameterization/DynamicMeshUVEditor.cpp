@@ -53,7 +53,7 @@ namespace Desert::Geometry
 
     void DynamicMeshUVEditor::ResetUVs( const std::vector<int32_t>& Triangles )
     {
-        UVOverlay->ClearElements( Triangles );
+        m_UVOverlay->ClearElements( Triangles );
     }
 
     void
@@ -62,8 +62,8 @@ namespace Desert::Geometry
     {
         for ( const int32_t elemid : ElementIDs )
         {
-            if ( UVOverlay->IsElement( elemid ) )
-                UVOverlay->SetElement( elemid, TransformFunc( UVOverlay->GetElement( elemid ) ) );
+            if ( m_UVOverlay->IsElement( elemid ) )
+                m_UVOverlay->SetElement( elemid, TransformFunc( m_UVOverlay->GetElement( elemid ) ) );
         }
     }
 
@@ -78,8 +78,8 @@ namespace Desert::Geometry
             FrameOut = GetVertexFrame( Mesh, VertexIDOut, Normal );
             return false;
         }
-        const EdgeLoop* Loop = &LoopsCalc.Loops[0];
-        for ( const EdgeLoop& Candidate : LoopsCalc.Loops )
+        const EdgeLoop* Loop = &LoopsCalc.m_Loops[0];
+        for ( const EdgeLoop& Candidate : LoopsCalc.m_Loops )
         {
             if ( static_cast<int32_t>( Candidate.Vertices.size() ) >
                  static_cast<int32_t>( Loop->Vertices.size() ) )
@@ -108,11 +108,11 @@ namespace Desert::Geometry
     bool DynamicMeshUVEditor::SetTriangleUVsFromExpMap( const std::vector<int32_t>& Triangles,
                                                         UVEditResult*               Result )
     {
-        if ( UVOverlay == nullptr || Triangles.empty() )
+        if ( m_UVOverlay == nullptr || Triangles.empty() )
             return false;
         ResetUVs( Triangles );
 
-        DynamicSubmesh3     SubmeshCalc( Mesh, Triangles );
+        DynamicSubmesh3     SubmeshCalc( m_Mesh, Triangles );
         const DynamicMesh3& Submesh = SubmeshCalc.GetSubmesh();
         if ( Submesh.TriangleCount() == 0 )
             return false;
@@ -124,7 +124,7 @@ namespace Desert::Geometry
             return false;
 
         MeshLocalParam<DynamicMesh3> Param( &Submesh );
-        Param.ParamMode = LocalParamTypes::ExponentialMapUpwindAvg;
+        Param.m_ParamMode = LocalParamTypes::ExponentialMapUpwindAvg;
         Param.ComputeToMaxDistance( FrameVertexID, SeedFrame, std::numeric_limits<float>::max() );
 
         std::vector<int32_t> VtxElementIDs;
@@ -138,7 +138,7 @@ namespace Desert::Geometry
             const glm::dvec2 UVd = Param.GetUV( vid );
             const glm::vec2  UV( static_cast<float>( UVd.x > MaxFloat ? MaxFloat : UVd.x ),
                                  static_cast<float>( UVd.y > MaxFloat ? MaxFloat : UVd.y ) );
-            VtxElementIDs[vid] = UVOverlay->AppendElement( UV );
+            VtxElementIDs[vid] = m_UVOverlay->AppendElement( UV );
             NewElementIDs.push_back( VtxElementIDs[vid] );
         }
 
@@ -153,7 +153,7 @@ namespace Desert::Geometry
                 NumFailed++;
                 continue;
             }
-            UVOverlay->SetTriangle( SubmeshCalc.MapTriangleToBaseMesh( tid ), UVTri );
+            m_UVOverlay->SetTriangle( SubmeshCalc.MapTriangleToBaseMesh( tid ), UVTri );
         }
         if ( Result != nullptr )
             Result->NewUVElements = std::move( NewElementIDs );
@@ -165,7 +165,7 @@ namespace Desert::Geometry
          const std::vector<int32_t>& Triangles, bool bUseExistingUVTopology, bool bPreserveIrregularity,
          UVEditResult* Result )
     {
-        if ( UVOverlay == nullptr || Triangles.empty() )
+        if ( m_UVOverlay == nullptr || Triangles.empty() )
             return false;
         if ( !bUseExistingUVTopology )
             ResetUVs( Triangles );
@@ -176,10 +176,10 @@ namespace Desert::Geometry
         std::vector<int32_t>                 SubmeshToBaseT;
         for ( const int32_t tid : Triangles )
         {
-            if ( bUseExistingUVTopology && !UVOverlay->IsSetTriangle( tid ) )
+            if ( bUseExistingUVTopology && !m_UVOverlay->IsSetTriangle( tid ) )
                 continue;
             const Index3i Triangle =
-                 bUseExistingUVTopology ? UVOverlay->GetTriangle( tid ) : Mesh->GetTriangle( tid );
+                 bUseExistingUVTopology ? m_UVOverlay->GetTriangle( tid ) : m_Mesh->GetTriangle( tid );
             Index3i NewTriangle;
             for ( int32_t j = 0; j < 3; ++j )
             {
@@ -189,8 +189,8 @@ namespace Desert::Geometry
                     NewTriangle[j] = Found->second;
                     continue;
                 }
-                const glm::dvec3 Position = Mesh->GetVertex(
-                     bUseExistingUVTopology ? UVOverlay->GetParentVertex( Triangle[j] ) : Triangle[j] );
+                const glm::dvec3 Position = m_Mesh->GetVertex(
+                     bUseExistingUVTopology ? m_UVOverlay->GetParentVertex( Triangle[j] ) : Triangle[j] );
                 NewTriangle[j] = Submesh.AppendVertex( Position );
                 SubmeshToBaseV.push_back( Triangle[j] );
                 BaseToSubmeshV.emplace( Triangle[j], NewTriangle[j] );
@@ -202,7 +202,7 @@ namespace Desert::Geometry
 
         const MeshBoundaryLoops Loops( &Submesh, true );
         const EdgeLoop*         Longest = nullptr;
-        for ( const EdgeLoop& Loop : Loops.Loops )
+        for ( const EdgeLoop& Loop : Loops.m_Loops )
         {
             if ( Longest == nullptr || Loop.Vertices.size() > Longest->Vertices.size() )
                 Longest = &Loop;
@@ -219,7 +219,7 @@ namespace Desert::Geometry
         if ( bUseExistingUVTopology )
         {
             for ( int32_t k = 0; k < static_cast<int32_t>( SubmeshToBaseV.size() ); ++k )
-                UVOverlay->SetElement( SubmeshToBaseV[k], ToFloat( UVBuffer[k] ) );
+                m_UVOverlay->SetElement( SubmeshToBaseV[k], ToFloat( UVBuffer[k] ) );
             if ( Result != nullptr )
                 Result->NewUVElements = std::move( SubmeshToBaseV );
             return true;
@@ -229,14 +229,15 @@ namespace Desert::Geometry
         VtxElementIDs.assign( Submesh.MaxVertexID(), DynamicMesh3::InvalidID );
         for ( const int32_t vid : Submesh.VertexIndicesItr() )
         {
-            VtxElementIDs[vid] = UVOverlay->AppendElement( ToFloat( UVBuffer[vid] ) );
+            VtxElementIDs[vid] = m_UVOverlay->AppendElement( ToFloat( UVBuffer[vid] ) );
             NewElementIDs.push_back( VtxElementIDs[vid] );
         }
         for ( const int32_t tid : Submesh.TriangleIndicesItr() )
         {
             const Index3i SubTri = Submesh.GetTriangle( tid );
-            UVOverlay->SetTriangle( SubmeshToBaseT[tid], Index3i( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B],
-                                                                  VtxElementIDs[SubTri.C] ) );
+            m_UVOverlay->SetTriangle(
+                 SubmeshToBaseT[tid],
+                 Index3i( VtxElementIDs[SubTri.A], VtxElementIDs[SubTri.B], VtxElementIDs[SubTri.C] ) );
         }
         if ( Result != nullptr )
             Result->NewUVElements = std::move( NewElementIDs );
@@ -246,19 +247,19 @@ namespace Desert::Geometry
     void DynamicMeshUVEditor::SetToPerVertexUVs( std::vector<int32_t>& VertexToUVOut, bool& bIsIdentityMapOut )
     {
         bIsIdentityMapOut = true;
-        VertexToUVOut.assign( Mesh->MaxVertexID(), DynamicMesh3::InvalidID );
-        UVOverlay->ClearElements();
-        for ( const int32_t VertexID : Mesh->VertexIndicesItr() )
+        VertexToUVOut.assign( m_Mesh->MaxVertexID(), DynamicMesh3::InvalidID );
+        m_UVOverlay->ClearElements();
+        for ( const int32_t VertexID : m_Mesh->VertexIndicesItr() )
         {
-            const int32_t UVID      = UVOverlay->AppendElement( glm::vec2( 0.0f, 0.0f ) );
+            const int32_t UVID      = m_UVOverlay->AppendElement( glm::vec2( 0.0f, 0.0f ) );
             VertexToUVOut[VertexID] = UVID;
             bIsIdentityMapOut       = bIsIdentityMapOut && UVID == VertexID;
         }
-        for ( const int32_t TriangleID : Mesh->TriangleIndicesItr() )
+        for ( const int32_t TriangleID : m_Mesh->TriangleIndicesItr() )
         {
-            const Index3i Tri = Mesh->GetTriangle( TriangleID );
-            UVOverlay->SetTriangle( TriangleID,
-                                    Index3i( VertexToUVOut[Tri.A], VertexToUVOut[Tri.B], VertexToUVOut[Tri.C] ) );
+            const Index3i Tri = m_Mesh->GetTriangle( TriangleID );
+            m_UVOverlay->SetTriangle(
+                 TriangleID, Index3i( VertexToUVOut[Tri.A], VertexToUVOut[Tri.B], VertexToUVOut[Tri.C] ) );
         }
     }
 
@@ -268,11 +269,11 @@ namespace Desert::Geometry
         double Area3D = 0.0;
         for ( const int32_t tid : Triangles )
         {
-            if ( !Mesh->IsTriangle( tid ) )
+            if ( !m_Mesh->IsTriangle( tid ) )
                 continue;
-            const Index3i Tri = Mesh->GetTriangle( tid );
-            Area3D +=
-                 VectorUtil::Area( Mesh->GetVertex( Tri.A ), Mesh->GetVertex( Tri.B ), Mesh->GetVertex( Tri.C ) );
+            const Index3i Tri = m_Mesh->GetTriangle( tid );
+            Area3D += VectorUtil::Area( m_Mesh->GetVertex( Tri.A ), m_Mesh->GetVertex( Tri.B ),
+                                        m_Mesh->GetVertex( Tri.C ) );
         }
         if ( std::abs( Area3D ) < std::numeric_limits<float>::epsilon() || !std::isfinite( Area3D ) )
             return false;
@@ -283,12 +284,12 @@ namespace Desert::Geometry
         glm::vec2 BoundsMax( -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() );
         for ( const int32_t tid : Triangles )
         {
-            if ( !UVOverlay->IsSetTriangle( tid ) )
+            if ( !m_UVOverlay->IsSetTriangle( tid ) )
                 continue;
-            const Index3i                  UVTri = UVOverlay->GetTriangle( tid );
-            const std::array<glm::vec2, 3> UV    = { UVOverlay->GetElement( UVTri.A ),
-                                                     UVOverlay->GetElement( UVTri.B ),
-                                                     UVOverlay->GetElement( UVTri.C ) };
+            const Index3i                  UVTri = m_UVOverlay->GetTriangle( tid );
+            const std::array<glm::vec2, 3> UV    = { m_UVOverlay->GetElement( UVTri.A ),
+                                                     m_UVOverlay->GetElement( UVTri.B ),
+                                                     m_UVOverlay->GetElement( UVTri.C ) };
             for ( int32_t j = 0; j < 3; ++j )
             {
                 Elements.insert( UVTri[j] );
@@ -309,9 +310,9 @@ namespace Desert::Geometry
         const glm::vec2 ScaleOrigin = ( BoundsMin + BoundsMax ) * 0.5f;
         const glm::vec2 Translation = bRecenterAtOrigin ? glm::vec2( 0.0f, 0.0f ) : ScaleOrigin;
         for ( const int32_t eid : Elements )
-            UVOverlay->SetElement( eid,
-                                   ( UVOverlay->GetElement( eid ) - ScaleOrigin ) * static_cast<float>( UVScale ) +
-                                        Translation );
+            m_UVOverlay->SetElement(
+                 eid,
+                 ( m_UVOverlay->GetElement( eid ) - ScaleOrigin ) * static_cast<float>( UVScale ) + Translation );
         return true;
     }
 } // namespace Desert::Geometry

@@ -224,15 +224,16 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
     ASSERT_EQ( openBefore, 36 );
 
     MergeCoincidentMeshEdges merger( &mesh );
-    merger.MergeVertexTolerance                        = ZeroTolerance<float>;
-    merger.MergeSearchTolerance                        = 2 * merger.MergeVertexTolerance;
-    merger.bWeldAttrsOnMergedEdges                     = true;
-    merger.SplitAttributeWelder.UVDistSqrdThreshold    = 0.01f * 0.01f;
-    merger.SplitAttributeWelder.NormalVecDotThreshold  = std::abs( 1.f - std::cos( 0.1f * 3.14159265f / 180.f ) );
-    merger.SplitAttributeWelder.TangentVecDotThreshold = merger.SplitAttributeWelder.NormalVecDotThreshold;
+    merger.m_MergeVertexTolerance                       = ZeroTolerance<float>;
+    merger.m_MergeSearchTolerance                       = 2 * merger.m_MergeVertexTolerance;
+    merger.m_bWeldAttrsOnMergedEdges                    = true;
+    merger.m_SplitAttributeWelder.m_UVDistSqrdThreshold = 0.01f * 0.01f;
+    merger.m_SplitAttributeWelder.m_NormalVecDotThreshold =
+         std::abs( 1.f - std::cos( 0.1f * 3.14159265f / 180.f ) );
+    merger.m_SplitAttributeWelder.m_TangentVecDotThreshold = merger.m_SplitAttributeWelder.m_NormalVecDotThreshold;
     ASSERT_TRUE( merger.Apply() );
-    EXPECT_EQ( merger.InitialNumBoundaryEdges, 36 );
-    EXPECT_EQ( merger.FinalNumBoundaryEdges, 0 );
+    EXPECT_EQ( merger.m_InitialNumBoundaryEdges, 36 );
+    EXPECT_EQ( merger.m_FinalNumBoundaryEdges, 0 );
     EXPECT_EQ( mesh.VertexCount(), 8 );
     EXPECT_EQ( mesh.TriangleCount(), 12 );
     EXPECT_EQ( mesh.EdgeCount(), 18 );
@@ -259,24 +260,24 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
 
     MeshBoundaryLoops loops( &mesh );
     ASSERT_EQ( loops.GetLoopCount(), 1 );
-    EXPECT_EQ( static_cast<int32_t>( loops.Spans.size() ), 0 );
-    EXPECT_EQ( loops.Loops[0].GetEdgeCount(), 4 );
-    EXPECT_TRUE( loops.Loops[0].IsBoundaryLoop( mesh ) );
+    EXPECT_EQ( static_cast<int32_t>( loops.m_Spans.size() ), 0 );
+    EXPECT_EQ( loops.m_Loops[0].GetEdgeCount(), 4 );
+    EXPECT_TRUE( loops.m_Loops[0].IsBoundaryLoop( mesh ) );
 
-    SimpleHoleFiller filler( &mesh, loops.Loops[0] );
-    ASSERT_TRUE( filler.Fill() ) << filler.FailureReason;
-    EXPECT_EQ( static_cast<int32_t>( filler.NewTriangles.size() ), 4 );
+    SimpleHoleFiller filler( &mesh, loops.m_Loops[0] );
+    ASSERT_TRUE( filler.Fill() ) << filler.m_FailureReason;
+    EXPECT_EQ( static_cast<int32_t>( filler.m_NewTriangles.size() ), 4 );
     EXPECT_TRUE( mesh.IsClosed() );
     int open = 0;
     for ( int e : mesh.BoundaryEdgeIndicesItr() )
         open += e >= 0 ? 1 : 0;
     EXPECT_EQ( open, 0 );
-    for ( int t : filler.NewTriangles )
+    for ( int t : filler.m_NewTriangles )
         EXPECT_NEAR( mesh.GetTriNormal( t ).z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
 
     DynamicMeshEditor editor( &mesh );
-    editor.SetTriangleNormals( filler.NewTriangles, glm::vec3( 0, 0, 1 ) );
-    editor.SetTriangleUVsFromProjection( filler.NewTriangles, mesh.GetVertex( filler.NewVertex ),
+    editor.SetTriangleNormals( filler.m_NewTriangles, glm::vec3( 0, 0, 1 ) );
+    editor.SetTriangleUVsFromProjection( filler.m_NewTriangles, mesh.GetVertex( filler.m_NewVertex ),
                                          glm::dvec3( 0, 0, 1 ), 1.0f );
     DynamicMeshAttributeSet* attributes = mesh.Attributes();
     MeshTangentsd            tangents( &mesh );
@@ -354,9 +355,9 @@ namespace
     {
         const GroupTopology  topology( &mesh, true );
         ElementSelection     selection( ElementMode::Edge );
-        for ( int e = 0; e < static_cast<int32_t>( topology.Edges.size() ); ++e )
+        for ( int e = 0; e < static_cast<int32_t>( topology.m_Edges.size() ); ++e )
         {
-            const Index2i g = topology.Edges[e].Groups;
+            const Index2i g = topology.m_Edges[e].Groups;
             if ( ( g.A == faceA + 1 && g.B == faceB + 1 ) || ( g.A == faceB + 1 && g.B == faceA + 1 ) )
                 for ( const int eid : topology.GetGroupEdgeEdges( e ) )
                     EXPECT_TRUE( selection.Add( mesh, eid ).IsSuccess() ) << "edge " << eid;

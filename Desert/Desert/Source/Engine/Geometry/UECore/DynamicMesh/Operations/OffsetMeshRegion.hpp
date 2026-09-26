@@ -31,25 +31,25 @@ namespace Desert::Geometry
             SelectionTriNormalsAngleWeightedAdjusted,
         };
 
-        DynamicMesh3*        Mesh;
-        std::vector<int32_t> Triangles;
+        DynamicMesh3*        m_Mesh;
+        std::vector<int32_t> m_Triangles;
 
         std::function<glm::dvec3( const glm::dvec3& Position, const glm::dvec3& VertexVector, int Vid )>
              OffsetPositionFunc = [this]( const glm::dvec3& Position, const glm::dvec3& VertexVector, int )
-        { return Position + VertexVector * this->DefaultOffsetDistance; };
-        double                                    DefaultOffsetDistance        = 1.0;
-        VertexExtrusionVectorType                         ExtrusionVectorType = VertexExtrusionVectorType::Zero;
+        { return Position + VertexVector * this->m_DefaultOffsetDistance; };
+        double                                            m_DefaultOffsetDistance = 1.0;
+        VertexExtrusionVectorType                         m_ExtrusionVectorType = VertexExtrusionVectorType::Zero;
         std::function<bool( int32_t Eid1, int32_t Eid2 )> LoopEdgesShouldHaveSameGroup =
              [this]( int32_t Eid1, int32_t Eid2 )
-        { return EdgesSeparateSameGroupsAndAreColinearAtBorder( Mesh, Eid1, Eid2, true ); };
-        float  UVScaleFactor                        = 1.0f;
-        bool   bOffsetFullComponentsAsSolids        = true;
-        bool   bIsPositiveOffset                    = true;
-        double MaxScaleForAdjustingTriNormalsOffset = 4.0;
-        bool   bSingleGroupPerArea                  = true;
-        bool   bUVIslandPerGroup                    = true;
-        bool   bInferMaterialID                     = true;
-        int    SetMaterialID                        = 0;
+        { return EdgesSeparateSameGroupsAndAreColinearAtBorder( m_Mesh, Eid1, Eid2, true ); };
+        float  m_UVScaleFactor                        = 1.0f;
+        bool   m_bOffsetFullComponentsAsSolids        = true;
+        bool   m_bIsPositiveOffset                    = true;
+        double m_MaxScaleForAdjustingTriNormalsOffset = 4.0;
+        bool   m_bSingleGroupPerArea                  = true;
+        bool   m_bUVIslandPerGroup                    = true;
+        bool   m_bInferMaterialID                     = true;
+        int    m_SetMaterialID                        = 0;
 
         struct OffsetInfo
         {
@@ -61,12 +61,12 @@ namespace Desert::Geometry
             std::vector<std::vector<int32_t>> StitchTriangles;
             std::vector<std::vector<int32_t>> StitchPolygonIDs;
         };
-        std::vector<OffsetInfo>  OffsetRegions;
-        std::vector<int32_t>     AllModifiedAndNewTriangles;
+        std::vector<OffsetInfo> m_OffsetRegions;
+        std::vector<int32_t>    m_AllModifiedAndNewTriangles;
         // Why Apply returned false, naming the region and the step. Empty on success.
-        std::string FailureReason;
+        std::string m_FailureReason;
 
-        explicit OffsetMeshRegion( DynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit OffsetMeshRegion( DynamicMesh3* MeshIn ) : m_Mesh( MeshIn )
         {
         }
 

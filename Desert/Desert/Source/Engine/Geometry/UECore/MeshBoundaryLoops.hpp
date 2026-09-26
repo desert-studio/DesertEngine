@@ -15,15 +15,15 @@ namespace Desert::Geometry
     class MeshBoundaryLoops
     {
     public:
-        const DynamicMesh3*   Mesh = nullptr;
-        std::vector<EdgeLoop> Loops;
-        std::vector<EdgeSpan> Spans;
+        const DynamicMesh3*   m_Mesh = nullptr;
+        std::vector<EdgeLoop> m_Loops;
+        std::vector<EdgeSpan> m_Spans;
         /** At least one open span was found (a failed walk becomes one). */
-        bool bSawOpenSpans = false;
+        bool m_bSawOpenSpans = false;
         /** A loop with bowties could not be split into simple loops and was kept as a span. */
-        bool bFellBackToSpansOnFailure = false;
+        bool m_bFellBackToSpansOnFailure = false;
 
-        explicit MeshBoundaryLoops( const DynamicMesh3* MeshIn, bool bAutoCompute = true ) : Mesh( MeshIn )
+        explicit MeshBoundaryLoops( const DynamicMesh3* MeshIn, bool bAutoCompute = true ) : m_Mesh( MeshIn )
         {
             if ( bAutoCompute )
                 Compute();
@@ -33,7 +33,7 @@ namespace Desert::Geometry
 
         int GetLoopCount() const
         {
-            return static_cast<int32_t>( Loops.size() );
+            return static_cast<int32_t>( m_Loops.size() );
         }
         int FindLoopContainingVertex( int VertexID ) const;
         int FindLoopContainingEdge( int EdgeID ) const;
@@ -44,7 +44,7 @@ namespace Desert::Geometry
             std::vector<EdgeLoop> Loops;
             std::vector<EdgeSpan> Spans;
         };
-        std::vector<int> VerticesTemp;
+        std::vector<int> m_VerticesTemp;
 
         glm::dvec3 GetVertexNormal( int Vid ) const;
         int  FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges, int BdryEdgesCount,

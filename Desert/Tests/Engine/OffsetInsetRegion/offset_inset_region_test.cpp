@@ -66,18 +66,19 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     DynamicMesh3 M = MakeCube();
     ASSERT_EQ( M.GetTriNormal( 2 ).z, 1.0 );
     OffsetMeshRegion Op( &M );
-    Op.Triangles = TopFace();
-    Op.ExtrusionVectorType = OffsetMeshRegion::VertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
-    Op.DefaultOffsetDistance = 50.0;
-    ASSERT_TRUE( Op.Apply() ) << Op.FailureReason;
+    Op.m_Triangles = TopFace();
+    Op.m_ExtrusionVectorType =
+         OffsetMeshRegion::VertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
+    Op.m_DefaultOffsetDistance = 50.0;
+    ASSERT_TRUE( Op.Apply() ) << Op.m_FailureReason;
     // UE: +Vb vertices, +2*Eb triangles for a 4-vertex boundary; the face gets one new group, the walls four.
     EXPECT_EQ( M.VertexCount(), 12 );
     EXPECT_EQ( M.TriangleCount(), 20 );
     EXPECT_EQ( CountGroups( M ), 10 );
     EXPECT_EQ( CountBoundaryEdges( M ), 0 ) << "the extruded cube must stay closed";
-    ASSERT_EQ( static_cast<int32_t>( Op.OffsetRegions.size() ), 1 );
-    EXPECT_FALSE( Op.OffsetRegions[0].bIsSolid );
-    for ( int32_t const t : Op.OffsetRegions[0].OffsetTids )
+    ASSERT_EQ( static_cast<int32_t>( Op.m_OffsetRegions.size() ), 1 );
+    EXPECT_FALSE( Op.m_OffsetRegions[0].bIsSolid );
+    for ( int32_t const t : Op.m_OffsetRegions[0].OffsetTids )
     {
         Index3i Tri = M.GetTriangle( t );
         for ( int j = 0; j < 3; ++j )
@@ -85,10 +86,10 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
         EXPECT_NEAR( M.GetTriNormal( t ).z, 1.0, 1e-9 );
     }
     // Four walls, two triangles each, each its own new group, facing outwards (horizontal normals).
-    ASSERT_EQ( static_cast<int32_t>( Op.OffsetRegions[0].StitchTriangles.size() ), 1 );
-    EXPECT_EQ( static_cast<int32_t>( Op.OffsetRegions[0].StitchTriangles[0].size() ), 8 );
-    EXPECT_EQ( static_cast<int32_t>( Op.OffsetRegions[0].StitchPolygonIDs[0].size() ), 4 );
-    for ( int32_t const t : Op.OffsetRegions[0].StitchTriangles[0] )
+    ASSERT_EQ( static_cast<int32_t>( Op.m_OffsetRegions[0].StitchTriangles.size() ), 1 );
+    EXPECT_EQ( static_cast<int32_t>( Op.m_OffsetRegions[0].StitchTriangles[0].size() ), 8 );
+    EXPECT_EQ( static_cast<int32_t>( Op.m_OffsetRegions[0].StitchPolygonIDs[0].size() ), 4 );
+    for ( int32_t const t : Op.m_OffsetRegions[0].StitchTriangles[0] )
     {
         const glm::dvec3 N = M.GetTriNormal( t );
         const glm::dvec3 C = M.GetTriCentroid( t ) - glm::dvec3( 50, 50, 125 );
@@ -104,11 +105,12 @@ TEST( OffsetMeshRegion, WholeCubeOffsetsIntoASolid )
     DynamicMesh3     M = MakeCube();
     OffsetMeshRegion Op( &M );
     for ( int t = 0; t < 12; ++t )
-        Op.Triangles.push_back( t );
-    Op.ExtrusionVectorType = OffsetMeshRegion::VertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
-    Op.DefaultOffsetDistance = 10.0;
-    ASSERT_TRUE( Op.Apply() ) << Op.FailureReason;
-    EXPECT_TRUE( Op.OffsetRegions[0].bIsSolid );
+        Op.m_Triangles.push_back( t );
+    Op.m_ExtrusionVectorType =
+         OffsetMeshRegion::VertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
+    Op.m_DefaultOffsetDistance = 10.0;
+    ASSERT_TRUE( Op.Apply() ) << Op.m_FailureReason;
+    EXPECT_TRUE( Op.m_OffsetRegions[0].bIsSolid );
     EXPECT_EQ( M.VertexCount(), 16 );
     EXPECT_EQ( M.TriangleCount(), 24 );
     EXPECT_EQ( CountBoundaryEdges( M ), 0 );
@@ -119,14 +121,14 @@ TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
     DynamicMesh3     M        = MakeCube();
     const int        TopGroup = M.GetTriangleGroup( 2 );
     InsetMeshRegion  Op( &M );
-    Op.Triangles     = TopFace();
-    Op.InsetDistance = 10.0;
-    ASSERT_TRUE( Op.Apply() ) << Op.FailureReason;
+    Op.m_Triangles     = TopFace();
+    Op.m_InsetDistance = 10.0;
+    ASSERT_TRUE( Op.Apply() ) << Op.m_FailureReason;
     EXPECT_EQ( M.VertexCount(), 12 );
     EXPECT_EQ( M.TriangleCount(), 20 );
     EXPECT_EQ( CountGroups( M ), 10 ); // the face keeps its group, the ring gets four
     EXPECT_EQ( CountBoundaryEdges( M ), 0 );
-    for ( int32_t const t : Op.InsetRegions[0].InitialTriangles )
+    for ( int32_t const t : Op.m_InsetRegions[0].InitialTriangles )
     {
         EXPECT_EQ( M.GetTriangleGroup( t ), TopGroup );
         Index3i Tri = M.GetTriangle( t );
@@ -138,7 +140,7 @@ TEST( InsetMeshRegion, CubeFaceInsetShrinksByTheDistance )
             EXPECT_NEAR( std::min( P.y, 100 - P.y ), 10.0, 1e-9 );
         }
     }
-    for ( int32_t const t : Op.InsetRegions[0].StitchTriangles[0] )
+    for ( int32_t const t : Op.m_InsetRegions[0].StitchTriangles[0] )
         EXPECT_NEAR( M.GetTriNormal( t ).z, 1.0, 1e-9 ) << "ring triangle " << t << " is not in the face's plane";
 }
 
@@ -149,9 +151,9 @@ TEST( InsetMeshRegion, RegionWithInteriorVertexIsRefused )
     InsetMeshRegion  Op( &M );
     // The +Z face plus the four side faces around it: vertices 4..7 are interior.
     for ( int t = 2; t < 12; ++t )
-        Op.Triangles.push_back( t );
+        Op.m_Triangles.push_back( t );
     EXPECT_FALSE( Op.Apply() );
-    EXPECT_NE( Op.FailureReason.find( "interior" ), std::string::npos ) << Op.FailureReason;
+    EXPECT_NE( Op.m_FailureReason.find( "interior" ), std::string::npos ) << Op.m_FailureReason;
     EXPECT_EQ( M.TriangleCount(), Before );
 }
 

@@ -37,13 +37,13 @@ namespace Desert::Geometry
     {
     public:
         /** Why initialization refused the input; empty on success. */
-        std::string FailureReason;
+        std::string m_FailureReason;
 
         /** Distance (cm) each beveled edge is inset into its two adjacent faces. */
-        double InsetDistance = 5.0;
+        double m_InsetDistance = 5.0;
 
         /** Number of subdivisions inserted in each bevel strip; 0 is the one-segment chamfer. */
-        int32_t NumSubdivisions = 0;
+        int32_t m_NumSubdivisions = 0;
 
         /**
          * "Roundness" of the bevel profile, ignored when NumSubdivisions = 0. 1 approximates a circular arc
@@ -51,7 +51,7 @@ namespace Desert::Geometry
          * arc. DEFAULT 0 (UE's default is 1.0): the flat profile, every subdivision in the chamfer plane, so
          * callers written before the round profile existed keep their output bit for bit.
          */
-        double RoundWeight = 0.0;
+        double m_RoundWeight = 0.0;
 
         /** Options for MaterialID assignment on the new triangles generated for the bevel */
         enum class MaterialIDMode
@@ -63,10 +63,10 @@ namespace Desert::Geometry
         /** Which MaterialID assignment mode to use */
         MaterialIDMode m_MaterialIDMode = MaterialIDMode::ConstantMaterialID;
         /** Constant MaterialID used for various MaterialIDMode settings */
-        int32_t SetConstantMaterialID = 0;
+        int32_t m_SetConstantMaterialID = 0;
 
         /** Triangles created by Apply: the vertex polygons, then the edge and loop strips. */
-        std::vector<int32_t> NewTriangles;
+        std::vector<int32_t> m_NewTriangles;
 
         /** Initialize the bevel with all edges of the given GroupTopology. */
         bool InitializeFromGroupTopology( const DynamicMesh3& Mesh, const GroupTopology& Topology );
@@ -180,12 +180,12 @@ namespace Desert::Geometry
         };
 
     protected:
-        std::unordered_map<int32_t, int32_t> VertexIDToIndexMap; // mesh vertex ID -> index into Vertices
-        std::vector<BevelVertex>             Vertices;           // mesh vertices that need beveling
-        std::vector<BevelEdge>               Edges;              // mesh edge spans that need beveling
-        std::vector<BevelLoop>               Loops;              // mesh edge loops that need beveling
+        std::unordered_map<int32_t, int32_t> m_VertexIDToIndexMap; // mesh vertex ID -> index into Vertices
+        std::vector<BevelVertex>             m_Vertices;           // mesh vertices that need beveling
+        std::vector<BevelEdge>               m_Edges;              // mesh edge spans that need beveling
+        std::vector<BevelLoop>               m_Loops;              // mesh edge loops that need beveling
         std::unordered_map<int32_t, int32_t>
-             MeshEdgePairs; // input edges split into edge pairs, later stitched with quads
+             m_MeshEdgePairs; // input edges split into edge pairs, later stitched with quads
 
         BevelVertex* GetBevelVertexFromVertexID( int32_t VertexID, int32_t* IndexOut = nullptr );
 

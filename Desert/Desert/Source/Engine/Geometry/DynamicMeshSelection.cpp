@@ -257,7 +257,7 @@ namespace Desert::Geometry
         std::vector<int> CornerVertices( const GroupTopology& topology )
         {
             std::vector<int> out;
-            for ( const auto& corner : topology.Corners )
+            for ( const auto& corner : topology.m_Corners )
                 out.push_back( corner.VertexID );
             return out;
         }
@@ -267,7 +267,7 @@ namespace Desert::Geometry
         std::vector<int> GroupEdgeSegments( const GroupTopology& topology )
         {
             std::vector<int> out;
-            for ( int g = 0; g < static_cast<int32_t>( topology.Edges.size() ); ++g )
+            for ( int g = 0; g < static_cast<int32_t>( topology.m_Edges.size() ); ++g )
                 for ( const int e : topology.GetGroupEdgeEdges( g ) )
                     out.push_back( e );
             return out;

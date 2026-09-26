@@ -25,22 +25,22 @@ namespace Desert::Geometry
         /** Default tolerance is float ZeroTolerance. */
         static const double DEFAULT_TOLERANCE;
 
-        DynamicMesh3* Mesh;
+        DynamicMesh3* m_Mesh;
         /** Edges are coincident if both pairs of endpoint vertices are closer than this distance. */
-        double MergeVertexTolerance = DEFAULT_TOLERANCE;
+        double m_MergeVertexTolerance = DEFAULT_TOLERANCE;
         /** Only merge unambiguous pairs that have unique duplicate-edge matches. */
-        bool OnlyUniquePairs = false;
+        bool m_OnlyUniquePairs = false;
         /** Edges are candidates if their midpoints are within this distance; zero means MergeVertexTolerance*2. */
-        double MergeSearchTolerance    = 0;
-        int32_t InitialNumBoundaryEdges = 0;
-        int32_t FinalNumBoundaryEdges   = 0;
+        double  m_MergeSearchTolerance    = 0;
+        int32_t m_InitialNumBoundaryEdges = 0;
+        int32_t m_FinalNumBoundaryEdges   = 0;
         /** Weld split attributes at the vertices of each merged edge. */
-        bool                  bWeldAttrsOnMergedEdges = false;
-        SplitAttributeWelder  SplitAttributeWelder;
+        bool                 m_bWeldAttrsOnMergedEdges = false;
+        SplitAttributeWelder m_SplitAttributeWelder;
         /** Edges to merge (a pair qualifies when EITHER edge is in it); null merges across the entire mesh. */
-        std::unordered_set<int32_t>* EdgesToMerge = nullptr;
+        std::unordered_set<int32_t>* m_EdgesToMerge = nullptr;
 
-        explicit MergeCoincidentMeshEdges( DynamicMesh3* mesh ) : Mesh( mesh )
+        explicit MergeCoincidentMeshEdges( DynamicMesh3* mesh ) : m_Mesh( mesh )
         {
         }
         virtual ~MergeCoincidentMeshEdges() = default;
@@ -49,13 +49,13 @@ namespace Desert::Geometry
         virtual bool Apply();
 
     protected:
-        double MergeVtxDistSqr = 0; // cached
+        double m_MergeVtxDistSqr = 0; // cached
 
         // the endpoint order is unknown, so both combinations are tried
         bool IsSameEdge( const glm::dvec3& a, const glm::dvec3& b, const glm::dvec3& c, const glm::dvec3& d ) const
         {
-            return ( DistSq( a, c ) < MergeVtxDistSqr && DistSq( b, d ) < MergeVtxDistSqr ) ||
-                   ( DistSq( a, d ) < MergeVtxDistSqr && DistSq( b, c ) < MergeVtxDistSqr );
+            return ( DistSq( a, c ) < m_MergeVtxDistSqr && DistSq( b, d ) < m_MergeVtxDistSqr ) ||
+                   ( DistSq( a, d ) < m_MergeVtxDistSqr && DistSq( b, c ) < m_MergeVtxDistSqr );
         }
         static double DistSq( const glm::dvec3& a, const glm::dvec3& b )
         {

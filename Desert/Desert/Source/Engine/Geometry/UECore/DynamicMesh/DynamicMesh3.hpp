@@ -132,41 +132,41 @@ namespace Desert::Geometry
 
     protected:
         /** List of vertex positions */
-        DynamicVector<glm::dvec3> Vertices{};
+        DynamicVector<glm::dvec3> m_Vertices{};
         /** Reference counts of vertex indices. For vertices that exist, the count is 1 +
          * num_triangle_using_vertex. Iterate over this to find out which vertex indices are valid. */
-        RefCountVector VertexRefCounts{};
+        RefCountVector m_VertexRefCounts{};
         /** (optional) List of per-vertex normals */
-        std::optional<DynamicVector<glm::vec3>> VertexNormals{};
+        std::optional<DynamicVector<glm::vec3>> m_VertexNormals{};
         /** (optional) List of per-vertex colors */
-        std::optional<DynamicVector<glm::vec3>> VertexColors{};
+        std::optional<DynamicVector<glm::vec3>> m_VertexColors{};
         /** (optional) List of per-vertex uv's */
-        std::optional<DynamicVector<glm::vec2>> VertexUVs{};
+        std::optional<DynamicVector<glm::vec2>> m_VertexUVs{};
         /** List of per-vertex edge one-rings */
-        SmallListSet VertexEdgeLists;
+        SmallListSet m_VertexEdgeLists;
 
         /** List of triangle vertex-index triplets [Vert0 Vert1 Vert2]*/
-        DynamicVector<Index3i> Triangles;
+        DynamicVector<Index3i> m_Triangles;
         /** Reference counts of triangle indices. Ref count is always 1 if the triangle exists. Iterate over this
          * to find out which triangle indices are valid. */
-        RefCountVector TriangleRefCounts;
+        RefCountVector m_TriangleRefCounts;
         /** List of triangle edge triplets [Edge0 Edge1 Edge2] */
-        DynamicVector<Index3i> TriangleEdges;
+        DynamicVector<Index3i> m_TriangleEdges;
         /** (optional) List of per-triangle group identifiers */
-        std::optional<DynamicVector<int>> TriangleGroups{};
+        std::optional<DynamicVector<int>> m_TriangleGroups{};
         /** Upper bound on the triangle group IDs used in the mesh (may be larger than the actual maximum if
          * triangles have been deleted) */
-        int GroupIDCounter = 0;
+        int m_GroupIDCounter = 0;
 
         /** Extended Attributes for the Mesh (UV layers, Hard Normals, additional Polygroup Layers, etc) */
-        std::unique_ptr<DynamicMeshAttributeSet> AttributeSet{};
+        std::unique_ptr<DynamicMeshAttributeSet> m_AttributeSet{};
 
         /** List of edge elements. An edge is four elements [VertA, VertB, Tri0, Tri1], where VertA < VertB, and
          * Tri1 may be InvalidID (if the edge is a boundary edge) */
-        DynamicVector<Edge> Edges;
+        DynamicVector<Edge> m_Edges;
         /** Reference counts of edge indices. Ref count is always 1 if the edge exists. Iterate over this to find
          * out which edge indices are valid. */
-        RefCountVector EdgeRefCounts;
+        RefCountVector m_EdgeRefCounts;
 
     private:
         struct ChangeStamp
@@ -231,10 +231,10 @@ namespace Desert::Geometry
 
         // Shape change tracking can be problematic in multi-threaded contexts so they're disabled by default.
         // In fact, it is not suggested that these be used at all. (See comment for SetShapeChangeStampEnabled.)
-        ChangeStamp ChangeStampShape{ /*bIsEnabled=*/false };
+        ChangeStamp m_ChangeStampShape{ /*bIsEnabled=*/false };
 
         // Topological change tracking is enabled by default.
-        ChangeStamp ChangeStampTopology{ /*bIsEnabled=*/true };
+        ChangeStamp m_ChangeStampTopology{ /*bIsEnabled=*/true };
 
     public:
         /** Default constructor */
@@ -318,75 +318,75 @@ namespace Desert::Geometry
         /** @return number of vertices in the mesh */
         int VertexCount() const
         {
-            return (int)VertexRefCounts.GetCount();
+            return (int)m_VertexRefCounts.GetCount();
         }
         /** @return number of triangles in the mesh */
         int TriangleCount() const
         {
-            return (int)TriangleRefCounts.GetCount();
+            return (int)m_TriangleRefCounts.GetCount();
         }
         /** @return number of edges in the mesh */
         int EdgeCount() const
         {
-            return (int)EdgeRefCounts.GetCount();
+            return (int)m_EdgeRefCounts.GetCount();
         }
 
         /** @return upper bound on vertex IDs used in the mesh, i.e. all vertex IDs in use are < MaxVertexID */
         int MaxVertexID() const
         {
-            return (int)VertexRefCounts.GetMaxIndex();
+            return (int)m_VertexRefCounts.GetMaxIndex();
         }
         /** @return upper bound on triangle IDs used in the mesh, i.e. all triangle IDs in use are < MaxTriangleID
          */
         int MaxTriangleID() const
         {
-            return (int)TriangleRefCounts.GetMaxIndex();
+            return (int)m_TriangleRefCounts.GetMaxIndex();
         }
         /** @return upper bound on edge IDs used in the mesh, i.e. all edge IDs in use are < MaxEdgeID */
         int MaxEdgeID() const
         {
-            return (int)EdgeRefCounts.GetMaxIndex();
+            return (int)m_EdgeRefCounts.GetMaxIndex();
         }
         /** @return upper bound on group IDs used in the mesh, i.e. all group IDs in use are < MaxGroupID */
         int MaxGroupID() const
         {
-            return GroupIDCounter;
+            return m_GroupIDCounter;
         }
 
         /** @return true if this mesh has per-vertex normals */
         bool HasVertexNormals() const
         {
-            return VertexNormals.has_value();
+            return m_VertexNormals.has_value();
         }
         /** @return true if this mesh has per-vertex colors */
         bool HasVertexColors() const
         {
-            return VertexColors.has_value();
+            return m_VertexColors.has_value();
         }
         /** @return true if this mesh has per-vertex UVs */
         bool HasVertexUVs() const
         {
-            return VertexUVs.has_value();
+            return m_VertexUVs.has_value();
         }
         /** @return true if this mesh has per-triangle groups */
         bool HasTriangleGroups() const
         {
-            return TriangleGroups.has_value();
+            return m_TriangleGroups.has_value();
         }
         /** @return true if this mesh has attribute layers */
         bool HasAttributes() const
         {
-            return AttributeSet != nullptr;
+            return m_AttributeSet != nullptr;
         }
         /** @return a pointer to the attribute set, if the mesh has one, else nullptr */
         DynamicMeshAttributeSet* Attributes()
         {
-            return AttributeSet.get();
+            return m_AttributeSet.get();
         }
         /** @return a pointer to the attribute set, if the mesh has one, else nullptr */
         const DynamicMeshAttributeSet* Attributes() const
         {
-            return AttributeSet.get();
+            return m_AttributeSet.get();
         }
         /** Enable the attribute set, with one UV and one normal layer, if it does not exist */
         void EnableAttributes();
@@ -399,23 +399,23 @@ namespace Desert::Geometry
         /** @return true if VertexID is a valid vertex in this mesh */
         inline bool IsVertex( int VertexID ) const
         {
-            return VertexRefCounts.IsValid( VertexID );
+            return m_VertexRefCounts.IsValid( VertexID );
         }
         /** @return true if VertexID is a valid vertex in this mesh AND is used by at least one triangle */
         inline bool IsReferencedVertex( int VertexID ) const
         {
-            return VertexID >= 0 && VertexID < (int)VertexRefCounts.GetMaxIndex() &&
-                   VertexRefCounts.GetRefCount( VertexID ) > 1;
+            return VertexID >= 0 && VertexID < (int)m_VertexRefCounts.GetMaxIndex() &&
+                   m_VertexRefCounts.GetRefCount( VertexID ) > 1;
         }
         /** @return true if TriangleID is a valid triangle in this mesh */
         inline bool IsTriangle( int TriangleID ) const
         {
-            return TriangleRefCounts.IsValid( TriangleID );
+            return m_TriangleRefCounts.IsValid( TriangleID );
         }
         /** @return true if EdgeID is a valid edge in this mesh */
         inline bool IsEdge( int EdgeID ) const
         {
-            return EdgeRefCounts.IsValid( EdgeID );
+            return m_EdgeRefCounts.IsValid( EdgeID );
         }
 
         //
@@ -434,25 +434,25 @@ namespace Desert::Geometry
          */
         void SetShapeChangeStampEnabled( bool bEnabled )
         {
-            ChangeStampShape.bIsEnabled = bEnabled;
+            m_ChangeStampShape.bIsEnabled = bEnabled;
         }
 
         /** Enable/disable incrementing of the TopologyChangeStamp. */
         void SetTopologyChangeStampEnabled( bool bEnabled )
         {
-            ChangeStampTopology.bIsEnabled = bEnabled;
+            m_ChangeStampTopology.bIsEnabled = bEnabled;
         }
 
         /** @return true if shape ChangeStamp is enabled (disabled by default) */
         bool HasShapeChangeStampEnabled() const
         {
-            return ChangeStampShape.bIsEnabled;
+            return m_ChangeStampShape.bIsEnabled;
         }
 
         /** @return true if topology ChangeStamp is enabled (disabled by default) */
         bool HasTopologyChangeStampEnabled() const
         {
-            return ChangeStampTopology.bIsEnabled;
+            return m_ChangeStampTopology.bIsEnabled;
         }
 
         /** Increment the specified ChangeStamps, if they are enabled. Thread-safe. */
@@ -460,11 +460,11 @@ namespace Desert::Geometry
         {
             if ( bShapeChange || bTopologyChange )
             {
-                ChangeStampShape.IncrementIfEnabled();
+                m_ChangeStampShape.IncrementIfEnabled();
             }
             if ( bTopologyChange )
             {
-                ChangeStampTopology.IncrementIfEnabled();
+                m_ChangeStampTopology.IncrementIfEnabled();
             }
         }
 
@@ -474,9 +474,10 @@ namespace Desert::Geometry
          */
         uint32_t GetShapeChangeStamp() const
         {
-            DESERT_VERIFY_WARN( ChangeStampShape.bIsEnabled, "Shape change tracking is not enabled on this mesh. "
-                                                             "Use SetShapeChangeStampEnabled() to enable." );
-            return ChangeStampShape.GetValue();
+            DESERT_VERIFY_WARN( m_ChangeStampShape.bIsEnabled,
+                                "Shape change tracking is not enabled on this mesh. "
+                                "Use SetShapeChangeStampEnabled() to enable." );
+            return m_ChangeStampShape.GetValue();
         }
 
         /**
@@ -485,17 +486,17 @@ namespace Desert::Geometry
          */
         uint32_t GetTopologyChangeStamp() const
         {
-            DESERT_VERIFY_WARN( ChangeStampTopology.bIsEnabled,
+            DESERT_VERIFY_WARN( m_ChangeStampTopology.bIsEnabled,
                                 "Topology change tracking is not enabled on this mesh. Use "
                                 "SetTopologyChangeStampEnabled() to enable." );
-            return ChangeStampTopology.GetValue();
+            return m_ChangeStampTopology.GetValue();
         }
 
         /** ChangeStamp is a combination of the Shape and Topology ChangeStamps. If neither flag is enabled, this
          * value will never change. */
         uint64_t GetChangeStamp() const
         {
-            return ChangeStampShape.GetValue() + ChangeStampTopology.GetValue();
+            return m_ChangeStampShape.GetValue() + m_ChangeStampTopology.GetValue();
         }
 
         //
@@ -516,21 +517,21 @@ namespace Desert::Geometry
          * i : VertexIndicesItr() ) */
         vertex_iterator VertexIndicesItr() const
         {
-            return VertexRefCounts.Indices();
+            return m_VertexRefCounts.Indices();
         }
 
         /** @return enumerable object for valid triangle indices suitable for use with range-based for, ie for (
          * int i : TriangleIndicesItr() ) */
         triangle_iterator TriangleIndicesItr() const
         {
-            return TriangleRefCounts.Indices();
+            return m_TriangleRefCounts.Indices();
         }
 
         /** @return enumerable object for valid edge indices suitable for use with range-based for, ie for ( int i
          * : EdgeIndicesItr() ) */
         edge_iterator EdgeIndicesItr() const
         {
-            return EdgeRefCounts.Indices();
+            return m_EdgeRefCounts.Indices();
         }
 
         // TODO: write helper functions that allow us to do these iterations w/o lambdas
@@ -539,71 +540,71 @@ namespace Desert::Geometry
          * i : BoundaryEdgeIndicesItr() ) */
         RefCountVector::FilteredEnumerable BoundaryEdgeIndicesItr() const
         {
-            return EdgeRefCounts.FilteredIndices( [this]( int EdgeID )
-                                                  { return Edges[EdgeID].Tri[1] == InvalidID; } );
+            return m_EdgeRefCounts.FilteredIndices( [this]( int EdgeID )
+                                                    { return m_Edges[EdgeID].Tri[1] == InvalidID; } );
         }
 
         /** Enumerate positions of all vertices in mesh */
         value_iteration<glm::dvec3> VerticesItr() const
         {
-            return VertexRefCounts.MappedIndices<glm::dvec3>( [this]( int VertexID )
-                                                              { return Vertices[VertexID]; } );
+            return m_VertexRefCounts.MappedIndices<glm::dvec3>( [this]( int VertexID )
+                                                                { return m_Vertices[VertexID]; } );
         }
 
         /** Enumerate all triangles in the mesh */
         value_iteration<Index3i> TrianglesItr() const
         {
-            return TriangleRefCounts.MappedIndices<Index3i>( [this]( int TriangleID )
-                                                             { return Triangles[TriangleID]; } );
+            return m_TriangleRefCounts.MappedIndices<Index3i>( [this]( int TriangleID )
+                                                               { return m_Triangles[TriangleID]; } );
         }
 
         /** Enumerate edges. Each returned element is [v0,v1,t0,t1], where t1 will be InvalidID if this is a
          * boundary edge */
         value_iteration<Edge> EdgesItr() const
         {
-            return EdgeRefCounts.MappedIndices<Edge>( [this]( int EdgeID ) { return Edges[EdgeID]; } );
+            return m_EdgeRefCounts.MappedIndices<Edge>( [this]( int EdgeID ) { return m_Edges[EdgeID]; } );
         }
 
         /** @return enumerable object for one-ring vertex neighbours of a vertex, suitable for use with range-based
          * for, ie for ( int i : VtxVerticesItr(VertexID) ) */
         SmallListSet::MappedValueEnumerable VtxVerticesItr( int VertexID ) const
         {
-            assert( VertexRefCounts.IsValid( VertexID ) );
-            return VertexEdgeLists.MappedValues( VertexID, [VertexID, this]( int eid )
-                                                 { return GetOtherEdgeVertex( eid, VertexID ); } );
+            assert( m_VertexRefCounts.IsValid( VertexID ) );
+            return m_VertexEdgeLists.MappedValues( VertexID, [VertexID, this]( int eid )
+                                                   { return GetOtherEdgeVertex( eid, VertexID ); } );
         }
 
         /** Call VertexFunc for each one-ring vertex neighbour of a vertex. Currently this is more efficient than
          * VtxVerticesItr() due to overhead in the Values() enumerable */
         void EnumerateVertexVertices( int32_t VertexID, std::function<void( int32_t )> VertexFunc ) const
         {
-            assert( VertexRefCounts.IsValid( VertexID ) );
-            VertexEdgeLists.Enumerate( VertexID, [this, &VertexFunc, VertexID]( int32_t eid )
-                                       { VertexFunc( GetOtherEdgeVertex( eid, VertexID ) ); } );
+            assert( m_VertexRefCounts.IsValid( VertexID ) );
+            m_VertexEdgeLists.Enumerate( VertexID, [this, &VertexFunc, VertexID]( int32_t eid )
+                                         { VertexFunc( GetOtherEdgeVertex( eid, VertexID ) ); } );
         }
 
         /** @return enumerable object for one-ring edges of a vertex, suitable for use with range-based for, ie for
          * ( int i : VtxEdgesItr(VertexID) ) */
         SmallListSet::ValueEnumerable VtxEdgesItr( int VertexID ) const
         {
-            assert( VertexRefCounts.IsValid( VertexID ) );
-            return VertexEdgeLists.Values( VertexID );
+            assert( m_VertexRefCounts.IsValid( VertexID ) );
+            return m_VertexEdgeLists.Values( VertexID );
         }
 
         /** Call EdgeFunc for each one-ring edge of a vertex. Currently this is more efficient than VtxEdgesItr()
          * due to overhead in the Values() enumerable */
         void EnumerateVertexEdges( int32_t VertexID, const std::function<void( int32_t )>& EdgeFunc ) const
         {
-            assert( VertexRefCounts.IsValid( VertexID ) );
-            VertexEdgeLists.Enumerate( VertexID, EdgeFunc );
+            assert( m_VertexRefCounts.IsValid( VertexID ) );
+            m_VertexEdgeLists.Enumerate( VertexID, EdgeFunc );
         }
 
         /** @return enumerable object for one-ring triangles of a vertex, suitable for use with range-based for, ie
          * for ( int i : VtxTrianglesItr(VertexID) ) */
         vtx_triangles_enumerable VtxTrianglesItr( int VertexID ) const
         {
-            assert( VertexRefCounts.IsValid( VertexID ) );
-            return vtx_triangles_enumerable( VertexEdgeLists.Values( VertexID ), [this, VertexID]( int EdgeID )
+            assert( m_VertexRefCounts.IsValid( VertexID ) );
+            return vtx_triangles_enumerable( m_VertexEdgeLists.Values( VertexID ), [this, VertexID]( int EdgeID )
                                              { return GetOrderedOneRingEdgeTris( VertexID, EdgeID ); } );
         }
 
@@ -660,7 +661,7 @@ namespace Desert::Geometry
         /** Call after a set of unsafe InsertVertex() calls to rebuild free list */
         virtual void EndUnsafeVerticesInsert()
         {
-            VertexRefCounts.RebuildFreeList();
+            m_VertexRefCounts.RebuildFreeList();
         }
 
         /**
@@ -679,7 +680,7 @@ namespace Desert::Geometry
         /** Call after a set of unsafe InsertTriangle() calls to rebuild free list */
         virtual void EndUnsafeTrianglesInsert()
         {
-            TriangleRefCounts.RebuildFreeList();
+            m_TriangleRefCounts.RebuildFreeList();
         }
 
         /**
@@ -698,14 +699,14 @@ namespace Desert::Geometry
         inline glm::dvec3 GetVertex( int VertexID ) const
         {
             assert( IsVertex( VertexID ) );
-            return Vertices[VertexID];
+            return m_Vertices[VertexID];
         }
 
         /** @return the vertex position */
         inline const glm::dvec3& GetVertexRef( int VertexID ) const
         {
             assert( IsVertex( VertexID ) );
-            return Vertices[VertexID];
+            return m_Vertices[VertexID];
         }
 
         /**
@@ -718,7 +719,7 @@ namespace Desert::Geometry
             assert( IsVertex( VertexID ) );
             if ( VectorUtil::IsFinite( vNewPos ) )
             {
-                Vertices[VertexID] = vNewPos;
+                m_Vertices[VertexID] = vNewPos;
                 if ( bTrackChange )
                 {
                     UpdateChangeStamps( true, false );
@@ -736,7 +737,7 @@ namespace Desert::Geometry
         /** @return the valence of a vertex (the number of connected edges) */
         int GetVtxEdgeCount( int VertexID ) const
         {
-            return VertexRefCounts.IsValid( VertexID ) ? VertexEdgeLists.GetCount( VertexID ) : -1;
+            return m_VertexRefCounts.IsValid( VertexID ) ? m_VertexEdgeLists.GetCount( VertexID ) : -1;
         }
 
         /** @return the max valence of all vertices in the mesh */
@@ -746,35 +747,35 @@ namespace Desert::Geometry
         inline Index3i GetTriangle( int TriangleID ) const
         {
             assert( IsTriangle( TriangleID ) );
-            return Triangles[TriangleID];
+            return m_Triangles[TriangleID];
         }
 
         /** Get triangle vertices */
         inline const Index3i& GetTriangleRef( int TriangleID ) const
         {
             assert( IsTriangle( TriangleID ) );
-            return Triangles[TriangleID];
+            return m_Triangles[TriangleID];
         }
 
         /** Get triangle edges */
         inline Index3i GetTriEdges( int TriangleID ) const
         {
             assert( IsTriangle( TriangleID ) );
-            return TriangleEdges[TriangleID];
+            return m_TriangleEdges[TriangleID];
         }
 
         /** Get triangle edges */
         inline const Index3i& GetTriEdgesRef( int TriangleID ) const
         {
             assert( IsTriangle( TriangleID ) );
-            return TriangleEdges[TriangleID];
+            return m_TriangleEdges[TriangleID];
         }
 
         /** Get one of the edges of a triangle */
         inline int GetTriEdge( int TriangleID, int j ) const
         {
             assert( IsTriangle( TriangleID ) );
-            return TriangleEdges[TriangleID][j];
+            return m_TriangleEdges[TriangleID][j];
         }
 
         /**  Applies a given function to both TriEdgeIDs which each EdgeID in a given Triangle is associated with
@@ -797,37 +798,37 @@ namespace Desert::Geometry
         template <typename VecType>
         inline void GetTriVertices( int TriangleID, VecType& v0, VecType& v1, VecType& v2 ) const
         {
-            const Index3i& Triangle  = Triangles[TriangleID];
-            v0                       = Vertices[Triangle[0]];
-            v1                       = Vertices[Triangle[1]];
-            v2                       = Vertices[Triangle[2]];
+            const Index3i& Triangle = m_Triangles[TriangleID];
+            v0                      = m_Vertices[Triangle[0]];
+            v1                      = m_Vertices[Triangle[1]];
+            v2                      = m_Vertices[Triangle[2]];
         }
 
         /** Get the position of one of the vertices of a triangle */
         inline glm::dvec3 GetTriVertex( int TriangleID, int j ) const
         {
-            return Vertices[Triangles[TriangleID][j]];
+            return m_Vertices[m_Triangles[TriangleID][j]];
         }
 
         /** Get the vertices and triangles of an edge, returned as [v0,v1,t0,t1], where t1 may be InvalidID */
         inline Edge GetEdge( int EdgeID ) const
         {
             assert( IsEdge( EdgeID ) );
-            return Edges[EdgeID];
+            return m_Edges[EdgeID];
         }
 
         /** Get the vertices and triangles of an edge, returned as [v0,v1,t0,t1], where t1 may be InvalidID */
         inline const Edge& GetEdgeRef( int EdgeID ) const
         {
             assert( IsEdge( EdgeID ) );
-            return Edges[EdgeID];
+            return m_Edges[EdgeID];
         }
 
         /** Get the vertex pair for an edge */
         inline Index2i GetEdgeV( int EdgeID ) const
         {
             assert( IsEdge( EdgeID ) );
-            return Edges[EdgeID].Vert;
+            return m_Edges[EdgeID].Vert;
         }
 
         /** Get the vertex positions of an edge */
@@ -835,10 +836,10 @@ namespace Desert::Geometry
         {
             assert( IsEdge( EdgeID ) );
 
-            const Index2i Verts = Edges[EdgeID].Vert;
+            const Index2i Verts = m_Edges[EdgeID].Vert;
 
-            a = Vertices[Verts[0]];
-            b = Vertices[Verts[1]];
+            a = m_Vertices[Verts[0]];
+            b = m_Vertices[Verts[1]];
 
             return true;
         }
@@ -847,7 +848,7 @@ namespace Desert::Geometry
         inline Index2i GetEdgeT( int EdgeID ) const
         {
             assert( IsEdge( EdgeID ) );
-            return Edges[EdgeID].Tri;
+            return m_Edges[EdgeID].Tri;
         }
 
         /** Return edge vertex indices, but oriented based on attached triangle (rather than min-sorted) */
@@ -857,8 +858,8 @@ namespace Desert::Geometry
         inline MeshTriEdgeID GetTriEdgeIDFromEdgeID( int EdgeID ) const
         {
             assert( IsEdge( EdgeID ) );
-            int32_t const TriIndex = Edges[EdgeID].Tri.A;
-            Index3i       TriEdges = TriangleEdges[TriIndex];
+            int32_t const TriIndex = m_Edges[EdgeID].Tri.A;
+            Index3i       TriEdges = m_TriangleEdges[TriIndex];
             if ( TriEdges.A == EdgeID )
             {
                 return MeshTriEdgeID( TriIndex, 0 );
@@ -916,7 +917,7 @@ namespace Desert::Geometry
                 return glm::vec3( 0, 1, 0 );
             }
             assert( IsVertex( vID ) );
-            const DynamicVector<glm::vec3>& Normals = VertexNormals.value();
+            const DynamicVector<glm::vec3>& Normals = m_VertexNormals.value();
             return Normals[vID];
         }
 
@@ -925,7 +926,7 @@ namespace Desert::Geometry
             if ( HasVertexNormals() )
             {
                 assert( IsVertex( vID ) );
-                DynamicVector<glm::vec3>& Normals  = VertexNormals.value();
+                DynamicVector<glm::vec3>& Normals  = m_VertexNormals.value();
                 Normals[vID]                       = vNewNormal;
             }
         }
@@ -941,7 +942,7 @@ namespace Desert::Geometry
             }
             assert( IsVertex( vID ) );
 
-            const DynamicVector<glm::vec3>& Colors = VertexColors.value();
+            const DynamicVector<glm::vec3>& Colors = m_VertexColors.value();
             return Colors[vID];
         }
 
@@ -950,7 +951,7 @@ namespace Desert::Geometry
             if ( HasVertexColors() )
             {
                 assert( IsVertex( vID ) );
-                DynamicVector<glm::vec3>& Colors  = VertexColors.value();
+                DynamicVector<glm::vec3>& Colors  = m_VertexColors.value();
                 Colors[vID]                       = vNewColor;
             }
         }
@@ -965,7 +966,7 @@ namespace Desert::Geometry
                 return glm::vec2( 0 );
             }
             assert( IsVertex( vID ) );
-            const DynamicVector<glm::vec2>& UVs = VertexUVs.value();
+            const DynamicVector<glm::vec2>& UVs = m_VertexUVs.value();
             return UVs[vID];
         }
 
@@ -974,7 +975,7 @@ namespace Desert::Geometry
             if ( HasVertexUVs() )
             {
                 assert( IsVertex( vID ) );
-                DynamicVector<glm::vec2>& UVs  = VertexUVs.value();
+                DynamicVector<glm::vec2>& UVs  = m_VertexUVs.value();
                 UVs[vID]                       = vNewUV;
             }
         }
@@ -984,14 +985,14 @@ namespace Desert::Geometry
 
         int AllocateTriangleGroup()
         {
-            return GroupIDCounter++;
+            return m_GroupIDCounter++;
         }
 
         int GetTriangleGroup( int tID ) const
         {
             return ( HasTriangleGroups() == false )
                         ? -1
-                        : ( TriangleRefCounts.IsValid( tID ) ? TriangleGroups.value()[tID] : 0 );
+                        : ( m_TriangleRefCounts.IsValid( tID ) ? m_TriangleGroups.value()[tID] : 0 );
         }
 
         void SetTriangleGroup( int tid, int group_id )
@@ -999,8 +1000,8 @@ namespace Desert::Geometry
             if ( HasTriangleGroups() )
             {
                 assert( IsTriangle( tid ) );
-                TriangleGroups.value()[tid]    = group_id;
-                GroupIDCounter                 = std::max( GroupIDCounter, group_id + 1 );
+                m_TriangleGroups.value()[tid] = group_id;
+                m_GroupIDCounter              = std::max( m_GroupIDCounter, group_id + 1 );
             }
         }
 
@@ -1012,7 +1013,7 @@ namespace Desert::Geometry
         inline bool IsBoundaryEdge( int EdgeID ) const
         {
             assert( IsEdge( EdgeID ) );
-            return Edges[EdgeID].Tri[1] == InvalidID;
+            return m_Edges[EdgeID].Tri[1] == InvalidID;
         }
 
         /** Returns true if the vertex is part of any boundary edges */
@@ -1118,19 +1119,19 @@ namespace Desert::Geometry
         /** returns true if vertices, edges, and triangles are all dense (Count == MaxID) **/
         bool IsCompact() const
         {
-            return VertexRefCounts.IsDense() && EdgeRefCounts.IsDense() && TriangleRefCounts.IsDense();
+            return m_VertexRefCounts.IsDense() && m_EdgeRefCounts.IsDense() && m_TriangleRefCounts.IsDense();
         }
 
         /** @return true if vertex count == max vertex id */
         bool IsCompactV() const
         {
-            return VertexRefCounts.IsDense();
+            return m_VertexRefCounts.IsDense();
         }
 
         /** @return true if triangle count == max triangle id */
         bool IsCompactT() const
         {
-            return TriangleRefCounts.IsDense();
+            return m_TriangleRefCounts.IsDense();
         }
 
         /** returns measure of compactness in range [0,1], where 1 is fully compacted */
@@ -1223,51 +1224,51 @@ namespace Desert::Geometry
     public:
         const DynamicVector<glm::dvec3>& GetVerticesBuffer() const
         {
-            return Vertices;
+            return m_Vertices;
         }
         const RefCountVector& GetVerticesRefCounts() const
         {
-            return VertexRefCounts;
+            return m_VertexRefCounts;
         }
         const DynamicVector<glm::vec3>* GetNormalsBuffer() const
         {
-            return HasVertexNormals() ? &VertexNormals.value() : nullptr;
+            return HasVertexNormals() ? &m_VertexNormals.value() : nullptr;
         }
         const DynamicVector<glm::vec3>* GetColorsBuffer() const
         {
-            return HasVertexColors() ? &VertexColors.value() : nullptr;
+            return HasVertexColors() ? &m_VertexColors.value() : nullptr;
         }
         const DynamicVector<glm::vec2>* GetUVBuffer() const
         {
-            return HasVertexUVs() ? &VertexUVs.value() : nullptr;
+            return HasVertexUVs() ? &m_VertexUVs.value() : nullptr;
         }
         const DynamicVector<Index3i>& GetTrianglesBuffer() const
         {
-            return Triangles;
+            return m_Triangles;
         }
         const RefCountVector& GetTrianglesRefCounts() const
         {
-            return TriangleRefCounts;
+            return m_TriangleRefCounts;
         }
         const DynamicVector<int>* GetTriangleGroupsBuffer() const
         {
-            return HasTriangleGroups() ? &TriangleGroups.value() : nullptr;
+            return HasTriangleGroups() ? &m_TriangleGroups.value() : nullptr;
         }
         const DynamicVector<Edge>& GetEdgesBuffer() const
         {
-            return Edges;
+            return m_Edges;
         }
         const RefCountVector& GetEdgesRefCounts() const
         {
-            return EdgeRefCounts;
+            return m_EdgeRefCounts;
         }
         const SmallListSet& GetVertexEdges() const
         {
-            return VertexEdgeLists;
+            return m_VertexEdgeLists;
         }
         const DynamicVector<Index3i>& GetTriangleEdges() const
         {
-            return TriangleEdges;
+            return m_TriangleEdges;
         }
         //
         // Mesh Edit operations
@@ -1628,11 +1629,11 @@ namespace Desert::Geometry
     protected:
         inline void SetTriangleInternal( int TriangleID, int v0, int v1, int v2 )
         {
-            Triangles[TriangleID] = Index3i( v0, v1, v2 );
+            m_Triangles[TriangleID] = Index3i( v0, v1, v2 );
         }
         inline void SetTriangleEdgesInternal( int TriangleID, int e0, int e1, int e2 )
         {
-            TriangleEdges[TriangleID] = Index3i( e0, e1, e2 );
+            m_TriangleEdges[TriangleID] = Index3i( e0, e1, e2 );
         }
 
         inline int AddEdgeInternal( int vA, int vB, int tA, int tB = InvalidID )
@@ -1643,17 +1644,17 @@ namespace Desert::Geometry
                 vB    = vA;
                 vA    = t;
             }
-            int eid = EdgeRefCounts.Allocate();
-            Edges.InsertAt( Edge{ { vA, vB }, { tA, tB } }, eid );
-            VertexEdgeLists.Insert( vA, eid );
-            VertexEdgeLists.Insert( vB, eid );
+            int eid = m_EdgeRefCounts.Allocate();
+            m_Edges.InsertAt( Edge{ { vA, vB }, { tA, tB } }, eid );
+            m_VertexEdgeLists.Insert( vA, eid );
+            m_VertexEdgeLists.Insert( vB, eid );
             return eid;
         }
         int AddTriangleInternal( int a, int b, int c, int e0, int e1, int e2 );
 
         inline int ReplaceTriangleVertex( int TriangleID, int vOld, int vNew )
         {
-            Index3i& Triangle = Triangles[TriangleID];
+            Index3i& Triangle = m_Triangles[TriangleID];
             for ( int i : { 0, 1, 2 } )
             {
                 if ( Triangle[i] == vOld )
@@ -1667,17 +1668,17 @@ namespace Desert::Geometry
 
         inline void AllocateEdgesList( int VertexID )
         {
-            if ( VertexID < (int)VertexEdgeLists.Size() )
+            if ( VertexID < (int)m_VertexEdgeLists.Size() )
             {
-                VertexEdgeLists.Clear( VertexID );
+                m_VertexEdgeLists.Clear( VertexID );
             }
-            VertexEdgeLists.AllocateAt( VertexID );
+            m_VertexEdgeLists.AllocateAt( VertexID );
         }
 
         template <typename ArrayType = LocalIntArray>
         void GetVertexEdgesList( int VertexID, ArrayType& EdgesOut ) const
         {
-            for ( int eid : VertexEdgeLists.Values( VertexID ) )
+            for ( int eid : m_VertexEdgeLists.Values( VertexID ) )
             {
                 EdgesOut.push_back( eid );
             }
@@ -1689,14 +1690,14 @@ namespace Desert::Geometry
             {
                 std::swap( a, b );
             }
-            Edges[EdgeID].Vert[0] = a;
-            Edges[EdgeID].Vert[1] = b;
+            m_Edges[EdgeID].Vert[0] = a;
+            m_Edges[EdgeID].Vert[1] = b;
         }
 
         inline void SetEdgeTrianglesInternal( int EdgeID, int t0, int t1 )
         {
-            Edges[EdgeID].Tri[0] = t0;
-            Edges[EdgeID].Tri[1] = t1;
+            m_Edges[EdgeID].Tri[0] = t0;
+            m_Edges[EdgeID].Tri[1] = t1;
         }
 
         int ReplaceEdgeVertex( int EdgeID, int vOld, int vNew );
@@ -1705,20 +1706,20 @@ namespace Desert::Geometry
 
         inline bool TriangleHasVertex( int TriangleID, int VertexID ) const
         {
-            return Triangles[TriangleID][0] == VertexID || Triangles[TriangleID][1] == VertexID ||
-                   Triangles[TriangleID][2] == VertexID;
+            return m_Triangles[TriangleID][0] == VertexID || m_Triangles[TriangleID][1] == VertexID ||
+                   m_Triangles[TriangleID][2] == VertexID;
         }
 
         inline bool TriHasNeighbourTri( int CheckTriID, int NbrTriID ) const
         {
-            return EdgeHasTriangle( TriangleEdges[CheckTriID][0], NbrTriID ) ||
-                   EdgeHasTriangle( TriangleEdges[CheckTriID][1], NbrTriID ) ||
-                   EdgeHasTriangle( TriangleEdges[CheckTriID][2], NbrTriID );
+            return EdgeHasTriangle( m_TriangleEdges[CheckTriID][0], NbrTriID ) ||
+                   EdgeHasTriangle( m_TriangleEdges[CheckTriID][1], NbrTriID ) ||
+                   EdgeHasTriangle( m_TriangleEdges[CheckTriID][2], NbrTriID );
         }
 
         inline bool TriHasSequentialVertices( int TriangleID, int vA, int vB ) const
         {
-            const Index3i& Tri = Triangles[TriangleID];
+            const Index3i& Tri = m_Triangles[TriangleID];
             return ( ( Tri.A == vA && Tri.B == vB ) || ( Tri.B == vA && Tri.C == vB ) ||
                      ( Tri.C == vA && Tri.A == vB ) );
         }
@@ -1729,32 +1730,33 @@ namespace Desert::Geometry
 
         inline bool EdgeHasVertex( int EdgeID, int VertexID ) const
         {
-            const Index2i Verts = Edges[EdgeID].Vert;
+            const Index2i Verts = m_Edges[EdgeID].Vert;
             return ( Verts[0] == VertexID ) || ( Verts[1] == VertexID );
         }
         inline bool EdgeHasTriangle( int EdgeID, int TriangleID ) const
         {
-            const Index2i Tris = Edges[EdgeID].Tri;
+            const Index2i Tris = m_Edges[EdgeID].Tri;
             return ( Tris[0] == TriangleID ) || ( Tris[1] == TriangleID );
         }
 
         inline int GetOtherEdgeVertex( int EdgeID, int VertexID ) const
         {
-            const Index2i Verts = Edges[EdgeID].Vert;
+            const Index2i Verts = m_Edges[EdgeID].Vert;
             return ( Verts[0] == VertexID ) ? Verts[1] : ( ( Verts[1] == VertexID ) ? Verts[0] : InvalidID );
         }
         inline int GetOtherEdgeTriangle( int EdgeID, int TriangleID ) const
         {
-            const Index2i Tris = Edges[EdgeID].Tri;
+            const Index2i Tris = m_Edges[EdgeID].Tri;
             return ( Tris[0] == TriangleID ) ? Tris[1] : ( ( Tris[1] == TriangleID ) ? Tris[0] : InvalidID );
         }
 
         inline void AddTriangleEdge( int TriangleID, int v0, int v1, int j, int EdgeID )
         {
-            Index3i& TriEdges = TriangleEdges.ElementAt( TriangleID, Index3i( InvalidID, InvalidID, InvalidID ) );
+            Index3i& TriEdges =
+                 m_TriangleEdges.ElementAt( TriangleID, Index3i( InvalidID, InvalidID, InvalidID ) );
             if ( EdgeID != InvalidID )
             {
-                Edges[EdgeID].Tri[1] = TriangleID;
+                m_Edges[EdgeID].Tri[1] = TriangleID;
                 TriEdges[j]          = EdgeID;
             }
             else
@@ -1769,7 +1771,7 @@ namespace Desert::Geometry
         // at any vertex (including boundary triangles)
         inline Index2i GetOrderedOneRingEdgeTris( int VertexID, int EdgeID ) const
         {
-            const Index2i Tris = Edges[EdgeID].Tri;
+            const Index2i Tris = m_Edges[EdgeID].Tri;
 
             int vOther = GetOtherEdgeVertex( EdgeID, VertexID );
             int et1    = Tris[1];

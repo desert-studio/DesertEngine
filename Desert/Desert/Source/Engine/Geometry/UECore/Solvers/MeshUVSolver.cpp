@@ -138,44 +138,44 @@ namespace Desert::Geometry
     } // namespace
 
     SparseMatrixD::SparseMatrixD( int32_t RowsIn, int32_t ColsIn, std::vector<Triplet> Triplets )
-         : NumRows( RowsIn ), NumCols( ColsIn )
+         : m_NumRows( RowsIn ), m_NumCols( ColsIn )
     {
         std::sort( Triplets.begin(), Triplets.end(), []( const Triplet& L, const Triplet& R )
                    { return L.Row != R.Row ? L.Row < R.Row : L.Col < R.Col; } );
-        RowStart.assign( NumRows + 1, 0 );
+        m_RowStart.assign( m_NumRows + 1, 0 );
         for ( size_t k = 0; k < Triplets.size(); )
         {
             const Triplet&  T   = Triplets[k];
             double          Sum = 0.0;
             for ( ; k < Triplets.size() && Triplets[k].Row == T.Row && Triplets[k].Col == T.Col; ++k )
                 Sum += Triplets[k].Value;
-            ColIndex.push_back( T.Col );
-            Values.push_back( Sum );
-            ++RowStart[T.Row + 1];
+            m_ColIndex.push_back( T.Col );
+            m_Values.push_back( Sum );
+            ++m_RowStart[T.Row + 1];
         }
-        for ( int32_t r = 0; r < NumRows; ++r )
-            RowStart[r + 1] += RowStart[r];
+        for ( int32_t r = 0; r < m_NumRows; ++r )
+            m_RowStart[r + 1] += m_RowStart[r];
     }
 
     void SparseMatrixD::Multiply( const std::vector<double>& In, std::vector<double>& Out ) const
     {
-        Out.assign( NumRows, 0.0 );
-        for ( int32_t r = 0; r < NumRows; ++r )
+        Out.assign( m_NumRows, 0.0 );
+        for ( int32_t r = 0; r < m_NumRows; ++r )
         {
             double Sum = 0.0;
-            for ( int32_t k = RowStart[r]; k < RowStart[r + 1]; ++k )
-                Sum += Values[k] * In[ColIndex[k]];
+            for ( int32_t k = m_RowStart[r]; k < m_RowStart[r + 1]; ++k )
+                Sum += m_Values[k] * In[m_ColIndex[k]];
             Out[r] = Sum;
         }
     }
 
     bool SparseLDLT::Factorize( const SparseMatrixD& Matrix )
     {
-        const int32_t N = static_cast<int32_t>( Matrix.RowStart.size() ) - 1;
+        const int32_t N = static_cast<int32_t>( Matrix.m_RowStart.size() ) - 1;
         // reverse Cuthill-McKee: breadth-first from a minimum-degree vertex, neighbours by increasing degree
         std::vector<int32_t> Degree( N, 0 );
         for ( int32_t r = 0; r < N; ++r )
-            Degree[r] = Matrix.RowStart[r + 1] - Matrix.RowStart[r];
+            Degree[r] = Matrix.m_RowStart[r + 1] - Matrix.m_RowStart[r];
         std::vector<int32_t> Order;
         Order.reserve( N );
         std::vector<char>  Visited( N, 0 );
@@ -195,12 +195,12 @@ namespace Desert::Geometry
             {
                 const int32_t r = Order[Head];
                 Neighbours.clear();
-                for ( int32_t k = Matrix.RowStart[r]; k < Matrix.RowStart[r + 1]; ++k )
+                for ( int32_t k = Matrix.m_RowStart[r]; k < Matrix.m_RowStart[r + 1]; ++k )
                 {
-                    if ( Visited[Matrix.ColIndex[k]] == 0 )
+                    if ( Visited[Matrix.m_ColIndex[k]] == 0 )
                     {
-                        Visited[Matrix.ColIndex[k]] = 1;
-                        Neighbours.push_back( Matrix.ColIndex[k] );
+                        Visited[Matrix.m_ColIndex[k]] = 1;
+                        Neighbours.push_back( Matrix.m_ColIndex[k] );
                     }
                 }
                 std::stable_sort( Neighbours.begin(), Neighbours.end(),
@@ -208,57 +208,57 @@ namespace Desert::Geometry
                 Order.insert( Order.end(), Neighbours.begin(), Neighbours.end() );
             }
         }
-        Perm.assign( Order.rbegin(), Order.rend() );
+        m_Perm.assign( Order.rbegin(), Order.rend() );
         std::vector<int32_t> InvPerm( N );
         for ( int32_t i = 0; i < N; ++i )
-            InvPerm[Perm[i]] = i;
+            InvPerm[m_Perm[i]] = i;
 
         // envelope of the permuted lower triangle
-        FirstCol.assign( N, 0 );
-        RowOffset.assign( N + 1, 0 );
+        m_FirstCol.assign( N, 0 );
+        m_RowOffset.assign( N + 1, 0 );
         for ( int32_t i = 0; i < N; ++i )
         {
-            const int32_t r = Perm[i];
-            FirstCol[i]   = i;
-            for ( int32_t k = Matrix.RowStart[r]; k < Matrix.RowStart[r + 1]; ++k )
-                FirstCol[i] = std::min( FirstCol[i], InvPerm[Matrix.ColIndex[k]] );
-            RowOffset[i + 1] = RowOffset[i] + ( i - FirstCol[i] );
+            const int32_t r = m_Perm[i];
+            m_FirstCol[i]   = i;
+            for ( int32_t k = Matrix.m_RowStart[r]; k < Matrix.m_RowStart[r + 1]; ++k )
+                m_FirstCol[i] = std::min( m_FirstCol[i], InvPerm[Matrix.m_ColIndex[k]] );
+            m_RowOffset[i + 1] = m_RowOffset[i] + ( i - m_FirstCol[i] );
         }
-        Lower.assign( RowOffset[N], 0.0 );
-        Diagonal.assign( N, 0.0 );
+        m_Lower.assign( m_RowOffset[N], 0.0 );
+        m_Diagonal.assign( N, 0.0 );
         double MaxDiagonal = 0.0;
         for ( int32_t i = 0; i < N; ++i )
         {
-            const int32_t r = Perm[i];
-            for ( int32_t k = Matrix.RowStart[r]; k < Matrix.RowStart[r + 1]; ++k )
+            const int32_t r = m_Perm[i];
+            for ( int32_t k = Matrix.m_RowStart[r]; k < Matrix.m_RowStart[r + 1]; ++k )
             {
-                const int32_t j = InvPerm[Matrix.ColIndex[k]];
+                const int32_t j = InvPerm[Matrix.m_ColIndex[k]];
                 if ( j == i )
-                    Diagonal[i] += Matrix.Values[k];
+                    m_Diagonal[i] += Matrix.m_Values[k];
                 else if ( j < i )
-                    Lower[RowOffset[i] + j - FirstCol[i]] += Matrix.Values[k];
+                    m_Lower[m_RowOffset[i] + j - m_FirstCol[i]] += Matrix.m_Values[k];
             }
-            MaxDiagonal = std::max( MaxDiagonal, std::abs( Diagonal[i] ) );
+            MaxDiagonal = std::max( MaxDiagonal, std::abs( m_Diagonal[i] ) );
         }
 
         // row-by-row (Crout) LDL^T inside the envelope
         const double PivotFloor = 1.e-15 * MaxDiagonal;
         for ( int32_t i = 0; i < N; ++i )
         {
-            double* RowI = &Lower[RowOffset[i]] - FirstCol[i];
-            for ( int32_t j = FirstCol[i]; j < i; ++j )
+            double* RowI = &m_Lower[m_RowOffset[i]] - m_FirstCol[i];
+            for ( int32_t j = m_FirstCol[i]; j < i; ++j )
             {
-                const double* RowJ = &Lower[RowOffset[j]] - FirstCol[j];
+                const double* RowJ = &m_Lower[m_RowOffset[j]] - m_FirstCol[j];
                 double        Sum  = RowI[j];
-                for ( int32_t k = std::max( FirstCol[i], FirstCol[j] ); k < j; ++k )
-                    Sum -= RowI[k] * Diagonal[k] * RowJ[k];
-                RowI[j] = Sum / Diagonal[j];
+                for ( int32_t k = std::max( m_FirstCol[i], m_FirstCol[j] ); k < j; ++k )
+                    Sum -= RowI[k] * m_Diagonal[k] * RowJ[k];
+                RowI[j] = Sum / m_Diagonal[j];
             }
-            for ( int32_t k = FirstCol[i]; k < i; ++k )
-                Diagonal[i] -= RowI[k] * RowI[k] * Diagonal[k];
-            if ( !std::isfinite( Diagonal[i] ) || Diagonal[i] <= PivotFloor )
+            for ( int32_t k = m_FirstCol[i]; k < i; ++k )
+                m_Diagonal[i] -= RowI[k] * RowI[k] * m_Diagonal[k];
+            if ( !std::isfinite( m_Diagonal[i] ) || m_Diagonal[i] <= PivotFloor )
             {
-                Perm.clear();
+                m_Perm.clear();
                 return false;
             }
         }
@@ -267,83 +267,83 @@ namespace Desert::Geometry
 
     void SparseLDLT::Solve( const std::vector<double>& B, std::vector<double>& X ) const
     {
-        const auto          N = static_cast<int32_t>( Perm.size() );
+        const auto          N = static_cast<int32_t>( m_Perm.size() );
         std::vector<double> Y( N );
         for ( int32_t i = 0; i < N; ++i )
         {
-            const double* RowI = &Lower[RowOffset[i]] - FirstCol[i];
-            double        Sum  = B[Perm[i]];
-            for ( int32_t k = FirstCol[i]; k < i; ++k )
+            const double* RowI = &m_Lower[m_RowOffset[i]] - m_FirstCol[i];
+            double        Sum  = B[m_Perm[i]];
+            for ( int32_t k = m_FirstCol[i]; k < i; ++k )
                 Sum -= RowI[k] * Y[k];
             Y[i] = Sum;
         }
         for ( int32_t i = 0; i < N; ++i )
-            Y[i] /= Diagonal[i];
+            Y[i] /= m_Diagonal[i];
         for ( int32_t i = N - 1; i >= 0; --i )
         {
-            const double* RowI = &Lower[RowOffset[i]] - FirstCol[i];
-            for ( int32_t k = FirstCol[i]; k < i; ++k )
+            const double* RowI = &m_Lower[m_RowOffset[i]] - m_FirstCol[i];
+            for ( int32_t k = m_FirstCol[i]; k < i; ++k )
                 Y[k] -= RowI[k] * Y[i];
         }
         X.assign( N, 0.0 );
         for ( int32_t i = 0; i < N; ++i )
-            X[Perm[i]] = Y[i];
+            X[m_Perm[i]] = Y[i];
     }
 
     SpectralConformalMeshUVSolver::SpectralConformalMeshUVSolver( const DynamicMesh3& MeshIn,
                                                                   bool                bPreserveIrregularityIn )
-         : Mesh( MeshIn ), bPreserveIrregularity( bPreserveIrregularityIn )
+         : m_Mesh( MeshIn ), m_bPreserveIrregularity( bPreserveIrregularityIn )
     {
         // UE's FVertexLinearization(Mesh, false): compact indices in vertex-ID order
-        ToIndex.assign( Mesh.MaxVertexID(), DynamicMesh3::InvalidID );
-        for ( const int32_t vid : Mesh.VertexIndicesItr() )
+        m_ToIndex.assign( m_Mesh.MaxVertexID(), DynamicMesh3::InvalidID );
+        for ( const int32_t vid : m_Mesh.VertexIndicesItr() )
         {
-            ToIndex[vid] = static_cast<int32_t>( ToVertex.size() );
-            ToVertex.push_back( vid );
+            m_ToIndex[vid] = static_cast<int32_t>( m_ToVertex.size() );
+            m_ToVertex.push_back( vid );
         }
     }
 
     void SpectralConformalMeshUVSolver::AddBoundaryVertex( int32_t VertexID )
     {
-        if ( VertexID < 0 || VertexID >= static_cast<int32_t>( ToIndex.size() ) ||
-             ToIndex[VertexID] == DynamicMesh3::InvalidID )
+        if ( VertexID < 0 || VertexID >= static_cast<int32_t>( m_ToIndex.size() ) ||
+             m_ToIndex[VertexID] == DynamicMesh3::InvalidID )
             return;
-        const int32_t Index = ToIndex[VertexID];
-        if ( std::find( Boundary.begin(), Boundary.end(), Index ) == Boundary.end() )
-            Boundary.push_back( Index );
+        const int32_t Index = m_ToIndex[VertexID];
+        if ( std::find( m_Boundary.begin(), m_Boundary.end(), Index ) == m_Boundary.end() )
+            m_Boundary.push_back( Index );
     }
 
     bool SpectralConformalMeshUVSolver::SolveUVs( std::vector<glm::dvec2>& OutUVs )
     {
-        const int32_t NumVerts = static_cast<int32_t>( ToVertex.size() );
+        const int32_t NumVerts = static_cast<int32_t>( m_ToVertex.size() );
         const int32_t N        = 2 * NumVerts;
-        OutUVs.assign( Mesh.MaxVertexID(), glm::dvec2( 0 ) );
-        if ( NumVerts == 0 || Boundary.empty() )
+        OutUVs.assign( m_Mesh.MaxVertexID(), glm::dvec2( 0 ) );
+        if ( NumVerts == 0 || m_Boundary.empty() )
             return false;
 
         // conformal energy E_c = -Scale * L_cot - A (ConstructConformalEnergyMatrix), plus Eps*I to make it PSD
         std::vector<Triplet> Triplets;
-        AppendDNCPCotangentLaplacian( Mesh, ToVertex, ToIndex,
-                                      bPreserveIrregularity ? CotangentWeightMode::TriangleArea
-                                                            : CotangentWeightMode::ClampedMagnitude,
+        AppendDNCPCotangentLaplacian( m_Mesh, m_ToVertex, m_ToIndex,
+                                      m_bPreserveIrregularity ? CotangentWeightMode::TriangleArea
+                                                              : CotangentWeightMode::ClampedMagnitude,
                                       Triplets );
         double Scale = 1.0;
-        if ( bPreserveIrregularity )
+        if ( m_bPreserveIrregularity )
         {
             // ConstructWeightedVectorAreaMatrix: every triangle edge, weighted by the inverse of the area
             // normalized to the largest triangle (which keeps the numerics independent of the mesh scale)
             Scale = -1.0;
-            for ( const int32_t tid : Mesh.TriangleIndicesItr() )
-                Scale = std::max( Scale, Mesh.GetTriArea( tid ) );
+            for ( const int32_t tid : m_Mesh.TriangleIndicesItr() )
+                Scale = std::max( Scale, m_Mesh.GetTriArea( tid ) );
             for ( Triplet& T : Triplets )
                 T.Value *= -Scale;
-            for ( const int32_t tid : Mesh.TriangleIndicesItr() )
+            for ( const int32_t tid : m_Mesh.TriangleIndicesItr() )
             {
-                const Index3i  TriVert = Mesh.GetTriangle( tid );
-                const double   Value   = 1.0 / ( std::max( Mesh.GetTriArea( tid ), SmallTriangleArea ) / Scale );
+                const Index3i TriVert = m_Mesh.GetTriangle( tid );
+                const double  Value   = 1.0 / ( std::max( m_Mesh.GetTriArea( tid ), SmallTriangleArea ) / Scale );
                 // the edge is reversed to handle UE's mesh orientation, else the area term flips sign
                 for ( int32_t k = 0; k < 3; ++k )
-                    AppendAreaEdge( ToIndex[TriVert[( k + 1 ) % 3]], ToIndex[TriVert[k]], NumVerts, -Value,
+                    AppendAreaEdge( m_ToIndex[TriVert[( k + 1 ) % 3]], m_ToIndex[TriVert[k]], NumVerts, -Value,
                                     Triplets );
             }
         }
@@ -352,13 +352,13 @@ namespace Desert::Geometry
             for ( Triplet& T : Triplets )
                 T.Value = -T.Value;
             // ConstructVectorAreaMatrix: only the boundary loops carry the signed area
-            const MeshBoundaryLoops Loops( &Mesh, true );
-            for ( const EdgeLoop& Loop : Loops.Loops )
+            const MeshBoundaryLoops Loops( &m_Mesh, true );
+            for ( const EdgeLoop& Loop : Loops.m_Loops )
             {
                 const int32_t NumLoopVert = static_cast<int32_t>( Loop.Vertices.size() );
                 for ( int32_t Idx = 0; Idx < NumLoopVert; ++Idx )
-                    AppendAreaEdge( ToIndex[Loop.Vertices[( Idx + 1 ) % NumLoopVert]], ToIndex[Loop.Vertices[Idx]],
-                                    NumVerts, -1.0, Triplets );
+                    AppendAreaEdge( m_ToIndex[Loop.Vertices[( Idx + 1 ) % NumLoopVert]],
+                                    m_ToIndex[Loop.Vertices[Idx]], NumVerts, -1.0, Triplets );
             }
         }
         static constexpr double Eps = 1e-8;
@@ -369,18 +369,18 @@ namespace Desert::Geometry
         // B selects the boundary, E (2V x 2) is its normalized centroid: the iteration uses (B - E E^T) x
         // without forming the dense E E^T
         const double InvSqrtBndr =
-             1.0 / std::sqrt( static_cast<double>( static_cast<int32_t>( Boundary.size() ) ) );
+             1.0 / std::sqrt( static_cast<double>( static_cast<int32_t>( m_Boundary.size() ) ) );
         const auto   ApplyB      = [&]( const std::vector<double>& In, std::vector<double>& Out )
         {
             double MeanU = 0.0;
             double MeanV = 0.0;
-            for ( const int32_t b : Boundary )
+            for ( const int32_t b : m_Boundary )
             {
                 MeanU += In[b] * InvSqrtBndr;
                 MeanV += In[b + NumVerts] * InvSqrtBndr;
             }
             Out.assign( N, 0.0 );
-            for ( const int32_t b : Boundary )
+            for ( const int32_t b : m_Boundary )
             {
                 Out[b]            = In[b] - MeanU * InvSqrtBndr;
                 Out[b + NumVerts] = In[b + NumVerts] - MeanV * InvSqrtBndr;
@@ -435,7 +435,7 @@ namespace Desert::Geometry
             // UE lets a not-converged result through as usable (it only logs), and so does this port
         }
         for ( int32_t Idx = 0; Idx < NumVerts; ++Idx )
-            OutUVs[ToVertex[Idx]] = glm::dvec2( X[Idx], X[Idx + NumVerts] );
+            OutUVs[m_ToVertex[Idx]] = glm::dvec2( X[Idx], X[Idx + NumVerts] );
         return true;
     }
 } // namespace Desert::Geometry

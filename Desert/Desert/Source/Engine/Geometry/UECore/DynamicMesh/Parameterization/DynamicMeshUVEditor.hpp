@@ -22,7 +22,7 @@ namespace Desert::Geometry
     {
     public:
         DynamicMeshUVEditor( DynamicMesh3* MeshIn, DynamicMeshUVOverlay* UVOverlayIn )
-             : Mesh( MeshIn ), UVOverlay( UVOverlayIn )
+             : m_Mesh( MeshIn ), m_UVOverlay( UVOverlayIn )
         {
         }
 
@@ -65,7 +65,7 @@ namespace Desert::Geometry
                                   float ScaleFactor = 1.0f );
 
     private:
-        DynamicMesh3*          Mesh;
-        DynamicMeshUVOverlay*  UVOverlay;
+        DynamicMesh3*         m_Mesh;
+        DynamicMeshUVOverlay* m_UVOverlay;
     };
 } // namespace Desert::Geometry

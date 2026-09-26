@@ -34,7 +34,7 @@ namespace
     }
 } // namespace
 
-DynamicMeshAttributeSet::DynamicMeshAttributeSet( DynamicMesh3* Mesh ) : ParentMesh( Mesh )
+DynamicMeshAttributeSet::DynamicMeshAttributeSet( DynamicMesh3* Mesh ) : m_ParentMesh( Mesh )
 {
     SetNumUVLayers( 1 );
     SetNumNormalLayers( 1 );
@@ -42,7 +42,7 @@ DynamicMeshAttributeSet::DynamicMeshAttributeSet( DynamicMesh3* Mesh ) : ParentM
 
 DynamicMeshAttributeSet::DynamicMeshAttributeSet( DynamicMesh3* Mesh, int32_t NumUVLayersIn,
                                                   int32_t NumNormalLayersIn )
-     : ParentMesh( Mesh )
+     : m_ParentMesh( Mesh )
 {
     SetNumUVLayers( NumUVLayersIn );
     SetNumNormalLayers( NumNormalLayersIn );
@@ -55,26 +55,26 @@ void DynamicMeshAttributeSet::Copy( const DynamicMeshAttributeSet& Copy )
     SetNumUVLayers( Copy.NumUVLayers() );
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
-        UVLayers[UVIdx]->Copy( *Copy.UVLayers[UVIdx] );
+        m_UVLayers[UVIdx]->Copy( *Copy.m_UVLayers[UVIdx] );
     }
     SetNumNormalLayers( Copy.NumNormalLayers() );
     for ( int NormalLayerIndex = 0; NormalLayerIndex < NumNormalLayers(); NormalLayerIndex++ )
     {
-        NormalLayers[NormalLayerIndex]->Copy( *Copy.NormalLayers[NormalLayerIndex] );
+        m_NormalLayers[NormalLayerIndex]->Copy( *Copy.m_NormalLayers[NormalLayerIndex] );
     }
-    if ( Copy.ColorLayer )
+    if ( Copy.m_ColorLayer )
     {
         EnablePrimaryColors();
-        ColorLayer->Copy( *( Copy.ColorLayer ) );
+        m_ColorLayer->Copy( *( Copy.m_ColorLayer ) );
     }
     else
     {
         DisablePrimaryColors();
     }
-    if ( Copy.MaterialIDAttrib )
+    if ( Copy.m_MaterialIDAttrib )
     {
         EnableMaterialID();
-        MaterialIDAttrib->Copy( *( Copy.MaterialIDAttrib ) );
+        m_MaterialIDAttrib->Copy( *( Copy.m_MaterialIDAttrib ) );
     }
     else
     {
@@ -84,14 +84,14 @@ void DynamicMeshAttributeSet::Copy( const DynamicMeshAttributeSet& Copy )
     SetNumPolygroupLayers( Copy.NumPolygroupLayers() );
     for ( int GroupIdx = 0; GroupIdx < NumPolygroupLayers(); ++GroupIdx )
     {
-        PolygroupLayers[GroupIdx]->Copy( *Copy.PolygroupLayers[GroupIdx] );
+        m_PolygroupLayers[GroupIdx]->Copy( *Copy.m_PolygroupLayers[GroupIdx] );
     }
 
     ResetRegisteredAttributes();
-    GenericAttributes.clear();
-    for ( const auto& AttribPair : Copy.GenericAttributes )
+    m_GenericAttributes.clear();
+    for ( const auto& AttribPair : Copy.m_GenericAttributes )
     {
-        AttachAttribute( AttribPair.first, AttribPair.second->MakeCopy( ParentMesh ) );
+        AttachAttribute( AttribPair.first, AttribPair.second->MakeCopy( m_ParentMesh ) );
     }
 }
 
@@ -99,21 +99,21 @@ bool DynamicMeshAttributeSet::IsCompact() const
 {
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
-        if ( !UVLayers[UVIdx]->IsCompact() )
+        if ( !m_UVLayers[UVIdx]->IsCompact() )
         {
             return false;
         }
     }
     for ( int NormalLayerIndex = 0; NormalLayerIndex < NumNormalLayers(); NormalLayerIndex++ )
     {
-        if ( !NormalLayers[NormalLayerIndex]->IsCompact() )
+        if ( !m_NormalLayers[NormalLayerIndex]->IsCompact() )
         {
             return false;
         }
     }
     if ( HasPrimaryColors() )
     {
-        if ( !ColorLayer->IsCompact() )
+        if ( !m_ColorLayer->IsCompact() )
         {
             return false;
         }
@@ -128,26 +128,26 @@ void DynamicMeshAttributeSet::CompactCopy( const DynamicMeshCompactMaps&  Compac
     SetNumUVLayers( Copy.NumUVLayers() );
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
-        UVLayers[UVIdx]->CompactCopy( CompactMaps, *Copy.UVLayers[UVIdx] );
+        m_UVLayers[UVIdx]->CompactCopy( CompactMaps, *Copy.m_UVLayers[UVIdx] );
     }
     SetNumNormalLayers( Copy.NumNormalLayers() );
     for ( int NormalLayerIndex = 0; NormalLayerIndex < NumNormalLayers(); NormalLayerIndex++ )
     {
-        NormalLayers[NormalLayerIndex]->CompactCopy( CompactMaps, *Copy.NormalLayers[NormalLayerIndex] );
+        m_NormalLayers[NormalLayerIndex]->CompactCopy( CompactMaps, *Copy.m_NormalLayers[NormalLayerIndex] );
     }
-    if ( Copy.ColorLayer )
+    if ( Copy.m_ColorLayer )
     {
         EnablePrimaryColors();
-        ColorLayer->CompactCopy( CompactMaps, *( Copy.ColorLayer ) );
+        m_ColorLayer->CompactCopy( CompactMaps, *( Copy.m_ColorLayer ) );
     }
     else
     {
         DisablePrimaryColors();
     }
-    if ( Copy.MaterialIDAttrib )
+    if ( Copy.m_MaterialIDAttrib )
     {
         EnableMaterialID();
-        MaterialIDAttrib->CompactCopy( CompactMaps, *( Copy.MaterialIDAttrib ) );
+        m_MaterialIDAttrib->CompactCopy( CompactMaps, *( Copy.m_MaterialIDAttrib ) );
     }
     else
     {
@@ -157,14 +157,14 @@ void DynamicMeshAttributeSet::CompactCopy( const DynamicMeshCompactMaps&  Compac
     SetNumPolygroupLayers( Copy.NumPolygroupLayers() );
     for ( int GroupIdx = 0; GroupIdx < NumPolygroupLayers(); ++GroupIdx )
     {
-        PolygroupLayers[GroupIdx]->CompactCopy( CompactMaps, *Copy.PolygroupLayers[GroupIdx] );
+        m_PolygroupLayers[GroupIdx]->CompactCopy( CompactMaps, *Copy.m_PolygroupLayers[GroupIdx] );
     }
 
     ResetRegisteredAttributes();
-    GenericAttributes.clear();
-    for ( const auto& AttribPair : Copy.GenericAttributes )
+    m_GenericAttributes.clear();
+    for ( const auto& AttribPair : Copy.m_GenericAttributes )
     {
-        AttachAttribute( AttribPair.first, AttribPair.second->MakeCompactCopy( CompactMaps, ParentMesh ) );
+        AttachAttribute( AttribPair.first, AttribPair.second->MakeCompactCopy( CompactMaps, m_ParentMesh ) );
     }
 }
 
@@ -185,29 +185,29 @@ void DynamicMeshAttributeSet::Append( const DynamicMeshAttributeSet&  ToAppend,
 
     for ( int32_t Idx = 0; Idx < NumUVLayers(); ++Idx )
     {
-        AppendHelper( *UVLayers[Idx], ToAppend.GetUVLayer( Idx ) );
+        AppendHelper( *m_UVLayers[Idx], ToAppend.GetUVLayer( Idx ) );
     }
     for ( int32_t Idx = 0; Idx < NumNormalLayers(); ++Idx )
     {
-        AppendHelper( *NormalLayers[Idx], ToAppend.GetNormalLayer( Idx ) );
+        AppendHelper( *m_NormalLayers[Idx], ToAppend.GetNormalLayer( Idx ) );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        AppendHelper( *ColorLayer, ToAppend.ColorLayer.get() );
+        AppendHelper( *m_ColorLayer, ToAppend.m_ColorLayer.get() );
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
-        AppendHelper( *MaterialIDAttrib, ToAppend.MaterialIDAttrib.get() );
+        AppendHelper( *m_MaterialIDAttrib, ToAppend.m_MaterialIDAttrib.get() );
     }
     for ( int Idx = 0; Idx < NumPolygroupLayers(); ++Idx )
     {
-        AppendHelper( *PolygroupLayers[Idx],
+        AppendHelper( *m_PolygroupLayers[Idx],
                       Idx < ToAppend.NumPolygroupLayers() ? ToAppend.GetPolygroupLayer( Idx ) : nullptr );
     }
-    for ( const auto& AttribPair : GenericAttributes )
+    for ( const auto& AttribPair : m_GenericAttributes )
     {
         const std::unique_ptr<DynamicMeshAttributeBase>* AppendAttr =
-             FindValue( ToAppend.GenericAttributes, AttribPair.first );
+             FindValue( ToAppend.m_GenericAttributes, AttribPair.first );
         DynamicMeshAttributeBase& Target = *AttribPair.second;
         if ( AppendAttr && *AppendAttr )
         {
@@ -224,25 +224,25 @@ void DynamicMeshAttributeSet::AppendDefaulted( const DynamicMesh3::AppendInfo& A
 {
     for ( int32_t Idx = 0; Idx < NumUVLayers(); ++Idx )
     {
-        UVLayers[Idx]->AppendDefaulted( AppendInfo );
+        m_UVLayers[Idx]->AppendDefaulted( AppendInfo );
     }
     for ( int32_t Idx = 0; Idx < NumNormalLayers(); ++Idx )
     {
-        NormalLayers[Idx]->AppendDefaulted( AppendInfo );
+        m_NormalLayers[Idx]->AppendDefaulted( AppendInfo );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->AppendDefaulted( AppendInfo );
+        m_ColorLayer->AppendDefaulted( AppendInfo );
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
-        MaterialIDAttrib->AppendDefaulted( AppendInfo );
+        m_MaterialIDAttrib->AppendDefaulted( AppendInfo );
     }
     for ( int Idx = 0; Idx < NumPolygroupLayers(); ++Idx )
     {
-        PolygroupLayers[Idx]->AppendDefaulted( AppendInfo );
+        m_PolygroupLayers[Idx]->AppendDefaulted( AppendInfo );
     }
-    for ( const auto& AttribPair : GenericAttributes )
+    for ( const auto& AttribPair : m_GenericAttributes )
     {
         AttribPair.second->AppendDefaulted( AppendInfo );
     }
@@ -252,25 +252,25 @@ void DynamicMeshAttributeSet::CompactInPlace( const DynamicMeshCompactMaps& Comp
 {
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
-        UVLayers[UVIdx]->CompactInPlace( CompactMaps );
+        m_UVLayers[UVIdx]->CompactInPlace( CompactMaps );
     }
     for ( int NormalLayerIndex = 0; NormalLayerIndex < NumNormalLayers(); NormalLayerIndex++ )
     {
-        NormalLayers[NormalLayerIndex]->CompactInPlace( CompactMaps );
+        m_NormalLayers[NormalLayerIndex]->CompactInPlace( CompactMaps );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->CompactInPlace( CompactMaps );
+        m_ColorLayer->CompactInPlace( CompactMaps );
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
-        MaterialIDAttrib->CompactInPlace( CompactMaps );
+        m_MaterialIDAttrib->CompactInPlace( CompactMaps );
     }
     for ( int GroupIdx = 0; GroupIdx < NumPolygroupLayers(); ++GroupIdx )
     {
-        PolygroupLayers[GroupIdx]->CompactInPlace( CompactMaps );
+        m_PolygroupLayers[GroupIdx]->CompactInPlace( CompactMaps );
     }
-    for ( DynamicMeshAttributeBase* RegAttrib : RegisteredAttributes )
+    for ( DynamicMeshAttributeBase* RegAttrib : m_RegisteredAttributes )
     {
         RegAttrib->CompactInPlace( CompactMaps );
     }
@@ -280,15 +280,15 @@ void DynamicMeshAttributeSet::SplitAllBowties( bool bParallel )
 {
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
-        UVLayers[UVIdx]->SplitBowties( bParallel );
+        m_UVLayers[UVIdx]->SplitBowties( bParallel );
     }
     for ( int NormalLayerIndex = 0; NormalLayerIndex < NumNormalLayers(); NormalLayerIndex++ )
     {
-        NormalLayers[NormalLayerIndex]->SplitBowties( bParallel );
+        m_NormalLayers[NormalLayerIndex]->SplitBowties( bParallel );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->SplitBowties( bParallel );
+        m_ColorLayer->SplitBowties( bParallel );
     }
 }
 
@@ -303,7 +303,7 @@ void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttribu
     SetNumUVLayers( RequiredUVLayers );
     for ( int32_t k = bClearExisting ? 0 : ExistingUVLayers; k < NumUVLayers(); k++ )
     {
-        UVLayers[k]->ClearElements();
+        m_UVLayers[k]->ClearElements();
     }
 
     int32_t const ExistingNormalLayers = NumNormalLayers();
@@ -312,7 +312,7 @@ void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttribu
     SetNumNormalLayers( RequiredNormalLayers );
     for ( int32_t k = bClearExisting ? 0 : ExistingNormalLayers; k < NumNormalLayers(); k++ )
     {
-        NormalLayers[k]->ClearElements();
+        m_NormalLayers[k]->ClearElements();
     }
 
     bool bWantColorLayer =
@@ -344,24 +344,24 @@ void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttribu
     SetNumPolygroupLayers( RequiredPolygroupLayers );
     for ( int32_t k = bClearExisting ? 0 : ExistingPolygroupLayers; k < NumPolygroupLayers(); k++ )
     {
-        PolygroupLayers[k]->Initialize( static_cast<int32_t>( 0 ) );
-        if ( k < ToMatch.NumPolygroupLayers() && PolygroupLayers[k]->GetName().empty() )
+        m_PolygroupLayers[k]->Initialize( static_cast<int32_t>( 0 ) );
+        if ( k < ToMatch.NumPolygroupLayers() && m_PolygroupLayers[k]->GetName().empty() )
         {
-            PolygroupLayers[k]->SetName( ToMatch.GetPolygroupLayer( k )->GetName() );
+            m_PolygroupLayers[k]->SetName( ToMatch.GetPolygroupLayer( k )->GetName() );
         }
     }
 
     if ( bClearExisting )
     {
         ResetRegisteredAttributes();
-        GenericAttributes.clear();
+        m_GenericAttributes.clear();
     }
     else if ( bDiscardExtraAttributes )
     {
         std::vector<std::string> ToRemove;
-        for ( const auto& AttribPair : GenericAttributes )
+        for ( const auto& AttribPair : m_GenericAttributes )
         {
-            if ( !ToMatch.GenericAttributes.contains( AttribPair.first ) )
+            if ( !ToMatch.m_GenericAttributes.contains( AttribPair.first ) )
             {
                 ToRemove.push_back( AttribPair.first );
             }
@@ -371,40 +371,40 @@ void DynamicMeshAttributeSet::EnableMatchingAttributes( const DynamicMeshAttribu
             RemoveAttribute( Name );
         }
     }
-    for ( const auto& AttribPair : ToMatch.GenericAttributes )
+    for ( const auto& AttribPair : ToMatch.m_GenericAttributes )
     {
-        if ( !GenericAttributes.contains( AttribPair.first ) )
+        if ( !m_GenericAttributes.contains( AttribPair.first ) )
         {
-            AttachAttribute( AttribPair.first, AttribPair.second->MakeNew( ParentMesh ) );
+            AttachAttribute( AttribPair.first, AttribPair.second->MakeNew( m_ParentMesh ) );
         }
     }
 }
 
 void DynamicMeshAttributeSet::Reparent( DynamicMesh3* NewParent )
 {
-    ParentMesh = NewParent;
+    m_ParentMesh = NewParent;
 
     for ( int UVIdx = 0; UVIdx < NumUVLayers(); UVIdx++ )
     {
-        UVLayers[UVIdx]->Reparent( NewParent );
+        m_UVLayers[UVIdx]->Reparent( NewParent );
     }
     for ( int NormalLayerIndex = 0; NormalLayerIndex < NumNormalLayers(); NormalLayerIndex++ )
     {
-        NormalLayers[NormalLayerIndex]->Reparent( NewParent );
+        m_NormalLayers[NormalLayerIndex]->Reparent( NewParent );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->Reparent( NewParent );
+        m_ColorLayer->Reparent( NewParent );
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
-        MaterialIDAttrib->Reparent( NewParent );
+        m_MaterialIDAttrib->Reparent( NewParent );
     }
     for ( int GroupIdx = 0; GroupIdx < NumPolygroupLayers(); ++GroupIdx )
     {
-        PolygroupLayers[GroupIdx]->Reparent( NewParent );
+        m_PolygroupLayers[GroupIdx]->Reparent( NewParent );
     }
-    for ( const auto& AttribPair : GenericAttributes )
+    for ( const auto& AttribPair : m_GenericAttributes )
     {
         AttribPair.second->Reparent( NewParent );
     }
@@ -412,11 +412,11 @@ void DynamicMeshAttributeSet::Reparent( DynamicMesh3* NewParent )
 
 void DynamicMeshAttributeSet::SetNumUVLayers( int Num )
 {
-    SetNumLayers( UVLayers, Num,
+    SetNumLayers( m_UVLayers, Num,
                   [this]()
                   {
-                      auto NewUVLayer = std::make_unique<DynamicMeshUVOverlay>( ParentMesh );
-                      NewUVLayer->InitializeTriangles( ParentMesh->MaxTriangleID() );
+                      auto NewUVLayer = std::make_unique<DynamicMeshUVOverlay>( m_ParentMesh );
+                      NewUVLayer->InitializeTriangles( m_ParentMesh->MaxTriangleID() );
                       return NewUVLayer;
                   } );
 }
@@ -433,11 +433,11 @@ void DynamicMeshAttributeSet::DisableTangents()
 
 void DynamicMeshAttributeSet::SetNumNormalLayers( int Num )
 {
-    SetNumLayers( NormalLayers, Num,
+    SetNumLayers( m_NormalLayers, Num,
                   [this]()
                   {
-                      auto NewNormalLayer = std::make_unique<DynamicMeshNormalOverlay>( ParentMesh );
-                      NewNormalLayer->InitializeTriangles( ParentMesh->MaxTriangleID() );
+                      auto NewNormalLayer = std::make_unique<DynamicMeshNormalOverlay>( m_ParentMesh );
+                      NewNormalLayer->InitializeTriangles( m_ParentMesh->MaxTriangleID() );
                       return NewNormalLayer;
                   } );
 }
@@ -446,68 +446,68 @@ void DynamicMeshAttributeSet::EnablePrimaryColors()
 {
     if ( HasPrimaryColors() == false )
     {
-        ColorLayer = std::make_unique<DynamicMeshColorOverlay>( ParentMesh );
-        ColorLayer->InitializeTriangles( ParentMesh->MaxTriangleID() );
+        m_ColorLayer = std::make_unique<DynamicMeshColorOverlay>( m_ParentMesh );
+        m_ColorLayer->InitializeTriangles( m_ParentMesh->MaxTriangleID() );
     }
 }
 
 void DynamicMeshAttributeSet::DisablePrimaryColors()
 {
-    ColorLayer.reset();
+    m_ColorLayer.reset();
 }
 
 int32_t DynamicMeshAttributeSet::NumPolygroupLayers() const
 {
-    return static_cast<int32_t>( PolygroupLayers.size() );
+    return static_cast<int32_t>( m_PolygroupLayers.size() );
 }
 
 void DynamicMeshAttributeSet::SetNumPolygroupLayers( int32_t Num )
 {
-    SetNumLayers( PolygroupLayers, Num,
-                  [this]() { return std::make_unique<DynamicMeshPolygroupAttribute>( ParentMesh ); } );
+    SetNumLayers( m_PolygroupLayers, Num,
+                  [this]() { return std::make_unique<DynamicMeshPolygroupAttribute>( m_ParentMesh ); } );
 }
 
 DynamicMeshPolygroupAttribute* DynamicMeshAttributeSet::GetPolygroupLayer( int Index )
 {
-    return PolygroupLayers[Index].get();
+    return m_PolygroupLayers[Index].get();
 }
 
 const DynamicMeshPolygroupAttribute* DynamicMeshAttributeSet::GetPolygroupLayer( int Index ) const
 {
-    return PolygroupLayers[Index].get();
+    return m_PolygroupLayers[Index].get();
 }
 
 void DynamicMeshAttributeSet::EnableMaterialID()
 {
     if ( HasMaterialID() == false )
     {
-        MaterialIDAttrib = std::make_unique<DynamicMeshMaterialAttribute>( ParentMesh );
-        MaterialIDAttrib->Initialize( static_cast<int32_t>( 0 ) );
+        m_MaterialIDAttrib = std::make_unique<DynamicMeshMaterialAttribute>( m_ParentMesh );
+        m_MaterialIDAttrib->Initialize( static_cast<int32_t>( 0 ) );
     }
 }
 
 void DynamicMeshAttributeSet::DisableMaterialID()
 {
-    MaterialIDAttrib.reset();
+    m_MaterialIDAttrib.reset();
 }
 
 bool DynamicMeshAttributeSet::IsSeamEdge( int eid ) const
 {
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         if ( UVLayer->IsSeamEdge( eid ) )
         {
             return true;
         }
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         if ( NormalLayer->IsSeamEdge( eid ) )
         {
             return true;
         }
     }
-    if ( ColorLayer && ColorLayer->IsSeamEdge( eid ) )
+    if ( m_ColorLayer && m_ColorLayer->IsSeamEdge( eid ) )
     {
         return true;
     }
@@ -516,21 +516,21 @@ bool DynamicMeshAttributeSet::IsSeamEdge( int eid ) const
 
 bool DynamicMeshAttributeSet::IsSeamEndEdge( int eid ) const
 {
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         if ( UVLayer->IsSeamEndEdge( eid ) )
         {
             return true;
         }
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         if ( NormalLayer->IsSeamEndEdge( eid ) )
         {
             return true;
         }
     }
-    if ( ColorLayer && ColorLayer->IsSeamEndEdge( eid ) )
+    if ( m_ColorLayer && m_ColorLayer->IsSeamEndEdge( eid ) )
     {
         return true;
     }
@@ -541,7 +541,7 @@ bool DynamicMeshAttributeSet::IsSeamEdge( int EdgeID, bool& bIsUVSeamOut, bool& 
                                           bool& bIsColorSeamOut, bool& bIsTangentSeamOut ) const
 {
     bIsUVSeamOut = false;
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         bIsUVSeamOut = bIsUVSeamOut || UVLayer->IsSeamEdge( EdgeID );
     }
@@ -549,32 +549,32 @@ bool DynamicMeshAttributeSet::IsSeamEdge( int EdgeID, bool& bIsUVSeamOut, bool& 
     bIsTangentSeamOut = false;
     for ( int32_t Idx = 0; Idx < NumNormalLayers(); ++Idx )
     {
-        const bool bSeam = NormalLayers[Idx]->IsSeamEdge( EdgeID );
+        const bool bSeam = m_NormalLayers[Idx]->IsSeamEdge( EdgeID );
         // normal layer 0 is the normals; layers 1 and 2 are the tangent frame
         ( Idx == 0 ? bIsNormalSeamOut : bIsTangentSeamOut ) =
              ( Idx == 0 ? bIsNormalSeamOut : bIsTangentSeamOut ) || bSeam;
     }
-    bIsColorSeamOut = ColorLayer && ColorLayer->IsSeamEdge( EdgeID );
+    bIsColorSeamOut = m_ColorLayer && m_ColorLayer->IsSeamEdge( EdgeID );
     return bIsUVSeamOut || bIsNormalSeamOut || bIsColorSeamOut || bIsTangentSeamOut;
 }
 
 bool DynamicMeshAttributeSet::IsSeamVertex( int VID, bool bBoundaryIsSeam ) const
 {
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         if ( UVLayer->IsSeamVertex( VID, bBoundaryIsSeam ) )
         {
             return true;
         }
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         if ( NormalLayer->IsSeamVertex( VID, bBoundaryIsSeam ) )
         {
             return true;
         }
     }
-    if ( ColorLayer && ColorLayer->IsSeamVertex( VID, bBoundaryIsSeam ) )
+    if ( m_ColorLayer && m_ColorLayer->IsSeamVertex( VID, bBoundaryIsSeam ) )
     {
         return true;
     }
@@ -583,21 +583,21 @@ bool DynamicMeshAttributeSet::IsSeamVertex( int VID, bool bBoundaryIsSeam ) cons
 
 bool DynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) const
 {
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         if ( UVLayer->IsSeamIntersectionVertex( VertexID ) )
         {
             return true;
         }
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         if ( NormalLayer->IsSeamIntersectionVertex( VertexID ) )
         {
             return true;
         }
     }
-    if ( ColorLayer && ColorLayer->IsSeamIntersectionVertex( VertexID ) )
+    if ( m_ColorLayer && m_ColorLayer->IsSeamIntersectionVertex( VertexID ) )
     {
         return true;
     }
@@ -606,16 +606,16 @@ bool DynamicMeshAttributeSet::IsSeamIntersectionVertex( int32_t VertexID ) const
 
 bool DynamicMeshAttributeSet::IsMaterialBoundaryEdge( int EdgeID ) const
 {
-    if ( MaterialIDAttrib == nullptr )
+    if ( m_MaterialIDAttrib == nullptr )
     {
         return false;
     }
-    assert( ParentMesh->IsEdge( EdgeID ) );
-    if ( ParentMesh->IsEdge( EdgeID ) && !ParentMesh->IsBoundaryEdge( EdgeID ) )
+    assert( m_ParentMesh->IsEdge( EdgeID ) );
+    if ( m_ParentMesh->IsEdge( EdgeID ) && !m_ParentMesh->IsBoundaryEdge( EdgeID ) )
     {
-        const Index2i  EdgeTris = ParentMesh->GetEdgeT( EdgeID );
-        const int      MatA     = MaterialIDAttrib->GetValue( EdgeTris.A );
-        const int      MatB     = MaterialIDAttrib->GetValue( EdgeTris.B );
+        const Index2i EdgeTris = m_ParentMesh->GetEdgeT( EdgeID );
+        const int     MatA     = m_MaterialIDAttrib->GetValue( EdgeTris.A );
+        const int     MatB     = m_MaterialIDAttrib->GetValue( EdgeTris.B );
         return MatA != MatB;
     }
     return false;
@@ -635,24 +635,24 @@ void DynamicMeshAttributeSet::OnNewTriangle( int TriangleID, bool bInserted )
 {
     DynamicMeshAttributeSetBase::OnNewTriangle( TriangleID, bInserted );
 
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         UVLayer->InitializeNewTriangle( TriangleID );
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         NormalLayer->InitializeNewTriangle( TriangleID );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->InitializeNewTriangle( TriangleID );
+        m_ColorLayer->InitializeNewTriangle( TriangleID );
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
         int NewValue = 0;
-        MaterialIDAttrib->SetNewValue( TriangleID, &NewValue );
+        m_MaterialIDAttrib->SetNewValue( TriangleID, &NewValue );
     }
-    for ( const auto& PolygroupLayer : PolygroupLayers )
+    for ( const auto& PolygroupLayer : m_PolygroupLayers )
     {
         int32_t const NewGroup = 0;
         PolygroupLayer->SetNewValue( TriangleID, &NewGroup );
@@ -663,17 +663,17 @@ void DynamicMeshAttributeSet::OnRemoveTriangle( int TriangleID )
 {
     DynamicMeshAttributeSetBase::OnRemoveTriangle( TriangleID );
 
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         UVLayer->OnRemoveTriangle( TriangleID );
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         NormalLayer->OnRemoveTriangle( TriangleID );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->OnRemoveTriangle( TriangleID );
+        m_ColorLayer->OnRemoveTriangle( TriangleID );
     }
     // material ID and polygroup attributes do not need to be updated when a triangle is removed
 }
@@ -682,17 +682,17 @@ void DynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
 {
     DynamicMeshAttributeSetBase::OnReverseTriOrientation( TriangleID );
 
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         UVLayer->OnReverseTriOrientation( TriangleID );
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         NormalLayer->OnReverseTriOrientation( TriangleID );
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ColorLayer->OnReverseTriOrientation( TriangleID );
+        m_ColorLayer->OnReverseTriOrientation( TriangleID );
     }
 }
 
@@ -700,23 +700,23 @@ void DynamicMeshAttributeSet::OnReverseTriOrientation( int TriangleID )
 // overlay, then the per-triangle attributes.
 #define DESERT_ATTRIBUTE_SET_FORWARD( Handler, ... )                                                              \
     DynamicMeshAttributeSetBase::Handler( __VA_ARGS__ );                                                          \
-    for ( const auto& UVLayer : UVLayers )                                                                        \
+    for ( const auto& UVLayer : m_UVLayers )                                                                      \
     {                                                                                                             \
         UVLayer->Handler( __VA_ARGS__ );                                                                          \
     }                                                                                                             \
-    for ( const auto& NormalLayer : NormalLayers )                                                                \
+    for ( const auto& NormalLayer : m_NormalLayers )                                                              \
     {                                                                                                             \
         NormalLayer->Handler( __VA_ARGS__ );                                                                      \
     }                                                                                                             \
-    if ( ColorLayer )                                                                                             \
+    if ( m_ColorLayer )                                                                                           \
     {                                                                                                             \
-        ColorLayer->Handler( __VA_ARGS__ );                                                                       \
+        m_ColorLayer->Handler( __VA_ARGS__ );                                                                     \
     }                                                                                                             \
-    if ( MaterialIDAttrib )                                                                                       \
+    if ( m_MaterialIDAttrib )                                                                                     \
     {                                                                                                             \
-        MaterialIDAttrib->Handler( __VA_ARGS__ );                                                                 \
+        m_MaterialIDAttrib->Handler( __VA_ARGS__ );                                                               \
     }                                                                                                             \
-    for ( const auto& PolygroupLayer : PolygroupLayers )                                                          \
+    for ( const auto& PolygroupLayer : m_PolygroupLayers )                                                        \
     {                                                                                                             \
         PolygroupLayer->Handler( __VA_ARGS__ );                                                                   \
     }
@@ -760,27 +760,27 @@ void DynamicMeshAttributeSet::OnSplitVertex( const DynamicMeshInfo::VertexSplitI
 size_t DynamicMeshAttributeSet::GetByteCount() const
 {
     size_t ByteCount = 0;
-    for ( const auto& UVLayer : UVLayers )
+    for ( const auto& UVLayer : m_UVLayers )
     {
         ByteCount += UVLayer->GetByteCount();
     }
-    for ( const auto& NormalLayer : NormalLayers )
+    for ( const auto& NormalLayer : m_NormalLayers )
     {
         ByteCount += NormalLayer->GetByteCount();
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        ByteCount += ColorLayer->GetByteCount();
+        ByteCount += m_ColorLayer->GetByteCount();
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
-        ByteCount += MaterialIDAttrib->GetByteCount();
+        ByteCount += m_MaterialIDAttrib->GetByteCount();
     }
-    for ( const auto& PolygroupLayer : PolygroupLayers )
+    for ( const auto& PolygroupLayer : m_PolygroupLayers )
     {
         ByteCount += PolygroupLayer->GetByteCount();
     }
-    for ( const auto& AttribPair : GenericAttributes )
+    for ( const auto& AttribPair : m_GenericAttributes )
     {
         ByteCount += AttribPair.second->GetByteCount();
     }
@@ -799,13 +799,13 @@ bool DynamicMeshAttributeSet::CheckValidity( bool bAllowNonmanifold, ValidityChe
     {
         bValid = GetNormalLayer( NormalLayerIndex )->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;
     }
-    if ( ColorLayer )
+    if ( m_ColorLayer )
     {
-        bValid = ColorLayer->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;
+        bValid = m_ColorLayer->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;
     }
-    if ( MaterialIDAttrib )
+    if ( m_MaterialIDAttrib )
     {
-        bValid = MaterialIDAttrib->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;
+        bValid = m_MaterialIDAttrib->CheckValidity( bAllowNonmanifold, FailMode ) && bValid;
     }
     for ( int PolygroupLayerIndex = 0; PolygroupLayerIndex < NumPolygroupLayers(); PolygroupLayerIndex++ )
     {

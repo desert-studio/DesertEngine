@@ -91,12 +91,12 @@ namespace Desert::Geometry
         /** @return the parent mesh for this overlay */
         const DynamicMesh3* GetParentMesh() const
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
         /** @return the parent mesh for this overlay */
         DynamicMesh3* GetParentMesh()
         {
-            return ParentMesh;
+            return m_ParentMesh;
         }
 
     private:
@@ -130,7 +130,7 @@ namespace Desert::Geometry
         /** @return number of UV layers */
         virtual int NumUVLayers() const
         {
-            return (int)UVLayers.size();
+            return (int)m_UVLayers.size();
         }
 
         /** Set number of UV (2-vector float overlay) layers */
@@ -139,13 +139,13 @@ namespace Desert::Geometry
         /** @return the UV layer at the given Index  if exists, else nullptr */
         DynamicMeshUVOverlay* GetUVLayer( int Index )
         {
-            return ( Index >= 0 && Index < NumUVLayers() ) ? UVLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumUVLayers() ) ? m_UVLayers[Index].get() : nullptr;
         }
 
         /** @return the UV layer at the given Index  if exists, else nullptr */
         const DynamicMeshUVOverlay* GetUVLayer( int Index ) const
         {
-            return ( Index >= 0 && Index < NumUVLayers() ) ? UVLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumUVLayers() ) ? m_UVLayers[Index].get() : nullptr;
         }
 
         /** @return the primary UV layer (layer 0) */
@@ -166,7 +166,7 @@ namespace Desert::Geometry
         /** @return number of Normals layers */
         virtual int NumNormalLayers() const
         {
-            return (int)NormalLayers.size();
+            return (int)m_NormalLayers.size();
         }
 
         /** Set number of Normals (3-vector float overlay) layers */
@@ -181,13 +181,13 @@ namespace Desert::Geometry
         /** @return the Normal layer at the given Index  if exists, else nullptr */
         DynamicMeshNormalOverlay* GetNormalLayer( int Index )
         {
-            return ( Index >= 0 && Index < NumNormalLayers() ) ? NormalLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumNormalLayers() ) ? m_NormalLayers[Index].get() : nullptr;
         }
 
         /** @return the Normal layer at the given Index  if exists, else nullptr */
         const DynamicMeshNormalOverlay* GetNormalLayer( int Index ) const
         {
-            return ( Index >= 0 && Index < NumNormalLayers() ) ? NormalLayers[Index].get() : nullptr;
+            return ( Index >= 0 && Index < NumNormalLayers() ) ? m_NormalLayers[Index].get() : nullptr;
         }
 
         /** @return the primary Normal layer (normal layer 0) if it exists */
@@ -230,17 +230,17 @@ namespace Desert::Geometry
 
         bool HasPrimaryColors() const
         {
-            return !!ColorLayer;
+            return !!m_ColorLayer;
         }
 
         DynamicMeshColorOverlay* PrimaryColors()
         {
-            return ColorLayer.get();
+            return m_ColorLayer.get();
         }
 
         const DynamicMeshColorOverlay* PrimaryColors() const
         {
-            return ColorLayer.get();
+            return m_ColorLayer.get();
         }
 
         void EnablePrimaryColors();
@@ -269,7 +269,7 @@ namespace Desert::Geometry
 
         bool HasMaterialID() const
         {
-            return !!MaterialIDAttrib;
+            return !!m_MaterialIDAttrib;
         }
 
         void EnableMaterialID();
@@ -278,12 +278,12 @@ namespace Desert::Geometry
 
         DynamicMeshMaterialAttribute* GetMaterialID()
         {
-            return MaterialIDAttrib.get();
+            return m_MaterialIDAttrib.get();
         }
 
         const DynamicMeshMaterialAttribute* GetMaterialID() const
         {
-            return MaterialIDAttrib.get();
+            return m_MaterialIDAttrib.get();
         }
 
         //
@@ -292,60 +292,60 @@ namespace Desert::Geometry
 
         void AttachAttribute( const std::string& AttribName, DynamicMeshAttributeBase* Attribute )
         {
-            if ( GenericAttributes.contains( AttribName ) )
+            if ( m_GenericAttributes.contains( AttribName ) )
             {
-                UnregisterExternalAttribute( GenericAttributes[AttribName].get() );
+                UnregisterExternalAttribute( m_GenericAttributes[AttribName].get() );
             }
-            GenericAttributes[AttribName] = std::unique_ptr<DynamicMeshAttributeBase>( Attribute );
+            m_GenericAttributes[AttribName] = std::unique_ptr<DynamicMeshAttributeBase>( Attribute );
             RegisterExternalAttribute( Attribute );
         }
 
         void RemoveAttribute( const std::string& AttribName )
         {
-            if ( GenericAttributes.contains( AttribName ) )
+            if ( m_GenericAttributes.contains( AttribName ) )
             {
-                UnregisterExternalAttribute( GenericAttributes[AttribName].get() );
-                GenericAttributes.erase( AttribName );
+                UnregisterExternalAttribute( m_GenericAttributes[AttribName].get() );
+                m_GenericAttributes.erase( AttribName );
             }
         }
 
         DynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName )
         {
-            return GenericAttributes.contains( AttribName ) ? GenericAttributes[AttribName].get() : nullptr;
+            return m_GenericAttributes.contains( AttribName ) ? m_GenericAttributes[AttribName].get() : nullptr;
         }
 
         [[nodiscard]] const DynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName ) const
         {
-            const std::unique_ptr<DynamicMeshAttributeBase>* Found = FindValue( GenericAttributes, AttribName );
+            const std::unique_ptr<DynamicMeshAttributeBase>* Found = FindValue( m_GenericAttributes, AttribName );
             return Found ? Found->get() : nullptr;
         }
 
         int NumAttachedAttributes() const
         {
-            return static_cast<int32_t>( GenericAttributes.size() );
+            return static_cast<int32_t>( m_GenericAttributes.size() );
         }
 
         [[nodiscard]] bool HasAttachedAttribute( const std::string& AttribName ) const
         {
-            return GenericAttributes.contains( AttribName );
+            return m_GenericAttributes.contains( AttribName );
         }
 
         [[nodiscard]] size_t GetByteCount() const;
 
     protected:
         /** Parent mesh of this attribute set */
-        DynamicMesh3* ParentMesh;
+        DynamicMesh3* m_ParentMesh;
 
-        std::vector<std::unique_ptr<DynamicMeshUVOverlay>>     UVLayers;
-        std::vector<std::unique_ptr<DynamicMeshNormalOverlay>> NormalLayers;
-        std::unique_ptr<DynamicMeshColorOverlay>               ColorLayer;
+        std::vector<std::unique_ptr<DynamicMeshUVOverlay>>     m_UVLayers;
+        std::vector<std::unique_ptr<DynamicMeshNormalOverlay>> m_NormalLayers;
+        std::unique_ptr<DynamicMeshColorOverlay>               m_ColorLayer;
 
-        std::unique_ptr<DynamicMeshMaterialAttribute> MaterialIDAttrib;
+        std::unique_ptr<DynamicMeshMaterialAttribute> m_MaterialIDAttrib;
 
-        std::vector<std::unique_ptr<DynamicMeshPolygroupAttribute>> PolygroupLayers;
+        std::vector<std::unique_ptr<DynamicMeshPolygroupAttribute>> m_PolygroupLayers;
 
         using GenericAttributesMap = std::unordered_map<std::string, std::unique_ptr<DynamicMeshAttributeBase>>;
-        GenericAttributesMap GenericAttributes;
+        GenericAttributesMap m_GenericAttributes;
 
     protected:
         friend class DynamicMesh3;
@@ -355,11 +355,11 @@ namespace Desert::Geometry
          */
         void Initialize( int MaxVertexID, int MaxTriangleID )
         {
-            for ( std::unique_ptr<DynamicMeshUVOverlay>& UVLayer : UVLayers )
+            for ( std::unique_ptr<DynamicMeshUVOverlay>& UVLayer : m_UVLayers )
             {
                 UVLayer->InitializeTriangles( MaxTriangleID );
             }
-            for ( std::unique_ptr<DynamicMeshNormalOverlay>& NormalLayer : NormalLayers )
+            for ( std::unique_ptr<DynamicMeshNormalOverlay>& NormalLayer : m_NormalLayers )
             {
                 NormalLayer->InitializeTriangles( MaxTriangleID );
             }

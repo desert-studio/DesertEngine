@@ -70,7 +70,7 @@ namespace Desert::Geometry
         // Set aliases to make iterating over tangents and bitangents easier
         DynamicMeshNormalOverlay*                 TangentOverlays[2] = { MeshToSet.Attributes()->PrimaryTangents(),
                                                                          MeshToSet.Attributes()->PrimaryBiTangents() };
-        const std::vector<glm::vec<3, RealType>>* TangentValues[2]   = { &Tangents, &Bitangents };
+        const std::vector<glm::vec<3, RealType>>* TangentValues[2]   = { &m_Tangents, &m_Bitangents };
 
         for ( int Idx = 0; Idx < 2; Idx++ )
         {
@@ -108,19 +108,19 @@ namespace Desert::Geometry
     void MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
                                                                      const DynamicMeshUVOverlay*     UVOverlay )
     {
-        const int32_t MaxTriangleID = Mesh->MaxTriangleID();
+        const int32_t MaxTriangleID = m_Mesh->MaxTriangleID();
         InitializeTriVertexTangents( false );
 
         // compute per-triangle tangent and bitangent
         for ( int32_t TriangleID = 0; TriangleID < MaxTriangleID; ++TriangleID )
         {
-            if ( Mesh->IsTriangle( TriangleID ) == false || UVOverlay->IsSetTriangle( TriangleID ) == false )
+            if ( m_Mesh->IsTriangle( TriangleID ) == false || UVOverlay->IsSetTriangle( TriangleID ) == false )
             {
                 continue;
             }
 
             glm::dvec3 TriVertices[3]{};
-            Mesh->GetTriVertices( TriangleID, TriVertices[0], TriVertices[1], TriVertices[2] );
+            m_Mesh->GetTriVertices( TriangleID, TriVertices[0], TriVertices[1], TriVertices[2] );
             glm::vec2 TriUVs[3]{};
             UVOverlay->GetTriElements( TriangleID, TriUVs[0], TriUVs[1], TriUVs[2] );
             glm::vec3 TriNormals[3]{};

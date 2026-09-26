@@ -94,7 +94,7 @@ namespace Desert::Geometry
         if ( boundary.GetLoopCount() == 0 )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Fill Hole: the mesh has no open loop ({} open spans)",
-                 static_cast<int32_t>( boundary.Spans.size() ) );
+                 static_cast<int32_t>( boundary.m_Spans.size() ) );
         std::vector<int> loopIndices;
         if ( selection.Mode() == ElementMode::Edge && !selection.Empty() )
         {
@@ -119,7 +119,7 @@ namespace Desert::Geometry
         std::vector<int32_t> newTriangles;
         for ( const int index : loopIndices )
         {
-            const EdgeLoop& loop = boundary.Loops[index];
+            const EdgeLoop& loop = boundary.m_Loops[index];
             if ( !LoopIsValid( *mesh, loop ) )
                 return Common::MakeFormattedError<RegionOutcome>(
                      "Mesh Fill Hole: loop {} ({} edges) is no longer a boundary loop", index,
@@ -131,17 +131,18 @@ namespace Desert::Geometry
             SimpleHoleFiller filler( mesh.get(), loop );
             if ( !filler.Fill( mesh->AllocateTriangleGroup() ) )
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh Fill Hole: loop {} ({} edges): {}", index,
-                                                                  loop.GetEdgeCount(), filler.FailureReason );
+                                                                  loop.GetEdgeCount(), filler.m_FailureReason );
             if ( mesh->HasAttributes() )
             {
                 DynamicMeshEditor editor( mesh.get() );
-                editor.SetTriangleNormals( filler.NewTriangles, glm::vec3( static_cast<float>( planeNormal.x ),
-                                                                           static_cast<float>( planeNormal.y ),
-                                                                           static_cast<float>( planeNormal.z ) ) );
-                editor.SetTriangleUVsFromProjection( filler.NewTriangles, planeOrigin, planeNormal,
+                editor.SetTriangleNormals( filler.m_NewTriangles,
+                                           glm::vec3( static_cast<float>( planeNormal.x ),
+                                                      static_cast<float>( planeNormal.y ),
+                                                      static_cast<float>( planeNormal.z ) ) );
+                editor.SetTriangleUVsFromProjection( filler.m_NewTriangles, planeOrigin, planeNormal,
                                                      static_cast<float>( uvScale ) );
             }
-            for ( const int t : filler.NewTriangles )
+            for ( const int t : filler.m_NewTriangles )
                 newTriangles.push_back( t );
         }
         if ( auto tangents = RecomputeTangents( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
@@ -195,7 +196,7 @@ namespace Desert::Geometry
         params.Topology           = &topology;
         params.GroupEdgeID        = groupEdge;
         params.SortedInputLengths = &proportions;
-        params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
+        params.StartCornerID      = topology.m_Edges[groupEdge].EndpointCorners.A;
         std::unordered_set<int32_t>               newEids;
         std::unordered_set<int32_t>               problemGroupEdges;
         GroupEdgeInserter::OptionalOutputParams   out;
@@ -220,24 +221,25 @@ namespace Desert::Geometry
     {
         auto                     mesh = std::make_shared<DynamicMesh3>( before );
         MergeCoincidentMeshEdges merger( mesh.get() );
-        merger.bWeldAttrsOnMergedEdges                  = true;
-        merger.SplitAttributeWelder.UVDistSqrdThreshold = 0.01f * 0.01f;
-        merger.SplitAttributeWelder.NormalVecDotThreshold =
+        merger.m_bWeldAttrsOnMergedEdges                    = true;
+        merger.m_SplitAttributeWelder.m_UVDistSqrdThreshold = 0.01f * 0.01f;
+        merger.m_SplitAttributeWelder.m_NormalVecDotThreshold =
              std::abs( 1.f - std::cos( 0.1f * 3.14159265f / 180.f ) );
-        merger.SplitAttributeWelder.TangentVecDotThreshold = merger.SplitAttributeWelder.NormalVecDotThreshold;
+        merger.m_SplitAttributeWelder.m_TangentVecDotThreshold =
+             merger.m_SplitAttributeWelder.m_NormalVecDotThreshold;
         if ( !merger.Apply() )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Weld Edges: the merge failed with {} of {} boundary edges left",
-                 merger.FinalNumBoundaryEdges, merger.InitialNumBoundaryEdges );
-        if ( merger.InitialNumBoundaryEdges == 0 )
+                 merger.m_FinalNumBoundaryEdges, merger.m_InitialNumBoundaryEdges );
+        if ( merger.m_InitialNumBoundaryEdges == 0 )
             return Common::MakeError<RegionOutcome>( "Mesh Weld Edges: the mesh has no boundary edge to weld" );
         // UE's Weld Edges tool accepts a merge that welded nothing (WeldMeshEdgesTool.cpp:336 CanAccept checks
         // only a valid result) and commits an unchanged mesh; here a command without an effect leaves no undo
         // step.
-        if ( merger.FinalNumBoundaryEdges == merger.InitialNumBoundaryEdges )
+        if ( merger.m_FinalNumBoundaryEdges == merger.m_InitialNumBoundaryEdges )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Weld Edges: no coincident edge pair within tolerance {} cm among the {} boundary edges",
-                 merger.MergeVertexTolerance, merger.InitialNumBoundaryEdges );
+                 merger.m_MergeVertexTolerance, merger.m_InitialNumBoundaryEdges );
         if ( auto tangents = RecomputeTangents( *mesh, "Weld Edges" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ) } );
@@ -270,13 +272,13 @@ namespace Desert::Geometry
         if ( operation == RegionOperation::Extrude || operation == RegionOperation::PushPull )
         {
             OffsetMeshRegion extruder( mesh.get() );
-            extruder.Triangles = regionTriangles;
+            extruder.m_Triangles = regionTriangles;
             // UE's Extrude default (SelectedTriangleNormalsEven): every selected face moves by the full
             // distance. Push/Pull is FExtrudeOp's SingleDirection: one direction, the region's area-weighted
             // normal, so the walls are parallel and a push into a solid cannot fold them.
-            extruder.ExtrusionVectorType =
+            extruder.m_ExtrusionVectorType =
                  OffsetMeshRegion::VertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
-            extruder.DefaultOffsetDistance = distance;
+            extruder.m_DefaultOffsetDistance = distance;
             if ( operation == RegionOperation::PushPull )
             {
                 glm::dvec3 direction( 0.0, 0.0, 0.0 );
@@ -292,21 +294,21 @@ namespace Desert::Geometry
                      [direction, signedDistance]( const glm::dvec3& position, const glm::dvec3&, int )
                 { return position + direction * signedDistance; };
             }
-            extruder.bIsPositiveOffset = distance > 0.0f;
+            extruder.m_bIsPositiveOffset = distance > 0.0f;
             if ( !extruder.Apply() )
-                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, extruder.FailureReason );
-            for ( const auto& region : extruder.OffsetRegions )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, extruder.m_FailureReason );
+            for ( const auto& region : extruder.m_OffsetRegions )
                 for ( const int32_t t : region.OffsetTids )
                     resultTriangles.push_back( t );
         }
         else
         {
             InsetMeshRegion inset( mesh.get() );
-            inset.Triangles     = regionTriangles;
-            inset.InsetDistance = operation == RegionOperation::Outset ? -distance : distance;
+            inset.m_Triangles     = regionTriangles;
+            inset.m_InsetDistance = operation == RegionOperation::Outset ? -distance : distance;
             if ( !inset.Apply() )
-                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, inset.FailureReason );
-            for ( const auto& region : inset.InsetRegions )
+                return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, inset.m_FailureReason );
+            for ( const auto& region : inset.m_InsetRegions )
                 for ( const int32_t t : region.InitialTriangles )
                     resultTriangles.push_back( t );
         }

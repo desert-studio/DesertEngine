@@ -19,12 +19,12 @@ namespace Desert::Geometry
         class PointHashGrid3
         {
         public:
-            explicit PointHashGrid3( double CellSize ) : CellSize( CellSize )
+            explicit PointHashGrid3( double CellSize ) : m_CellSize( CellSize )
             {
             }
             void InsertPointUnsafe( int32_t Value, const glm::dvec3& Pos )
             {
-                Hash[ToGrid( Pos )].push_back( Value );
+                m_Hash[ToGrid( Pos )].push_back( Value );
             }
             template <typename DistanceSqFn>
             void FindPointsInBall( const glm::dvec3& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
@@ -38,8 +38,8 @@ namespace Desert::Geometry
                     for ( int64_t yi = MinIdx[1]; yi <= MaxIdx[1]; yi++ )
                         for ( int64_t xi = MinIdx[0]; xi <= MaxIdx[0]; xi++ )
                         {
-                            const auto It = Hash.find( { xi, yi, zi } );
-                            if ( It == Hash.end() )
+                            const auto It = m_Hash.find( { xi, yi, zi } );
+                            if ( It == m_Hash.end() )
                                 continue;
                             for ( int32_t const Value : It->second )
                                 if ( DistanceSqFunc( Value ) < RadiusSquared )
@@ -51,12 +51,12 @@ namespace Desert::Geometry
             using Key = std::array<int64_t, 3>;
             Key ToGrid( const glm::dvec3& P ) const
             {
-                return { static_cast<int64_t>( std::floor( P.x / CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.y / CellSize ) ),
-                         static_cast<int64_t>( std::floor( P.z / CellSize ) ) };
+                return { static_cast<int64_t>( std::floor( P.x / m_CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.y / m_CellSize ) ),
+                         static_cast<int64_t>( std::floor( P.z / m_CellSize ) ) };
             }
-            double                       CellSize;
-            std::map<Key, std::vector<int32_t>> Hash;
+            double                              m_CellSize;
+            std::map<Key, std::vector<int32_t>> m_Hash;
         };
 
     } // namespace
@@ -65,30 +65,31 @@ namespace Desert::Geometry
 
     bool MergeCoincidentMeshEdges::Apply()
     {
-        MergeVtxDistSqr          = MergeVertexTolerance * MergeVertexTolerance;
-        double UseMergeSearchTol = ( MergeSearchTolerance > 0 ) ? MergeSearchTolerance : 2 * MergeVertexTolerance;
+        m_MergeVtxDistSqr = m_MergeVertexTolerance * m_MergeVertexTolerance;
+        double UseMergeSearchTol =
+             ( m_MergeSearchTolerance > 0 ) ? m_MergeSearchTolerance : 2 * m_MergeVertexTolerance;
 
         // hash table of the boundary edge midpoints
         std::vector<glm::dvec3> BoundaryMidPoints;
         std::vector<int32_t>    ToMidPt;
-        ToMidPt.assign( Mesh->MaxEdgeID(), -1 );
-        for ( int32_t const EID : Mesh->BoundaryEdgeIndicesItr() )
+        ToMidPt.assign( m_Mesh->MaxEdgeID(), -1 );
+        for ( int32_t const EID : m_Mesh->BoundaryEdgeIndicesItr() )
         {
-            BoundaryMidPoints.push_back( Mesh->GetEdgePoint( EID, 0.5 ) );
+            BoundaryMidPoints.push_back( m_Mesh->GetEdgePoint( EID, 0.5 ) );
             ToMidPt[EID] = static_cast<int32_t>( BoundaryMidPoints.size() ) - 1;
         }
-        InitialNumBoundaryEdges = static_cast<int32_t>( BoundaryMidPoints.size() );
+        m_InitialNumBoundaryEdges = static_cast<int32_t>( BoundaryMidPoints.size() );
 
         // denser grid as the number of boundary edges grows
         int hashN = 64;
-        if ( InitialNumBoundaryEdges > 1000 )
+        if ( m_InitialNumBoundaryEdges > 1000 )
             hashN = 128;
-        if ( InitialNumBoundaryEdges > 10000 )
+        if ( m_InitialNumBoundaryEdges > 10000 )
             hashN = 256;
-        if ( InitialNumBoundaryEdges > 100000 )
+        if ( m_InitialNumBoundaryEdges > 100000 )
             hashN = 512;
 
-        const AxisAlignedBox3d  Bounds   = Mesh->GetBounds();
+        const AxisAlignedBox3d  Bounds   = m_Mesh->GetBounds();
         const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
                                                      std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
         const double CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
@@ -102,9 +103,9 @@ namespace Desert::Geometry
         // Edge equivalence sets: every other boundary edge with the same midpoint, narrowed to those with the same
         // endpoints.
         using EdgesList = std::vector<int>;
-        std::vector<std::unique_ptr<EdgesList>> EquivalenceSets( static_cast<size_t>( Mesh->MaxEdgeID() ) );
+        std::vector<std::unique_ptr<EdgesList>> EquivalenceSets( static_cast<size_t>( m_Mesh->MaxEdgeID() ) );
         std::unordered_set<int>                 RemainingEdges;
-        for ( int eid : Mesh->BoundaryEdgeIndicesItr() )
+        for ( int eid : m_Mesh->BoundaryEdgeIndicesItr() )
         {
             const glm::dvec3 midpt = BoundaryMidPoints[ToMidPt[eid]];
             SearchMatches.clear();
@@ -117,12 +118,12 @@ namespace Desert::Geometry
             if ( N == 0 )
                 continue;
 
-            Mesh->GetEdgeV( eid, A, B );
+            m_Mesh->GetEdgeV( eid, A, B );
             equivBuffer.clear();
             for ( int i = 0; i < N; ++i )
             {
                 const int32_t MatchEID = SearchMatches[i];
-                Mesh->GetEdgeV( MatchEID, C, D );
+                m_Mesh->GetEdgeV( MatchEID, C, D );
                 if ( IsSameEdge( A, B, C, D ) )
                 {
                     equivBuffer.push_back( MatchEID );
@@ -143,10 +144,10 @@ namespace Desert::Geometry
 
         // potential duplicates, fewest possible matches first
         IndexPriorityQueue DuplicatesQueue;
-        DuplicatesQueue.Initialize( Mesh->MaxEdgeID() );
+        DuplicatesQueue.Initialize( m_Mesh->MaxEdgeID() );
         for ( int eid : std::vector( RemainingEdges.begin(), RemainingEdges.end() ) )
         {
-            if ( OnlyUniquePairs )
+            if ( m_OnlyUniquePairs )
             {
                 if ( static_cast<int32_t>( EquivalenceSets[eid]->size() ) != 1 )
                     continue;
@@ -163,9 +164,9 @@ namespace Desert::Geometry
         while ( DuplicatesQueue.GetCount() > 0 )
         {
             const int eid = DuplicatesQueue.Dequeue();
-            if ( !Mesh->IsEdge( eid ) || !EquivalenceSets[eid] || !RemainingEdges.contains( eid ) )
+            if ( !m_Mesh->IsEdge( eid ) || !EquivalenceSets[eid] || !RemainingEdges.contains( eid ) )
                 continue; // dealt with already
-            if ( !Mesh->IsBoundaryEdge( eid ) )
+            if ( !m_Mesh->IsBoundaryEdge( eid ) )
                 continue; // merged already
 
             EdgesList& Matches = *EquivalenceSets[eid];
@@ -173,15 +174,15 @@ namespace Desert::Geometry
             for ( int i = 0; i < static_cast<int32_t>( Matches.size() ) && !bMerged; ++i )
             {
                 const int other_eid = Matches[i];
-                if ( !Mesh->IsEdge( other_eid ) || !Mesh->IsBoundaryEdge( other_eid ) )
+                if ( !m_Mesh->IsEdge( other_eid ) || !m_Mesh->IsBoundaryEdge( other_eid ) )
                     continue;
-                const bool bWeldingAcrossEntireMesh = ( EdgesToMerge == nullptr );
-                if ( !bWeldingAcrossEntireMesh && !EdgesToMerge->contains( eid ) &&
-                     !EdgesToMerge->contains( other_eid ) )
+                const bool bWeldingAcrossEntireMesh = ( m_EdgesToMerge == nullptr );
+                if ( !bWeldingAcrossEntireMesh && !m_EdgesToMerge->contains( eid ) &&
+                     !m_EdgesToMerge->contains( other_eid ) )
                     continue;
 
                 DynamicMesh3::MergeEdgesInfo MergeInfo;
-                const MeshResult             Result = Mesh->MergeEdges( eid, other_eid, MergeInfo );
+                const MeshResult             Result = m_Mesh->MergeEdges( eid, other_eid, MergeInfo );
                 if ( Result != MeshResult::Ok )
                 {
                     // a failed pair leaves both equivalence sets
@@ -195,10 +196,10 @@ namespace Desert::Geometry
                     bMerged = true;
                     EquivalenceSets[other_eid].reset();
                     RemainingEdges.erase( other_eid );
-                    if ( bWeldAttrsOnMergedEdges )
+                    if ( m_bWeldAttrsOnMergedEdges )
                     {
-                        SplitAttributeWelder.WeldSplitElements( *Mesh, MergeInfo.KeptVerts[0] );
-                        SplitAttributeWelder.WeldSplitElements( *Mesh, MergeInfo.KeptVerts[1] );
+                        m_SplitAttributeWelder.WeldSplitElements( *m_Mesh, MergeInfo.KeptVerts[0] );
+                        m_SplitAttributeWelder.WeldSplitElements( *m_Mesh, MergeInfo.KeptVerts[1] );
                     }
                 }
             }
@@ -206,11 +207,11 @@ namespace Desert::Geometry
             RemainingEdges.erase( eid );
         }
 
-        FinalNumBoundaryEdges = 0;
-        for ( int eid : Mesh->BoundaryEdgeIndicesItr() )
+        m_FinalNumBoundaryEdges = 0;
+        for ( int eid : m_Mesh->BoundaryEdgeIndicesItr() )
         {
             (void)eid;
-            FinalNumBoundaryEdges++;
+            m_FinalNumBoundaryEdges++;
         }
         return true;
     }

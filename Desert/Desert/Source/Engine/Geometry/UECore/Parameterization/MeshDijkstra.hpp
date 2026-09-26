@@ -21,45 +21,45 @@ namespace Desert::Geometry
             double StartDistance = 0;
         };
 
-        explicit MeshDijkstra( const PointSetType* PointSetIn ) : PointSet( PointSetIn )
+        explicit MeshDijkstra( const PointSetType* PointSetIn ) : m_PointSet( PointSetIn )
         {
-            Queue.Initialize( PointSet->MaxVertexID() );
+            m_Queue.Initialize( m_PointSet->MaxVertexID() );
         }
 
         void ComputeToMaxDistance( const std::vector<SeedPoint>& SeedPointsIn, double ComputeToMaxDistanceIn )
         {
-            MaxGraphDistance        = 0.0;
-            MaxGraphDistancePointID = -1;
+            m_MaxGraphDistance        = 0.0;
+            m_MaxGraphDistancePointID = -1;
             for ( int32_t SeedIndex = 0; SeedIndex < static_cast<int32_t>( SeedPointsIn.size() ); ++SeedIndex )
             {
                 const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
-                if ( Queue.Contains( PointID ) )
+                if ( m_Queue.Contains( PointID ) )
                     continue; // UE ensure()s on a repeated seed and skips it
-                GraphNode& Node    = AllocatedNodes[GetNodeIndex( PointID, true )];
+                GraphNode& Node    = m_AllocatedNodes[GetNodeIndex( PointID, true )];
                 Node.GraphDistance = SeedPointsIn[SeedIndex].StartDistance;
                 Node.bFrozen       = true;
                 Node.SeedPointID   = SeedIndex;
-                Queue.Insert( PointID, float( Node.GraphDistance ) );
+                m_Queue.Insert( PointID, float( Node.GraphDistance ) );
             }
-            while ( Queue.GetCount() > 0 )
+            while ( m_Queue.GetCount() > 0 )
             {
-                const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
-                GraphNode&    Node      = AllocatedNodes[NodeIndex];
-                MaxGraphDistance        = std::max<double>( Node.GraphDistance, MaxGraphDistance );
-                if ( MaxGraphDistance > ComputeToMaxDistanceIn )
+                const int32_t NodeIndex = GetNodeIndex( m_Queue.Dequeue(), false );
+                GraphNode&    Node      = m_AllocatedNodes[NodeIndex];
+                m_MaxGraphDistance      = std::max<double>( Node.GraphDistance, m_MaxGraphDistance );
+                if ( m_MaxGraphDistance > ComputeToMaxDistanceIn )
                     return;
                 Node.bFrozen            = true;
-                MaxGraphDistancePointID = Node.PointID;
+                m_MaxGraphDistancePointID = Node.PointID;
                 UpdateNeighboursSparse( NodeIndex );
             }
         }
         [[nodiscard]] double GetMaxGraphDistance() const
         {
-            return MaxGraphDistance;
+            return m_MaxGraphDistance;
         }
         [[nodiscard]] int32_t GetMaxGraphDistancePointID() const
         {
-            return MaxGraphDistancePointID;
+            return m_MaxGraphDistancePointID;
         }
 
     private:
@@ -71,44 +71,44 @@ namespace Desert::Geometry
             double GraphDistance;
             bool   bFrozen;
         };
-        const PointSetType* PointSet;
-        std::unordered_map<int32_t, int32_t> IDToNodeIndexMap;
-        std::vector<GraphNode>               AllocatedNodes;
-        IndexPriorityQueue                   Queue;
-        double              MaxGraphDistance        = 0.0;
-        int32_t                MaxGraphDistancePointID = -1;
+        const PointSetType*                  m_PointSet;
+        std::unordered_map<int32_t, int32_t> m_IDToNodeIndexMap;
+        std::vector<GraphNode>               m_AllocatedNodes;
+        IndexPriorityQueue                   m_Queue;
+        double                               m_MaxGraphDistance        = 0.0;
+        int32_t                              m_MaxGraphDistancePointID = -1;
 
         int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
-            if ( const int32_t* Found = FindValue( IDToNodeIndexMap, PointSetID ) )
+            if ( const int32_t* Found = FindValue( m_IDToNodeIndexMap, PointSetID ) )
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            AllocatedNodes.push_back( GraphNode{ PointSetID, -1, 0, 0.0, false } );
-            const int32_t NewIndex = static_cast<int32_t>( AllocatedNodes.size() ) - 1;
-            IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
+            m_AllocatedNodes.push_back( GraphNode{ PointSetID, -1, 0, 0.0, false } );
+            const int32_t NewIndex = static_cast<int32_t>( m_AllocatedNodes.size() ) - 1;
+            m_IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
             return NewIndex;
         }
         void UpdateNeighboursSparse( int32_t ParentIndex )
         {
-            const int32_t   ParentID   = AllocatedNodes[ParentIndex].PointID;
-            const int32_t   ParentSeed = AllocatedNodes[ParentIndex].SeedPointID;
-            const double    ParentDist = AllocatedNodes[ParentIndex].GraphDistance;
-            const glm::dvec3 ParentPos  = PointSet->GetVertex( ParentID );
-            for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
+            const int32_t    ParentID   = m_AllocatedNodes[ParentIndex].PointID;
+            const int32_t    ParentSeed = m_AllocatedNodes[ParentIndex].SeedPointID;
+            const double     ParentDist = m_AllocatedNodes[ParentIndex].GraphDistance;
+            const glm::dvec3 ParentPos  = m_PointSet->GetVertex( ParentID );
+            for ( const int32_t NbrPointID : m_PointSet->VtxVerticesItr( ParentID ) )
             {
-                GraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
+                GraphNode& Nbr = m_AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )
                     continue;
-                const double NbrDist = ParentDist + Distance( ParentPos, PointSet->GetVertex( NbrPointID ) );
-                if ( Queue.Contains( NbrPointID ) )
+                const double NbrDist = ParentDist + Distance( ParentPos, m_PointSet->GetVertex( NbrPointID ) );
+                if ( m_Queue.Contains( NbrPointID ) )
                 {
                     if ( NbrDist < Nbr.GraphDistance )
                     {
                         Nbr.ParentPointID = ParentID;
                         Nbr.GraphDistance = NbrDist;
                         Nbr.SeedPointID   = ParentSeed;
-                        Queue.Update( NbrPointID, static_cast<float>( NbrDist ) );
+                        m_Queue.Update( NbrPointID, static_cast<float>( NbrDist ) );
                     }
                 }
                 else
@@ -116,7 +116,7 @@ namespace Desert::Geometry
                     Nbr.ParentPointID = ParentID;
                     Nbr.GraphDistance = NbrDist;
                     Nbr.SeedPointID   = ParentSeed;
-                    Queue.Insert( NbrPointID, static_cast<float>( NbrDist ) );
+                    m_Queue.Insert( NbrPointID, static_cast<float>( NbrDist ) );
                 }
             }
         }

@@ -21,10 +21,10 @@ namespace Desert::Geometry
     class InsetMeshRegion
     {
     public:
-        DynamicMesh3*        Mesh;
-        std::vector<int32_t> Triangles;
-        double         InsetDistance = 1.0;
-        float          UVScaleFactor = 1.0f;
+        DynamicMesh3*        m_Mesh;
+        std::vector<int32_t> m_Triangles;
+        double               m_InsetDistance = 1.0;
+        float                m_UVScaleFactor = 1.0f;
 
         struct InsetInfo
         {
@@ -34,11 +34,11 @@ namespace Desert::Geometry
             std::vector<std::vector<int>> StitchTriangles;
             std::vector<std::vector<int>> StitchPolygonIDs;
         };
-        std::vector<InsetInfo>  InsetRegions;
-        std::vector<int32_t>    AllModifiedTriangles;
-        std::string        FailureReason;
+        std::vector<InsetInfo> m_InsetRegions;
+        std::vector<int32_t>   m_AllModifiedTriangles;
+        std::string            m_FailureReason;
 
-        explicit InsetMeshRegion( DynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit InsetMeshRegion( DynamicMesh3* MeshIn ) : m_Mesh( MeshIn )
         {
         }
 

@@ -13,12 +13,12 @@ namespace Desert::Geometry
     {
     public:
         DynamicSubmesh3( const DynamicMesh3* BaseMeshIn, const std::vector<int32_t>& Triangles )
-             : BaseMesh( BaseMeshIn )
+             : m_BaseMesh( BaseMeshIn )
         {
             std::unordered_map<int32_t, int32_t> BaseToSubV;
             for ( const int32_t BaseTID : Triangles )
             {
-                const Index3i BaseTri = BaseMesh->GetTriangle( BaseTID );
+                const Index3i BaseTri = m_BaseMesh->GetTriangle( BaseTID );
                 Index3i       SubTri;
                 for ( int32_t j = 0; j < 3; ++j )
                 {
@@ -27,42 +27,42 @@ namespace Desert::Geometry
                         SubTri[j] = *Found;
                         continue;
                     }
-                    SubTri[j] = Submesh.AppendVertex( BaseMesh->GetVertex( BaseTri[j] ) );
+                    SubTri[j] = m_Submesh.AppendVertex( m_BaseMesh->GetVertex( BaseTri[j] ) );
                     BaseToSubV.insert_or_assign( BaseTri[j], SubTri[j] );
-                    SubToBaseV.push_back( BaseTri[j] );
+                    m_SubToBaseV.push_back( BaseTri[j] );
                 }
-                const int32_t SubTID = Submesh.AppendTriangle( SubTri );
+                const int32_t SubTID = m_Submesh.AppendTriangle( SubTri );
                 if ( SubTID < 0 )
                 {
-                    FailedTriangles.push_back( BaseTID );
+                    m_FailedTriangles.push_back( BaseTID );
                     continue;
                 }
-                SubToBaseT.push_back( BaseTID );
+                m_SubToBaseT.push_back( BaseTID );
             }
         }
         DynamicMesh3& GetSubmesh()
         {
-            return Submesh;
+            return m_Submesh;
         }
         int32_t MapVertexToBaseMesh( int32_t SubVID ) const
         {
-            return SubToBaseV[SubVID];
+            return m_SubToBaseV[SubVID];
         }
         int32_t MapTriangleToBaseMesh( int32_t SubTID ) const
         {
-            return SubToBaseT[SubTID];
+            return m_SubToBaseT[SubTID];
         }
         /** Base triangles AppendTriangle refused (non-manifold within the set); UE check()s this away. */
         const std::vector<int32_t>& GetFailedTriangles() const
         {
-            return FailedTriangles;
+            return m_FailedTriangles;
         }
 
     private:
-        const DynamicMesh3*  BaseMesh;
-        DynamicMesh3         Submesh;
-        std::vector<int32_t> SubToBaseV;
-        std::vector<int32_t> SubToBaseT;
-        std::vector<int32_t> FailedTriangles;
+        const DynamicMesh3*  m_BaseMesh;
+        DynamicMesh3         m_Submesh;
+        std::vector<int32_t> m_SubToBaseV;
+        std::vector<int32_t> m_SubToBaseT;
+        std::vector<int32_t> m_FailedTriangles;
     };
 } // namespace Desert::Geometry

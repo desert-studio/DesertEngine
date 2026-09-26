@@ -131,14 +131,14 @@ namespace
     {
     public:
         using MeshBevel::DisplaceVertices;
-        using MeshBevel::Edges;
         using MeshBevel::FixUpUnlinkedBevelEdges;
-        using MeshBevel::Loops;
-        using MeshBevel::MeshEdgePairs;
+        using MeshBevel::m_Edges;
+        using MeshBevel::m_Loops;
+        using MeshBevel::m_MeshEdgePairs;
+        using MeshBevel::m_Vertices;
         using MeshBevel::UnlinkEdges;
         using MeshBevel::UnlinkLoops;
         using MeshBevel::UnlinkVertices;
-        using MeshBevel::Vertices;
 
         // The unlink phases in UE Apply's order (B:576).
         void Unlink( DynamicMesh3& mesh )
@@ -220,7 +220,7 @@ namespace
     // After unlink, both sides of every span edge are boundary edges paired with each other, at the same place.
     void ExpectEdgesUnlinkedIntoPairs( const DynamicMesh3& mesh, const FMeshBevelProbe& bevel )
     {
-        for ( const MeshBevel::BevelEdge& e : bevel.Edges )
+        for ( const MeshBevel::BevelEdge& e : bevel.m_Edges )
         {
             ASSERT_EQ( static_cast<int32_t>( e.NewMeshEdges.size() ), static_cast<int32_t>( e.MeshEdges.size() ) );
             ASSERT_EQ( static_cast<int32_t>( e.NewMeshVertices.size() ),
@@ -232,7 +232,7 @@ namespace
                 EXPECT_NE( e0, e1 ) << "bevel edge " << e.EdgeIndex;
                 EXPECT_TRUE( mesh.IsBoundaryEdge( e0 ) ) << e0;
                 EXPECT_TRUE( mesh.IsBoundaryEdge( e1 ) ) << e1;
-                const int32_t* partner = FindValue( bevel.MeshEdgePairs, e0 );
+                const int32_t* partner = FindValue( bevel.m_MeshEdgePairs, e0 );
                 ASSERT_NE( partner, nullptr ) << e0;
                 EXPECT_EQ( *partner, e1 );
             }
@@ -247,9 +247,9 @@ namespace
 
     void ExpectPairsSymmetric( const FMeshBevelProbe& bevel )
     {
-        for ( const auto& pair : bevel.MeshEdgePairs )
+        for ( const auto& pair : bevel.m_MeshEdgePairs )
         {
-            const int32_t* back = FindValue( bevel.MeshEdgePairs, pair.second );
+            const int32_t* back = FindValue( bevel.m_MeshEdgePairs, pair.second );
             ASSERT_NE( back, nullptr ) << pair.first << " -> " << pair.second;
             EXPECT_EQ( *back, pair.first );
         }
@@ -257,9 +257,9 @@ namespace
 
     int GroupEdgeBetween( const GroupTopology& topology, int groupA, int groupB )
     {
-        for ( int32_t i = 0; i < static_cast<int32_t>( topology.Edges.size() ); ++i )
+        for ( int32_t i = 0; i < static_cast<int32_t>( topology.m_Edges.size() ); ++i )
         {
-            const Index2i g = topology.Edges[i].Groups;
+            const Index2i g = topology.m_Edges[i].Groups;
             if ( ( g.A == groupA && g.B == groupB ) || ( g.A == groupB && g.B == groupA ) )
                 return i;
         }
@@ -289,10 +289,10 @@ TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
     ASSERT_GE( edge, 0 );
 
     FMeshBevelProbe bevel;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
-    ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 1 );
-    ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 2 );
-    for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.m_FailureReason;
+    ASSERT_EQ( static_cast<int32_t>( bevel.m_Edges.size() ), 1 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.m_Vertices.size() ), 2 );
+    for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
     {
         ASSERT_EQ( v.VertexType, MeshBevel::BevelVertexType::TerminatorVertex ) << v.VertexID;
         ASSERT_EQ( static_cast<int32_t>( v.Wedges.size() ), 2 );
@@ -313,10 +313,10 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
     const GroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-    ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 12 );
-    ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 8 );
-    for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+    ASSERT_EQ( static_cast<int32_t>( bevel.m_Edges.size() ), 12 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.m_Vertices.size() ), 8 );
+    for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
     {
         ASSERT_EQ( v.VertexType, MeshBevel::BevelVertexType::JunctionVertex ) << v.VertexID;
         ASSERT_EQ( static_cast<int32_t>( v.Wedges.size() ), 3 );
@@ -344,7 +344,7 @@ TEST( MeshBevel, UnknownGroupEdgeIsRefusedByName )
     const GroupTopology  topology( &mesh, true );
     FMeshBevelProbe      bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 99 } ) );
-    EXPECT_NE( bevel.FailureReason.find( "group edge 99" ), std::string::npos ) << bevel.FailureReason;
+    EXPECT_NE( bevel.m_FailureReason.find( "group edge 99" ), std::string::npos ) << bevel.m_FailureReason;
 }
 
 TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
@@ -353,9 +353,9 @@ TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
     const GroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
     bevel.Unlink( mesh );
-    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
 
     // each corner splits into its three wedges: 8 + 16, and every face is an island of 4 boundary edges
     EXPECT_EQ( mesh.VertexCount(), 24 );
@@ -366,7 +366,7 @@ TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
         ++boundary;
     }
     EXPECT_EQ( boundary, 24 );
-    EXPECT_EQ( static_cast<int32_t>( bevel.MeshEdgePairs.size() ), 24 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.m_MeshEdgePairs.size() ), 24 );
     ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
     ExpectPairsSymmetric( bevel );
     ExpectPositionsAreCubeCorners( mesh );
@@ -381,9 +381,9 @@ TEST( MeshBevel, UnlinkOneEdgeOpensOneSixEdgeHole )
     ASSERT_GE( edge, 0 );
 
     FMeshBevelProbe bevel;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.m_FailureReason;
     bevel.Unlink( mesh );
-    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
 
     // each terminator splits once; the bevel edge and both cap-face split edges open into pairs
     EXPECT_EQ( mesh.VertexCount(), 10 );
@@ -426,15 +426,15 @@ TEST( MeshBevel, DisplaceAllTwelveEdgesInsetsEveryCornerIntoItsFace )
     const GroupTopology topology( &mesh, true );
 
     FMeshBevelProbe bevel;
-    bevel.InsetDistance = 5.0;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
+    bevel.m_InsetDistance = 5.0;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
     bevel.Unlink( mesh );
     const std::map<int, glm::dvec3> before = Positions( mesh );
     bevel.DisplaceVertices( mesh );
-    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
 
     ExpectEveryVertexInsetIntoItsFace( mesh, before, 5.0 );
-    for ( const MeshBevel::BevelVertex& vertex : bevel.Vertices )
+    for ( const MeshBevel::BevelVertex& vertex : bevel.m_Vertices )
     {
         for ( const MeshBevel::OneRingWedge& wedge : vertex.Wedges )
             EXPECT_TRUE( wedge.bHaveNewPosition ) << "wedge vertex " << wedge.WedgeVertex;
@@ -454,11 +454,11 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
         const GroupTopology topology( &mesh, true );
 
         FMeshBevelProbe bevel;
-        bevel.InsetDistance = 7.0;
-        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 12 );
+        bevel.m_InsetDistance = 7.0;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+        ASSERT_EQ( static_cast<int32_t>( bevel.m_Edges.size() ), 12 );
         int flippedSpans = 0;
-        for ( const MeshBevel::BevelEdge& e : bevel.Edges )
+        for ( const MeshBevel::BevelEdge& e : bevel.m_Edges )
         {
             ASSERT_EQ( static_cast<int32_t>( e.MeshEdges.size() ), n ) << "bevel edge " << e.EdgeIndex;
             std::set<int> firstSides;
@@ -469,19 +469,19 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
         if ( bInterleaved )
             EXPECT_GT( flippedSpans, 0 ) << "the fixture no longer exercises ReconcileTriangleSets";
         bevel.Unlink( mesh );
-        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+        ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
 
         // six islands of (n+1)^2 vertices, each bounded by 4n edges: corners split in three, span interiors in two
         EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) );
         EXPECT_EQ( CountBoundaryEdges( mesh ), 24 * n );
-        EXPECT_EQ( static_cast<int32_t>( bevel.MeshEdgePairs.size() ), 24 * n );
+        EXPECT_EQ( static_cast<int32_t>( bevel.m_MeshEdgePairs.size() ), 24 * n );
         ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
         ExpectPairsSymmetric( bevel );
         EXPECT_TRUE( mesh.CheckValidity( DynamicMesh3::ValidityOptions(), ValidityCheckFailMode::ReturnOnly ) );
 
         const std::map<int, glm::dvec3> before = Positions( mesh );
         bevel.DisplaceVertices( mesh );
-        ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+        ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
         ExpectEveryVertexInsetIntoItsFace( mesh, before, 7.0 );
     }
 }
@@ -494,17 +494,17 @@ TEST( MeshBevel, SubdividedCubeOneEdgeTerminatorsSlideOntoTheirOwnFace )
     ASSERT_GE( edge, 0 );
 
     FMeshBevelProbe bevel;
-    bevel.InsetDistance = 5.0;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
+    bevel.m_InsetDistance = 5.0;
+    ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.m_FailureReason;
     bevel.Unlink( mesh );
-    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
     // the span middle splits once, each terminator once; the hole is the two span pairs plus both cap-face pairs
     EXPECT_EQ( mesh.VertexCount(), 29 );
     EXPECT_EQ( CountBoundaryEdges( mesh ), 8 );
 
     const std::map<int, glm::dvec3> before = Positions( mesh );
     bevel.DisplaceVertices( mesh );
-    ASSERT_TRUE( bevel.FailureReason.empty() ) << bevel.FailureReason;
+    ASSERT_TRUE( bevel.m_FailureReason.empty() ) << bevel.m_FailureReason;
 
     // The beveled edge is x = y = 50 (faces +X, group 1, and +Y, group 3). Every vertex on it moves 5 into the one
     // of those faces it still touches; everything else stays.
@@ -589,7 +589,7 @@ namespace
         if ( mesh.Attributes()->NumUVLayers() == 0 )
             return;
         const DynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
-        for ( const int t : bevel.NewTriangles )
+        for ( const int t : bevel.m_NewTriangles )
         {
             if ( !uvs.IsSetTriangle( t ) )
             {
@@ -618,7 +618,7 @@ namespace
         if ( !mesh.HasAttributes() )
             return;
         const DynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
-        for ( const int t : bevel.NewTriangles )
+        for ( const int t : bevel.m_NewTriangles )
         {
             ASSERT_TRUE( normals.IsSetTriangle( t ) ) << "new triangle " << t;
             const Index3i    elements = normals.GetTriangle( t );
@@ -716,15 +716,15 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
         ExpectClosedSolid( mesh, 1.0e6 );
 
         FMeshBevelProbe bevel;
-        bevel.InsetDistance = 5.0;
-        ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
-        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+        bevel.m_InsetDistance = 5.0;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.m_FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
         ExpectNewTriangleNormals( mesh, bevel );
 
         EXPECT_EQ( Groups( mesh ).size(), 7u );
         ExpectClosedSolid( mesh, 1.0e6 - 100.0 * 12.5 );
-        ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 1 );
-        const MeshBevel::BevelEdge& strip = bevel.Edges[0];
+        ASSERT_EQ( static_cast<int32_t>( bevel.m_Edges.size() ), 1 );
+        const MeshBevel::BevelEdge& strip = bevel.m_Edges[0];
         EXPECT_EQ( static_cast<int32_t>( strip.StripQuads.size() ), n );
         for ( const int t : mesh.TriangleIndicesItr() )
         {
@@ -738,7 +738,7 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
                 EXPECT_NEAR( std::hypot( p.x - 50.0, p.y - 50.0 ), 5.0, 1e-9 ) << "strip vertex " << tri[j];
             }
         }
-        for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
         {
             ASSERT_EQ( v.VertexType, MeshBevel::BevelVertexType::TerminatorVertex );
             EXPECT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 ) << "terminator " << v.VertexID;
@@ -764,16 +764,16 @@ TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
         const GroupTopology topology( &mesh, true );
 
         FMeshBevelProbe bevel;
-        bevel.InsetDistance = 5.0;
-        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+        bevel.m_InsetDistance = 5.0;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
         ExpectNewTriangleNormals( mesh, bevel );
 
         EXPECT_EQ( Groups( mesh ).size(), 26u );
         EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) );
         EXPECT_EQ( mesh.TriangleCount(), 12 * n * n + 12 * 2 * n + 8 );
         ExpectClosedSolid( mesh, 1.0e6 - 8.0 * ( 625.0 + 1125.0 + 125.0 / 3.0 ) );
-        for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
         {
             EXPECT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 ) << "junction " << v.VertexID;
             ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 );
@@ -800,21 +800,21 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
         const GroupTopology  topology( &mesh, true );
         FMeshBevelProbe      bevel;
         bevel.m_MaterialIDMode      = mode;
-        bevel.SetConstantMaterialID = 7;
+        bevel.m_SetConstantMaterialID = 7;
         ASSERT_TRUE(
              bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
-             << bevel.FailureReason;
-        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
-        EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 4 );
+             << bevel.m_FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
+        EXPECT_EQ( static_cast<int32_t>( bevel.m_NewTriangles.size() ), 4 );
         ExpectNewTriangleNormals( mesh, bevel );
 
         const int stripMaterial = mode == EMode::InferMaterialID ? 10 : 7;
-        for ( const Index2i& quad : bevel.Edges[0].StripQuads )
+        for ( const Index2i& quad : bevel.m_Edges[0].StripQuads )
         {
             EXPECT_EQ( Material( mesh, quad.A ), stripMaterial );
             EXPECT_EQ( Material( mesh, quad.B ), stripMaterial );
         }
-        for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
         {
             const int capMaterial =
                  mode == EMode::ConstantMaterialID ? 7 : CapMaterial( mesh.GetVertex( v.VertexID ) );
@@ -832,10 +832,10 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
     const GroupTopology  topology( &mesh, true );
     FMeshBevelProbe      bevel;
     bevel.m_MaterialIDMode = MeshBevel::MaterialIDMode::InferMaterialID;
-    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
-    EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 8 + 12 * 2 );
-    for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+    ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
+    EXPECT_EQ( static_cast<int32_t>( bevel.m_NewTriangles.size() ), 8 + 12 * 2 );
+    for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
     {
         const int gx = mesh.GetVertex( v.VertexID ).x > 0.0 ? 1 : 2;
         EXPECT_EQ( Material( mesh, v.NewTriangles[0] ), 10 * gx ) << "junction " << v.VertexID;
@@ -849,13 +849,13 @@ TEST( MeshBevel, ApplyAfterRefusedInitializationReturnsFalse )
     const GroupTopology topology( &mesh, true );
     MeshBevel           bevel;
     EXPECT_FALSE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { 999 } ) );
-    const std::string reason = bevel.FailureReason;
+    const std::string reason = bevel.m_FailureReason;
     ASSERT_FALSE( reason.empty() );
     EXPECT_FALSE( bevel.Apply( mesh ) );
-    EXPECT_EQ( bevel.FailureReason, reason );
+    EXPECT_EQ( bevel.m_FailureReason, reason );
     EXPECT_EQ( mesh.VertexCount(), 8 );
     EXPECT_EQ( mesh.TriangleCount(), 12 );
-    EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 0 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.m_NewTriangles.size() ), 0 );
 }
 
 // Top (group 1), sides (group 2), bottom (group 3): the two group edges are closed loops without a corner, so they
@@ -881,16 +881,16 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
         const GroupTopology  topology( &mesh, true );
         FMeshBevelProbe      bevel;
         bevel.m_MaterialIDMode = MeshBevel::MaterialIDMode::InferMaterialID;
-        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        ASSERT_EQ( static_cast<int32_t>( bevel.Loops.size() ), 2 );
-        EXPECT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 0 );
-        EXPECT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 0 );
-        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+        ASSERT_EQ( static_cast<int32_t>( bevel.m_Loops.size() ), 2 );
+        EXPECT_EQ( static_cast<int32_t>( bevel.m_Edges.size() ), 0 );
+        EXPECT_EQ( static_cast<int32_t>( bevel.m_Vertices.size() ), 0 );
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
 
         EXPECT_EQ( Groups( mesh ).size(), 5u );
         ExpectClosedSolid( mesh, 1.0e6 - 2.0 * ( 5000.0 - 500.0 / 3.0 ) );
         ExpectNewTriangleNormals( mesh, bevel, false );
-        for ( const MeshBevel::BevelLoop& loop : bevel.Loops )
+        for ( const MeshBevel::BevelLoop& loop : bevel.m_Loops )
         {
             EXPECT_EQ( static_cast<int32_t>( loop.StripQuads.size() ), 4 * n );
             // top loop: sides 20 against top 10; bottom loop: sides 20 against bottom 30
@@ -913,20 +913,20 @@ TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
     FMeshBevelProbe      bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges(
          mesh, topology, { GroupEdgeBetween( topology, 1, 3 ), GroupEdgeBetween( topology, 2, 4 ) } ) )
-         << bevel.FailureReason;
-    ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 4 );
-    for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+         << bevel.m_FailureReason;
+    ASSERT_EQ( static_cast<int32_t>( bevel.m_Vertices.size() ), 4 );
+    for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
     {
         ASSERT_EQ( v.VertexType, MeshBevel::BevelVertexType::TerminatorVertex );
         EXPECT_GE( v.ConnectedBevelVertex, 0 ) << "terminator " << v.VertexID;
     }
-    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
 
     EXPECT_EQ( Groups( mesh ).size(), 8u );
-    EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 2 * 2 + 2 * 2 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.m_NewTriangles.size() ), 2 * 2 + 2 * 2 );
     ExpectClosedSolid( mesh, 1.0e6 - 2.0 * 100.0 * 12.5 );
     ExpectNewTriangleNormals( mesh, bevel );
-    for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+    for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
     {
         ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 );
         EXPECT_EQ( mesh.GetTriangleGroup( v.NewTriangles[0] ), mesh.GetVertex( v.VertexID ).z > 0.0 ? 5 : 6 );
@@ -949,13 +949,13 @@ TEST( MeshBevel, ApplyTerminatorOnATiltedCapStaysOnTheInsetLines )
     const GroupTopology  topology( &mesh, true );
     FMeshBevelProbe      bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
-         << bevel.FailureReason;
-    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+         << bevel.m_FailureReason;
+    ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
 
     EXPECT_EQ( Groups( mesh ).size(), 7u );
     ExpectClosedSolid( mesh, 1.0e6 - 12.5 * ( 100.0 + 0.5 * ( 50.0 - 5.0 / 3.0 ) ) );
     ExpectNewTriangleNormals( mesh, bevel );
-    for ( const Index2i& quad : bevel.Edges[0].StripQuads )
+    for ( const Index2i& quad : bevel.m_Edges[0].StripQuads )
     {
         for ( const int t : { quad.A, quad.B } )
         {
@@ -1001,7 +1001,7 @@ namespace
         MeshBevel           bevel;
         if ( !bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) || !bevel.Apply( mesh ) )
         {
-            ADD_FAILURE() << bevel.FailureReason;
+            ADD_FAILURE() << bevel.m_FailureReason;
             return 0.0;
         }
         return SignedVolume( mesh );
@@ -1019,10 +1019,10 @@ TEST( MeshBevel, MultiSegmentAllTwelveEdgesKeepsTheChamferVolume )
             DynamicMesh3         mesh = TangentCube( n );
             const GroupTopology  topology( &mesh, true );
             FMeshBevelProbe      bevel;
-            bevel.InsetDistance   = 5.0;
-            bevel.NumSubdivisions = N;
-            ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+            bevel.m_InsetDistance   = 5.0;
+            bevel.m_NumSubdivisions = N;
+            ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
             ExpectNewTriangleNormals( mesh, bevel );
 
             EXPECT_EQ( Groups( mesh ).size(), 26u );
@@ -1031,9 +1031,9 @@ TEST( MeshBevel, MultiSegmentAllTwelveEdgesKeepsTheChamferVolume )
             EXPECT_EQ( mesh.VertexCount(),
                        6 * ( n + 1 ) * ( n + 1 ) + 12 * ( n + 1 ) * N + 8 * N * ( N - 1 ) / 2 );
             ExpectClosedSolid( mesh, 1.0e6 - 8.0 * ( 625.0 + 1125.0 + 125.0 / 3.0 ) );
-            for ( const MeshBevel::BevelEdge& edge : bevel.Edges )
+            for ( const MeshBevel::BevelEdge& edge : bevel.m_Edges )
                 ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
-            for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+            for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
             {
                 ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), ( N + 1 ) * ( N + 1 ) )
                      << "junction " << v.VertexID;
@@ -1078,16 +1078,16 @@ TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
                 DynamicMesh3         mesh     = base;
                 const GroupTopology  topology( &mesh, true );
                 FMeshBevelProbe      bevel;
-                bevel.NumSubdivisions = N;
+                bevel.m_NumSubdivisions = N;
                 ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, c.GroupEdges ) )
-                     << bevel.FailureReason;
-                ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+                     << bevel.m_FailureReason;
+                ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
                 ExpectClosedSolid( mesh, expected );
                 ExpectNewTriangleNormals( mesh, bevel );
-                for ( const MeshBevel::BevelEdge& edge : bevel.Edges )
+                for ( const MeshBevel::BevelEdge& edge : bevel.m_Edges )
                     ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
                 int terminatorTriangles = 0;
-                for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+                for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
                     terminatorTriangles += static_cast<int32_t>( v.NewTriangles.size() );
                 EXPECT_EQ( terminatorTriangles, c.TerminatorTrianglesPerSegment * ( N + 1 ) );
             }
@@ -1127,16 +1127,16 @@ TEST( MeshBevel, MultiSegmentTopLoopKeepsTheChamferVolume )
                 mesh.SetTriangleGroup( t, t / ( 2 * n * n ) == 4 ? 1 : 2 );
             const GroupTopology  topology( &mesh, true );
             FMeshBevelProbe      bevel;
-            bevel.InsetDistance   = 5.0;
-            bevel.NumSubdivisions = N;
-            ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-            ASSERT_EQ( static_cast<int32_t>( bevel.Loops.size() ), 1 );
-            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+            bevel.m_InsetDistance   = 5.0;
+            bevel.m_NumSubdivisions = N;
+            ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.m_FailureReason;
+            ASSERT_EQ( static_cast<int32_t>( bevel.m_Loops.size() ), 1 );
+            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
             ExpectClosedSolid( mesh, TopFaceChamferVolume( 5.0 ) );
             ExpectNewTriangleNormals( mesh, bevel, false );
             ExpectAllTrianglesOutward( mesh );
             EXPECT_EQ( Groups( mesh ).size(), 3u );
-            ExpectEvenStripColumns( mesh, bevel.Loops[0].StripQuadPatch, N );
+            ExpectEvenStripColumns( mesh, bevel.m_Loops[0].StripQuadPatch, N );
         }
     }
 }
@@ -1161,22 +1161,22 @@ TEST( MeshBevel, MultiSegmentTopFourEdgesKeepTheChamferVolume )
             DynamicMesh3         mesh = base;
             const GroupTopology  topology( &mesh, true );
             FMeshBevelProbe      bevel;
-            bevel.InsetDistance   = 5.0;
-            bevel.NumSubdivisions = N;
+            bevel.m_InsetDistance   = 5.0;
+            bevel.m_NumSubdivisions = N;
             ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) )
-                 << bevel.FailureReason;
-            ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 4 );
-            ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 4 );
-            for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+                 << bevel.m_FailureReason;
+            ASSERT_EQ( static_cast<int32_t>( bevel.m_Edges.size() ), 4 );
+            ASSERT_EQ( static_cast<int32_t>( bevel.m_Vertices.size() ), 4 );
+            for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
             {
                 EXPECT_EQ( v.VertexType, MeshBevel::BevelVertexType::JunctionVertex ) << "vertex " << v.VertexID;
                 EXPECT_EQ( static_cast<int32_t>( v.Wedges.size() ), 2 ) << "vertex " << v.VertexID;
             }
-            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+            ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
             ExpectClosedSolid( mesh, TopFaceChamferVolume( 5.0 ) );
             ExpectNewTriangleNormals( mesh, bevel );
             ExpectAllTrianglesOutward( mesh );
-            for ( const MeshBevel::BevelEdge& edge : bevel.Edges )
+            for ( const MeshBevel::BevelEdge& edge : bevel.m_Edges )
                 ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
         }
     }
@@ -1201,11 +1201,12 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
              GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
              GroupEdgeBetween( topology, 10, 9 ), GroupEdgeBetween( topology, 9, 7 ) };
         FMeshBevelProbe bevel;
-        bevel.InsetDistance   = 5.0;
-        bevel.NumSubdivisions = N;
-        ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) ) << bevel.FailureReason;
+        bevel.m_InsetDistance   = 5.0;
+        bevel.m_NumSubdivisions = N;
+        ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) )
+             << bevel.m_FailureReason;
         int junctions = 0;
-        for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
         {
             if ( v.VertexType != MeshBevel::BevelVertexType::JunctionVertex )
                 continue;
@@ -1214,10 +1215,10 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
             EXPECT_NEAR( Distance( mesh.GetVertex( v.VertexID ), glm::dvec3( 0, 0, 50 ) ), 0.0, 1e-9 );
         }
         EXPECT_EQ( junctions, 1 );
-        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
+        ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.m_FailureReason;
         ExpectClosedSolid( mesh, 1.0e6 );
         // the centre polygon: an (N + 1) x (N + 1) quad grid
-        for ( const MeshBevel::BevelVertex& v : bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : bevel.m_Vertices )
             if ( v.VertexType == MeshBevel::BevelVertexType::JunctionVertex )
                 EXPECT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 2 * ( N + 1 ) * ( N + 1 ) );
         ExpectNewTriangleNormals( mesh, bevel );
@@ -1242,13 +1243,13 @@ namespace
     void RunRound( FRoundRun& run, const std::vector<int32_t>& groupEdges, int subdivisions, double roundWeight )
     {
         const GroupTopology topology( &run.Mesh, true );
-        run.Bevel.InsetDistance   = 5.0;
-        run.Bevel.NumSubdivisions = subdivisions;
-        run.Bevel.RoundWeight     = roundWeight;
+        run.Bevel.m_InsetDistance   = 5.0;
+        run.Bevel.m_NumSubdivisions = subdivisions;
+        run.Bevel.m_RoundWeight     = roundWeight;
         ASSERT_TRUE( groupEdges.empty()
                           ? run.Bevel.InitializeFromGroupTopology( run.Mesh, topology )
                           : run.Bevel.InitializeFromGroupTopologyEdges( run.Mesh, topology, groupEdges ) )
-             << run.Bevel.FailureReason;
+             << run.Bevel.m_FailureReason;
         run.bApplied = run.Bevel.Apply( run.Mesh );
     }
 
@@ -1289,10 +1290,10 @@ TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
         SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
         FRoundRun run{ base };
         RunRound( run, groupEdges, N, 1.0 );
-        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
         EXPECT_TRUE( run.Mesh.CheckValidity() );
-        const MeshBevel::BevelEdge&   edge  = run.Bevel.Edges[0];
+        const MeshBevel::BevelEdge&   edge  = run.Bevel.m_Edges[0];
         const glm::dvec3              e0    = edge.InitialPositions[0];
         const glm::dvec3              dir   = Normalized( edge.InitialPositions.back() - e0 );
         const QuadGridPatch&          patch = edge.StripQuadPatch;
@@ -1334,8 +1335,8 @@ TEST( MeshBevel, RoundTopLoopLiesBetweenChamferAndCube )
         for ( const int t : run.Mesh.TriangleIndicesItr() )
             run.Mesh.SetTriangleGroup( t, t / 2 == 4 ? 1 : 2 );
         RunRound( run, {}, N, 1.0 );
-        ASSERT_EQ( static_cast<int32_t>( run.Bevel.Loops.size() ), 1 );
-        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        ASSERT_EQ( static_cast<int32_t>( run.Bevel.m_Loops.size() ), 1 );
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
         EXPECT_TRUE( run.Mesh.CheckValidity() );
         const double volume = SignedVolume( run.Mesh );
@@ -1368,11 +1369,11 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
              GroupEdgeBetween( topology, 8, 10 ), GroupEdgeBetween( topology, 9, 10 ) };
         const double chamfer = ChamferVolume( run.Mesh, groupEdges );
         RunRound( run, groupEdges, N, 1.0 );
-        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
         EXPECT_TRUE( run.Mesh.CheckValidity() );
         int patches = 0;
-        for ( const MeshBevel::BevelVertex& v : run.Bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
         {
             if ( v.VertexType != MeshBevel::BevelVertexType::JunctionVertex )
                 continue;
@@ -1416,7 +1417,7 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
     const DynamicMesh3   base = TangentCube( 1 );
     const GroupTopology  baseTopology( &base, true );
     std::vector<int32_t> allEdges;
-    for ( int e = 0; e < static_cast<int32_t>( baseTopology.Edges.size() ); ++e )
+    for ( int e = 0; e < static_cast<int32_t>( baseTopology.m_Edges.size() ); ++e )
         allEdges.push_back( e );
     ASSERT_EQ( static_cast<int32_t>( allEdges.size() ), 12 );
     const double chamfer = ChamferVolume( base, allEdges );
@@ -1431,11 +1432,11 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
         SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
         FRoundRun run{ base };
         RunRound( run, allEdges, N, 1.0 );
-        ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+        ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
         EXPECT_TRUE( run.Mesh.CheckValidity() );
         int patches = 0;
-        for ( const MeshBevel::BevelVertex& v : run.Bevel.Vertices )
+        for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
         {
             if ( v.VertexType != MeshBevel::BevelVertexType::JunctionVertex )
                 continue;
@@ -1562,13 +1563,13 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
             RunRound( run, lateral, N, 1.0 );
             RunRound( flat, lateral, N, 0.0 );
             RunRound( tiny, lateral, N, 1e-9 );
-            ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
-            ASSERT_TRUE( flat.bApplied && tiny.bApplied ) << flat.Bevel.FailureReason;
+            ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
+            ASSERT_TRUE( flat.bApplied && tiny.bApplied ) << flat.Bevel.m_FailureReason;
             ExpectSameVertices( flat.Mesh, tiny.Mesh );
             EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
             EXPECT_TRUE( run.Mesh.CheckValidity() );
             const MeshBevel::BevelVertex* apex = nullptr;
-            for ( const MeshBevel::BevelVertex& v : run.Bevel.Vertices )
+            for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
             {
                 if ( v.VertexType == MeshBevel::BevelVertexType::JunctionVertex )
                     apex = &v;
@@ -1657,9 +1658,9 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
         groupEdges.push_back( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
     FRoundRun run{ fan };
     RunRound( run, groupEdges, 2, 1.0 );
-    ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+    ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
     int patches = 0;
-    for ( const MeshBevel::BevelVertex& v : run.Bevel.Vertices )
+    for ( const MeshBevel::BevelVertex& v : run.Bevel.m_Vertices )
     {
         if ( v.VertexType != MeshBevel::BevelVertexType::JunctionVertex ||
              static_cast<int32_t>( v.Wedges.size() ) != 5 )
@@ -1685,7 +1686,7 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
             SCOPED_TRACE( "N " + std::to_string( N ) + " RoundWeight " + std::to_string( w ) );
             FRoundRun cut{ fan };
             RunRound( cut, groupEdges, N, w );
-            ASSERT_TRUE( cut.bApplied ) << cut.Bevel.FailureReason;
+            ASSERT_TRUE( cut.bApplied ) << cut.Bevel.m_FailureReason;
             for ( const int vid : cut.Mesh.VertexIndicesItr() )
             {
                 const glm::dvec3 p = cut.Mesh.GetVertex( vid );
@@ -1730,23 +1731,23 @@ TEST( MeshBevel, RoundWeightZeroIsTheFlatProfileBitExact )
         FRoundRun reference{ TangentCube( 2 ) };
         {
             const GroupTopology topology( &reference.Mesh, true );
-            reference.Bevel.InsetDistance   = 5.0;
-            reference.Bevel.NumSubdivisions = N;
+            reference.Bevel.m_InsetDistance   = 5.0;
+            reference.Bevel.m_NumSubdivisions = N;
             ASSERT_TRUE( reference.Bevel.InitializeFromGroupTopology( reference.Mesh, topology ) );
-            ASSERT_TRUE( reference.Bevel.Apply( reference.Mesh ) ) << reference.Bevel.FailureReason;
+            ASSERT_TRUE( reference.Bevel.Apply( reference.Mesh ) ) << reference.Bevel.m_FailureReason;
         }
         for ( const double w : { 0.0, 1e-9 } )
         {
             FRoundRun run{ TangentCube( 2 ) };
             RunRound( run, {}, N, w );
-            ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+            ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
             ExpectSameVertices( reference.Mesh, run.Mesh );
         }
         if ( N == 0 )
         {
             FRoundRun run{ TangentCube( 2 ) };
             RunRound( run, {}, 0, 1.0 );
-            ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
+            ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
             ExpectSameVertices( reference.Mesh, run.Mesh );
         }
     }

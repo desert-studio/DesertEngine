@@ -90,27 +90,27 @@ bool EdgeLoop::IsBoundaryLoop( const DynamicMesh3& Mesh ) const
 
 MeshRegionBoundaryLoops::MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, const std::vector<int>& RegionTris,
                                                   bool bAutoCompute )
-     : Mesh( MeshIn )
+     : m_Mesh( MeshIn )
 {
-    Triangles.assign( Mesh->MaxTriangleID(), false );
+    m_Triangles.assign( m_Mesh->MaxTriangleID(), false );
     for ( int Tid : RegionTris )
     {
-        Triangles[Tid] = true;
+        m_Triangles[Tid] = true;
     }
-    Edges.assign( Mesh->MaxEdgeID(), false );
+    m_Edges.assign( m_Mesh->MaxEdgeID(), false );
     for ( int Tid : RegionTris )
     {
-        const Index3i Te = Mesh->GetTriEdges( Tid );
+        const Index3i Te = m_Mesh->GetTriEdges( Tid );
         for ( int j = 0; j < 3; ++j )
         {
             const int Eid = Te[j];
-            if ( !Edges[Eid] )
+            if ( !m_Edges[Eid] )
             {
-                const Index2i Et = Mesh->GetEdgeT( Eid );
-                if ( Et.B == IndexConstants::InvalidID || Triangles[Et.A] != Triangles[Et.B] )
+                const Index2i Et = m_Mesh->GetEdgeT( Eid );
+                if ( Et.B == IndexConstants::InvalidID || m_Triangles[Et.A] != m_Triangles[Et.B] )
                 {
-                    EdgesRoi.push_back( Eid );
-                    Edges[Eid] = true;
+                    m_EdgesRoi.push_back( Eid );
+                    m_Edges[Eid] = true;
                 }
             }
         }
@@ -123,13 +123,13 @@ MeshRegionBoundaryLoops::MeshRegionBoundaryLoops( const DynamicMesh3* MeshIn, co
 
 bool MeshRegionBoundaryLoops::Compute()
 {
-    bFailed = false;
-    FailureReason.clear();
-    Loops.resize( 0 );
+    m_bFailed = false;
+    m_FailureReason.clear();
+    m_Loops.resize( 0 );
 
     std::vector<bool> UsedEdge;
-    UsedEdge.assign( Mesh->MaxEdgeID(), false );
-    for ( int Eid : EdgesRoi )
+    UsedEdge.assign( m_Mesh->MaxEdgeID(), false );
+    for ( int Eid : m_EdgesRoi )
     {
         if ( UsedEdge[Eid] || !IsEdgeOnBoundary( Eid ) )
         {
@@ -157,7 +157,7 @@ bool MeshRegionBoundaryLoops::Compute()
             }
             else
             {
-                const Index2i Ev  = Mesh->GetEdgeV( ECur );
+                const Index2i Ev  = m_Mesh->GetEdgeV( ECur );
                 CurA              = EFirstVert;
                 CurB              = Ev.A == CurA ? Ev.B : Ev.A;
             }
@@ -167,10 +167,10 @@ bool MeshRegionBoundaryLoops::Compute()
             const int BdryNbrs = GetVertexBoundaryEdges( CurB, E0, E1 );
             if ( BdryNbrs != 2 )
             {
-                bFailed       = true;
-                FailureReason = "region boundary vertex " + std::to_string( CurB ) + " has " +
-                                std::to_string( BdryNbrs ) +
-                                " region-boundary edges (2 expected; bowties are refused)";
+                m_bFailed       = true;
+                m_FailureReason = "region boundary vertex " + std::to_string( CurB ) + " has " +
+                                  std::to_string( BdryNbrs ) +
+                                  " region-boundary edges (2 expected; bowties are refused)";
                 return false;
             }
             const int ENext = ( E0 == ECur ) ? E1 : E0;
@@ -187,27 +187,27 @@ bool MeshRegionBoundaryLoops::Compute()
             }
             EFirstVert = CurB;
         }
-        Loops.push_back( std::move( Loop ) );
+        m_Loops.push_back( std::move( Loop ) );
     }
-    return !bFailed;
+    return !m_bFailed;
 }
 
 bool MeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut ) const
 {
-    if ( !Edges[Eid] )
+    if ( !m_Edges[Eid] )
     {
         return false;
     }
     TidIn             = IndexConstants::InvalidID;
     TidOut            = IndexConstants::InvalidID;
-    const Index2i Et  = Mesh->GetEdgeT( Eid );
+    const Index2i Et  = m_Mesh->GetEdgeT( Eid );
     if ( Et.B == IndexConstants::InvalidID )
     {
         TidIn = Et.A;
         return true;
     }
-    const bool In0 = Triangles[Et.A];
-    const bool In1 = Triangles[Et.B];
+    const bool In0 = m_Triangles[Et.A];
+    const bool In1 = m_Triangles[Et.B];
     if ( In0 != In1 )
     {
         TidIn  = In0 ? Et.A : Et.B;
@@ -219,8 +219,8 @@ bool MeshRegionBoundaryLoops::IsEdgeOnBoundary( int Eid, int& TidIn, int& TidOut
 
 Index2i MeshRegionBoundaryLoops::GetOrientedEdgeVerts( int Eid, int TidIn ) const
 {
-    const Index2i  Ev  = Mesh->GetEdgeV( Eid );
-    const Index3i  Tri = Mesh->GetTriangle( TidIn );
+    const Index2i  Ev  = m_Mesh->GetEdgeV( Eid );
+    const Index3i  Tri = m_Mesh->GetTriangle( TidIn );
     const int      Ai  = IndexUtil::FindEdgeIndexInTri( Ev.A, Ev.B, Tri );
     return Index2i( Tri[Ai], Tri[( Ai + 1 ) % 3] );
 }
@@ -228,7 +228,7 @@ Index2i MeshRegionBoundaryLoops::GetOrientedEdgeVerts( int Eid, int TidIn ) cons
 int MeshRegionBoundaryLoops::GetVertexBoundaryEdges( int Vid, int& E0, int& E1 ) const
 {
     int Count = 0;
-    for ( int Eid : Mesh->VtxEdgesItr( Vid ) )
+    for ( int Eid : m_Mesh->VtxEdgesItr( Vid ) )
     {
         if ( IsEdgeOnBoundary( Eid ) )
         {
@@ -264,7 +264,7 @@ bool MeshRegionBoundaryLoops::GetLoopOverlayMap( const EdgeLoop&                
             return false;
         }
 
-        const Index3i  TriangleVerts = Mesh->GetTriangle( TidInside );
+        const Index3i  TriangleVerts = m_Mesh->GetTriangle( TidInside );
         const int32_t  VidTriIndex   = TriangleVerts.IndexOf( Vid );
         if ( VidTriIndex < 0 )
         {

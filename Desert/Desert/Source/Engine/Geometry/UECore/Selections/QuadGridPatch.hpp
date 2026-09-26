@@ -19,27 +19,27 @@ namespace Desert::Geometry
     class QuadGridPatch
     {
     public:
-        int NumVertexColsU = 0;
-        int NumVertexRowsV = 0;
+        int m_NumVertexColsU = 0;
+        int m_NumVertexRowsV = 0;
 
         /** NumVertexRowsV rows of NumVertexColsU VertexIDs, may contain repeated element if the patch forms a loop
          */
-        std::vector<std::vector<int32_t>> VertexSpans;
+        std::vector<std::vector<int32_t>> m_VertexSpans;
 
         /** Quads stored as pairs of triangle indices, (NumVertexRowsV-1) rows of (NumVertexColsU-1) */
-        std::vector<std::vector<Index2i>> QuadTriangles;
+        std::vector<std::vector<Index2i>> m_QuadTriangles;
 
         [[nodiscard]] int NumVertexCols() const
         {
-            return NumVertexColsU;
+            return m_NumVertexColsU;
         }
         [[nodiscard]] int NumVertexRows() const
         {
-            return NumVertexRowsV;
+            return m_NumVertexRowsV;
         }
         [[nodiscard]] bool IsEmpty() const
         {
-            return NumVertexColsU == 0 || NumVertexRowsV == 0;
+            return m_NumVertexColsU == 0 || m_NumVertexRowsV == 0;
         }
 
         /**

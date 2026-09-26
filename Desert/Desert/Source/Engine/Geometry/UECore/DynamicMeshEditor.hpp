@@ -50,9 +50,9 @@ namespace Desert::Geometry
     class DynamicMeshEditor
     {
     public:
-        DynamicMesh3* Mesh;
+        DynamicMesh3* m_Mesh;
 
-        explicit DynamicMeshEditor( DynamicMesh3* MeshIn ) : Mesh( MeshIn )
+        explicit DynamicMeshEditor( DynamicMesh3* MeshIn ) : m_Mesh( MeshIn )
         {
         }
 
