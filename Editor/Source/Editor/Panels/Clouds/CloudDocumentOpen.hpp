@@ -78,9 +78,9 @@ namespace Desert::Editor
         auto asset = assetManager->FindByPath<AssetT>( assetPath );
         if ( !asset )
         {
-            // First time anything asked for this file. The preloaders have already registered everything
-            // under Resources/Assets/Clouds/, so this is the path an artist reaches by saving a cloud asset
-            // somewhere else and then double-clicking it.
+            // First time anything asked for this file. Noise volumes, hero-cloud bodies and painted layouts
+            // have no boot stage (AL1-2): their shells exist only once a scene or a window has named them,
+            // so this is the ordinary path from the Content Browser, not an exception to it.
             asset = assetManager->CreateAsset<AssetT>( Assets::AssetPriority::Medium, assetPath );
         }
 

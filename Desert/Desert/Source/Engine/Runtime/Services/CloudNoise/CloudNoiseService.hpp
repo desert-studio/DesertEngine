@@ -5,6 +5,8 @@
 #include <Engine/Assets/CloudNoiseVolumeAsset.hpp>
 #include <Engine/Graphic/Image.hpp>
 
+#include <Engine/Assets/AssetManager.hpp>
+
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -49,6 +51,8 @@ namespace Desert::Runtime
     class CloudNoiseService
     {
     public:
+        // The manager Resolve creates on-demand shells in, from their content-registry rows (AL1-2).
+        void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
         /// THE PROJECT HAS THIS VOLUME. Records the handle, the path and the (unread) asset; touches no
         /// file and no device. This is what the preloader's directory walk does now, and it is why the
         /// walk still costs the handle->path index its 368 entries while costing the boot nothing.
@@ -128,5 +132,9 @@ namespace Desert::Runtime
         /// Handles already named in a "referenced but not announced" error. One line per bad reference,
         /// not one per frame.
         std::unordered_set<Assets::AssetHandle> m_ReportedMissing;
+        // Creates and announces the shell of a handle nothing announced; false = logged and recorded.
+        bool                                Discover( const Assets::AssetHandle& handle );
+        std::weak_ptr<Assets::AssetManager> m_Assets;
+        bool                                m_DefaultSought = false;
     };
 } // namespace Desert::Runtime

@@ -487,6 +487,107 @@ namespace Desert::Assets
             state.Dirty = true;
         }
 
+        // ONE ROW AS A PICKER READS IT — what the editor's asset lists enumerate instead of the objects the
+        // preloader happened to create. Reading it creates nothing and loads nothing: this is UE's
+        // `IAssetRegistry::GetAssetsByClass` returning FAssetData, not UObjects, and it is what lets the
+        // preloader be removed later without every dropdown in the editor going empty at the same time.
+        struct PickerRow
+        {
+            Common::AssetHandle                       Handle; // the number the engine knows the file by
+            std::string                               Key;    // the stable key, `root:relative/path`
+            std::filesystem::path                     Path;   // the key expanded on THIS machine
+            std::optional<Common::Content::AssetGuid> Guid;   // the header's GUID, when the file states one
+            // The Name tag: what the file states as its display name, read by the scan without loading it;
+            // empty when the file states none (then a list shows the stem, as the asset itself does).
+            std::string DisplayName;
+            bool        Skinned = false; // the Skinned tag: a mesh whose header flags a skeleton
+        };
+
+        // The rows of one kind in registry order — the SAME order `FilesOfKind` hands the preloader, so a
+        // list built from these is the list the loaded shells used to produce, entry for entry.
+        inline std::vector<PickerRow> Rows( Common::Content::ContentKind kind )
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            std::vector<PickerRow> rows;
+            for ( const Common::Utils::AssetRegistryEntry* row :
+                  state.Registry.OfKind( Common::Content::KindName( kind ) ) )
+            {
+                rows.push_back( { Common::AssetHandle( row->EffectiveHandle() ), row->Key,
+                                  Common::AssetHandle::PathForStableKey( row->Key ), row->Guid, row->DisplayName,
+                                  row->Skinned } );
+            }
+            return rows;
+        }
+
+        // THE ROW OF ONE REFERENCE, AS A KIND: what an on-demand service asks before it creates anything. The
+        // registry's handle lookup also answers for the GUID fold (`HandleForGuid`), which is the number every
+        // GUID-identified kind is referenced by; a row of ANOTHER kind under the same number is refused here,
+        // because creating a noise volume from a layout's file would be a load error blamed on the wrong file.
+        inline std::optional<PickerRow> RowOf( Common::Content::ContentKind kind, uint64_t handle )
+        {
+            Detail::State& state = Detail::Get_();
+
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+
+            const Common::Utils::AssetRegistryEntry* row = state.Registry.FindByHandle( handle );
+            if ( !row || row->Kind != Common::Content::KindName( kind ) )
+                return std::nullopt;
+            return PickerRow{ Common::AssetHandle( row->EffectiveHandle() ),
+                              row->Key,
+                              Common::AssetHandle::PathForStableKey( row->Key ),
+                              row->Guid,
+                              row->DisplayName,
+                              row->Skinned };
+        }
+
+        // THE MESH PICKERS' ROWS, split by the Skinned tag and not by extension (UE filters FAssetData by its
+        // tags the same way): every mesh row of both mesh kinds whose header does (`skinned`) or does not flag
+        // a skeleton. The header is read at scan time, so a mesh nobody has loaded is on the right list — the
+        // loaded-object filter this replaces put unloaded skinned meshes on the static list.
+        inline std::vector<PickerRow> MeshRows( bool skinned )
+        {
+            std::vector<PickerRow> rows;
+            for ( const Common::Content::ContentKind kind :
+                  { Common::Content::ContentKind::StaticMesh, Common::Content::ContentKind::SkinnedMesh } )
+            {
+                for ( PickerRow& row : Rows( kind ) )
+                {
+                    if ( row.Skinned == skinned )
+                        rows.push_back( std::move( row ) );
+                }
+            }
+            return rows;
+        }
+
+        // ONE FILE CHANGED ON DISK — appeared, was rewritten or went away — and the registry follows it
+        // without a walk. Called by the editor's hot reload for exactly the files it saw move; the full
+        // `Refresh` remains the safety net for what arrived while nobody was looking. A file that is not a
+        // census kind is ignored, the same way `NoteFile` ignores it.
+        inline void Update( const std::filesystem::path& file )
+        {
+            if ( !KindForFile( file ) )
+                return;
+
+            std::error_code ec;
+            if ( std::filesystem::exists( file, ec ) )
+            {
+                NoteFile( file );
+                return;
+            }
+
+            const std::string key = Common::AssetHandle::StableKeyForPath( file );
+            if ( key.empty() )
+                return;
+
+            Detail::State&                    state = Detail::Get_();
+            const std::lock_guard<std::mutex> lock( state.Mutex );
+            if ( state.Registry.Remove( key ) )
+                state.Dirty = true;
+        }
+
         // Records the box `file` occupies around its own origin — the mesh cook's statement at the moment
         // it writes a `.stmesh` / `.skmesh`, which is the one time the cook holds the geometry. Called after
         // `NoteFile`, which is what gives the file its row; a file with no row is not content and gets no box.

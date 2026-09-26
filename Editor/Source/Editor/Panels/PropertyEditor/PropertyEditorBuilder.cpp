@@ -43,6 +43,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -894,12 +895,14 @@ namespace Desert::Editor
                         }
                         if ( assetMgr )
                         {
-                            for ( const auto& [h, theme] : assetMgr->FindAllByType<Assets::UIThemeAsset>() )
+                            for ( const auto& row :
+                                  Assets::ContentRegistry::Rows( Common::Content::ContentKind::UITheme ) )
                             {
-                                const bool selected = ( static_cast<uint64_t>( h ) == *themeHandle );
-                                if ( ImGui::Selectable( theme->GetDisplayName().c_str(), selected ) )
+                                const bool selected = ( static_cast<uint64_t>( row.Handle ) == *themeHandle );
+                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
+                                                        selected ) )
                                 {
-                                    *themeHandle = static_cast<uint64_t>( h );
+                                    *themeHandle = static_cast<uint64_t>( row.Handle );
                                     changed      = true;
                                 }
                                 if ( selected )
@@ -986,12 +989,14 @@ namespace Desert::Editor
                         }
                         if ( assetMgr != nullptr )
                         {
-                            for ( const auto& [h, rig] : assetMgr->FindAllByType<Assets::ControlRigAsset>() )
+                            for ( const auto& row :
+                                  Assets::ContentRegistry::Rows( Common::Content::ContentKind::ControlRig ) )
                             {
-                                const bool selected = ( static_cast<uint64_t>( h ) == *rigHandle );
-                                if ( ImGui::Selectable( rig->GetDisplayName().c_str(), selected ) )
+                                const bool selected = ( static_cast<uint64_t>( row.Handle ) == *rigHandle );
+                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
+                                                        selected ) )
                                 {
-                                    *rigHandle = static_cast<uint64_t>( h );
+                                    *rigHandle = static_cast<uint64_t>( row.Handle );
                                     changed    = true;
                                 }
                                 if ( selected )
@@ -1091,12 +1096,14 @@ namespace Desert::Editor
                         }
                         if ( assetMgr != nullptr )
                         {
-                            for ( const auto& [h, retarget] : assetMgr->FindAllByType<Assets::RetargetAsset>() )
+                            for ( const auto& row :
+                                  Assets::ContentRegistry::Rows( Common::Content::ContentKind::Retarget ) )
                             {
-                                const bool selected = ( static_cast<uint64_t>( h ) == *retargetHandle );
-                                if ( ImGui::Selectable( retarget->GetDisplayName().c_str(), selected ) )
+                                const bool selected = ( static_cast<uint64_t>( row.Handle ) == *retargetHandle );
+                                if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
+                                                        selected ) )
                                 {
-                                    *retargetHandle = static_cast<uint64_t>( h );
+                                    *retargetHandle = static_cast<uint64_t>( row.Handle );
                                     changed         = true;
                                 }
                                 if ( selected )
@@ -1158,9 +1165,9 @@ namespace Desert::Editor
                         preview = "(missing)";
                         if ( assetMgr )
                         {
-                            if ( auto body = assetMgr->FindByHandle<Assets::CloudModellingVolumeAsset>(
-                                      Common::UUID( *volumeHandle ) ) )
-                                preview = body->GetMetadata().Filepath.filename().string();
+                            if ( const auto row = Assets::ContentRegistry::RowOf(
+                                      Common::Content::ContentKind::CloudModellingVolume, *volumeHandle ) )
+                                preview = row->Path.filename().string();
                         }
                     }
 
@@ -1174,14 +1181,13 @@ namespace Desert::Editor
                         }
                         if ( assetMgr )
                         {
-                            for ( const auto& [h, body] :
-                                  assetMgr->FindAllByType<Assets::CloudModellingVolumeAsset>() )
+                            for ( const auto& row : Assets::ContentRegistry::Rows(
+                                       Common::Content::ContentKind::CloudModellingVolume ) )
                             {
-                                const bool selected = ( static_cast<uint64_t>( h ) == *volumeHandle );
-                                if ( ImGui::Selectable( body->GetMetadata().Filepath.filename().string().c_str(),
-                                                        selected ) )
+                                const bool selected = ( static_cast<uint64_t>( row.Handle ) == *volumeHandle );
+                                if ( ImGui::Selectable( row.Path.filename().string().c_str(), selected ) )
                                 {
-                                    *volumeHandle = static_cast<uint64_t>( h );
+                                    *volumeHandle = static_cast<uint64_t>( row.Handle );
                                     changed       = true;
                                 }
                                 if ( selected )

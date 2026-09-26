@@ -108,18 +108,21 @@ namespace Desert::Assets
         // BY GUID, the volume's identity (CloudNoiseVolumeAsset adopts HandleForGuid of its envelope GUID): a
         // volume renamed or moved on disk still resolves. The path is only named in the error.
         const auto guid = Common::Content::AssetGuidFromText( m_Data.NoiseVolume->Guid );
-        if ( const auto volume =
-                  guid ? manager.FindByHandle<CloudNoiseVolumeAsset>( AssetHandle(
-                              static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) )
-                       : Asset<CloudNoiseVolumeAsset>{} )
+        const uint64_t fold =
+             guid ? static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) : 0;
+        // Either a shell already exists or the registry has a row the noise service will create one from
+        // on demand (AL1-2); the handle is all the type keeps, the service resolves the rest.
+        if ( guid && ( manager.ProbeByHandle<CloudNoiseVolumeAsset>( AssetHandle( fold ) ) ||
+                       ContentRegistry::RowOf( Common::Content::ContentKind::CloudNoiseVolume, fold ) ) )
         {
-            m_NoiseVolume = volume->GetMetadata().Handle;
+            m_NoiseVolume = AssetHandle( fold );
             return;
         }
 
         // NOT a silent fall-through to the default: the type names a volume, the volume is not there, and
         // the sky that comes out will be the default one wearing this type's name. §1.4.
-        LOG_ERROR( "[Clouds] Cloud type '{}' names noise volume {} ('{}'), which is not loaded. The layer "
+        LOG_ERROR( "[Clouds] Cloud type '{}' names noise volume {} ('{}'), which is neither loaded nor a "
+                   "noise-volume row in the content registry. The layer "
                    "will use the built-in default volume and its edge will not be the authored one.",
                    m_Metadata.Filepath.string(), m_Data.NoiseVolume->Guid, m_Data.NoiseVolume->Path );
     }

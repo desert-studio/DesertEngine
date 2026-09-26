@@ -17,6 +17,7 @@
 #include <Engine/Geometry/SkinnedMesh.hpp>
 
 #include <functional>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -132,7 +133,7 @@ namespace Desert::Editor
 
         Utils::ImGuiUtilities::PushID();
 
-        auto meshAssets = assetManager->FindAllByType<Assets::MeshAsset>();
+        const auto meshAssets = Assets::ContentRegistry::MeshRows( true );
 
         // The mesh that is ACTUALLY drawn: an in-editor rig (Convert to Skinned) overrides the asset.
         ::Desert::Mesh* mesh = skinnedMesh.RuntimeMesh.get();
@@ -181,24 +182,16 @@ namespace Desert::Editor
                 filter.Draw( "##Search", 200 );
                 ImGui::Separator();
 
-                for ( const auto& [handle, meshAsset] : meshAssets )
+                for ( const auto& row : meshAssets )
                 {
-                    auto isSkinned = Runtime::ResourceRegistry::GetMeshService()->IsSkinned( handle );
-
-                    if ( !isSkinned.has_value() || !isSkinned.value() )
-                    {
-                        continue;
-                    }
-
-                    const std::string name =
-                         Common::Utils::FileSystem::GetFileName( meshAsset->GetMetadata().Filepath );
+                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
 
                     if ( filter.PassFilter( name.c_str() ) )
                     {
-                        bool selected = skinnedMesh.MeshHandle == handle;
+                        const bool selected = skinnedMesh.MeshHandle == row.Handle;
                         if ( ImGui::Selectable( name.c_str(), selected ) )
                         {
-                            skinnedMesh.MeshHandle = handle;
+                            skinnedMesh.MeshHandle = row.Handle;
                         }
                     }
                 }

@@ -88,6 +88,11 @@ namespace Common::Content
         std::string_view Extension;
         // The live constant the kind is enumerated from.
         const std::filesystem::path* Root;
+        // The top-level member of the kind's own JSON document that states its display name, or empty for a
+        // kind whose name is its file's stem. Read by the registry scan into the row's Name tag, so a list
+        // shows the name without loading the asset; the loader reads the same member through its own struct,
+        // and the PickerRegistryRows suite holds the two equal over the corpus.
+        std::string_view DisplayNameMember = {};
 
         // A kind with no root and no extension is one a file can only STATE in its header, never be
         // found as by the directory walk: a redirector (AF10b) sits at the old path under the moved
@@ -125,13 +130,13 @@ namespace Common::Content
              // other three roots — that is not a mistake to tidy up: the extension is what separates
              // them, and narrowing this root would change which files the engine finds.
              /* CloudNoiseVolume     */ { "CloudNoiseVolume", ".dcnv", &P::CLOUD_NOISE_PATH },
-             /* CloudType            */ { "CloudType", ".decloudtype", &P::CLOUD_TYPE_PATH },
+             /* CloudType            */ { "CloudType", ".decloudtype", &P::CLOUD_TYPE_PATH, "DisplayName" },
              /* CloudModellingVolume */ { "CloudModellingVolume", ".dcmv", &P::CLOUD_VOLUME_PATH },
              /* CloudLayout          */ { "CloudLayout", ".dclayout", &P::CLOUD_LAYOUT_PATH },
-             /* UITheme              */ { "UITheme", ".detheme", &P::UI_THEME_PATH },
-             /* ControlRig           */ { "ControlRig", ".derig", &P::CONTROL_RIG_PATH },
-             /* AnimGraph            */ { "AnimGraph", ".danimgraph", &P::ANIM_GRAPH_PATH },
-             /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH },
+             /* UITheme              */ { "UITheme", ".detheme", &P::UI_THEME_PATH, "DisplayName" },
+             /* ControlRig           */ { "ControlRig", ".derig", &P::CONTROL_RIG_PATH, "Name" },
+             /* AnimGraph            */ { "AnimGraph", ".danimgraph", &P::ANIM_GRAPH_PATH, "Name" },
+             /* Retarget             */ { "Retarget", ".retarget", &P::RETARGET_PATH, "Name" },
              /* StringTable          */ { "StringTable", ".destrings", &P::LOCALIZATION_PATH },
              // A partitioned world's cooked cells and its index (WP8, in the AF1 envelope since AF2) sit beside
              // their scene, in `Worlds/X.dwworld/` (WorldCells::CookedWorldDirectory). Derived by the cook and
