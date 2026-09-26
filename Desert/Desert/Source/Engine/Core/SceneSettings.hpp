@@ -173,7 +173,11 @@ namespace Desert::Core
         //       all inside the reflections on the spheres.
         //     + 16 march steps instead of 32 (UE's quality 2)       0.37 / 0.34 / 0.33 ms, max 49/255 on
         //       2955 px - the trace barely moved (0.10 - 0.14), so the change was not kept.
-        // What is left is mostly fixed cost: four passes at 0.04 - 0.08 ms each whatever they draw (the
+        //     + classify and trace fused into one compute dispatch, SSR resolve 3x3 taps 2 px apart (ee0fc1306)
+        //                                                          0.25 / 0.29 / 0.28 ms - the condition below
+        //       is MET; against the previous row 271 px differ by at most 4/255. The default stays false only
+        //       until the scene schema step described at the end lands (it raises the scene version).
+        // Before the fusion, what was left was mostly fixed cost: four passes at 0.04 - 0.08 ms each whatever they draw (the
         // composite over a few tiles is 0.04), plus ~0.07 of barriers/transitions between them. The roughness
         // gate already matches UE's r.SSR.MaxRoughness 0.6 fade (full at 0.3, none at 0.6).
         // RETURN CONDITION: the "Deferred: SSR" line on Desert_Sandbox (same camera, --gpu-profile) at or
