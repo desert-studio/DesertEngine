@@ -254,7 +254,7 @@ int main( int argc, char** argv )
 // clear sky and one generic line, with nothing saying which file to restore.
 TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGuid )
 {
-    namespace Path = Common::Constants::Path;
+    namespace Path            = Common::Constants::Path;
     namespace ContentRegistry = Desert::Assets::ContentRegistry;
     using Common::Content::ContentKind;
 
@@ -293,7 +293,6 @@ TEST( AssetMissingFile, AnOnDemandCloudLayoutWhoseFileIsGoneNamesThePathAndTheGu
              manager, handle, ContentKind::CloudLayout );
         ASSERT_TRUE( created.IsSuccess() ) << created.GetError();
         EXPECT_EQ( created.GetValue()->GetMetadata().Handle, handle );
-
     }
     {
         // The same number asked for as another kind has no row of that kind. A fresh manager: one that

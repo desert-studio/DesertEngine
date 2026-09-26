@@ -68,8 +68,8 @@ namespace Desert::Editor
             }
             // Not created yet (the kind is created on demand, AL1-2): the registry row names the file
             // without the title having to create the shell the constructor is about to create anyway.
-            if ( const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::CloudModellingVolume,
-                                                                  static_cast<uint64_t>( subject ) ) )
+            if ( const auto row = Assets::ContentRegistry::RowOf(
+                      Common::Content::ContentKind::CloudModellingVolume, static_cast<uint64_t>( subject ) ) )
                 return row->Path.filename().string();
             return "Cloud Modelling Volume";
         }
