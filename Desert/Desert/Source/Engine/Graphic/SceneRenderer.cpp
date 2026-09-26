@@ -603,6 +603,8 @@ namespace Desert::Graphic
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )
              ->SetWhitePoint( sceneSettings.WhitePoint );
 
+        UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
+             ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->SetLODEnabled( quality.MeshLOD );

@@ -331,10 +331,10 @@ namespace
     // ------------------------------------------------------------------------------------------------
     // The nested DebugView block of editor.json — Desert::Graphic::DebugViewState.
     //
-    // These are the ten fields К2 took out of the level file. They are censused for KIND only: their
-    // placement is additionally guarded by Desert/Tests/Engine/SceneDebugFields, which derives the set of
-    // names a .desce may never state from this same declaration, and duplicating its consumer answers here
-    // would be a second table of one set.
+    // These are the ten fields К2 took out of the level file, plus ShowSkyBackdrop (AV1h, the preview's Show
+    // Environment). They are censused for KIND only: their placement is additionally guarded by
+    // Desert/Tests/Engine/SceneDebugFields, which derives the set of names a .desce may never state from this same
+    // declaration, and duplicating its consumer answers here would be a second table of one set.
     // ------------------------------------------------------------------------------------------------
 
     constexpr Row kDebugViewRows[] = {
@@ -348,6 +348,7 @@ namespace
          { "LightingDebug", Owner::Machine },
          { "ShadowDebug", Owner::Machine },
          { "DeferredDebug", Owner::Machine },
+         { "ShowSkyBackdrop", Owner::Machine },
     };
 
     // ------------------------------------------------------------------------------------------------

@@ -873,6 +873,8 @@ namespace Desert::Graphic::System
     void SkyboxRenderer::Render()
     {
         auto& renderer = Renderer::GetInstance();
+        if ( !m_BackdropVisible )
+            return;
 
         // Engine-generated procedural atmosphere (no HDR asset needed). The LUTs ride along only once
         // the physical model has allocated them; on the gradient they stay null and the material keeps
