@@ -149,10 +149,12 @@ namespace Common::Utils
             return Common::MakeFormattedError<Names>( "unknown optional-header magic 0x{:X} at offset {}", *magic,
                                                       optional );
 
-        const auto imageBase =
-             plus ? image.U64( optional + 24 )
-                  : ( image.U32( optional + 28 ) ? std::optional<std::uint64_t>( *image.U32( optional + 28 ) )
-                                                 : std::nullopt );
+        // PE32+ stores ImageBase as 64 bits at +24; PE32 as 32 bits at +28 (BaseOfData sits at +24).
+        std::optional<std::uint64_t> imageBase;
+        if ( plus )
+            imageBase = image.U64( optional + 24 );
+        else if ( const auto base32 = image.U32( optional + 28 ) )
+            imageBase = *base32;
         const std::size_t dirCountAt = optional + ( plus ? 108 : 92 );
         const std::size_t dirsAt     = optional + ( plus ? 112 : 96 );
         const auto        dirCount   = image.U32( dirCountAt );
@@ -197,7 +199,7 @@ namespace Common::Utils
         {
             if ( directory >= *dirCount )
                 return std::nullopt;
-            const auto rva = image.U32( dirsAt + directory * 8 );
+            const auto rva = image.U32( dirsAt + static_cast<std::size_t>( directory ) * 8 );
             if ( !rva )
                 return std::string( "data directory " ) + std::to_string( directory ) + " is truncated";
             if ( *rva == 0 )
@@ -222,7 +224,7 @@ namespace Common::Utils
                     // virtual addresses, relative to the image base.
                     const std::uint32_t attributes = *image.U32( at );
                     const std::uint32_t field      = *image.U32( at + 4 );
-                    nameRva = ( attributes & 1u ) ? field : static_cast<std::uint32_t>( field - *imageBase );
+                    nameRva = ( attributes & 1u ) != 0 ? field : static_cast<std::uint32_t>( field - *imageBase );
                 }
                 if ( auto failed = addName( nameRva, table ) )
                     return failed;
@@ -242,9 +244,11 @@ namespace Common::Utils
         if ( !content )
             return Common::MakeFormattedError<std::vector<std::string>>( "{} could not be read: {}", file.string(),
                                                                          content.GetError() );
-        const std::string bytes = content.ExtractValue();
-        auto              names = ReadPeImports( std::span<const std::uint8_t>(
-             reinterpret_cast<const std::uint8_t*>( bytes.data() ), bytes.size() ) );
+        // The reader takes unsigned bytes; the file arrives as chars. Copying (an exe is megabytes, read
+        // once per package) keeps this free of a pointer reinterpretation.
+        const std::string               text = content.ExtractValue();
+        const std::vector<std::uint8_t> bytes( text.begin(), text.end() );
+        auto                            names = ReadPeImports( bytes );
         if ( !names )
             return Common::MakeFormattedError<std::vector<std::string>>( "{}: {}", file.string(),
                                                                          names.GetError() );

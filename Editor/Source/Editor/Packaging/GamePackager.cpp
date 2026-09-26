@@ -260,20 +260,28 @@ namespace Desert::Editor
         // Neither found is a refusal naming both, never a package without the runtime.
         //
         // Returns <redist>\x64\Microsoft.VC<toolset>.CRT.
+        // A process environment variable, empty when unset. The packager reads it once, on its own
+        // thread, before any job starts, and nothing in the editor ever calls setenv.
+        std::string EnvironmentVariable( const char* name )
+        {
+            const char* value = std::getenv( name ); // NOLINT(concurrency-mt-unsafe) - see above
+            return value != nullptr ? std::string( value ) : std::string();
+        }
+
         Common::ResultStr<fs::path> FindVcCrtRedistDir()
         {
             using Found = fs::path;
             fs::path    redist;
             std::string tried;
-            if ( const char* env = std::getenv( "VCToolsRedistDir" ); env && *env )
+            if ( const std::string env = EnvironmentVariable( "VCToolsRedistDir" ); !env.empty() )
             {
                 redist = env;
                 tried  = "%VCToolsRedistDir% = " + redist.string();
             }
             else
             {
-                const char* programFiles = std::getenv( "ProgramFiles(x86)" );
-                if ( !programFiles || !*programFiles )
+                const std::string programFiles = EnvironmentVariable( "ProgramFiles(x86)" );
+                if ( programFiles.empty() )
                     return Common::MakeError<Found>(
                          "%VCToolsRedistDir% is not set (not a Developer Command Prompt) "
                          "and %ProgramFiles(x86)% is not set either, so vswhere.exe "
@@ -296,18 +304,18 @@ namespace Desert::Editor
 #else
                 FILE* pipe = popen( command.c_str(), "r" );
 #endif
-                if ( !pipe )
+                if ( pipe == nullptr )
                     return Common::MakeFormattedError<Found>( "{} could not be started", vswhere.string() );
                 std::string           output;
                 std::array<char, 512> chunk{};
-                while ( std::fgets( chunk.data(), static_cast<int>( chunk.size() ), pipe ) )
+                while ( std::fgets( chunk.data(), static_cast<int>( chunk.size() ), pipe ) != nullptr )
                     output += chunk.data();
 #ifdef _WIN32
                 _pclose( pipe );
 #else
                 pclose( pipe );
 #endif
-                while ( !output.empty() && std::isspace( static_cast<unsigned char>( output.back() ) ) )
+                while ( !output.empty() && std::isspace( static_cast<unsigned char>( output.back() ) ) != 0 )
                     output.pop_back();
                 if ( const auto newline = output.find_first_of( "\r\n" ); newline != std::string::npos )
                     output.resize( newline );

@@ -1,3 +1,4 @@
+#include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PeImports.hpp>
 
 #include <gtest/gtest.h>
@@ -5,8 +6,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <random>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -28,8 +29,9 @@ namespace
 
     struct PeSpec
     {
-        std::vector<std::string> Imports;
-        std::vector<std::string> DelayImports;
+        // Defaulted so a case names only the tables it builds.
+        std::vector<std::string> Imports{};
+        std::vector<std::string> DelayImports{};
         bool                     Pe32 = false;
         // Replaces the first import descriptor's name RVA, to build a corrupt image.
         std::uint32_t BadNameRva = 0;
@@ -70,9 +72,9 @@ namespace
         Put32( b, optional + ( spec.Pe32 ? 92 : 108 ), 16 );
         const std::size_t dirs = optional + ( spec.Pe32 ? 96 : 112 );
         if ( !spec.Imports.empty() )
-            Put32( b, dirs + 1 * 8, kSectionRva );
+            Put32( b, dirs + std::size_t{ 1 } * 8, kSectionRva );
         if ( !spec.DelayImports.empty() )
-            Put32( b, dirs + 13 * 8, kDelayRva );
+            Put32( b, dirs + std::size_t{ 13 } * 8, kDelayRva );
 
         const std::size_t section = optional + optionalSize;
         Put32( b, section + 8, 0x400 );
@@ -92,7 +94,8 @@ namespace
         {
             const std::uint32_t rva = writeName( spec.Imports[i] );
             // A real descriptor also has thunk RVAs; the reader must not need them to find the name.
-            Put32( b, At( kSectionRva ) + i * 20 + 12, ( i == 0 && spec.BadNameRva ) ? spec.BadNameRva : rva );
+            Put32( b, At( kSectionRva ) + i * 20 + 12,
+                   ( i == 0 && spec.BadNameRva != 0 ) ? spec.BadNameRva : rva );
             Put32( b, At( kSectionRva ) + i * 20 + 16, 0x1300 );
         }
         for ( std::size_t i = 0; i < spec.DelayImports.size(); ++i )
@@ -133,15 +136,15 @@ namespace
             return m_Path / "crt";
         }
 
-        fs::path Write( const fs::path& file, const PeSpec& spec ) const
+        static fs::path Write( const fs::path& file, const PeSpec& spec )
         {
-            const auto    bytes = MakePe( spec );
-            std::ofstream out( file, std::ios::binary );
-            out.write( reinterpret_cast<const char*>( bytes.data() ),
-                       static_cast<std::streamsize>( bytes.size() ) );
+            const auto bytes = MakePe( spec );
+            const auto written =
+                 Common::Utils::FileSystem::WriteBytesToFileAtomic( file, std::as_bytes( std::span( bytes ) ) );
+            EXPECT_TRUE( written ) << file.string() << ": " << ( written ? "" : written.GetError() );
             return file;
         }
-        fs::path Exe( const PeSpec& spec ) const
+        [[nodiscard]] fs::path Exe( const PeSpec& spec ) const
         {
             return Write( m_Path / "Runtime.exe", spec );
         }
@@ -157,6 +160,7 @@ namespace
     std::vector<std::string> Names( const std::vector<fs::path>& paths )
     {
         std::vector<std::string> names;
+        names.reserve( paths.size() );
         for ( const fs::path& p : paths )
             names.push_back( p.filename().string() );
         return names;
@@ -214,7 +218,7 @@ TEST( PeImports, ANameOutsideEverySectionIsAnErrorNotAShorterList )
 
 TEST( AppLocalRuntime, ShipsWhatTheExeImportsAndWhatThoseImportAndNothingElse )
 {
-    TempDir dir;
+    const TempDir dir;
     dir.Dll( "vcruntime140.dll", { .Imports = { "KERNEL32.dll", "api-ms-win-crt-runtime-l1-1-0.dll" } } );
     dir.Dll( "vcruntime140_1.dll", { .Imports = { "VCRUNTIME140.dll", "KERNEL32.dll" } } );
     dir.Dll( "msvcp140.dll", { .Imports = { "VCRUNTIME140.dll", "KERNEL32.dll" } } );
@@ -230,7 +234,7 @@ TEST( AppLocalRuntime, ShipsWhatTheExeImportsAndWhatThoseImportAndNothingElse )
 
 TEST( AppLocalRuntime, AStaticCrtExeShipsNothing )
 {
-    TempDir dir;
+    const TempDir dir;
     dir.Dll( "vcruntime140.dll", { .Imports = { "KERNEL32.dll" } } );
     const fs::path exe = dir.Exe( { .Imports = { "KERNEL32.dll", "USER32.dll" } } );
 
@@ -241,7 +245,7 @@ TEST( AppLocalRuntime, AStaticCrtExeShipsNothing )
 
 TEST( AppLocalRuntime, TheDebugCrtIsRefusedByName )
 {
-    TempDir dir;
+    const TempDir dir;
     dir.Dll( "vcruntime140.dll", { .Imports = { "KERNEL32.dll" } } );
     dir.Dll( "msvcp140.dll", { .Imports = { "KERNEL32.dll" } } );
     const fs::path exe =
@@ -256,7 +260,7 @@ TEST( AppLocalRuntime, TheDebugCrtIsRefusedByName )
 
 TEST( AppLocalRuntime, AnExeThatImportsNothingIsAReaderFailure )
 {
-    TempDir dir;
+    const TempDir dir;
     dir.Dll( "vcruntime140.dll", { .Imports = { "KERNEL32.dll" } } );
     const fs::path exe = dir.Exe( {} );
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() ) );
@@ -264,7 +268,7 @@ TEST( AppLocalRuntime, AnExeThatImportsNothingIsAReaderFailure )
 
 TEST( AppLocalRuntime, AnEmptyOrMissingRedistDirectoryIsRefused )
 {
-    TempDir        dir;
+    const TempDir  dir;
     const fs::path exe = dir.Exe( { .Imports = { "KERNEL32.dll", "VCRUNTIME140.dll" } } );
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() ) );
     EXPECT_FALSE( AppLocalRuntimeClosure( exe, dir.Crt() / "absent" ) );

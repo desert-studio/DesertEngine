@@ -25,7 +25,7 @@ namespace Common::Utils
     // (13), because a delay-loaded DLL that is absent fails exactly as late and as badly for the player.
     // PE32 and PE32+ are both accepted. Names come back as the image spells them, in table order, without
     // duplicates. Every malformation is an error naming the offset, never a shorter list.
-    [[nodiscard]] Common::ResultStr<std::vector<std::string>> ReadPeImports( std::span<const std::uint8_t> image );
+    [[nodiscard]] Common::ResultStr<std::vector<std::string>> ReadPeImports( std::span<const std::uint8_t> bytes );
 
     [[nodiscard]] Common::ResultStr<std::vector<std::string>>
     ReadPeImportsOfFile( const std::filesystem::path& file );

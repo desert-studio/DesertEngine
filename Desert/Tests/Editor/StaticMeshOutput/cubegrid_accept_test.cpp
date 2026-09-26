@@ -132,7 +132,8 @@ TEST_F( AcceptProject, TheToolBarAcceptLeavesTheToolToEndItselfAndARefusalKeepsI
 TEST_F( AcceptProject, CancelAfterAnAcceptLeavesTheAcceptedPiece )
 {
     MS&                       ms = MS::Get();
-    const Common::UUID        first( 8001 ), second( 8002 );
+    const Common::UUID        first( 8001 );
+    const Common::UUID        second( 8002 );
     std::set<Common::UUID>    scene = { first };
     std::vector<Common::UUID> committed;
 
