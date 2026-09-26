@@ -20,7 +20,8 @@
 
 namespace Common::Crash
 {
-    // WHERE A REPORT GOES, DECIDED ONCE AND NEVER FROM THE WORKING DIRECTORY. A crash report written
+    // WHERE A REPORT GOES, DECIDED AT INSTALL (moved only by MoveReportRoot) AND NEVER FROM THE WORKING
+    // DIRECTORY. A crash report written
     // relative to cwd lands in the source tree when the editor is started from the checkout and in
     // C:\Windows\System32 when it is started from a shortcut — two places nobody looks, and one of
     // them is under version control. `projectRoot` non-empty puts reports in `<projectRoot>/Saved/
@@ -33,12 +34,6 @@ namespace Common::Crash
 
         // Project root, or empty for the per-user location. See above.
         std::filesystem::path projectRoot;
-
-        // THE GAME'S OWN per-user directory, Common::Settings::GameUserDirectory(<.deproj Name>) (PKG1).
-        // Non-empty wins over projectRoot: reports go to `<it>/Crashes`, because a game's install folder
-        // is read-only (Program Files, a signed .app) and every file a player's run writes belongs in the
-        // one folder beside machine.json and the pipeline cache. Empty in the editor and the tools.
-        std::filesystem::path gameUserDirectory;
 
         // Overrides the report root outright, both branches above. Only tests pass this: a suite must
         // never write into the developer's real crash folder, and it must be able to assert on what it
@@ -62,7 +57,18 @@ namespace Common::Crash
     // "Debug > Crash (test)" command when the handler is not installed.
     bool IsInstalled();
 
-    // The directory reports are written under, valid after Install(). Empty before it.
+    // MOVES THE REPORT ROOT after Install(), for a host that learns where its reports belong only after
+    // work that can itself crash. The Runtime (PKG1c, UE's order: the handler before the project loads)
+    // installs with no project — reports under the engine's per-user root — BEFORE it mounts the
+    // archive and opens the .deproj, then moves to GameUserDirectory(<Name>)/Crashes, because a player's
+    // install folder is read-only and every file a run writes belongs beside machine.json. The per-crash
+    // directory keeps its name (start stamp + pid). Safe against a fault on another thread: the handler
+    // reads a fully built path set published by one atomic store (see ReportPaths in the .cpp). Fails,
+    // leaving the old root in force, when not installed or when `inNewRoot` cannot be created.
+    NO_DISCARD BoolResultStr MoveReportRoot( const std::filesystem::path& inNewRoot );
+
+    // The directory reports are written under, valid after Install(). Empty before it. Follows
+    // MoveReportRoot.
     const std::filesystem::path& ReportRootDirectory();
 
     // THE CONTEXT IS FORMATTED HERE, NOT IN THE HANDLER. Both copy into a fixed buffer owned by this
