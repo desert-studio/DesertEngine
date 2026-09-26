@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include <Editor/Import/MeshDeriver.hpp>
 #include <Editor/Panels/StaticMeshViewer/StaticMeshStats.hpp>
 
 #include <filesystem>
@@ -260,26 +261,29 @@ TEST_F( ScratchProject, ANameAndAFolderAreTakenAsGivenOrRefused )
 
 // --- The static mesh viewer's statistics (AV1f) ------------------------------------------------------------
 //
-// The window prints DescribeStaticMesh of the bytes the engine loads; asserted here against the committed probe,
-// read through the engine's own reader, so the numbers on screen are the numbers in the file.
+// The window prints DescribeStaticMesh of the mesh's BUILT platform data (the DDC value StaticMeshAsset draws);
+// asserted here against the committed probe, derived by the editor's own builder and read through the engine's
+// own reader, so the numbers on screen are the numbers the renderer draws.
 namespace
 {
     std::filesystem::path ProbeMeshFile()
     {
         std::filesystem::path here = std::filesystem::current_path();
-        for ( int up = 0; up < 8 && !std::filesystem::exists( here / "Editor" / "Cooked" / "Meshes" ); ++up )
+        for ( int up = 0;
+              up < 8 && !std::filesystem::exists( here / "Editor" / "Resources" / "Assets" / "Meshes" ); ++up )
             here = here.parent_path();
-        return here / "Editor" / "Cooked" / "Meshes" / "StaticProbe.stmesh";
+        return here / "Editor" / "Resources" / "Assets" / "Meshes" / "StaticProbe.stmesh";
     }
 } // namespace
 
 TEST( StaticMeshViewerStats, TheProbeReportsFortyEightVerticesTwentyFourTrianglesTwoSections )
 {
-    std::ifstream in( ProbeMeshFile(), std::ios::binary );
-    ASSERT_TRUE( in ) << "no probe at " << ProbeMeshFile().string();
-    std::ostringstream bytes;
-    bytes << in.rdbuf();
-    const auto data = Desert::Assets::Serialization::ReadMeshAssetData( bytes.str(), ProbeMeshFile().string() );
+    const auto source = Desert::Assets::ReadMeshSourceAssetFile( ProbeMeshFile() );
+    ASSERT_TRUE( source.IsSuccess() ) << source.GetError();
+    const auto built = Desert::Editor::BuildMeshPlatformData( source.GetValue() );
+    ASSERT_TRUE( built.IsSuccess() ) << built.GetError();
+    const auto data =
+         Desert::Assets::Serialization::ReadMeshAssetData( built.GetValue(), ProbeMeshFile().string() );
     ASSERT_TRUE( data.IsSuccess() ) << data.GetError();
 
     const auto stats = Desert::Editor::DescribeStaticMesh( data.GetValue() );

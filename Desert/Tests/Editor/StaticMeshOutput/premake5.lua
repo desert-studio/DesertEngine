@@ -32,6 +32,13 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/DynamicMeshSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/DynamicMeshAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
+        -- The viewer's statistics (AV1f) are read from the probe's BUILT platform data, so the editor's mesh
+        -- builder and what it compiles in are part of this suite (list as in StaticMeshCooked).
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshXformOperations.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
+        "%{wks.location}/Editor/Source/Editor/Import/MeshDeriver.cpp",
     }
 
     includedirs {
@@ -40,6 +47,7 @@ project(test_name)
         "%{wks.location}/Editor/Source",
     }
     externalincludedirs {
+        deps.DesertSpecific.IncludeDir.meshoptimizer,
         "%{wks.location}/ThirdParty/reflect-cpp/include",
         "%{wks.location}/ThirdParty/entt/include/",
     }
@@ -56,7 +64,7 @@ project(test_name)
         defines { define }
     end
 
-    links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
+    links { "Common", "Optick", "MeshOptimizer" } -- Optick: Commons JobSystem; MeshOptimizer: the LOD builder
 
     filter "system:not windows"
         links { "ReflectCpp" }
