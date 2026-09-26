@@ -56,12 +56,11 @@ namespace Desert::Migration
         // bytes by construction rather than by a list maintained here.
         // A wrong-typed value would be replaced by its default in the rewritten block, which is not a
         // canonicalisation but a data loss: the block is refused and named instead.
-        Core::SceneSettings        values;
-        const Common::Json::Value  statedValue( stated );
-        Common::Json::Issues       issues;
-        Reflection::DeserializeReflected( *type, &values,
-                                          Common::Json::Root( statedValue, Common::Json::Path().Key( "Settings" ) ),
-                                          issues );
+        Core::SceneSettings       values;
+        const Common::Json::Value statedValue( stated );
+        Common::Json::Issues      issues;
+        Reflection::DeserializeReflected(
+             *type, &values, Common::Json::Root( statedValue, Common::Json::Path().Key( "Settings" ) ), issues );
         if ( !issues.empty() )
         {
             Common::Json::ReportIssues( issues, "[SceneMigration] the Settings block stays as it is" );

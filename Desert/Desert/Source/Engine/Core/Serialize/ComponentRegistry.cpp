@@ -139,7 +139,7 @@ namespace Desert::Core::Serialize
             };
 
             s.Deserialize = [member, typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g,
-                                                            const Assets::AssetManager& mgr )
+                                                             const Assets::AssetManager& mgr )
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )
@@ -148,8 +148,8 @@ namespace Desert::Core::Serialize
                 const auto           block = Common::Json::Root( g, ComponentPath( e, key ) );
                 if ( block.ExpectKind( Common::Json::Kind::Object, issues ) )
                 {
-                    auto& comp = e.HasComponent<TComponent>() ? e.GetComponent<TComponent>()
-                                                              : e.AddComponent<TComponent>();
+                    auto& comp     = e.HasComponent<TComponent>() ? e.GetComponent<TComponent>()
+                                                                  : e.AddComponent<TComponent>();
                     auto  resolver = MakeAssetResolver( mgr );
                     Reflection::DeserializeReflected( *type, &( comp.*member ), block, issues, &resolver );
                 }
@@ -905,8 +905,8 @@ namespace Desert::Core::Serialize
                 return Reflection::SerializeReflected( *type, &e.GetComponent<TComponent>(), &resolver );
             };
 
-            s.Deserialize = [typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g,
-                                                    const Assets::AssetManager& mgr )
+            s.Deserialize =
+                 [typeName, key = s.Key]( ECS::Entity e, const rfl::Generic& g, const Assets::AssetManager& mgr )
             {
                 const auto* type = Reflection::ReflectionRegistry::Get().Find( typeName );
                 if ( !type )

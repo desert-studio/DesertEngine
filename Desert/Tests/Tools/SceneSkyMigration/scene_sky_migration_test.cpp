@@ -453,8 +453,7 @@ TEST( SceneSkyMigration, RoundTripThroughTheReflectedSerializers )
 
     // Load exactly as ComponentRegistry's reflected serializers do, then save the same way.
     Desert::ECS::SkyAtmosphereComponent skyComponent;
-    ReadReflectedValue( *skyType, &skyComponent.Data,
-                                              PayloadOf( entities[0], "SkyAtmosphere" ) );
+    ReadReflectedValue( *skyType, &skyComponent.Data, PayloadOf( entities[0], "SkyAtmosphere" ) );
 
     Desert::ECS::SkyboxComponent skyboxComponent;
     ReadReflectedValue( *skyboxType, &skyboxComponent, PayloadOf( entities[0], "Skybox" ) );

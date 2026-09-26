@@ -47,10 +47,14 @@ namespace Desert::Reflection
         {
             switch ( size )
             {
-                case 1:  return value >= INT8_MIN && value <= INT8_MAX;
-                case 2:  return value >= INT16_MIN && value <= INT16_MAX;
-                case 8:  return true;
-                default: return value >= INT32_MIN && value <= INT32_MAX;
+                case 1:
+                    return value >= INT8_MIN && value <= INT8_MAX;
+                case 2:
+                    return value >= INT16_MIN && value <= INT16_MAX;
+                case 8:
+                    return true;
+                default:
+                    return value >= INT32_MIN && value <= INT32_MAX;
             }
         }
 
@@ -239,7 +243,8 @@ namespace Desert::Reflection
                     if ( v && FitsIntBySize( field.Size, v.GetValue() ) )
                         WriteIntBySize( p, field.Size, v.GetValue() );
                     else
-                        g.Report( issues, "integer enumerator of a " + std::to_string( field.Size ) + "-byte enum" );
+                        g.Report( issues,
+                                  "integer enumerator of a " + std::to_string( field.Size ) + "-byte enum" );
                     break;
                 }
                 case FieldType::AssetHandle:
@@ -281,7 +286,8 @@ namespace Desert::Reflection
                         // and quietly leaving the field at zero is what made a texture slot look like an
                         // empty slot (DC §1.4).
                         if ( resolver && resolver->FromPath )
-                            *static_cast<uint64_t*>( p ) = resolver->FromPath( s.GetValue(), field.Meta.AssetType );
+                            *static_cast<uint64_t*>( p ) =
+                                 resolver->FromPath( s.GetValue(), field.Meta.AssetType );
                         else if ( !s.GetValue().empty() )
                             LOG_ERROR( "[Reflection] Field '{0}' names the asset '{1}' but was deserialized "
                                        "with no asset resolver, so the reference cannot be turned into a "

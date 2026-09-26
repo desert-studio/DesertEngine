@@ -448,10 +448,10 @@ namespace Desert::Core
                 // The wrong-type rule: a bad value keeps its default and is named, the load continues.
                 Common::Json::Issues issues;
                 auto                 resolver = Serialize::MakeAssetResolver( *m_AssetManager );
-                Reflection::DeserializeReflected( *st, &m_Scene->GetSettings(),
-                                                  Common::Json::Root( *scene.Settings,
-                                                                      Common::Json::Path().Key( "Settings" ) ),
-                                                  issues, &resolver );
+                Reflection::DeserializeReflected(
+                     *st, &m_Scene->GetSettings(),
+                     Common::Json::Root( *scene.Settings, Common::Json::Path().Key( "Settings" ) ), issues,
+                     &resolver );
                 Common::Json::ReportIssues( issues, "scene settings" );
             }
         }

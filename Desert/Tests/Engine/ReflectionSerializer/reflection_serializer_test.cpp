@@ -304,8 +304,8 @@ TEST( ReflectionSerializer, AWrongTypedFloatIsAnIssueAndKeepsItsValue )
     dst.Scale = 12.5f;
 
     Common::Json::Object obj;
-    obj["Scale"] = std::string( "large" );
-    obj["Count"] = static_cast<int64_t>( 9 );
+    obj["Scale"]      = std::string( "large" );
+    obj["Count"]      = static_cast<int64_t>( 9 );
     const auto issues = Read( type, &dst, obj );
 
     EXPECT_FLOAT_EQ( dst.Scale, 12.5f ) << "a string in a float field was substituted";
@@ -318,7 +318,7 @@ TEST( ReflectionSerializer, AWrongTypedFloatIsAnIssueAndKeepsItsValue )
 
 TEST( ReflectionSerializer, EveryWrongTypedFieldKindIsAnIssueWithItsPath )
 {
-    const TypeInfo type = MakeSampleType();
+    const TypeInfo type   = MakeSampleType();
     const Sample   before = MakePopulated();
     Sample         dst    = before;
 
@@ -332,19 +332,19 @@ TEST( ReflectionSerializer, EveryWrongTypedFieldKindIsAnIssueWithItsPath )
     obj["Name"]    = 3.0;
     obj["V2"]      = Common::Json::Value::Array{ Common::Json::Value( 1.0 ) }; // wrong length
     obj["V3"]      = std::string( "1 2 3" );
-    obj["V4"]      = Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( 2.0 ),
-                                                 Common::Json::Value( std::string( "3" ) ),
-                                                 Common::Json::Value( 4.0 ) };
-    obj["ModeVal"] = static_cast<int64_t>( 300 ); // does not fit the 1-byte enum
-    obj["Child"]   = child;
+    obj["V4"] =
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( 2.0 ),
+                                     Common::Json::Value( std::string( "3" ) ), Common::Json::Value( 4.0 ) };
+    obj["ModeVal"]    = static_cast<int64_t>( 300 ); // does not fit the 1-byte enum
+    obj["Child"]      = child;
     const auto issues = Read( type, &dst, obj );
 
     std::vector<std::string> paths;
     for ( const auto& issue : issues )
         paths.push_back( issue.Path );
     EXPECT_EQ( paths, ( std::vector<std::string>{ "Sample.Flag", "Sample.Count", "Sample.UCount", "Sample.Precise",
-                                                   "Sample.Name", "Sample.V2", "Sample.V3", "Sample.V4",
-                                                   "Sample.ModeVal", "Sample.Child.X" } ) );
+                                                  "Sample.Name", "Sample.V2", "Sample.V3", "Sample.V4",
+                                                  "Sample.ModeVal", "Sample.Child.X" } ) );
     EXPECT_EQ( dst.Flag, before.Flag );
     EXPECT_EQ( dst.Count, before.Count );
     EXPECT_EQ( dst.UCount, before.UCount );
@@ -359,8 +359,8 @@ TEST( ReflectionSerializer, EveryWrongTypedFieldKindIsAnIssueWithItsPath )
 
 TEST( ReflectionSerializer, AStructFieldThatIsNotAnObjectIsAnIssue )
 {
-    const TypeInfo type = MakeSampleType();
-    Sample         dst  = MakePopulated();
+    const TypeInfo       type = MakeSampleType();
+    Sample               dst  = MakePopulated();
     Common::Json::Object obj;
     obj["Child"]      = static_cast<int64_t>( 5 );
     const auto issues = Read( type, &dst, obj );
@@ -371,8 +371,8 @@ TEST( ReflectionSerializer, AStructFieldThatIsNotAnObjectIsAnIssue )
 
 TEST( ReflectionSerializer, AHandleOfNoAcceptedFormIsAnIssue )
 {
-    const TypeInfo type = MakeSlotType();
-    Slot           dst{ 777ull };
+    const TypeInfo       type = MakeSlotType();
+    Slot                 dst{ 777ull };
     Common::Json::Object obj;
     obj["Handle"]     = true;
     const auto issues = Read( type, &dst, obj );
@@ -388,7 +388,7 @@ TEST( ReflectionSerializer, AContainerReadsWholeOrKeepsItsValue )
     {
         std::vector<float> Values{ 1.0f, 2.0f };
     };
-    FieldInfo f            = Field( "Values", FieldType::Unknown, offsetof( Holder, Values ), sizeof( std::vector<float> ) );
+    FieldInfo f = Field( "Values", FieldType::Unknown, offsetof( Holder, Values ), sizeof( std::vector<float> ) );
     f.IsContainer          = true;
     f.SerializeContainer   = WriteContainer<std::vector<float>>;
     f.DeserializeContainer = ReadContainer<std::vector<float>>;
@@ -402,7 +402,8 @@ TEST( ReflectionSerializer, AContainerReadsWholeOrKeepsItsValue )
     EXPECT_EQ( dst.Values, src.Values );
 
     Common::Json::Object bad;
-    bad["Values"] = Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( std::string( "x" ) ) };
+    bad["Values"] =
+         Common::Json::Value::Array{ Common::Json::Value( 1.0 ), Common::Json::Value( std::string( "x" ) ) };
     const auto issues = Read( type, &dst, bad );
     EXPECT_EQ( dst.Values, src.Values ) << "one bad element must not shorten the vector";
     ASSERT_EQ( issues.size(), 1u );
