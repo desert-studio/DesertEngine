@@ -86,16 +86,33 @@ namespace Common::LocalSocket
         [[nodiscard]] inline std::string SystemErrorText( unsigned long code )
         {
 #if defined( _WIN32 )
-            char*       text    = nullptr;
-            const DWORD written = ::FormatMessageA(
+            // THE WIDE CALL AND THEN UTF-8, not FormatMessageA. The narrow one answers in the machine's ANSI
+            // codepage, and this codebase's narrow strings are UTF-8 everywhere (/utf-8 is set workspace-wide
+            // in BuildScripts/PlatformWindows.lua) -- the log, the channel's JSON replies and desertctl's
+            // stderr all read as UTF-8. Measured on this machine, whose messages are Russian: `desertctl`
+            // against a dead socket printed "?????????? ?? ???????????" where the reason should have been.
+            // The number survived that, which is why it is always appended, but a diagnostic nobody can read
+            // is most of a diagnostic wasted.
+            wchar_t*    wide    = nullptr;
+            const DWORD written = ::FormatMessageW(
                  FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                  nullptr, static_cast<DWORD>( code ), MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
-                 reinterpret_cast<LPSTR>( &text ), 0, nullptr );
+                 reinterpret_cast<LPWSTR>( &wide ), 0, nullptr );
 
-            std::string message =
-                 ( written > 0 && text != nullptr ) ? std::string( text, written ) : std::string();
-            if ( text != nullptr )
-                ::LocalFree( text );
+            std::string message;
+            if ( written > 0 && wide != nullptr )
+            {
+                const int bytes = ::WideCharToMultiByte( CP_UTF8, 0, wide, static_cast<int>( written ), nullptr, 0,
+                                                         nullptr, nullptr );
+                if ( bytes > 0 )
+                {
+                    message.resize( static_cast<std::size_t>( bytes ) );
+                    (void)::WideCharToMultiByte( CP_UTF8, 0, wide, static_cast<int>( written ), message.data(),
+                                                 bytes, nullptr, nullptr );
+                }
+            }
+            if ( wide != nullptr )
+                ::LocalFree( wide );
 
             // FormatMessage ends its sentences with ".\r\n", which reads badly inside one of ours.
             while ( !message.empty() && ( message.back() == '\n' || message.back() == '\r' ||
