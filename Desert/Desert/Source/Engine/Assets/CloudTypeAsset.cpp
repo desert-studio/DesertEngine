@@ -25,30 +25,32 @@ namespace Desert::Assets
         // read, through the VFS first like the load. A file with no readable header (absent: Save is about
         // to create it; or a version-3 file) keeps the path-derived handle - the load refuses the latter by
         // name, so no type is ever READY under that handle.
-        m_Guid = ReadTextHeaderGuid( m_Metadata.Filepath );
+        const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
+        m_Guid                           = identity.Guid;
         if ( m_Guid.IsNull() )
             return;
-        AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
-                             Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+        AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
     Common::BoolResultStr CloudTypeAsset::LoadFromFile()
     {
-        const std::string path = m_Metadata.Filepath.string();
+        // The old path of a moved asset reads the file where it now lives, through the registry - the same
+        // file the constructor took the identity from (ReadTextAssetIdentity).
+        const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
+        const std::string           path = file.string();
 
         // Through the VFS first, so a packaged build reads the type out of its .dpak exactly like every
         // other asset, then off the disk for a loose file the pak does not carry.
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
-                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
-                                      : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
              packed.has_value() )
         {
             text = packed.value();
         }
         else
         {
-            if ( auto read = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath ); read )
+            if ( auto read = Common::Utils::FileSystem::ReadFileContent( file ); read )
                 text = read.ExtractValue();
             // A failed read leaves `text` empty on purpose: the branch below is the one refusal that
             // names both shapes ("empty or could not be opened").

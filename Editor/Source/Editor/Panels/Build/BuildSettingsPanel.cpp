@@ -4,6 +4,8 @@
 
 #include <Editor/Packaging/GamePackager.hpp>
 #include <Editor/Packaging/PackageTarget.hpp>
+#include <Editor/Packaging/ProjectChunkScheme.hpp>
+#include <Editor/Core/PanelRequests.hpp>
 #include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -185,23 +187,24 @@ namespace Desert::Editor
         // failed build: the packager refuses a project with no ContentChunks.json, and the message it
         // refuses with is the same text drawn here (LoadChunkScheme), next to the one-click way out.
         ImGui::Spacing();
-        const std::filesystem::path schemePath = Common::Content::ChunkSchemePath();
-        if ( !Common::Utils::FileSystem::Exists( schemePath ) )
-        {
-            ImGui::PushTextWrapPos( 0.0f );
-            ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s",
-                                Common::Content::LoadChunkScheme( schemePath ).GetError().c_str() );
-            ImGui::PopTextWrapPos();
-            if ( ImGui::Button( ICON_MDI_FILE_PLUS "  Create default ContentChunks.json" ) )
-            {
-                const auto written = Common::Content::WriteDefaultChunkScheme( schemePath );
-                m_SchemeMessage    = written ? "Wrote the one-archive scheme to " + schemePath.string() +
-                                                 " — edit it to divide the content, then Build again."
-                                             : written.GetError();
-            }
-        }
-        if ( !m_SchemeMessage.empty() )
-            ImGui::TextWrapped( "%s", m_SchemeMessage.c_str() );
+        // ONE STATE: the palette command and the Content Chunks panel act on this same session, so the
+        // path, the load result and the last action drawn here are theirs too.
+        auto& scheme = ProjectChunkScheme();
+        ImGui::PushTextWrapPos( 0.0f );
+        if ( scheme.GetStatus() == Common::Content::ChunkSchemeSession::Status::Loaded )
+            ImGui::TextDisabled( "%s", scheme.LoadMessage().c_str() );
+        else
+            ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s", scheme.LoadMessage().c_str() );
+        ImGui::PopTextWrapPos();
+        if ( scheme.GetStatus() == Common::Content::ChunkSchemeSession::Status::Missing &&
+             ImGui::Button( ICON_MDI_FILE_PLUS "  Create default ContentChunks.json" ) )
+            (void)scheme.CreateDefault();
+        if ( scheme.GetStatus() == Common::Content::ChunkSchemeSession::Status::Missing )
+            ImGui::SameLine();
+        if ( ImGui::Button( "Content Chunks..." ) )
+            Core::PanelRequests::Open( "Content Chunks" );
+        if ( !scheme.LastAction().empty() )
+            ImGui::TextWrapped( "Last action: %s", scheme.LastAction().c_str() );
 
         ImGui::Spacing();
         const bool building = m_Building.load();

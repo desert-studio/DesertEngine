@@ -1,6 +1,6 @@
 #include "TextAssetHeader.hpp"
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <cctype>
 #include <cstdio>
@@ -250,10 +250,12 @@ namespace Common::Content
 
     ResultStr<TextAssetHeaderSerialized> ParseTextHeaderObject( std::string_view object )
     {
-        auto parsed = rfl::json::read<TextAssetHeaderSerialized>( std::string( object ) );
+        // Strict (the facade's default): every member of the header is required, and one this build does not
+        // know is refused, so a header is either wholly understood or not accepted at all.
+        auto parsed = Json::Read<TextAssetHeaderSerialized>( object );
         if ( !parsed )
-            return MakeFormattedError<TextAssetHeaderSerialized>( "text header: {}", parsed.error().what() );
-        return MakeSuccess( std::move( parsed.value() ) );
+            return MakeFormattedError<TextAssetHeaderSerialized>( "text header: {}", parsed.GetError() );
+        return parsed;
     }
 
     const IAssetHeaderFormat& TextHeaderFormat()

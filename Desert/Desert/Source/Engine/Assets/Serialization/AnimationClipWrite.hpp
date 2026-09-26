@@ -29,7 +29,7 @@ namespace Desert::Assets::Serialization
      *
      *     std::ofstream out( path, std::ios::binary );
      *     if ( !out ) { LOG_WARN(...); return {}; }
-     *     out << rfl::json::write( data );
+     *     out << WriteAnimationJson( data );
      *     return path.string();                 // <-- the success value
      *
      * There was no check after the insertion at all. `operator<<` fills the filebuf; the bytes reach

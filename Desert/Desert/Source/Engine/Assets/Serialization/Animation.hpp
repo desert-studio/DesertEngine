@@ -6,7 +6,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <array>
 #include <cstdint>
@@ -43,7 +43,7 @@ namespace Desert::Assets::Serialization
      * later is a code change and not a migration (report 05 §969).
      *
      * EVERY KEY IN EVERY SHIPPED CLIP STATES THESE EXPLICITLY, and that is the condition the version step
-     * was granted on rather than a nicety. `rfl::DefaultIfMissing` would happily invent them, and an
+     * was granted on rather than a nicety. A lenient read would happily invent them, and an
      * invented default is indistinguishable from an authored one for ever after — so the migration writes
      * them into the corpus and `Tests/Engine/AnimationClipCorpus` reads the files back to check that it
      * did. A version that changed only the number a file states about ITSELF, and nothing it says about
@@ -282,7 +282,7 @@ namespace Desert::Assets::Serialization
         AnimationAssetData out = data;
         out.Header =
              StampTextHeader( data.Header, Common::Content::ContentKind::Animation, AnimationTextSubsystems() );
-        return rfl::json::write( out );
+        return Common::Json::Write( out );
     }
 
     /// Refuses a file with no header (generations 0-3, a top-level `Version`) by name, pointing at
@@ -293,13 +293,13 @@ namespace Desert::Assets::Serialization
         // A file that left `Version` out is generation 0 (float seconds), never "current".
         if ( auto headed = RefuseTextWithoutHeader( text, kAnimationVersion, 0, "Version" ); !headed )
             return Common::MakeError<AnimationAssetData>( std::format( "clip {}", headed.GetError() ) );
-        auto parsed = rfl::json::read<AnimationAssetData, rfl::DefaultIfMissing>( text );
+        auto parsed = Common::Json::Read<AnimationAssetData>( text );
         if ( !parsed )
-            return Common::MakeError<AnimationAssetData>( std::format( "bad .anim: {}", parsed.error().what() ) );
-        if ( auto header = CheckStatedHeader( parsed.value().Header, Common::Content::ContentKind::Animation,
+            return Common::MakeError<AnimationAssetData>( std::format( "bad .anim: {}", parsed.GetError() ) );
+        if ( auto header = CheckStatedHeader( parsed.GetValue().Header, Common::Content::ContentKind::Animation,
                                               kAnimationSchemaTag, kAnimationVersion, AnimationTextSubsystems() );
              !header )
             return Common::MakeError<AnimationAssetData>( std::format( "clip {}", header.GetError() ) );
-        return Common::MakeSuccess( parsed.value() );
+        return Common::MakeSuccess( parsed.GetValue() );
     }
 } // namespace Desert::Assets::Serialization

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <unordered_set>
 
@@ -155,32 +156,86 @@ namespace Common::Content
         return m_Unresolved;
     }
 
+    BoolResultStr ValidateChunkScheme( const ChunkScheme& scheme )
+    {
+        std::vector<std::string_view> names{ BASE_CHUNK_NAME };
+        for ( const ChunkRule& rule : scheme.Chunks )
+        {
+            if ( !IsNameableChunk( rule.Name ) )
+                return MakeFormattedError<bool>(
+                     "chunk name '{}' cannot be part of an archive filename — letters, digits, '_' and "
+                     "'-' only",
+                     rule.Name );
+            if ( rule.Name == BASE_CHUNK_NAME )
+                return MakeFormattedError<bool>(
+                     "'{}' is the archive every unplaced file ships in and is not something a scheme "
+                     "declares",
+                     BASE_CHUNK_NAME );
+            if ( std::find( names.begin(), names.end(), rule.Name ) != names.end() )
+                return MakeFormattedError<bool>( "two chunks are called '{}'", rule.Name );
+            if ( rule.Roots.empty() )
+                return MakeFormattedError<bool>(
+                     "chunk '{}' names no roots, so it would ship an empty archive that reads exactly "
+                     "like a correct one",
+                     rule.Name );
+            names.push_back( rule.Name );
+        }
+        return MakeSuccess( true );
+    }
+
+    BoolResultStr SaveChunkScheme( const fs::path& path, const ChunkScheme& scheme,
+                                   const Utils::AssetRegistry& registry )
+    {
+        // The SAME derivation the packager runs, so a scheme the panel accepted is a scheme Build
+        // accepts: every refusal BuildChunkPlan knows (names, roots, pins against the registry) is a
+        // refusal here, and nothing is written.
+        if ( const auto plan = BuildChunkPlan( registry, scheme ); !plan )
+            return MakeFormattedError<bool>( "{} was not saved: {}", path.string(), plan.GetError() );
+        const auto written = Json::WriteFileAtomic( path, ToJson( scheme ) );
+        if ( !written )
+            return MakeFormattedError<bool>( "could not write the chunk scheme to {}: {}", path.string(),
+                                             written.GetError() );
+        return MakeSuccess( true );
+    }
+
+    std::vector<ChunkFolderRow> SummarizeChunkFolders( const Utils::AssetRegistry& registry,
+                                                       const ChunkPlan&            plan )
+    {
+        std::vector<ChunkFolderRow> rows;
+        for ( const Utils::AssetRegistryEntry& entry : registry.Entries() )
+        {
+            // The folder is the key up to its last '/', scheme prefix included ("assets:Materials"), so
+            // two content roots with one folder name stay two rows.
+            const std::size_t slash = entry.Key.rfind( '/' );
+            std::string folder      = slash == std::string::npos ? entry.Key.substr( 0, entry.Key.find( ':' ) + 1 )
+                                                                 : entry.Key.substr( 0, slash );
+            auto        it          = std::find_if( rows.begin(), rows.end(),
+                                                    [&]( const ChunkFolderRow& row ) { return row.Folder == folder; } );
+            if ( it == rows.end() )
+            {
+                rows.push_back(
+                     ChunkFolderRow{ std::move( folder ), std::vector<std::size_t>( plan.Count(), 0 ) } );
+                it = std::prev( rows.end() );
+            }
+            // THE PACKAGER'S OWN QUESTION, asked of the same plan: WriteChunkedPaks files every source
+            // under ChunkFor( its stable key ). A second copy of the rule here would be a panel that
+            // can disagree with the archives.
+            ++it->FilesPerChunk[plan.ChunkFor( entry.Key )];
+        }
+        std::sort( rows.begin(), rows.end(),
+                   []( const ChunkFolderRow& a, const ChunkFolderRow& b ) { return a.Folder < b.Folder; } );
+        return rows;
+    }
+
     ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry& registry, const ChunkScheme& scheme )
     {
         ChunkPlan plan;
 
         // ── 1. The names, validated before anything is walked ────────────────────────────────────
+        if ( const auto valid = ValidateChunkScheme( scheme ); !valid )
+            return MakeError<ChunkPlan>( valid.GetError() );
         for ( const ChunkRule& rule : scheme.Chunks )
-        {
-            if ( !IsNameableChunk( rule.Name ) )
-                return MakeFormattedError<ChunkPlan>(
-                     "chunk name '{}' cannot be part of an archive filename — letters, digits, '_' and "
-                     "'-' only",
-                     rule.Name );
-            if ( rule.Name == BASE_CHUNK_NAME )
-                return MakeFormattedError<ChunkPlan>(
-                     "'{}' is the archive every unplaced file ships in and is not something a scheme "
-                     "declares",
-                     BASE_CHUNK_NAME );
-            if ( std::find( plan.m_Names.begin(), plan.m_Names.end(), rule.Name ) != plan.m_Names.end() )
-                return MakeFormattedError<ChunkPlan>( "two chunks are called '{}'", rule.Name );
-            if ( rule.Roots.empty() )
-                return MakeFormattedError<ChunkPlan>(
-                     "chunk '{}' names no roots, so it would ship an empty archive that reads exactly "
-                     "like a correct one",
-                     rule.Name );
             plan.m_Names.push_back( rule.Name );
-        }
 
         // ── 2. The closure, per chunk, over the registry's OWN edges ─────────────────────────────
         //

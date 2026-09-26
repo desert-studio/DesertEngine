@@ -8,8 +8,7 @@
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/ExtraFields.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <optional>
 #include <vector>
@@ -209,7 +208,7 @@ namespace Desert::Assets
 
         // Only the component keys whose payload differs from the base record's. Spread at this record's
         // top level by ExtraFields, exactly as EntityData spreads its own components.
-        rfl::ExtraFields<rfl::Generic> Components;
+        Common::Json::KeyedValues Components;
     };
 
     struct EntityData
@@ -238,7 +237,7 @@ namespace Desert::Assets
         // keys on read — so the on-disk shape matches the original per-component layout (full back/forward
         // compatibility). Reflected blocks are filled by ReflectionSerializer; asset-bearing ones by
         // custom handlers in ComponentRegistry.
-        rfl::ExtraFields<rfl::Generic> Components;
+        Common::Json::KeyedValues Components;
 
         // Set ONLY on a record that carries a PrefabPath: how this instance differs from the file it
         // names. Absent means "identical to the source", which is what every instance is at birth.

@@ -13,25 +13,26 @@ namespace Desert::Assets
         // THE RIG'S IDENTITY IS ITS HEADER GUID (SKEL 1, T7e), adopted HERE for ControlRigAsset's reason: the
         // asset manager keys its handle lookup at creation. A file with no readable header keeps the
         // path-derived handle - the load refuses it by name, so none is ever READY under it.
-        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( m_Metadata.Filepath );
-        if ( !guid.IsNull() )
-            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
-                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+        if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
+             !identity.Guid.IsNull() )
+            AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
     Common::BoolResultStr SkeletonAsset::LoadFromFile()
     {
+        // The old path of a moved asset reads the file where it now lives, through the registry - the same
+        // file the constructor took the identity from (ReadTextAssetIdentity).
+        const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
         // Through the VFS first, so a packaged build reads the rig out of its .dpak like every other asset,
         // then off the disk for a loose file the pak does not carry (T7e: it read only the disk).
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
-                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
-                                      : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
              packed.has_value() )
             text = packed.value();
         else
         {
-            auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
+            auto raw = Common::Utils::FileSystem::ReadFileContent( file );
             if ( !raw )
                 return Common::MakeError( raw.GetError() );
             text = raw.ExtractValue();
@@ -39,7 +40,7 @@ namespace Desert::Assets
 
         auto read = Serialization::ReadSkeletonJson( text );
         if ( !read )
-            return Common::MakeFormattedError<bool>( "'{}': {}", m_Metadata.Filepath.string(), read.GetError() );
+            return Common::MakeFormattedError<bool>( "'{}': {}", file.string(), read.GetError() );
 
         auto data = read.ExtractValue();
 
