@@ -1,6 +1,6 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/DynamicAttribute.h:1-421, adapted: UE
-// Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; FName is std::string; undo/redo
-// change objects and FArchive serialization not ported.
+// Core via UECore.hpp, namespace Desert::Geometry, TUniquePtr is std::unique_ptr; std::string is std::string;
+// undo/redo change objects and FArchive serialization not ported.
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
@@ -28,20 +28,20 @@ namespace Desert::Geometry
 
     public:
         /** Get optional identifier for this attribute set. */
-        FName GetName() const
+        [[nodiscard]] std::string GetName() const
         {
             return Name;
         }
 
         /** Set optional identifier for this attribute set. */
-        void SetName( FName NameIn )
+        void SetName( std::string NameIn )
         {
             Name = NameIn;
         }
 
     protected:
-        /** Optional FName identifier for this attribute set. Not guaranteed to be unique. */
-        FName Name = FName();
+        /** Optional std::string identifier for this attribute set. Not guaranteed to be unique. */
+        std::string Name = std::string();
 
     public:
         /** Allocate a new copy of the attribute layer, optionally with a different parent */
@@ -161,7 +161,7 @@ namespace Desert::Geometry
         {
         }
 
-        virtual SIZE_T GetByteCount() const
+        [[nodiscard]] virtual size_t GetByteCount() const
         {
             return 0;
         }

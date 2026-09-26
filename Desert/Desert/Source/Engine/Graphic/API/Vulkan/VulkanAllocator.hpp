@@ -71,6 +71,15 @@ namespace Desert::Graphic::API::Vulkan
                                                         const VkImageCreateInfo& imageCreateInfo,
                                                         VmaMemoryUsage usage, VkImage& outImage );
 
+        /// THE "NEW MEMORY IS GARBAGE" DEBUG MODE (DESERT_POISON_NEW_MEMORY=1, Debug builds only).
+        /// MoltenVK hands out fresh memory zeroed, Windows drivers hand out whatever the last owner left,
+        /// so a target read before its first write looks right on this machine and speckled on the
+        /// owner's. With the variable set, every host-visible buffer is filled with 0xCD on allocation and
+        /// every 2D image without initial data is cleared to NaN (float formats) / 0xCD (integer formats),
+        /// which makes a read-before-write visible here. Announced once in the log when active; always
+        /// false in Release, where getenv is never consulted.
+        [[nodiscard]] static bool PoisonNewMemory();
+
         Common::ResultStr<VmaAllocation> RT_AllocateBuffer( const std::string&        tag,
                                                          const VkBufferCreateInfo& bufferCreateInfo,
                                                          VmaMemoryUsage usage, VkBuffer& outBuffer );

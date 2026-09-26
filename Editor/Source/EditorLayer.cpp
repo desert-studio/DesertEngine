@@ -85,7 +85,7 @@
 #include "Editor/Core/ProjectContext.hpp"
 
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
-#include <Engine/Graphic/Image.hpp> // Image2D::ReadPixelsRGBA8 (debug frame dump)
+#include <Engine/Graphic/Image.hpp>                      // Image2D::ReadPixelsRGBA8 (debug frame dump)
 #include <Engine/Core/Input.hpp>
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Version.hpp>
@@ -97,7 +97,9 @@
 #include <array>
 #include <ImGuizmo.h>
 #include "Editor/Import/ImportManager.hpp"
+#include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
+#include "Editor/Widgets/WindowButtonStyle.hpp"
 #include "Editor/Builtin/BuiltinMeshRegistry.hpp"
 
 // 3. Editor Panels
@@ -134,6 +136,7 @@
 #include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
+#include "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
 #include "Editor/Panels/TextureViewer/TextureViewerDocument.hpp"
 #include "Editor/Panels/Clouds/CloudTypePanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
@@ -444,7 +447,7 @@ namespace Desert::Editor
         }
     } // namespace
 
-    EditorLayer::EditorLayer( const Engine::Application* application, const std::string& layerName,
+    EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
                               std::unique_ptr<Splash::SplashScreen> splash )
          : Common::Layer( layerName ), m_Application( application ), m_Splash( std::move( splash ) )
 
@@ -561,9 +564,11 @@ namespace Desert::Editor
         m_AssetPreloader   = std::make_unique<Assets::AssetPreloader>( m_AssetManager, *m_AnimationLibrary );
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
-        m_SceneRenderer    = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
-        m_MainScene        = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
-        m_PrimaryScene     = m_MainScene; // the always-present document #-1 (see SetActiveScene)
+        m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::kUnsizedViewExtent );
+        m_MainScene     = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
+        // Copies m_MainScene, built on the line above; a member initializer would copy null.
+        // NOLINTNEXTLINE(cppcoreguidelines-prefer-member-initializer)
+        m_PrimaryScene = m_MainScene; // the always-present document #-1 (see SetActiveScene)
 
         // The scene/asset-manager the undoable structural commands operate on (the scene OBJECT is reused
         // across loads — Clear() + deserialize — so this stays valid; the history itself is cleared on
@@ -634,7 +639,7 @@ namespace Desert::Editor
                 // status of 134 says "the engine crashed", not "the scene you asked for is missing" — the
                 // caller reading it learns the wrong thing. Ask for an ordered close with the real status;
                 // Run() then draws no frames and teardown happens exactly as on a normal quit.
-                const_cast<Engine::Application*>( m_Application )->Close( 2 );
+                m_Application->Close( 2 );
             }
             else
             {
@@ -729,14 +734,14 @@ namespace Desert::Editor
                  *window,
                  // The same ordered close the control channel's `quit` takes: Run() leaves its loop, every
                  // layer is detached, the device goes idle. Two ways to end a session would drift.
-                 [this]() { const_cast<Engine::Application*>( m_Application )->Close( 0 ); } );
+                 [this]() { m_Application->Close( 0 ); } );
         }
 
         // 1. Create ImGui Context first
         ::ImGui::CreateContext();
 
         // 2. Initialize Editor Resources (Adds fonts to the atlas)
-        Editor::EditorResources::Initialize( "Resources/Fonts/materialdesignicons-webfont.ttf" );
+        Editor::EditorResources::Initialize( UI::kIconFontFile.string() );
 
         // 3. Initialize Engine ImGui Layer (Initializes backend and uploads fonts)
         m_ImGuiLayer = ImGui::ImGuiLayer::Create();
@@ -796,7 +801,9 @@ namespace Desert::Editor
         // start, and one call: the splash says what it is before it begins, and cannot say more during it.
         MakeSplashPlan();
         BeginSplashStage( m_ShaderStage );
-        m_AssetPreloader->PreloadShaders( SplashItems() );
+        // The splash's close button, pressed during this one long call, stops it between programs.
+        m_AssetPreloader->PreloadShaders( SplashItems(),
+                                          [this]() { return m_Splash && m_Splash->CloseRequested(); } );
 
         BuildSceneSystems( *m_MainScene );
 
@@ -953,6 +960,21 @@ namespace Desert::Editor
                            [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                            {
                                return std::make_unique<Editor::TextureViewerDocument>(
+                                    Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
+                           },
+                           [this]( const SubjectId& subject )
+                           {
+                               return m_AssetManager && m_AssetManager->FindMetadataByHandle(
+                                                             Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                           } } );
+
+        // THE SKYBOX VIEWER. Claims a renderer slot (a PreviewViewport), so it lives under the slot census below.
+        m_SubjectEditors.Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::Skybox ) ),
+             Registration{ "Skybox", ICON_MDI_IMAGE_FILTER_HDR,
+                           [this]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                           {
+                               return std::make_unique<Editor::SkyboxViewerDocument>(
                                     Assets::AssetHandle( subject.Owner ), m_AssetManager.get() );
                            },
                            [this]( const SubjectId& subject )
@@ -1176,8 +1198,16 @@ namespace Desert::Editor
                                                  return SubjectEditorRegistry::PathOpenOutcome::NotMine;
                                              } );
         m_SubjectEditors.RegisterPathOpener(
-             { std::string( Assets::kTextureAssetExtension ) }, [this]( const std::string& path )
-             { return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors ); } );
+             { std::string( Assets::kTextureAssetExtension ) },
+             [this]( const std::string& path )
+             {
+                 // ONE opener per extension (OpenPath's rule), so the `.detex` split is made here: a panorama
+                 // whose header says Skybox opens the skybox viewer, every other `.detex` the texture viewer.
+                 if ( const auto sky = RequestSkyboxDocument( m_AssetManager.get(), path, m_SubjectEditors );
+                      sky != SubjectEditorRegistry::PathOpenOutcome::NotMine )
+                     return sky;
+                 return RequestTextureDocument( m_AssetManager.get(), path, m_SubjectEditors );
+             } );
         m_SubjectEditors.RegisterPathOpener(
              { std::string( Assets::Serialization::ShaderGraph::kShaderGraphExtension ) },
              [this]( const std::string& path )
@@ -1274,7 +1304,19 @@ namespace Desert::Editor
         // THERE USED TO BE A GATE HERE — "only after one frame with the loading overlay has been
         // presented" — and it existed for the overlay alone: a stage run before that frame froze a blank
         // window. The overlay is gone (the splash, a window of its own, replaced it), and so is the gate.
-        if ( StartupLoading() )
+        //
+        // CLOSE ON THE SPLASH ENDS THE START HERE, before the next stage: the editor leaves through the same
+        // Application::Close the window frame's close button and the control channel's `quit` take.
+        const Splash::StartupStep step = Splash::NextStartupStep( m_Splash && m_Splash->CloseRequested(),
+                                                                  m_StartupNext, m_StartupStages.size() );
+        if ( step == Splash::StartupStep::Quit && !m_QuitFromSplash )
+        {
+            m_QuitFromSplash = true;
+            LOG_INFO( "[Startup] closed on the splash; {} of {} stage(s) not run",
+                      m_StartupStages.size() - m_StartupNext, m_StartupStages.size() );
+            m_Application->Close( 0 );
+        }
+        if ( step == Splash::StartupStep::RunStage )
         {
             {
                 DESERT_PROFILE_SCOPE( "Startup stage" );
@@ -1532,7 +1574,7 @@ namespace Desert::Editor
                         const auto      dir = Common::Constants::Path::SCENE_PATH / "Autosave";
                         std::error_code ec;
                         std::filesystem::create_directories( dir, ec );
-                        const auto path = dir / ( name + "_autosave" +
+                        const auto path    = dir / ( name + "_autosave" +
                                                   std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
                         const auto written = ec ? Common::MakeFormattedError( "could not create {}: {}",
                                                                               dir.string(), ec.message() )
@@ -1804,7 +1846,7 @@ namespace Desert::Editor
                 LOG_INFO( "[Memory] {}", Graphic::MemoryWatch::Report() );
                 // A capture that wrote no PNG must not leave a zero exit status behind: the whole value of
                 // an exit code is that a script can trust it, and this one used to say "fine" either way.
-                const_cast<Engine::Application*>( m_Application )->Close( m_ShotFailed ? 1 : 0 );
+                m_Application->Close( m_ShotFailed ? 1 : 0 );
             }
         }
 
@@ -2103,8 +2145,8 @@ namespace Desert::Editor
             return;
         }
 
-        m_ControlInFlight     = request;
-        m_ControlPendingReply = std::move( response );
+        m_ControlInFlight       = request;
+        m_ControlPendingReply   = std::move( response );
         m_ControlInFlightClient = m_ControlSocket.ClientGeneration();
         m_ControlGate.ArmAfterExecution( m_FrameIndex );
     }
@@ -2154,8 +2196,7 @@ namespace Desert::Editor
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
         // after the views open, so a reply released between the two would hand back a screenshot of four
         // floating windows and call it the grid.
-        quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested ||
-                                                              m_AddSceneViewportRequested ||
+        quiescence.Set( Control::PendingWork::SceneView, m_AddSceneViewRequested || m_AddSceneViewportRequested ||
                                                               m_ViewportGridRequested ||
                                                               !m_PendingViewportGrid.empty() );
         quiescence.Set( Control::PendingWork::SceneStop, m_PendingSceneStop );
@@ -2190,7 +2231,7 @@ namespace Desert::Editor
             const int32_t code = *m_ControlQuitCode;
             m_ControlQuitCode.reset();
             LOG_INFO( "[Control] quit requested; closing with status {}.", code );
-            const_cast<Engine::Application*>( m_Application )->Close( code );
+            m_Application->Close( code );
             return;
         }
 
@@ -3029,8 +3070,8 @@ namespace Desert::Editor
 
         m_PendingViewportGrid.clear();
         m_PendingViewportGrid.push_back( PanelDisplayTitle( "Scene###scene" ) );
-        if ( const auto aimed = Editor::ViewportPanel::SetCameraPreset( kPrimarySceneViewId,
-                                                                        ViewportCameraPreset::Perspective );
+        if ( const auto aimed =
+                  Editor::ViewportPanel::SetCameraPreset( kPrimarySceneViewId, ViewportCameraPreset::Perspective );
              !aimed )
         {
             LOG_WARN( "[Editor] the grid's perspective pane was not aimed: {}", aimed.GetError() );
@@ -3869,13 +3910,13 @@ namespace Desert::Editor
                 // bottom-left, bottom-right. A list shorter than four (the slot budget refused a pane)
                 // simply leaves that quarter to its neighbours, which is what DockBuilder does with an
                 // empty node.
-                ImGuiID topLeft     = node;
-                ImGuiID topRight    = ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Right, 0.5f, nullptr,
-                                                                     &topLeft );
-                ImGuiID bottomLeft  = ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Down, 0.5f, nullptr,
-                                                                     &topLeft );
-                ImGuiID bottomRight = ::ImGui::DockBuilderSplitNode( topRight, ImGuiDir_Down, 0.5f, nullptr,
-                                                                     &topRight );
+                ImGuiID topLeft = node;
+                ImGuiID topRight =
+                     ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Right, 0.5f, nullptr, &topLeft );
+                const ImGuiID bottomLeft =
+                     ::ImGui::DockBuilderSplitNode( topLeft, ImGuiDir_Down, 0.5f, nullptr, &topLeft );
+                const ImGuiID bottomRight =
+                     ::ImGui::DockBuilderSplitNode( topRight, ImGuiDir_Down, 0.5f, nullptr, &topRight );
 
                 const ImGuiID quarters[4] = { topLeft, topRight, bottomLeft, bottomRight };
                 for ( size_t i = 0; i < m_PendingViewportGrid.size() && i < 4; ++i )
@@ -5893,11 +5934,13 @@ namespace Desert::Editor
 
             // The slot column. "Cloud - no slot" is not trivia: it is the answer to "I closed four windows
             // and it still will not open", because closing a CPU-drawn document frees nothing.
-            const char*       slot = document->HoldsRendererSlot()    ? "1 slot"
-                                     : document->ClaimsRendererSlot() ? "claiming"
-                                                                      : "no slot";
+            const char* slot = "no slot";
+            if ( document->HoldsRendererSlot() )
+                slot = "1 slot";
+            else if ( document->ClaimsRendererSlot() )
+                slot = "claiming";
             const std::string right  = m_SubjectEditors.TypeName( document->Subject() ) + " \xc2\xb7 " + slot;
-            const float rightW = ImGui::CalcTextSize( right.c_str() ).x;
+            const float       rightW = ImGui::CalcTextSize( right.c_str() ).x;
             ImGui::SameLine( ImGui::GetContentRegionMax().x - rightW - 28.0f );
             ImGui::TextDisabled( "%s", right.c_str() );
 
@@ -5949,7 +5992,7 @@ namespace Desert::Editor
             // "destroy me" for a document — and the View menu, which wrote that same bool, could therefore
             // destroy a document with a tick and had no way to bring it back. A document has no visibility:
             // it is open, or it does not exist.
-            bool open = true;
+            bool            open       = true;
             const glm::vec2 docPadding = document->GetWindowPadding();
             ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( docPadding.x, docPadding.y ) );
             // BEGIN'S RETURN VALUE IS "IS THIS DOCUMENT ON SCREEN", and it was being thrown away. It is
@@ -6268,7 +6311,7 @@ namespace Desert::Editor
         // been the only way out of the editor other than killing the process. Same ordered close as the
         // title bar's x and the control channel's `quit`.
         if ( ImGui::MenuItem( "Exit" ) )
-            const_cast<Engine::Application*>( m_Application )->Close( 0 );
+            m_Application->Close( 0 );
 
         ImGui::EndMenu();
     }
@@ -6498,7 +6541,7 @@ namespace Desert::Editor
 
     void EditorLayer::UpdateContentSettling()
     {
-        const auto& loader = Assets::AsyncAssetLoader::Get();
+        const auto& loader  = Assets::AsyncAssetLoader::Get();
         const bool  settled = m_Content.Tick( loader.Outstanding(), loader.StartedCount() );
         if ( !settled )
         {
@@ -7681,11 +7724,11 @@ namespace Desert::Editor
         // every panel behind a closed submenu as ungrouped. Measured — the first capture of this menu showed
         // ten panels under "NOT YET GROUPED" that are grouped. The census has to be readable without opening
         // anything, so it is stated once here and the drawing below refers to it.
-        static constexpr const char* kLevelGroup[]     = { "Scene Outliner", "Collections",      "Details",
-                                                           "Scene Settings", "Scene Validation", "World Partition" };
-        static constexpr const char* kContentGroup[]   = { "Assets", "Asset References", "Shader Library" };
-        static constexpr const char* kOutputGroup[]    = { "Logs", "Lua Console", "History" };
-        static constexpr const char* kViewportGroup[]  = { "Scene###scene" };
+        static constexpr const char* kLevelGroup[]    = { "Scene Outliner", "Collections",      "Details",
+                                                          "Scene Settings", "Scene Validation", "World Partition" };
+        static constexpr const char* kContentGroup[]  = { "Assets", "Asset References", "Shader Library" };
+        static constexpr const char* kOutputGroup[]   = { "Logs", "Lua Console", "History" };
+        static constexpr const char* kViewportGroup[] = { "Scene###scene" };
         // "Anim Graph", "Particle Editor", "UI Editor" and "Sequencer" are gone from these lists because
         // they are gone from the registry this menu loops over — a name left here would draw a group entry
         // for a panel that does not exist. They are opened from the component that holds them, in Details.
@@ -7955,7 +7998,7 @@ namespace Desert::Editor
             smc.Primitive = type;
             if ( material )
                 smc.MaterialSlots.push_back( material );
-            auto& tf       = e.GetComponent<ECS::TransformComponent>();
+            auto& tf = e.GetComponent<ECS::TransformComponent>();
             // Demo scenes are authored in METRES for readability; a world unit is a centimetre, so every
             // position scales up. Scale does NOT: the primitive meshes themselves are one metre now.
             tf.Translation = pos * Common::Units::UnitsPerMetre;
@@ -8075,9 +8118,9 @@ namespace Desert::Editor
         // this site asked for a diffuse red wall, invisibly, for as long as the file existed.
         auto tinted = [&]( const char* name, glm::vec3 pos, glm::vec3 scale, const char* matName )
         {
-            auto& e       = m_MainScene->CreateNewEntity( std::string( name ) );
-            auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
-            smc.Primitive = Geometry::PrimitiveType::Cube;
+            auto& e            = m_MainScene->CreateNewEntity( std::string( name ) );
+            auto& smc          = e.AddComponent<ECS::StaticMeshComponent>();
+            smc.Primitive      = Geometry::PrimitiveType::Cube;
             const auto* params = Editor::MaterialAssetUtils::FindDemoMaterial( matName );
             if ( !params )
             {
@@ -8496,8 +8539,8 @@ namespace Desert::Editor
             auto& col                                            = e.AddComponent<ECS::ColliderComponent>();
             col.Data.Shape                                       = Physics::ShapeType::Box;
             // The Cube primitive spans one metre, so a box of Scale s reaches 50*s units either way.
-            col.Data.HalfExtents                                 = scale * ( Common::Units::UnitsPerMetre * 0.5f );
-            e.AddComponent<ECS::RigidBodyComponent>().Data.Type  = Physics::BodyType::Static;
+            col.Data.HalfExtents                                = scale * ( Common::Units::UnitsPerMetre * 0.5f );
+            e.AddComponent<ECS::RigidBodyComponent>().Data.Type = Physics::BodyType::Static;
             scene->Attach( parent, e );
         }
     } // namespace
@@ -8545,11 +8588,11 @@ namespace Desert::Editor
         {
             auto& ground                                              = m_MainScene->CreateNewEntity( "Ground" );
             ground.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Cube;
-            auto& gt              = ground.GetComponent<ECS::TransformComponent>();
-            gt.Translation        = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.5f, 0.0f ); // top at y=0
-            gt.Scale              = { 20.0f, 0.5f, 20.0f };
-            auto& gcol            = ground.AddComponent<ECS::ColliderComponent>();
-            gcol.Data.Shape       = Physics::ShapeType::Box;
+            auto& gt        = ground.GetComponent<ECS::TransformComponent>();
+            gt.Translation  = Common::Units::Metres( 1.0f ) * glm::vec3( 0.0f, -0.5f, 0.0f ); // top at y=0
+            gt.Scale        = { 20.0f, 0.5f, 20.0f };
+            auto& gcol      = ground.AddComponent<ECS::ColliderComponent>();
+            gcol.Data.Shape = Physics::ShapeType::Box;
             // Half-extents of the scaled 1 m cube: 50 units per unit of Scale.
             gcol.Data.HalfExtents = gt.Scale * ( Common::Units::UnitsPerMetre * 0.5f );
             ground.AddComponent<ECS::RigidBodyComponent>().Data.Type = Physics::BodyType::Static;
@@ -8565,7 +8608,7 @@ namespace Desert::Editor
             auto& bcol            = box.AddComponent<ECS::ColliderComponent>();
             bcol.Data.Shape       = Physics::ShapeType::Box;
             bcol.Data.HalfExtents = glm::vec3( Common::Units::Metres( 0.5f ) );
-            box.AddComponent<ECS::RigidBodyComponent>().Data.Type  = Physics::BodyType::Static;
+            box.AddComponent<ECS::RigidBodyComponent>().Data.Type = Physics::BodyType::Static;
         }
 
         // --- Player: a Character Controller (the physics capsule). NO RigidBody/Collider — the controller

@@ -57,10 +57,12 @@
 #include "SceneMigration.hpp"
 #include "SettingsCanonical.hpp"
 
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -108,6 +110,7 @@ namespace
     // does. Its step is gated on its own number and is content-detected the same way: a file with no
     // version field is generation 0, never "already current".
     constexpr const char* kClipExtension = ".anim";
+    constexpr const char* kShaderExtension = ".shader";
 
     // THE OTHER TEXT ASSETS ARE COLLECTED FOR THEIR LAYOUT ONLY (AF6e). Their content has no step in this
     // tool - each is versioned by its own loader - but their text is written by the canonical writer, so a
@@ -160,7 +163,8 @@ namespace
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
-                  std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models )
+                  std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
+                  std::vector<std::filesystem::path>& shaders )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
@@ -189,6 +193,8 @@ namespace
                     noises.push_back( entry.path() );
                 else if ( IsCloudModellingVolume( entry.path() ) )
                     models.push_back( entry.path() );
+                else if ( entry.path().extension() == kShaderExtension )
+                    shaders.push_back( entry.path() );
             }
             return;
         }
@@ -211,6 +217,8 @@ namespace
             noises.push_back( root );
         else if ( IsCloudModellingVolume( root ) )
             models.push_back( root );
+        else if ( root.extension() == kShaderExtension )
+            shaders.push_back( root );
         else
             scenes.push_back( root );
     }
@@ -653,9 +661,10 @@ namespace
     // Shared by scenes and prefabs since И11 — a prefab can carry a VolumetricCloud entity like any other,
     // and the collision guard below has to see BOTH file classes through ONE `claimed` map, or two files
     // of different classes minting the same material name would overwrite each other unseen.
-    // MATL 2 text -> the MATL 3 canonical text: the frozen v2 shape read, its numbers translated through
-    // `refs` (RaiseMaterialToV3), the header raised and its Dependencies stated by the one .demat writer.
-    Common::ResultStr<std::string> RaiseMaterialV2TextToV3( const std::filesystem::path&                path,
+    // MATL 2 text -> the MATL 4 canonical text: the frozen v2 shape read, its numbers and its shader name
+    // translated through `refs` (RaiseMaterialV2ToV4), the header raised and its Dependencies stated by the one
+    // .demat writer.
+    Common::ResultStr<std::string> RaiseMaterialV2TextToV4( const std::filesystem::path&                path,
                                                             const std::string&                          text,
                                                             const Desert::Migration::LegacyAssetRefMap& refs )
     {
@@ -663,10 +672,129 @@ namespace
         if ( !parsed )
             return Common::MakeError<std::string>( "not a readable MATL 2 material: " +
                                                    std::string( parsed.error().what() ) );
-        const auto raised = Desert::Migration::RaiseMaterialToV3( path.generic_string(), parsed.value(), refs );
+        const auto raised = Desert::Migration::RaiseMaterialV2ToV4( path.generic_string(), parsed.value(), refs );
         if ( !raised )
             return Common::MakeError<std::string>( raised.GetError() );
         return Desert::Assets::WriteMaterialJson( raised.GetValue() );
+    }
+
+    // MATL 3 -> 4 (T7k): the shader named by its header GUID instead of by name. "ShaderName" becomes
+    // "Shader": {Guid, Path} at the same position (Desert::Migration::ShaderRefByName: the one .shader in `refs`
+    // with that file stem), "ShaderRefs" (the cloud Medium slot, a shader by path) moves into CloudAssets by the
+    // shader's GUID, and the header states MATL 4 with its Dependencies in the engine's order
+    // (MaterialData::ReferencedGuidTexts). A shader name no file carries, or a file with no header GUID, is
+    // refused by name and the caller leaves the material untouched.
+    //
+    // THE DOCUMENT IS EDITED, NOT RE-SERIALISED (as RaiseCloudTypeV4ToV5): every authored number keeps its
+    // spelling. The engine's own ParseMaterialJson is the gate the result has to pass.
+    Common::ResultStr<std::string> RaiseMaterialV3ToV4( const std::filesystem::path& path, const std::string& text,
+                                                        const Desert::Migration::LegacyAssetRefMap& refs )
+    {
+        const std::string source = path.generic_string();
+        const auto        fail   = []( const std::string& why ) { return Common::MakeError<std::string>( why ); };
+        const auto        tree   = rfl::json::read<rfl::Generic>( text );
+        if ( !tree || !tree.value().to_object() )
+            return fail( "not a readable MATL 3 material" );
+        const rfl::Generic::Object doc = tree.value().to_object().value();
+
+        rfl::Generic::Array mediums;
+        if ( const auto shaderRefs = doc.get( "ShaderRefs" ); shaderRefs )
+        {
+            const auto list = shaderRefs.value().to_array();
+            if ( !list )
+                return fail( "its ShaderRefs is not a MATL 3 array" );
+            for ( const auto& entry : list.value() )
+            {
+                const auto slot = entry.to_object();
+                const auto name = slot ? slot.value().get( "Name" ).and_then( []( const rfl::Generic& g )
+                                                                              { return g.to_string(); } )
+                                       : rfl::Result<std::string>( rfl::Error( "not an object" ) );
+                if ( !name )
+                    return fail( "a ShaderRefs entry states no Name" );
+                const auto locator =
+                     slot.value().get( "Path" ).and_then( []( const rfl::Generic& g ) { return g.to_string(); } );
+                rfl::Generic::Object cloud;
+                cloud["Name"] = rfl::Generic( name.value() );
+                cloud["Guid"] = rfl::Generic( std::string() );
+                cloud["Path"] = rfl::Generic( std::string() );
+                if ( locator && !locator.value().empty() )
+                {
+                    const auto found =
+                         refs.find( static_cast<uint64_t>( Common::AssetHandle::FromKey( locator.value() ) ) );
+                    if ( found == refs.end() || found->second.Kind != Desert::Migration::LegacyAssetKind::Shader ||
+                         found->second.Guid.empty() )
+                        return fail(
+                             "its shader slot '" + name.value() + "' names '" + locator.value() +
+                             "', which is no .shader with a header GUID under the content root's Shaders/" );
+                    cloud["Guid"] = rfl::Generic( found->second.Guid );
+                    cloud["Path"] = rfl::Generic( found->second.Path );
+                }
+                mediums.emplace_back( cloud );
+            }
+        }
+
+        rfl::Generic::Object raised;
+        bool                 cloudsSeen = false;
+        for ( const auto& [key, value] : doc )
+        {
+            if ( key == "ShaderRefs" )
+                continue;
+            if ( key == "ShaderName" )
+            {
+                const auto name = value.to_string();
+                if ( !name )
+                    return fail( "its ShaderName is not a string" );
+                if ( name.value().empty() )
+                    continue; // an empty name drew the standard surface, which MATL 4 states by absence
+                const auto shader = Desert::Migration::ShaderRefByName( source, name.value(), refs );
+                if ( !shader )
+                    return fail( shader.GetError() );
+                rfl::Generic::Object ref;
+                ref["Guid"]      = rfl::Generic( shader.GetValue().Guid );
+                ref["Path"]      = rfl::Generic( shader.GetValue().Path );
+                raised["Shader"] = rfl::Generic( ref );
+                continue;
+            }
+            if ( key == "CloudAssets" && !mediums.empty() )
+            {
+                const auto list = value.to_array();
+                if ( !list )
+                    return fail( "its CloudAssets is not an array" );
+                rfl::Generic::Array merged = list.value();
+                merged.insert( merged.end(), mediums.begin(), mediums.end() );
+                raised[key] = rfl::Generic( merged );
+                cloudsSeen  = true;
+                continue;
+            }
+            raised[key] = value;
+        }
+        if ( !mediums.empty() && !cloudsSeen )
+            raised["CloudAssets"] = rfl::Generic( mediums );
+
+        // The Dependencies the engine derives from the raised references, read back through the typed shape so
+        // their order is ReferencedGuidTexts' own (parent, shader, textures, cloud assets).
+        const auto typed =
+             rfl::json::read<Desert::Assets::MaterialData>( rfl::json::write( rfl::Generic( raised ) ) );
+        if ( !typed )
+            return fail( "the raised material is not readable: " + std::string( typed.error().what() ) );
+        const auto headerTree = raised.get( "Header" );
+        if ( !headerTree || !headerTree.value().to_object() )
+            return fail( "its Header is not an object" );
+        rfl::Generic::Object headerDoc = headerTree.value().to_object().value();
+        rfl::Generic::Object versions;
+        versions["MATL"] = rfl::Generic( static_cast<int>( Desert::Assets::kMaterialSchemaVersion ) );
+        rfl::Generic::Array dependencyTexts;
+        for ( const auto& guid : typed.value().ReferencedGuidTexts() )
+            dependencyTexts.emplace_back( guid );
+        headerDoc["Versions"]     = rfl::Generic( versions );
+        headerDoc["Dependencies"] = rfl::Generic( dependencyTexts );
+        raised["Header"]          = rfl::Generic( headerDoc );
+
+        std::string written = rfl::json::write( rfl::Generic( raised ) );
+        if ( auto loadable = Desert::Assets::ParseMaterialJson( source, written ); !loadable )
+            return fail( "the raised text does not pass the engine's own ParseMaterialJson: " +
+                         loadable.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
     }
 
     bool WriteCloudMaterials( const std::vector<Desert::Migration::CloudMaterialFile>& produced,
@@ -704,11 +832,11 @@ namespace
 
             // Born MATL 2 by the pure scene step, raised here where the content root is known, so ONE run
             // leaves a file this build reads.
-            const auto raised = RaiseMaterialV2TextToV3( matPath, mat.Json, refs );
+            const auto raised = RaiseMaterialV2TextToV4( matPath, mat.Json, refs );
             if ( !raised )
             {
                 err << "FAIL   " << source.string() << " — its cloud material " << matPath.string()
-                    << " cannot be raised to MATL 3: " << raised.GetError() << "; neither file is modified\n";
+                    << " cannot be raised to MATL 4: " << raised.GetError() << "; neither file is modified\n";
                 return false;
             }
 
@@ -1278,15 +1406,17 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> layouts;
         std::vector<std::filesystem::path> noises;
         std::vector<std::filesystem::path> models;
+        std::vector<std::filesystem::path> shaders;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
-             meshes.empty() && layouts.empty() && noises.empty() && models.empty() )
+             meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() )
         {
             err << "SceneMigrator: no " << kSceneExtension << ", " << kMaterialExtension << ", "
                 << kPrefabExtension << ", " << kClipExtension
-                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume or other text asset "
+                << ", cooked mesh, cloud layout, cloud noise volume, sculpted cloud volume, shader or other text "
+                   "asset "
                    "files found\n";
             return 2;
         }
@@ -1667,6 +1797,68 @@ namespace Desert::Migration
             }
         }
 
+        // THE SHADERS (SHDR 0 -> 1, T7j). Generation 0 stated nothing; the raised file opens with the comment
+        // header line (ShaderAssetHeader.hpp) and a GUID minted HERE, once, and every source byte after it is
+        // kept. The header is read back through the loader's own reader before a byte is written. A headed file
+        // is left byte for byte once its header is checked; one stating another SHDR is refused by name.
+        for ( const auto& path : shaders )
+        {
+            namespace CC             = Common::Content;
+            const std::string source = ReadAll( path );
+            if ( source.empty() )
+            {
+                err << "FAIL   " << path.string() << " — unreadable or empty\n";
+                ++failed;
+                continue;
+            }
+            if ( source.starts_with( CC::kShaderHeaderPrefix ) )
+            {
+                const auto header = CC::ReadShaderHeader( source );
+                const int  stated =
+                     header ? Desert::Assets::StatedVersion( header.GetValue(), Desert::Assets::kShaderSchemaTag )
+                             : -1;
+                if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
+                {
+                    err << "FAIL   " << path.string() << " — "
+                        << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool writes SHDR " +
+                                           std::to_string( Desert::Assets::kShaderSchemaVersion )
+                                    : header.GetError() )
+                        << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — already at shader v"
+                    << Desert::Assets::kShaderSchemaVersion << "\n";
+                continue;
+            }
+            const std::array<CC::SubsystemVersion, 1> versions = {
+                 CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+            const CC::AssetGuid guid = CC::AssetGuid::Generate();
+            const std::string   raised =
+                 CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) +
+                 source;
+            const auto reread = CC::ReadShaderHeader( raised );
+            if ( !reread || reread.GetValue().Guid != CC::AssetGuidToText( guid ) )
+            {
+                err << "FAIL   " << path.string() << " — the stamped header does not read back: "
+                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
+                ++failed;
+                continue;
+            }
+            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — shader v0 -> v"
+                << Desert::Assets::kShaderSchemaVersion << ", GUID " << CC::AssetGuidToText( guid ) << "\n";
+            ++changed;
+            if ( check )
+                continue;
+            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+                --changed;
+            }
+        }
+
         for ( const auto& path : scenes )
         {
             const std::string source = ReadAll( path );
@@ -1814,7 +2006,42 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            // A MATL 3 file has nothing left to raise: every step below is for an older shape. Only its layout
+            // MATL 3 -> 4 (T7k): its own step, an in-place edit of the text (RaiseMaterialV3ToV4); every step
+            // further below reads the frozen v2 shape and raises straight to 4.
+            if ( stated.GetValue().Version == 3 )
+            {
+                const auto* assetRefs = LegacyAssetRefsFor( root );
+                if ( assetRefs == nullptr )
+                {
+                    ++failed; // LegacyAssetRefsFor named the file it could not read
+                    continue;
+                }
+                const auto raised = RaiseMaterialV3ToV4( path, source, *assetRefs );
+                if ( !raised )
+                {
+                    err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                constexpr std::string_view kWhat = " MATL v3 -> v4, the shader named by its header GUID;";
+                if ( check )
+                {
+                    out << "WOULD  " << path.string() << " —" << kWhat << "\n";
+                    ++materialsChanged;
+                    continue;
+                }
+                if ( !WriteText( path, raised.GetValue(), err ) )
+                {
+                    err << "FAIL   " << path.string() << " — the raise could not be written; the original file "
+                        << "is untouched. It would have been:" << kWhat << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "raised " << path.string() << " —" << kWhat << "\n";
+                ++materialsChanged;
+                continue;
+            }
+            // A MATL 4 file has nothing left to raise: every step below is for an older shape. Only its layout
             // is checked, so a second run changes nothing.
             if ( stated.GetValue().Version >= Desert::Assets::kMaterialSchemaVersion )
             {
@@ -1871,7 +2098,8 @@ namespace Desert::Migration
                 text = raised.GetValue();
             }
 
-            // MATL 2 -> 3 (T6c3) is the LAST material step and every step before it reads the frozen v2 shape.
+            // MATL 2 -> 4 (T6c3, T7k) is the LAST material step and every step before it reads the frozen v2
+            // shape.
             auto parsed = rfl::json::read<Desert::Migration::MaterialDataV2>( text );
             if ( !parsed )
             {
@@ -1896,7 +2124,7 @@ namespace Desert::Migration
                 continue;
             }
             const auto raised =
-                 Desert::Migration::RaiseMaterialToV3( path.generic_string(), parsed.value(), *assetRefs );
+                 Desert::Migration::RaiseMaterialV2ToV4( path.generic_string(), parsed.value(), *assetRefs );
             if ( !raised )
             {
                 err << "FAIL   " << raised.GetError() << "\n";

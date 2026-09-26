@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"d37c5b1cc25c4c36a84689f282071eda","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Silhouette"
 {
     Vertex

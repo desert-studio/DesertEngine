@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a0b78f02850f2fe1a8d64ed55a14d464","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "PanoramaToCubemap"
 {
     Compute

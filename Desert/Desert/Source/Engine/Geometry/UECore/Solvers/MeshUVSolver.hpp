@@ -20,23 +20,23 @@ namespace Desert::Geometry
     public:
         struct FTriplet
         {
-            int32  Row;
-            int32  Col;
+            int32_t Row;
+            int32_t Col;
             double Value;
         };
 
         FSparseMatrixD() = default;
-        FSparseMatrixD( int32 RowsIn, int32 ColsIn, std::vector<FTriplet> Triplets );
+        FSparseMatrixD( int32_t RowsIn, int32_t ColsIn, std::vector<FTriplet> Triplets );
 
         void Multiply( const std::vector<double>& In, std::vector<double>& Out ) const;
 
-        std::vector<int32>  RowStart; // NumRows + 1 offsets into ColIndex/Values
-        std::vector<int32>  ColIndex;
+        std::vector<int32_t> RowStart; // NumRows + 1 offsets into ColIndex/Values
+        std::vector<int32_t> ColIndex;
         std::vector<double> Values;
 
     private:
-        int32 NumRows = 0;
-        int32 NumCols = 0;
+        int32_t NumRows = 0;
+        int32_t NumCols = 0;
     };
 
     /**
@@ -52,9 +52,9 @@ namespace Desert::Geometry
         void               Solve( const std::vector<double>& B, std::vector<double>& X ) const;
 
     private:
-        std::vector<int32>  Perm;      // new index -> old index
-        std::vector<int32>  FirstCol;  // first stored column of each permuted row
-        std::vector<int32>  RowOffset; // start of each permuted row's envelope in Lower
+        std::vector<int32_t> Perm;      // new index -> old index
+        std::vector<int32_t> FirstCol;  // first stored column of each permuted row
+        std::vector<int32_t> RowOffset; // start of each permuted row's envelope in Lower
         std::vector<double> Lower;     // strictly-lower envelope rows of L
         std::vector<double> Diagonal;  // D
     };
@@ -71,7 +71,7 @@ namespace Desert::Geometry
         FSpectralConformalMeshUVSolver( const FDynamicMesh3& MeshIn, bool bPreserveIrregularityIn );
 
         /** Marks a free-boundary vertex (UE's AddConstraint: its weight and position are unused by this solve). */
-        void AddBoundaryVertex( int32 VertexID );
+        void AddBoundaryVertex( int32_t VertexID );
 
         /** OutUVs is indexed by vertex ID (size MaxVertexID). False if the factorization or the iteration failed.
          */
@@ -80,8 +80,8 @@ namespace Desert::Geometry
     private:
         const FDynamicMesh3& Mesh;
         bool                 bPreserveIrregularity;
-        TArray<int32>        ToIndex;  // vertex ID -> compact index, InvalidID for gaps
-        TArray<int32>        ToVertex; // compact index -> vertex ID
-        TArray<int32>        Boundary; // compact indices, in insertion order, no duplicates
+        TArray<int32_t>      ToIndex;  // vertex ID -> compact index, InvalidID for gaps
+        TArray<int32_t>      ToVertex; // compact index -> vertex ID
+        TArray<int32_t>      Boundary; // compact indices, in insertion order, no duplicates
     };
 } // namespace Desert::Geometry

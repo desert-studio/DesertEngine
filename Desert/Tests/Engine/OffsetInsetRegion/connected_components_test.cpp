@@ -65,7 +65,7 @@ TEST( MeshConnectedComponents, PredicateStopsGrowthAtAGroupBoundary )
     FMeshConnectedComponents components( &mesh );
     components.FindTrianglesConnectedToSeeds(
          { 0, 7 },
-         [&]( int32 t0, int32 t1 ) { return mesh.GetTriangleGroup( t0 ) == mesh.GetTriangleGroup( t1 ); } );
+         [&]( int32_t t0, int32_t t1 ) { return mesh.GetTriangleGroup( t0 ) == mesh.GetTriangleGroup( t1 ); } );
     ASSERT_EQ( components.Num(), 2 );
     EXPECT_EQ( Sorted( components[0].Indices ), ( std::vector<int>{ 0, 1, 2, 3 } ) );
     EXPECT_EQ( Sorted( components[1].Indices ), ( std::vector<int>{ 4, 5, 6, 7 } ) );
@@ -80,7 +80,7 @@ TEST( MeshConnectedComponents, APathEdgeSplitsAGroupAsInCreateNewGroups )
     ASSERT_NE( pathEdge, FDynamicMesh3::InvalidID );
     FMeshConnectedComponents components( &mesh );
     components.FindTrianglesConnectedToSeeds( { 1, 2 },
-                                              [&]( int32 t0, int32 t1 )
+                                              [&]( int32_t t0, int32_t t1 )
                                               {
                                                   return mesh.GetTriangleGroup( t0 ) ==
                                                               mesh.GetTriangleGroup( t1 ) &&

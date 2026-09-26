@@ -86,12 +86,12 @@ namespace Desert::Geometry
     template <typename T>
     TVector<T> Min( const TVector<T>& A, const TVector<T>& B )
     {
-        return TVector<T>( FMath::Min( A.X, B.X ), FMath::Min( A.Y, B.Y ), FMath::Min( A.Z, B.Z ) );
+        return TVector<T>( std::min( A.X, B.X ), std::min( A.Y, B.Y ), std::min( A.Z, B.Z ) );
     }
 
     template <typename T>
     TVector<T> Max( const TVector<T>& A, const TVector<T>& B )
     {
-        return TVector<T>( FMath::Max( A.X, B.X ), FMath::Max( A.Y, B.Y ), FMath::Max( A.Z, B.Z ) );
+        return TVector<T>( std::max( A.X, B.X ), std::max( A.Y, B.Y ), std::max( A.Z, B.Z ) );
     }
 } // namespace Desert::Geometry

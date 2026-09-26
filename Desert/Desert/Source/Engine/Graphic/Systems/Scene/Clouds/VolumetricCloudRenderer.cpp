@@ -475,7 +475,7 @@ namespace Desert::Graphic::System
                      [params = wanted, origin = wantedOrigin, signal = m_ModellingBakeSignal]()
                      {
                          DESERT_PROFILE_SCOPE( "Clouds: Modelling volume bake" );
-                         return Assets::BakeCloudProceduralVolume(
+                         return Assets::BakeCloudProceduralVolumeCached(
                               params, origin,
                               [&signal]( float fraction )
                               {
@@ -541,7 +541,7 @@ namespace Desert::Graphic::System
                  .Height     = Assets::kCloudProceduralVolumeHeight,
                  .Depth      = bakedSide,
                  .Format     = Core::Formats::ImageFormat::RGBA8F,
-                 .Data       = baked.GetValue(),
+                 .Data       = baked.GetValue().Voxels,
                  .Properties = Core::Formats::Sample,
             };
 
@@ -595,10 +595,15 @@ namespace Desert::Graphic::System
             // THE LIFT IS NAMED BESIDE THE ENVELOPE rather than left to be inferred from it. The envelope
             // moves for two unrelated reasons — a different set of types, or this scene's own offset —
             // and a reader who cannot tell them apart is one edit away from blaming the wrong one.
-            LOG_INFO( "[Clouds] Modelling volume baked for {} cloud type(s) in {:.0f} ms — region {:.0f} km "
+            // HIT OR MISS IS PRINTED beside the time, so a 0 ms line cannot be mistaken for a fast bake.
+            if ( !baked.GetValue().CacheWriteError.empty() )
+                LOG_WARN( "[Clouds] The modelling volume was baked but not cached (DDC key {:016x}): {}",
+                          baked.GetValue().Key, baked.GetValue().CacheWriteError );
+            LOG_INFO( "[Clouds] Modelling volume {} for {} cloud type(s) in {:.0f} ms — region {:.0f} km "
                       "at ({:.1f}, {:.1f}), envelope {:.2f} to {:.2f} km (scene lift {:.2f} km), "
                       "{}x{}x{} RGBA8 ({:.2f} MiB), "
                       "{} lumps, {:.0f} m per voxel, {} stale bake(s) cancelled.",
+                      baked.GetValue().FromCache ? "read from the DDC (hit)" : "baked (DDC miss)",
                       m_ProfileSpeciesCount, bakeMs, m_ModellingParams.RegionSizeKm, m_ModellingOriginKm.x,
                       m_ModellingOriginKm.y, m_ModellingParams.LayerBottomKm,
                       m_ModellingParams.LayerBottomKm + m_ModellingParams.LayerThicknessKm,
@@ -995,7 +1000,14 @@ namespace Desert::Graphic::System
             return bake;
 
         if ( !BuildFieldPayload( bake.Params ) )
+        {
+            // WAITING IS NOT FAILING. A read still on a worker or the first modelling bake still running
+            // will complete; a refused resource will not, and that layer bakes as sky alone.
+            bake.InputsPending = m_NoiseWaiting || m_LayoutWaiting || m_ModellingBake.valid();
             return bake;
+        }
+
+        bake.InputsPending = m_Data.SkyOcclusionVolume && !m_SkyOcclusionDecided;
 
         // Slot A, on the same terms the two in-frame passes build it on. A hero cloud is part of the
         // field, so it lights the world through the environment for the same reason it shades the ground.
@@ -1777,6 +1789,9 @@ namespace Desert::Graphic::System
         CloudGpuPayload payload{};
         if ( !BuildFieldPayload( payload ) )
             return;
+
+        // From here on this frame decides the sky-occlusion volume, whichever way it goes.
+        m_SkyOcclusionDecided = true;
 
         const auto traceParams = m_ParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
 

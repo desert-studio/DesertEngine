@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"593d0a4c3edd7589472b5de9d7712641","Versions":{"SHDR":1},"Dependencies":[]}
 // The Material Editor's cubemap-on-a-sphere: the pane's answer for a Skybox-domain material.
 //
 // A cubemap has no surface of its own — the engine's Skybox program shows it BY DIRECTION on the far
@@ -25,7 +26,7 @@ Shader "CubemapSphere"
             mat4 InvProjection;
             mat4 InvView;
             vec4 CameraPos; // xyz; w unused
-            vec4 Params;    // x = sphere radius (world units); yzw unused
+            vec4 Params;    // x = sphere radius (world units); y > 0.5 = the cube is the backdrop too; zw unused
         } u;
 
         Uniform(1) samplerCube u_CubeMap;
@@ -42,6 +43,17 @@ Shader "CubemapSphere"
         In(1) vec3 v_Far;
         Out(0) vec4 o_Color;
 
+        vec3 SkyBy( vec3 direction )
+        {
+            return ApplySkyGain( texture( u_CubeMap, SkyLookDirection( direction, skyLook.YawCosSin.xy ) ).rgb,
+                                 skyLook.Gain.rgb );
+        }
+
+        // THE BACKDROP (the skybox viewer's mode): a ray that misses the ball sees the cube by its OWN direction,
+        // the way the engine's Skybox program shows it. Depth is written just in front of the reversed-Z far
+        // plane (cleared to 0), so the Closer test passes and anything real in the scene still occludes it.
+        const float kBackdropDepth = 1e-7;
+
         void main()
         {
             vec3 origin = v_Near;
@@ -52,20 +64,24 @@ Shader "CubemapSphere"
             float b = dot( origin, dir );
             float c = dot( origin, origin ) - R * R;
             float h = b * b - c;
-            if ( h < 0.0 )
-                discard; // the ray misses the ball — the scene's own backdrop stays
-            float t = -b - sqrt( h ); // near root: the face toward the camera
+            bool  backdrop = u.Params.y > 0.5;
+            float t        = h < 0.0 ? -1.0 : -b - sqrt( h ); // near root: the face toward the camera
             if ( t <= 0.0 )
-                discard; // camera inside or ball behind it
+            {
+                // The ray misses the ball, or the ball is behind the camera / around it.
+                if ( !backdrop )
+                    discard; // the scene's own backdrop stays
+                o_Color      = vec4( SkyBy( dir ), 1.0 );
+                gl_FragDepth = kBackdropDepth;
+                return;
+            }
 
             vec3 hit = origin + t * dir;
             vec3 n   = hit / R; // unit by construction: |hit| == R
 
             // The wrap itself: the cube by the sphere's outward direction. No lighting on purpose — a
             // cubemap is radiance, not a surface; the scene's post chain tonemaps it like any sky.
-            o_Color = vec4( ApplySkyGain( texture( u_CubeMap, SkyLookDirection( n, skyLook.YawCosSin.xy ) ).rgb,
-                                          skyLook.Gain.rgb ),
-                            1.0 );
+            o_Color = vec4( SkyBy( n ), 1.0 );
 
             // Zero-to-one reversed-Z device depth, no remap (Core/Projection.hpp; same as Grid.shader).
             vec4 clip    = u.Projection * u.View * vec4( hit, 1.0 );

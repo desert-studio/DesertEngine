@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"f8d0506cdd2a8abd51f33eed80de242f","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "CloudTemporalResolve"
 {
     Compute

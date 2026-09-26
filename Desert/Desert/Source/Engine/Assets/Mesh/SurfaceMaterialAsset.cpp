@@ -1,5 +1,8 @@
 #include "SurfaceMaterialAsset.hpp"
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
 #include <Engine/Assets/Mesh/PBRSurfaceParams.hpp>
@@ -10,6 +13,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <format>
 #include <rflcpp/rfl/json.hpp>
 
 namespace Desert::Assets
@@ -26,7 +30,8 @@ namespace Desert::Assets
         auto copy =
              std::make_shared<SurfaceMaterialAsset>( source.m_Metadata.Priority, source.m_Metadata.Filepath );
 
-        copy->m_Data = source.m_Data;
+        copy->m_Data       = source.m_Data;
+        copy->m_ShaderName = source.m_ShaderName;
         // Carried over so a working copy of a material that is running on substituted defaults refuses to
         // save for the same reason its source does. Nothing saves the copy today, and this is what keeps
         // that true if something ever tries.
@@ -69,6 +74,61 @@ namespace Desert::Assets
                                  Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
     }
 
+    void SurfaceMaterialAsset::ResolveShader( const AssetManager* manager )
+    {
+        if ( !m_Data.Shader.has_value() )
+        {
+            m_ShaderName = std::string( kDefaultShaderName );
+            return;
+        }
+        m_ShaderName.clear();
+        if ( manager == nullptr )
+            return;
+        // BY GUID, the shader's identity (ShaderAsset adopts HandleForGuid of its header GUID): a shader moved
+        // or renamed keeps its GUID, so `Path` is only named in the error.
+        const Common::Content::AssetGuid guid   = m_Data.ShaderGuid();
+        const auto                       shader = guid.IsNull()
+                                                       ? nullptr
+                                                       : manager->FindByHandle<ShaderAsset>( Common::AssetHandle(
+                                        static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+        if ( shader == nullptr )
+        {
+            LOG_ERROR( "Material '{}': shader {} ('{}') is not a shader this project has loaded; the material "
+                       "draws nothing until it names one",
+                       m_Metadata.Filepath.string(), m_Data.Shader->Guid, m_Data.Shader->Path );
+            return;
+        }
+        m_ShaderName = shader->GetMetadata().Filepath.stem().string();
+    }
+
+    Common::BoolResultStr SurfaceMaterialAsset::StateShaderByName( MaterialData& data, const AssetManager& manager,
+                                                                   std::string_view name )
+    {
+        if ( name == kDefaultShaderName )
+        {
+            data.SetShader( {}, {} );
+            return BOOLSUCCESS;
+        }
+        for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
+        {
+            const Common::Filepath& file = shader->GetMetadata().Filepath;
+            if ( file.stem().string() != name )
+                continue;
+            const Common::Content::AssetGuid guid = ReadShaderHeaderGuid( file );
+            if ( guid.IsNull() )
+                return Common::MakeError(
+                     std::format( "shader '{}' ({}) states no header GUID to name it by", name, file.string() ) );
+            data.SetShader( guid, Common::AssetHandle::StableKeyForPath( file ) );
+            return BOOLSUCCESS;
+        }
+        return Common::MakeError( std::format( "no loaded shader is named '{}'", name ) );
+    }
+
+    void SurfaceMaterialAsset::ResolveDependencies( AssetManager& manager )
+    {
+        ResolveShader( &manager );
+    }
+
     Common::BoolResultStr SurfaceMaterialAsset::LoadFromFile()
     {
         const auto raw = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath );
@@ -76,6 +136,7 @@ namespace Desert::Assets
         const auto finalize = [this]()
         {
             AdoptStableHandle();
+            ResolveShader( nullptr );
 
             // The EXTERNAL id is the handle, always. When the file carries a header GUID the two are the
             // same value by AdoptStableHandle; when it does not, they are the same path-derived value. The
@@ -211,6 +272,7 @@ namespace Desert::Assets
         // `m_MaterialUUID` and `m_Metadata.Handle` deliberately survive: they are the id every mesh
         // submesh and every service map names this material by (AssetBase::Unload, rule 3).
         m_Data = MaterialData{};
+        ResolveShader( nullptr );
         // Not cleared, and it must not be: it records that this session's values were SUBSTITUTED because
         // the file would not parse. Clearing it here would let a later Save() write the defaults over the
         // authored file — the exact loss Save()'s own refusal exists to prevent.

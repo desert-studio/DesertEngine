@@ -221,7 +221,7 @@ TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
     EXPECT_EQ( Verts.Num(), 4 );
     FGroupTopologySelection Sel;
     Sel.SelectedGroupIDs.Add( 7 );
-    TArray<int32> Tris;
+    TArray<int32_t> Tris;
     Topo.GetSelectedTriangles( Sel, Tris );
     EXPECT_EQ( Tris.Num(), 2 );
     ExpectBoundariesClose( Topo );

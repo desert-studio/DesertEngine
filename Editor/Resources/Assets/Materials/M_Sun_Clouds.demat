@@ -3,13 +3,15 @@
         "Kind": "Material",
         "Guid": "31ff3efa4dd422925f5d0534e2164753",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

@@ -45,7 +45,7 @@ namespace Desert::Geometry
     };
 
     // (triangle, (index of the first vertex, index of the second vertex)) - UE's TriVidPair.
-    using FTriVidPair = std::pair<int, std::pair<int8, int8>>;
+    using FTriVidPair = std::pair<int, std::pair<int8_t, int8_t>>;
 
     class FDynamicMeshEditor
     {

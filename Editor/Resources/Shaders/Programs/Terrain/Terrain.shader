@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"9d6d6db70d7f0b397eac782bfb709efd","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Terrain"
 {
     // Data-driven material metadata (consumed by the pipeline cache + generic material in later phases).

@@ -3,13 +3,15 @@
         "Kind": "Material",
         "Guid": "5fd4737b3cc218b5bc0ecceccd3664ca",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["078fd9f19395a5d5454318bf06410898"]
     },
-    "ShaderName": "MatLitConst",
+    "Shader": {
+        "Guid": "078fd9f19395a5d5454318bf06410898",
+        "Path": "engine:Shaders/Programs/Graph/MatLitConst.shader"
+    },
     "Params": [],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"f024e347a1b65f84df26dbfa5f2747ae","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SkyTransmittanceLut"
 {
     Compute

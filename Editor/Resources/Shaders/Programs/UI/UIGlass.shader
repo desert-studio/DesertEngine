@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"f9d55cda8f64564cf7de9a8707e23dca","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "UIGlass"
 {
     // Frosted-glass UI rectangle: fills with the BLURRED scene behind it instead of a texture.

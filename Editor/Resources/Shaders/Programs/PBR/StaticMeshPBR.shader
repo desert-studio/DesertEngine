@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"4f1cac6af403a010c792d835dd6f7d44","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "StaticMeshPBR"
 {
     // The standard surface shader. Surface domain like any other DSL shader — it appears in the

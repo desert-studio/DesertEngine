@@ -22,10 +22,12 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 #include <gtest/gtest.h>
@@ -277,6 +279,19 @@ TEST( SceneMigratorWritePath, ACloudMaterialLandsBesideItsSceneAndNotUnderTheWor
     const fs::path foreignCwd = dir / "Elsewhere";              // where the tool is run FROM
     fs::create_directories( scenes );
     fs::create_directories( foreignCwd );
+    {
+        // The shader the cloud material names (MATL 4 states it by the file's header GUID), where the engine
+        // keeps it: beside the assets root.
+        namespace CC            = Common::Content;
+        const fs::path programs = assets.parent_path() / "Shaders" / "Programs" / "Clouds";
+        fs::create_directories( programs );
+        const std::array<CC::SubsystemVersion, 1> versions = {
+             CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
+        std::ofstream( programs / "CloudRaymarch.shader", std::ios::binary )
+             << CC::WriteShaderHeaderLine(
+                     CC::MakeTextHeader( CC::ContentKind::Shader, CC::AssetGuid::Generate(), versions ) )
+             << "Shader \"CloudRaymarch\"\n{\n}\n";
+    }
 
     const fs::path scene = scenes / "hero_autosave.desce";
     {
@@ -603,16 +618,27 @@ TEST( SceneMigratorWritePath, ASculptedCloudVolumeIsWrappedInTheEnvelopeOnceAndA
 // the tool itself: the cloud type and layout passes give the two assets their header GUIDs first.
 namespace
 {
+    // `Dir` is the assets root; the engine's shaders sit beside it (<Dir>/../Shaders), where the material pass
+    // looks up the shader a material names (T7k). Remove `Dir.parent_path()`.
     struct CloudRoot
     {
         fs::path                   Dir;
         Common::Content::AssetGuid TypeGuid;
         Common::Content::AssetGuid LayoutGuid;
+        Common::Content::AssetGuid ShaderGuid;
     };
+
+    constexpr const char* kCloudShaderKey = "engine:Shaders/Programs/Clouds/CloudRaymarch.shader";
 
     CloudRoot MakeCloudRoot( const char* name )
     {
-        CloudRoot root{ MakeTempDir( name ), {}, {} };
+        CloudRoot      root{ MakeTempDir( name ) / "Assets", {}, {}, {} };
+        const fs::path shaders = root.Dir.parent_path() / "Shaders" / "Programs" / "Clouds";
+        fs::create_directories( shaders );
+        {
+            std::ofstream out( shaders / "CloudRaymarch.shader", std::ios::binary );
+            out << "Shader \"CloudRaymarch\"\n{\n}\n";
+        }
         fs::create_directories( root.Dir / "Clouds" );
         fs::create_directories( root.Dir / "Materials" );
         {
@@ -627,6 +653,8 @@ namespace
         }
         std::string report, errors;
         EXPECT_EQ( RunTool( { ( root.Dir / "Clouds" ).string() }, report, errors ), 0 ) << report << errors;
+        EXPECT_EQ( RunTool( { shaders.string() }, report, errors ), 0 ) << report << errors;
+        root.ShaderGuid = Desert::Assets::ReadShaderHeaderGuid( shaders / "CloudRaymarch.shader" );
         const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
         const auto                                    type =
              Common::Content::ReadAssetHeader( root.Dir / "Clouds" / "Stratus.decloudtype", recordOnly );
@@ -697,12 +725,20 @@ TEST( SceneMigratorWritePath, AMatl2MaterialNamesItsCloudAssetsByHeaderGuidAndAS
     ASSERT_NE( empty, nullptr ) << "an authored empty slot was dropped instead of stated empty";
     EXPECT_TRUE( empty->Guid.empty() && empty->Path.empty() );
     EXPECT_FLOAT_EQ( m.GetFloat( "Coverage" ), 0.5f );
+    const auto& shaderRef = m.Shader;
+    if ( !shaderRef.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no shader\n" << raised;
+        return;
+    }
+    EXPECT_EQ( shaderRef->Guid, Common::Content::AssetGuidToText( root.ShaderGuid ) );
+    EXPECT_EQ( shaderRef->Path, kCloudShaderKey );
 
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
-    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a MATL 3 file";
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a MATL 4 file";
     EXPECT_EQ( RunTool( { "--check", ( root.Dir / "Materials" ).string() }, report, errors ), 0 )
          << report << errors;
-    fs::remove_all( root.Dir );
+    fs::remove_all( root.Dir.parent_path() );
 }
 
 TEST( SceneMigratorWritePath, AMatl2NumberNoFileReachesIsRefusedByNameAndTheFileIsUntouched )
@@ -718,7 +754,7 @@ TEST( SceneMigratorWritePath, AMatl2NumberNoFileReachesIsRefusedByNameAndTheFile
     EXPECT_NE( errors.find( "CloudType1" ), std::string::npos ) << errors;
     EXPECT_NE( errors.find( "12345" ), std::string::npos ) << errors;
     EXPECT_EQ( ReadRaw( file ), before ) << "a refused material was rewritten";
-    fs::remove_all( root.Dir );
+    fs::remove_all( root.Dir.parent_path() );
 }
 
 TEST( SceneMigratorWritePath, AMatl2NumberNamingAnAssetOfAnotherKindIsRefused )
@@ -733,7 +769,93 @@ TEST( SceneMigratorWritePath, AMatl2NumberNamingAnAssetOfAnotherKindIsRefused )
     EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 1 ) << report << errors;
     EXPECT_NE( errors.find( "cloud layout" ), std::string::npos ) << errors;
     EXPECT_EQ( ReadRaw( file ), before );
-    fs::remove_all( root.Dir );
+    fs::remove_all( root.Dir.parent_path() );
+}
+
+// MATL 3 -> 4 (T7k). A v3 `.demat` names its shader by NAME and its cloud Medium slot (ShaderRefs) by a path;
+// the raise names both by the shader file's header GUID, states that GUID as a Dependency (the engine's gate
+// refuses a Shader GUID the header does not state), and a second run changes nothing.
+namespace
+{
+    void WriteMaterialV3( const fs::path& file, const CloudRoot& root, const std::string& shaderName )
+    {
+        const std::array<Common::Content::SubsystemVersion, 1> v3 = {
+             Common::Content::SubsystemVersion{ Desert::Assets::kMaterialSchemaTag, 3 } };
+        auto header =
+             Common::Content::MakeTextHeader( Common::Content::ContentKind::Material,
+                                              Desert::Migration::MigrationGuidForPath( file.filename() ), v3 );
+        const std::string type = Common::Content::AssetGuidToText( root.TypeGuid );
+        header.Dependencies    = { type };
+        std::ofstream out( file, std::ios::binary );
+        out << R"({"Header":)" << rfl::json::write( header ) << R"(,"ShaderName":")" << shaderName
+            << R"(","Params":[],"Textures":[],"CloudAssets":[{"Name":"CloudType1","Guid":")" << type
+            << R"(","Path":"assets:Clouds/Stratus.decloudtype"}],"ShaderRefs":[{"Name":"Medium","Path":")"
+            << kCloudShaderKey << R"("}]})";
+    }
+} // namespace
+
+TEST( SceneMigratorWritePath, AMatl3MaterialNamesItsShaderByHeaderGuidAndASecondRunChangesNothing )
+{
+    const CloudRoot root = MakeCloudRoot( "T7kMaterialV3" );
+    ASSERT_FALSE( root.ShaderGuid.IsNull() );
+    const fs::path file = root.Dir / "Materials" / "M_Sky.demat";
+    WriteMaterialV3( file, root, "CloudRaymarch" );
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << report << errors;
+    EXPECT_NE( report.find( "MATL v3 -> v4" ), std::string::npos ) << report;
+    const std::string raised = ReadRaw( file );
+    const auto        parsed = Desert::Assets::ParseMaterialJson( file.string(), raised );
+    ASSERT_TRUE( parsed ) << parsed.GetError() << "\n" << raised;
+    const auto&       m         = parsed.GetValue();
+    const std::string shader    = Common::Content::AssetGuidToText( root.ShaderGuid );
+    const auto&       shaderRef = m.Shader;
+    if ( !shaderRef.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no shader\n" << raised;
+        return;
+    }
+    EXPECT_EQ( shaderRef->Guid, shader );
+    EXPECT_EQ( shaderRef->Path, kCloudShaderKey );
+    EXPECT_EQ( raised.find( "ShaderName" ), std::string::npos ) << raised;
+    EXPECT_EQ( raised.find( "ShaderRefs" ), std::string::npos ) << raised;
+    const auto* medium = CloudSlot( m, "Medium" );
+    ASSERT_NE( medium, nullptr ) << raised;
+    EXPECT_EQ( medium->Guid, shader );
+    EXPECT_EQ( medium->Path, kCloudShaderKey );
+    const auto& header = m.Header;
+    if ( !header.has_value() )
+    {
+        ADD_FAILURE() << "the raised material has no header\n" << raised;
+        return;
+    }
+    EXPECT_EQ( header->Dependencies,
+               ( std::vector<std::string>{ shader, Common::Content::AssetGuidToText( root.TypeGuid ) } ) );
+    EXPECT_EQ( Common::Content::TextHeaderVersion( *header, Desert::Assets::kMaterialSchemaTag ),
+               Desert::Assets::kMaterialSchemaVersion );
+
+    EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), raised ) << "a second run changed a MATL 4 file";
+    EXPECT_EQ( RunTool( { "--check", ( root.Dir / "Materials" ).string() }, report, errors ), 0 )
+         << report << errors;
+    fs::remove_all( root.Dir.parent_path() );
+}
+
+TEST( SceneMigratorWritePath, AMatl3ShaderNameNoShaderFileCarriesIsRefusedByNameAndTheFileIsUntouched )
+{
+    const CloudRoot root = MakeCloudRoot( "T7kMaterialNoShader" );
+    const fs::path  file = root.Dir / "Materials" / "M_Gone.demat";
+    WriteMaterialV3( file, root, "NoSuchShader" );
+    const std::string before = ReadRaw( file );
+
+    std::string report;
+    std::string errors;
+    EXPECT_EQ( RunTool( { ( root.Dir / "Materials" ).string() }, report, errors ), 1 ) << report << errors;
+    EXPECT_NE( errors.find( "M_Gone.demat" ), std::string::npos ) << errors;
+    EXPECT_NE( errors.find( "'NoSuchShader'" ), std::string::npos ) << errors;
+    EXPECT_EQ( ReadRaw( file ), before ) << "a refused material was rewritten";
+    fs::remove_all( root.Dir.parent_path() );
 }
 
 // THE CONTROL RIG AND RETARGET PASSES (T7c, 1 -> 2): two more rows of the same step.

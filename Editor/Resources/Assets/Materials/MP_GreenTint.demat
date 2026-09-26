@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "9c738945524d749f06c5277c4a444df2",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": []
+        "Dependencies": ["40293d62f22f46a49912f44c6c024d06"]
     },
-    "ShaderName": "MatProbe",
+    "Shader": {
+        "Guid": "40293d62f22f46a49912f44c6c024d06",
+        "Path": "engine:Shaders/Programs/Graph/MatProbe.shader"
+    },
     "Params": [
         {
             "Name": "TintA",
@@ -19,6 +22,5 @@
         }
     ],
     "Textures": [],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

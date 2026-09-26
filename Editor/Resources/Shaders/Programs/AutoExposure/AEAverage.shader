@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a54619ed2aeaf2aa1df042cfd72d7b7c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "AEAverage"
 {
     Compute

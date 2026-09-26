@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"a27a62a7d0e83c23d952f206693856e8","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "OverdrawResolve"
 {
     // Fullscreen resolve for the Overdraw view: reads the additive accumulation buffer and maps the per-pixel

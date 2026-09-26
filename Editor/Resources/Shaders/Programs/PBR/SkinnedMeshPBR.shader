@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"07c29f0359cb6851795348218fb43c0c","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SkinnedMeshPBR"
 {
     // The SKINNED vertex path of the standard PBR surface — not a different material, the same one.

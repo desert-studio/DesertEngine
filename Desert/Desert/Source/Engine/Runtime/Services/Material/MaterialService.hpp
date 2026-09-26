@@ -136,7 +136,7 @@ namespace Desert::Runtime
 
         // WHICH SHADER this handle's material is drawn by — the base of the instance chain's, since an
         // instance overrides values and never the program. Empty when the handle resolves to no `.demat`
-        // at all, which is a DIFFERENT answer from "StaticMeshPBR": MaterialData::EffectiveShaderName()
+        // at all, which is a DIFFERENT answer from "StaticMeshPBR": SurfaceMaterialAsset::GetShaderName()
         // substitutes that default for an absent field, and a caller that cannot tell the two apart reads
         // a dangling handle as a request for the standard mesh surface.
         //

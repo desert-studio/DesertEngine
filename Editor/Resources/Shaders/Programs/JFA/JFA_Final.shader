@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"7ab518b286f27364cf60d70d21ef5aa5","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "JFA_Final"
 {
     Fragment

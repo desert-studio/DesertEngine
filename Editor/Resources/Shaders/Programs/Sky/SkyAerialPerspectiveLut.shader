@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"aec9b5461a0ab934bd3db04617facbca","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SkyAerialPerspectiveLut"
 {
     Compute

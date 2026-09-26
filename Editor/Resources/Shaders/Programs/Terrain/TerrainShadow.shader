@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"62162bdefe547edc0dad159167dd342f","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "TerrainShadow"
 {
     // The terrain as a cascade shadow caster: depth only, into the cascade targets the mesh casters write

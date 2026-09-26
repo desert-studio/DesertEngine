@@ -9,7 +9,7 @@ namespace Desert::Geometry
     namespace
     {
         template <typename OverlayType, typename ShouldWeldFunctorType>
-        void WeldSplits( const FDynamicMesh3* ParentMesh, const int32 ParentVID, OverlayType& Overlay,
+        void WeldSplits( const FDynamicMesh3* ParentMesh, const int32_t ParentVID, OverlayType& Overlay,
                          ShouldWeldFunctorType& ShouldWeld )
         {
             if ( !ParentMesh || !ParentMesh->IsVertex( ParentVID ) )
@@ -19,19 +19,19 @@ namespace Desert::Geometry
             Overlay.GetVertexElements( ParentVID, ElementIDs );
 
             // the number of elements at one vertex is small: simple O(n^2), as UE
-            const int32 NumElements = ElementIDs.Num();
+            const int32_t NumElements = ElementIDs.Num();
             TArray<int> ConsumedMask;
             ConsumedMask.SetNumZeroed( NumElements );
-            for ( int32 i = 0; i < NumElements; ++i )
+            for ( int32_t i = 0; i < NumElements; ++i )
             {
                 if ( ConsumedMask[i] == 1 )
                     continue;
-                const int32 eid = ElementIDs[i];
-                for ( int32 j = i + 1; j < NumElements; ++j )
+                const int32_t eid = ElementIDs[i];
+                for ( int32_t j = i + 1; j < NumElements; ++j )
                 {
                     if ( ConsumedMask[j] == 1 )
                         continue;
-                    const int32 oeid = ElementIDs[j];
+                    const int32_t oeid = ElementIDs[j];
                     if ( !ShouldWeld( eid, oeid ) )
                         continue;
                     ConsumedMask[j] = 1;
@@ -57,14 +57,14 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    void FSplitAttributeWelder::WeldSplitElements( FDynamicMesh3& ParentMesh, const int32 ParentVID )
+    void FSplitAttributeWelder::WeldSplitElements( FDynamicMesh3& ParentMesh, const int32_t ParentVID )
     {
         FDynamicMeshAttributeSet* Attributes = ParentMesh.Attributes();
         if ( !Attributes || !ParentMesh.IsVertex( ParentVID ) )
             return;
-        for ( int32 i = 0, I = Attributes->NumUVLayers(); i < I; ++i )
+        for ( int32_t i = 0, I = Attributes->NumUVLayers(); i < I; ++i )
             WeldSplitUVs( ParentVID, *Attributes->GetUVLayer( i ), UVDistSqrdThreshold );
-        for ( int32 i = 0, I = Attributes->NumNormalLayers(); i < I; ++i )
+        for ( int32_t i = 0, I = Attributes->NumNormalLayers(); i < I; ++i )
         {
             const float DotThreshold = ( i == 0 ) ? NormalVecDotThreshold : TangentVecDotThreshold;
             WeldSplitUnitVectors( ParentVID, *Attributes->GetNormalLayer( i ), DotThreshold );
@@ -79,12 +79,12 @@ namespace Desert::Geometry
             WeldSplitElements( ParentMesh, vid );
     }
 
-    void FSplitAttributeWelder::WeldSplitUVs( const int32 ParentVID, FDynamicMeshUVOverlay& Overlay,
+    void FSplitAttributeWelder::WeldSplitUVs( const int32_t ParentVID, FDynamicMeshUVOverlay& Overlay,
                                               float UVDistSqrdThreshold )
     {
         const FDynamicMesh3* ParentMesh = Overlay.GetParentMesh();
-        const float          Threshold  = FMath::Max( UVDistSqrdThreshold, 0.f );
-        auto                 ShouldWeld = [&Overlay, Threshold]( const int32 eid, const int32 oeid ) -> bool
+        const float          Threshold  = std::max( UVDistSqrdThreshold, 0.f );
+        auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
             const FVector2f UV = Overlay.GetElement( eid ), otherUV = Overlay.GetElement( oeid );
             const float     dx = UV.X - otherUV.X;
@@ -94,11 +94,12 @@ namespace Desert::Geometry
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
     }
 
-    void FSplitAttributeWelder::WeldSplitUnitVectors( const int32 ParentVID, FDynamicMeshNormalOverlay& Overlay,
+    void FSplitAttributeWelder::WeldSplitUnitVectors( const int32_t ParentVID, FDynamicMeshNormalOverlay& Overlay,
                                                       float DotThreshold, bool bMergeZeroVectors )
     {
         const FDynamicMesh3* ParentMesh = Overlay.GetParentMesh();
-        auto ShouldWeld = [&Overlay, DotThreshold, bMergeZeroVectors]( const int32 eid, const int32 oeid ) -> bool
+        auto                 ShouldWeld = [&Overlay, DotThreshold, bMergeZeroVectors]( const int32_t eid,
+                                                                       const int32_t oeid ) -> bool
         {
             // UE's FVector3f::Normalize: false (vector untouched) when the squared length is below
             // SMALL_NUMBER (1e-8)
@@ -121,19 +122,19 @@ namespace Desert::Geometry
             if ( bVecNormalized && bOtherVecNormalized )
             {
                 const float CosAngle = Vec.X * otherVec.X + Vec.Y * otherVec.Y + Vec.Z * otherVec.Z;
-                return FMath::Abs( 1.f - CosAngle ) <= DotThreshold;
+                return std::abs( 1.f - CosAngle ) <= DotThreshold;
             }
             return bMergeZeroVectors && !bVecNormalized && !bOtherVecNormalized;
         };
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
     }
 
-    void FSplitAttributeWelder::WeldSplitColors( const int32 ParentVID, FDynamicMeshColorOverlay& Overlay,
+    void FSplitAttributeWelder::WeldSplitColors( const int32_t ParentVID, FDynamicMeshColorOverlay& Overlay,
                                                  float ColorDistSqrdThreshold )
     {
         const FDynamicMesh3* ParentMesh = Overlay.GetParentMesh();
-        const float          Threshold  = FMath::Max( ColorDistSqrdThreshold, 0.f );
-        auto                 ShouldWeld = [&Overlay, Threshold]( const int32 eid, const int32 oeid ) -> bool
+        const float          Threshold  = std::max( ColorDistSqrdThreshold, 0.f );
+        auto                 ShouldWeld = [&Overlay, Threshold]( const int32_t eid, const int32_t oeid ) -> bool
         {
             const FVector4f A = Overlay.GetElement( eid ), B = Overlay.GetElement( oeid );
             const float     d[4] = { A.X - B.X, A.Y - B.Y, A.Z - B.Z, A.W - B.W };

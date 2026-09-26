@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"8c15cd100049ba406879540002f6519a","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "Shadow"
 {
     Fragment

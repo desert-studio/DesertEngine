@@ -578,11 +578,15 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   RT2g +2 Raw: VulkanGpuProfiler::m_Recording (the frame slot recording now, inside its own m_Frames)
     //   and GpuScopeRecorder::m_Stacks (a per-view stack keyed by owner identity), rows in the register:
     //   455 / 354 / 145 / 42 = 996.
-    EXPECT_EQ( CountOf( Form::Raw ), 455 );
+    //   AV1e +1 Raw +2 Unique: SkyboxViewerDocument::m_Assets (row in the register), its m_Preview (the
+    //   PreviewViewport whose destruction returns the renderer slot) and m_UIHelper, each owned by the
+    //   document alone: 454 / 354 / 147 / 42 = 997.
+    //   Both together (B2 after B3): 456 / 354 / 147 / 42 = 999.
+    EXPECT_EQ( CountOf( Form::Raw ), 456 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
-    EXPECT_EQ( CountOf( Form::Unique ), 145 );
+    EXPECT_EQ( CountOf( Form::Unique ), 147 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 996 )
+    EXPECT_EQ( (int)Members().size(), 999 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

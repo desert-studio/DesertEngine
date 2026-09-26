@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "877910cdce38586fe8c854b44c0abba8",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["7d575e2bd31aa9d8cf62bc245172d603"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "7d575e2bd31aa9d8cf62bc245172d603"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -25,6 +28,5 @@
             "Guid": "7d575e2bd31aa9d8cf62bc245172d603",
             "Path": "assets:Clouds/Types/Cirrus.decloudtype"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }

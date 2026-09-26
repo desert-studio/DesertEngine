@@ -222,6 +222,10 @@ namespace Desert::Editor
         // panel, which knows why (no slot in the schema vs nothing bound vs a dangling handle).
         void SetCubemapMaterial( std::function<Graphic::SampledCube()> resolveCube );
 
+        // After SetCubemapMaterial: draw the cube as the pane's BACKGROUND too, not only on the ball — the
+        // skybox viewer, where orbiting is looking around the sky. Any later Set*/Clear drops it again.
+        void SetCubemapBackdrop( bool cubeIsBackdrop );
+
         // Show a VOLUME-domain material as the sky it authors: a preview world with ground, a sun and a
         // wide enough vertical lens that horizon, mid-elevation and zenith are in one frame.
         //

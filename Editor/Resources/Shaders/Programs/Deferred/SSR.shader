@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"3a2336ad2876438d915c69470c31e245","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSR"
 {
     // Screen-space reflections (fullscreen). Traces one jittered ray per pixel through the G-buffer and
