@@ -127,6 +127,62 @@ namespace Desert::Graphic
         return reported;
     }
 
+    /**
+     * @brief THE FRAME LOOP'S DRAWABLE-AREA GATE: whether this frame runs at all, and whether the answer
+     *        is worth a line in the log.
+     *
+     * A MINIMISED WINDOW HAS NO IMAGE TO ACQUIRE, so a frame started now cannot finish: the acquire fails,
+     * and the submit that follows it waits on a semaphore the acquire never signalled --
+     * VUID-vkQueueSubmit-pWaitSemaphores-03238 -- and then presents whatever image index was left over.
+     * Refusing the swapchain REBUILD (VulkanSwapChain::Rebuild) was only half of it; the frame itself has
+     * to stand down, which is a decision the run loop makes before it acquires anything.
+     *
+     * THE STATE IS HERE, AND NOT A `bool` IN THE LOOP, BECAUSE OF THE LOG. "No drawable area" is true for
+     * every frame of a minimise that lasts thirty seconds, and a line per frame is how the previous
+     * behaviour buried its own cause: 72 identical errors in one live run, one per frame, for three
+     * minimises. Announcing the TRANSITIONS makes it two lines per minimise, and makes "once per minimise"
+     * a thing a test can hold this to rather than a thing a reader has to trust.
+     *
+     * No window and no device in the question: it takes the answer as a bool, so the transition machine is
+     * testable on its own. What produces that bool is IsUsableViewExtent above, applied by each platform
+     * window to the framebuffer size the window system reports (WindowsWindow and MacOSWindow, both in
+     * HasDrawableArea) — the same predicate the swapchain refuses a rebuild on, so the loop and the
+     * swapchain cannot disagree about what "minimised" means.
+     */
+    class DrawableAreaGate
+    {
+    public:
+        struct Decision
+        {
+            /// The caller acquires nothing, records nothing, submits nothing and presents nothing.
+            bool SkipFrame = false;
+            /// This is the FIRST skipped frame of this minimise — say so once, here.
+            bool AnnounceStop = false;
+            /// The area came back and this frame runs — say so once, here.
+            bool AnnounceResume = false;
+        };
+
+        [[nodiscard]] Decision Observe( const bool drawable ) noexcept
+        {
+            Decision decision;
+            decision.SkipFrame     = !drawable;
+            decision.AnnounceStop  = !drawable && !m_Skipping;
+            decision.AnnounceResume = drawable && m_Skipping;
+            m_Skipping             = !drawable;
+            return decision;
+        }
+
+        /// Whether the loop is currently standing down. For a caller that has to answer the question
+        /// without making a decision out of it.
+        [[nodiscard]] bool IsSkipping() const noexcept
+        {
+            return m_Skipping;
+        }
+
+    private:
+        bool m_Skipping = false;
+    };
+
     // A view whose surface has no size yet: an editor viewport panel is sized by ImGui on its first frame,
     // after Scene::Init has built the renderer. Built at this and resized on that first frame, instead of
     // deferring the build: Init also rebinds the scene into the render graph over the systems the build

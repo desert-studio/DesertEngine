@@ -195,6 +195,100 @@ TEST( ViewExtentRule, ASurfaceWithNoExtentOfItsOwnTakesTheRequestedOne )
     EXPECT_TRUE( IsUsableViewExtent( resolved ) );
 }
 
+// ── THE FRAME LOOP STANDS DOWN WHILE THE WINDOW HAS NO DRAWABLE AREA ────────────────────────────────
+//
+// The relation these hold, which no single value can state: the gate's answer to ONE frame is not the
+// point — the point is what it answers over a SEQUENCE of them. A skip that announced itself every frame
+// is what the previous behaviour did (72 identical errors in one live run of three minimises), and a
+// skip that announced itself once and then never again would go silent on the second minimise.
+
+// Every frame of a minimise is skipped, and exactly the FIRST of them is announced.
+TEST( DrawableArea, EveryMinimisedFrameIsSkippedAndOnlyTheFirstIsAnnounced )
+{
+    using namespace Desert::Graphic;
+    DrawableAreaGate gate;
+
+    ASSERT_FALSE( gate.Observe( true ).SkipFrame ) << "a drawable window must not be stood down";
+
+    const auto first = gate.Observe( false );
+    EXPECT_TRUE( first.SkipFrame );
+    EXPECT_TRUE( first.AnnounceStop ) << "the minimise has to be said once, or nobody can see why frames stopped";
+
+    for ( int frame = 0; frame < 200; ++frame )
+    {
+        const auto later = gate.Observe( false );
+        EXPECT_TRUE( later.SkipFrame );
+        EXPECT_FALSE( later.AnnounceStop ) << "frame " << frame << " announced a minimise that was already on";
+        EXPECT_FALSE( later.AnnounceResume );
+    }
+    EXPECT_TRUE( gate.IsSkipping() );
+}
+
+// Coming back is announced once too, and the frame that announces it RUNS — the resume is not itself a
+// skipped frame, or the first frame after every restore would be dropped.
+TEST( DrawableArea, TheRestoreIsAnnouncedOnceAndItsFrameRuns )
+{
+    using namespace Desert::Graphic;
+    DrawableAreaGate gate;
+
+    (void)gate.Observe( false );
+    (void)gate.Observe( false );
+
+    const auto restored = gate.Observe( true );
+    EXPECT_FALSE( restored.SkipFrame ) << "the frame that sees the area come back must run";
+    EXPECT_TRUE( restored.AnnounceResume );
+    EXPECT_FALSE( restored.AnnounceStop );
+    EXPECT_FALSE( gate.IsSkipping() );
+
+    const auto after = gate.Observe( true );
+    EXPECT_FALSE( after.SkipFrame );
+    EXPECT_FALSE( after.AnnounceResume ) << "a resume announced every frame is the flood in the other direction";
+}
+
+// THE SECOND MINIMISE IS ANNOUNCED AS LOUDLY AS THE FIRST. A gate that latched "already said it" would
+// pass both tests above and still leave the log silent for every minimise after the first.
+TEST( DrawableArea, EveryMinimiseIsAnnouncedNotOnlyTheFirstOne )
+{
+    using namespace Desert::Graphic;
+    DrawableAreaGate gate;
+
+    int announcedStops = 0;
+    int announcedResumes = 0;
+    for ( int cycle = 0; cycle < 3; ++cycle )
+    {
+        for ( int frame = 0; frame < 5; ++frame )
+        {
+            if ( gate.Observe( false ).AnnounceStop )
+                ++announcedStops;
+        }
+        for ( int frame = 0; frame < 5; ++frame )
+        {
+            if ( gate.Observe( true ).AnnounceResume )
+                ++announcedResumes;
+        }
+    }
+
+    // Three minimise/restore cycles, thirty frames: six lines, not thirty and not two.
+    EXPECT_EQ( announcedStops, 3 );
+    EXPECT_EQ( announcedResumes, 3 );
+}
+
+// The gate and the swapchain must agree on what "minimised" means, and the extent rule is what makes
+// them agree: the bool the loop gates on is IsUsableViewExtent of the framebuffer the window reports
+// (Platform/*/*.cpp HasDrawableArea), the same predicate Rebuild refuses on.
+TEST( DrawableArea, TheGateIsFedByTheSameExtentRuleTheSwapchainRefusesOn )
+{
+    using namespace Desert::Graphic;
+    DrawableAreaGate gate;
+
+    const ViewExtent minimised{ 0, 0 };
+    const ViewExtent restored{ 1280, 720 };
+
+    EXPECT_TRUE( gate.Observe( IsUsableViewExtent( restored ) ).SkipFrame == false );
+    EXPECT_TRUE( gate.Observe( IsUsableViewExtent( minimised ) ).SkipFrame )
+         << "a frame must not run for an extent the swapchain would refuse to rebuild at";
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

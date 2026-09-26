@@ -62,12 +62,23 @@ namespace Desert
         // an instruction to every future implementer to write a body nothing runs, EVERY declaration below
         // names the caller that makes it live. If you remove that caller, remove the method with it.
         //
-        // FIVE of the six are back, not six. `IsWindowMinimized` is not, and its absence is a decision:
-        // У9 found no caller for it. The two candidates were a frame the run loop skips while the window
-        // is iconified — which would stop the control channel answering, since a reply is released on a
-        // PRESENTED frame — and a restore button, which cannot be clicked on a window you cannot see.
-        // Its two implementations also both returned a literal `false`, so what was restored would have
-        // been a stub as well as a dead end.
+        // FIVE of the six came back, not six. `IsWindowMinimized` stayed out because У9 found no caller:
+        // the candidates were a restore button, which cannot be clicked on a window you cannot see, and a
+        // frame the run loop skips while the window is iconified — and both of its implementations
+        // returned a literal `false`, so restoring it would have restored a stub.
+        //
+        // RT1j WROTE THAT CALLER, and it asks a different question, which is why the name below is not
+        // `IsWindowMinimized`. What the frame loop needs to know is not whether the OS considers the
+        // window iconified but whether there is anything to draw INTO: those differ while a window is
+        // being dragged shut, and it is the drawable area that decides whether an image can be acquired.
+        // See HasDrawableArea below.
+        //
+        // У9's warning about that caller stands and is now a MEASURED cost, not a predicted one: while the
+        // loop stands down nothing is presented, and the control channel releases a reply on a PRESENTED
+        // frame (Editor/Core/Control/FrameGate.hpp), so a command sent to a minimised editor is answered
+        // when the window comes back rather than while it is away. It is the cost of the fix and not a
+        // choice made here: the frames that answered it before were acquiring no image, waiting on an
+        // unsignalled semaphore and presenting a stale one.
 
         // The OS-visible title. With the system frame gone this is the only place the OS shows the
         // window's name — the Dock, Mission Control, the taskbar and the window switcher all read it —
@@ -100,6 +111,17 @@ namespace Desert
         // application owns the frame, so one build serves both answers and neither is a second code path
         // nobody exercises.
         [[nodiscard]] virtual bool IsDecorated() const = 0;
+
+        // WHETHER THERE IS ANYTHING TO DRAW INTO — false while the window is minimised, when the window
+        // system reports a 0x0 FRAMEBUFFER. Read by Application::Run, which stands the whole frame down
+        // while it is false (see the note above on IsWindowMinimized).
+        //
+        // THE FRAMEBUFFER SIZE, ASKED OF THE WINDOW SYSTEM, and not GetWidth/GetHeight below: those two
+        // answer from a cache that is deliberately NOT updated while the size is degenerate, so that the
+        // last good size survives a minimise for whoever restores the layout. That cache is the right
+        // answer to "how big is this window normally" and the wrong one to "can I acquire an image now" —
+        // it reports 1280x720 for a window that is in the taskbar.
+        [[nodiscard]] virtual bool HasDrawableArea() const = 0;
 
         // Puts a window created with `Visible = false` on screen and gives it the focus. Called by the
         // editor when its start is over — every stage run and the scene's content settled — immediately
