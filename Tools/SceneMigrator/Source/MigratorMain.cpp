@@ -52,6 +52,7 @@
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudModellingVolume.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include "LegacyMaterialIds.hpp"
 #include "MigratorMain.hpp"
 #include "SceneMigration.hpp"
@@ -79,6 +80,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <cstring>
 #include <optional>
 #include <span>
@@ -159,18 +161,42 @@ namespace
         return path.extension() == Desert::Assets::kCloudModellingVolumeExtension;
     }
 
+    // The exclusion `path` falls under, by its trailing components (MigratorMain.hpp, ScanExclusions).
+    const Desert::Migration::ScanExclusion* ExclusionFor( const std::filesystem::path& path )
+    {
+        const std::vector<std::filesystem::path> components( path.begin(), path.end() );
+        for ( const Desert::Migration::ScanExclusion& exclusion : Desert::Migration::ScanExclusions() )
+        {
+            const std::filesystem::path              stated( exclusion.Path );
+            const std::vector<std::filesystem::path> tail( stated.begin(), stated.end() );
+            if ( tail.size() <= components.size() &&
+                 std::equal( tail.rbegin(), tail.rend(), components.rbegin() ) )
+                return &exclusion;
+        }
+        return nullptr;
+    }
+
     void Collect( const std::filesystem::path& root, std::vector<std::filesystem::path>& scenes,
                   std::vector<std::filesystem::path>& materials, std::vector<std::filesystem::path>& prefabs,
                   std::vector<std::filesystem::path>& clips, std::vector<std::filesystem::path>& texts,
                   std::vector<std::filesystem::path>& meshes, std::vector<std::filesystem::path>& layouts,
                   std::vector<std::filesystem::path>& noises, std::vector<std::filesystem::path>& models,
-                  std::vector<std::filesystem::path>& shaders )
+                  std::vector<std::filesystem::path>& shaders, std::ostream& out )
     {
         std::error_code ec;
         if ( std::filesystem::is_directory( root, ec ) )
         {
-            for ( const auto& entry : std::filesystem::recursive_directory_iterator( root, ec ) )
+            for ( auto it = std::filesystem::recursive_directory_iterator( root, ec );
+                  it != std::filesystem::recursive_directory_iterator(); ++it )
             {
+                const auto& entry = *it;
+                if ( const Desert::Migration::ScanExclusion* excluded = ExclusionFor( entry.path() ) )
+                {
+                    out << "skip   " << entry.path().string() << " — " << excluded->Reason << "\n";
+                    if ( entry.is_directory() )
+                        it.disable_recursion_pending();
+                    continue;
+                }
                 if ( !entry.is_regular_file() )
                     continue;
                 if ( entry.path().extension() == kSceneExtension )
@@ -1381,6 +1407,17 @@ namespace Desert::Migration
         return OutputRootFor( Common::Constants::Path::ContentDir::Material, materialPath );
     }
 
+    std::span<const ScanExclusion> ScanExclusions()
+    {
+        static constexpr std::array kExclusions{
+             ScanExclusion{ "ThirdParty",
+                            "vendored third-party code: its files share our extensions but not our formats "
+                            "(assimp's Quake 3 .shader scripts, Ogre .skeleton files)" },
+             ScanExclusion{ "build", "build outputs and logs, regenerated from the sources, never content" },
+        };
+        return kExclusions;
+    }
+
     int RunSceneMigrator( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
     {
         bool                               check = false;
@@ -1412,7 +1449,8 @@ namespace Desert::Migration
         std::vector<std::filesystem::path> models;
         std::vector<std::filesystem::path> shaders;
         for ( const auto& root : roots )
-            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders );
+            Collect( root, scenes, materials, prefabs, clips, texts, meshes, layouts, noises, models, shaders,
+                     out );
 
         if ( scenes.empty() && materials.empty() && prefabs.empty() && clips.empty() && texts.empty() &&
              meshes.empty() && layouts.empty() && noises.empty() && models.empty() && shaders.empty() )
@@ -1492,8 +1530,30 @@ namespace Desert::Migration
         // later version) FAILS by name and is left untouched - never "ok".
         for ( const auto& path : meshes )
         {
-            const std::string bytes   = ReadAll( path );
-            const auto        version = Desert::Migration::CookedMeshVersion( path.string(), bytes );
+            const std::string bytes = ReadAll( path );
+            // THE MESH ASSET (AF4b/AF4d): a `.stmesh`/`.skmesh` that is an AF1 envelope stamped 'MSAS' carries its
+            // editable source and has no step in this tool yet. It is judged by the engine's own reader - the
+            // whole envelope, every section hash and the SRCE decode - so a torn file FAILS by name and only a
+            // file the editor would open is "ok". Anything not opening with DESTMESH that is not such an asset
+            // falls through to the cooked-mesh refusal below, which names what it is instead.
+            if ( !std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
+                 !( !bytes.empty() && bytes.front() == '{' ) )
+            {
+                const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
+                if ( !asset )
+                {
+                    err << "FAIL   " << path.string() << " — neither a cooked DESTMESH mesh nor a readable mesh "
+                        << "asset: " << asset.GetError() << "\n";
+                    ++failed;
+                    continue;
+                }
+                out << "ok     " << path.string() << " — mesh asset, MSAS v"
+                    << Desert::Assets::kMeshAssetSubsystemVersion << ", GUID "
+                    << Common::Content::AssetGuidToText( asset.GetValue().Guid ) << "\n";
+                continue;
+            }
+            const auto version = Desert::Migration::CookedMeshVersion( path.string(), bytes );
             if ( !version )
             {
                 err << "FAIL   " << version.GetError() << "\n";

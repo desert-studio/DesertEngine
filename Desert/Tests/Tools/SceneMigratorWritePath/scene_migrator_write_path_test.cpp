@@ -20,6 +20,7 @@
 #include <Engine/Assets/CloudModellingVolume.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
@@ -1215,4 +1216,105 @@ TEST( SceneMigratorWritePath, ACloudTypeV4WhoseNoiseVolumeIsMissingIsRefusedByNa
     EXPECT_NE( errors.find( "Gone.dcnv" ), std::string::npos ) << errors;
     EXPECT_EQ( ReadRaw( types / "Wisp.decloudtype" ), before ) << "a refused cloud type was rewritten";
     fs::remove_all( types.parent_path().parent_path().parent_path().parent_path() );
+}
+
+// ─── MIG1: what a walk over the repository scans ──────────────────────────────────────────────────
+//
+// `migrate.sh --check .` exited 1 on a clean tree because the walk entered Editor/ThirdParty/assimp: a Quake 3
+// `.shader` it would "raise" and two Ogre `.skeleton` files it refused. The walk now leaves out exactly the
+// entries of ScanExclusions() and prints each one it leaves out. Every entry is planted with files the tool
+// would otherwise refuse (one at the tree's root, one nested as Editor's is); the run is clean and reports
+// one skip per planted directory. Then one broken file in a directory the list does not name turns it red:
+// the skip is by the list, not by extension or content.
+TEST( SceneMigratorWritePath, TheWalkSkipsExactlyTheExclusionListAndSaysSo )
+{
+    const fs::path dir = MakeTempDir( "desert_scan_exclusions" );
+    ASSERT_FALSE( Desert::Migration::ScanExclusions().empty() );
+
+    std::vector<fs::path> planted;
+    for ( const auto& exclusion : Desert::Migration::ScanExclusions() )
+    {
+        EXPECT_NE( std::string( exclusion.Reason ), "" ) << exclusion.Path << " is excluded with no reason";
+        for ( const fs::path& at : { dir / exclusion.Path, dir / "Editor" / exclusion.Path } )
+        {
+            fs::create_directories( at / "assimp" );
+            std::ofstream( at / "assimp" / "ninja.skeleton", std::ios::binary ) << "binary, not a JSON object";
+            std::ofstream( at / "kubalwagon.shader", std::ios::binary ) << "textures/kt { map $lightmap }";
+            planted.push_back( at );
+        }
+    }
+    const fs::path scene = dir / "Scenes" / "Current.desce";
+    fs::create_directories( scene.parent_path() );
+    WriteSceneAtV1( scene );
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { ( dir / "Scenes" / "Current.desce" ).string() }, report, errors ), 0 ) << errors;
+
+    ASSERT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << errors << report;
+    EXPECT_EQ( errors, "" );
+    size_t skips = 0;
+    for ( size_t at = report.find( "skip   " ); at != std::string::npos; at = report.find( "skip   ", at + 1 ) )
+        ++skips;
+    EXPECT_EQ( skips, planted.size() ) << report;
+    for ( const auto& at : planted )
+        EXPECT_NE( report.find( "skip   " + at.string() + " — " ), std::string::npos ) << at << "\n" << report;
+    EXPECT_EQ( report.find( "kubalwagon" ), std::string::npos ) << report;
+    EXPECT_EQ( report.find( "ninja" ), std::string::npos ) << report;
+
+    // A directory the list does not name is scanned, whatever it holds or is called like.
+    const fs::path unlisted = dir / "ThirdPartyNotes" / "ninja.skeleton";
+    fs::create_directories( unlisted.parent_path() );
+    std::ofstream( unlisted, std::ios::binary ) << "binary, not a JSON object";
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 1 );
+    EXPECT_NE( errors.find( unlisted.string() ), std::string::npos ) << errors;
+
+    // A file named on the command line is never filtered: an excluded file asked for by name is processed.
+    const fs::path named = dir / "ThirdParty" / "assimp" / "ninja.skeleton";
+    EXPECT_EQ( RunTool( { "--check", named.string() }, report, errors ), 1 );
+    EXPECT_NE( errors.find( named.string() ), std::string::npos ) << errors;
+    fs::remove_all( dir );
+}
+
+// ─── MIG1: a mesh asset (AF4d, envelope subsystem 'MSAS') is read, not refused ────────────────────────
+//
+// StaticProbe.stmesh became a MeshSourceAsset in AF4d and the mesh pass refused it as "not DESTMESH". It is now
+// judged by the engine's own DecodeMeshSourceAsset: a well-formed asset is "ok" and left byte for byte, and the
+// same file with one byte of a section flipped FAILS by name - the envelope is read, not blessed by its magic.
+TEST( SceneMigratorWritePath, AMeshSourceAssetIsReadByTheEnginesReaderNotRefused )
+{
+    namespace CC        = Common::Content;
+    const fs::path dir  = MakeTempDir( "desert_mesh_source_asset" );
+    const fs::path file = dir / "Meshes" / "Probe.stmesh";
+    fs::create_directories( file.parent_path() );
+
+    Desert::Assets::MeshSourceAsset asset;
+    asset.Guid                 = { 0xA5A5A5A5A5A5A5A5ULL, 0x0123456789ABCDEFULL };
+    asset.Name                 = "Probe";
+    asset.Import.SourceFile    = "assets:Meshes/Probe.fbx";
+    asset.Import.SourceHash    = 0xFEEDFACECAFEBEEFULL;
+    auto& mesh                 = asset.Source.Models.emplace_back().Mesh;
+    mesh.Positions             = { 0.f, 0.f, 0.f, 100.f, 0.f, 0.f, 0.f, 0.f, 100.f };
+    mesh.Triangles             = { 0, 1, 2 };
+    mesh.PolyGroups            = { 0 };
+    mesh.MaterialIds           = { 0 };
+    asset.Source.MaterialSlots = { { "Body", {} } };
+    ASSERT_TRUE( Desert::Assets::WriteMeshSourceAssetFile( file, asset ) );
+    const std::string before = ReadRaw( file );
+
+    std::string report;
+    std::string errors;
+    ASSERT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_NE( report.find( "ok     " + file.string() + " — mesh asset, MSAS v" ), std::string::npos ) << report;
+    EXPECT_NE( report.find( CC::AssetGuidToText( asset.Guid ) ), std::string::npos ) << report;
+    ASSERT_EQ( RunTool( { dir.string() }, report, errors ), 0 ) << errors;
+    EXPECT_EQ( ReadRaw( file ), before ) << "a mesh asset has no step in this tool; the write run changed it";
+
+    std::string torn = before;
+    torn.back()      = static_cast<char>( torn.back() ^ 0x5A );
+    std::ofstream( file, std::ios::binary | std::ios::trunc ) << torn;
+    EXPECT_EQ( RunTool( { "--check", dir.string() }, report, errors ), 1 );
+    EXPECT_NE( errors.find( "FAIL   " + file.string() + " — neither a cooked DESTMESH mesh nor a readable mesh" ),
+               std::string::npos )
+         << errors;
+    fs::remove_all( dir );
 }

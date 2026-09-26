@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <ostream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -51,6 +52,21 @@ namespace Desert::Migration
     // against the assets root, and the v11 -> v12 step can produce a `.demat` that has to land under the
     // root the file it is named from actually lives beneath.
     std::filesystem::path PrefabOutputRoot( const std::filesystem::path& prefabPath );
+
+    // WHAT A DIRECTORY WALK DOES NOT ENTER — one list, each entry with its reason, and every skip is printed
+    // ("skip   <path> — <reason>") so nothing is left out silently. The tool is run over the whole repository,
+    // and the repository holds files that share our extensions but are not our content: assimp's test corpus
+    // carries Quake 3 `.shader` scripts and Ogre `.skeleton` files, which the shader pass would "raise" and the
+    // skeleton pass refuses. An entry is a path of one or more components matched against the TRAILING
+    // components of each directory or file met below a scanned root, so "ThirdParty" names every directory of
+    // that name at any depth (the root's own and Editor's), and a file entry would name one file. A path given
+    // on the command line is never filtered: whoever names a file asked for that file.
+    struct ScanExclusion
+    {
+        const char* Path;
+        const char* Reason;
+    };
+    std::span<const ScanExclusion> ScanExclusions();
 
     // `args` is the command line without argv[0]: any mix of "--check" and paths (a .desce, .demat or
     // .deprefab file, or a directory searched recursively). Returns the process exit code: 0 = nothing

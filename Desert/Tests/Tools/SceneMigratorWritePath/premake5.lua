@@ -59,6 +59,9 @@ project(test_name)
         -- THE CLOUD TYPE WRITER AND GATE, since T7h: the CLTY 4 -> 5 step writes through the engine's own
         -- WriteCloudType and gates with its own ParseCloudType; pure, no GPU.
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeData.cpp",
+        -- THE MESH ASSET READER, since MIG1: a `.stmesh`/`.skmesh` stamped 'MSAS' (AF4d) is judged by the
+        -- engine's own DecodeMeshSourceAsset rather than refused as "not DESTMESH"; pure bytes, no GPU.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
     }
 
     -- Reflection.gen.cpp is emitted by DesertHeaderTool as a prebuild step of `Desert`.
