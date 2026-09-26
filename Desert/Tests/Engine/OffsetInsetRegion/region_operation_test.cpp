@@ -170,7 +170,7 @@ TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
     const ElementSelection triangles =
          ConvertSelection( *done.Mesh, topology, done.Selection, ElementMode::Triangle );
     ASSERT_EQ( triangles.Size(), 4u );
-    const double    step = 20.0 / std::numbers::sqrt2;
+    const double     step = 20.0 / std::numbers::sqrt2;
     const glm::dvec3 move( step, 0.0, step );
     for ( int const t : triangles.Ids() )
     {
@@ -278,7 +278,7 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
     for ( int const t : filler.m_NewTriangles )
         EXPECT_NEAR( mesh.GetTriNormal( t ).z, 1.0, 1e-9 ) << "fan triangle " << t << " faces into the cube";
 
-    DynamicMeshEditor editor( &mesh );
+    const DynamicMeshEditor editor( &mesh );
     editor.SetTriangleNormals( filler.m_NewTriangles, glm::vec3( 0, 0, 1 ) );
     editor.SetTriangleUVsFromProjection( filler.m_NewTriangles, mesh.GetVertex( filler.m_NewVertex ),
                                          glm::dvec3( 0, 0, 1 ), 1.0f );

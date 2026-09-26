@@ -1452,8 +1452,8 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnCollapseEdge(
      const DynamicMesh3::EdgeCollapseInfo& collapseInfo )
 {
 
-    const int tid_removed0 = collapseInfo.RemovedTris.A;
-    const int tid_removed1 = collapseInfo.RemovedTris.B;
+    const int  tid_removed0 = collapseInfo.RemovedTris.A;
+    const int  tid_removed1 = collapseInfo.RemovedTris.B;
     const bool bT0Set       = IsSetTriangle( tid_removed0 );
     const bool bT1Set       = tid_removed1 >= 0 && IsSetTriangle( tid_removed1 );
 

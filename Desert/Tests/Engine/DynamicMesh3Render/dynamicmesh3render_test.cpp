@@ -145,9 +145,9 @@ namespace
             const int           w = x1 - x0 + 1;
             for ( int z = 0; z <= cells; ++z )
                 for ( int x = x0; x <= x1; ++x )
-                    vertices.push_back(
-                         MakeVertex( { 10.0f * static_cast<float>( x ), 0.0f, 10.0f * static_cast<float>( z ) }, { 0, 1, 0 }, { 1, 0, 0 },
-                                     { static_cast<float>( x ) / cells, static_cast<float>( z ) / cells } ) );
+                    vertices.push_back( MakeVertex(
+                         { 10.0f * static_cast<float>( x ), 0.0f, 10.0f * static_cast<float>( z ) }, { 0, 1, 0 },
+                         { 1, 0, 0 }, { static_cast<float>( x ) / cells, static_cast<float>( z ) / cells } ) );
             for ( int z = 0; z < cells; ++z )
                 for ( int x = 0; x < w - 1; ++x )
                 {
@@ -365,8 +365,8 @@ TEST( DynamicMesh3Render, CorruptedOverlayIsCaughtByCheckValidity )
     // element whose parent is another vertex.
     DynamicMesh3 mesh = Import( HardCube( 50.0f ) );
     ASSERT_TRUE( Valid( mesh ) );
-    DynamicMeshNormalOverlay&  normals = *mesh.Attributes()->PrimaryNormals();
-    const Index3i              tri     = normals.GetTriangle( 0 );
+    DynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
+    const Index3i             tri     = normals.GetTriangle( 0 );
     ASSERT_NE( normals.GetParentVertex( tri.A ), normals.GetParentVertex( tri.B ) );
     OverlayAccess::Triangles( normals )[0] = tri.B;
     EXPECT_FALSE( normals.CheckValidity( true, ValidityCheckFailMode::ReturnOnly ) );

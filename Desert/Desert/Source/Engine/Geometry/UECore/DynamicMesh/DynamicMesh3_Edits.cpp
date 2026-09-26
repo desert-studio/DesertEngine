@@ -600,7 +600,7 @@ MeshResult DynamicMesh3::RemoveVertex( int VertexID, bool bPreserveManifold )
     {
         for ( int const tid : VtxTrianglesItr( VertexID ) )
         {
-            Index3i  tri = GetTriangle( tid );
+            Index3i   tri = GetTriangle( tid );
             int const j   = IndexUtil::FindTriIndex( VertexID, tri );
             int const oa  = tri[( j + 1 ) % 3];
             int const ob  = tri[( j + 2 ) % 3];
@@ -845,10 +845,10 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double Sp
     }
 
     // look up primary edge & triangle
-    const Edge  Edge = m_Edges[eab];
-    int         a    = Edge.Vert[0];
-    int         b    = Edge.Vert[1];
-    int const   t0   = Edge.Tri[0];
+    const Edge Edge = m_Edges[eab];
+    int        a    = Edge.Vert[0];
+    int        b    = Edge.Vert[1];
+    int const  t0   = Edge.Tri[0];
     if ( t0 == InvalidID )
     {
         return MeshResult::Failed_BrokenTopology;
@@ -895,7 +895,7 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double Sp
         }
 
         // look up edge bc, which needs to be modified
-        Index3i  T0te = GetTriEdges( t0 );
+        Index3i   T0te = GetTriEdges( t0 );
         int const ebc  = T0te[IndexUtil::FindEdgeIndexInTri( b, c, T0tv )];
 
         // rewrite existing triangle
@@ -954,16 +954,16 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double Sp
     if ( m_VertexRefCounts.GetRawRefCount( d ) > RefCountVector::INVALID_REF_COUNT - 3 )
     {
         return MeshResult::Failed_HitValenceLimit;
-        }
+    }
 
         // create vertex
-        glm::dvec3 const vNew = Lerp( GetVertex( a ), GetVertex( b ), SplitParameterT );
-        int const        f    = AppendVertex( vNew );
-        if ( HasVertexNormals() )
-        {
-            SetVertexNormal( f, Normalized( Lerp( GetVertexNormal( a ), GetVertexNormal( b ),
-                                                  static_cast<float>( SplitParameterT ) ) ) );
-        }
+    glm::dvec3 const vNew = Lerp( GetVertex( a ), GetVertex( b ), SplitParameterT );
+    int const        f    = AppendVertex( vNew );
+    if ( HasVertexNormals() )
+    {
+        SetVertexNormal( f, Normalized( Lerp( GetVertexNormal( a ), GetVertexNormal( b ),
+                                              static_cast<float>( SplitParameterT ) ) ) );
+    }
         if ( HasVertexColors() )
         {
             SetVertexColor(
@@ -976,9 +976,9 @@ MeshResult DynamicMesh3::SplitEdge( int eab, EdgeSplitInfo& SplitInfo, double Sp
 
         // look up edges that we are going to need to update
         // [TODO OPT] could use ordering to reduce # of compares here
-        Index3i  T0te = GetTriEdges( t0 );
+        Index3i   T0te = GetTriEdges( t0 );
         int const ebc  = T0te[IndexUtil::FindEdgeIndexInTri( b, c, T0tv )];
-        Index3i  T1te = GetTriEdges( t1 );
+        Index3i   T1te = GetTriEdges( t1 );
         int const edb  = T1te[IndexUtil::FindEdgeIndexInTri( d, b, T1tv )];
 
         // rewrite existing triangles
@@ -1064,15 +1064,15 @@ MeshResult DynamicMesh3::FlipEdge( int eab, EdgeFlipInfo& FlipInfo )
     }
 
     // find oriented edge [a,b], tris t0,t1, and other verts c in t0, d in t1
-    const Edge  Edge = m_Edges[eab];
-    int         a    = Edge.Vert[0];
-    int         b    = Edge.Vert[1];
+    const Edge    Edge = m_Edges[eab];
+    int           a    = Edge.Vert[0];
+    int           b    = Edge.Vert[1];
     int const     t0   = Edge.Tri[0];
     int const     t1   = Edge.Tri[1];
     Index3i const T0tv = GetTriangle( t0 );
     Index3i const T1tv = GetTriangle( t1 );
-    int const   c    = IndexUtil::OrientTriEdgeAndFindOtherVtx( a, b, T0tv );
-    int const   d    = IndexUtil::FindTriOtherVtx( a, b, T1tv );
+    int const     c    = IndexUtil::OrientTriEdgeAndFindOtherVtx( a, b, T0tv );
+    int const     d    = IndexUtil::FindTriOtherVtx( a, b, T1tv );
     if ( c == InvalidID || d == InvalidID )
     {
         return MeshResult::Failed_BrokenTopology;
@@ -1208,7 +1208,7 @@ MeshResult DynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& 
     };
     for ( int const TriID : TrianglesToUpdate )
     {
-        Index3i  Triangle = GetTriangle( TriID );
+        Index3i   Triangle = GetTriangle( TriID );
         int const SubIdx   = Triangle.IndexOf( VertexID );
         if ( SubIdx < 0 )
         {
@@ -1264,8 +1264,8 @@ MeshResult DynamicMesh3::CanCollapseEdgeInternal( int vKeep, int vRemove, double
         return MeshResult::Failed_NotAnEdge;
     }
 
-    const Edge  EdgeAB = m_Edges[eab];
-    int const   t0     = EdgeAB.Tri[0];
+    const Edge EdgeAB = m_Edges[eab];
+    int const  t0     = EdgeAB.Tri[0];
     if ( t0 == InvalidID )
     {
         return MeshResult::Failed_BrokenTopology;
@@ -1457,7 +1457,7 @@ MeshResult DynamicMesh3::CollapseEdge( int KeepVertID, int RemoveVertID, double 
     // save vertex positions before we delete removed (can defer kept?)
     glm::dvec3 const KeptPos    = GetVertex( KeepVertID );
     glm::dvec3 const RemovedPos = GetVertex( RemoveVertID );
-    glm::vec2  RemovedUV{};
+    glm::vec2        RemovedUV{};
     if ( HasVertexUVs() )
     {
         RemovedUV = GetVertexUV( RemoveVertID );
@@ -1789,7 +1789,7 @@ MeshResult DynamicMesh3::MergeEdges( int KeepEdgeID, int DiscardEdgeID, double I
         return MeshResult::Failed_InvalidNeighbourhood;
     }
 
-    int const x   = c;
+    int const x  = c;
     c            = d;
     d            = x; // joinable bdry edges have opposing orientations, so flip to get ac and b/d correspondences
     glm::dvec3 const Va = GetVertex( a );

@@ -57,8 +57,8 @@ namespace
 
     DynamicMesh3 MakeTorus( int NU, int NV, double R, double r )
     {
-        DynamicMesh3  Mesh;
-        const auto    TwoPi = glm::two_pi<double>();
+        DynamicMesh3 Mesh;
+        const auto   TwoPi = glm::two_pi<double>();
         for ( int u = 0; u < NU; ++u )
             for ( int v = 0; v < NV; ++v )
             {
@@ -156,16 +156,16 @@ TEST( DynamicMesh3Core, CubeIsClosedGenusZero )
 TEST( DynamicMesh3Core, CubeNormalsFollowUEWinding )
 {
     // UE's triangle normal is (V2-V0)x(V1-V0): a triangle counter-clockwise from outside faces inward.
-    const DynamicMesh3  Mesh = MakeCube();
-    const glm::dvec3    Center( Side / 2, Side / 2, Side / 2 );
+    const DynamicMesh3 Mesh = MakeCube();
+    const glm::dvec3   Center( Side / 2, Side / 2, Side / 2 );
     for ( int const TID : Mesh.TriangleIndicesItr() )
     {
         const glm::dvec3 N = Mesh.GetTriNormal( TID );
         EXPECT_NEAR( glm::length( N ), 1.0, 1e-12 );
         const glm::dvec3 Out = Normalized( Mesh.GetTriCentroid( TID ) - Center );
         EXPECT_LT( glm::dot( N, Out ), -0.5 ) << "triangle " << TID;
-        const AxisAlignedBox3d  TB = Mesh.GetTriBounds( TID );
-        const glm::dvec3        C  = Mesh.GetTriCentroid( TID );
+        const AxisAlignedBox3d TB = Mesh.GetTriBounds( TID );
+        const glm::dvec3       C  = Mesh.GetTriCentroid( TID );
         EXPECT_TRUE( C.x >= TB.Min.x && C.x <= TB.Max.x && C.y >= TB.Min.y && C.y <= TB.Max.y && C.z >= TB.Min.z &&
                      C.z <= TB.Max.z );
         EXPECT_NEAR( Mesh.GetTriArea( TID ), Side * Side / 2, 1e-9 );
@@ -274,8 +274,8 @@ TEST( DynamicMesh3Core, TorusIsClosedGenusOne )
 
 TEST( DynamicMesh3Core, RejectsNonManifoldAndDuplicateTriangles )
 {
-    DynamicMesh3  Mesh = MakePlane( 1 ); // two triangles sharing the diagonal 0-3
-    const int     Apex = Mesh.AppendVertex( glm::dvec3( 5.0, 5.0, 10.0 ) );
+    DynamicMesh3 Mesh = MakePlane( 1 ); // two triangles sharing the diagonal 0-3
+    const int    Apex = Mesh.AppendVertex( glm::dvec3( 5.0, 5.0, 10.0 ) );
     EXPECT_EQ( Mesh.AppendTriangle( 0, 3, Apex ), DynamicMesh3::NonManifoldID );
     EXPECT_EQ( Mesh.TriangleCount(), 2 );
     EXPECT_TRUE( Valid( Mesh ) );

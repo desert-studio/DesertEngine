@@ -88,8 +88,8 @@ namespace Desert::Geometry
         {
             const glm::vec2 UV      = Overlay.GetElement( eid );
             const glm::vec2 otherUV = Overlay.GetElement( oeid );
-            const float     dx = UV.x - otherUV.x;
-            const float     dy = UV.y - otherUV.y;
+            const float     dx      = UV.x - otherUV.x;
+            const float     dy      = UV.y - otherUV.y;
             return dx * dx + dy * dy <= Threshold;
         };
         WeldSplits( ParentMesh, ParentVID, Overlay, ShouldWeld );
@@ -119,8 +119,8 @@ namespace Desert::Geometry
             };
             bool            bVecNormalized      = false;
             bool            bOtherVecNormalized = false;
-            const glm::vec3 Vec      = Unit( Overlay.GetElement( eid ), bVecNormalized );
-            const glm::vec3 otherVec = Unit( Overlay.GetElement( oeid ), bOtherVecNormalized );
+            const glm::vec3 Vec                 = Unit( Overlay.GetElement( eid ), bVecNormalized );
+            const glm::vec3 otherVec            = Unit( Overlay.GetElement( oeid ), bOtherVecNormalized );
             if ( bVecNormalized && bOtherVecNormalized )
             {
                 const float CosAngle = Vec.x * otherVec.x + Vec.y * otherVec.y + Vec.z * otherVec.z;

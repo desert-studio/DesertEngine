@@ -531,8 +531,8 @@ void DynamicMesh3::EnableVertexNormals( const glm::vec3& InitialNormal )
         return;
     }
 
-    DynamicVector<glm::vec3>  NewNormals;
-    int const                 NV = MaxVertexID();
+    DynamicVector<glm::vec3> NewNormals;
+    int const                NV = MaxVertexID();
     NewNormals.Resize( NV );
     for ( int i = 0; i < NV; ++i )
     {
@@ -572,7 +572,7 @@ void DynamicMesh3::EnableVertexUVs( const glm::vec2& InitialUV )
     {
         return;
     }
-    m_VertexUVs = DynamicVector<glm::vec2>();
+    m_VertexUVs  = DynamicVector<glm::vec2>();
     int const NV = MaxVertexID();
     m_VertexUVs->Resize( NV );
     for ( int i = 0; i < NV; ++i )
@@ -620,21 +620,21 @@ bool DynamicMesh3::GetVertex( int VertexID, VertexInfo& VertInfo, bool bWantNorm
     VertInfo.bHaveN = VertInfo.bHaveUV = VertInfo.bHaveC = false;
     if ( m_VertexNormals.has_value() && bWantNormals )
     {
-        VertInfo.bHaveN                            = true;
-        const DynamicVector<glm::vec3>& NormalVec  = m_VertexNormals.value();
-        VertInfo.Normal                            = NormalVec[VertexID];
+        VertInfo.bHaveN                           = true;
+        const DynamicVector<glm::vec3>& NormalVec = m_VertexNormals.value();
+        VertInfo.Normal                           = NormalVec[VertexID];
     }
     if ( m_VertexColors.has_value() && bWantColors )
     {
-        VertInfo.bHaveC                           = true;
-        const DynamicVector<glm::vec3>& ColorVec  = m_VertexColors.value();
-        VertInfo.Color                            = ColorVec[VertexID];
+        VertInfo.bHaveC                          = true;
+        const DynamicVector<glm::vec3>& ColorVec = m_VertexColors.value();
+        VertInfo.Color                           = ColorVec[VertexID];
     }
     if ( m_VertexUVs.has_value() && bWantUVs )
     {
-        VertInfo.bHaveUV                       = true;
-        const DynamicVector<glm::vec2>& UVVec  = m_VertexUVs.value();
-        VertInfo.UV                            = UVVec[VertexID];
+        VertInfo.bHaveUV                      = true;
+        const DynamicVector<glm::vec2>& UVVec = m_VertexUVs.value();
+        VertInfo.UV                           = UVVec[VertexID];
     }
     return true;
 }
@@ -651,8 +651,8 @@ int DynamicMesh3::GetMaxVtxEdgeCount() const
 
 VertexInfo DynamicMesh3::GetVertexInfo( int VertexID ) const
 {
-    VertexInfo vi  = VertexInfo();
-    vi.Position    = GetVertex( VertexID );
+    VertexInfo vi = VertexInfo();
+    vi.Position   = GetVertex( VertexID );
     vi.bHaveN = vi.bHaveC = vi.bHaveUV = false;
     if ( HasVertexNormals() )
     {
@@ -822,7 +822,7 @@ bool DynamicMesh3::CheckValidity( ValidityOptions Options, ValidityCheckFailMode
             // edge must have same two verts as tri for same index
             int const a  = tv[j];
             int const b  = tv[( j + 1 ) % 3];
-            Index2i  ev = GetEdgeV( te[j] );
+            Index2i   ev = GetEdgeV( te[j] );
             CheckOrFailF( IndexUtil::SamePairUnordered( a, b, ev[0], ev[1] ) );
 
             // also check that nbr edge has opposite orientation
@@ -1116,9 +1116,9 @@ int DynamicMesh3::FindEdgeFromTriPair( int TriA, int TriangleB ) const
     {
         for ( int j = 0; j < 3; ++j )
         {
-            int const   EdgeID = m_TriangleEdges[TriA][j];
-            const Edge  Edge   = m_Edges[EdgeID];
-            int const   NbrT   = ( Edge.Tri[0] == TriA ) ? Edge.Tri[1] : Edge.Tri[0];
+            int const  EdgeID = m_TriangleEdges[TriA][j];
+            const Edge Edge   = m_Edges[EdgeID];
+            int const  NbrT   = ( Edge.Tri[0] == TriA ) ? Edge.Tri[1] : Edge.Tri[0];
             if ( NbrT == TriangleB )
             {
                 return EdgeID;

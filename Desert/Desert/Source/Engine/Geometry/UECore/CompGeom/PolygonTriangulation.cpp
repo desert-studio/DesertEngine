@@ -12,9 +12,9 @@ namespace Desert::Geometry::PolygonTriangulation
     T ComputePolygonPlane( const std::vector<glm::vec<3, T>>& VertexPositions, glm::vec<3, T>& PlaneNormalOut,
                            glm::vec<3, T>& PlanePointOut )
     {
-        PlaneNormalOut            = glm::vec<3, T>( 0 );
-        PlanePointOut             = glm::vec<3, T>( 0 );
-        const auto NumVertices    = static_cast<int32_t>( VertexPositions.size() );
+        PlaneNormalOut         = glm::vec<3, T>( 0 );
+        PlanePointOut          = glm::vec<3, T>( 0 );
+        const auto NumVertices = static_cast<int32_t>( VertexPositions.size() );
         // Newell's method: the sum over edges gives twice the projected area on each axis plane.
         for ( int32_t VertexNumberI = NumVertices - 1, VertexNumberJ = 0; VertexNumberJ < NumVertices;
               VertexNumberI = VertexNumberJ++ )

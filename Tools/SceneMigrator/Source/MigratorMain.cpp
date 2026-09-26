@@ -1538,7 +1538,7 @@ namespace Desert::Migration
             // falls through to the cooked-mesh refusal below, which names what it is instead.
             if ( !std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 !( !bytes.empty() && bytes.front() == '{' ) )
+                 ( bytes.empty() || bytes.front() != '{' ) )
             {
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )

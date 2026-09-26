@@ -236,7 +236,7 @@ TEST( GroupTopology, CubeTopAsOwnGroupIsOneCornerFreeLoop )
 TEST( GroupTopology, TriangleTopologyIsTheMeshItself )
 {
     const int              Groups[6] = { 0, 1, 2, 3, 4, 5 };
-    const DynamicMesh3     Mesh      = MakeCube( Groups );
+    const DynamicMesh3          Mesh      = MakeCube( Groups );
     TriangleGroupTopology const Topo( &Mesh, true );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Groups.size() ), 12 );
     EXPECT_EQ( static_cast<int32_t>( Topo.m_Corners.size() ), 8 );

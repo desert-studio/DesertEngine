@@ -21,10 +21,10 @@ namespace Desert::Geometry
 {
     struct DynamicMeshEditResult
     {
-        std::vector<int>      NewVertices;
-        std::vector<int>      NewTriangles;
-        std::vector<Index2i>  NewQuads;
-        std::vector<int>      NewGroups;
+        std::vector<int>     NewVertices;
+        std::vector<int>     NewTriangles;
+        std::vector<Index2i> NewQuads;
+        std::vector<int>     NewGroups;
 
         void Reset()
         {
@@ -88,10 +88,10 @@ namespace Desert::Geometry
                                   std::vector<LoopPairSet>& LoopSetOut, bool bHandleBoundaryVertices,
                                   std::string& FailureOut ) const;
 
-        glm::vec3 ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar ) const;
-        void      SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal ) const;
-        void      SetTriangleNormals( const std::vector<int>& Triangles ) const;
-        void      SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal ) const;
+        [[nodiscard]] glm::vec3 ComputeAndSetQuadNormal( const Index2i& QuadTris, bool bIsPlanar ) const;
+        void                    SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal ) const;
+        void                    SetTriangleNormals( const std::vector<int>& Triangles ) const;
+        void SetTriangleNormals( const std::vector<int>& Triangles, const glm::vec3& Normal ) const;
         bool AddTriangleFan_OrderedVertexLoop( int CenterVertex, const std::vector<int>& VertexLoop, int GroupID,
                                                DynamicMeshEditResult& ResultOut ) const;
         /** UE's overload with Frame3d(Origin, Normal), bShiftToOrigin = true, UV layer 0. */

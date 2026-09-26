@@ -113,16 +113,16 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     }
     ASSERT_GE( groupEdge, 0 );
 
-    const std::vector<double>                    proportions = { 0.5 };
-    GroupEdgeInserter::EdgeLoopInsertionParams   params;
+    const std::vector<double>                  proportions = { 0.5 };
+    GroupEdgeInserter::EdgeLoopInsertionParams params;
     params.Mesh               = &mesh;
     params.Topology           = &topology;
     params.GroupEdgeID        = groupEdge;
     params.SortedInputLengths = &proportions;
     params.StartCornerID      = topology.m_Edges[groupEdge].EndpointCorners.A;
 
-    std::unordered_set<int32_t>               newEids;
-    GroupEdgeInserter::OptionalOutputParams   out;
+    std::unordered_set<int32_t>             newEids;
+    GroupEdgeInserter::OptionalOutputParams out;
     out.NewEidsOut = &newEids;
     ASSERT_TRUE( GroupEdgeInserter::InsertEdgeLoops( params, out ) );
 
@@ -220,8 +220,8 @@ TEST( GroupEdgeInserter, EdgeLoopOnAnOpenStripWalksBothWays )
     const int      groupEdge = GroupEdgeBetween( topology, kPlusXGroup, kPlusZGroup );
     ASSERT_GE( groupEdge, 0 );
 
-    const std::vector<double>                    proportions = { 0.5 };
-    GroupEdgeInserter::EdgeLoopInsertionParams   params;
+    const std::vector<double>                  proportions = { 0.5 };
+    GroupEdgeInserter::EdgeLoopInsertionParams params;
     params.Mesh               = &mesh;
     params.Topology           = &topology;
     params.GroupEdgeID        = groupEdge;

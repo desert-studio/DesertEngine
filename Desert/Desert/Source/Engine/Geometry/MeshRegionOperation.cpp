@@ -134,7 +134,7 @@ namespace Desert::Geometry
                                                                   loop.GetEdgeCount(), filler.m_FailureReason );
             if ( mesh->HasAttributes() )
             {
-                DynamicMeshEditor editor( mesh.get() );
+                const DynamicMeshEditor editor( mesh.get() );
                 editor.SetTriangleNormals( filler.m_NewTriangles,
                                            glm::vec3( static_cast<float>( planeNormal.x ),
                                                       static_cast<float>( planeNormal.y ),
@@ -190,16 +190,16 @@ namespace Desert::Geometry
             groupEdge = found;
         }
 
-        const std::vector<double>                    proportions = { static_cast<double>( position ) };
-        GroupEdgeInserter::EdgeLoopInsertionParams   params;
+        const std::vector<double>                  proportions = { static_cast<double>( position ) };
+        GroupEdgeInserter::EdgeLoopInsertionParams params;
         params.Mesh               = mesh.get();
         params.Topology           = &topology;
         params.GroupEdgeID        = groupEdge;
         params.SortedInputLengths = &proportions;
         params.StartCornerID      = topology.m_Edges[groupEdge].EndpointCorners.A;
-        std::unordered_set<int32_t>               newEids;
-        std::unordered_set<int32_t>               problemGroupEdges;
-        GroupEdgeInserter::OptionalOutputParams   out;
+        std::unordered_set<int32_t>             newEids;
+        std::unordered_set<int32_t>             problemGroupEdges;
+        GroupEdgeInserter::OptionalOutputParams out;
         out.NewEidsOut             = &newEids;
         out.ProblemGroupEdgeIDsOut = &problemGroupEdges;
         if ( !GroupEdgeInserter::InsertEdgeLoops( params, out ) )

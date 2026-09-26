@@ -104,12 +104,12 @@ namespace Desert::Geometry
         std::vector<std::vector<Index2i>> QuadStrips;
         for ( int32_t LoopIndex = 0; LoopIndex < NumInitialLoops; ++LoopIndex )
         {
-            const DynamicMeshEditor::LoopPairSet&   LoopPair  = LoopPairs[LoopIndex];
-            const std::vector<int32_t>&             BaseLoopV = LoopPair.OuterVertices;
-            const auto                              NumLoopV  = static_cast<int32_t>( BaseLoopV.size() );
-            std::vector<int32_t>                    NewGroupIDs;
-            std::vector<int32_t>                    EdgeGroups;
-            std::unordered_map<int64_t, int32_t>    NewGroupsMap; // (min, max) group pair packed
+            const DynamicMeshEditor::LoopPairSet& LoopPair  = LoopPairs[LoopIndex];
+            const std::vector<int32_t>&           BaseLoopV = LoopPair.OuterVertices;
+            const auto                            NumLoopV  = static_cast<int32_t>( BaseLoopV.size() );
+            std::vector<int32_t>                  NewGroupIDs;
+            std::vector<int32_t>                  EdgeGroups;
+            std::unordered_map<int64_t, int32_t>  NewGroupsMap; // (min, max) group pair packed
             for ( int32_t k = 0; k < NumLoopV; ++k )
             {
                 int32_t const InsetGroupID = m_Mesh->GetTriangleGroup( InsetStitchSides[LoopIndex][k].first );
@@ -165,8 +165,8 @@ namespace Desert::Geometry
                         // in the quad's plane, Y = Z x X.
                         glm::dvec3 const FirstEdge =
                              m_Mesh->GetVertex( BaseLoopV[1] ) - m_Mesh->GetVertex( BaseLoopV[0] );
-                        AxisX                = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );
-                        AxisY                = glm::cross( Normal, AxisX );
+                        AxisX               = Normalized( FirstEdge - Normal * glm::dot( FirstEdge, Normal ) );
+                        AxisY               = glm::cross( Normal, AxisX );
                         FrameUp             = AxisY;
                     }
                     else
@@ -174,7 +174,7 @@ namespace Desert::Geometry
                         // ConstrainedAlignAxis(2, Normal, FrameUp): rotate about FrameUp until Z meets Normal.
                         glm::dvec3 const Z = Normalized( Normal - FrameUp * glm::dot( Normal, FrameUp ) );
                         AxisY       = FrameUp;
-                        AxisX        = glm::cross( AxisY, Z );
+                        AxisX              = glm::cross( AxisY, Z );
                     }
                     if ( k > 0 )
                         AccumUVTranslation += static_cast<float>( Distance(

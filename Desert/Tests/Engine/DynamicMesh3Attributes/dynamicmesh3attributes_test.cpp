@@ -56,24 +56,27 @@ namespace
         Attr->EnableMaterialID();
         Attr->SetNumPolygroupLayers( 1 );
 
-        DynamicMeshUVOverlay*      UV = Attr->PrimaryUV();
-        DynamicMeshNormalOverlay*  Nm = Attr->PrimaryNormals();
-        DynamicMeshColorOverlay*   Cl = Attr->PrimaryColors();
-        std::vector<int>           UVLeft;
-        std::vector<int>           UVRight;
-        std::vector<int>           NmE;
-        std::vector<int>           ClE;
+        DynamicMeshUVOverlay*     UV = Attr->PrimaryUV();
+        DynamicMeshNormalOverlay* Nm = Attr->PrimaryNormals();
+        DynamicMeshColorOverlay*  Cl = Attr->PrimaryColors();
+        std::vector<int>          UVLeft;
+        std::vector<int>          UVRight;
+        std::vector<int>          NmE;
+        std::vector<int>          ClE;
         for ( int y = 0; y <= N; ++y )
             for ( int x = 0; x <= N; ++x )
             {
                 UVLeft.push_back(
-                     UV->AppendElement( glm::vec2( static_cast<float>( x ) / static_cast<float>( N ), static_cast<float>( y ) / static_cast<float>( N ) ) ) );
-                UVRight.push_back( x == Seam ? UV->AppendElement( glm::vec2( 1.0f + static_cast<float>( x ) / static_cast<float>( N ),
-                                                                             static_cast<float>( y ) / static_cast<float>( N ) ) )
+                     UV->AppendElement( glm::vec2( static_cast<float>( x ) / static_cast<float>( N ),
+                                                   static_cast<float>( y ) / static_cast<float>( N ) ) ) );
+                UVRight.push_back( x == Seam ? UV->AppendElement( glm::vec2(
+                                                    1.0f + static_cast<float>( x ) / static_cast<float>( N ),
+                                                    static_cast<float>( y ) / static_cast<float>( N ) ) )
                                              : UVLeft.back() );
                 NmE.push_back( Nm->AppendElement( glm::vec3( 0, 0, 1 ) ) );
-                ClE.push_back( Cl->AppendElement(
-                     glm::vec4( static_cast<float>( x ) / static_cast<float>( N ), static_cast<float>( y ) / static_cast<float>( N ), 0, 1 ) ) );
+                ClE.push_back(
+                     Cl->AppendElement( glm::vec4( static_cast<float>( x ) / static_cast<float>( N ),
+                                                   static_cast<float>( y ) / static_cast<float>( N ), 0, 1 ) ) );
             }
 
         for ( int y = 0; y < N; ++y )
@@ -140,10 +143,10 @@ TEST( DynamicMesh3Attributes, SplitOnTheSeamKeepsTwoElements )
 
 TEST( DynamicMesh3Attributes, SplitOffTheSeamSharesOneInterpolatedElement )
 {
-    DynamicMesh3                  Mesh = MakeAttributedPlane();
-    const int                     A    = GridV( 1, 1 );
-    const int                     B    = GridV( 1, 2 );
-    DynamicMesh3::EdgeSplitInfo   Info;
+    DynamicMesh3                Mesh = MakeAttributedPlane();
+    const int                   A    = GridV( 1, 1 );
+    const int                   B    = GridV( 1, 2 );
+    DynamicMesh3::EdgeSplitInfo Info;
     ASSERT_EQ( Mesh.SplitEdge( A, B, Info ), MeshResult::Ok );
     ASSERT_TRUE( Valid( Mesh ) );
     const DynamicMeshUVOverlay* UV = Mesh.Attributes()->PrimaryUV();
@@ -297,10 +300,10 @@ TEST( DynamicMesh3Attributes, RandomEditSequenceKeepsEveryLayerValid )
         int           Accepted = 0;
         for ( int Step = 0; Step < 150; ++Step )
         {
-            const int   Op     = static_cast<int>( Rng() % 4 );
-            const int   Eid    = static_cast<int>( Rng() % static_cast<unsigned>( Mesh.MaxEdgeID() ) );
-            const int   Tid    = static_cast<int>( Rng() % static_cast<unsigned>( Mesh.MaxTriangleID() ) );
-            MeshResult  Result = MeshResult::Failed_NotAnEdge;
+            const int  Op     = static_cast<int>( Rng() % 4 );
+            const int  Eid    = static_cast<int>( Rng() % static_cast<unsigned>( Mesh.MaxEdgeID() ) );
+            const int  Tid    = static_cast<int>( Rng() % static_cast<unsigned>( Mesh.MaxTriangleID() ) );
+            MeshResult Result = MeshResult::Failed_NotAnEdge;
             if ( Op == 0 && Mesh.IsEdge( Eid ) )
             {
                 DynamicMesh3::EdgeSplitInfo Info;

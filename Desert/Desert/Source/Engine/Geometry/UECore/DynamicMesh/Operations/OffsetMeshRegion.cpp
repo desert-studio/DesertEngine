@@ -150,7 +150,7 @@ namespace Desert::Geometry
                 {
                     Index3i const Triangle = Mesh.GetTriangle( TriangleID );
                     double const  Angle    = Mesh.GetTriInternalAngleR( TriangleID, Triangle.IndexOf( VertexID ) );
-                    double   CosTheta = glm::dot( Mesh.GetTriNormal( TriangleID ), InitialExtrusionVector );
+                    double        CosTheta = glm::dot( Mesh.GetTriNormal( TriangleID ), InitialExtrusionVector );
                     CosTheta          = std::max( CosTheta, InvertedMaxScale );
                     Adjustment += Angle / CosTheta;
                     AngleSum += Angle;
@@ -204,8 +204,8 @@ namespace Desert::Geometry
         // (row 1, the offset loop) - UE's QuadGridPatch after its second ReverseRows, NumSubdivisions = 0.
         struct Strip
         {
-            std::vector<int32_t>  Outer, Inner; // Columns + 1 vertices each
-            std::vector<Index2i>  Quads;
+            std::vector<int32_t> Outer, Inner; // Columns + 1 vertices each
+            std::vector<Index2i> Quads;
         };
 
         void ComputeUVIslandForStrip( DynamicMesh3& Mesh, const Strip& Strip, double UVScaleFactor )
@@ -278,7 +278,7 @@ namespace Desert::Geometry
     {
         if ( !Mesh->IsEdge( Eid1 ) || !Mesh->IsEdge( Eid2 ) )
             return false;
-        const int Invalid = DynamicMesh3::InvalidID;
+        const int     Invalid = DynamicMesh3::InvalidID;
         Index2i const Tris1   = Mesh->GetEdgeT( Eid1 );
         Index2i const Groups1( Mesh->GetTriangleGroup( Tris1.A ),
                                Tris1.B == Invalid ? Invalid : Mesh->GetTriangleGroup( Tris1.B ) );

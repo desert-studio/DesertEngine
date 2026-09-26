@@ -49,8 +49,8 @@ namespace Desert::Geometry
 
             for ( int32_t i = 0; i < static_cast<int32_t>( Group->Boundaries.size() ); ++i )
             {
-                const GroupTopology::GroupBoundary&   Boundary       = Group->Boundaries[i];
-                const int32_t                         GroupEdgeIndex = static_cast<int32_t>(
+                const GroupTopology::GroupBoundary& Boundary       = Group->Boundaries[i];
+                const int32_t                       GroupEdgeIndex = static_cast<int32_t>(
                      std::find( Boundary.GroupEdges.begin(), Boundary.GroupEdges.end(), GroupEdgeIDIn ) -
                      Boundary.GroupEdges.begin() );
                 if ( GroupEdgeIndex != static_cast<int32_t>( Boundary.GroupEdges.size() ) )
@@ -369,8 +369,8 @@ namespace Desert::Geometry
 
                 if ( bCurrentPointIsVertex )
                 {
-                    MeshSurfacePoint  NextPoint( InvalidID );
-                    const glm::dvec3  CurrentPosition = OutputPath.back().first.Pos( &Mesh );
+                    MeshSurfacePoint NextPoint( InvalidID );
+                    const glm::dvec3 CurrentPosition = OutputPath.back().first.Pos( &Mesh );
 
                     // Find a surrounding triangle of our group that intersects the plane
                     int32_t CandidateTraversedTid = InvalidID;
@@ -585,8 +585,8 @@ namespace Desert::Geometry
         {
             // No snapping to the group's boundary vertices by plane distance: it could join the boundary at a
             // different point from the one the loop continues from on the other side.
-            std::unordered_set<int32_t>   DisallowedVids;
-            const GroupTopology::Group*   Group = Topology.FindGroupByID( GroupID );
+            std::unordered_set<int32_t> DisallowedVids;
+            const GroupTopology::Group* Group = Topology.FindGroupByID( GroupID );
             if ( Common::EnsureOrWarn( Group != nullptr, "Group" ) )
             {
                 for ( const GroupTopology::GroupBoundary& Boundary : Group->Boundaries )

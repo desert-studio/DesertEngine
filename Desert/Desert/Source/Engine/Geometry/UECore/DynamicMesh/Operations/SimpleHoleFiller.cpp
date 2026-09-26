@@ -54,8 +54,8 @@ bool SimpleHoleFiller::Fill_Fan( int GroupID )
 
     m_NewVertex = m_Mesh->AppendVertex( C );
 
-    DynamicMeshEditor     Editor( m_Mesh );
-    DynamicMeshEditResult AddFanResult;
+    const DynamicMeshEditor Editor( m_Mesh );
+    DynamicMeshEditResult   AddFanResult;
     if ( !Editor.AddTriangleFan_OrderedVertexLoop( m_NewVertex, m_Loop.Vertices, GroupID, AddFanResult ) )
     {
         m_Mesh->RemoveVertex( m_NewVertex, false );

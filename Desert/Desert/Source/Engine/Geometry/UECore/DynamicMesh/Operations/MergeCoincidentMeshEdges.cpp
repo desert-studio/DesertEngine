@@ -90,11 +90,11 @@ namespace Desert::Geometry
         if ( m_InitialNumBoundaryEdges > 100000 )
             hashN = 512;
 
-        const AxisAlignedBox3d  Bounds   = m_Mesh->GetBounds();
-        const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
-                                                     std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
-        const double CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
-        PointHashGrid3          MidpointsHash( CellSize );
+        const AxisAlignedBox3d Bounds   = m_Mesh->GetBounds();
+        const double           MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
+                                                    std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
+        const double           CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
+        PointHashGrid3         MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
         glm::dvec3           A{};
@@ -161,8 +161,7 @@ namespace Desert::Geometry
                      ( *EquivalenceSets[other_eid] )[0] != eid )
                     continue;
             }
-            DuplicatesQueue.Insert( eid,
-                                    static_cast<float>( EquivalenceSets[eid]->size() ) );
+            DuplicatesQueue.Insert( eid, static_cast<float>( EquivalenceSets[eid]->size() ) );
         }
 
         // greedy merge

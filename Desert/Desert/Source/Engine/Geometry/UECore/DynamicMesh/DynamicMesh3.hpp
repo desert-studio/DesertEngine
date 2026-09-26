@@ -126,9 +126,9 @@ namespace Desert::Geometry
          * in the mesh, and was ignored because we do not support duplicate triangles */
         constexpr static int DuplicateTriangleID = -3;
 
-        const static glm::dvec3   InvalidVertex;
-        constexpr static Index3i  InvalidTriangle{ InvalidID, InvalidID, InvalidID };
-        constexpr static Index2i  InvalidEdge{ InvalidID, InvalidID };
+        const static glm::dvec3  InvalidVertex;
+        constexpr static Index3i InvalidTriangle{ InvalidID, InvalidID, InvalidID };
+        constexpr static Index2i InvalidEdge{ InvalidID, InvalidID };
 
     protected:
         /** List of vertex positions */
@@ -242,10 +242,14 @@ namespace Desert::Geometry
 
         /** Copy/Move construction */
         DynamicMesh3( const DynamicMesh3& CopyMesh );
+        // Not noexcept: ChangeStamp::Set locks a std::mutex, which may throw (DynamicMesh3.cpp).
+        // NOLINTNEXTLINE(*-noexcept-move-*)
         DynamicMesh3( DynamicMesh3&& MoveMesh );
 
         /** Copy and move assignment */
         DynamicMesh3& operator=( const DynamicMesh3& CopyMesh );
+        // Not noexcept either, for the same reason as the move constructor.
+        // NOLINTNEXTLINE(*-noexcept-move-*)
         DynamicMesh3& operator=( DynamicMesh3&& MoveMesh );
 
         /** Destructor */
@@ -999,8 +1003,8 @@ namespace Desert::Geometry
             if ( m_TriangleGroups.has_value() )
             {
                 assert( IsTriangle( tid ) );
-                ( *m_TriangleGroups )[tid]    = group_id;
-                m_GroupIDCounter              = std::max( m_GroupIDCounter, group_id + 1 );
+                ( *m_TriangleGroups )[tid] = group_id;
+                m_GroupIDCounter           = std::max( m_GroupIDCounter, group_id + 1 );
             }
         }
 

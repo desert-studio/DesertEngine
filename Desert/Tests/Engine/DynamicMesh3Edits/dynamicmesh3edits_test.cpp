@@ -163,8 +163,8 @@ TEST( DynamicMesh3Edits, SplitInteriorEdgeKeepsEulerAndNamesTheNewElements )
         const int      OldMaxT = Mesh.MaxTriangleID();
         const int      OldMaxE = Mesh.MaxEdgeID();
         const int      EID = 0;
-        const Index2i  AB  = Mesh.GetEdgeV( EID );
-        const Index2i  OV  = Mesh.GetEdgeOpposingV( EID );
+        const Index2i  AB      = Mesh.GetEdgeV( EID );
+        const Index2i  OV      = Mesh.GetEdgeOpposingV( EID );
 
         DynamicMesh3::EdgeSplitInfo Info;
         ASSERT_EQ( Mesh.SplitEdge( EID, Info, 0.25 ), MeshResult::Ok );
@@ -465,7 +465,7 @@ TEST( DynamicMesh3Edits, PokeSplitsOneTriangleIntoThree )
         const int        OldMaxV = Mesh.MaxVertexID();
         const int        OldMaxT = Mesh.MaxTriangleID();
         const int       TID = 1;
-        const Index3i    Tri = Mesh.GetTriangle( TID );
+        const Index3i    Tri     = Mesh.GetTriangle( TID );
         const glm::dvec3 Centroid =
              ( Mesh.GetVertex( Tri.A ) + Mesh.GetVertex( Tri.B ) + Mesh.GetVertex( Tri.C ) ) / 3.0;
 
