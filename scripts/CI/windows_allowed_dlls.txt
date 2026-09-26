@@ -1,0 +1,21 @@
+# DLLs the packaged Windows game (Runtime.exe) may import — read by scripts/CI/CheckWindowsDlls.sh.
+#
+# THE RULE FOR BEING ON THIS LIST: the DLL is present on every supported Windows install (it ships in
+# System32 with the OS) or is installed by the GPU driver the game needs anyway. Anything the player
+# would have to install separately — above all the Visual C++ Redistributable (VCRUNTIME*, MSVCP*,
+# CONCRT*, VCOMP*) and the UCRT redistributable (ucrtbase*, api-ms-win-crt-*) — is NOT allowed: the
+# workspace links the CRT statically on Windows (BuildScripts/PlatformWindows.lua) so the game starts
+# on a machine that never ran a redistributable installer.
+#
+# One DLL per line, case-insensitive, then `#` and the reason. A new entry names the code that
+# imports it; "the check went red" is not a reason.
+
+KERNEL32.dll   # the Win32 base; every executable imports it (and the static CRT sits on it)
+USER32.dll     # GLFW's win32 backend: windows, messages, input (ThirdParty/GLFW/src/win32_*.c)
+GDI32.dll      # GLFW's win32 backend: pixel formats, device contexts
+SHELL32.dll    # GLFW's win32 backend: DragAcceptFiles / DragQueryFileW for file drops
+dwmapi.dll     # GLFW links Dwmapi.lib (BuildScripts/ThirdParty/GLFW.lua): composition / transparency
+WS2_32.dll     # Optick's capture server socket (#pragma comment(lib, "ws2_32.lib") in optick_server.cpp)
+DbgHelp.dll    # Optick's symbol resolver (#pragma comment(lib, "DbgHelp.Lib") in optick_core.win.h)
+PSAPI.DLL      # process memory readout (#pragma comment(lib, "psapi.lib") in Common/Utilities/ProcessMemory.cpp)
+vulkan-1.dll   # the Vulkan loader: installed by every Vulkan-capable GPU driver, never shipped by a game
