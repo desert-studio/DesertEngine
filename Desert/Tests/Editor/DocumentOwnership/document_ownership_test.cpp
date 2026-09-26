@@ -848,7 +848,7 @@ TEST( DocumentViewLease, ReleasingTheViewOfAHiddenDocumentDoesNotCloseIt )
     const ViewResources viewport( "main viewport" ); // held for the whole session
 
     EditorDocuments well;
-    auto&           hidden = static_cast<FakeDocument&>(
+    auto&           hidden = dynamic_cast<FakeDocument&>(
          *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), true ) ) );
     well.Add( MakeDocument( DocumentTitle( "B", Asset( 12 ) ), Asset( 12 ), true ) );
 
@@ -878,7 +878,7 @@ TEST( DocumentViewLease, ReleasingTwiceIsNotAnError )
     // The sweep runs every frame while a document stays hidden. A second release must not end a view twice
     // or fail — the document holds nothing by then.
     EditorDocuments well;
-    auto&           hidden = static_cast<FakeDocument&>(
+    auto&           hidden = dynamic_cast<FakeDocument&>(
          *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), true ) ) );
 
     EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u );

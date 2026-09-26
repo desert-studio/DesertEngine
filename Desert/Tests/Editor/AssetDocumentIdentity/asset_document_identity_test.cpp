@@ -411,7 +411,7 @@ TEST( PendingViewBytes, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
     std::vector<std::unique_ptr<IPanel>> panels;
     panels.push_back( std::make_unique<FakeDocument>( "Silent", Asset( 901 ) ) );
 
-    EXPECT_TRUE( static_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsView() );
+    EXPECT_TRUE( dynamic_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsView() );
     EXPECT_EQ( PendingViewBytes( panels ), Desert::Editor::ForecastPreviewViewBytes( 0, 0 ) );
 }
 
@@ -549,13 +549,13 @@ TEST( PendingViewBytes, AnUndrawnClaimantCountsItsForecastAndNothingElseDoes )
     cpu->m_ClaimsSlot = false; // drawn on the CPU: no view is ever coming
     panels.push_back( std::move( cpu ) );
 
-    EXPECT_EQ( static_cast<const ISubjectDocument*>( panels.front().get() )->ViewForecastBytes(), forecast );
+    EXPECT_EQ( dynamic_cast<const ISubjectDocument*>( panels.front().get() )->ViewForecastBytes(), forecast );
     EXPECT_EQ( Desert::Editor::PendingViewBytes( panels ), forecast );
 }
 
 TEST( AdmitDocumentView, TheNewForecastPlusPendingDemandMustFitWhatIsFree )
 {
-    FakeDocument   incoming( "Incoming", Asset( 211 ) );
+    const FakeDocument incoming( "Incoming", Asset( 211 ) );
     const uint64_t forecast = incoming.ViewForecastBytes();
     const uint64_t pending  = 3 * forecast;
     const uint64_t usage    = 100ull * 1024 * 1024;

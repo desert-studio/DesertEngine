@@ -30,6 +30,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -107,39 +108,46 @@ namespace
         aiVector3D Min{ 1e30f, 1e30f, 1e30f };
         aiVector3D Max{ -1e30f, -1e30f, -1e30f };
 
-        float Height() const
+        [[nodiscard]] float Height() const
         {
             return Max.y - Min.y;
         }
-        float Width() const
+        [[nodiscard]] float Width() const
         {
             return Max.x - Min.x;
         }
-        float Depth() const
+        [[nodiscard]] float Depth() const
         {
             return Max.z - Min.z;
         }
     };
 
-    void AccumulateWorld( const aiScene& scene, const aiNode& node, const aiMatrix4x4& parent, WorldBox& box )
+    // An explicit stack walks the hierarchy: the node depth comes from the file, not from the code.
+    void AccumulateWorld( const aiScene& scene, const aiNode& root, const aiMatrix4x4& parent, WorldBox& box )
     {
-        const aiMatrix4x4 world = parent * node.mTransformation;
-        for ( unsigned i = 0; i < node.mNumMeshes; ++i )
+        std::vector<std::pair<const aiNode*, aiMatrix4x4>> pending{ { &root, parent } };
+        while ( !pending.empty() )
         {
-            const aiMesh& mesh = *scene.mMeshes[node.mMeshes[i]];
-            for ( unsigned v = 0; v < mesh.mNumVertices; ++v )
+            const auto [node, above] = pending.back();
+            pending.pop_back();
+            const aiMatrix4x4 world = above * node->mTransformation;
+            for ( unsigned i = 0; i < node->mNumMeshes; ++i )
             {
-                const aiVector3D p = world * mesh.mVertices[v];
-                box.Min.x          = std::min( box.Min.x, p.x );
-                box.Min.y          = std::min( box.Min.y, p.y );
-                box.Min.z          = std::min( box.Min.z, p.z );
-                box.Max.x          = std::max( box.Max.x, p.x );
-                box.Max.y          = std::max( box.Max.y, p.y );
-                box.Max.z          = std::max( box.Max.z, p.z );
+                const aiMesh& mesh = *scene.mMeshes[node->mMeshes[i]];
+                for ( unsigned v = 0; v < mesh.mNumVertices; ++v )
+                {
+                    const aiVector3D p = world * mesh.mVertices[v];
+                    box.Min.x          = std::min( box.Min.x, p.x );
+                    box.Min.y          = std::min( box.Min.y, p.y );
+                    box.Min.z          = std::min( box.Min.z, p.z );
+                    box.Max.x          = std::max( box.Max.x, p.x );
+                    box.Max.y          = std::max( box.Max.y, p.y );
+                    box.Max.z          = std::max( box.Max.z, p.z );
+                }
             }
+            for ( unsigned i = 0; i < node->mNumChildren; ++i )
+                pending.emplace_back( node->mChildren[i], world );
         }
-        for ( unsigned i = 0; i < node.mNumChildren; ++i )
-            AccumulateWorld( scene, *node.mChildren[i], world, box );
     }
 
     // Returns the world-space box in CENTIMETRES, and reports through `source` how the unit was decided,

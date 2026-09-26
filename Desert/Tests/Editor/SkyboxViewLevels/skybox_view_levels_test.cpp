@@ -35,19 +35,31 @@ TEST( SkyboxViewLevels, TheListIsRadianceThenTheChainThenDiffuse )
     ASSERT_EQ( SV::LevelCount( kBakedMips ), 10 );
 
     const auto first = SV::ResolveLevel( 0, kBakedMips );
-    ASSERT_TRUE( first.has_value() );
+    if ( !first.has_value() )
+    {
+        ADD_FAILURE() << "entry 0 is refused";
+        return;
+    }
     EXPECT_EQ( *first, ( SV::Level{ SV::Cube::Radiance, 0.0f } ) );
 
     for ( int mip = 1; mip < static_cast<int>( kBakedMips ); ++mip )
     {
         const auto level = SV::ResolveLevel( mip, kBakedMips );
-        ASSERT_TRUE( level.has_value() ) << mip;
+        if ( !level.has_value() )
+        {
+            ADD_FAILURE() << "entry " << mip << " is refused";
+            return;
+        }
         EXPECT_EQ( level->Source, SV::Cube::Prefiltered ) << mip;
         EXPECT_FLOAT_EQ( level->Lod, static_cast<float>( mip ) ) << "entry k reads prefiltered mip k";
     }
 
     const auto last = SV::ResolveLevel( SV::DiffuseLevel( kBakedMips ), kBakedMips );
-    ASSERT_TRUE( last.has_value() );
+    if ( !last.has_value() )
+    {
+        ADD_FAILURE() << "the diffuse entry is refused";
+        return;
+    }
     EXPECT_EQ( *last, ( SV::Level{ SV::Cube::Irradiance, 0.0f } ) );
 }
 
@@ -60,8 +72,15 @@ TEST( SkyboxViewLevels, AnIndexOutsideTheListIsRefusedNotClamped )
 TEST( SkyboxViewLevels, WithoutAChainRadianceAndDiffuseAreStillListed )
 {
     ASSERT_EQ( SV::LevelCount( 0u ), 2 );
-    EXPECT_EQ( SV::ResolveLevel( 0, 0u )->Source, SV::Cube::Radiance );
-    EXPECT_EQ( SV::ResolveLevel( 1, 0u )->Source, SV::Cube::Irradiance );
+    const auto radiance = SV::ResolveLevel( 0, 0u );
+    const auto diffuse  = SV::ResolveLevel( 1, 0u );
+    if ( !radiance.has_value() || !diffuse.has_value() )
+    {
+        ADD_FAILURE() << "a chainless cube refuses radiance or diffuse";
+        return;
+    }
+    EXPECT_EQ( radiance->Source, SV::Cube::Radiance );
+    EXPECT_EQ( diffuse->Source, SV::Cube::Irradiance );
 }
 
 TEST( SkyboxViewLevels, MipRoughnessInvertsTheRuleLitSurfacesReadTheChainWith )
@@ -134,7 +153,7 @@ TEST( SkyboxViewLevels, EveryLevelIsAnActionAndTheDiffuseActionPicksIrradiance )
     SV::ViewState      state;
     int                levelActions = 0;
     for ( const auto& action : SV::ViewActions( kMips ) )
-        levelActions += action.Label.rfind( "Level: ", 0 ) == 0 ? 1 : 0;
+        levelActions += action.Label.starts_with( "Level: " ) ? 1 : 0;
     EXPECT_EQ( levelActions, SV::LevelCount( kMips ) );
 
     ASSERT_TRUE( RunViewAction( state, "Level: Mip 5", kMips ) );

@@ -910,8 +910,8 @@ namespace Desert::Core::Rules
         std::unordered_map<Common::UUID, std::size_t> byId;
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( records[record].id.has_value() && !records[record].id->IsNull() )
-                byId.emplace( *records[record].id, record );
+            if ( const auto& id = records[record].id; id.has_value() && !id->IsNull() )
+                byId.emplace( *id, record );
         }
 
         std::vector<UnregisteredReference> found;

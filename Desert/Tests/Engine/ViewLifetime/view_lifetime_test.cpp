@@ -105,8 +105,8 @@ TEST_F( ViewLifetime, AViewPastTheOldSlotCeilingGetsCopiesOfItsOwn )
         views.push_back( Open( "view " + std::to_string( i ) ) );
     ASSERT_EQ( ViewResourceRegistry::LiveCount(), kOldSlotCeiling + 1 );
 
-    auto& mainCopy    = static_cast<NamedCopy&>( views.front()->Acquire( key, 0, factory ) );
-    auto& seventhCopy = static_cast<NamedCopy&>( views.back()->Acquire( key, 0, factory ) );
+    auto& mainCopy    = dynamic_cast<NamedCopy&>( views.front()->Acquire( key, 0, factory ) );
+    auto& seventhCopy = dynamic_cast<NamedCopy&>( views.back()->Acquire( key, 0, factory ) );
 
     EXPECT_NE( &mainCopy, &seventhCopy ) << "the seventh view shares the main viewport's copy";
     EXPECT_EQ( mainCopy.Owner, "view 0" );
@@ -128,7 +128,7 @@ TEST_F( ViewLifetime, EveryLiveViewHoldsItsOwnCopyAndNoneSeesAnother )
 
     for ( const View& view : views )
     {
-        const auto* copy = static_cast<const NamedCopy*>( view->Find( key, 0 ) );
+        const auto* copy = dynamic_cast<const NamedCopy*>( view->Find( key, 0 ) );
         ASSERT_NE( copy, nullptr );
         EXPECT_EQ( copy->Owner, view->GetName() ) << "a view reads another view's copy";
     }

@@ -20,6 +20,7 @@
 #include <set>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace Desert::Core::WorldCells
 {
@@ -224,47 +225,57 @@ namespace Desert::Core::WorldCells
 
             // Every value of a payload, by its SHAPE: the closure does not know the component's fields, so a value
             // of any kind is a legitimate answer and none is an issue — what is not a reference names nothing.
-            void Value( const Common::Json::Node& value, std::set<std::string>& keys )
+            // An explicit stack walks the nesting: the payload's depth comes from the file, not from the code.
+            void Value( const Common::Json::Node& root, std::set<std::string>& keys )
             {
-                switch ( value.GetKind() )
+                std::vector<Common::Json::Node> pending{ root };
+                while ( !pending.empty() )
                 {
-                    case Common::Json::Kind::Integer:
-                        if ( const auto whole = value.AsInteger() )
-                            Add( KeyOfHandle( static_cast<std::uint64_t>( whole.GetValue() ) ), keys );
-                        return;
-                    case Common::Json::Kind::String:
+                    const Common::Json::Node value = std::move( pending.back() );
+                    pending.pop_back();
+                    switch ( value.GetKind() )
                     {
-                        const auto         read = value.AsString();
-                        const std::string& text = read.GetValue();
-                        // A material slot names its material by header GUID text (SCNE 27). The row is found by
-                        // its own Guid: a registry read by LoadFrom has Identity only for assets that were parsed,
-                        // so the handle the GUID folds to finds nothing for a material the cook never opened.
-                        if ( const auto guid = CC::AssetGuidFromText( text ); guid && !guid.GetValue().IsNull() )
-                        {
-                            Add( KeyOfGuid( guid.GetValue() ), keys );
-                            return;
-                        }
-                        if ( const auto asHandle = value.AsUuid() )
-                        {
-                            Add( KeyOfHandle( static_cast<std::uint64_t>( asHandle.GetValue() ) ), keys );
-                            return;
-                        }
-                        Add( KeyOfPath( text ), keys );
-                        return;
+                        case Common::Json::Kind::Integer:
+                            if ( const auto whole = value.AsInteger() )
+                                Add( KeyOfHandle( static_cast<std::uint64_t>( whole.GetValue() ) ), keys );
+                            break;
+                        case Common::Json::Kind::String:
+                            AddString( value, keys );
+                            break;
+                        case Common::Json::Kind::Object:
+                            value.ForEachMember( [&]( std::string_view, const Common::Json::Node& inner )
+                                                 { pending.push_back( inner ); } );
+                            break;
+                        case Common::Json::Kind::Array:
+                            value.ForEachElement( [&]( std::size_t, const Common::Json::Node& inner )
+                                                  { pending.push_back( inner ); } );
+                            break;
+                        case Common::Json::Kind::Null:
+                        case Common::Json::Kind::Bool:
+                        case Common::Json::Kind::Real:
+                            break;
+                    }
                 }
-                case Common::Json::Kind::Object:
-                    value.ForEachMember( [&]( std::string_view, const Common::Json::Node& inner )
-                                         { Value( inner, keys ); } );
-                    return;
-                case Common::Json::Kind::Array:
-                    value.ForEachElement( [&]( std::size_t, const Common::Json::Node& inner )
-                                          { Value( inner, keys ); } );
-                    return;
-                case Common::Json::Kind::Null:
-                case Common::Json::Kind::Bool:
-                case Common::Json::Kind::Real:
+            }
+
+            void AddString( const Common::Json::Node& value, std::set<std::string>& keys )
+            {
+                const auto         read = value.AsString();
+                const std::string& text = read.GetValue();
+                // A material slot names its material by header GUID text (SCNE 27). The row is found by its own
+                // Guid: a registry read by LoadFrom has Identity only for assets that were parsed, so the handle
+                // the GUID folds to finds nothing for a material the cook never opened.
+                if ( const auto guid = CC::AssetGuidFromText( text ); guid && !guid.GetValue().IsNull() )
+                {
+                    Add( KeyOfGuid( guid.GetValue() ), keys );
                     return;
                 }
+                if ( const auto asHandle = value.AsUuid() )
+                {
+                    Add( KeyOfHandle( static_cast<std::uint64_t>( asHandle.GetValue() ) ), keys );
+                    return;
+                }
+                Add( KeyOfPath( text ), keys );
             }
 
             const std::vector<std::string>& DependenciesOf( const std::string& key )

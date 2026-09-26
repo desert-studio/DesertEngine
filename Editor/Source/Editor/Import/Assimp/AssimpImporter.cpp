@@ -981,7 +981,7 @@ namespace Desert::Editor
 
         scene = importer.ApplyPostProcessing( aiProcess_GlobalScale );
 
-        if ( !scene || !scene->mRootNode )
+        if ( scene == nullptr || scene->mRootNode == nullptr )
         {
             throw std::runtime_error( "Failed to scale to centimetres on import: " + path.string() );
         }

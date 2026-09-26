@@ -932,11 +932,11 @@ TEST( WorldCells, ACookedWorldIsReadThroughAMountedPak )
 TEST( WorldCells, AWrongTypedOrUnknownIndexMemberIsRefusedByItsPath )
 {
     const std::string text = Common::Json::Write( IndexOf( FilesOf( Cook( World() ) ) ) );
-    const std::size_t at   = text.find( "\"LevelCount\":" );
+    const std::size_t at   = text.find( R"("LevelCount":)" );
     ASSERT_NE( at, std::string::npos ) << text;
     const std::size_t end       = text.find( ',', at );
     std::string       wrongType = text;
-    wrongType.replace( at, end - at, "\"LevelCount\":\"three\"" );
+    wrongType.replace( at, end - at, R"("LevelCount":"three")" );
     const auto wrong = Common::Json::Read<Cells::WorldIndex>( wrongType );
     ASSERT_FALSE( wrong.IsSuccess() );
     EXPECT_NE( wrong.GetError().find( "LevelCount" ), std::string::npos ) << wrong.GetError();

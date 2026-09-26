@@ -443,9 +443,11 @@ namespace Desert::Graphic
         {
             static std::atomic<uint32_t> serial{ 0 };
             const uint32_t               number = ++serial;
-            const char*                  kind   = profile == kPreviewViewProfile     ? "preview"
-                                                  : profile == kThumbnailViewProfile ? "thumbnail"
-                                                                                     : "scene view";
+            const char*                  kind   = "scene view";
+            if ( profile == kPreviewViewProfile )
+                kind = "preview";
+            else if ( profile == kThumbnailViewProfile )
+                kind = "thumbnail";
             return std::string( kind ) + " #" + std::to_string( number );
         }
 
