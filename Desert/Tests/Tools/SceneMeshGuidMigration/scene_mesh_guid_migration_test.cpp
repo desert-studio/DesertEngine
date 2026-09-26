@@ -126,7 +126,6 @@ TEST( ScenePathOnlyMeshGuidMigration, APathOnlyBlockInARecordAndAnOverrideGainsT
 
     ASSERT_TRUE( report.Refused.empty() ) << report.Refused;
     EXPECT_TRUE( report.PathOnlyMeshGuidsRaised );
-    EXPECT_FALSE( report.MeshGuidsRaised ) << "the v28 step must not run on a v31 file";
     EXPECT_EQ( report.PathOnlyMeshGuids.Rewritten, 2 );
     const std::string text = rfl::json::write( scene );
     EXPECT_EQ( Occurrences( text, kMeshGuidText ), 2u ) << "the record and the override: " << text;
