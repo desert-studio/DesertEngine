@@ -1540,6 +1540,12 @@ namespace
         return CopyCorpus( "Editor/Cooked/Meshes/IKProbe_Swing.anim", file );
     }
 
+    // gtest names the kind in a failure instead of dumping the struct's bytes.
+    [[maybe_unused]] void PrintTo( const OldPathKind& kind, std::ostream* out )
+    {
+        *out << kind.Name;
+    }
+
     std::string OldPathKindName( const testing::TestParamInfo<OldPathKind>& info )
     {
         return info.param.Name;
