@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "02483c0cb39060e07831614ff1a857bf",
         "Versions": {
-            "SCNE": 30,
+            "SCNE": 31,
             "UNIT": 1
         },
         "Dependencies": []
@@ -54,7 +54,10 @@
                 "Primitive": "Sphere"
             },
             "Material": {
-                "ShaderName": "MatProbe",
+                "Shader": {
+                    "Guid": "40293d62f22f46a49912f44c6c024d06",
+                    "Path": "engine:Shaders/Programs/Graph/MatProbe.shader"
+                },
                 "Params": [
                     {
                         "Name": "Blend",

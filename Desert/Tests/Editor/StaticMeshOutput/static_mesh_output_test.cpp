@@ -37,7 +37,7 @@ namespace
 {
     // The writer takes the component's core; the fixtures are built on EditMesh and cross through the saved
     // form (what EditMeshBridge does, without linking the bridge's ECS half into a GPU-free suite).
-    std::shared_ptr<const Geometry::FDynamicMesh3> Dyn( Geometry::EditMesh mesh )
+    std::shared_ptr<const Geometry::FDynamicMesh3> Dyn( const Geometry::EditMesh& mesh )
     {
         auto converted = Geometry::DynamicMeshFromSerialized( Geometry::ToSerialized( mesh ), "StaticMeshOutput" );
         EXPECT_TRUE( converted.IsSuccess() ) << ( converted.IsSuccess() ? "" : converted.GetError() );
