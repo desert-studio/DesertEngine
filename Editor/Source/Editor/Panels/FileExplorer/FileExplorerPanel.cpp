@@ -1586,8 +1586,8 @@ namespace Desert::Editor
                     // written since M10 moved a mesh's thumbnail onto its cooked `.stmesh`. The ghost has
                     // been silently falling back to the type icon for every mesh ever since, which is
                     // exactly the kind of "it still works, just worse" a re-read site decays into.
-                    img = m_Thumbnails->Get( ThumbnailKey::DiskPath(
-                         CookPaths::CookedMesh( assetPath, ".stmesh" ).generic_string() ) );
+                    img = m_Thumbnails->Get(
+                         ThumbnailKey::DiskPath( CookPaths::MeshAsset( assetPath ).generic_string() ) );
                 }
             }
 
@@ -1706,10 +1706,10 @@ namespace Desert::Editor
         // a stale picture called fresh, and touching an FBX without re-cooking threw away a picture that
         // still matched the geometry exactly.
         //
-        // The mapping is a pure path computation (CookPaths::CookedMesh — fs::relative, no stat), so
+        // The mapping is a pure path computation (CookPaths::MeshAsset — an extension swap, no stat), so
         // hoisting it above the freshness check costs nothing; the `exists()` gate that decides "not cooked
         // -> icon" stays where it was, below, because that one IS a filesystem question.
-        const std::string cookedStr = CookPaths::CookedMesh( entry->AssetPath, ".stmesh" ).generic_string();
+        const std::string cookedStr = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
 
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 

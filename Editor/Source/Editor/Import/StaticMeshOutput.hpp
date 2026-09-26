@@ -1,12 +1,12 @@
 #pragma once
 
-#include <Editor/Import/CookedJsonWrite.hpp>
-
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
-#include <Engine/Assets/Serialization/MeshBinary.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
+#include <Engine/Geometry/DynamicMeshSerialization.hpp>
 
 #include <cctype>
 #include <filesystem>
@@ -19,11 +19,14 @@ namespace Desert::Editor
     // A MODELING RESULT WRITTEN AS A STATIC MESH ASSET (UE: "Output: New Static Mesh", the modeling mode's
     // default; UE::Modeling::CreateMeshObject with ECreateObjectTypeHint::StaticMesh).
     //
-    // WHERE THE FILE GOES. Under the cooked mesh root (`MESH_PATH_COOKED`), in a sub-folder the tool names.
-    // Not beside the scene and not in Assets/Meshes: `.stmesh` is registered, rebuilt and preloaded ONLY from
-    // that root (ContentKinds.hpp: StaticMesh -> MESH_PATH_COOKED), so a file anywhere else is a mesh the
-    // next "Rebuild Content" forgets and `AssetRegistryTool check` calls a stray row. The hand-authored probes
-    // (SkinProbe, StaticProbe) live under the same root for the same reason.
+    // WHAT THE FILE IS. The same source asset an import writes (MeshSourceAsset.hpp: the editable mesh, the slot
+    // table, the build settings), with no source file behind it - provenance `Recovered`, exactly as UE's
+    // modeling output is a UStaticMesh whose SourceModels carry a MeshDescription and no AssetImportData. The
+    // render form is derived from it by the loader through the DDC, like every other static mesh.
+    //
+    // WHERE THE FILE GOES. Under the mesh root (`MESH_PATH`, Assets/Meshes), in a sub-folder the tool names:
+    // static meshes are registered from the Assets tree (ContentKinds.hpp: StaticMesh -> ASSETS_PATH), and the
+    // cooked mesh root now holds skinned outputs only.
     //
     // A NAME IS NEVER OVERWRITTEN (UE: CreateUniqueAssetName). A taken name gets `_1`, `_2`, ... - an entity
     // elsewhere in the project may already draw the file that sits under the plain name.
@@ -53,7 +56,7 @@ namespace Desert::Editor
         return path;
     }
 
-    // The folder a tool's "Asset Folder" setting names: relative to the cooked mesh root, and refused when it
+    // The folder a tool's "Asset Folder" setting names: relative to the mesh root, and refused when it
     // would climb out of it (a rooted path or a `..` component) - a file outside the root is not content. Rooted,
     // not absolute: on Windows "/abs" and "C:abs" are not is_absolute() yet still leave the root when appended.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
@@ -63,31 +66,42 @@ namespace Desert::Editor
         if ( rel.is_absolute() || rel.has_root_directory() || rel.has_root_name() ||
              ( !rel.empty() && *rel.begin() == ".." ) )
             return Common::MakeFormattedError<std::filesystem::path>(
-                 "the asset folder '{}' is outside the cooked mesh folder; name a folder inside it", relative );
-        return Common::MakeSuccess( ( Common::Constants::Path::MESH_PATH_COOKED / rel ).lexically_normal() );
+                 "the asset folder '{}' is outside the mesh folder; name a folder inside it", relative );
+        return Common::MakeSuccess( ( Common::Constants::Path::MESH_PATH / rel ).lexically_normal() );
     }
 
-    // Encodes @p mesh (Geometry::DynamicMeshToMeshAssetData - polygroups included) and writes it as a NEW file in
-    // @p folder, registered in the content registry with its bounds, exactly as the importer's cook does.
-    // Returns the path written. Nothing is written when the mesh is refused.
+    // Writes @p mesh as a NEW static mesh source asset in @p folder, slot k naming @p slotMaterials[k], and
+    // enters it in the content registry (its box comes from the file's own header). Returns the path written.
+    // Nothing is written when the mesh is refused: the render encoding is tried first, so a mesh the loader
+    // could not derive (a colour layer, a second UV layer) never becomes a file that draws nothing.
     [[nodiscard]] inline Common::ResultStr<std::filesystem::path>
     WriteStaticMeshAsset( const Geometry::FDynamicMesh3&              mesh,
                           std::span<const Common::Content::AssetGuid> slotMaterials,
                           const std::filesystem::path& folder, std::string_view baseName )
     {
-        auto data = Geometry::DynamicMeshToMeshAssetData( mesh, slotMaterials );
-        if ( !data.IsSuccess() )
+        if ( auto render = Geometry::DynamicMeshToMeshAssetData( mesh, slotMaterials ); !render.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was not written as a static mesh: {}",
-                                                                      baseName, data.GetError() );
-        Assets::Serialization::MeshAssetData asset = data.ExtractValue();
-        asset.Guid = Common::Content::AssetGuid::Generate(); // a new file: a new identity
+                                                                      baseName, render.GetError() );
 
         const std::filesystem::path path = UniqueStaticMeshPath( folder, baseName );
-        if ( auto written = WriteCookedBytes( Assets::Serialization::EncodeMeshBinary( asset ), path,
-                                              Assets::Serialization::MeshDataBounds( asset ) );
-             !written.IsSuccess() )
+
+        Assets::MeshSourceAsset asset;
+        asset.Kind              = Common::Content::ContentKind::StaticMesh;
+        asset.Guid              = Common::Content::AssetGuid::Generate(); // a new file: a new identity
+        asset.Name              = path.stem().string();
+        asset.Import.Provenance = Assets::MeshSourceProvenance::Recovered;
+        asset.Source.Models.push_back( { Geometry::ToSerialized( mesh ) } );
+        asset.Source.MaterialSlots.reserve( slotMaterials.size() );
+        for ( std::size_t k = 0; k < slotMaterials.size(); ++k )
+            asset.Source.MaterialSlots.push_back( { "Slot" + std::to_string( k ), slotMaterials[k] } );
+
+        std::error_code ec;
+        std::filesystem::create_directories( folder, ec );
+        if ( auto written = Assets::WriteMeshSourceAssetFile( path, asset ); !written.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' could not be written: {}",
                                                                       path.generic_string(), written.GetError() );
+        // The file enters the registry the moment it exists (CookedJsonWrite.hpp says why).
+        Assets::ContentRegistry::NoteFile( path );
         return Common::MakeSuccess( path );
     }
 } // namespace Desert::Editor

@@ -15,14 +15,31 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
+        -- StaticMeshAsset loads its render form through the mesh DDC (AF4d), which reads the source asset.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
+        -- The editor's mesh builder derives the probe's render form on a DDC miss (list as in MeshDerivedData).
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMesh.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAttributes.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshConversion.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshAssetArrays.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshSerialization.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshNormals.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/EditMeshXformOperations.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshLOD.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Geometry/MeshSimplifier.cpp",
+        "%{wks.location}/Editor/Source/Editor/Import/MeshDeriver.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
+        "%{wks.location}/Editor/Source",
     }
     externalincludedirs {
+        deps.DesertSpecific.IncludeDir.meshoptimizer,
         "%{wks.location}/ThirdParty/entt/include/",
         "%{wks.location}/ThirdParty/reflect-cpp/include",
     }
@@ -49,7 +66,7 @@ project(test_name)
 
     -- Common: the filesystem helper the loader reads through, the logger, the Result type and UUID.
     -- Optick: Common's JobSystem registers its worker threads with the profiler.
-    links { "Common", "Optick" }
+    links { "Common", "Optick", "MeshOptimizer" }
 
     -- Common contains Objective-C (MacOSFileSystem's file dialog) and the asset loader reaches
     -- Common::Utils::FileSystem, so the ObjC runtime + AppKit have to link as well.

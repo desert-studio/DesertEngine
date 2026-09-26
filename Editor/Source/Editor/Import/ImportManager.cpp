@@ -12,8 +12,7 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
-#include "LODFold.hpp"
-#include "MeshDeriver.hpp"
+#include "ImportedMeshAsset.hpp"
 
 #include <Common/Core/Constants.hpp>
 
@@ -32,8 +31,8 @@ namespace Desert::Editor
     static std::filesystem::path BuildCookedPath( const std::filesystem::path& sourcePath,
                                                   const std::string&           extension )
     {
-        // Path formula is shared (CookPaths::CookedMesh); this wrapper also ensures the dir exists for writing.
-        const auto result = Editor::CookPaths::CookedMesh( sourcePath, extension );
+        // Path formula is shared (CookPaths::CookedSkinned); this wrapper also ensures the dir exists for writing.
+        const auto result = Editor::CookPaths::CookedSkinned( sourcePath, extension );
         std::filesystem::create_directories( result.parent_path() );
         return result;
     }
@@ -75,11 +74,12 @@ namespace Desert::Editor
         if ( !m_Importers.contains( ext ) )
             return;
 
-        // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when a cooked mesh output
-        // already exists and is up-to-date. A source produces either a static or a skinned mesh, so accept
-        // either. `force` (Rebuild Cooked Assets) bypasses this.
-        if ( !force && ( CookedFresh( path, BuildCookedPath( path, ".stmesh" ) ) ||
-                         CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
+        // Skip the expensive Assimp re-parse (+ its texture/material re-cook) when the mesh output is
+        // current. A source produces either a static mesh asset beside it (fresh by its IMPT content hash) or
+        // a skinned cook under Cooked/ (fresh by mtime until AF4f moves it), so accept either. `force`
+        // (Rebuild Cooked Assets) bypasses this.
+        if ( !force &&
+             ( ImportedMeshAssetIsFresh( path ) || CookedFresh( path, BuildCookedPath( path, ".skmesh" ) ) ) )
             return;
 
         auto result = m_Importers[ext]->Import( path, *this );
@@ -173,8 +173,20 @@ namespace Desert::Editor
         for ( const auto& material : resolved.Materials )
             record( SerializeMaterialAsset( material, sourcePath ) );
 
-        if ( resolved.Mesh )
+        if ( resolved.Mesh && resolved.Mesh->IsSkinned )
             record( SerializeMeshAsset( resolved.Mesh.value(), sourcePath ) );
+        else if ( resolved.Mesh )
+        {
+            // The static mesh is a source asset beside its file (ImportedMeshAsset.hpp); its slots are named
+            // from the materials resolved above, whose GUIDs the submeshes now carry.
+            std::vector<Assets::MeshMaterialSlot> named;
+            named.reserve( resolved.Materials.size() );
+            for ( const auto& material : resolved.Materials )
+                named.push_back( { material.Name, material.Guid } );
+            if ( const auto written = WriteImportedMeshAsset( resolved.Mesh.value(), named, sourcePath );
+                 !written )
+                record( Common::MakeError<bool>( written.GetError() ) );
+        }
 
         if ( resolved.Skeleton )
             record( SerializeSkeletonAsset( resolved.Skeleton.value(), sourcePath ) );
@@ -191,20 +203,14 @@ namespace Desert::Editor
     ImportManager::SerializeMeshAsset( const Desert::Assets::Serialization::MeshAssetData& dataIn,
                                        const std::filesystem::path&                        sourcePath )
     {
-        // Mutable copy so we can bake the LOD chain into it before writing.
-        Desert::Assets::Serialization::MeshAssetData data = dataIn;
-        FoldExternalLODMeshes( data ); // author "<mesh>_LOD<n>" siblings -> SubmeshData.LODs
-        BakeStaticMeshLODs( data );    // generate LODs for submeshes that still have none
-
-        std::filesystem::path cookedPath;
-        if ( data.IsSkinned )
-        {
-            cookedPath = BuildCookedPath( sourcePath, ".skmesh" );
-        }
-        else
-        {
-            cookedPath = BuildCookedPath( sourcePath, ".stmesh" );
-        }
+        // SKINNED ONLY: a static mesh is written by WriteImportedMeshAsset beside its source, and its LOD
+        // chain is derived on load (BuildMeshPlatformData). Skinned meshes never had LODs folded or baked.
+        if ( !dataIn.IsSkinned )
+            return Common::MakeFormattedError<bool>(
+                 "'{}': SerializeMeshAsset writes only skinned meshes; a static mesh is a MeshSourceAsset",
+                 sourcePath.string() );
+        Desert::Assets::Serialization::MeshAssetData data       = dataIn;
+        const std::filesystem::path                  cookedPath = BuildCookedPath( sourcePath, ".skmesh" );
 
         // THE ONE PLACE A COOKED MESH IS WRITTEN, and since B11 it writes the binary container rather
         // than JSON. The sibling cooked kinds beside this one (.skeleton, .anim, .demat, .tex metadata)
