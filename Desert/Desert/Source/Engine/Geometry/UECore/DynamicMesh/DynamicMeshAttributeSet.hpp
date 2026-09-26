@@ -366,8 +366,8 @@ namespace Desert::Geometry
 
         // These functions are called by the DynamicMesh3 to update the various
         // attributes when the parent mesh topology has been modified.
-        // TODO: would it be better to register all the overlays and attributes with the base set and not overload
-        // these?  maybe!
+        // TODO(danya100kg): would it be better to register all the overlays and attributes with the base set and
+        // not overload these?  maybe!
         void OnNewTriangle( int TriangleID, bool bInserted ) override;
         void OnNewVertex( int VertexID, bool bInserted ) override;
         void OnRemoveTriangle( int TriangleID ) override;
@@ -389,8 +389,7 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        [[nodiscard]] virtual bool CheckValidity( bool                  bAllowNonmanifold,
-                                                  ValidityCheckFailMode FailMode ) const override;
+        [[nodiscard]] bool CheckValidity( bool bAllowNonmanifold, ValidityCheckFailMode FailMode ) const override;
 
     private:
         void Append( const DynamicMeshAttributeSet& ToAppend, const DynamicMesh3::AppendInfo& AppendInfo );

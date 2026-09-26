@@ -4,7 +4,7 @@
 // TMeshQueries::GetVertexWeightsOnTriangle (MeshQueries.h:831-843) are ported below as file-local helpers.
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
 
-#include <math.h>
+#include <cmath>
 
 #include <Common/Core/Core.hpp>
 #include <cstddef>
@@ -101,7 +101,7 @@ void MeshNormals::CopyToVertexNormals( DynamicMesh3* SetMesh, bool bInvert ) con
     }
 
     const float sign = ( bInvert ) ? -1.0f : 1.0f;
-    int const N    = std::min( static_cast<int32_t>( m_Normals.size() ), SetMesh->MaxVertexID() );
+    int const   N    = std::min( static_cast<int32_t>( m_Normals.size() ), SetMesh->MaxVertexID() );
     for ( int vi = 0; vi < N; ++vi )
     {
         if ( m_Mesh->IsVertex( vi ) && SetMesh->IsVertex( vi ) )
@@ -508,7 +508,7 @@ void MeshNormals::QuickComputeVertexNormalsForTriangles( DynamicMesh3& Mesh, con
 
     std::vector<int32_t> VertexIDs;
     TriangleToVertexIDs( &Mesh, Triangles, VertexIDs );
-    for ( int vid : VertexIDs )
+    for ( const int vid : VertexIDs )
     {
         const glm::dvec3 VtxNormal = ComputeVertexNormal( Mesh, vid, bWeightByArea, bWeightByAngle );
         Mesh.SetVertexNormal( vid, glm::vec3( VtxNormal ) );
@@ -558,7 +558,7 @@ bool MeshNormals::QuickRecomputeOverlayNormals( DynamicMesh3& Mesh, bool bInvert
 
             glm::dvec3 TriNormal{};
             double     TriArea = NAN;
-            TriNormal = VectorUtil::NormalArea( V0, V1, V2, TriArea );
+            TriNormal          = VectorUtil::NormalArea( V0, V1, V2, TriArea );
             glm::vec3 TriNormalWeights =
                  glm::vec3( GetVertexWeightsOnTriangleImpl( Mesh, TID, TriArea, bWeightByArea, bWeightByAngle ) );
             const auto TriNormalf = glm::vec3( TriNormal );
@@ -622,7 +622,7 @@ bool MeshNormals::RecomputeOverlayElementNormals( DynamicMesh3& Mesh, const std:
     if ( Mesh.HasAttributes() && Mesh.Attributes()->PrimaryNormals() != nullptr )
     {
         DynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
-        for ( int ElementID : ElementIDs )
+        for ( const int ElementID : ElementIDs )
         {
             if ( NormalOverlay->IsElement( ElementID ) )
             {
@@ -715,9 +715,9 @@ glm::dvec3 MeshNormals::ComputeOverlayNormal( const DynamicMesh3&             Me
 void MeshNormals::InitializeOverlayToPerVertexNormals( DynamicMeshNormalOverlay* NormalOverlay,
                                                        bool                      bUseMeshVertexNormalsIfAvailable )
 {
-    const DynamicMesh3*  Mesh            = NormalOverlay->GetParentMesh();
-    const bool           bUseMeshNormals = bUseMeshVertexNormalsIfAvailable && Mesh->HasVertexNormals();
-    MeshNormals          Normals( Mesh );
+    const DynamicMesh3* Mesh            = NormalOverlay->GetParentMesh();
+    const bool          bUseMeshNormals = bUseMeshVertexNormalsIfAvailable && Mesh->HasVertexNormals();
+    MeshNormals         Normals( Mesh );
     if ( !bUseMeshNormals )
     {
         Normals.ComputeVertexNormals();
@@ -753,9 +753,9 @@ void MeshNormals::InitializeOverlayToPerTriangleNormals( DynamicMeshNormalOverla
     for ( int32_t const tid : Mesh->TriangleIndicesItr() )
     {
         const glm::dvec3 Normal = Mesh->GetTriNormal( tid );
-        int32_t const e0     = NormalOverlay->AppendElement( glm::vec3( Normal ) );
-        int32_t const e1     = NormalOverlay->AppendElement( glm::vec3( Normal ) );
-        int32_t const e2     = NormalOverlay->AppendElement( glm::vec3( Normal ) );
+        int32_t const    e0     = NormalOverlay->AppendElement( glm::vec3( Normal ) );
+        int32_t const    e1     = NormalOverlay->AppendElement( glm::vec3( Normal ) );
+        int32_t const    e2     = NormalOverlay->AppendElement( glm::vec3( Normal ) );
         NormalOverlay->SetTriangle( tid, Index3i( e0, e1, e2 ) );
     }
 }
@@ -804,8 +804,8 @@ void MeshNormals::InitializeOverlayRegionToPerVertexNormals( DynamicMeshNormalOv
     std::unordered_set<int32_t> TriangleSet( Triangles.begin(), Triangles.end() );
     std::vector<int32_t>        Vertices;
     TriangleToVertexIDs( Mesh, Triangles, Vertices );
-    auto          TriangleSetFunc = [&]( int32_t tid ) { return TriangleSet.contains( tid ); };
-    const auto                           NumVertices     = static_cast<int32_t>( Vertices.size() );
+    auto       TriangleSetFunc = [&]( int32_t tid ) { return TriangleSet.contains( tid ); };
+    const auto NumVertices     = static_cast<int32_t>( Vertices.size() );
     std::unordered_map<int32_t, int32_t> TriangleMap;
     TriangleMap.reserve( NumVertices );
 

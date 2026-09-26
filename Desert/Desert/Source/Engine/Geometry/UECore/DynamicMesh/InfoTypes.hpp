@@ -64,9 +64,7 @@ namespace Desert::Geometry
         /** The index of the mesh Triangle */
         unsigned TriangleID : 30 { 0 };
 
-        MeshTriEdgeID()
-        {
-        }
+        MeshTriEdgeID() = default;
 
         /**
          * Construct a MeshTriEdgeID for the given TriangleID and Edge Index in range
@@ -83,10 +81,9 @@ namespace Desert::Geometry
         /**
          * Decode an encoded MeshTriEdgeID from a packed uint32_t created by the Encoded() function
          */
-        explicit MeshTriEdgeID( uint32_t EncodedEdgeKey ) : TriangleID( EncodedEdgeKey & 0x8FFFFFFF )
+        explicit MeshTriEdgeID( uint32_t EncodedEdgeKey )
+             : TriEdgeIndex( ( EncodedEdgeKey & 0xC0000000 ) >> 30 ), TriangleID( EncodedEdgeKey & 0x8FFFFFFF )
         {
-
-            TriEdgeIndex = ( EncodedEdgeKey & 0xC0000000 ) >> 30;
         }
 
         /**

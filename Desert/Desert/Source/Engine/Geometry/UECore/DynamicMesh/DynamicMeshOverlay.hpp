@@ -187,7 +187,7 @@ namespace Desert::Geometry
                 SetElement( iCurE, Data );
                 m_ParentVertices[iCurE] = m_ParentVertices[iLastE];
                 ERef[iCurE]           = ERef[iLastE];
-                ERef[iLastE]          = RefCountVector::INVALID_REF_COUNT;
+                ERef[iLastE]            = RefCountVector::INVALID_REF_COUNT;
                 MapE[iLastE]          = iCurE;
 
                 // move cur forward one, last back one, and  then search for next valid

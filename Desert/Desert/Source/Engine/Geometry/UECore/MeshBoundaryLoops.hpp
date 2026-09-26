@@ -49,8 +49,8 @@ namespace Desert::Geometry
         [[nodiscard]] glm::dvec3 GetVertexNormal( int Vid ) const;
         [[nodiscard]] int        FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges,
                                                    int BdryEdgesCount, const std::vector<bool>& UsedEdges ) const;
-        bool       ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE, std::vector<int>& Bowties,
-                                    Subloops& SubloopsOut );
+        bool ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE, std::vector<int>& Bowties,
+                              Subloops& SubloopsOut );
 
         static bool IsSimpleBowtieLoop( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
                                         int BowtieVertex, int& StartI, int& EndI );

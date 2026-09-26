@@ -40,9 +40,7 @@ namespace Desert::Geometry
 
     public:
         /** Create an empty overlay */
-        DynamicMeshTriangleAttribute()
-        {
-        }
+        DynamicMeshTriangleAttribute() = default;
 
         /** Create an overlay for the given parent mesh */
         DynamicMeshTriangleAttribute( DynamicMesh3* ParentMeshIn, bool bAutoInit = true )
@@ -443,8 +441,8 @@ namespace Desert::Geometry
          * true for attributes; non-manifold overlays are generally valid.
          * @param FailMode Desired behavior if mesh is found invalid
          */
-        [[nodiscard]] virtual bool CheckValidity( bool /*bAllowNonmanifold*/,
-                                                  ValidityCheckFailMode FailMode ) const override
+        [[nodiscard]] bool CheckValidity( bool /*bAllowNonmanifold*/,
+                                          ValidityCheckFailMode FailMode ) const override
         {
             // just check that the values buffer is big enough
             if ( ( m_ParentMesh == nullptr ) || m_ParentMesh->MaxTriangleID() < 0 ||
@@ -498,7 +496,7 @@ namespace Desert::Geometry
             this->AttribValues.InsertAt( Value, NewTriangleID );
         }
 
-        [[nodiscard]] inline RealType GetValue( int TriangleID ) const
+        [[nodiscard]] RealType GetValue( int TriangleID ) const
         {
             return this->m_AttribValues[TriangleID];
         }

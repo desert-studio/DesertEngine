@@ -29,7 +29,7 @@ namespace Desert::Geometry
         /** UE InitializeFromVertices with bAutoOrient = false (MeshBoundaryLoops never orients). */
         bool InitializeFromVertices( const DynamicMesh3& Mesh, const std::vector<int>& VerticesIn );
         /** UE EdgeLoop.cpp:21-38: Vertices[i] is the vertex Edges[i-1] and Edges[i] share. */
-        void InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
+        void               InitializeFromEdges( const DynamicMesh3& Mesh, const std::vector<int>& EdgesIn );
         [[nodiscard]] bool IsBoundaryLoop( const DynamicMesh3& Mesh ) const;
         [[nodiscard]] int  GetVertexCount() const
         {

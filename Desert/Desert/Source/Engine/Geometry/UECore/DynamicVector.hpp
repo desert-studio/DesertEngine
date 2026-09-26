@@ -101,7 +101,8 @@ namespace Desert::Geometry
                 m_CurBlock     = Moved.m_CurBlock;
                 m_CurBlockUsed = Moved.m_CurBlockUsed;
                 m_Blocks       = std::move( Moved.m_Blocks );
-                Moved.m_Blocks.clear(); // move-assignment leaves the source unspecified; make it the blockless state
+                Moved.m_Blocks
+                     .clear(); // move-assignment leaves the source unspecified; make it the blockless state
 
                 Moved.m_CurBlock     = 0;
                 Moved.m_CurBlockUsed = 0;
@@ -506,16 +507,16 @@ namespace Desert::Geometry
         {
             assert( N >= 2 );
             const unsigned int i = TopIndex * N;
-            m_Data[i]      = V.x;
-            m_Data[i + 1]  = V.y;
+            m_Data[i]            = V.x;
+            m_Data[i + 1]        = V.y;
         }
         void SetVector3( unsigned int TopIndex, const glm::vec<3, Type>& V )
         {
             assert( N >= 3 );
             const unsigned int i = TopIndex * N;
-            m_Data[i]      = V.x;
-            m_Data[i + 1]  = V.y;
-            m_Data[i + 2]  = V.z;
+            m_Data[i]            = V.x;
+            m_Data[i + 1]        = V.y;
+            m_Data[i + 2]        = V.z;
         }
         [[nodiscard]] inline glm::vec<2, Type> AsVector2( unsigned int TopIndex ) const
         {

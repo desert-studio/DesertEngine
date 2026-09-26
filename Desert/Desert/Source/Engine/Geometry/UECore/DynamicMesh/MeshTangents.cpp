@@ -5,7 +5,7 @@
 // constructor), instantiated for double only.
 #include "Engine/Geometry/UECore/DynamicMesh/MeshTangents.hpp"
 
-#include <math.h>
+#include <cmath>
 
 #include "Engine/Geometry/UECore/VectorUtil.hpp"
 

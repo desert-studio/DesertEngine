@@ -274,7 +274,7 @@ bool MeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<in
         {
             // no simple sub-loop: what is left becomes a span
             m_VerticesTemp.clear();
-            for ( int i : LoopV )
+            for ( const int i : LoopV )
                 if ( i != -1 )
                     m_VerticesTemp.push_back( i );
             Subs.Spans.push_back( EdgeSpan{} );
@@ -302,7 +302,7 @@ bool MeshBoundaryLoops::ExtractSubloops( std::vector<int>& LoopV, std::vector<in
     }
 
     m_VerticesTemp.clear();
-    for ( int i : LoopV )
+    for ( const int i : LoopV )
         if ( i != -1 )
             m_VerticesTemp.push_back( i );
     if ( !m_VerticesTemp.empty() )
@@ -384,7 +384,7 @@ int MeshBoundaryLoops::FindIndex( const std::vector<int>& Loop, int Start, int I
 int MeshBoundaryLoops::CountInList( const std::vector<int>& Loop, int Item )
 {
     int C = 0;
-    for ( int i : Loop )
+    for ( const int i : Loop )
         if ( i == Item )
             ++C;
     return C;

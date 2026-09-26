@@ -221,11 +221,11 @@ namespace Desert::Geometry
         attributes.SetNumUVLayers( 1 );
         attributes.EnableTangents();
         attributes.EnableMaterialID();
-        DynamicMeshNormalOverlay&      normals     = *attributes.PrimaryNormals();
-        DynamicMeshNormalOverlay&      tangents    = *attributes.PrimaryTangents();
-        DynamicMeshNormalOverlay&      bitangents  = *attributes.PrimaryBiTangents();
-        DynamicMeshUVOverlay&          uvs         = *attributes.GetUVLayer( 0 );
-        DynamicMeshMaterialAttribute&  materialIds = *attributes.GetMaterialID();
+        DynamicMeshNormalOverlay&     normals     = *attributes.PrimaryNormals();
+        DynamicMeshNormalOverlay&     tangents    = *attributes.PrimaryTangents();
+        DynamicMeshNormalOverlay&     bitangents  = *attributes.PrimaryBiTangents();
+        DynamicMeshUVOverlay&         uvs         = *attributes.GetUVLayer( 0 );
+        DynamicMeshMaterialAttribute& materialIds = *attributes.GetMaterialID();
 
         PositionWelder welder( options.PositionTolerance );
         const auto     weldVertex = [&]( const glm::vec3& p )

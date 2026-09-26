@@ -92,26 +92,25 @@ void PolygroupLayer::EnableOnMesh( DynamicMesh3& Mesh ) const
     }
 }
 
-PolygroupSet::PolygroupSet( const PolygroupSet* CopyIn ) : Mesh( CopyIn->Mesh )
+PolygroupSet::PolygroupSet( const PolygroupSet* CopyIn )
+     : Mesh( CopyIn->Mesh ), PolygroupAttrib( CopyIn->PolygroupAttrib )
 {
 
-    PolygroupAttrib = CopyIn->PolygroupAttrib;
     GroupLayerIndex = CopyIn->GroupLayerIndex;
     MaxGroupID      = CopyIn->MaxGroupID;
 }
 
-PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn ) : Mesh( MeshIn )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn ) : Mesh( MeshIn ), GroupLayerIndex( -1 )
 {
 
-    GroupLayerIndex = -1;
     RecalculateMaxGroupID();
 }
 
 /** Initialize a PolygroupSet for the given Mesh, and standard triangle group layer */
-PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, PolygroupLayer GroupLayer ) : Mesh( MeshIn )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, PolygroupLayer GroupLayer )
+     : Mesh( MeshIn ), GroupLayerIndex( -1 )
 {
 
-    GroupLayerIndex = -1;
     if ( !GroupLayer.bIsDefaultLayer )
     {
         if ( Common::EnsureOrWarn( Mesh->Attributes() != nullptr, "Mesh->Attributes()" ) )
@@ -131,10 +130,9 @@ PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, PolygroupLayer GroupLaye
 }
 
 PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, const DynamicMeshPolygroupAttribute* PolygroupAttribIn )
-     : Mesh( MeshIn )
+     : Mesh( MeshIn ), PolygroupAttrib( PolygroupAttribIn )
 {
 
-    PolygroupAttrib = PolygroupAttribIn;
     GroupLayerIndex = FindPolygroupLayerIndex( *MeshIn, PolygroupAttrib );
     RecalculateMaxGroupID();
 }
@@ -155,10 +153,10 @@ PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, int32_t PolygroupLayerIn
     DESERT_VERIFY_WARN( false, "PolygroupSet: Attribute index missing!" );
 }
 
-PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, const std::string& AttribName ) : Mesh( MeshIn )
+PolygroupSet::PolygroupSet( const DynamicMesh3* MeshIn, const std::string& AttribName )
+     : Mesh( MeshIn ), PolygroupAttrib( FindPolygroupLayerByName( *MeshIn, AttribName ) )
 {
 
-    PolygroupAttrib = FindPolygroupLayerByName( *MeshIn, AttribName );
     GroupLayerIndex = FindPolygroupLayerIndex( *MeshIn, PolygroupAttrib );
     RecalculateMaxGroupID();
     DESERT_VERIFY_WARN( PolygroupAttrib != nullptr, "PolygroupSet: Attribute set missing!" );

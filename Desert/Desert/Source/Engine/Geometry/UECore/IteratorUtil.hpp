@@ -43,10 +43,9 @@ namespace Desert::Geometry
             return *this;
         }
 
-        MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn ) : m_Cur( CurItr )
+        MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn )
+             : m_Cur( CurItr ), m_MapFunction( MapFunctionIn )
         {
-
-            m_MapFunction = MapFunctionIn;
         }
 
         IteratorT    m_Cur;
@@ -94,10 +93,9 @@ namespace Desert::Geometry
         }
 
         FilteredIterator( const IteratorT& CurItr, const IteratorT& EndItr, const FilterFunctionT& FilterFuncIn )
-             : m_Cur( CurItr )
+             : m_Cur( CurItr ), m_End( EndItr )
         {
 
-            m_End              = EndItr;
             this->m_FilterFunc = FilterFuncIn;
             if ( m_Cur != m_End && !static_cast<bool>( m_FilterFunc( *m_Cur ) ) )
             {
@@ -176,10 +174,9 @@ namespace Desert::Geometry
 
         ExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
                         const ExpandFunctionT& ExpandFuncIn )
-             : m_Cur( CurItr )
+             : m_Cur( CurItr ), m_End( EndItr )
         {
 
-            m_End        = EndItr;
             m_ExpandFunc = ExpandFuncIn;
             m_CurExpandI = -1;
             goto_next();
@@ -312,10 +309,9 @@ namespace Desert::Geometry
 
         PairExpandIterator( const InputIteratorT& CurItr, const InputIteratorT& EndItr,
                             const PairExpandFunctionT& PairFuncIn )
-             : m_Cur( CurItr )
+             : m_Cur( CurItr ), m_End( EndItr )
         {
 
-            m_End      = EndItr;
             m_PairFunc = PairFuncIn;
             m_CurPairI = 0;
             goto_next();
@@ -403,7 +399,7 @@ namespace Desert::Geometry
         uint64_t ModuloNum   = 1;
 
         ModuloIteration( uint32_t MaxIndexIn, uint32_t StartIndexIn = 0, uint64_t ModuloPrimeIn = 3208642561 )
-             : Count( 0 )
+
         {
             MaxIndex   = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), MaxIndexIn ) );
             StartIndex = static_cast<uint64_t>( std::max( static_cast<uint32_t>( 0 ), StartIndexIn ) );

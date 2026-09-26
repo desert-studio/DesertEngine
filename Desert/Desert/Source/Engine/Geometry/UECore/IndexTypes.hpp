@@ -79,10 +79,8 @@ namespace Desert::Geometry
             {
                 return A;
             }
-            else
-            {
-                return IndexConstants::InvalidID;
-            }
+
+            return IndexConstants::InvalidID;
         }
 
         void Swap()
@@ -190,7 +188,7 @@ namespace Desert::Geometry
             }
             if ( C == WantIndex0Value )
             {
-                return Index3i( C, A, B );
+                return { C, A, B };
             }
             return { A, B, C };
         }

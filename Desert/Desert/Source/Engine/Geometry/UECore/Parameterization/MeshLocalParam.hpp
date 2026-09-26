@@ -159,7 +159,7 @@ namespace Desert::Geometry
                 const Frame3d    NbrFrame = GetFrame( m_AllocatedNodes[*Found] );
                 const glm::dvec2 NbrUV =
                      PropagateUV( NodePos, m_AllocatedNodes[*Found].UV, NbrFrame, m_SeedFrame );
-                const double     Weight =
+                const double Weight =
                      1.0 / ( DistanceSquared( NodePos, NbrFrame.Origin ) + ZeroTolerance<double> );
                 AverageUV = AverageUV + NbrUV * Weight;
                 WeightSum += Weight;

@@ -93,13 +93,13 @@ namespace Desert::Geometry
         explicit PolygroupSet( const PolygroupSet* CopyIn );
 
         /** @return Mesh this PolygroupSet references  */
-        const DynamicMesh3* GetMesh() const
+        [[nodiscard]] const DynamicMesh3* GetMesh() const
         {
             return Mesh;
         }
 
         /** @return PolygroupAttribute this PolygroupSet references, or null if no PolygroupAttribute is in use */
-        const DynamicMeshPolygroupAttribute* GetPolygroup() const
+        [[nodiscard]] const DynamicMeshPolygroupAttribute* GetPolygroup() const
         {
             return PolygroupAttrib;
         }

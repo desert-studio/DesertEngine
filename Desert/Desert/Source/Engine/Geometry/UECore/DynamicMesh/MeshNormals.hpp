@@ -24,9 +24,7 @@ namespace Desert::Geometry
         std::vector<glm::dvec3> m_Normals;
 
     public:
-        MeshNormals()
-        {
-        }
+        MeshNormals() = default;
 
         MeshNormals( const DynamicMesh3* Mesh )
         {

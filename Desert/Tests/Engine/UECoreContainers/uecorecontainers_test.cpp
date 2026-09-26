@@ -125,8 +125,8 @@ TEST( UECoreDynamicVector, CopyMoveAndEqualityAcrossBlockSizes )
     EXPECT_EQ( A.Num(), 1u );
 }
 
-// A move hands the blocks over and allocates nothing: the destination keeps the very storage the source had, and the
-// source is left holding no block at all (GetByteCount 0), yet every mutator still works on it.
+// A move hands the blocks over and allocates nothing: the destination keeps the very storage the source had, and
+// the source is left holding no block at all (GetByteCount 0), yet every mutator still works on it.
 TEST( UECoreDynamicVector, MoveStealsTheBlocksAndAllocatesNothing )
 {
     DynamicVector<int, 4> A;
@@ -139,8 +139,8 @@ TEST( UECoreDynamicVector, MoveStealsTheBlocksAndAllocatesNothing )
     EXPECT_EQ( &Moved[0], FirstElement );
     EXPECT_EQ( &Moved[5], LastElement );
     // Reading the source after the move is the contract under test.
-    EXPECT_TRUE( A.IsEmpty() );            // NOLINT(bugprone-use-after-move)
-    EXPECT_EQ( A.GetByteCount(), 0u );     // no replacement block was allocated
+    EXPECT_TRUE( A.IsEmpty() );        // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ( A.GetByteCount(), 0u ); // no replacement block was allocated
     A.Apply( []( int& ) { FAIL() << "a moved-from vector has no element to visit"; } );
 
     DynamicVector<int, 4> Assigned;

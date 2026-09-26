@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "Engine/Geometry/UECore/DynamicVector.hpp"
 
 namespace Desert::Geometry
@@ -367,9 +369,7 @@ namespace Desert::Geometry
         class BaseValueIterator
         {
         public:
-            BaseValueIterator()
-            {
-            }
+            BaseValueIterator() = default;
 
             bool operator==( const BaseValueIterator& Other ) const
             {
@@ -411,10 +411,9 @@ namespace Desert::Geometry
             }
 
             BaseValueIterator( const SmallListSet* ListSetIn, int32_t ListIndex, bool is_end )
-                 : m_ListSet( ListSetIn )
+                 : m_ListSet( ListSetIn ), m_ListIndex( ListIndex )
             {
 
-                this->m_ListIndex = ListIndex;
                 if ( is_end )
                 {
                     SetToEnd();
@@ -513,10 +512,9 @@ namespace Desert::Geometry
             const SmallListSet* m_ListSet = nullptr;
             int32_t             m_ListIndex{};
             ValueEnumerable() = default;
-            ValueEnumerable( const SmallListSet* ListSetIn, int32_t ListIndex ) : m_ListSet( ListSetIn )
+            ValueEnumerable( const SmallListSet* ListSetIn, int32_t ListIndex )
+                 : m_ListSet( ListSetIn ), m_ListIndex( ListIndex )
             {
-
-                this->m_ListIndex = ListIndex;
             }
             [[nodiscard]] typename SmallListSet::ValueIterator begin() const
             {
@@ -569,7 +567,7 @@ namespace Desert::Geometry
         protected:
             MappedValueIterator( const SmallListSet* ListSetIn, int32_t ListIndex, bool is_end,
                                  std::function<int32_t( int32_t )> MapFuncIn )
-                 : BaseValueIterator( ListSetIn, ListIndex, is_end ), m_MapFunc( MapFuncIn )
+                 : BaseValueIterator( ListSetIn, ListIndex, is_end ), m_MapFunc( std::move( MapFuncIn ) )
             {
             }
 

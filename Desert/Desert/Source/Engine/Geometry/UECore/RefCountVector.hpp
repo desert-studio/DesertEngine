@@ -109,7 +109,7 @@ namespace Desert::Geometry
             }
 
             int iFree = INDEX_NONE;
-            while ( iFree == INDEX_NONE && m_FreeIndices.IsEmpty() == false )
+            while ( iFree == INDEX_NONE && !m_FreeIndices.IsEmpty() )
             {
                 iFree = m_FreeIndices.Back();
                 m_FreeIndices.PopBack();
@@ -119,11 +119,9 @@ namespace Desert::Geometry
                     m_RefCounts[iFree] = 1;
                     return iFree;
                 }
-                else
-                {
-                    m_RefCounts.Add( 1 );
-                    return (int)m_RefCounts.GetLength() - 1;
-                }
+
+                m_RefCounts.Add( 1 );
+                return (int)m_RefCounts.GetLength() - 1;
         }
 
         int Increment( int Index, unsigned short IncrementCount = 1 )
@@ -174,7 +172,7 @@ namespace Desert::Geometry
             {
                 return false;
                 }
-                int N = (int)m_FreeIndices.GetLength();
+                const int N = static_cast<int>( m_FreeIndices.GetLength() );
                 for ( int i = 0; i < N; ++i )
                 {
                     if ( m_FreeIndices[i] == Index )
@@ -349,9 +347,7 @@ namespace Desert::Geometry
         class BaseIterator
         {
         public:
-            BaseIterator()
-            {
-            }
+            BaseIterator() = default;
 
             bool operator==( const BaseIterator& Other ) const
             {
@@ -372,10 +368,10 @@ namespace Desert::Geometry
                 }
             }
 
-            BaseIterator( const RefCountVector* VectorIn, int IndexIn, int LastIn ) : m_Vector( VectorIn )
+            BaseIterator( const RefCountVector* VectorIn, int IndexIn, int LastIn )
+                 : m_Vector( VectorIn ), m_Index( IndexIn )
             {
 
-                m_Index     = IndexIn;
                 m_LastIndex = LastIn;
                 if ( m_Index != m_LastIndex && !m_Vector->IsValidUnsafe( m_Index ) )
                 {
@@ -423,12 +419,12 @@ namespace Desert::Geometry
             friend class RefCountVector;
         };
 
-        [[nodiscard]] inline IndexIterator BeginIndices() const
+        [[nodiscard]] IndexIterator BeginIndices() const
         {
             return { this, (int)0, static_cast<int>( m_RefCounts.GetLength() ) };
         }
 
-        [[nodiscard]] inline IndexIterator EndIndices() const
+        [[nodiscard]] IndexIterator EndIndices() const
         {
             return { this, static_cast<int>( m_RefCounts.GetLength() ),
                      static_cast<int>( m_RefCounts.GetLength() ) };
@@ -442,9 +438,7 @@ namespace Desert::Geometry
         {
         public:
             const RefCountVector* m_Vector = nullptr;
-            IndexEnumerable()
-            {
-            }
+            IndexEnumerable()              = default;
             IndexEnumerable( const RefCountVector* VectorIn ) : m_Vector( VectorIn )
             {
             }
@@ -462,7 +456,7 @@ namespace Desert::Geometry
          * returns iteration object over valid indices
          * usage: for (int idx : indices()) { ... }
          */
-        [[nodiscard]] inline IndexEnumerable Indices() const
+        [[nodiscard]] IndexEnumerable Indices() const
         {
             return { this };
         }
@@ -513,19 +507,17 @@ namespace Desert::Geometry
             std::function<bool( int )> m_FilterFunc;
             IndexEnumerable            m_enumerable;
             FilteredEnumerable( const IndexEnumerable& enumerable, std::function<bool( int )> FilterFuncIn )
-                 : m_enumerable( enumerable )
+                 : m_FilterFunc( FilterFuncIn ), m_enumerable( enumerable )
             {
-
-                this->m_FilterFunc = FilterFuncIn;
             }
 
-            FilteredIterator<int, IndexIterator> begin() const
+            [[nodiscard]] FilteredIterator<int, IndexIterator> begin() const
             {
                 return FilteredIterator<int, IndexIterator>( m_enumerable.begin(), m_enumerable.end(),
                                                              m_FilterFunc );
             }
 
-            FilteredIterator<int, IndexIterator> end() const
+            [[nodiscard]] FilteredIterator<int, IndexIterator> end() const
             {
                 return FilteredIterator<int, IndexIterator>( m_enumerable.end(), m_enumerable.end(),
                                                              m_FilterFunc );

@@ -80,9 +80,9 @@ namespace Desert::Geometry
         struct Group
         {
             int                    GroupID = 0;
-            std::vector<int>            Triangles;
-            std::vector<GroupBoundary>  Boundaries;
-            std::vector<int>            NeighbourGroupIDs;
+            std::vector<int>           Triangles;
+            std::vector<GroupBoundary> Boundaries;
+            std::vector<int>           NeighbourGroupIDs;
         };
         std::vector<Group> m_Groups;
 
@@ -110,8 +110,8 @@ namespace Desert::Geometry
         [[nodiscard]] int                     FindGroupEdgeID( int MeshEdgeID ) const;
         [[nodiscard]] const std::vector<int>& GetGroupEdgeVertices( int GroupEdgeID ) const;
         [[nodiscard]] const std::vector<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
-        void                    FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
-        void                    FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
+        void                  FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
+        void                  FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
         [[nodiscard]] bool    IsBoundaryEdge( int32_t GroupEdgeID ) const;
         /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
         double GetEdgeArcLength( int32_t GroupEdgeID, std::vector<double>* PerVertexLengthsOut = nullptr ) const;
@@ -136,11 +136,11 @@ namespace Desert::Geometry
         std::string                          m_FailureReason;
 
         [[nodiscard]] bool    ShouldVertBeCorner( int VertexID ) const;
-        bool     GenerateBoundaryAndGroupEdges( Group&                                Group,
-                                                std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
-                                                std::vector<bool>&                    VertCheckedForCorner );
+        bool                  GenerateBoundaryAndGroupEdges( Group&                                Group,
+                                                             std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
+                                                             std::vector<bool>&                    VertCheckedForCorner );
         [[nodiscard]] Index2i MakeEdgeGroupsPair( int MeshEdgeID ) const;
-        void     GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const;
+        void                  GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const;
     };
 
     /** Every triangle is its own group: corners are all vertices, group edges are all mesh edges. */
