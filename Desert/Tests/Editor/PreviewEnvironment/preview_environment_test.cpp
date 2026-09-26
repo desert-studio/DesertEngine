@@ -84,7 +84,11 @@ TEST( PreviewEnvironment, AKnownPathResolvesAndAnUnknownOneIsRefusedByName )
     Settings settings;
     settings.Skybox  = "Resources/Assets/HDR/rural_asphalt_road_2k.hdr";
     const auto known = Resolve( settings, OneSkybox );
-    ASSERT_TRUE( known.Skybox.has_value() );
+    if ( !known.Skybox.has_value() )
+    {
+        ADD_FAILURE() << "a registered skybox path did not resolve";
+        return;
+    }
     EXPECT_EQ( *known.Skybox, 42u );
     EXPECT_TRUE( known.Error.empty() );
 
