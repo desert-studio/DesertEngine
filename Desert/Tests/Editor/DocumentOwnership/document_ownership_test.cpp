@@ -3,7 +3,7 @@
 // Tool panels and asset documents have opposite lifetimes. A tool is built once at startup and lives until
 // the editor exits; its visibility is a SETTING the user keeps, and hiding it is the whole of closing it. A
 // document is built for one asset and DESTROYED when its window is dismissed -- that destruction is what
-// returns the Scene, the SceneRenderer and one of the six renderer slots.
+// returns the Scene, the SceneRenderer and its view (Engine/Graphic/ViewResources.hpp).
 //
 // They used to live in one vector behind one visibility bool, and the defect that follows from it is not a
 // bug in any function: unticking a document in the View menu set GetVisibility() false, the close pass read
@@ -33,7 +33,7 @@
 #include <Editor/Core/PanelRegistry.hpp>
 #include <Editor/Panels/IPanel.hpp>
 
-#include <Engine/Core/RendererSlotPool.hpp>
+#include <Engine/Graphic/ViewResources.hpp>
 
 #include <gtest/gtest.h>
 
@@ -64,7 +64,8 @@ using Desert::Editor::SubjectDomain;
 using Desert::Editor::SubjectEditorRegistry;
 using Desert::Editor::SubjectId;
 using Desert::Editor::ViewsHeldByDocuments;
-using Desert::Engine::RendererSlotPool;
+using Desert::Graphic::ViewResourceRegistry;
+using Desert::Graphic::ViewResources;
 
 namespace
 {
@@ -100,24 +101,17 @@ namespace
         }
     };
 
-    // A document that LEASES A RENDERER SLOT FROM A REAL POOL and returns it in its destructor -- exactly
-    // the shape a Material Editor's PreviewViewport has. The pool is the shipped one
-    // (Engine/Core/RendererSlotPool.hpp), not a stand-in, so "the slot came back" is the real relation and
-    // not a counter this file maintains for itself.
+    // A document that OWNS A REAL VIEW and ends it in its destructor -- exactly the shape a Material
+    // Editor's PreviewViewport has. The view is the shipped register's (Engine/Graphic/ViewResources.hpp),
+    // not a stand-in, so "the view went away" is the real relation and not a counter this file keeps.
     class FakeDocument final : public ISubjectDocument
     {
     public:
-        FakeDocument( const std::string& name, const SubjectId& subject, RendererSlotPool* pool = nullptr )
-             : ISubjectDocument( name, subject ), m_Pool( pool )
+        FakeDocument( const std::string& name, const SubjectId& subject, bool withView = false )
+             : ISubjectDocument( name, subject )
         {
-            if ( m_Pool )
-                m_Slot = m_Pool->Claim();
-        }
-
-        ~FakeDocument() override
-        {
-            if ( m_Pool )
-                m_Pool->Release( m_Slot );
+            if ( withView )
+                m_View = std::make_unique<ViewResources>( name );
         }
 
         void OnUIRender() override
@@ -134,7 +128,7 @@ namespace
 
         [[nodiscard]] bool HoldsView() const override
         {
-            return m_Pool != nullptr && m_Slot != RendererSlotPool::kNoFreeSlot;
+            return m_View != nullptr;
         }
 
         [[nodiscard]] bool ClaimsView() const override
@@ -146,25 +140,20 @@ namespace
         // back and keep the window. NOT the destructor — the document survives this.
         void ReleaseView() override
         {
-            if ( m_Pool && m_Slot != RendererSlotPool::kNoFreeSlot )
-            {
-                m_Pool->Release( m_Slot );
-                m_Slot = RendererSlotPool::kNoFreeSlot;
-            }
+            m_View.reset();
         }
 
         bool m_ClaimsSlot = true;
         bool m_Alive      = true;
 
     private:
-        RendererSlotPool* m_Pool = nullptr;
-        uint32_t          m_Slot = RendererSlotPool::kNoFreeSlot;
+        std::unique_ptr<ViewResources> m_View;
     };
 
     std::unique_ptr<ISubjectDocument> MakeDocument( const std::string& name, const SubjectId& subject,
-                                                    RendererSlotPool* pool = nullptr )
+                                                    bool withView = false )
     {
-        return std::make_unique<FakeDocument>( name, subject, pool );
+        return std::make_unique<FakeDocument>( name, subject, withView );
     }
 
     // ── THE EDITOR'S OWN PAIR: the owner, and one view of it ───────────────────────────────────────────
@@ -324,7 +313,7 @@ TEST( PanelCensusRelation, TheCensusNoticesADocumentAmongTheTools )
     mixed.emplace_back( MakeDocument( DocumentTitle( "M_Crate_Painted", Asset( 11 ) ), Asset( 11 ) ) );
 
     EditorDocuments empty;
-    const auto   census = CensusOfPanels( mixed, empty );
+    const auto      census = CensusOfPanels( mixed, empty );
 
     EXPECT_EQ( census.Total, 2u );
     EXPECT_FALSE( census.ToolsHoldNoDocument );
@@ -352,20 +341,18 @@ TEST( PanelCensusRelation, ClosingADocumentMovesItOutOfTheTotal )
 }
 
 // =================================================================================================
-// 3. A closed document gives its renderer slot back
+// 3. A closed document ends its view
 // =================================================================================================
 
-TEST( DocumentSlotLease, ClosingADocumentReturnsItsSlot )
+TEST( DocumentViewLease, ClosingADocumentEndsItsView )
 {
-    RendererSlotPool pool;
-    const uint32_t   viewport = pool.Claim(); // the main viewport holds one for the whole session
-    ASSERT_NE( viewport, RendererSlotPool::kNoFreeSlot );
+    const ViewResources viewport( "main viewport" ); // held for the whole session
 
     EditorDocuments well;
-    well.Add( MakeDocument( DocumentTitle( "M_Crate_Painted", Asset( 11 ) ), Asset( 11 ), &pool ) );
-    well.Add( MakeDocument( DocumentTitle( "M_Sand_Dune", Asset( 12 ) ), Asset( 12 ), &pool ) );
+    well.Add( MakeDocument( DocumentTitle( "M_Crate_Painted", Asset( 11 ) ), Asset( 11 ), true ) );
+    well.Add( MakeDocument( DocumentTitle( "M_Sand_Dune", Asset( 12 ) ), Asset( 12 ), true ) );
 
-    EXPECT_EQ( pool.InUseCount(), 3u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 3u );
     EXPECT_EQ( ViewsHeldByDocuments( well ), 2u );
 
     // RELEASE IS NOT DESTRUCTION. The well hands the document back and the caller destroys it once the
@@ -374,35 +361,34 @@ TEST( DocumentSlotLease, ClosingADocumentReturnsItsSlot )
     auto closed = well.Release( Asset( 12 ) );
     ASSERT_NE( closed, nullptr );
     EXPECT_EQ( well.Count(), 1u );
-    EXPECT_EQ( pool.InUseCount(), 3u ) << "the slot must still be held until the document is destroyed";
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 3u )
+         << "the view must still be alive until the document is destroyed";
 
     closed.reset();
 
-    EXPECT_EQ( pool.InUseCount(), 2u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 2u );
     EXPECT_EQ( ViewsHeldByDocuments( well ), 1u );
 }
 
-TEST( DocumentSlotLease, ClosingEveryDocumentLeavesOnlyTheViewport )
+TEST( DocumentViewLease, ClosingEveryDocumentLeavesOnlyTheViewport )
 {
-    RendererSlotPool pool;
-    const uint32_t   viewport = pool.Claim();
-    ASSERT_NE( viewport, RendererSlotPool::kNoFreeSlot );
+    const ViewResources viewport( "main viewport" ); // held for the whole session
 
     EditorDocuments well;
     for ( uint64_t i = 1; i <= 4; ++i )
-        well.Add( MakeDocument( DocumentTitle( "M_" + std::to_string( i ), Asset( i ) ), Asset( i ), &pool ) );
+        well.Add( MakeDocument( DocumentTitle( "M_" + std::to_string( i ), Asset( i ) ), Asset( i ), true ) );
 
-    EXPECT_EQ( pool.InUseCount(), 5u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 5u );
 
     auto all = well.ReleaseAll();
     EXPECT_EQ( all.size(), 4u );
     EXPECT_TRUE( well.Empty() );
     all.clear();
 
-    EXPECT_EQ( pool.InUseCount(), 1u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u );
 }
 
-TEST( DocumentSlotLease, ACpuDrawnDocumentIsNotPendingDemand )
+TEST( DocumentViewLease, ACpuDrawnDocumentIsNotPendingDemand )
 {
     // The four cloud documents bake on the CPU: they hold no slot and never will, so counting them as
     // claims would refuse a window that costs nothing. The rule lives in SubjectEditorRegistry.hpp and is
@@ -854,21 +840,19 @@ TEST( DocumentLiveness, TheSweepFindsExactlyTheDeadOnes )
 // 10. A HIDDEN DOCUMENT GIVES ITS SLOT BACK AND KEEPS ITS WINDOW
 // =================================================================================================
 
-TEST( DocumentSlotLease, ReleasingTheSlotOfAHiddenDocumentDoesNotCloseIt )
+TEST( DocumentViewLease, ReleasingTheViewOfAHiddenDocumentDoesNotCloseIt )
 {
     // Four documents docked as tabs in one node show one tab. The other three were rendering previews
-    // nobody could see and holding three of the six slots while they did it, so the fifth document the user
-    // opened was refused over resources being spent on hidden windows.
-    RendererSlotPool pool;
-    const uint32_t   viewport = pool.Claim();
-    ASSERT_NE( viewport, RendererSlotPool::kNoFreeSlot );
+    // nobody could see and holding three views' worth of the budget while they did it, so the fifth document the
+    // user opened was refused over resources being spent on hidden windows.
+    const ViewResources viewport( "main viewport" ); // held for the whole session
 
     EditorDocuments well;
     auto&           hidden = static_cast<FakeDocument&>(
-         *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), &pool ) ) );
-    well.Add( MakeDocument( DocumentTitle( "B", Asset( 12 ) ), Asset( 12 ), &pool ) );
+         *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), true ) ) );
+    well.Add( MakeDocument( DocumentTitle( "B", Asset( 12 ) ), Asset( 12 ), true ) );
 
-    EXPECT_EQ( pool.InUseCount(), 3u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 3u );
     EXPECT_EQ( ViewsHeldByDocuments( well ), 2u );
 
     hidden.ReleaseView();
@@ -877,7 +861,7 @@ TEST( DocumentSlotLease, ReleasingTheSlotOfAHiddenDocumentDoesNotCloseIt )
     // if it does not, because a document that inherited the empty default while genuinely holding a slot
     // would keep it for ever and the refusal census would go on blaming a window the user cannot fix.
     EXPECT_FALSE( hidden.HoldsView() );
-    EXPECT_EQ( pool.InUseCount(), 2u ) << "the lease really went back to the pool";
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 2u ) << "the view really ended";
     EXPECT_EQ( ViewsHeldByDocuments( well ), 1u );
 
     // AND THE WINDOW IS STILL OPEN. This is the whole difference from a close, and it is the shape the
@@ -889,19 +873,18 @@ TEST( DocumentSlotLease, ReleasingTheSlotOfAHiddenDocumentDoesNotCloseIt )
     EXPECT_EQ( PendingViewBytes( well.Documents() ), well.Find( Asset( 11 ) )->ViewForecastBytes() );
 }
 
-TEST( DocumentSlotLease, ReleasingTwiceIsNotAnError )
+TEST( DocumentViewLease, ReleasingTwiceIsNotAnError )
 {
-    // The sweep runs every frame while a document stays hidden. A second release must not hand a slot back
-    // to the pool twice — that would free somebody else's.
-    RendererSlotPool pool;
-    EditorDocuments  well;
-    auto&            hidden = static_cast<FakeDocument&>(
-         *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), &pool ) ) );
+    // The sweep runs every frame while a document stays hidden. A second release must not end a view twice
+    // or fail — the document holds nothing by then.
+    EditorDocuments well;
+    auto&           hidden = static_cast<FakeDocument&>(
+         *well.Add( MakeDocument( DocumentTitle( "A", Asset( 11 ) ), Asset( 11 ), true ) ) );
 
-    EXPECT_EQ( pool.InUseCount(), 1u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u );
     hidden.ReleaseView();
     hidden.ReleaseView();
-    EXPECT_EQ( pool.InUseCount(), 0u );
+    EXPECT_EQ( ViewResourceRegistry::LiveCount(), 0u );
     EXPECT_FALSE( hidden.HoldsView() );
 }
 

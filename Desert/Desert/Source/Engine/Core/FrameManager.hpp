@@ -5,17 +5,6 @@
 
 namespace Desert::Engine
 {
-    // How many renderers (views) can record independently. Per-frame GPU resources are stored per
-    // (frame in flight x slot), so this is the second dimension of every such array. It lives here, next
-    // to the frame count, because the two are always used together — EngineContext::kMaxRendererSlots is
-    // the same number, exposed where callers already look for the frame index.
-    //
-    // Sized for what the editor actually runs at once: the main viewport, the Details preview, the asset
-    // thumbnail renderer, the photogrammetry preview, and a couple of extra scene views. Slots are handed
-    // back when a renderer is destroyed (SceneRenderer's ctor/dtor), so this is a concurrency limit, not a
-    // lifetime budget — and running out is a warning, not a corruption.
-    inline constexpr uint32_t kMaxRendererSlots = 6;
-
     /**
      * @brief Manages frame-level synchronization and indexing.
      */
@@ -24,8 +13,8 @@ namespace Desert::Engine
     public:
         void Initialize( uint32_t maxFramesInFlight )
         {
-            m_MaxFramesInFlight = maxFramesInFlight;
-            m_CurrentFrameIndex = 0;
+            m_MaxFramesInFlight  = maxFramesInFlight;
+            m_CurrentFrameIndex  = 0;
             m_AbsoluteFrameCount = 0;
         }
 
@@ -57,14 +46,23 @@ namespace Desert::Engine
             m_AbsoluteFrameCount++;
         }
 
-        [[nodiscard]] uint32_t GetCurrentFrameIndex() const { return m_CurrentFrameIndex; }
-        [[nodiscard]] uint32_t GetMaxFramesInFlight() const { return m_MaxFramesInFlight; }
-        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const { return m_AbsoluteFrameCount; }
+        [[nodiscard]] uint32_t GetCurrentFrameIndex() const
+        {
+            return m_CurrentFrameIndex;
+        }
+        [[nodiscard]] uint32_t GetMaxFramesInFlight() const
+        {
+            return m_MaxFramesInFlight;
+        }
+        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const
+        {
+            return m_AbsoluteFrameCount;
+        }
 
     private:
-        uint32_t m_CurrentFrameIndex = 0;
-        uint32_t m_MaxFramesInFlight = 2;
-        uint64_t m_AbsoluteFrameCount = 0;
+        uint32_t m_CurrentFrameIndex     = 0;
+        uint32_t m_MaxFramesInFlight     = 2;
+        uint64_t m_AbsoluteFrameCount    = 0;
         bool     m_CountFixedBySwapchain = false;
     };
 

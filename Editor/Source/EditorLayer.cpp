@@ -2610,13 +2610,13 @@ namespace Desert::Editor
                 continue;
 
             Control::DocumentSnapshot entry;
-            entry.Name               = DocumentDisplayName( document->GetName() );
-            entry.Type               = m_SubjectEditors.TypeName( subject );
-            entry.Subject            = subject.ToString();
-            entry.HoldsView          = document->HoldsView();
-            entry.ClaimsView         = document->ClaimsView();
-            entry.ViewForecastBytes  = document->ViewForecastBytes();
-            entry.Focused            = ( subject == m_FocusedDocument );
+            entry.Name              = DocumentDisplayName( document->GetName() );
+            entry.Type              = m_SubjectEditors.TypeName( subject );
+            entry.Subject           = subject.ToString();
+            entry.HoldsView         = document->HoldsView();
+            entry.ClaimsView        = document->ClaimsView();
+            entry.ViewForecastBytes = document->ViewForecastBytes();
+            entry.Focused           = ( subject == m_FocusedDocument );
 
             // The three states, asked of the document itself. Written out as words here rather than
             // exported as enums, because the wire is read by clients that have none of our headers.
@@ -2930,9 +2930,8 @@ namespace Desert::Editor
         m_Panels.Adopt( std::move( vp ) );
 
         m_ExtraScenes.emplace_back( std::move( doc ) );
-        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open, {}/{} renderer slots in use)", id,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::GetLiveRendererCount(),
-                  EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Opened scene view #{} (now {} scenes open; views: {})", id, m_ExtraScenes.size() + 1,
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::CloseDismissedSceneViews()
@@ -3009,11 +3008,10 @@ namespace Desert::Editor
         doc->Renderer.reset();
         m_ExtraScenes.erase( m_ExtraScenes.begin() + static_cast<ptrdiff_t>( *index ) );
 
-        // The count is printed, not left to be derived: a surface that fails to return its slot produces no
+        // The count is printed, not left to be derived: a surface that fails to destroy its view produces no
         // error at all, and this line beside the one in AddSceneView is what makes the leak readable.
-        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open, {}/{} renderer slots in use)", id, name,
-                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::GetLiveRendererCount(),
-                  EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Closed scene view #{} '{}' ({} scenes open; views: {})", id, name,
+                  m_ExtraScenes.size() + 1, Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::AddSceneViewport()
@@ -3052,10 +3050,9 @@ namespace Desert::Editor
         view->Renderer = std::move( renderer );
         m_ExtraViewports.emplace_back( std::move( view ) );
 
-        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world, {}/{} renderer slots in "
-                  "use)",
+        LOG_INFO( "[Editor] Opened viewport #{} on '{}' ({} view(s) of that world; views: {})",
                   m_ExtraViewports.back()->Id, scene->GetSceneName(), scene->GetViewCount(),
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::BuildViewportGrid()
@@ -3120,10 +3117,10 @@ namespace Desert::Editor
             }
         }
 
-        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' ({}/{} renderer slots in use); the dock "
-                  "split runs on the next frame.",
+        LOG_INFO( "[Editor] Viewport grid: {} pane(s) on '{}' (views: {}); the dock split runs on the "
+                  "next frame.",
                   m_PendingViewportGrid.size(), scene->GetSceneName(),
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                  Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     void EditorLayer::CloseDismissedSceneViewports()
@@ -3167,8 +3164,7 @@ namespace Desert::Editor
         view->Renderer.reset();
         m_ExtraViewports.erase( m_ExtraViewports.begin() + static_cast<ptrdiff_t>( *index ) );
 
-        LOG_INFO( "[Editor] Closed viewport '{}' ({}/{} renderer slots in use)", name,
-                  Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+        LOG_INFO( "[Editor] Closed viewport '{}' (views: {})", name, Graphic::SceneRenderer::DescribeLiveViews() );
     }
 
     std::vector<EditorLayer::ViewConsumer> EditorLayer::ViewCensus() const
@@ -3503,10 +3499,10 @@ namespace Desert::Editor
                 continue;
             }
 
-            LOG_INFO( "[Editor] '{}' gave its renderer slot back after {} frames off screen ({}/{} in use). "
+            LOG_INFO( "[Editor] '{}' released its view after {} frames off screen (views: {}). "
                       "It is rebuilt on the first frame the window is drawn again.",
                       DocumentDisplayName( document->GetName() ), undrawn,
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                      Graphic::SceneRenderer::DescribeLiveViews() );
         }
     }
 
@@ -3564,10 +3560,9 @@ namespace Desert::Editor
             // The slot count is printed rather than derived for a different reason: a document that failed
             // to return its slot produces no error at all, and this line beside the one in
             // ServiceSubjectOpenRequests is what makes the leak readable.
-            LOG_INFO( "[Editor] Closed document '{}' — {} ({} open, {}/{} renderer slots in use after "
-                      "release).",
+            LOG_INFO( "[Editor] Closed document '{}' — {} ({} open; views after release: {}).",
                       DocumentDisplayName( name ), pending.Reason, m_OpenDocuments.Count(),
-                      Graphic::SceneRenderer::GetLiveRendererCount(), EngineContext::kMaxRendererSlots );
+                      Graphic::SceneRenderer::DescribeLiveViews() );
         }
 
         m_DocumentsToClose.clear();
@@ -7122,7 +7117,11 @@ namespace Desert::Editor
         const float starW   = dirty ? ImGui::CalcTextSize( "* " ).x : 0.0f;
         const float statsW  = ImGui::CalcTextSize( stats ).x;
         const float alertsW = alerts[0] ? ImGui::CalcTextSize( alerts ).x + 16.0f : 0.0f;
-        ImGui::SameLine( ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW );
+        // Right-aligned, but never left of where the left half actually ended: the document/budget text
+        // grows with its numbers, and a position computed from the right edge alone drew the counters on
+        // top of it. When both halves do not fit, the right half is pushed out and clipped, not overlaid.
+        const float leftEndX = ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + 16.0f;
+        ImGui::SameLine( std::max( leftEndX, ImGui::GetWindowContentRegionMax().x - statsW - starW - alertsW ) );
 
         if ( alerts[0] )
         {

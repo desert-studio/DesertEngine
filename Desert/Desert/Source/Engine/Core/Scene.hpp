@@ -49,9 +49,9 @@ namespace Desert::Core
     // Result of Scene::Raycast — nearest static-mesh or landscape hit (world space).
     struct RaycastHit
     {
-        bool         Hit      = false;
-        Common::UUID Entity;                       // hit entity's UUID (valid only when Hit)
-        glm::vec3    Point    = glm::vec3( 0.0f );  // world hit point
+        bool         Hit = false;
+        Common::UUID Entity;                                   // hit entity's UUID (valid only when Hit)
+        glm::vec3    Point    = glm::vec3( 0.0f );             // world hit point
         glm::vec3    Normal   = glm::vec3( 0.0f, 1.0f, 0.0f ); // box-face / surface normal
         float        Distance = 0.0f;
     };
@@ -169,8 +169,8 @@ namespace Desert::Core
         [[nodiscard]] std::optional<size_t> AddView( Graphic::SceneRenderer* renderer );
 
         // Closes the angle @p renderer was recording. False for a renderer this scene never had.
-        // Does NOT destroy the renderer — the caller owns it, and destroying it is what hands the
-        // renderer slot back (Engine/Core/RendererSlotPool.hpp).
+        // Does NOT destroy the renderer — the caller owns it, and destroying it is what gives the
+        // view's GPU memory back (Graphic/ViewResources.hpp).
         bool RemoveView( const Graphic::SceneRenderer* renderer );
 
         [[nodiscard]] size_t GetViewCount() const
@@ -246,9 +246,18 @@ namespace Desert::Core
             Paused
         };
 
-        [[nodiscard]] SceneState GetState() const { return m_State; }
-        void                     SetState( SceneState state ) { m_State = state; }
-        [[nodiscard]] bool       IsPlaying() const { return m_State == SceneState::Play; }
+        [[nodiscard]] SceneState GetState() const
+        {
+            return m_State;
+        }
+        void SetState( SceneState state )
+        {
+            m_State = state;
+        }
+        [[nodiscard]] bool IsPlaying() const
+        {
+            return m_State == SceneState::Play;
+        }
 
         [[nodiscard]] SceneSettings& GetSettings()
         {
@@ -399,21 +408,21 @@ namespace Desert::Core
         // collider wireframes and no 2D UI overlay, and nothing says why.
         std::vector<Graphic::ExternalPassSpecification> m_ExternalPasses;
 
-        std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
+        std::shared_ptr<Core::Camera> m_EditorCamera;         // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
-        std::shared_ptr<Core::Camera> m_GameplayCamera; // persistent game view (Play mode), driven by the
-                                                        // main CameraComponent
-        mutable uint32_t              m_ViewportWidth  = 1280;
-        mutable uint32_t              m_ViewportHeight = 720;
-        SceneState                    m_State = SceneState::Edit;
+        std::shared_ptr<Core::Camera> m_GameplayCamera;       // persistent game view (Play mode), driven by the
+                                                              // main CameraComponent
+        mutable uint32_t m_ViewportWidth  = 1280;
+        mutable uint32_t m_ViewportHeight = 720;
+        SceneState       m_State          = SceneState::Edit;
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without
         // sharing the arena; buffers are executed in registration order, so the frame's draw order is
         // identical to the old single-buffer sequential path.
         std::vector<std::unique_ptr<Graphic::Render::RenderCommandBuffer>> m_SystemCommandBuffers;
 
-        SceneSettings m_Settings;
-        std::string   m_SceneName;
+        SceneSettings                                             m_Settings;
+        std::string                                               m_SceneName;
         std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.

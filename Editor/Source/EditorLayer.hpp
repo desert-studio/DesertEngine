@@ -256,8 +256,8 @@ namespace Desert::Editor
         void AddSceneView();
         // Destroys the document named @p id: its viewport panel, render registry, scene and renderer, in that
         // order and behind a device-idle wait. Called from OnUpdate (between frames) when the user closes a
-        // scene-view window; a no-op for an id that is already gone. This is what gives the renderer slot
-        // back — see Engine/Core/RendererSlotPool.hpp.
+        // scene-view window; a no-op for an id that is already gone. This is what gives the view's GPU
+        // memory back — see Graphic/ViewResources.hpp.
         void CloseSceneView( uint64_t id );
         // Closes every scene view whose window the user dismissed since the last frame. One pass at the top
         // of OnUpdate, because a close destroys GPU resources and removes a panel from m_Panels — neither is

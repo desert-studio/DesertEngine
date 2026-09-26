@@ -109,15 +109,14 @@ namespace Desert::Editor
             return ResolveCanvas() != nullptr;
         }
 
-        // ── NOT ONE OF THE SIX RENDERER SLOTS, EVEN THOUGH THIS WINDOW RENDERS ─────────────────────────
+        // ── NOT A VIEW, EVEN THOUGH THIS WINDOW RENDERS ─────────────────────────────────────────────────
         //
-        // A slot is a live Graphic::SceneRenderer (EngineContext::kMaxRendererSlots, counted by
-        // SceneRenderer::GetLiveRendererCount). This window has none: it owns a Framebuffer, a RenderPass
-        // and a Render2D, and draws the canvas straight into them. So it can never take a slot and can
-        // never give one back, and BOTH answers have to be false rather than the base class's conservative
-        // default — a `true` here would put "UICanvasComponent document 'HUD' — holds a slot" in the
-        // refusal census (EditorLayer::RendererSlotCensus), which tells a user to close a window that
-        // frees nothing. Its own GPU resources are released by the undrawn sweep below and by ~this.
+        // A view is a live Graphic::SceneRenderer (counted by ViewResourceRegistry::LiveCount). This window
+        // has none: it owns a Framebuffer, a RenderPass and a Render2D, and draws the canvas straight into
+        // them. So it can never claim a view and can never release one, and BOTH answers have to be false rather
+        // than the base class's conservative default — a `true` here would put "UICanvasComponent document 'HUD' —
+        // holds a slot" in the refusal census (EditorLayer::RendererSlotCensus), which tells a user to close a
+        // window that frees nothing. Its own GPU resources are released by the undrawn sweep below and by ~this.
         [[nodiscard]] bool HoldsView() const override
         {
             return false;

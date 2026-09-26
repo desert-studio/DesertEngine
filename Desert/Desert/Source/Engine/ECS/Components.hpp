@@ -135,9 +135,9 @@ namespace Desert::ECS
         std::shared_ptr<const Geometry::DynamicMesh3> EditableMesh;
         // DERIVED from EditableMesh by ECS::SetEditableMesh (Geometry::ToRenderMesh), and only by it: null
         // exactly when EditableMesh is. What the render path, picking and the Details panel read.
-        std::shared_ptr<DynamicMesh>           RuntimeMesh;
-        bool                                   OutlineDraw = false;
-        int                                    ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
+        std::shared_ptr<DynamicMesh> RuntimeMesh;
+        bool                         OutlineDraw = false;
+        int                          ForcedLOD   = -1; // -1 = auto (by distance); 0..N pins a LOD
         int  LODBias        = 0;    // shifts the AUTO-picked LOD (+coarser, -finer); ignored when ForcedLOD >= 0
         bool CastShadows    = true; // false = skipped by the shadow (depth) passes
         bool ReceiveShadows = true; // false = sun shadows are not applied to this mesh (forward path)
@@ -174,8 +174,8 @@ namespace Desert::ECS
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
-                 RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
-        uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
+                 RuntimeMaterialInstances;    // Cache to keep instances alive and avoid per-frame allocations
+        uint32_t SeenMaterialsVersion = 0;    // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
         // In-editor rig: a skinned mesh built at runtime by "Convert to Skinned" (from a static mesh + placed
@@ -2180,8 +2180,8 @@ namespace Desert::ECS
     // WYSIWYG in the tool that already exists, and this component stays four fields.
     //
     // WHY IT IS NOT FREE, said here because the price is the design. Each of these elements that is
-    // actually on screen owns a Graphic::SceneRenderer, and therefore one of the six renderer slots
-    // (Engine/Core/RendererSlotPool.hpp). The seventh is REFUSED, by name and with numbers, and draws the
+    // actually on screen owns a Graphic::SceneRenderer, and therefore a view's worth of GPU memory
+    // (Engine/Core/ViewBudget.hpp). One past the budget is REFUSED, by name and with numbers, and draws the
     // magenta error fill rather than nothing — see Engine/UI/UIRenderTextureSource.hpp for who decides
     // and Engine/Graphic/Render2D/UIRenderTextureCache.hpp for the accounting. An element the walk did
     // not draw this frame — scrolled away, or not Visible — is not on screen, and its slot goes back.

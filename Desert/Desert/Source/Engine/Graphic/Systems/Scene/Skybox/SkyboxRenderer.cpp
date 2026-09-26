@@ -713,9 +713,9 @@ namespace Desert::Graphic::System
             const SkyEnvironmentCost cost = SkyEnvironmentBakeCost( m_Sky.EnvironmentResolution );
             LOG_INFO( "[SkyAtmosphere] Environment bake at High ({}x{}): panorama {:.1f} MiB + "
                       "radiance/irradiance/prefiltered cubes {:.1f} MiB = {:.1f} MiB — paid PER LIVE "
-                      "SceneRenderer ({} live now).",
+                      "view (views: {}).",
                       size.Width, size.Height, BytesToMiB( cost.PanoramaBytes ), BytesToMiB( cost.CubeBytes ),
-                      BytesToMiB( cost.TotalBytes ), SceneRenderer::GetLiveRendererCount() );
+                      BytesToMiB( cost.TotalBytes ), SceneRenderer::DescribeLiveViews() );
             m_HighResCostLogged = true;
         }
 
@@ -866,8 +866,9 @@ namespace Desert::Graphic::System
         if ( !targetFb )
             return;
 
-        builder.AddPass( "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
-                         m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb );
+        builder.AddPass(
+             "SkyboxPass", RenderPhase::Sky, [this]() { Render(); },
+             m_Pipeline ? m_Pipeline->GetSpecification() : GraphicsPipelineSpecification{}, targetFb );
     }
 
     void SkyboxRenderer::Render()

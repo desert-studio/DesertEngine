@@ -571,7 +571,7 @@ TEST( PointerOwnership, Render2DExecutorRetirementRespectsFramesInFlight )
     // REFUSED rather than written is the whole content of this test — destroying an executor destroys
     // descriptor sets a submitted frame may still be reading, which corrupts a frame instead of crashing
     // a process. So the window is the condition, and here it is where it can fail.
-    constexpr uint32_t kWindow = 9; // 3 frames in flight x 3 slots, a plausible ExecutorRetireWindow()
+    constexpr uint32_t kWindow = 9; // wider than any real frames-in-flight count, so the edge is exercised
 
     // Nothing may be retired inside the window, and the EDGE belongs to the GPU: an entry last used
     // exactly `window` frames ago is still reachable by the oldest frame in flight.

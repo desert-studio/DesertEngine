@@ -33,17 +33,17 @@
 namespace Desert::Graphic::Render2D
 {
     /**
-     * @brief Frames that must pass before a cache entry may be retired: frames in flight x renderer slots.
+     * @brief Frames that must pass before a cache entry may be retired: the frames in flight.
      *
      * Frames in flight is the GPU bound — the oldest submitted frame that may still read an executor's sets.
-     * The renderer-slot factor is margin this window carried while it was shared with the material properties'
-     * dirty countdown (now versions, PropertyVersion.hpp); it is kept so retiring stays exactly as conservative
-     * as it was. Frames in flight is floored at 3 before FrameManager knows it, so the window is never zero.
+     * Views do not multiply it: every view records into the same frame, so a frame retiring on the GPU
+     * retires every view's use of the entry at once. Frames in flight is floored at 3 before FrameManager
+     * knows it, so the window is never zero.
      */
     inline uint32_t ExecutorRetireWindow()
     {
         const uint32_t framesInFlight = Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
-        return ( framesInFlight > 0 ? framesInFlight : 3u ) * Engine::kMaxRendererSlots;
+        return framesInFlight > 0 ? framesInFlight : 3u;
     }
 
     /**

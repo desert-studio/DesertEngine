@@ -37,7 +37,6 @@ using namespace Desert::ShaderResources;
 namespace
 {
     constexpr uint32_t kFramesInFlight = 3; // what the editor's swapchain actually runs
-    constexpr uint32_t kSlots          = Engine::kMaxRendererSlots;
     constexpr uint32_t kFieldSize      = sizeof( float ) * 4;
 
     class BytesCopy final : public IBlockCopy
@@ -199,7 +198,6 @@ namespace
         {
             EngineContext::CreateInstance();
             Engine::FrameManager::CreateInstance().Initialize( kFramesInFlight );
-            EngineContext::GetInstance().SetActiveRendererSlot( 0 );
         }
         void TearDown() override
         {
@@ -332,7 +330,7 @@ TEST_F( MaterialParamUpload, AViewOpenedAfterAOneShotWriteIsSeededWithIt )
     Graphic::ViewResources         main( "viewport" );
     {
         const Graphic::ActiveViewScope scope( main );
-        RunRoute( prop, Route::ApplyOnceThenFlush, kFramesInFlight * kSlots * 2, value );
+        RunRoute( prop, Route::ApplyOnceThenFlush, kFramesInFlight * 12, value );
         ASSERT_FALSE( prop.HasDirtyFields() ) << "the viewport's copies must all have applied the write";
     }
 
