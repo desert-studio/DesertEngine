@@ -31,6 +31,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
@@ -429,7 +430,18 @@ namespace Desert::Editor
                        "'. Drop an HDR skybox onto that slot in the parameters beside this pane and the "
                        "ball appears.";
 
-            auto*      skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
+            auto* skyboxService = Runtime::ResourceRegistry::GetSkyboxService();
+            // The boot only SCANS .hdr files; a skybox is baked when something registers it. A material
+            // opened with its slot already bound never went through the drop that registers (below), so
+            // the lookup came back empty for a file that is on disk. Registering is idempotent.
+            if ( skyboxService != nullptr && !skyboxService->Get( Assets::AssetHandle( bound ) ) && m_AssetManager )
+            {
+                if ( auto sky = m_AssetManager->FindByHandle<Assets::SkyboxAsset>( Assets::AssetHandle( bound ) ) )
+                {
+                    Graphic::Renderer::GetInstance().WaitDeviceIdle();
+                    Runtime::EnsureSkyboxRegistered( sky );
+                }
+            }
             const auto skybox = skyboxService ? skyboxService->Get( Assets::AssetHandle( bound ) ) : nullptr;
             if ( !skybox || !skybox->GetEnvironment() )
                 return "No preview: the skybox bound to '" + cubeParam->DisplayName +
