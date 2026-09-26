@@ -19,6 +19,7 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <bit>
 #include <filesystem>
 
 namespace Desert::Editor
@@ -40,6 +41,32 @@ namespace Desert::Editor
                     return meta->Filepath.filename().string();
             }
             return "Skybox";
+        }
+
+        // The cache's cube a picker entry reads. All three come from the one bake (EnvironmentBake.hpp).
+        const Runtime::ImageHandle& EnvironmentCube( const Graphic::Environment& environment,
+                                                     SkyboxView::Cube            cube )
+        {
+            switch ( cube )
+            {
+                case SkyboxView::Cube::Prefiltered:
+                    return environment.PreFilteredMap;
+                case SkyboxView::Cube::Irradiance:
+                    return environment.IrradianceMap;
+                case SkyboxView::Cube::Radiance:
+                    break;
+            }
+            return environment.RadianceMap;
+        }
+
+        uint32_t PrefilteredMipsOf( const Assets::AssetHandle& skybox )
+        {
+            const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox );
+            if ( !material || !material->GetEnvironment().PreFilteredMap.IsValid() )
+                return 0u;
+            const auto* image = Runtime::ResourceRegistry::GetImageService()->Resolve(
+                 material->GetEnvironment().PreFilteredMap );
+            return image != nullptr ? image->GetMipmapLevels() : 0u;
         }
     } // namespace
 
@@ -94,13 +121,18 @@ namespace Desert::Editor
                  if ( !material )
                      return {};
                  const auto& environment = material->GetEnvironment();
-                 if ( !environment.RadianceMap.IsValid() )
+                 const auto  level       = SkyboxView::ResolveLevel( m_Level, m_PrefilteredMips );
+                 if ( !level )
+                     return {};
+                 const Runtime::ImageHandle& key = EnvironmentCube( environment, level->Source );
+                 if ( !key.IsValid() )
                      return {};
 
                  Graphic::SampledCube source;
-                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the radiance key names a cube
+                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): all three keys name cubes
                  source.Cube = static_cast<Graphic::ImageCube*>(
-                      Runtime::ResourceRegistry::GetImageService()->Resolve( environment.RadianceMap ) );
+                      Runtime::ResourceRegistry::GetImageService()->Resolve( key ) );
+                 source.Lod = level->Lod;
                  // The file as authored, turned by THIS WINDOW's rotation; gain and tint stay identity (the
                  // component's knobs belong to a scene, not to the asset).
                  source.Look.RotationDegrees = m_RotationDegrees;
@@ -159,7 +191,14 @@ namespace Desert::Editor
         if ( !m_Preview || m_RenderSize.x == 0u || m_RenderSize.y == 0u )
             return;
 
-        m_Preview->Setup().Exposure = m_Exposure;
+        m_PrefilteredMips = PrefilteredMipsOf( Assets::AssetHandle( Subject().Owner ) );
+        m_Preview->SetCubemapProjection( m_Projection == SkyboxView::Projection::LongLat2D );
+        // Level, projection and rotation are sampled inside the resolver, where the render gate cannot see
+        // them; the fingerprint is how a change to any of them asks for a frame.
+        m_Preview->SetContentFingerprint(
+             static_cast<uint64_t>( m_Level ) | ( static_cast<uint64_t>( m_Projection ) << 8u ) |
+             ( static_cast<uint64_t>( std::bit_cast<uint32_t>( m_RotationDegrees ) ) << 16u ) );
+        m_Preview->Setup().Exposure = SkyboxView::ExposureFromEV( m_ExposureEV );
         m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
     }
 
@@ -168,8 +207,24 @@ namespace Desert::Editor
         // No ImGui::Begin: EditorLayer's document loop wraps this in Begin/End.
         m_DrewThisFrame = true;
 
-        ImGui::SetNextItemWidth( 160.0f );
-        ImGui::SliderFloat( "Exposure", &m_Exposure, 0.01f, 16.0f, "%.2f", ImGuiSliderFlags_Logarithmic );
+        // UE's TextureCube editor row: 3D/2D, the level picker, EV. All read the cached cubes at sampling time.
+        int projection = static_cast<int>( m_Projection );
+        ImGui::RadioButton( "3D", &projection, static_cast<int>( SkyboxView::Projection::Sphere3D ) );
+        ImGui::SameLine();
+        ImGui::RadioButton( "2D", &projection, static_cast<int>( SkyboxView::Projection::LongLat2D ) );
+        m_Projection = static_cast<SkyboxView::Projection>( projection );
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 210.0f );
+        if ( ImGui::BeginCombo( "Level", SkyboxView::LevelLabel( m_Level, m_PrefilteredMips ).c_str() ) )
+        {
+            for ( int i = 0; i < SkyboxView::LevelCount( m_PrefilteredMips ); ++i )
+                if ( ImGui::Selectable( SkyboxView::LevelLabel( i, m_PrefilteredMips ).c_str(), i == m_Level ) )
+                    m_Level = i;
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 140.0f );
+        ImGui::SliderFloat( "EV", &m_ExposureEV, -10.0f, 10.0f, "%+.1f" );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 200.0f );
         ImGui::SliderFloat( "Rotation", &m_RotationDegrees, -180.0f, 180.0f, "%.0f deg" );

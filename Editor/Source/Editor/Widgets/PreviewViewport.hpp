@@ -232,6 +232,11 @@ namespace Desert::Editor
         // skybox viewer, where orbiting is looking around the sky. Any later Set*/Clear drops it again.
         void SetCubemapBackdrop( bool cubeIsBackdrop );
 
+        // After SetCubemapMaterial: show the cube unwrapped long-lat over the whole pane (true) or on the ball.
+        // Not a content revision by itself — the caller folds it into SetContentFingerprint with its other
+        // view state, so re-sending the same value every frame costs no render.
+        void SetCubemapProjection( bool longLat );
+
         // Show a VOLUME-domain material as the sky it authors: a preview world with ground, a sun and a
         // wide enough vertical lens that horizon, mid-elevation and zenith are in one frame.
         //

@@ -48,10 +48,17 @@ namespace Desert::Editor::Render
             m_Backdrop = cubeIsBackdrop;
         }
 
+        // Draw the cube unwrapped onto the whole pane (the skybox viewer's 2D view) instead of the ball.
+        void SetLongLat( bool longLat )
+        {
+            m_LongLat = longLat;
+        }
+
         void ClearSource()
         {
             m_ResolveCube = nullptr;
             m_Backdrop    = false;
+            m_LongLat     = false;
         }
 
     private:
@@ -61,5 +68,6 @@ namespace Desert::Editor::Render
         std::function<Graphic::SampledCube()>           m_ResolveCube;
         float                                           m_Radius   = 50.0f;
         bool                                            m_Backdrop = false;
+        bool                                            m_LongLat  = false;
     };
 } // namespace Desert::Editor::Render

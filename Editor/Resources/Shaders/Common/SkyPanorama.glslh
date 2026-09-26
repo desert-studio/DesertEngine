@@ -28,3 +28,16 @@ vec2 PanoramaSampleUV(vec3 d)
 
     return vec2( phi / ( 2.0 * kPi ) + 0.5, theta / kPi );
 }
+
+// The inverse: the world direction a panorama texel shows. The skybox viewer's 2D view draws the cubes back
+// out through it, so its unwrap is the file's own layout exactly while the two agree
+// (Tests/Editor/SkyboxViewLevels round-trips them).
+vec3 PanoramaDirection(vec2 uv)
+{
+    const float kPi = 3.14159265358979323846;
+
+    float phi   = ( uv.x - float( 0.5 ) ) * float( 2.0 ) * kPi;
+    float theta = uv.y * kPi;
+    float s     = sin( theta );
+    return vec3( s * cos( phi ), cos( theta ), s * sin( phi ) );
+}

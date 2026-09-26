@@ -56,7 +56,8 @@ namespace Desert::Editor::Render
             if ( source.Cube == nullptr )
                 return;
 
-            m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius, m_Backdrop );
+            m_Material->Update( ctx.Camera, source.Cube, source.Look, m_Radius, m_Backdrop, source.Lod,
+                                m_LongLat );
             Graphic::Renderer::GetInstance().SubmitFullscreenQuad( m_Pipeline.get(),
                                                                    m_Material->GetMaterialExecutor() );
         };

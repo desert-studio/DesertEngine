@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Editor/Panels/SkyboxViewer/SkyboxViewLevels.hpp>
 #include <Editor/Panels/SkyboxViewer/SkyboxViewerIdentity.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
@@ -85,7 +86,11 @@ namespace Desert::Editor
         std::optional<glm::vec2> m_PendingOrbitDegrees;
 
         // The window's own viewing knobs (see the class comment).
-        float m_Exposure        = 1.0f;
+        float m_ExposureEV = 0.0f;
+        // The picker (SkyboxViewLevels.hpp): which cube/mip, and ball or unwrap. Viewing state, never saved.
+        int                    m_Level           = 0;
+        SkyboxView::Projection m_Projection      = SkyboxView::Projection::Sphere3D;
+        uint32_t               m_PrefilteredMips = 0; // read off the cached chain each frame
         float m_RotationDegrees = 0.0f;
     };
 
