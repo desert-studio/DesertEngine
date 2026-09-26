@@ -80,12 +80,10 @@ project "Editor"
 
     -- NOTE: no INCLUDE_HEADERS=#include<...> define here — nothing uses it, and
     -- the '#' turns the rest of the DEFINES line into a comment in gmake makefiles.
-    defines { "YAML_CPP_STATIC_DEFINE",
-              "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
+    defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
 
     links{
         "Desert",
-        "yaml-cpp",
         "GLFW",
         "Optick",
         "MeshOptimizer",

@@ -5,7 +5,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -48,36 +48,42 @@ namespace Common::Content
 
     ResultStr<ChunkScheme> ParseChunkScheme( std::string_view json )
     {
-        // An empty scheme is a broken file, not an undivided project: the one-archive choice is written
-        // as `"Chunks": []`, so a blank file can only be a write that never finished.
+        // A scheme file that exists but holds nothing is not "undivided": it is a file that lost its
+        // content, and reading it as an empty scheme would quietly package everything into one archive.
+        // An undivided project says so on purpose: WriteChunkScheme of an empty ChunkScheme.
         const std::string text( json );
         if ( text.find_first_not_of( " \t\r\n" ) == std::string::npos )
-            return MakeError<ChunkScheme>( "the chunk scheme is empty — an undivided project states "
-                                           "\"Chunks\": [] rather than leaving the file blank" );
+            return MakeError<ChunkScheme>( "the chunk scheme is empty; an undivided project writes an empty "
+                                           "'Chunks' list and an empty 'AlwaysBase' list, not an empty file" );
 
-        // No DefaultIfMissing: a scheme missing "Chunks" or "AlwaysBase" is refused by the field's name
-        // instead of reading as an empty list nobody wrote.
-        auto parsed = rfl::json::read<ChunkSchemeJson>( text );
+        const auto parsed = Json::Read<ChunkSchemeJson>( text );
         if ( !parsed )
-            return MakeFormattedError<ChunkScheme>( "the chunk scheme could not be read: {}",
-                                                    parsed.error().what() );
+            return MakeFormattedError<ChunkScheme>( "the chunk scheme could not be read: {}", parsed.GetError() );
 
         ChunkScheme scheme;
-        scheme.AlwaysBase = parsed.value().AlwaysBase;
-        scheme.Chunks.reserve( parsed.value().Chunks.size() );
-        for ( const auto& rule : parsed.value().Chunks )
+        scheme.AlwaysBase = parsed.GetValue().AlwaysBase;
+        scheme.Chunks.reserve( parsed.GetValue().Chunks.size() );
+        for ( const auto& rule : parsed.GetValue().Chunks )
             scheme.Chunks.push_back( ChunkRule{ rule.Name, rule.Roots } );
         return MakeSuccess( std::move( scheme ) );
     }
 
+    namespace
+    {
+        ChunkSchemeJson ToJson( const ChunkScheme& scheme )
+        {
+            ChunkSchemeJson out;
+            out.AlwaysBase = scheme.AlwaysBase;
+            out.Chunks.reserve( scheme.Chunks.size() );
+            for ( const auto& rule : scheme.Chunks )
+                out.Chunks.push_back( ChunkRuleJson{ rule.Name, rule.Roots } );
+            return out;
+        }
+    } // namespace
+
     std::string WriteChunkScheme( const ChunkScheme& scheme )
     {
-        ChunkSchemeJson out;
-        out.AlwaysBase = scheme.AlwaysBase;
-        out.Chunks.reserve( scheme.Chunks.size() );
-        for ( const auto& rule : scheme.Chunks )
-            out.Chunks.push_back( ChunkRuleJson{ rule.Name, rule.Roots } );
-        return rfl::json::write( out );
+        return Json::Write( ToJson( scheme ) );
     }
 
     fs::path ChunkSchemePath()
@@ -112,8 +118,9 @@ namespace Common::Content
         if ( Utils::FileSystem::Exists( path ) )
             return MakeFormattedError<bool>( "{} already exists; the default scheme never replaces one",
                                              path.string() );
-        const auto written =
-             Utils::FileSystem::WriteContentToFileAtomic( path, WriteChunkScheme( ChunkScheme{} ) );
+        // Through the facade's writer: the file is committed and hand-edited, so it gets the canonical
+        // layout every other text asset has, not rfl's single line.
+        const auto written = Json::WriteFileAtomic( path, ToJson( ChunkScheme{} ) );
         if ( !written )
             return MakeFormattedError<bool>( "could not write the default chunk scheme to {}: {}", path.string(),
                                              written.GetError() );

@@ -411,15 +411,20 @@ TEST( PakChunks, TheSchemeRoundTripsAndABlankOrHalfWrittenFileIsRefused )
     EXPECT_EQ( parsed.GetValue().Chunks.front().Roots.size(), 2u );
     EXPECT_EQ( parsed.GetValue().AlwaysBase, scheme.AlwaysBase );
 
-    // A blank file is an unfinished write, not "one archive" (owner, 2026-09-25).
-    const auto empty = ParseChunkScheme( "   \n\t " );
-    ASSERT_FALSE( empty.IsSuccess() );
-    EXPECT_NE( empty.GetError().find( "empty" ), std::string::npos ) << empty.GetError();
+    // Strict (lead decision, JS1a2): an empty text, a missing member and an unknown key are all refusals
+    // naming what is wrong, never a scheme quietly read as "undivided".
+    EXPECT_FALSE( ParseChunkScheme( "   \n\t " ).IsSuccess() );
+    const auto undivided = ParseChunkScheme( R"({"Chunks":[],"AlwaysBase":[]})" );
+    ASSERT_TRUE( undivided ) << undivided.GetError();
+    EXPECT_TRUE( undivided.GetValue().Chunks.empty() );
 
-    // A missing field is refused by its name rather than read as an empty list nobody wrote.
-    const auto halfWritten = ParseChunkScheme( R"({ "Chunks": [] })" );
-    ASSERT_FALSE( halfWritten.IsSuccess() );
-    EXPECT_NE( halfWritten.GetError().find( "AlwaysBase" ), std::string::npos ) << halfWritten.GetError();
+    const auto noBase = ParseChunkScheme( R"({"Chunks":[]})" );
+    ASSERT_FALSE( noBase.IsSuccess() );
+    EXPECT_NE( noBase.GetError().find( "field 'AlwaysBase'" ), std::string::npos ) << noBase.GetError();
+
+    const auto typo = ParseChunkScheme( R"({"Chunks":[{"Name":"A","Roots":[],"Root":"x"}],"AlwaysBase":[]})" );
+    ASSERT_FALSE( typo.IsSuccess() );
+    EXPECT_NE( typo.GetError().find( "field 'Chunks.Root'" ), std::string::npos ) << typo.GetError();
 
     const auto rubbish = ParseChunkScheme( "{ this is not json" );
     EXPECT_FALSE( rubbish.IsSuccess() );

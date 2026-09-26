@@ -129,6 +129,9 @@ namespace
            "goes straight into the .deproj through ProjectContext::SetDefaultScene, where "
            "Desert/Tests/Engine/ConfigOwnership censuses it as DefaultScene." },
          { "m_ScenesScanned", nullptr, "whether that list has been filled yet." },
+         { "m_SchemeMessage", nullptr,
+           "what the last \"Create default ContentChunks.json\" click did, displayed and nothing else. The "
+           "scheme itself is a committed file beside the project, never a panel member." },
     };
 
     // The ImGui calls through which a person CHANGES something. A member or preference named inside one
@@ -593,7 +596,7 @@ TEST( BuildSettingsConsumers, EveryEditingWidgetInThePanelIsOneThisSuiteKnows )
          "TextUnformatted", "TextDisabled",     "TextColored",     "Text",           "Separator",     "Spacing",
          "SameLine",        "BeginDisabled",    "EndDisabled",     "Button",         "SmallButton",   "BeginCombo",
          "EndCombo",        "SetNextItemWidth", "PushTextWrapPos", "PopTextWrapPos", "IsItemHovered", "SetTooltip",
-         "BulletText",
+         "BulletText",      "TextWrapped",
     };
 
     // Every `ImGui::<Name>` the panel calls — and every `ImGuiUtilities::<Name>` too, because the

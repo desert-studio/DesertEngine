@@ -7,7 +7,6 @@ local buildScripts = _MAIN_SCRIPT_DIR .. "/BuildScripts/ThirdParty"
 include( buildScripts .. "/GLFW.lua" )
 include( buildScripts .. "/ImGui.lua" )
 include( buildScripts .. "/ImGuiNodeEditor.lua" )
-include( buildScripts .. "/YamlCpp.lua" )
 include( buildScripts .. "/Jolt.lua" )
 include( buildScripts .. "/Lua.lua" )
 include( buildScripts .. "/Optick.lua" )

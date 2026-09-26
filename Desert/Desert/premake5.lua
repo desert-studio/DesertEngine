@@ -60,7 +60,6 @@ project "Desert"
         "Lua",
         "Optick",
         "MeshOptimizer",
-        deps.Common.Libraries.yaml_cpp
     }
     
     for _, define in ipairs(deps.Common.Defines) do
