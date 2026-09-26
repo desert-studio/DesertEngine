@@ -15,6 +15,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
     }
 
     includedirs {

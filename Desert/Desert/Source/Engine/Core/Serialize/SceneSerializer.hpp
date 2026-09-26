@@ -13,12 +13,17 @@
 
 namespace Desert::Core
 {
+    struct LoadableScene;
+
     class SceneSerializer
     {
     public:
         explicit SceneSerializer( const Scene* scene, const Assets::AssetManager* assetManager );
 
         std::string SerializeToJson() const;
+        /// The document a save writes (ComposeSceneDocument): this build's tree with the loaded file's foreign
+        /// keys merged back. SerializeToJson writes it as one line, SaveToFile in the canonical layout.
+        [[nodiscard]] Common::Json::Value SerializeToDocument() const;
 
         /// Loads a scene from the JSON text of a .desce file into the scene this serializer was made for.
         ///
@@ -30,6 +35,11 @@ namespace Desert::Core
         /// @param source what to call this file in that error. A PATH when there is one; the play-mode
         ///        snapshot has no file, so it says so. It is never used to open anything - this function
         ///        does not touch the disk, and passing the path is only how the message can name it.
+        /// Loads what ParseLoadableScene handed back - the typed tree to instantiate and the document the
+        /// next save merges into. A caller that asked the gate first passes its result here: the text is
+        /// parsed once per load. DeserializeFromJson is the same load for a caller that holds only text.
+        [[nodiscard]] Common::BoolResultStr Deserialize( LoadableScene loaded, std::string_view source ) const;
+
         [[nodiscard]] Common::BoolResultStr DeserializeFromJson( const std::string& json,
                                                                  std::string_view   source ) const;
 

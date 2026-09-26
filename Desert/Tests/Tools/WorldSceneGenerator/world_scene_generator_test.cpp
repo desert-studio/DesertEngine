@@ -420,7 +420,7 @@ TEST( WorldSceneGenerator, TheGeneratedSceneIsOneTheLoaderACCEPTS )
 
     const auto loadable = ParseLoadableScene( out.string(), bytes );
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
-    EXPECT_TRUE( SceneIsAtCurrentVersion( loadable.GetValue() ) );
+    EXPECT_TRUE( SceneIsAtCurrentVersion( loadable.GetValue().Scene ) );
 }
 
 // And it STATES both integers rather than defaulting into them - the second corpus rule, and the one that

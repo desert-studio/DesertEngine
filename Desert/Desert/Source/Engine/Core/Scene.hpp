@@ -16,7 +16,7 @@
 #include <Common/Core/Timestep.hpp>
 #include <Common/Core/UUID.hpp>
 #include <glm/glm.hpp>
-#include <rflcpp/rfl/Generic.hpp>
+#include <Common/Json/Json.hpp>
 #include <cstdint>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -272,11 +272,11 @@ namespace Desert::Core
         //
         // Empty for a scene that was never loaded from a file (File → New), which makes the merge the
         // identity and costs a new scene nothing.
-        [[nodiscard]] const rfl::Generic::Object& GetLoadedDocument() const
+        [[nodiscard]] const std::optional<Common::Json::Value>& GetLoadedDocument() const
         {
             return m_LoadedDocument;
         }
-        void SetLoadedDocument( rfl::Generic::Object document )
+        void SetLoadedDocument( Common::Json::Value document )
         {
             m_LoadedDocument = std::move( document );
         }
@@ -417,6 +417,6 @@ namespace Desert::Core
         std::optional<Common::Content::TextAssetHeaderSerialized> m_AssetHeader;
         // See GetLoadedDocument() — the parsed .desce, held only so the saver can keep the keys this
         // build cannot name.
-        rfl::Generic::Object m_LoadedDocument;
+        std::optional<Common::Json::Value> m_LoadedDocument;
     };
 } // namespace Desert::Core

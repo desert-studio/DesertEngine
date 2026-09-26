@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
@@ -73,6 +74,28 @@ namespace
     std::string Write( const rfl::Generic::Object& object )
     {
         return rfl::json::write( object );
+    }
+
+    // The merge walks Nodes over values; the fixtures here are parsed objects, so each call wraps them.
+    Common::Json::Object MergeObjects( const Common::Json::Object& fresh, const Common::Json::Object& source,
+                                       const Desert::Core::Serialize::KeyIsOurs& ours )
+    {
+        const Common::Json::Value f( fresh );
+        const Common::Json::Value s( source );
+        return Desert::Core::Serialize::MergeObjects( Common::Json::Root( f ), Common::Json::Root( s ), ours );
+    }
+    Common::Json::Object MergeSceneDocument( const Common::Json::Object& fresh, const Common::Json::Object& source,
+                                             const Desert::Core::Serialize::KeyIsOurs& ours )
+    {
+        const Common::Json::Value f( fresh );
+        const Common::Json::Value s( source );
+        return Desert::Core::Serialize::MergeSceneDocument( Common::Json::Root( f ), Common::Json::Root( s ), ours );
+    }
+    void CountForeignKeysAtLevel( const Common::Json::Object& source, const Desert::Core::Serialize::KeyIsOurs& ours,
+                                  std::map<std::string, int>& into )
+    {
+        const Common::Json::Value s( source );
+        Desert::Core::Serialize::CountForeignKeysAtLevel( Common::Json::Root( s ), ours, into );
     }
 
     KeyIsOurs Owns( std::vector<std::string> names )
@@ -417,6 +440,84 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskIsUnchangedByAWholeDocumentRoundTrip )
         const std::string source   = ReadAll( path );
         const auto        document = Parse( source );
         EXPECT_EQ( Write( MergeSceneDocument( document, document, NothingIsOurs() ) ), Write( document ) );
+    }
+}
+
+// JS1c-S5 - THE LOAD'S ONE PARSE AND THE SAVE'S ONE WRITE, over the real corpus. Each committed scene goes through
+// the gate exactly as the loader takes it (ParseLoadableScene: one parse, the document and the typed tree read off
+// it), then through the function the saver calls (ComposeSceneDocument: the typed tree written as a tree, the
+// loaded document merged back) and the canonical layout SaveToFile writes. Nothing may move by a byte.
+TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoadersParseAndTheSaversCompose )
+{
+    const auto scenes = Corpus();
+    ASSERT_GE( scenes.size(), 40u ) << "the scene corpus was not found";
+
+    for ( const auto& path : scenes )
+    {
+        SCOPED_TRACE( path.string() );
+        const std::string bytes    = ReadAll( path );
+        const auto        loadable = Desert::Core::ParseLoadableScene( path.string(), bytes );
+        ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
+
+        const std::optional<Common::Json::Value> document = loadable.GetValue().Document;
+        const auto                               written  = Common::Json::WriteCanonical(
+             Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() ) );
+        ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
+        EXPECT_EQ( written.GetValue(), bytes );
+    }
+}
+
+// A key another build added at the TOP of the file: the gate tolerates it (refusing it would refuse that build's
+// file), and the save writes it back where it stood. The strict read (Node::As) would refuse this file.
+TEST( ForeignKeysCorpus, AKeyAnotherBuildAddedAtTheTopIsReadPastAndWrittenBackInPlace )
+{
+    const auto scenes = Corpus();
+    ASSERT_FALSE( scenes.empty() ) << "the scene corpus was not found";
+
+    std::string bytes = ReadAll( scenes.front() );
+    const auto  brace = bytes.find( '{' );
+    ASSERT_NE( brace, std::string::npos );
+    bytes.insert( brace + 1, R"("ForeignTop":{"k":[1,2]},)" );
+
+    const auto loadable = Desert::Core::ParseLoadableScene( "Foreign.desce", bytes );
+    ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
+
+    const std::optional<Common::Json::Value> document = loadable.GetValue().Document;
+    const auto                               written  = Common::Json::WriteCanonical(
+         Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() ) );
+    ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
+    const auto at = written.GetValue().find( "\"ForeignTop\"" );
+    ASSERT_NE( at, std::string::npos ) << "the foreign key was lost by the save";
+    EXPECT_LT( at, written.GetValue().find( "\"SceneName\"" ) ) << "the foreign key moved";
+}
+
+// ONE PARSE PER LOAD, as a census: the loader's only parse is the gate's, and every caller that asks the gate
+// before tearing its scene down hands the gate's result on (Deserialize) instead of the text again
+// (DeserializeFromJson), which was a second full parse on every editor open.
+TEST( SceneDocumentCensus, EveryLoadParsesTheSceneTextOnce )
+{
+    const std::string root = RepoRoot();
+    ASSERT_FALSE( root.empty() );
+    const auto count = []( const std::string& text, const std::string& token )
+    {
+        std::size_t n = 0;
+        for ( auto at = text.find( token ); at != std::string::npos; at = text.find( token, at + 1 ) )
+            ++n;
+        return n;
+    };
+
+    const std::string loader = ReadAll( root + "Desert/Desert/Source/Engine/Core/Serialize/SceneSerializer.cpp" );
+    EXPECT_EQ( count( loader, "ParseLoadableScene(" ), 1u );
+    for ( const char* token : { "json::read", "Json::Parse(", "Json::Read<" } )
+        EXPECT_EQ( count( loader, token ), 0u ) << "SceneSerializer.cpp parses scene text a second time: " << token;
+
+    for ( const char* file : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp",
+                               "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.cpp" } )
+    {
+        const std::string text = ReadAll( root + file );
+        EXPECT_GE( count( text, "ParseLoadableScene(" ), 1u ) << file;
+        EXPECT_EQ( count( text, "ParseLoadableScene(" ), count( text, ".Deserialize( loadable.ExtractValue()" ) )
+             << file << " asks the gate and then hands the TEXT to the loader, which parses it again";
     }
 }
 

@@ -23,7 +23,6 @@
 #include <Common/Core/Units.hpp>
 #include <Common/Content/CanonicalText.hpp>
 
-#include <rflcpp/rfl/json.hpp>
 #include <cmath>
 #include <filesystem>
 #include <map>
@@ -58,14 +57,14 @@ namespace Desert::Core
         // EntitySerializer fills in, plus every component key the registry holds.
         //
         // It is derived from the same two tables the writer enumerates and is not a list: the meta
-        // members come out of rfl::fields<EntityData>() (which is what rfl::json writes them from) and
+        // members come out of Common::Json::MemberNames<EntityData>() (the writer's own member list) and
         // the component keys out of ComponentRegistry itself. A third statement of either would be the
         // fork this whole change exists to remove.
         Serialize::KeyIsOurs EntityRecordKeyIsOurs()
         {
             auto names = std::make_shared<std::unordered_set<std::string>>();
-            for ( const auto& field : rfl::fields<Assets::EntityData>() )
-                names->insert( std::string( field.name() ) );
+            for ( const auto& name : Common::Json::MemberNames<Assets::EntityData>() )
+                names->insert( name );
             for ( const auto& serializer : Serialize::ComponentRegistry::Get().All() )
                 names->insert( serializer.Key );
             return [names]( const std::string& key ) { return names->count( key ) != 0; };
@@ -187,7 +186,7 @@ namespace Desert::Core
     {
     }
 
-    std::string SceneSerializer::SerializeToJson() const
+    Common::Json::Value SceneSerializer::SerializeToDocument() const
     {
         SceneSerialized scene;
         // The GUID survives the save (StampTextHeader keeps the loaded one); a scene that never had one gets
@@ -309,7 +308,7 @@ namespace Desert::Core
         {
             auto resolver = Serialize::MakeAssetResolver( *m_AssetManager );
             scene.Settings =
-                 rfl::Generic( Reflection::SerializeReflected( *st, &m_Scene->GetSettings(), &resolver ) );
+                 Common::Json::Value( Reflection::SerializeReflected( *st, &m_Scene->GetSettings(), &resolver ) );
         }
 
         // WHAT THIS BUILD KNOWS, MERGED ONTO WHAT THE FILE SAID. Everything above enumerates a
@@ -320,59 +319,32 @@ namespace Desert::Core
         //
         // A scene that was never loaded from a file has an empty document and the merge is the
         // identity, so File → New costs nothing.
-        const auto& source = m_Scene->GetLoadedDocument();
-        if ( source.empty() )
-            return rfl::json::write( scene );
+        return ComposeSceneDocument( scene, m_Scene->GetLoadedDocument(), EntityRecordKeyIsOurs() );
+    }
 
-        auto written = rfl::json::read<rfl::Generic>( rfl::json::write( scene ) );
-        if ( !written.has_value() )
-        {
-            // Cannot happen through a parser that has just produced the text — but a silent fallback
-            // here would be the whole defect back again, so it is named rather than assumed away.
-            LOG_ERROR( "[SceneSerializer] '{0}': the scene this build wrote could not be re-read as a "
-                       "tree, so the keys the file carries that this build does not declare could not "
-                       "be merged back in. THEY ARE ABOUT TO BE LOST.",
-                       m_Scene->GetSceneName() );
-            return rfl::json::write( scene );
-        }
-        const auto asObject = written.value().to_object();
-        if ( !asObject.has_value() )
-            return rfl::json::write( scene );
-
-        return rfl::json::write(
-             Serialize::MergeSceneDocument( asObject.value(), source, EntityRecordKeyIsOurs() ) );
+    std::string SceneSerializer::SerializeToJson() const
+    {
+        return Common::Json::Write( SerializeToDocument() );
     }
 
     Common::BoolResultStr SceneSerializer::DeserializeFromJson( const std::string& json,
                                                                 std::string_view   source ) const
     {
-        // THE VERSION GATE, AND WHY IT REFUSES INSTEAD OF REPAIRING.
-        //
-        // Eight schema migrations used to run right here, on every load of every scene, forever. Each was
-        // written to be deleted "once no v<n> file remains" and not one ever was, because a migration that
-        // runs at LOAD never writes its result back and so can never reach that condition - which is the
-        // expiry DEV_CONTRACT §4.6 requires and the reason §4.3 ends "the runtime knows nothing about the
-        // old format". This runtime now knows exactly one: the current one.
-        //
-        // It also does not SUBSTITUTE (§1.4). An old file is not loaded on defaults, not partially loaded
-        // and not half-migrated: the gate is before the scene name, before the settings and before a single
-        // entity is made, so a refusal creates nothing at all and the error says what to run. The
-        // conversion still exists, in full, in Tools/SceneMigrator - it runs once, over the file, and
-        // writes it back, which is the only shape of migration that can ever be finished.
-        //
-        // Callers ask ParseLoadableScene the same question BEFORE they clear the scene they are replacing;
-        // this is the second, authoritative asking, so that a caller which forgets still cannot get an old
-        // file past here.
-        SceneLoadPhases phases( fmt::format( "'{}'", source ) );
-
+        // THE VERSION GATE REFUSES, IT DOES NOT REPAIR: an old file is converted once by Tools/SceneMigrator
+        // (SceneFormat.hpp). The gate's parse is the load's only one - its result is what Deserialize takes.
         auto loadable = ParseLoadableScene( source, json );
         if ( !loadable )
         {
             LOG_ERROR( "{0}", loadable.GetError() );
             return Common::MakeError( loadable.GetError() );
         }
+        return Deserialize( loadable.ExtractValue(), source );
+    }
 
-        const SceneSerialized scene = loadable.ExtractValue();
+    Common::BoolResultStr SceneSerializer::Deserialize( LoadableScene loaded, std::string_view source ) const
+    {
+        SceneLoadPhases        phases( fmt::format( "'{}'", source ) );
+        const SceneSerialized& scene = loaded.Scene;
         m_Scene->SetAssetHeader( scene.Header );
         phases.Lap( "parse the file into typed records (version gate)", scene.Entities.size() );
 
@@ -396,35 +368,24 @@ namespace Desert::Core
         // in the guarantee, and it is written down rather than left to be discovered.
         {
             std::map<std::string, int> foreign;
-            if ( const auto document = rfl::json::read<rfl::Generic>( json ); document.has_value() )
-                if ( const auto object = document.value().to_object(); object.has_value() )
+            // Counted on the document the gate parsed - there is no second parse to disagree with the first.
+            const Common::Json::Node document = Common::Json::Root( loaded.Document );
+            Serialize::CountForeignKeysAtLevel( document, NamesIn( Common::Json::MemberNames<SceneSerialized>() ),
+                                                foreign );
+            if ( const auto settings = document.Find( "Settings" ); settings.has_value() )
+                if ( const auto* st = Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
                 {
-                    m_Scene->SetLoadedDocument( object.value() );
-
-                    std::vector<std::string> topLevel;
-                    for ( const auto& field : rfl::fields<SceneSerialized>() )
-                        topLevel.push_back( std::string( field.name() ) );
-                    Serialize::CountForeignKeysAtLevel( object.value(), NamesIn( topLevel ), foreign );
-
-                    if ( const auto settings = object.value().get( "Settings" ); settings.has_value() )
-                        if ( const auto block = settings.value().to_object(); block.has_value() )
-                            if ( const auto* st = Reflection::ReflectionRegistry::Get().Find( "SceneSettings" ) )
-                            {
-                                std::vector<std::string> fields;
-                                for ( const auto& field : st->Fields )
-                                    fields.push_back( field.Name );
-                                Serialize::CountForeignKeysAtLevel( block.value(), NamesIn( fields ), foreign );
-                            }
-
-                    if ( const auto entities = object.value().get( "Entities" ); entities.has_value() )
-                        if ( const auto array = entities.value().to_array(); array.has_value() )
-                        {
-                            const auto ours = EntityRecordKeyIsOurs();
-                            for ( const auto& record : array.value() )
-                                if ( const auto fields = record.to_object(); fields.has_value() )
-                                    Serialize::CountForeignKeysAtLevel( fields.value(), ours, foreign );
-                        }
+                    std::vector<std::string> fields;
+                    for ( const auto& field : st->Fields )
+                        fields.push_back( field.Name );
+                    Serialize::CountForeignKeysAtLevel( *settings, NamesIn( fields ), foreign );
                 }
+            if ( const auto entities = document.Find( "Entities" ); entities.has_value() )
+            {
+                const auto ours = EntityRecordKeyIsOurs();
+                entities->ForEachElement( [&]( std::size_t, const Common::Json::Node& record )
+                                          { Serialize::CountForeignKeysAtLevel( record, ours, foreign ); } );
+            }
 
             if ( const std::string named = Serialize::DescribeForeignKeys( foreign ); !named.empty() )
                 LOG_WARN( "[SceneSerializer] '{0}' states {1} key(s) this build does not declare: {2}. "
@@ -434,7 +395,8 @@ namespace Desert::Core
                           "carrying it.",
                           scene.SceneName, foreign.size(), named );
         }
-        phases.Lap( "parse the file again as a generic document, count undeclared keys", scene.Entities.size() );
+        phases.Lap( "count undeclared keys", scene.Entities.size() );
+        m_Scene->SetLoadedDocument( std::move( loaded.Document ) );
 
         // Restore the scene name (was only logged before — so a renamed+saved scene reverted on load).
         if ( !scene.SceneName.empty() )
@@ -724,9 +686,9 @@ namespace Desert::Core
             return Common::MakeFormattedError( "could not save the landscape of '{}': {}", m_Scene->GetSceneName(),
                                                tiles.GetError() );
 
-        // The file is the canonical text (AF6), not rfl's single line: one field per line is what makes a
+        // The file is the canonical text (AF6), not the writer's single line: one field per line is what makes a
         // scene's git diff name the fields that changed and two edits to different entities merge.
-        const auto text = Common::Content::CanonicalJsonText( SerializeToJson() );
+        const auto text = Common::Json::WriteCanonical( SerializeToDocument() );
         if ( !text )
             return Common::MakeFormattedError( "could not lay out '{}' as text: {}", m_Scene->GetSceneName(),
                                                text.GetError() );

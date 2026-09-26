@@ -99,7 +99,7 @@ namespace Desert::Editor
             m_EditPlanStatus = "The scene could not be planned: " + parsed.GetError();
             return;
         }
-        const ::Desert::Core::SceneSerialized& scene = parsed.GetValue();
+        const ::Desert::Core::SceneSerialized& scene = parsed.GetValue().Scene;
         if ( !scene.WorldPartition )
         {
             m_EditPlanStatus = "This scene is not partitioned: it states no WorldPartition block.";

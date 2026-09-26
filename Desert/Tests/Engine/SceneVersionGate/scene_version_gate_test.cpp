@@ -254,10 +254,10 @@ TEST( SceneVersionGate, ACurrentFileParsesAndTheTreeComesBack )
     const auto loadable = ParseLoadableScene( "Current.desce", JsonAt( kSceneVersion, kUnitVersion ) );
 
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
-    EXPECT_EQ( loadable.GetValue().SceneName, "Fixture" );
-    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kSceneSchemaTag ),
+    EXPECT_EQ( loadable.GetValue().Scene.SceneName, "Fixture" );
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Scene.Header, Desert::Assets::kSceneSchemaTag ),
                kSceneVersion );
-    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Header, Desert::Assets::kUnitSchemaTag ),
+    EXPECT_EQ( Desert::Assets::StatedVersion( loadable.GetValue().Scene.Header, Desert::Assets::kUnitSchemaTag ),
                kUnitVersion );
 }
 

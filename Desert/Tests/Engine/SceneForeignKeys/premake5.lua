@@ -19,6 +19,7 @@ project(test_name)
     files {
         test_files,
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp",

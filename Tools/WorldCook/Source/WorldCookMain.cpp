@@ -118,7 +118,7 @@ namespace Desert::WorldCook
         const double readMs = MsSince( started );
 
         const auto cookStart = std::chrono::steady_clock::now();
-        auto       cooked    = Core::WorldCells::CookWorld( scene.GetValue(), registries );
+        auto       cooked    = Core::WorldCells::CookWorld( scene.GetValue().Scene, registries );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << "\n";
@@ -231,7 +231,7 @@ namespace Desert::WorldCook
             return 6;
         }
         if ( Core::WorldCells::CanonicalRecords( back.GetValue() ) !=
-             Core::WorldCells::CanonicalRecords( scene.GetValue() ) )
+             Core::WorldCells::CanonicalRecords( scene.GetValue().Scene ) )
         {
             err << "WorldCook: verify: the world assembled from the cells does not hold the source's records\n";
             return 7;

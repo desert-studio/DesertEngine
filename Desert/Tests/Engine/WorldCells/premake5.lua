@@ -15,6 +15,9 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCellLoader.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCellLoader.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         "%{wks.location}/Tools/WorldCook/Source/WorldCookMain.cpp",
         -- The planner places a landscape tile by its root's frame; both files are pure and link only Common.
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",

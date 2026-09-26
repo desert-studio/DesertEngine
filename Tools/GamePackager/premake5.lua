@@ -24,6 +24,13 @@ project "GamePackager"
         -- The same four files Tests/Editor/PackagedContent compiles, so the suite links what the tool links.
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
+        "Source/**.cpp",
+        "%{wks.location}/Editor/Source/Editor/Packaging/GamePackager.cpp",
+        "%{wks.location}/Editor/Source/Editor/Packaging/PackageCook.cpp",
+        -- The packager cuts a partitioned world into its cells (WP9): the world cook and what it reads with.
+        -- The same four files Tests/Editor/PackagedContent compiles, so the suite links what the tool links.
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/World/Landscape/LandscapeLayout.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",

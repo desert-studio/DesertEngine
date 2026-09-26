@@ -210,6 +210,27 @@ namespace Common::Json
             }
         }
 
+        // A whole DOCUMENT whose unknown keys the document itself carries (a .desce: the loader keeps the parsed
+        // value and the saver merges it back, Engine/Core/Serialize/ForeignKeys.hpp). A missing required member
+        // and a wrong-typed value are errors naming the path; an unknown key is tolerated at every level,
+        // because refusing it would refuse a file another build wrote - and dropping it is the merge's job
+        // never to do.
+        template <typename T>
+        [[nodiscard]] ResultStr<T> AsDocument() const
+        {
+            try
+            {
+                auto parsed = rfl::from_generic<T>( *m_Value );
+                if ( !parsed )
+                    return MakeError<T>( Located( Detail::DescribeReadError( parsed.error().what() ) ) );
+                return MakeSuccess( std::move( parsed.value() ) );
+            }
+            catch ( const std::exception& e )
+            {
+                return MakeError<T>( Located( Detail::DescribeReadError( e.what() ) ) );
+            }
+        }
+
         // Member `key` into `out` under THE WRONG-TYPE RULE (top of this header): absent -> `out` untouched;
         // wrong type or out of range -> an Issue with the member's full path, `out` untouched. A struct (or
         // any type without a scalar arm) is read as a block and replaces `out` whole or not at all.
