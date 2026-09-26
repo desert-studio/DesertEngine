@@ -141,25 +141,25 @@ namespace Desert::Editor::Tools
         // A palette selection (ReqCubeGridSelectBlocks) is a marquee too, and commits the same way.
         const bool marqueeStarts = ( interact && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) ) ||
                                    ( toolActive && ms.ReqCubeGridSelectBlocks > 0 );
-        if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.Cells.empty() )
+        if ( marqueeStarts && !m_CornerMode && m_HoverValid && !m_Volume.m_Cells.empty() )
             FreezeActive();
 
         // Re-initialising the grid frame commits the current piece too: cells are indices into a lattice,
         // so keeping them across a frame change would teleport built geometry. Frozen layers remember the
         // frame they were built in and stay exactly where they are.
-        if ( glm::any( glm::greaterThan( glm::abs( ms.GridOrigin - m_Volume.Origin ), glm::vec3( 1e-4f ) ) ) )
+        if ( glm::any( glm::greaterThan( glm::abs( ms.GridOrigin - m_Volume.m_Origin ), glm::vec3( 1e-4f ) ) ) )
         {
-            const glm::vec3 prevOrigin = m_Volume.Origin;
+            const glm::vec3 prevOrigin = m_Volume.m_Origin;
             FreezeActive();
-            m_Volume.Origin = ms.GridOrigin;
-            m_GroundY += prevOrigin.y - m_Volume.Origin.y; // keep the work-plane at the same world height
+            m_Volume.m_Origin = ms.GridOrigin;
+            m_GroundY += prevOrigin.y - m_Volume.m_Origin.y; // keep the work-plane at the same world height
         }
 
         // A finer Block Size subdivides the base — but splitting a DEFORMED cell would have to re-derive
         // every corner offset, so a piece that already has slopes is committed instead and the finer work
         // starts on a clean slate. (Its shape is preserved exactly; nothing is flattened.)
-        if ( !m_Volume.Cells.empty() && gs < m_Volume.Unit * 0.999f )
-            for ( const auto& [k, cell] : m_Volume.Cells )
+        if ( !m_Volume.m_Cells.empty() && gs < m_Volume.m_Unit * 0.999f )
+            for ( const auto& [k, cell] : m_Volume.m_Cells )
                 if ( !cell.IsFlat() )
                 {
                     FreezeActive();
@@ -170,35 +170,35 @@ namespace Desert::Editor::Tools
         // Base unit: the finest cell ever used. A Block Size finer than the base subdivides the base
         // losslessly (existing solids split into F³, world-identical); a coarser Block Size never remaps —
         // it just stamps K base cells at once. So drawn geometry never changes when the grid step changes.
-        const float uPrev   = m_Volume.Unit;
+        const float uPrev   = m_Volume.m_Unit;
         bool        rebased = false;
-        if ( m_Volume.Unit < 0.0f || m_Volume.Cells.empty() )
+        if ( m_Volume.m_Unit < 0.0f || m_Volume.m_Cells.empty() )
         {
-            m_Volume.Unit = gs; // nothing drawn yet -> the requested size simply becomes the base
+            m_Volume.m_Unit = gs; // nothing drawn yet -> the requested size simply becomes the base
             rebased = true;
         }
         else
-            for ( int guard = 0; gs < m_Volume.Unit * 0.999f && guard < 24; ++guard )
+            for ( int guard = 0; gs < m_Volume.m_Unit * 0.999f && guard < 24; ++guard )
             {
                 RefineBy( 2 ); // finer than the base -> subdivide losslessly (geometry stays put)
                 changed = true;
             }
-        const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Volume.Unit ) ) );
-        ms.CellSize   = static_cast<float>( K ) * m_Volume.Unit; // snap the shown Block Size to a base multiple
-        const float u = m_Volume.Unit;
+        const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Volume.m_Unit ) ) );
+        ms.CellSize   = static_cast<float>( K ) * m_Volume.m_Unit; // snap the shown Block Size to a base multiple
+        const float u = m_Volume.m_Unit;
 
         // Resizing the grid with a selection up but nothing pushed yet re-bases the whole volume, so the
         // stored cell indices would silently mean a different world position — the orange rectangle jumped
         // somewhere else. Re-express it in the new base instead: it stays where you put it and just
         // re-snaps to the new block size (UE: the marquee grows/shrinks in place).
-        if ( rebased && uPrev > 0.0f && m_Volume.Unit != uPrev && ( m_HasSel || m_Selecting ) )
-            RescaleSelection( m_Plane, m_Anchor, m_Sel, uPrev, m_Volume.Unit, K );
+        if ( rebased && uPrev > 0.0f && m_Volume.m_Unit != uPrev && ( m_HasSel || m_Selecting ) )
+            RescaleSelection( m_Plane, m_Anchor, m_Sel, uPrev, m_Volume.m_Unit, K );
 
         if ( ms.ReqClear )
         {
             ms.ReqClear = false;
-            m_Volume.Cells.clear();
-            m_Volume.Frozen.clear();
+            m_Volume.m_Cells.clear();
+            m_Volume.m_Frozen.clear();
             m_HasSel = m_Selecting = m_CornerMode = false;
             m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             RegenMesh( scene );
@@ -242,8 +242,8 @@ namespace Desert::Editor::Tools
                     }
                 }
             };
-            testLayer( m_Volume.Cells, u, glm::vec3( 0.0f ) );
-            for ( const Layer& l : m_Volume.Frozen ) // you can keep building on a committed piece
+            testLayer( m_Volume.m_Cells, u, glm::vec3( 0.0f ) );
+            for ( const Layer& l : m_Volume.m_Frozen ) // you can keep building on a committed piece
                 testLayer( l.Cells, l.Unit, l.Origin - gridOrigin );
 
             // "Hit Unrelated Geometry": the rest of the scene is targetable too, so you can start a grid
@@ -500,14 +500,14 @@ namespace Desert::Editor::Tools
         // them). The volume being worked on: brighter grey checkerboard at the live base resolution.
         if ( toolActive )
         {
-            for ( const Layer& l : m_Volume.Frozen )
+            for ( const Layer& l : m_Volume.m_Frozen )
                 for ( const auto& [k, cell] : l.Cells )
                     drawCellSolid( l.Cells, Unpack( k ), cell, l.Unit, l.Origin, IM_COL32( 108, 112, 122, 200 ),
                                    IM_COL32( 78, 82, 92, 225 ) );
-            for ( const auto& [k, cell] : m_Volume.Cells )
+            for ( const auto& [k, cell] : m_Volume.m_Cells )
             {
                 const glm::ivec3 c = Unpack( k );
-                drawCellSolid( m_Volume.Cells, c, cell, u, gridOrigin,
+                drawCellSolid( m_Volume.m_Cells, c, cell, u, gridOrigin,
                                ( ( c.x + c.y + c.z ) & 1 ) ? IM_COL32( 120, 125, 135, 205 )
                                                            : IM_COL32( 150, 155, 165, 205 ),
                                IM_COL32( 90, 95, 105, 230 ) );
@@ -762,11 +762,11 @@ namespace Desert::Editor::Tools
         }
 
         // Re-bake if the base resolution changed (a refine this frame).
-        if ( m_Volume.Unit != m_BakedUnit && !m_Volume.Cells.empty() )
+        if ( m_Volume.m_Unit != m_BakedUnit && !m_Volume.m_Cells.empty() )
             changed = true;
 
-        ms.Cubes = static_cast<int>( m_Volume.Cells.size() );
-        for ( const Layer& l : m_Volume.Frozen )
+        ms.Cubes = static_cast<int>( m_Volume.m_Cells.size() );
+        for ( const Layer& l : m_Volume.m_Frozen )
             ms.Cubes += static_cast<int>( l.Cells.size() );
 
         // --- Viewport bar: Level shift + Push/Pull + Corner + Resize Grid. It sits one row above the shared
@@ -866,7 +866,7 @@ namespace Desert::Editor::Tools
         if ( ms.ReqAccept )
         {
             ms.ReqAccept = false;
-            if ( !( m_Volume.Cells.empty() && m_Volume.Frozen.empty() ) )
+            if ( !( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() ) )
             {
                 // Collision on Accept (UE's Cube Grid bakes collision with the mesh): a blockout you
                 // cannot walk into is half a blockout. This is a BOX around the piece, not a triangle
@@ -930,10 +930,10 @@ namespace Desert::Editor::Tools
                 Commands::NotifyCreated( { m_Entity } );
                 Core::SelectionManager::SetSelected( m_Entity );
                 m_Entity = Common::UUID::Null();
-                m_Volume.Cells.clear();
-                m_Volume.Frozen.clear();
+                m_Volume.m_Cells.clear();
+                m_Volume.m_Frozen.clear();
                 m_HasSel = m_Selecting = m_CornerMode = false;
-                m_Volume.Unit = m_BakedUnit = -1.0f;
+                m_Volume.m_Unit = m_BakedUnit = -1.0f;
                 m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             }
         }
@@ -946,8 +946,8 @@ namespace Desert::Editor::Tools
 
     void CubeGridTool::RegenMesh( ::Desert::Core::Scene& scene )
     {
-        m_BakedUnit = m_Volume.Unit;
-        if ( m_Volume.Cells.empty() && m_Volume.Frozen.empty() )
+        m_BakedUnit = m_Volume.m_Unit;
+        if ( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() )
         {
             Cancel( scene );
             return;
@@ -996,10 +996,10 @@ namespace Desert::Editor::Tools
             if ( auto ref = scene.FindEntityByID( m_Entity ) )
                 scene.DestroyEntity( ref->get() );
         m_Entity = Common::UUID::Null();
-        m_Volume.Cells.clear();
-        m_Volume.Frozen.clear();
+        m_Volume.m_Cells.clear();
+        m_Volume.m_Frozen.clear();
         m_HasSel = m_Selecting = m_CornerMode = false;
-        m_Volume.Unit = m_BakedUnit = -1.0f;
+        m_Volume.m_Unit = m_BakedUnit = -1.0f;
         m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
     }
 } // namespace Desert::Editor::Tools
