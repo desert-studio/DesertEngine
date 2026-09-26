@@ -6,7 +6,7 @@
 // must be refused with UE's result codes and leave the mesh byte-for-byte unchanged in counts.
 #include <gtest/gtest.h>
 
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <cmath>
 #include <set>

@@ -4,7 +4,7 @@
 // carry every surviving triangle to the same geometry.
 #include <gtest/gtest.h>
 
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
 
 #include <cmath>
 #include <set>

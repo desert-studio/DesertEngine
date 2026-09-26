@@ -1,9 +1,9 @@
 // MeshConnectedComponents (seed-list path) and MeshRegionBoundaryLoops' loop overlay map: the two pieces of
 // GeometryCore that UE's GroupEdgeInserter builds on (CreateNewGroups, DeleteGroupTrianglesAndGetLoop).
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
-#include "Engine/Geometry/UECore/MapLookup.hpp"
-#include "Engine/Geometry/UECore/MeshRegionBoundaryLoops.hpp"
-#include "Engine/Geometry/UECore/Selections/MeshConnectedComponents.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/MapLookup.hpp"
+#include "Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.hpp"
+#include "Engine/Geometry/MeshCore/Selections/MeshConnectedComponents.hpp"
 
 #include <gtest/gtest.h>
 
