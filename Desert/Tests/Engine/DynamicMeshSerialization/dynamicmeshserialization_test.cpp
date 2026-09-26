@@ -14,6 +14,21 @@
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+
+#include <Common/Json/Document.hpp>
+
+#include <optional>
+
+namespace
+{
+    // A block read at the document root: the Issues are what a refusal would have reported.
+    template <class T>
+    std::optional<T> ReadBlockOf( const Common::Json::Value& value )
+    {
+        Common::Json::Issues issues;
+        return Desert::Core::Serialize::ReadBlock<T>( Common::Json::Root( value ), issues );
+    }
+} // namespace
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
@@ -32,8 +47,6 @@
 
 using namespace Desert::Geometry;
 using Desert::Assets::StaticMeshComponentSer;
-using Desert::Core::Serialize::ReadBlock;
-using Desert::Core::Serialize::WriteBlock;
 
 namespace
 {
@@ -83,7 +96,7 @@ namespace
                      rfl::json::write( *entity.StaticMesh ) );
                 if ( !probe || !probe.value().EditMesh )
                     continue;
-                const auto block = ReadBlock<StaticMeshComponentSer>( *entity.StaticMesh, "StaticMesh" );
+                const auto block = ReadBlockOf<StaticMeshComponentSer>( *entity.StaticMesh );
                 EXPECT_TRUE( block && block->EditMesh ) << entry.path();
                 if ( !block || !block->EditMesh )
                     continue;
@@ -99,7 +112,7 @@ namespace
     {
         StaticMeshComponentSer block;
         block.EditMesh = saved;
-        return rfl::json::write( WriteBlock( block, "StaticMesh" ) );
+        return rfl::json::write( Common::Json::FromStruct( block ) );
     }
 
     EditMesh OldRead( const EditMeshSer& saved )
@@ -263,8 +276,7 @@ TEST( DynamicMeshSerialization, RoundTripIsByteStable )
     for ( const CorpusMesh& mesh : CorpusWithVariants() )
     {
         const std::string first = Written( ToSerialized( NewRead( mesh.Saved, mesh.Name ) ) );
-        const auto        again =
-             ReadBlock<StaticMeshComponentSer>( rfl::json::read<rfl::Generic>( first ).value(), "StaticMesh" );
+        const auto again = ReadBlockOf<StaticMeshComponentSer>( rfl::json::read<rfl::Generic>( first ).value() );
         ASSERT_TRUE( again && again->EditMesh ) << mesh.Name;
         EXPECT_EQ( Written( ToSerialized( NewRead( *again->EditMesh, mesh.Name ) ) ), first ) << mesh.Name;
     }

@@ -17,6 +17,21 @@
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+
+#include <Common/Json/Document.hpp>
+
+#include <optional>
+
+namespace
+{
+    // A block read at the document root: the Issues are what a refusal would have reported.
+    template <class T>
+    std::optional<T> ReadBlockOf( const Common::Json::Value& value )
+    {
+        Common::Json::Issues issues;
+        return Desert::Core::Serialize::ReadBlock<T>( Common::Json::Root( value ), issues );
+    }
+} // namespace
 // PrimitiveType, which an ISM block states instead of a mesh path.
 #include <Engine/Geometry/PrimitiveType.hpp>
 
@@ -25,9 +40,6 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-
-using Desert::Core::Serialize::ReadBlock;
-using Desert::Core::Serialize::WriteBlock;
 
 namespace Assets = Desert::Assets;
 
@@ -54,7 +66,7 @@ TEST( GenericBlockRead, AnAnimationBlockMissingTwoFieldsKeepsTheComponentAndDefa
 {
     const auto older = FromJsonText( R"({"CurrentClip":"Run","Playing":true,"Loop":false,"PlaybackSpeed":2.5})" );
 
-    const auto parsed = ReadBlock<Assets::AnimationComponentSer>( older, "Animation" );
+    const auto parsed = ReadBlockOf<Assets::AnimationComponentSer>( older );
 
     ASSERT_TRUE( parsed.has_value() )
          << "one absent field cost the entity its whole AnimationComponent — the character stops being "
@@ -72,7 +84,7 @@ TEST( GenericBlockRead, ATextBlockMissingEverythingButItsTextIsStillAText )
 {
     const auto older = FromJsonText( R"({"Text":"Press Start"})" );
 
-    const auto parsed = ReadBlock<Assets::TextComponentSer>( older, "Text" );
+    const auto parsed = ReadBlockOf<Assets::TextComponentSer>( older );
 
     ASSERT_TRUE( parsed.has_value() ) << "a text element lost its text because it lacked five other keys";
     EXPECT_EQ( parsed.value().Text, "Press Start" );
@@ -84,7 +96,7 @@ TEST( GenericBlockRead, AUIAnimBlockMissingItsPlaybackFlagsKeepsItsTracks )
 {
     const auto older = FromJsonText( R"({"Tracks":[],"Duration":4.0})" );
 
-    const auto parsed = ReadBlock<Assets::UIAnimComponentSer>( older, "UIAnim" );
+    const auto parsed = ReadBlockOf<Assets::UIAnimComponentSer>( older );
 
     ASSERT_TRUE( parsed.has_value() );
     EXPECT_FLOAT_EQ( parsed.value().Duration, 4.0f );
@@ -106,7 +118,7 @@ TEST( GenericBlockRead, AnUnknownExtraFieldDoesNotRefuseTheBlock )
          FromJsonText( R"({"CurrentClip":"Run","Playing":true,"Loop":true,"PlaybackSpeed":1.0,)"
                        R"("EnableRootMotion":false,"GraphJson":"","SomethingAFutureBuildAdded":7})" );
 
-    const auto parsed = ReadBlock<Assets::AnimationComponentSer>( newer, "Animation" );
+    const auto parsed = ReadBlockOf<Assets::AnimationComponentSer>( newer );
 
     ASSERT_TRUE( parsed.has_value() )
          << "a key this build does not declare made it refuse the whole block, so an older worktree "
@@ -124,7 +136,7 @@ TEST( GenericBlockRead, AFieldOfTheWrongTypeIsStillRefused )
     const auto broken = FromJsonText( R"({"CurrentClip":"Run","Playing":"yes","Loop":true,"PlaybackSpeed":1.0,)"
                                       R"("EnableRootMotion":false,"GraphJson":""})" );
 
-    EXPECT_FALSE( ReadBlock<Assets::AnimationComponentSer>( broken, "Animation" ).has_value() )
+    EXPECT_FALSE( ReadBlockOf<Assets::AnimationComponentSer>( broken ).has_value() )
          << "a string where a boolean belongs was accepted — a malformed block is now indistinguishable "
             "from an old one";
 }
@@ -139,8 +151,7 @@ TEST( GenericBlockRead, WhatWriteBlockWritesIsWhatReadBlockReads )
     written.PlaybackSpeed = 0.25f;
     written.Graph         = "AnimGraphs/Probe.danimgraph";
 
-    const auto parsed =
-         ReadBlock<Assets::AnimationComponentSer>( WriteBlock( written, "Animation" ), "Animation" );
+    const auto parsed = ReadBlockOf<Assets::AnimationComponentSer>( Common::Json::FromStruct( written ) );
 
     ASSERT_TRUE( parsed.has_value() );
     EXPECT_EQ( parsed.value().CurrentClip, written.CurrentClip );
@@ -237,8 +248,8 @@ TEST( GenericBlockRead, AnInstancedStaticMeshSurvivesTheTripWithEveryMatrixIntac
     written.Primitive          = Desert::Geometry::PrimitiveType::Cube;
     written.InstanceTransforms = flat;
 
-    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
-         WriteBlock( written, "InstancedStaticMesh" ), "InstancedStaticMesh" );
+    const auto parsed =
+         ReadBlockOf<Assets::InstancedStaticMeshComponentSer>( Common::Json::FromStruct( written ) );
     ASSERT_TRUE( parsed.has_value() );
     const Assets::InstancedStaticMeshComponentSer& read =
          parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
@@ -258,11 +269,10 @@ TEST( GenericBlockRead, AnInstancedStaticMeshSurvivesTheTripWithEveryMatrixIntac
 // two instances. (ReadBlock is handed the block's CONTENTS; EntitySerializer looks the key up.)
 TEST( GenericBlockRead, TheBlockShapeASceneFileStatesIsTheOneThisStructReads )
 {
-    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
+    const auto parsed = ReadBlockOf<Assets::InstancedStaticMeshComponentSer>(
          FromJsonText( R"({"Primitive":"Cube","InstanceTransforms":[)"
                        R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,200.0,-200.0,0.0,1.0],)"
-                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,400.0,0.0,0.0,1.0]]})" ),
-         "InstancedStaticMesh" );
+                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,400.0,0.0,0.0,1.0]]})" ) );
     ASSERT_TRUE( parsed.has_value() );
     const Assets::InstancedStaticMeshComponentSer& read =
          parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
@@ -284,11 +294,10 @@ TEST( GenericBlockRead, TheBlockShapeASceneFileStatesIsTheOneThisStructReads )
 // has to keep resolving.
 TEST( GenericBlockRead, AnAssetBackedInstancedStaticMeshKeepsItsTransformsWithNoPrimitive )
 {
-    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
+    const auto parsed = ReadBlockOf<Assets::InstancedStaticMeshComponentSer>(
          FromJsonText( R"({"MeshPath":"Cooked/Meshes/Grass.stmesh",)"
                        R"("MaterialPaths":["Materials/M_Grass.demat"],"InstanceTransforms":[)"
-                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,7.0,8.0,9.0,1.0]]})" ),
-         "InstancedStaticMesh" );
+                       R"([1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,7.0,8.0,9.0,1.0]]})" ) );
     ASSERT_TRUE( parsed.has_value() );
     const Assets::InstancedStaticMeshComponentSer& read =
          parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
@@ -321,8 +330,8 @@ TEST( GenericBlockRead, AnInstancedStaticMeshCarriesTheRenameSafeGuidsAsWellAsTh
     written.MaterialGuids      = std::vector<std::string>{ kMaterialGuid };
     written.InstanceTransforms = NineDistinctInstances();
 
-    const auto parsed = ReadBlock<Assets::InstancedStaticMeshComponentSer>(
-         WriteBlock( written, "InstancedStaticMesh" ), "InstancedStaticMesh" );
+    const auto parsed =
+         ReadBlockOf<Assets::InstancedStaticMeshComponentSer>( Common::Json::FromStruct( written ) );
     ASSERT_TRUE( parsed.has_value() );
     const Assets::InstancedStaticMeshComponentSer& read =
          parsed.value(); // NOLINT(bugprone-unchecked-optional-access)
@@ -347,4 +356,19 @@ int main( int argc, char** argv )
 {
     testing::InitGoogleTest( &argc, argv );
     return RUN_ALL_TESTS();
+}
+
+// The refusal is REPORTED at the block's full path, not only logged by key (the wrong-type rule for a
+// Ser-struct block, Common/Json/Document.hpp): the whole block is dropped and the Issue says where.
+TEST( GenericBlockRead, AWrongTypedBlockIsDroppedWholeWithAnIssueAtItsPath )
+{
+    const auto               broken = FromJsonText( R"({"CurrentClip":"Run","PlaybackSpeed":"fast"})" );
+    const Common::Json::Path where  = Common::Json::Path().Key( "Entities" ).Record( "9" ).Key( "Animation" );
+    Common::Json::Issues     issues;
+    const auto               parsed = Desert::Core::Serialize::ReadBlock<Assets::AnimationComponentSer>(
+         Common::Json::Root( broken, where ), issues );
+    EXPECT_FALSE( parsed.has_value() );
+    ASSERT_EQ( issues.size(), 1u );
+    EXPECT_EQ( issues[0].Path, where.ToString() );
+    EXPECT_EQ( issues[0].Expected, "a readable block (dropped whole)" );
 }

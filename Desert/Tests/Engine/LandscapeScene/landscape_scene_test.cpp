@@ -20,6 +20,7 @@
 // compiled by no suite (see premake5.lua). The editor run in the LS-3 report covers the glue.
 
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
+#include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
@@ -171,16 +172,17 @@ namespace
         if ( !parsed.has_value() )
             return scene;
 
+        Common::Json::Issues issues;
         for ( const EntityData& record : parsed->Entities )
         {
             if ( const auto block = record.Components.get( "Landscape" ); block.has_value() )
-                ReadComponent( block.value().to_object().value(), scene.Root );
+                ReadComponent( Common::Json::Root( block.value() ), scene.Root, issues );
             if ( const auto block = record.Components.get( "LandscapeTile" ); block.has_value() )
             {
                 TileEntity entity;
                 entity.Id =
                      static_cast<uint64_t>( record.id.value() ); // NOLINT(bugprone-unchecked-optional-access)
-                ReadComponent( block.value().to_object().value(), entity.Tile );
+                ReadComponent( Common::Json::Root( block.value() ), entity.Tile, issues );
                 auto loaded = ReadLandscapeTileFile( entity.Tile.HeightFile );
                 EXPECT_TRUE( loaded.IsSuccess() ) << loaded.GetError();
                 if ( loaded.IsSuccess() )

@@ -12,6 +12,21 @@
 #include <SceneMigration.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+
+#include <Common/Json/Document.hpp>
+
+#include <optional>
+
+namespace
+{
+    // A block read at the document root: the Issues are what a refusal would have reported.
+    template <class T>
+    std::optional<T> ReadBlockOf( const Common::Json::Value& value )
+    {
+        Common::Json::Issues issues;
+        return Desert::Core::Serialize::ReadBlock<T>( Common::Json::Root( value ), issues );
+    }
+} // namespace
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
@@ -106,8 +121,7 @@ namespace
         const auto payload = entity.Components.get( "StaticMesh" );
         if ( !payload.has_value() )
             return std::nullopt;
-        const auto block = Desert::Core::Serialize::ReadBlock<Desert::Assets::StaticMeshComponentSer>(
-             payload.value(), "StaticMesh" );
+        const auto block = ReadBlockOf<Desert::Assets::StaticMeshComponentSer>( payload.value() );
         if ( !block || !block->EditMesh )
             return std::nullopt;
         auto mesh = Desert::Geometry::FromSerialized( *block->EditMesh );

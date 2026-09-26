@@ -24,60 +24,37 @@
 // about the same load is the shape §4 of the contract calls a relation defect; the comment was right
 // and the code was wrong, so the code moved.
 //
-// THE FIX IS THE PROCESSOR, AND THE OTHER HALF IS THE LOG. `rfl::DefaultIfMissing` makes an absent
-// field take the struct's own default, which is what every caller already believed. A payload that is
-// genuinely malformed — a string where a float belongs — still refuses, and now it refuses OUT LOUD,
-// with the component's key and reflect-cpp's own reason. An empty successful answer is a silent wrong
-// answer (contract §1.4), and dropping a component with no line in the log was exactly that.
-//
-// The direction that was already safe stays safe and is pinned by a test: an UNKNOWN extra field does
-// not refuse, which is what lets an older build open a newer build's scene.
+// THE FIX, AND WHERE IT LIVES NOW (JS1c). A block is read by Common::Json::Node::AsBlock<T>: an absent field
+// takes the struct's own default, which is what every caller already believed, and an UNKNOWN extra field
+// is tolerated, which is what lets an older build open a newer build's scene. A payload that is genuinely
+// malformed — a string where a float belongs — still refuses the WHOLE block (the wrong-type rule for a
+// Ser-struct, Common/Json/Document.hpp), and it refuses OUT LOUD: an Issue carrying the block's full path
+// ("Entities[id=4127].Text") and reflect-cpp's reason, which the caller reports on the load's error line.
+// An empty successful answer is a silent wrong answer (contract §1.4), and dropping a component with no
+// line in the log was exactly that. Writing is Common::Json::FromStruct, the tree the text would parse to.
 //
 // PURE, AND A HEADER FOR THAT REASON. ComponentRegistry.cpp links the AssetManager and through it the
-// renderer, so nothing defined inside it can be exercised by a suite. These two functions can, and
+// renderer, so nothing defined inside it can be exercised by a suite. This function can, and
 // Desert/Tests/Engine/GenericBlockRead does.
 
-#include <Common/Core/Logger.hpp>
+#include <Common/Json/Document.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/json.hpp>
-
+#include <cstddef>
 #include <optional>
-#include <string>
-#include <string_view>
 
 namespace Desert::Core::Serialize
 {
-    // Bridges a typed serialization struct to the generic JSON tree a `.desce` carries, reusing
-    // reflect-cpp's own serialization for the verbose asset-bearing payloads (mesh vertices, material
-    // path lists). @p key is the component's registry key and exists only so a refusal can name itself.
+    // A component block read whole into its mirror struct, or nothing — never a part of one. On a refusal
+    // `issues` gains the entry that says why, at the block's path; the caller reports it and leaves the
+    // entity without the component.
     template <class T>
-    rfl::Generic WriteBlock( const T& value, std::string_view key )
+    std::optional<T> ReadBlock( const Common::Json::Node& block, Common::Json::Issues& issues )
     {
-        auto generic = rfl::json::read<rfl::Generic>( rfl::json::write( value ) );
-        if ( generic.has_value() )
-            return generic.value();
-
-        // Unreachable unless reflect-cpp cannot re-read what it has just written, which would be a
-        // defect in the mirror struct itself. It used to fall back to `{}` without a word, and an
-        // empty block is indistinguishable from a component with nothing set in it.
-        LOG_ERROR( "[Scene] component '{0}' could not be written: {1}. An EMPTY block was stored under "
-                   "its key instead.",
-                   std::string( key ), generic.error().what() );
-        return rfl::Generic( rfl::Generic::Object{} );
-    }
-
-    // The other direction. `DefaultIfMissing` is the whole point — see the header comment.
-    template <class T>
-    std::optional<T> ReadBlock( const rfl::Generic& generic, std::string_view key )
-    {
-        auto parsed = rfl::json::read<T, rfl::DefaultIfMissing>( rfl::json::write( generic ) );
-        if ( parsed.has_value() )
-            return parsed.value();
-
-        LOG_ERROR( "[Scene] component '{0}' could not be read: {1}. The component was DROPPED from the "
-                   "entity — whatever it held is not in the scene that just opened.",
-                   std::string( key ), parsed.error().what() );
-        return std::nullopt;
+        T                 out;
+        const std::size_t before = issues.size();
+        block.ReadValue( out, issues );
+        if ( issues.size() != before )
+            return std::nullopt;
+        return out;
     }
 } // namespace Desert::Core::Serialize

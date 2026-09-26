@@ -22,6 +22,21 @@
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+
+#include <Common/Json/Document.hpp>
+
+#include <optional>
+
+namespace
+{
+    // A block read at the document root: the Issues are what a refusal would have reported.
+    template <class T>
+    std::optional<T> ReadBlockOf( const Common::Json::Value& value )
+    {
+        Common::Json::Issues issues;
+        return Desert::Core::Serialize::ReadBlock<T>( Common::Json::Root( value ), issues );
+    }
+} // namespace
 #include <Engine/Geometry/EditMeshConversion.hpp>
 #include <Engine/Geometry/EditMeshSerialization.hpp>
 
@@ -34,8 +49,6 @@ namespace
 {
     using namespace EditMeshTest;
     using Desert::Assets::StaticMeshComponentSer;
-    using Desert::Core::Serialize::ReadBlock;
-    using Desert::Core::Serialize::WriteBlock;
     using namespace Desert::Geometry;
 
     // An octahedron carrying EVERY kind of state the saved form holds, each in a shape that a lossy writer
@@ -109,7 +122,7 @@ namespace
         written.EditMesh    = ToSerialized( mesh );
         written.CastShadows = false; // a neighbour field, so the block is not the mesh alone
 
-        const auto read = ReadBlock<StaticMeshComponentSer>( WriteBlock( written, "StaticMesh" ), "StaticMesh" );
+        const auto read = ReadBlockOf<StaticMeshComponentSer>( Common::Json::FromStruct( written ) );
         EXPECT_TRUE( read.has_value() );
         EXPECT_TRUE( read.has_value() && read->EditMesh.has_value() );
         if ( !read || !read->EditMesh )

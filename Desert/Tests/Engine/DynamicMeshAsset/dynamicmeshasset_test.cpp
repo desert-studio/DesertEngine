@@ -10,6 +10,21 @@
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Serialize/GenericBlock.hpp>
+
+#include <Common/Json/Document.hpp>
+
+#include <optional>
+
+namespace
+{
+    // A block read at the document root: the Issues are what a refusal would have reported.
+    template <class T>
+    std::optional<T> ReadBlockOf( const Common::Json::Value& value )
+    {
+        Common::Json::Issues issues;
+        return Desert::Core::Serialize::ReadBlock<T>( Common::Json::Root( value ), issues );
+    }
+} // namespace
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
@@ -91,8 +106,7 @@ namespace
                      rfl::json::write( *entity.StaticMesh ) );
                 if ( !probe || !probe.value().EditMesh )
                     continue;
-                const auto block = Core::Serialize::ReadBlock<Assets::StaticMeshComponentSer>( *entity.StaticMesh,
-                                                                                               "StaticMesh" );
+                const auto block = ReadBlockOf<Assets::StaticMeshComponentSer>( *entity.StaticMesh );
                 if ( !block || !block->EditMesh )
                     continue;
                 auto mesh = FromSerialized( *block->EditMesh );
