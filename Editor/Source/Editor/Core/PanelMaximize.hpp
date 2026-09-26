@@ -112,8 +112,8 @@ namespace Desert::Editor
 
     // The palette entries: "Maximize panel: <name>" for every panel shown in a dock while none is maximized,
     // and "Restore panel" while one is.
-    [[nodiscard]] inline std::vector<PaletteCommand> PanelMaximizePaletteCommands( PanelMaximize&                   state,
-                                                                                   const std::vector<std::string>& docked )
+    [[nodiscard]] inline std::vector<PaletteCommand>
+    PanelMaximizePaletteCommands( PanelMaximize& state, const std::vector<std::string>& docked )
     {
         std::vector<PaletteCommand> commands;
         if ( !state.MaximizedPanel().empty() )
@@ -123,8 +123,8 @@ namespace Desert::Editor
         }
         commands.reserve( docked.size() );
         for ( const std::string& panel : docked )
-            commands.push_back(
-                 { "Panel", "Maximize panel: " + panel, [&state, panel] { return state.RequestMaximize( panel ); } } );
+            commands.push_back( { "Panel", "Maximize panel: " + panel,
+                                  [&state, panel] { return state.RequestMaximize( panel ); } } );
         return commands;
     }
 } // namespace Desert::Editor

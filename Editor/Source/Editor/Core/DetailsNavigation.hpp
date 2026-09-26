@@ -78,8 +78,8 @@ namespace Desert::Editor
         {
             if ( !m_Drawing )
                 return;
-            Add( m_DrawingFields, m_Component.empty() ? std::string( field )
-                                                      : m_Component + " / " + std::string( field ) );
+            Add( m_DrawingFields,
+                 m_Component.empty() ? std::string( field ) : m_Component + " / " + std::string( field ) );
         }
 
         // The label a field noted now is offered under (the same qualification NoteField applies).
@@ -174,7 +174,8 @@ namespace Desert::Editor
                                        const char* command, const char* what )
         {
             if ( m_Subject == 0 )
-                return Common::MakeError( std::string( command ) + ": no entity is selected in the Details panel" );
+                return Common::MakeError( std::string( command ) +
+                                          ": no entity is selected in the Details panel" );
             if ( std::find( shown.begin(), shown.end(), name ) == shown.end() )
             {
                 std::string known;

@@ -107,7 +107,7 @@ TEST( DetailsNavigation, RequestNotTakenByTheNextFrameExpires )
 TEST( DetailsNavigation, RefusesWithTheReasonAndWhatIsShown )
 {
     DetailsNavigation nav;
-    auto none = nav.RequestPicker( "Skybox" );
+    auto              none = nav.RequestPicker( "Skybox" );
     ASSERT_FALSE( none.IsSuccess() );
     EXPECT_NE( none.GetError().find( "no entity is selected" ), std::string::npos ) << none.GetError();
 

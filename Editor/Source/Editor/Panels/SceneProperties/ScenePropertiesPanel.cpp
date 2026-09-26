@@ -674,12 +674,13 @@ namespace Desert::Editor
             (void)EnsurePreview();
         m_ComponentEditor->SetPreview( m_Preview.get(), m_ThumbnailUI.get(), &m_PreviewActive );
         DetailsNavigation& navigation = GetDetailsNavigation();
-        navigation.BeginFrame( selectedEntity.HasComponent<ECS::UUIDComponent>()
-                                    ? static_cast<std::uint64_t>( selectedEntity.GetComponent<ECS::UUIDComponent>().UUID )
-                                    : 0,
-                               selectedEntity.HasComponent<ECS::TagComponent>()
-                                    ? selectedEntity.GetComponent<ECS::TagComponent>().Tag
-                                    : std::string() );
+        navigation.BeginFrame(
+             selectedEntity.HasComponent<ECS::UUIDComponent>()
+                  ? static_cast<std::uint64_t>( selectedEntity.GetComponent<ECS::UUIDComponent>().UUID )
+                  : 0,
+             selectedEntity.HasComponent<ECS::TagComponent>()
+                  ? selectedEntity.GetComponent<ECS::TagComponent>().Tag
+                  : std::string() );
         m_ComponentEditor->Render( const_cast<ECS::Entity&>( selectedEntity ), m_Scene.get(),
                                    m_FieldSearch.c_str() );
         navigation.EndFrame();

@@ -109,8 +109,8 @@ namespace Desert::Editor::Control
 
         // Raw descriptors rather than a platform type in the header: this file is included by EditorLayer,
         // and <sys/socket.h> in a header that also sees windows.h is a fight nobody needs.
-        int         m_ListenFd = -1;
-        int         m_ClientFd = -1;
+        int m_ListenFd = -1;
+        int m_ClientFd = -1;
         // Bumped on every accept. Zero means "nobody has ever connected", which no live connection can be,
         // so a caller that recorded a generation before there was a client cannot match a later one.
         uint64_t    m_ClientGeneration = 0;

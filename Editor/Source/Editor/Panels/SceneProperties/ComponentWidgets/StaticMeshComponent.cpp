@@ -87,7 +87,8 @@ namespace Desert::Editor
             }
 
             // A sunk asset slot, not a raised button: this row HOLDS a value (UE draws it the same way).
-            const bool clicked = Utils::ImGuiUtilities::AssetSlot( "MeshSlot", currentSelectionName.c_str(), emptySlot );
+            const bool clicked =
+                 Utils::ImGuiUtilities::AssetSlot( "MeshSlot", currentSelectionName.c_str(), emptySlot );
             if ( TakeDetailsPickerRequest( "Static mesh" ) || clicked )
             {
                 ImGui::OpenPopup( "mesh_selector" );

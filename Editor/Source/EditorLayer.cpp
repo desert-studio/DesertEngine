@@ -3996,9 +3996,10 @@ namespace Desert::Editor
             // Maximize / restore (palette "Panel" group): the dock node is read from the window as it stands,
             // so a panel the user re-docked by hand is simply not maximized any more.
             {
-                const ImGuiWindow*  window    = ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
-                const std::uint32_t dockId    = window != nullptr ? window->DockId : 0;
-                const auto          directive = m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId );
+                const ImGuiWindow* window =
+                     ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                const std::uint32_t dockId = window != nullptr ? window->DockId : 0;
+                const auto directive       = m_PanelMaximize.Before( PanelShownName( panel->GetName() ), dockId );
                 switch ( directive.Kind )
                 {
                     case PanelMaximize::Step::Undock:
@@ -4173,7 +4174,8 @@ namespace Desert::Editor
             {
                 if ( !panel->GetVisibility() )
                     continue;
-                const ImGuiWindow* window = ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                const ImGuiWindow* window =
+                     ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
                 if ( window != nullptr && window->DockId != 0 )
                     docked.push_back( PanelShownName( panel->GetName() ) );
             }
