@@ -766,7 +766,7 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
     const TypeInfo* type = ReflectionRegistry::Get().Find( "UIOverlayData" );
     ASSERT_NE( type, nullptr ) << "UIOverlayData is not reflected, so it is not serialized either";
 
-    const rfl::Generic::Object written = SerializeReflected( *type, &authored, nullptr );
+    const Common::Json::Object written = SerializeReflected( *type, &authored, nullptr );
 
     ECS::UIOverlayData reloaded;
     ReadReflectedValue( *type, &reloaded, written, nullptr );
@@ -790,7 +790,7 @@ TEST( OverlayPersistence, EveryAuthoredOverlayFieldComesBackFromAReload )
 
     const TypeInfo* ttype = ReflectionRegistry::Get().Find( "UIOverlayTriggerData" );
     ASSERT_NE( ttype, nullptr ) << "UIOverlayTriggerData is not reflected, so it is not serialized either";
-    const rfl::Generic::Object twritten = SerializeReflected( *ttype, &trigger, nullptr );
+    const Common::Json::Object twritten = SerializeReflected( *ttype, &trigger, nullptr );
     ECS::UIOverlayTriggerData  treloaded;
     ReadReflectedValue( *ttype, &treloaded, twritten, nullptr );
     EXPECT_EQ( treloaded.Overlay, trigger.Overlay );

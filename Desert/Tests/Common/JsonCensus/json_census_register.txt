@@ -14,19 +14,14 @@ Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.hpp | JS1c: scene
 Desert/Desert/Source/Engine/Core/WorldStreamer.cpp | JS1c: scene/component serialization (rfl::Generic trees) moves to the facade
 Desert/Tests/Common/CanonicalText/canonical_text_test.cpp | KEEP: proves the canonical printer against yyjson directly
 Desert/Tests/Engine/RetargetAsset/retarget_asset_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/RetargetPipeline/retarget_pipeline_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/RigGraph/rig_graph_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SceneDebugFields/scene_debug_fields_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SceneForeignKeys/scene_foreign_keys_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SceneStitch/scene_stitch_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SettingConsumers/setting_consumers_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/SkeletonMapperFit/skeleton_mapper_fit_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/SkinnedShadowFlag/skinned_shadow_flag_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/TwoBoneWitness/two_bone_witness_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/UIComponentRoundTrip/ui_component_round_trip_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/UIEventRouting/ui_event_routing_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/UIOverlays/ui_overlays_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
-Desert/Tests/Engine/UIStyle/ui_style_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldCells/world_cells_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Engine/WorldPartition/world_partition_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it
 Desert/Tests/Tools/WorldSceneGenerator/world_scene_generator_test.cpp | JS1d: test fixtures/readers follow their format when JS1b/c move it

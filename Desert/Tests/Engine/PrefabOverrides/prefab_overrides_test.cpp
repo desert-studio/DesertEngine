@@ -17,6 +17,7 @@
 // Core::Serialize::CapturePrefabInstance, which reaches the entity serializer and through it the whole
 // engine — no suite can link that, which is exactly why the decision lives where a suite can.
 
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
@@ -61,17 +62,17 @@ namespace
     // One field of a payload, as text, so a test can say which field moved and which did not.
     std::string FieldOf( const Common::Json::Value& payload, const std::string& field )
     {
-        const auto object = payload.to_object();
-        if ( !object )
+        const Common::Json::Node root = Common::Json::Root( payload );
+        if ( root.GetKind() != Common::Json::Kind::Object )
         {
             return "<not an object>";
         }
-        const auto value = object.value().get( field );
+        const auto value = root.Find( field );
         if ( !value )
         {
             return "<absent>";
         }
-        return Common::Json::Write( value.value() );
+        return Common::Json::Write( value->Raw() );
     }
 
     std::string Text( const Common::Json::Value& g )

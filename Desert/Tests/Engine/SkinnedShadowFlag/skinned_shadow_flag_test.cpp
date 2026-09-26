@@ -27,7 +27,7 @@
 #include <Engine/Assets/Prefab/PrefabData.hpp> // SkinnedMeshComponentSer, the on-disk mirror
 #include <Engine/ECS/Components.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -189,16 +189,16 @@ TEST( SkinnedShadowFlag, TheSerMirrorRoundTripsTheFlagAndAbsentMeansDefault )
     // Off survives the trip.
     Desert::Assets::SkinnedMeshComponentSer off;
     off.CastShadows    = false;
-    const auto offBack = rfl::json::read<Desert::Assets::SkinnedMeshComponentSer>( rfl::json::write( off ) );
-    ASSERT_TRUE( offBack.has_value() );
-    ASSERT_TRUE( offBack->CastShadows.has_value() );
-    EXPECT_FALSE( *offBack->CastShadows );
+    const auto offBack = Common::Json::Read<Desert::Assets::SkinnedMeshComponentSer>( Common::Json::Write( off ) );
+    ASSERT_TRUE( offBack.IsSuccess() ) << offBack.GetError();
+    ASSERT_TRUE( offBack.GetValue().CastShadows.has_value() );
+    EXPECT_FALSE( *offBack.GetValue().CastShadows );
 
     // A pre-Д24 payload (no key) parses with the optional absent — which value_or turns into the
     // component's own default at load, i.e. casting, exactly what those scenes did before.
-    const auto legacy = rfl::json::read<Desert::Assets::SkinnedMeshComponentSer>( "{}" );
-    ASSERT_TRUE( legacy.has_value() );
-    EXPECT_FALSE( legacy->CastShadows.has_value() );
+    const auto legacy = Common::Json::Read<Desert::Assets::SkinnedMeshComponentSer>( "{}" );
+    ASSERT_TRUE( legacy.IsSuccess() ) << legacy.GetError();
+    EXPECT_FALSE( legacy.GetValue().CastShadows.has_value() );
 }
 
 TEST( SkinnedShadowFlag, TheRegistryWritesTheFlagOnlyWhenOffAndAppliesItWithTheComponentDefault )
