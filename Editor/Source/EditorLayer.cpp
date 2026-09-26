@@ -109,6 +109,7 @@
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
+#include "Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp"
 #include "Editor/Panels/SceneSettings/SceneSettingsPanel.hpp"
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Panels/Landscape/LandscapePanel.hpp"
@@ -5001,7 +5002,8 @@ namespace Desert::Editor
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
         modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
 
-        // CubeGrid's panel buttons are the tool's own one-shot requests.
+        // CubeGrid's panel buttons are the tool's own one-shot requests; Cancel also ends the tool, as the
+        // viewport tool bar's Cancel does (Tools::RaiseToolRequest).
         for ( const auto& [label, request] : std::initializer_list<std::pair<const char*, bool MS::*>>{
                    { "Accept and Start New", &MS::ReqAccept },
                    { "Cancel", &MS::ReqCancel },
@@ -5013,7 +5015,7 @@ namespace Desert::Editor
                                   {
                                       if ( auto active = needCubeGrid(); !active )
                                           return active;
-                                      MS::Get().*request = true;
+                                      Tools::RaiseToolRequest( MS::Get(), request );
                                       return PaletteCommandDone();
                                   } } );
         }

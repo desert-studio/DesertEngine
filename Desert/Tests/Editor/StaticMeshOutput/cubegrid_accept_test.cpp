@@ -50,6 +50,7 @@ namespace
             MS::Get().ActiveTool        = MS::Tool::None;
             MS::Get().ReqAccept         = false;
             MS::Get().ReqAcceptEndsTool = false;
+            MS::Get().ReqCancel         = false;
             Common::Constants::Path::SetProjectRoot( m_Saved.ProjectDir, m_Saved.AssetsRoot );
             Assets::ContentRegistry::ResetForTest();
             std::error_code ec;
@@ -150,4 +151,40 @@ TEST_F( AcceptProject, CancelAfterAnAcceptLeavesTheAcceptedPiece )
     piece = second;
     Editor::Tools::CancelBlockout( piece, [&]( const Common::UUID& p ) { scene.erase( p ); } );
     EXPECT_EQ( scene, std::set<Common::UUID>{ first } );
+}
+
+// CG2: the palette's / command channel's Cancel only raised ReqCancel, so the piece went but the tool stayed
+// open - the viewport bar's Cancel (and UE's) ends it. Both now go through PressToolBar; the discard still
+// happens because the tool resolves ReqCancel on its next Update whether it is active or not.
+TEST_F( AcceptProject, ThePaletteCancelEndsTheToolAndDiscardsOnlyTheUnacceptedPiece )
+{
+    MS&                       ms = MS::Get();
+    const Common::UUID        first( 9001 ), second( 9002 );
+    std::set<Common::UUID>    scene = { first };
+    std::vector<Common::UUID> committed;
+
+    // An Accept and Start New from the palette: the tool keeps running, the first piece is committed.
+    Editor::Tools::RaiseToolRequest( ms, &MS::ReqAccept );
+    EXPECT_EQ( ms.ActiveTool, MS::Tool::CubeGrid ) << "Accept and Start New keeps the tool";
+    Common::UUID piece    = first;
+    auto         accepted = Editor::Tools::AcceptBlockout(
+         piece, ms, false, []( const Common::UUID& ) { return WriteFreshBlockout( "Blockout" ); },
+         [&]( const Common::UUID& p ) { committed.push_back( p ); } );
+    ASSERT_TRUE( accepted.IsSuccess() ) << accepted.GetError();
+    ms.ReqAccept = false;
+    EXPECT_EQ( ms.ActiveTool, MS::Tool::CubeGrid );
+
+    // The next grid, then the palette's Cancel.
+    scene.insert( second );
+    piece = second;
+    Editor::Tools::RaiseToolRequest( ms, &MS::ReqCancel );
+    EXPECT_EQ( ms.ActiveTool, MS::Tool::None ) << "the palette Cancel must end the tool, as the bar's does";
+    ASSERT_TRUE( ms.ReqCancel ) << "the ended tool still has to discard its piece on the next Update";
+
+    // What CubeGridTool::Update does with the request, active or not.
+    ms.ReqCancel = false;
+    Editor::Tools::CancelBlockout( piece, [&]( const Common::UUID& p ) { scene.erase( p ); } );
+    EXPECT_EQ( scene, std::set<Common::UUID>{ first } ) << "only the un-accepted piece goes";
+    EXPECT_EQ( committed, std::vector<Common::UUID>{ first } );
+    EXPECT_EQ( piece, Common::UUID::Null() );
 }
