@@ -63,7 +63,6 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
-
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
@@ -129,23 +128,20 @@ namespace
                ext == Common::Constants::Extensions::SKINNED_MESH;
     }
 
-    // CLOUD LAYOUTS ARE COLLECTED TOO, since AF7y (T6b2): version 1 was a bare "DCLY" container with no
-    // identity; version 2 is the same bytes inside the AF1 binary envelope, with a GUID minted HERE, once.
+    // CLOUD LAYOUTS ARE COLLECTED TOO: only the enveloped DCLY 2 is read; a bare "DCLY" 1 is refused.
     bool IsCloudLayout( const std::filesystem::path& path )
     {
         return path.extension() == Desert::Assets::kCloudLayoutExtension;
     }
 
-    // CLOUD NOISE VOLUMES ARE COLLECTED TOO, since T7g: versions 1 and 2 were a bare "DCNV" container with no
-    // identity; version 3 is the version-2 bytes after magic and version inside the AF1 binary envelope, with
-    // a GUID minted HERE, once.
+    // CLOUD NOISE VOLUMES ARE COLLECTED TOO: only the enveloped DCNV 3 is read; a bare "DCNV" 1/2 container is
+    // refused by its number.
     bool IsCloudNoiseVolume( const std::filesystem::path& path )
     {
         return path.extension() == Desert::Assets::kCloudNoiseVolumeExtension;
     }
 
-    // SCULPTED CLOUD VOLUMES (.dcmv) LIKEWISE, since T7g: version 2 was a bare "DCMV" container with no
-    // identity; version 3 is the version-2 bytes after magic and version inside the AF1 binary envelope.
+    // SCULPTED CLOUD VOLUMES (.dcmv) LIKEWISE: only the enveloped DCMV 3 is read; a bare "DCMV" 2 is refused.
     bool IsCloudModellingVolume( const std::filesystem::path& path )
     {
         return path.extension() == Desert::Assets::kCloudModellingVolumeExtension;
@@ -324,8 +320,8 @@ namespace
     }
 
     // Refuses (false, reason on `err`) a file of a gated kind whose stated generation is not the current one.
-    bool PassesTextHeaderGate( const TextHeaderGate& row, const std::filesystem::path& path, const std::string& text,
-                               std::ostream& err )
+    bool PassesTextHeaderGate( const TextHeaderGate& row, const std::filesystem::path& path,
+                               const std::string& text, std::ostream& err )
     {
         const auto stated = ReadStatedVersion( path, text, row.Tag );
         if ( !stated )
@@ -392,7 +388,8 @@ namespace
 
     // The MATL generation a `.demat` states in its text header. A file with no header, or a header naming no
     // MATL version, predates MATL v1 and is refused by name rather than read as generation 0.
-    Common::ResultStr<uint32_t> ReadMaterialSchemaVersion( const std::filesystem::path& path, const std::string& text )
+    Common::ResultStr<uint32_t> ReadMaterialSchemaVersion( const std::filesystem::path& path,
+                                                           const std::string&           text )
     {
         return ReadStatedVersion( path, text, "MATL" );
     }
@@ -570,101 +567,43 @@ namespace Desert::Migration
                 << Desert::Assets::kCloudLayoutContainerVersion << "\n";
         }
 
-        // THE CLOUD NOISE VOLUMES (bare container 1 or 2 -> DCNV 3). The version-2 bytes after magic and
-        // version ARE the version-3 payload; a version-1 file lacks only the origin word the version-2 layout
-        // put after the recipe, and a version-1 file could only have come from the generator, so the word
-        // written for it is Generated (0) with nothing guessed. Wrapped with a fresh GUID, read back through
-        // the engine's own decoder before anything is written; an enveloped file is left byte-for-byte.
+        // THE CLOUD NOISE VOLUMES and THE SCULPTED CLOUD VOLUMES: only the enveloped generation (container 3)
+        // is read. A bare 'DCNV' 1/2 or 'DCMV' 2 container is refused by its number - their wrapping steps were
+        // deleted with the other legacy steps (LEG1), and the committed corpus holds none.
         for ( const auto& path : noises )
         {
             namespace CC                        = Common::Content;
             const CC::SubsystemVersion kKnown[] = {
                  { Desert::Assets::kCloudNoiseSubsystemTag, Desert::Assets::kCloudNoiseContainerVersion } };
-            const std::string bytes     = ReadAll( path );
-            const auto        all       = std::as_bytes( std::span( bytes ) );
-            constexpr size_t  kPrefix   = sizeof( Desert::Assets::kCloudNoiseMagic ) + 4u;
-            constexpr size_t  kOriginAt = 52u; // payload offset of the origin word version 2 added
-            if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudNoiseMagic,
-                                                        sizeof( Desert::Assets::kCloudNoiseMagic ) ) != 0 )
+            const std::string bytes = ReadAll( path );
+            const auto        all   = std::as_bytes( std::span( bytes ) );
+            const bool        bare  = bytes.size() >= sizeof( Desert::Assets::kCloudNoiseMagic ) + 4u &&
+                              std::memcmp( bytes.data(), Desert::Assets::kCloudNoiseMagic,
+                                           sizeof( Desert::Assets::kCloudNoiseMagic ) ) == 0;
+            if ( bare )
             {
-                const auto header = CC::ReadEnvelopeHeader( all, CC::AssetHeaderReadContext{ kKnown } );
-                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
-                {
-                    err << "FAIL   " << path.string() << " — neither a bare 'DCNV' container nor a cloud noise "
-                        << "volume envelope: "
-                        << ( header ? "the envelope's kind is not CloudNoiseVolume" : header.GetError() ) << "\n";
-                    ++failed;
-                    continue;
-                }
-                out << "ok     " << path.string() << " — already at noise volume v"
-                    << Desert::Assets::kCloudNoiseContainerVersion << "\n";
-                continue;
-            }
-            uint32_t version = 0;
-            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
-            if ( version != 1u && version != 2u )
-            {
+                uint32_t version = 0;
+                std::memcpy( &version, bytes.data() + sizeof( Desert::Assets::kCloudNoiseMagic ),
+                             sizeof( version ) );
                 err << "FAIL   " << path.string() << " — a bare 'DCNV' container version " << version
-                    << "; this tool raises versions 1 and 2 only\n";
+                    << "; only the enveloped v" << Desert::Assets::kCloudNoiseContainerVersion
+                    << " is read (older noise volumes are not supported)\n";
                 ++failed;
                 continue;
             }
-            std::vector<std::byte> payload( all.begin() + kPrefix, all.end() );
-            if ( version == 1u )
+            const auto header = CC::ReadEnvelopeHeader( all, CC::AssetHeaderReadContext{ kKnown } );
+            if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudNoiseVolume )
             {
-                if ( payload.size() < kOriginAt )
-                {
-                    err << "FAIL   " << path.string() << " — " << bytes.size()
-                        << " bytes, too short for a version-1 noise volume header\n";
-                    ++failed;
-                    continue;
-                }
-                payload.insert( payload.begin() + static_cast<std::ptrdiff_t>( kOriginAt ), 4u, std::byte{ 0 } );
-            }
-
-            CC::AssetEnvelope envelope;
-            envelope.Asset.Kind       = CC::ContentKind::CloudNoiseVolume;
-            envelope.Asset.Guid       = CC::AssetGuid::Generate();
-            envelope.Asset.Subsystems = { kKnown[0] };
-            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored, payload } );
-            const auto wrapped = CC::WriteAssetEnvelope( envelope );
-            if ( !wrapped )
-            {
-                err << "FAIL   " << path.string() << " — " << wrapped.GetError() << "\n";
+                err << "FAIL   " << path.string() << " — not a noise volume envelope at v"
+                    << Desert::Assets::kCloudNoiseContainerVersion << ": "
+                    << ( header ? "the envelope's kind is not CloudNoiseVolume" : header.GetError() ) << "\n";
                 ++failed;
                 continue;
             }
-            std::vector<unsigned char> wrappedBytes( wrapped.GetValue().size() );
-            std::memcpy( wrappedBytes.data(), wrapped.GetValue().data(), wrapped.GetValue().size() );
-            const auto reread = Desert::Assets::DecodeCloudNoiseVolume( wrappedBytes );
-            if ( !reread || !( reread.GetValue().Guid == envelope.Asset.Guid ) )
-            {
-                err << "FAIL   " << path.string() << " — the wrapped noise volume does not read back: "
-                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
-                ++failed;
-                continue;
-            }
-            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — noise volume v" << version << " -> v"
-                << Desert::Assets::kCloudNoiseContainerVersion << ", GUID "
-                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
-            ++changed;
-            if ( check )
-                continue;
-            if ( const auto written =
-                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
-                 !written )
-            {
-                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
-                ++failed;
-                --changed;
-            }
+            out << "ok     " << path.string() << " — already at noise volume v"
+                << Desert::Assets::kCloudNoiseContainerVersion << "\n";
         }
 
-        // THE SCULPTED CLOUD VOLUMES (bare DCMV 2 -> DCMV 3). The version-2 bytes after magic and version ARE
-        // the version-3 payload. There is no version-1 reader anywhere in the tree (version 1 was re-baked by
-        // the change that introduced version 2), so a bare version 1 is refused by name rather than guessed at.
-        // Wrapped with a fresh GUID, read back through the engine's own decoder before anything is written; an
-        // enveloped file is left byte-for-byte.
         for ( const auto& path : models )
         {
             namespace CC                        = Common::Content;
@@ -672,77 +611,36 @@ namespace Desert::Migration
                                                       Desert::Assets::kCloudModellingContainerVersion } };
             const std::string          bytes    = ReadAll( path );
             const auto                 all      = std::as_bytes( std::span( bytes ) );
-            constexpr size_t           kPrefix  = sizeof( Desert::Assets::kCloudModellingMagic ) + 4u;
-            if ( bytes.size() < kPrefix || std::memcmp( bytes.data(), Desert::Assets::kCloudModellingMagic,
-                                                        sizeof( Desert::Assets::kCloudModellingMagic ) ) != 0 )
+            const bool bare = bytes.size() >= sizeof( Desert::Assets::kCloudModellingMagic ) + 4u &&
+                              std::memcmp( bytes.data(), Desert::Assets::kCloudModellingMagic,
+                                           sizeof( Desert::Assets::kCloudModellingMagic ) ) == 0;
+            if ( bare )
             {
-                const auto header = CC::ReadEnvelopeHeader( all, CC::AssetHeaderReadContext{ kKnown } );
-                if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudModellingVolume )
-                {
-                    err << "FAIL   " << path.string() << " — neither a bare 'DCMV' container nor a sculpted "
-                        << "cloud volume envelope: "
-                        << ( header ? "the envelope's kind is not CloudModellingVolume" : header.GetError() )
-                        << "\n";
-                    ++failed;
-                    continue;
-                }
-                out << "ok     " << path.string() << " — already at sculpted cloud volume v"
-                    << Desert::Assets::kCloudModellingContainerVersion << "\n";
-                continue;
-            }
-            uint32_t version = 0;
-            std::memcpy( &version, bytes.data() + 4, sizeof( version ) );
-            if ( version != 2u )
-            {
+                uint32_t version = 0;
+                std::memcpy( &version, bytes.data() + sizeof( Desert::Assets::kCloudModellingMagic ),
+                             sizeof( version ) );
                 err << "FAIL   " << path.string() << " — a bare 'DCMV' container version " << version
-                    << "; this tool raises version 2 only\n";
+                    << "; only the enveloped v" << Desert::Assets::kCloudModellingContainerVersion
+                    << " is read (older sculpted cloud volumes are not supported)\n";
                 ++failed;
                 continue;
             }
-
-            CC::AssetEnvelope envelope;
-            envelope.Asset.Kind       = CC::ContentKind::CloudModellingVolume;
-            envelope.Asset.Guid       = CC::AssetGuid::Generate();
-            envelope.Asset.Subsystems = { kKnown[0] };
-            envelope.Sections.push_back( { CC::EnvelopeSection::Payload, CC::EnvelopeCodec::Stored,
-                                           std::vector<std::byte>( all.begin() + kPrefix, all.end() ) } );
-            const auto wrapped = CC::WriteAssetEnvelope( envelope );
-            if ( !wrapped )
+            const auto header = CC::ReadEnvelopeHeader( all, CC::AssetHeaderReadContext{ kKnown } );
+            if ( !header || header.GetValue().Asset.Kind != CC::ContentKind::CloudModellingVolume )
             {
-                err << "FAIL   " << path.string() << " — " << wrapped.GetError() << "\n";
+                err << "FAIL   " << path.string() << " — not a sculpted cloud volume envelope at v"
+                    << Desert::Assets::kCloudModellingContainerVersion << ": "
+                    << ( header ? "the envelope's kind is not CloudModellingVolume" : header.GetError() ) << "\n";
                 ++failed;
                 continue;
             }
-            std::vector<unsigned char> wrappedBytes( wrapped.GetValue().size() );
-            std::memcpy( wrappedBytes.data(), wrapped.GetValue().data(), wrapped.GetValue().size() );
-            const auto reread = Desert::Assets::DecodeCloudModellingVolume( wrappedBytes );
-            if ( !reread || !( reread.GetValue().Guid == envelope.Asset.Guid ) )
-            {
-                err << "FAIL   " << path.string() << " — the wrapped sculpted cloud volume does not read back: "
-                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
-                ++failed;
-                continue;
-            }
-            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — sculpted cloud volume v" << version
-                << " -> v" << Desert::Assets::kCloudModellingContainerVersion << ", GUID "
-                << CC::AssetGuidToText( envelope.Asset.Guid ) << "\n";
-            ++changed;
-            if ( check )
-                continue;
-            if ( const auto written =
-                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, wrapped.GetValue() );
-                 !written )
-            {
-                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
-                ++failed;
-                --changed;
-            }
+            out << "ok     " << path.string() << " — already at sculpted cloud volume v"
+                << Desert::Assets::kCloudModellingContainerVersion << "\n";
         }
 
-        // THE SHADERS (SHDR 0 -> 1, T7j). Generation 0 stated nothing; the raised file opens with the comment
-        // header line (ShaderAssetHeader.hpp) and a GUID minted HERE, once, and every source byte after it is
-        // kept. The header is read back through the loader's own reader before a byte is written. A headed file
-        // is left byte for byte once its header is checked; one stating another SHDR is refused by name.
+        // THE SHADERS: only SHDR 1 (the comment header line, ShaderAssetHeader.hpp) is read. A file stating no
+        // header is generation 0 and is refused by number - its stamping step was deleted with the other legacy
+        // steps (LEG1); a headed file is left byte for byte once its header is checked.
         for ( const auto& path : shaders )
         {
             namespace CC             = Common::Content;
@@ -753,52 +651,29 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( source.starts_with( CC::kShaderHeaderPrefix ) )
+            if ( !source.starts_with( CC::kShaderHeaderPrefix ) )
             {
-                const auto header = CC::ReadShaderHeader( source );
-                const int  stated =
-                     header ? Desert::Assets::StatedVersion( header.GetValue(), Desert::Assets::kShaderSchemaTag )
-                             : -1;
-                if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
-                {
-                    err << "FAIL   " << path.string() << " — "
-                        << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool writes SHDR " +
-                                           std::to_string( Desert::Assets::kShaderSchemaVersion )
-                                    : header.GetError() )
-                        << "\n";
-                    ++failed;
-                    continue;
-                }
-                out << "ok     " << path.string() << " — already at shader v"
-                    << Desert::Assets::kShaderSchemaVersion << "\n";
-                continue;
-            }
-            const std::array<CC::SubsystemVersion, 1> versions = {
-                 CC::SubsystemVersion{ Desert::Assets::kShaderSchemaTag, Desert::Assets::kShaderSchemaVersion } };
-            const CC::AssetGuid guid = CC::AssetGuid::Generate();
-            const std::string   raised =
-                 CC::WriteShaderHeaderLine( CC::MakeTextHeader( CC::ContentKind::Shader, guid, versions ) ) +
-                 source;
-            const auto reread = CC::ReadShaderHeader( raised );
-            if ( !reread || reread.GetValue().Guid != CC::AssetGuidToText( guid ) )
-            {
-                err << "FAIL   " << path.string() << " — the stamped header does not read back: "
-                    << ( reread ? std::string( "its GUID differs" ) : reread.GetError() ) << "\n";
+                err << "FAIL   " << path.string() << " — states no shader header (SHDR 0); only SHDR "
+                    << Desert::Assets::kShaderSchemaVersion << " is read (older shaders are not supported)\n";
                 ++failed;
                 continue;
             }
-            out << ( check ? "WOULD  " : "raised " ) << path.string() << " — shader v0 -> v"
-                << Desert::Assets::kShaderSchemaVersion << ", GUID " << CC::AssetGuidToText( guid ) << "\n";
-            ++changed;
-            if ( check )
-                continue;
-            if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, raised );
-                 !written )
+            const auto header = CC::ReadShaderHeader( source );
+            const int  stated =
+                 header ? Desert::Assets::StatedVersion( header.GetValue(), Desert::Assets::kShaderSchemaTag )
+                         : -1;
+            if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
             {
-                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                err << "FAIL   " << path.string() << " — "
+                    << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool reads SHDR " +
+                                       std::to_string( Desert::Assets::kShaderSchemaVersion )
+                                : header.GetError() )
+                    << "\n";
                 ++failed;
-                --changed;
+                continue;
             }
+            out << "ok     " << path.string() << " — already at shader v" << Desert::Assets::kShaderSchemaVersion
+                << "\n";
         }
 
         for ( const auto& path : scenes )
@@ -820,11 +695,9 @@ namespace Desert::Migration
             }
 
             // ONE root for this scene, and it is the scene's own (see SceneOutputRoot). It is handed to
-            // the migration as well as used for the write below, so the root the v7 -> v8 step measures
-            // material paths against and the root the v11 -> v12 material is written under are the same
-            // root by construction — the two used to be one global read twice, which is how a path
-            // written into the scene could name a place the file was not.
-            const std::filesystem::path assetsRoot = SceneOutputRoot( path );
+            // the migration as well as used for the write below, so the root the step resolves asset paths
+            // against and the root the scene is written under are the same root by construction.
+            const std::filesystem::path                  assetsRoot = SceneOutputRoot( path );
             const Desert::Migration::FileMigrationReport report =
                  Desert::Migration::MigrateScene( parsed.value(), assetsRoot, path );
 
@@ -901,7 +774,8 @@ namespace Desert::Migration
             }
             if ( stated.GetValue() != Desert::Assets::kMaterialSchemaVersion )
             {
-                err << "FAIL   " << path.string() << " — states MATL v" << stated.GetValue() << "; this tool reads "
+                err << "FAIL   " << path.string() << " — states MATL v" << stated.GetValue()
+                    << "; this tool reads "
                     << "only MATL v" << Desert::Assets::kMaterialSchemaVersion
                     << ( stated.GetValue() < Desert::Assets::kMaterialSchemaVersion
                               ? " (older materials are not supported)"
@@ -910,7 +784,8 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err ); layout != Layout::Canonical )
+            if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                 layout != Layout::Canonical )
             {
                 ++( layout == Layout::Failed ? failed : relaid );
                 continue;
@@ -933,7 +808,8 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err ); layout != Layout::Canonical )
+            if ( const Layout layout = RelayOutIfNeeded( path, source, check, out, err );
+                 layout != Layout::Canonical )
             {
                 ++( layout == Layout::Failed ? failed : relaid );
                 continue;
@@ -1028,21 +904,22 @@ namespace Desert::Migration
         for ( const auto& path : texts )
         {
             const std::string text = ReadAll( path );
-            if ( const TextHeaderGate* row = TextHeaderGateFor( path ); row && !PassesTextHeaderGate( *row, path, text, err ) )
+            if ( const TextHeaderGate* row = TextHeaderGateFor( path );
+                 row && !PassesTextHeaderGate( *row, path, text, err ) )
             {
                 ++failed;
                 continue;
             }
-            if ( const Layout layout = RelayOutIfNeeded( path, text, check, out, err ); layout != Layout::Canonical )
+            if ( const Layout layout = RelayOutIfNeeded( path, text, check, out, err );
+                 layout != Layout::Canonical )
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
         out << "SceneMigrator: " << scenes.size() << " scene(s), " << changed
-            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size() << " material(s), "
-            << prefabs.size() << " prefab(s), "
-            << prefabsChanged << ( check ? " would change, " : " raised, " ) << texts.size()
-            << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
-            << failed << " failed\n";
+            << ( check ? " would change, " : " raised, " ) << clips.size() << " clip(s), " << materials.size()
+            << " material(s), " << prefabs.size() << " prefab(s), " << prefabsChanged
+            << ( check ? " would change, " : " raised, " ) << texts.size() << " other text asset(s), " << relaid
+            << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << failed << " failed\n";
 
         failedOut = failed;
         if ( failed > 0 )

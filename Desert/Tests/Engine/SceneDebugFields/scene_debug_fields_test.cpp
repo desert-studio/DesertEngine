@@ -15,14 +15,12 @@
 //
 //   Graphic::DebugViewState  --(its own field names)-->  forbidden in Core::SceneSettings
 //                            --(the same names)------->  forbidden as a key in any .desce on disk
-//                            --(the same names)------->  must equal Migration::kDebugViewKeys
 //
-// Add a field to DebugViewState and all three checks extend themselves. Move one back into SceneSettings
-// and the first goes red. Hand-edit one into a scene file and the second does. Add one to DebugViewState
-// without teaching the migration to strip it and the third does.
+// Add a field to DebugViewState and both checks extend themselves. Move one back into SceneSettings and
+// the first goes red. Hand-edit one into a scene file and the second does.
 //
 // TEXTUAL, on purpose, exactly like SettingConsumers reads its consumers as text: it lets one suite hold a
-// declaration in the engine, a table in a TOOL and 83 data files side by side without linking any of them.
+// declaration in the engine and 83 data files side by side without linking any of them.
 // The parse is deliberately strict — every extraction asserts it found something — because the failure
 // mode of a census that parses nothing is a green run that certifies nothing (SceneVersionGate learned the
 // same lesson and pins its corpus size for the same reason).
@@ -50,7 +48,6 @@ using Desert::Reflection::TypeInfo;
 namespace
 {
     constexpr const char* kDebugViewHeader = "Desert/Desert/Source/Engine/Graphic/DebugViewState.hpp";
-    constexpr const char* kMigrationHeader = "Tools/SceneMigrator/Source/SceneMigration.hpp";
     constexpr const char* kSceneSettings   = "Desert/Desert/Source/Engine/Core/SceneSettings.hpp";
     constexpr const char* kSceneDirectory  = "Editor/Resources/Assets/Scenes";
 
@@ -170,33 +167,6 @@ namespace
         return fields;
     }
 
-    // The string literals of `std::array kDebugViewKeys = { ... }` in the migration header — the migration's own
-    // statement of what it strips, read as data so this suite can compare it with the struct without
-    // linking the tool.
-    std::vector<std::string> MigrationKeys( const std::string& source )
-    {
-        std::vector<std::string> keys;
-        const std::size_t        at = source.find( "kDebugViewKeys" );
-        if ( at == std::string::npos )
-            return keys;
-        const std::size_t open  = source.find( '{', at );
-        const std::size_t close = open == std::string::npos ? std::string::npos : source.find( '}', open );
-        if ( open == std::string::npos || close == std::string::npos )
-            return keys;
-
-        for ( std::size_t i = open; i < close; ++i )
-        {
-            if ( source[i] != '"' )
-                continue;
-            const std::size_t quote = source.find( '"', i + 1 );
-            if ( quote == std::string::npos || quote > close )
-                break;
-            keys.push_back( source.substr( i + 1, quote - i - 1 ) );
-            i = quote;
-        }
-        return keys;
-    }
-
     // The names a scene file must never state, taken from the struct that owns them.
     std::vector<std::string> ForbiddenKeys()
     {
@@ -240,9 +210,6 @@ TEST( SceneDebugFields, TheSourcesThisSuiteReadsAreWhereItThinksTheyAre )
     const std::vector<std::string> forbidden = ForbiddenKeys();
     EXPECT_GE( forbidden.size(), 8u ) << "DebugViewState parsed to " << forbidden.size()
                                       << " field(s) - the struct moved, was renamed, or the parse broke";
-
-    EXPECT_FALSE( MigrationKeys( ReadAll( RepoRoot() + kMigrationHeader ) ).empty() )
-         << kMigrationHeader << " states no kDebugViewKeys - the migration's key list moved or was renamed";
 
     EXPECT_GE( RepositoryScenes().size(), 40u ) << "the scene corpus was not found";
 
@@ -303,35 +270,14 @@ TEST( SceneDebugFields, NoSceneSettingIsSHAPEDLikeADebugVisualization )
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 2. THE MIGRATION — it strips exactly the set the struct owns
+// 2. THE CORPUS — the load-bearing half
 // ---------------------------------------------------------------------------------------------------
 
-// The two lists are in different TARGETS (the engine's header and the migrator tool's), which is exactly
-// the distance across which two statements of one set drift. A field added to DebugViewState but not to
-// kDebugViewKeys would leave that key in every file the tool touches, and nothing else would notice.
-TEST( SceneDebugFields, TheMigrationStripsExactlyTheFieldsTheViewStateOwns )
-{
-    std::vector<std::string> fromStruct = ForbiddenKeys();
-    std::vector<std::string> fromTool   = MigrationKeys( ReadAll( RepoRoot() + kMigrationHeader ) );
-    ASSERT_FALSE( fromStruct.empty() );
-    ASSERT_FALSE( fromTool.empty() );
-
-    std::sort( fromStruct.begin(), fromStruct.end() );
-    std::sort( fromTool.begin(), fromTool.end() );
-
-    EXPECT_EQ( fromStruct, fromTool )
-         << "Graphic::DebugViewState and Migration::kDebugViewKeys disagree about which keys leave a "
-            "scene. A name in the struct and not in the tool stays in every file the migrator writes.";
-}
-
-// ---------------------------------------------------------------------------------------------------
-// 3. THE CORPUS — the load-bearing half, and the one that proves the migration was actually RUN
-// ---------------------------------------------------------------------------------------------------
-
-// A FAILURE HERE IS NOT A BROKEN TEST. It means a real file in this tree carries a viewport flag, and the
-// fix is one command: Tools/SceneMigrator over it. The sweep is recursive, so it covers Scenes/Autosave —
-// gitignored editor crash-recovery files, which are the ones most likely to have been written by a build
-// that still serialized these keys, and which the version gate will refuse for the same reason.
+// A FAILURE HERE IS NOT A BROKEN TEST. It means a real file in this tree carries a viewport flag; the
+// migration step that stripped them was retired (LEG1), so the key is deleted from the file. The sweep is
+// recursive, so it covers Scenes/Autosave — gitignored editor crash-recovery files, which are the ones most likely
+// to have been written by a build that still serialized these keys, and which the version gate will refuse for the
+// same reason.
 TEST( SceneDebugFieldsCorpus, NoSceneOnDiskStatesAnyDebugVisualization )
 {
     const std::vector<std::string> forbidden = ForbiddenKeys();
@@ -361,7 +307,7 @@ TEST( SceneDebugFieldsCorpus, NoSceneOnDiskStatesAnyDebugVisualization )
         for ( const std::string& key : forbidden )
             EXPECT_FALSE( fields.value().get( key ).has_value() )
                  << path.string() << " states Settings." << key
-                 << " - a viewport debug flag in a level file. Run Tools/SceneMigrator over it.";
+                 << " - a viewport debug flag in a level file. Delete the key from the file.";
     }
 }
 

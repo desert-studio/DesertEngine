@@ -76,8 +76,8 @@ TEST( SceneVersionRefusal, AV30SceneIsRefusedNamingItsVersionAndTheCurrentOne )
 {
     const Project project( "v30" );
     auto          scene  = Parse( R"({"Header":{"Kind":"Scene","Guid":"00000000000000000000000000000004",)"
-                                  R"("Versions":{"SCNE":30,"UNIT":1},"Dependencies":[]},"SceneName":"S",)"
-                                  R"("Entities":[{"id":1,"Tag":"Probe","StaticMesh":{"MeshPath":"x.skmesh"}}]})" );
+                                            R"("Versions":{"SCNE":30,"UNIT":1},"Dependencies":[]},"SceneName":"S",)"
+                                            R"("Entities":[{"id":1,"Tag":"Probe","StaticMesh":{"MeshPath":"x.skmesh"}}]})" );
     const auto    report = Migration::MigrateScene( scene, project.AssetsRoot, "" );
 
     ASSERT_FALSE( report.Refused.empty() );

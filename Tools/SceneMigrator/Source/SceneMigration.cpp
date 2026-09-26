@@ -230,9 +230,8 @@ namespace Desert::Migration
         // THE STEP CHAIN. LEG1 deleted every step below kSceneVersionShaderGuids along with the legacy
         // material-id register it depended on; the one step that remains is gated the same way every
         // deleted one was, so a step added above this one needs no new machinery.
-        void RunSteps( std::vector<Assets::EntityData>& entities, const std::string& name,
-                       int statedSceneVersion, const std::filesystem::path& assetsRoot,
-                       FileMigrationReport& report )
+        void RunSteps( std::vector<Assets::EntityData>& entities, const std::string& name, int statedSceneVersion,
+                       const std::filesystem::path& assetsRoot, FileMigrationReport& report )
         {
             // Adds MeshGuid where a StaticMesh/SkinnedMesh/InstancedStaticMesh block names a MeshPath but
             // states no MeshGuid; no step above writes one it lacks.
@@ -259,7 +258,8 @@ namespace Desert::Migration
         // site so a scene and a prefab are refused in the same words.
         // Older generations are not supported (owner decision, LEG1): their steps were deleted, and no route
         // back to them is promised. The refusal names the numbers and stops there.
-        constexpr const char* kOlderThanSupported = "The oldest this tool reads is v31/v1 - older files are not supported.";
+        constexpr const char* kOlderThanSupported =
+             "The oldest this tool reads is v31/v1 - older files are not supported.";
 
         std::string RefuseGeneration( const char* what, int statedSceneVersion, int statedUnitVersion,
                                       const char* why )
@@ -342,8 +342,8 @@ namespace Desert::Migration
         // (kSceneVersionShaderGuids / kUnitVersion) and every file must already carry a text header.
         if ( !scene.Header || statedSceneVersion < kSceneVersionShaderGuids || statedUnitVersion != kUnitVersion )
         {
-            report.Refused = RefuseGeneration( "scene", statedSceneVersion, statedUnitVersion,
-                                               kOlderThanSupported );
+            report.Refused =
+                 RefuseGeneration( "scene", statedSceneVersion, statedUnitVersion, kOlderThanSupported );
             return report;
         }
 
