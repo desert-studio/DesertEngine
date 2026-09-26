@@ -28,7 +28,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace
@@ -52,14 +54,6 @@ namespace
         for ( const Member& m : Members() )
             n += m.Kind == f ? 1 : 0;
         return n;
-    }
-
-    const Row* FindRow( const Member& m )
-    {
-        for ( const Row& r : Register() )
-            if ( m.Class == r.Class && m.Name == r.Member && m.File == r.File )
-                return &r;
-        return nullptr;
     }
 
     std::string ReadRepoFile( const char* relative )
@@ -88,9 +82,40 @@ TEST( PointerOwnership, DISABLED_DumpEveryMember )
 }
 
 // ------------------------------------------------------------------------------------------------
-// The number
+// The population
 // ------------------------------------------------------------------------------------------------
 
+namespace
+{
+    // One named member per shape the classifier must tell apart: each form, a container of each, and a
+    // shared_ptr spelled through an alias. A reader that stops seeing a form, or files it under the wrong
+    // one, turns this red with the member's name. These rows move only when the member itself moves.
+    struct Sentinel
+    {
+        const char* File;
+        const char* Class;
+        const char* Member;
+        Form        Kind;
+    };
+
+    const Sentinel kSentinels[] = {
+         { "Desert/Desert/Source/Engine/Graphic/Materials/Material.hpp", "Material", "m_MaterialExecutor",
+           Form::Unique },
+         { "Desert/Common/Source/Common/Core/LayerStack.hpp", "LayerStack", "m_Layers", Form::Unique },
+         { "Desert/Desert/Source/Engine/Core/EngineContext.hpp", "EngineContext", "m_Window", Form::Weak },
+         { "Desert/Desert/Source/Engine/Assets/AnimGraphAsset.hpp", "AnimGraphAsset", "m_Graph", Form::Shared },
+         { "Desert/Desert/Source/Engine/ECS/Components.hpp", "StaticMeshComponent", "RuntimeMaterialInstances",
+           Form::Shared },
+         { "Desert/Desert/Source/Engine/Core/WorldStreamer.hpp", "WorldStreamer", "m_Assets", Form::Raw },
+         { "Desert/Common/Source/Common/Core/AutoRegistry.hpp", "AutoRegistry", "m_Instances", Form::Raw },
+    };
+} // namespace
+
+// NO TOTAL IS PINNED HERE, ON PURPOSE. This test used to pin the four per-form counts and their sum as
+// literals, so every branch that added a pointer member edited the same five numbers and every merge of
+// two such branches conflicted on them. The truth of the census is the register (one row per raw member)
+// and the scan; the counts are derived from those two and asserted as relations, so two independent
+// additions touch only their own register rows.
 TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
 {
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository from the working directory";
@@ -100,502 +125,38 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     ASSERT_FALSE( Members().empty() ) << "the scan found no pointer members at all -- the reader is blind, "
                                          "and every assertion below is vacuous.";
 
-    // MEASURED, not estimated, and measured with THIS scanner. Run over the whole tree by widening
-    // ScannedTrees() (Desert/Desert/Source, Desert/Common/Source, Editor/Source, Runtime/Source) it
-    // THE WHOLE TREE IS NOW THE SCOPE — Desert/Desert/Source, Desert/Common/Source, Editor/Source and
-    // Runtime/Source — so there is no longer an unscanned half in which a raw pointer can appear without
-    // owing an answer. 783 members, and the three stages that got here are still visible in the register's
-    // section headers because the ARGUMENTS differ by tree: in Graphic the form answers about half the
-    // rows by itself, in the editor almost every row is a construction order, and in the engine core
-    // almost every row is a back-pointer closed by containment.
-    //
-    // The number fell from 787 to 783 across the three stages, and both moves were the fixes rather than
-    // the scan: eight raw members became co-owned handles (A8-3), a dead class, a dead accessor, a
-    // write-only set of panel pointers, a stack-address drag target and LayerStack's un-owned layer
-    // vector all went away, and MaterialSlotBinding brought two new ones in.
-    //
-    // THIS NUMBER HAS MOVED TWICE AND BOTH MOVES WERE THE CENSUS BEING WRONG, not the tree changing.
-    // Neither is written off, because a census whose number drifts without an account is a census nobody
-    // can use:
-    //
-    //   738 -> 761. The scope was picked with a throwaway prototype that skipped every CONTAINER of raw
-    //   pointers -- `std::vector<IProperty*> m_RegisteredProperties`, `std::unordered_map<uint32_t,
-    //   Image*> m_BoundInputs`, `std::vector<RenderCommand*> m_Commands`. A container of raw pointers
-    //   raises exactly the same two questions as one raw pointer, and three of those turned out to carry
-    //   load-bearing arguments.
-    //
-    //   A8-1 then moved it by -2 in these trees, and that one is NOT a blind spot: Render2D's three
-    //   executor caches used to be `unordered_map<const void*, unique_ptr<MaterialExecutor>>` and are now
-    //   maps of a small struct, so the ownership question moved off three container members and onto the
-    //   ONE `CachedExecutor::Executor` inside them, where there is exactly one answer to give. The `const
-    //   void*` key is no longer a member the scan can see; its argument lives on Render2D::m_Backdrop's
-    //   row and in Render2DExecutorRetire.hpp, which is the file that decides its lifetime.
-    //
-    //   761 -> 787. The scanner knew `std::shared_ptr` and not the project's own ALIASES for it, so
-    //   `MaterialInstancePtr m_X` and `DescriptorSetLayoutRef m_Y` were counted as NOTHING AT ALL --
-    //   seventeen members in these three trees alone were invisible, among them the four
-    //   `MaterialExecutor::m_*PropertiesStorage` vectors that forty-six of this register's rows rest on.
-    //   It was found the only way a blind spot ever is: A8-3 converted eight raw members to co-owned
-    //   handles and the total FELL by five instead of holding. The alias list is now derived from the
-    //   tree (see DeclaredAliases), not typed.
-    //   783 -> 784, AND THIS ONE IS THE CENSUS EARNING ITS KEEP. G17 landed a hand-written keyword scan
-    //   in DShaderParser to replace fifteen unconditional std::regex passes, and its rule table brought a
-    //   `const char* Replacement` with it. That branch was cut BEFORE this census covered the whole tree,
-    //   so nobody on it was ever asked the two questions -- and the integration is exactly where an
-    //   un-owed pointer would otherwise have slipped in unremarked. The answer is the easy kind (a string
-    //   literal in a `static const` table, so the language closes both questions), which is the point: the
-    //   gate does not care whether the answer is hard, only that one exists.
-    //
-    //   784 -> 786, and it earned its keep a second time in the same way. O1 added
-    //   Graphic::kCloudUnreadSlots — the register of cloud parameter-block slots no shader reads, one row
-    //   per slot with the reason in it — and its row type carries two `const char*`. This suite named both
-    //   with their file and line before anyone thought about them; the answer is again the easy kind
-    //   (string literals in an `inline constexpr std::array`), and again the value is that a raw pointer
-    //   could not be ADDED without someone being asked. Note the shape of the thing it caught: a table
-    //   written to make an exception explainable, which would itself have been an unexplained pointer.
-    //
-    //   786 -> 787, and the interesting half of this one is the SHARED count going DOWN. U7-2 made the UI
-    //   editor a document over one entity's UICanvasComponent, and a document holds its scene WEAKLY: a
-    //   closed scene is one of the ways its subject dies, and a shared_ptr would hide that death and leak
-    //   the level with it (the argument is written out at AnimGraphPanel::m_Scene). So UIEditorPanel::m_Scene
-    //   moved shared -> weak, which is 317 -> 316 and 34 -> 35 with the total unchanged by that move. The
-    //   +1 is the class constant `kComponentTypeName` — the literal the registration and the Details button
-    //   both read so the two cannot spell the subject's facet differently — and it is the same easy answer
-    //   the two documents beside it give: a string literal in static storage, owned by nobody and outliving
-    //   everything.
-    //
-    //   787 -> 789, same task and the same two movements. The Sequencer became a document over TWO subject
-    //   types — the rig's SkinnedMeshComponent and a UI element's UIAnimComponent, which are two different
-    //   kinds of thing and cannot share a key — so it carries two of those class constants instead of one,
-    //   and its scene went shared -> weak with the other documents'.
-    //   789 -> 791 ПРИ СВЕДЕНИИ, и ни одна из двух веток не угадала: У7-2 пришёл с 789
-    //   (328/315/110/36), И14+М12 с 788 (325/319/110/34), а сумма дала 791 (328/317/110/36).
-    //   Слияние двух переписей — это НЕ выбор одной стороны: каждая измеряла своё дерево, и верно
-    //   только третье число, которого не видел никто. Оно ПОЛУЧЕНО ЗАПУСКОМ переписи на сведённом
-    //   дереве, а не выведено арифметикой из двух отчётов — арифметика здесь и была бы подгонкой.
-    //
-    //   791 -> 805 with O1-E, the authored cloud medium, and every one of the fourteen is accounted for
-    //   by what that mechanism IS. O1-E branched from the 789 tree and reported 803; the extra two are
-    //   the merge's own +2 above, not anything of O1-E's — which is why neither branch's number is the
-    //   merged tree's. 805 was PREDICTED from that reasoning and then CONFIRMED BY RUNNING the census on
-    //   the merged tree before this merge was committed. The prediction is not the evidence; the run is.
-    //   Had they disagreed, the run would have won and the reasoning above would have been the thing to
-    //   fix.
-    //
-    //   NINE RAW, and all nine are string literals in static tables: the Volume domain's two registers
-    //   (which material properties a medium graph may read, and which it deliberately may not, with the
-    //   reason) and the emitter's table of the five functions a medium compiles to. Same easy answer as
-    //   every other table entry above them.
-    //
-    //   THREE SHARED, and they are the point of the design rather than a detail. A cloud material's
-    //   authored medium produces a NEW compiled program on every edit of its graph, and each one owns
-    //   VkShaderModules and descriptor set layouts. ShaderService therefore holds variants only WEAKLY,
-    //   and VolumetricCloudRenderer's three shared_ptrs are the strong references — dropping them is what
-    //   frees the modules. A service-owned cache would have grown by one program per edit for the life of
-    //   the session and released none.
-    //
-    //   TWO WEAK, which are the other half of that arrangement: ShaderService::m_ShaderAssets (the asset
-    //   manager owns the assets; this service must not extend their life to compile a variant later) and
-    //   VariantEntry::Program (the cache above).
-    //
-    //   805 -> 807 with O1-F, the authored medium's ShadowRay input, and both are RAW: the two string
-    //   literals of ShadowRayScope — the register saying in which of the medium's five outputs the flag
-    //   means anything, and which GLSL entry point a shadow march calls to get there. Same static-table
-    //   answer as the nine O1-E added beside them, and the same reason there is a register at all rather
-    //   than a pair of names in an `if`: the suite that derives the set from the shader tree needs
-    //   something to compare against. Nothing else of O1-F is a pointer — the flag itself is a float on a
-    //   GLSL struct, which no C++ census can see.
-    //
-    //   807 -> 815 with O1-G-2, the authored medium's own parameters and images. FIVE RAW, and every one
-    //   of them is a borrowed image or buffer crossing a seam that already existed: the medium's images on
-    //   the cloud renderer (m_MediumImages) and on the bake payload, its parameter buffer and its images on
-    //   the bake's argument pack, and the Compiler's set of node addresses inside the graph emitter. THREE
-    //   SHARED, which are the parameter buffer itself in the three places a non-persistent storage buffer
-    //   has to exist separately — the march, the shadow map and the sky's own bake — for the reason the
-    //   layer's packed block is already tripled: one buffer holds one set of bytes per (frame x renderer
-    //   slot), not per pass.
-    //
-    //   815 -> 816 with Ю2, and it is ONE RAW: CommandHistory::StringCommand::m_Target. The undo stack
-    //   grew a second property-edit command because a std::string field cannot take the byte one — the
-    //   entry stores the object's REPRESENTATION and restoring it hands the live string a heap pointer
-    //   the edit already freed, which seventeen reflected string fields could reach. The new command
-    //   stores the VALUE and assigns it back. Its pointer is the same kind of pointer ByteCommand's is
-    //   (into a live component's field) under the same guard (IsVolatile, so DropVolatile drops it), so
-    //   it adds a row rather than a question.
-    //
-    //   816 -> 819 with D34, and all THREE are raw. One is a host reference: AssetPreloader now takes the
-    //   AnimationLibrary it publishes clips to, because the library was the one content index a HOST filled
-    //   rather than the scan — the editor with its own loop in the wrong place, the packaged game with no
-    //   loop at all and every character in its bind pose. The other two are the fix to what that made
-    //   reachable: Animator's bone->track memo was keyed on the clip's ADDRESS alone, and an asset unload +
-    //   reload leaves that address alone while freeing the Tracks vector the memo points into, so the memo
-    //   now carries the storage it was built from (TracksData, never dereferenced) beside the pointers it
-    //   guards (ByBone). The old m_TrackBinding row's argument for why the key was safe is retracted in
-    //   place rather than deleted — it was wrong in exactly the direction that cost a segfault.
-    //
-    //   819 -> 823 with U10 (UI introspection). Three raw, and all three are IDENTITIES rather than
-    //   accesses: two copies of DrawCommand::Texture carried into the probe so the panel can print WHICH
-    //   texture broke a batch, and the editor's probe registry keyed on a Scene's address. The fourth is
-    //   the shared Scene the UI Debugger panel holds like every other scene-bound panel.
-    //   823 -> 830 with Ю11 (materials on a UI element). Three raw: the material's identity in the batch
-    //   command, the copy of it the probe prints, and the view's pointer to the cache that owns them.
-    //   Two shared (the cache's target framebuffer and each entry's pipeline) and two unique (each
-    //   entry's runtime material, and the shared error entry) are ownership and answer for themselves.
-    //
-    //   830 -> 824 with Г25, and this one goes DOWN: the procedural grass generator was removed whole,
-    //   because grass becomes a mesh ASSET scattered by the Foliage tool. Six members of TerrainRenderer
-    //   went with it — five shared (the grass graphics pipeline, the baked clump atlas, the cull compute
-    //   pipeline, the compacted visible-clump buffer and the indirect-args buffer) and one unique (the
-    //   grass DataDrivenMaterial). None was raw, so none held a row in the register, and the two questions
-    //   above are answered by the removal itself: nothing is obliged to destroy an object that is never
-    //   created. The count is the whole evidence that the members left with the feature rather than being
-    //   orphaned inside a class that no longer draws them.
-    //   824 -> 822 with Ю14 (multi-channel text), and this one goes DOWN by two raw pointers, both in
-    //   the font baker. `RawGlyph::Bitmap` is gone because stb no longer allocates the glyph bitmap —
-    //   the multi-channel field is generated into a std::vector the RawGlyph owns — and `Placed::G` is
-    //   gone because the packer now stores the glyph's INDEX rather than its address, which is also the
-    //   answer to the second question: an index cannot dangle when the vector it indexes reallocates.
-    //   One raw pointer was added in its place, `Msdf::EdgePoint::NearEdge`, and it has a row.
-    //
-    //   824 -> 828 with Г26, and all FOUR are shared members of MeshRenderer: the (Instanced x GBuffer)
-    //   shader, its pipeline, its MaterialPBR and that material's instance. They are the deferred twins
-    //   of the four (Instanced x Forward) members already censused two lines apart in the same class,
-    //   and they exist because the G-buffer pass had no instanced cell at all -- which is why every
-    //   InstancedStaticMesh entity was dropped there in silence. Q1: the shader and the pipeline are
-    //   owned by the shader service and the pipeline cache and merely HELD here, exactly as the forward
-    //   pair is; the material and its instance are created here and outlive nothing. Q2: none is
-    //   deleted by this class; none is raw, so none takes a row in the register.
-    //   -> +1 with Ю15: ONE member, `Localization::m_Language`, which points at a row of the constexpr
-    //   locale table (Engine/Localization/LocaleFormat.cpp) and is registered as StaticStorage. Both
-    //   questions are answered by the language: nobody allocated the table, and nobody can destroy it.
-    //   The source-language constant beside it was written as `const char*` and would have been a second
-    //   row; it is a `std::string_view` instead, which is why this is +1 and not +2.
-    //
-    //   FOUR BRANCHES PREDICTED THIS NUMBER TODAY AND EACH WAS RIGHT ONLY AGAINST ITS OWN HEAD. The value
-    //   below was read off a run of the merged tree, as it must be.
-    //   824 -> 823 with A1 (the pose substrate), and it goes DOWN by one RAW. Animator::TrackBinding::ByBone
-    //   was a vector of BoneTrack pointers into the clip's own storage, held safe by a rebind discipline; it
-    //   is now a vector of track INDICES. Both questions are answered by the type rather than by a rule
-    //   somebody has to keep: an index cannot point at freed memory, and the generation stamp the clip now
-    //   carries (AnimationClip::TrackRevision) closes the case the address comparison could not see — an
-    //   unload and reload of the same size, which the allocator satisfies from the very block it just freed,
-    //   leaving data() and size() both unchanged across a complete replacement of the list.
-    //
-    //   AND THE SUM IS NEITHER SIDE'S ARITHMETIC. dev said 830 members / 358 raw and A1 said 823 / 353;
-    //   each was correct about its own head and both are wrong here. The merged tree is 829 / 357 —
-    //   dev's 830 minus the single raw member A1 retired (TrackBinding::ByBone), because A1's own 823
-    //   was measured against a head that predated Ю14, Г26 and Ю15 entirely. Subtracting seven from
-    //   830, or adding six to 823, would each have produced a plausible wrong number.
-    //
-    //   THIS IS THE FIFTH CONSECUTIVE MERGE IN WHICH THIS CENSUS CONFLICTED, and the fifth in which no
-    //   arithmetic on the two branch values predicted the result: 826 vs 825 -> 827, 319 vs 325 -> 323,
-    //   359 vs 352 -> 357, 357 vs 355 -> 358, and now 358 vs 353 -> 357. The five numbers below were
-    //   READ OFF A RUN of this merge, which is the only way this file has ever been right.
-    //
-    //   -> +4 with Ю16 (830 -> 834), and every one of the four is named because a count nobody can
-    //   account for is a count somebody will "adjust":
-    //     * Raw +1    UIViewContext::RenderTextures -- registered below as ObservedContainsUs.
-    //     * Shared +1 UIRenderTextureCache::Capture::Scene, the captured world.
-    //     * Unique +2 UIRenderTextureCache::Capture::Renderer (the SceneRenderer holding the renderer
-    //                 slot) and RuntimeLayer::m_UIRenderTextures (the cache itself, held by pointer there
-    //                 because that header forward-declares the Render2D namespace).
-    //   EditorUIPass::m_RenderTextures adds nothing: it is held BY VALUE, which is exactly what makes the
-    //   lifetime argument for the raw row above hold.
-    //
-    //   -> AND AGAIN WITH Ю16, THE SIXTH IN A ROW: dev said 829 / 357, Ю16 said 834 / 359, the merge is
-    //   833 / 358. Ю16 branched before А1 landed, so its absolute count still contains the row А1
-    //   retired. Six merges have now made the same point precisely enough to state it: a branch's
-    //   DELTA survives the merge and its TOTAL does not, so the total is the one thing that cannot be
-    //   carried over — and it is the only thing written in this file. That is why it is read off a run
-    //   every time, and why no arithmetic on the two branch values has ever predicted it.
-    //
-    //   -> +1 with A3 (833 -> 834), and it is named for the same reason: Unique +1 for
-    //   `Animator::m_Controls`, the vector of skeletal controls the pose pipeline runs. `unique_ptr`
-    //   because a control is polymorphic and holds bone indices resolved against THIS rig, and the
-    //   Animator is its one owner — so it answers both questions in its type and owes no row below.
-    //   The number is READ OFF THIS BRANCH'S RUN; per the six merges above, it will not survive the
-    //   merge and must be re-read there.
-    //   -> +1 with A11 (837 -> 838), Unique, and it owes no row for the reason A3's did not:
-    //   `Animator::m_Rig` is the optional control-rig stage (T5.4) and the Animator is its one owner.
-    //   `ControlRigStage` itself adds NO pointer member of any form -- it holds its `ControlHierarchy` by
-    //   value and takes the skeleton, the pose and the component view per call, which is the same refusal
-    //   to store a lifetime T5.1 and T5.3 made. Read off THIS branch's run; per the six merges above it
-    //   will not survive the merge and must be re-read there.
-    //   -> +3 with A10 (834 -> 837), all three Raw and all three CallScoped: `ControlKeyTarget`'s
-    //   {Hierarchy, Skeleton, Clip}. T5.3's keyer is deliberately stateless about all three -- the pack
-    //   is what lets it be -- so the three rows share one argument rather than inventing three. Read off
-    //   THIS branch's run; per the six merges above it will not survive the merge and must be re-read.
-    //   -> +2 with A12 (838 -> 840), one Raw and one Shared, and they are two different arguments.
-    //   The Raw is `AnimationECSSystem::m_AssetManager`: the system now resolves a ControlRigComponent's
-    //   handle to a parsed `.derig`, and it takes the manager the same way it already takes the animation
-    //   library -- by the host's own guarantee, with a register row of its own beside that one. The Shared
-    //   is `ControlRigPanel::m_Scene`, which is what every panel in this editor holds and needs no new
-    //   argument. Read off THIS branch's run; per the merges above it will not survive the merge and must
-    //   be re-read there.
-    //   -> +3 with A15 (840 -> 843), two Raw and one Shared, and all three come from the anim graph
-    //   becoming a `.danimgraph` asset. The two Raw are `AnimGraphPanel::m_AssetManager` and
-    //   `AnimationComponentWidget::m_AssetManager`: the graph is a FILE now, so the window that edits one
-    //   has to resolve a handle to save it and the Details slot has to offer the project's graphs — both
-    //   take the manager the way every other panel and widget in this editor takes it, with a register row
-    //   of its own. The Shared is `AnimGraphAsset::m_Graph`, and it is shared ON PURPOSE rather than
-    //   incidentally: it is the one object every entity naming that file points at, which is what makes
-    //   an edit reach all of them instead of one. Read off THIS branch's run; per the merges above it will
-    //   not survive the merge and must be re-read there.
-    //   -> +1 with B2 (843 -> 844), one Raw, and it is `LoadTimingScope::m_Parent`. The world
-    //   programme's synchronous-load detector times nested loads by having each scope hand its duration
-    //   up to the one enclosing it, and the enclosing scope is reached by the only thing that can name a
-    //   stack object: its address. Its row argues the guard from the LIFO order of the call stack, the
-    //   thread-local stack of open scopes, and the four deleted copy/move operators -- the last of which
-    //   is what makes "one parent per scope" a property of the type rather than of the caller.
-    //   -> +4 with B6 (844 -> 848), ALL FOUR Shared, and all four are the demand-driven asset model.
-    //   `AssetRef<T>::m_Payload` is the reference type's whole state: a consumer holding one that says
-    //   Ready must be able to use what it names for as long as it holds it, and the service that filled
-    //   it may be cleared by a project close in between -- several owners whose deaths are not ordered,
-    //   which is Q1's shared answer rather than a habit. `Record::Payload` and `LoaderState::Live` in
-    //   AsyncAssetLoader.cpp are the KEEP-ALIVE itself: a worker thread is inside `Load()` on that asset
-    //   while the main thread may be releasing the request, so the object has exactly two owners whose
-    //   order is not knowable, which is the textbook case. And `CloudNoiseService::Entry::Source` is the
-    //   announced-but-unread asset the service can later ask to be read -- held by the AssetManager and
-    //   by this service, neither of which outlives the other by construction.
-    //   and +1 Unique with the same task (848 -> 849): `AsyncAssetLoader::m_State`. The loader's queues
-    //   began as a file-local `static`, which compiles and works and made every method of the class
-    //   `static`-able -- clang-tidy said so before a reader would have, and a singleton whose methods are
-    //   all static is a namespace wearing a class. The state is the loader's now, held behind a pointer
-    //   only so the header carries no mutex and no map. One owner with a known lifetime, which is Q1's
-    //   unique answer.
-    //   and A25 moves it again, +2 Raw and +1 Unique (849 -> 852). The two Raw are one map and one
-    //   reference to a map, both keyed by clip address and both covered by `m_TrackBinding`'s own
-    //   argument -- see their rows. The Unique is `Animator::m_Retarget`: the source rig and its
-    //   retargeter, held behind a pointer because null IS the answer to "does this entity retarget",
-    //   with no second flag to disagree with it, and because a `Skeleton` value member would cost every
-    //   Animator in the project four vectors for a feature most of them do not use. One owner with a
-    //   known lifetime, which is Q1's unique answer.
-    //   and +1 Raw with T2.4 (367 -> 368, 852 -> 853): `ContentKindSpec::Root`. The content census that
-    //   replaced seventeen hand-written (root, extension) pairs in AssetPreloader holds the live path
-    //   constant by ADDRESS, not by value, so a row follows a `SetProjectRoot` remap — the same choice,
-    //   for the same reason, as `PackagedTree::Tree`, which is the row above it in the register.
-    //
-    //   and +1 Raw with A28 (368 -> 369, 853 -> 854): `ControlKeyTarget::AuthoredPose`. The keyer learned
-    //   to key BONES as well as controls, and a bone's value lives in the Animator's authoring buffer
-    //   rather than in the control hierarchy — so the argument pack grew a fourth member with the same
-    //   call-scoped guard as its three neighbours. It is a pointer and not a value for the reason
-    //   `EndInteraction` exists: §971 keys the value the drag ENDED at, which means reading the buffer at
-    //   the commit rather than remembering a copy from the write.
-    //
-    //   and +4 Raw with A29 (369 -> 373, 854 -> 858): the pose/clip undo transaction and the command it
-    //   pushes, two pointers each. All four take ByteCommand's guard rather than a stronger one, and the
-    //   reason is a FACT about the types and not a preference: `AnimationComponent::Animator` is a
-    //   `unique_ptr`, so there is no `weak_ptr` to observe it with, and the clip lives inside an
-    //   `AnimationAsset` an eviction may unload — which is the argument `ControlKeyTarget` already makes
-    //   at its own declaration when it refuses to store one. The command reports `IsVolatile()`, so
-    //   `DropVolatile` drops it on every structural change and every selection change.
-    //
-    //   and +2 Raw with A32 (373 -> 375, 858 -> 860): `SequencerPanel::SectionTarget`, which is what a
-    //   section edit acts on -- the animator and the clip, resolved together from one entity. CallScoped
-    //   and not the transaction's volatile guard, and the difference is the point: this struct is built
-    //   BY VALUE per call and never stored, so the frame's own structure closes Q2. The two pointers that
-    //   DO outlive the frame are the four A29 rows above, and they pay for it with `IsVolatile()`.
-    //
-    //   THESE TWO ROWS ARRIVED ON DIFFERENT BRANCHES AND BOTH EDITED THIS NUMBER. Each was green
-    //   against its own base (365 -> 367 and 365 -> 366) and the sum is neither; a merge that took
-    //   either side whole would have been a number that compiles, passes review, and is wrong. The
-    //   count is derived from the rows, so the rows are what to read when it moves.
-    //   and +2 Raw with A33 (375 -> 377, 860 -> 862): `UIClipCommand::m_Clip` and
-    //   `UIClipEditTransaction::m_Clip`, the UI timeline's own undo entry and the transaction that pushes
-    //   it. Same guard and same drop as the four A29 rows, for a hazard that is if anything plainer: the
-    //   pointer is INTO an entt pool, so the address can die while the entity lives. The transaction adds
-    //   one guarantee the pose one does not -- the panel compares Subject() with the component it
-    //   resolved this frame and abandons the entry when they differ.
-    //   and +1 Raw with A33's second half (377 -> 378, 862 -> 863): `ControlPoseCommand::m_Hierarchy`.
-    //   The control drag had NO undo entry at all -- LightGizmoRenderer wrote m_ControlPoseAtGrab and
-    //   m_ControlDragOwner and read neither, under a comment saying an entry was pushed from them. The
-    //   UUID goes with this change too, and it moves NO number here -- a Common::UUID is not a pointer
-    //   and was never in this census, which is exactly why nothing went red while it sat there unread.
-    //   and +2 Raw, +1 Shared, +1 Unique with Г28: `MeshRenderer` stopped accumulating every instanced
-    //   batch into one triple of scratch vectors and now keeps one `InstancedBatchSet` per RECORDING
-    //   material, because a batch has to be drawn with its own `.demat`'s (Instanced x pass) material or
-    //   it loses every texture that material names. The two Raw are that set's `Mat` and `Inst`; the
-    //   Shared is `m_InstancedVariantInstances`; the Unique is `m_ScratchInstSets`, and it is a
-    //   `vector<unique_ptr<...>>` RATHER THAN a `vector<T>` for a reason this register cares about: the
-    //   accumulation hands out a pointer to one set and goes on to create others, so a growing vector of
-    //   values would move the pointee under a live pointer.
-    //
-    //   and +3 Raw / +2 Unique with U9, where a Scene stopped holding ONE renderer and one camera and
-    //   started holding a LIST of views. Every line of it is a member, not a number:
-    //     gone   Scene::m_SceneRenderer (Raw), Scene::m_MainCamera (Weak), Scene::m_ActiveCamera (Shared);
-    //     new    SceneViewList::View::Renderer (Raw) and ::Camera (Shared) -- the same two values, now
-    //            one pair PER VIEW instead of one pair per scene;
-    //     new    ExternalPassContext::Renderer (Raw) -- a pass runs once per view and has to know which
-    //            one it is drawing into;
-    //     new    ViewportPanel::m_ViewRenderer (Raw), EditorLayer::SceneViewport::Viewport (Raw),
-    //            SceneViewport::Renderer (Unique), the m_ExtraViewports element (Unique), and
-    //            SceneViewport::Scene (Weak).
-    //   Shared and Weak do not move for U9: each gained exactly what it lost.
-    //
-    //   THE TWO ARRIVED ON DIFFERENT BRANCHES AND BOTH EDITED THESE NUMBERS. Each was green against its
-    //   own base and the sum is neither; the totals below are DERIVED from the rows above (Raw
-    //   378+2+3, Shared 330+1+0, Unique 117+1+2, Weak unmoved) and then CONFIRMED by running, never
-    //   pasted from one side. Same shape as the merge two days ago, and the reason the register pins
-    //   rows rather than a count: a number can be fixed by editing the number.
-    //     E4 (2026-09-23) added FOUR raw members and was green against its own base, while dev was green
-    //     against itself -- the sum was neither, and the integrator pushed it red. Exactly the failure
-    //     this comment already described one merge earlier, which is the point: the register survives it
-    //     because a row cannot be satisfied by editing a number. The four are the two literal columns of
-    //     GizmoIconRow, ViewportCameraPresetRow::Name, and LightGizmoRenderer::m_UIHelper. Raw 383+4.
-    //     WP6 (2026-09-23) added three raw members -- PhysicsBodyLifetime::m_World and ::m_Registry, and
-    //     AttachmentSystem::m_HookedRegistry, each with a row -- and one unique_ptr,
-    //     PhysicsECSSystem::m_Lifetime. Raw 387+3, Unique 120+1.
-    //     M1 (2026-09-23) removed two: ModelingPanel's ToolBtn table (Icon, Name) went with the five
-    //     placeholder Create buttons it described. Raw 390-2.
-    //   and +2 Unique with SP1 (878 -> 880 after WP6 and M1): the start-up splash, owned by `Sandbox::m_Splash`
-    //   from before the renderer exists until the editor layer takes it (`EditorLayer::m_Splash`). One object
-    //   handed over once -- a move, never a second owner -- so Unique is the honest form and neither owes a row.
-    //   and WP5b (2026-09-24) added WorldStreamer::m_Scene and ::m_Assets (two rows) and two unique_ptrs,
-    //   EditorLayer::m_WorldStreamer and RuntimeLayer::m_WorldStreamer, each the one owner of the streamer of
-    //   the world it plays. Raw 388+2, Unique 123+2.
-    //     ENV1 (2026-09-24) added one raw member, SampledCube::Cube, with its row: the cubemap preview's
-    //     resolver now answers the cube AND the look it is read with. Raw 388+1.
-    //     M4 (2026-09-23) added three shared_ptr<const Geometry::EditMesh> members, and each is shared ON
-    //     PURPOSE: the mesh is IMMUTABLE once on a component, so the undo record holding the old one by
-    //     reference IS the snapshot, with no copy. StaticMeshComponent::EditableMesh (the entity's source of
-    //     truth), PolyEditTool::m_DragBefore (the mesh a drag started from) and the EditMeshCommand's
-    //     m_Before/m_After declaration. Shared 331+3. PolyEdit's picking target holds the ENTITY, not a
-    //     StaticMeshComponent*, so Raw does not move: that pointer would have been into an entt pool.
-    //   LS-4 (2026-09-24) added three: the landscape tile's heightmap as it travels to the terrain pass,
-    //   DrawLandscapeTileCommand::Heightmap and TerrainDrawData::Heightmap (raw, frame-scoped, each with a
-    //   row), and its owner, LandscapeECSSystem::TileGpu::Heightmap (shared). Raw 389+2, Shared 331+1.
-    //   LS-5 (2026-09-24): Raw 391+4-1: LandscapeTileNeighbours' four sides, an argument pack (a row each);
-    //   the terrain pass's per-frame Group::Material left with the pass's lambda (groups are named by key). Shared
-    //   335+2: TerrainRenderer's G-buffer and shadow pipelines. Unique 123+2: its ProgramMaterials holds three
-    //   materials per texture set where the map held one. Weak 38+1: MeshRenderer::m_ShadowCasters — the terrain,
-    //   another render system of the same SceneRenderer.
-    //   M13 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason (the mesh is
-    //   immutable once on a component): MeshElementSelection::m_Mesh, the mesh the element selection was
-    //   last checked against - its IDENTITY is how an edit is noticed and the selection pruned - and the
-    //   Select Elements tool's per-frame Target::Mesh. The tool's painter holds its draw list by reference,
-    //   so Raw does not move. Shared 335+2.
-    //   M14 (2026-09-24) added two: EditMeshOperations' LayerRecord::Layer (raw, call-scoped, with a row) -
-    //   an attribute layer of the mesh the operation is building - and EditMeshCommand::m_Alongside
-    //   (unique), the selection change undone and redone with a mesh operation as one step. Raw 391+1,
-    //   Unique 123+1.
-    //   LS-6 (2026-09-24) retired the procedural terrain and its painted splat map with it, taking three:
-    //   the procedural terrain component's SplatMap (shared, the component owned the map), and the two
-    //   non-owning Image2D* SplatMap that carried it to the draw (the deleted terrain draw command and
-    //   the terrain batch key's). Raw 401-2, Shared 339-1.
-    //   WP8 (2026-09-24) added two: CookedCellSource::m_Index (raw, with a row) - the world index a cooked cell
-    //   source reads against - and WorldStreamer::m_Source (unique), where a unit's records are read from.
-    //   Raw 401+1, Unique 129+1.
-    //   M16b (2026-09-24) added two, SceneCommands' SplitCopyCommand (Plane Cut's second half on a new entity):
-    //   m_Mesh (shared) - the same immutable EditMesh EditMeshCommand's m_Before/m_After hold, by reference so
-    //   a redo puts back exactly that half - and m_Alongside (unique), the companion command it owns, as
-    //   EditMeshCommand::m_Alongside. Shared 339+1, Unique 130+1.
-    //   WP9 (2026-09-24) added four shared and moved one unique: the cooked world's index is held by
-    //   CookedWorldStart::Index and WorldStreamer::m_Index, the Play snapshot by WorldStreamer::m_Snapshot, and
-    //   the cell source by WorldCellLoader::m_Source - each co-held by the JobSystem workers reading a cell, which
-    //   may outlive the frame that started them. WorldStreamer::m_Source (unique) became ::m_Loader (unique).
-    //   Shared 339+4.
-    //   M17 (2026-09-24) added two shared_ptr<const Geometry::EditMesh>, shared for M4's reason: SceneCommands'
-    //   XformEntityState::Mesh (the state an XForm operation puts an entity in, held by the undo step) and
-    //   XformCommand::Gone::Mesh (a merged-away entity's mesh, put back by reference on undo, as
-    //   SplitCopyCommand::m_Mesh). Merge's parts are held by reference, so Raw does not move. Shared 340+2.
-    //   Summed from the merge-base (LS-6 -2 Raw -1 Shared, M16b +1 Shared +1 Unique, WP9 +4 Shared, M17 +2
-    //   Shared): 400 / 345 / 131 / 39 = 915.
-    //   P8a (2026-09-24) brought the ported UE GeometryCore in: Raw +12, the register's UECore rows (back-
-    //   references to the parent mesh, iterators and enumerables over their container, views over a mesh the
-    //   caller holds); Unique +7, DynamicMesh3::AttributeSet, the attribute set's UV / normal / colour /
-    //   material / polygroup layers and DynamicVector::Blocks (UE's TArray<Block*> + delete, owned by type
-    //   here); Shared +3 and Weak +1, EditMeshBridge's view cache (weak key, shared EditMesh view) and the
-    //   EditMesh views the selection tools hold. Members retyped from EditMesh to DynamicMesh3 do not move.
-    //   From the merge-base: 412 / 348 / 138 / 40 = 938.
-    //   L8 (2026-09-24) +6 Raw: LandscapeTileSlot::Data (the edit cache) and five Landscape-mode editor members
-    //   the scan had not been given rows for (four string literals, the stroke command's scene): 406 / 919.
-    //   L8d +1 Raw (LandscapePaintCommand::m_Scene) +2 Weak (LandscapeLayersCommand and LandscapePanel hold the
-    //   scene weakly: a closed scene refuses the edit instead of dangling): 407 / 343 / 131 / 41 = 922.
-    //   Merged with P8a (L8 +7 Raw +2 Weak on top of 412 / 348 / 138 / 40): 419 / 348 / 138 / 42 = 947.
-    //   The 0924 batch merge (AF7-refs-by-guid, P12-weld-holefill-edges, L8-weight-layers,
-    //   SPL2-splash-progress, UI1-asset-info-popup) landed on top of the 419/348/138/42 baseline above and
-    //   moved the count without anyone updating this file, because the pointer_ownership_test.cpp conflict
-    //   in that merge was resolved by keeping ONE side's numbers. AF7 and L8 add nothing to this census.
-    //   P12 (porting UE's mesh-operation classes for Weld Edges / Fill Hole) is the bulk of it:
-    //     +14 Raw, each with a register row -- GroupTopology::Mesh, MeshTangents::Mesh,
-    //     InsetMeshRegion::Mesh, MergeCoincidentMeshEdges::Mesh and ::EdgesToMerge, OffsetMeshRegion::Mesh,
-    //     SimpleHoleFiller::Mesh, DynamicMeshEditor::Mesh, MeshBoundaryLoops::Mesh,
-    //     MeshRegionBoundaryLoops::Mesh, MeshConnectedComponents::Mesh (all UECore/DynamicMesh operation
-    //     classes, non-owning Mesh built at the call site over the caller's DynamicMesh3 -- same HostOutlivesUs
-    //     shape as P8a's MeshNormals::Mesh), plus DynamicMeshSelection.cpp's DynamicMeshElements::m_Topology
-    //     (CallScoped, an argument pack) and the new ActiveToolBar.hpp's ActiveToolLabel::Icon/::Name (two
-    //     string literals per active tool, StaticStorage).
-    //     -1 Raw: EditMeshOperations.cpp's LayerRecord struct was deleted whole when the CutAndStitch path
-    //     moved into DynamicMeshSelection.cpp; its register row is removed rather than left stale.
-    //     +0 net Raw from a rename: ModelingPanel.cpp's palette rail entry struct went from Cat to
-    //     PaletteEntry (same two string-literal fields, same StaticStorage guard) -- the register rows are
-    //     renamed in place, not added and removed, so TheRegisterDescribesMembersThatStillExist stays honest
-    //     about what actually happened.
-    //     +2 Shared: the new ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, which replaced a
-    //     single ad-hoc Target::Mesh (the Select Elements tool's ElementSelectTool.cpp now calls it
-    //     Target::Source, the same pre-existing M13 member relocated behind the new abstraction -- that
-    //     rename moves no count, same rule as a retype).
-    //     +1 Unique: MeshElementSelection::m_Topology (unique_ptr<const GroupTopology>), the polygroup
-    //     topology the element selection now builds and owns for itself, read via m_Topology.get(). Shared
-    //     and Unique need no register row (only a raw pointer answers neither ownership question).
-    //   SPL2 (splash progress) adds +1 Raw: AssetPreloader.cpp's RowProgress::Report, a CallScoped argument
-    //   pack -- `rows{ &progress, ... }` on the stack in PreloadCookedAssetsAndMaterials, passed by pointer to
-    //   each synchronous ProcessAssetKind call and dead when that function returns.
-    //   UI1 (asset info popup) adds +1 Raw: FileExplorerPanel::m_TooltipEntry, OwnedByThisObject like the
-    //   panel's other DirectoryInformation views -- it names a node in m_Directories and is cleared to
-    //   nullptr the same frame its tile stops being hovered.
-    //   P12g (EmbedSimplePath port) adds +1 Raw: EmbedSurfacePath.hpp's MeshSurfacePath::Mesh, HostOutlivesUs
-    //   like the other P12 operation objects -- the path is built over the caller's mesh and embedded in-place.
-    //   P12h (GroupEdgeInserter port) adds +8 Raw, all CallScoped argument packs in GroupEdgeInserter.hpp:
-    //   EdgeLoopInsertionParams::Mesh/Topology/SortedInputLengths, GroupEdgeInsertionParams::Mesh/Topology,
-    //   GroupEdgeInserterOptionalOutputParams::NewEidsOut/ChangedTidsOut/ProblemGroupEdgeIDsOut (UE's parameter
-    //   structs).
-    //   L8g (landscape weights on the GPU) adds +1 Raw and +1 Shared, the heightmap's pair again:
-    //   TerrainBatch.hpp's LandscapeWeightDraw::Weightmap (raw, frame-scoped, with a row) and its owner,
-    //   LandscapeECSSystem::TileGpu::Weightmap (shared).
-    //   WP20b (World Partition panel) adds +1 Raw and +1 Shared, the panel pair every IPanel has:
-    //   WorldPartitionPanel::m_Assets (raw, HostOutlivesUs, with a row -- EditorLayer's AssetManager) and
-    //   WorldPartitionPanel::m_Scene (shared, the scene the panel is bound to, rebound by SetScene).
-    //   Summed from the 419/348/138/42 baseline (P12 +14-1 Raw +2 Shared +1 Unique, SPL2 +1 Raw, UI1 +1 Raw,
-    //   P12g +1 Raw, P12h +8 Raw, L8g +1 Raw +1 Shared): 444 / 351 / 139 / 42 = 976.
-    //   RT2b +2 Raw +1 Unique: ViewResources' live list and ActiveViewScope::m_Previous (rows in the
-    //   register), and the copy map's unique_ptr<IViewResourceCopy>: 446 / 351 / 140 / 42 = 979.
-    //   RT2c +1 Unique: ViewCopiedBlock::HandOver's unique_ptr<IBlockCopy>, the made-and-seeded copy held
-    //   for the one call that moves it into a view: 446 / 351 / 141 / 42 = 980.
-    //   RT2d +2 Unique: VulkanStorageBuffer's m_PerView (the per-view copies of a per-frame SSBO) and
-    //   m_Shared (the one buffer of a persistent SSBO) - each owned by the buffer alone, exactly one of the
-    //   two set per lifetime: 446 / 351 / 143 / 42 = 982.
-    //   WP20b +1 Raw +1 Shared: WorldPartitionPanel::m_Assets (row in the register) and the panel's m_Scene:
-    //   447 / 352 / 143 / 42 = 984.
-    //   P13d +5 Raw: the ported ExpMap's DynamicMeshUVEditor::Mesh/UVOverlay, DynamicSubmesh3::BaseMesh,
-    //   MeshDijkstra::PointSet, MeshLocalParam::PointSet (rows in the register): 452 / 352 / 143 / 42 = 989.
-    //   RT2e +2 Shared +1 Unique: DescriptorPoolChain::m_Pools and VulkanViewSets::m_Pool (a view's
-    //   descriptor pool, co-held by the chain and by every set allocated from it, so the sets' deferred free
-    //   is queued before the pool's destruction), and ViewDescriptorSets::HandOver::m_Copy (the made sets,
-    //   held for the one call that moves them into a view).
-    //   AV1b +1 Raw +1 Unique: TextureViewerDocument::m_Assets (row in the register) and its m_UIHelper,
-    //   the ImGui texture cache the document alone owns: 453 / 354 / 145 / 42 = 994.
-    //   RT2g +2 Raw: VulkanGpuProfiler::m_Recording (the frame slot recording now, inside its own m_Frames)
-    //   and GpuScopeRecorder::m_Stacks (a per-view stack keyed by owner identity), rows in the register:
-    //   455 / 354 / 145 / 42 = 996.
-    //   AV1e +1 Raw +2 Unique: SkyboxViewerDocument::m_Assets (row in the register), its m_Preview (the
-    //   PreviewViewport whose destruction returns the renderer slot) and m_UIHelper, each owned by the
-    //   document alone: 454 / 354 / 147 / 42 = 997.
-    //   Both together (B2 after B3): 456 / 354 / 147 / 42 = 999.
-    //   JS1c S1 +1 Raw: Json::Node::m_Value, the call-scoped view of a document (row in the register):
-    //   457 / 354 / 147 / 42 = 1000.
-    //   B7fix +5 Raw: ReflectionSerializer walks nested structs on an explicit stack (misc-no-recursion);
-    //   SerializeReflected's Frame::{Type, Base, Field} and DeserializeReflected's Frame::{Type, Base},
-    //   call-scoped (rows in the register): 462 / 354 / 147 / 42 = 1005.
-    //   AV1f2 static mesh viewer document: +1 raw (m_Assets), +2 unique (m_Preview, m_UIHelper) = 1002.
-    //   Both (B7 on top of B6): 463 / 354 / 149 / 42 = 1008.
-    EXPECT_EQ( CountOf( Form::Raw ), 463 );
-    EXPECT_EQ( CountOf( Form::Shared ), 354 );
-    EXPECT_EQ( CountOf( Form::Unique ), 149 );
-    EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 1008 )
-         << "the population moved. That is not a number to adjust -- it means a pointer member was added "
-            "or removed, and the two questions at the top of this file are owed an answer for it.";
+    for ( const Sentinel& s : kSentinels )
+    {
+        const auto it = std::find_if( Members().begin(), Members().end(), [&s]( const Member& m )
+                                      { return m.File == s.File && m.Class == s.Class && m.Name == s.Member; } );
+        if ( it == Members().end() )
+        {
+            ADD_FAILURE() << s.File << " " << s.Class << "::" << s.Member << " (" << FormName( s.Kind )
+                          << ") is no longer found by the scan: the reader lost this shape, or the member moved "
+                             "-- then point the sentinel at another member of the same shape.";
+            continue;
+        }
+        EXPECT_EQ( it->Kind, s.Kind ) << s.File << ":" << it->Line << " " << s.Class << "::" << s.Member << " ("
+                                      << it->Decl << ") is classified " << FormName( it->Kind ) << ", expected "
+                                      << FormName( s.Kind );
+    }
+
+    // Every form is populated: a classifier that silently folds one form into another empties it.
+    for ( const Form f : { Form::Unique, Form::Weak, Form::Shared, Form::Raw } )
+        EXPECT_GT( CountOf( f ), 0 ) << "the scan classified no member as " << FormName( f );
+
+    // The derived identity: with every raw member owning exactly one row and every row naming a scanned
+    // raw member (the two tests below), the register's size IS the number of distinct raw members. The
+    // key is (file, class, member), not the declaration: two same-named local structs in one file (the
+    // Frame of SerializeReflected and of DeserializeReflected) are one key and share one row.
+    std::set<std::tuple<std::string, std::string, std::string>> rawKeys;
+    for ( const Member& m : Members() )
+        if ( m.Kind == Form::Raw )
+            rawKeys.emplace( m.File, m.Class, m.Name );
+    EXPECT_EQ( rawKeys.size(), Register().size() )
+         << "the raw population and the register disagree; the tests below name the member or row.";
+    EXPECT_EQ( CountOf( Form::Unique ) + CountOf( Form::Weak ) + CountOf( Form::Shared ) + CountOf( Form::Raw ),
+               static_cast<int>( Members().size() ) );
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -611,7 +172,14 @@ TEST( PointerOwnership, EveryRawPointerMemberNamesItsGuard )
     {
         if ( m.Kind != Form::Raw )
             continue;
-        if ( FindRow( m ) != nullptr )
+        const auto rows =
+             std::count_if( Register().begin(), Register().end(), [&m]( const Row& r )
+                            { return m.Class == r.Class && m.Name == r.Member && m.File == r.File; } );
+        // Exactly one: a second row for the same member is two arguments where one is read and the
+        // other rots, and it would also break the derived raw count in TheScanFindsTheCensusedPopulation.
+        EXPECT_LE( rows, 1 ) << m.File << ":" << m.Line << " " << m.Class << "::" << m.Name << " has " << rows
+                             << " register rows; keep exactly one.";
+        if ( rows != 0 )
             continue;
         ++unlisted;
         ADD_FAILURE() << m.File << ":" << m.Line << " " << m.Class << "::" << m.Name << " (" << m.Decl
@@ -804,57 +372,6 @@ TEST( PointerOwnership, SharedOwnershipIsTheMajorityAndThatIsTheMeasuredAnswer )
     // `shared_ptr` here is a false impression of shared ownership, and the register's job is to make
     // the true owner findable instead of mass-replacing them for uniformity -- churn that would hide
     // the seven real findings in a diff of two hundred files.
-    // 324 -> 326 with Ю11's UIMaterialCache: its target framebuffer and each entry's pipeline. Both are
-    // genuinely shared -- a Framebuffer is held by the scene that made it and by every pipeline compiled
-    // against its render pass, and a GraphicsPipeline by the cache entry and by the specification it was
-    // created from -- so they belong on this side of the census rather than being narrowed for tidiness.
-    // 326 -> 321 with Г25: the five GPU resources of the procedural grass generator, removed with it.
-    // 321 -> 319 with Ю13: NOT a conversion of anything. Two members named `Asset` whose types are a
-    // `std::string` and an `AssetHandle` were being counted here because the alias match ran over the
-    // member's name as well as its type; they are not pointers and never were.
-    // 319 -> 323 with Г26: the (Instanced x GBuffer) shader, pipeline, material and material instance --
-    // the deferred twins of the forward instanced four that were already on this side.
-    // NEITHER BRANCH'S TOTAL SURVIVES THE MERGE: Ю13 alone says 319, Г26 alone says 325, and the tree
-    // says 323. Read off a run; see the arithmetic at TheScanFindsTheCensusedPopulation.
-    // 323 -> 324 with Ю16: UIRenderTextureCache::Capture::Scene, the world one UI element shows.
-    // 324 -> 325 with A12: ControlRigPanel::m_Scene, which is what every panel in this editor holds.
-    // 325 -> 326 with A15: AnimGraphAsset::m_Graph. Shared BY DESIGN and not by habit — every entity that
-    // names one `.danimgraph` holds this same object, so an edit in the graph window is the graph all of
-    // them evaluate next frame. A unique_ptr here, or a copy per entity, would compile and would restore
-    // the per-entity blob that schema step 21 removed.
-    // 326 -> 330 with B6: the four members of the demand-driven asset model. Three of them (the
-    // reference's payload, the request record's payload, the loader's live map) are shared because a
-    // WORKER THREAD is inside the asset while the main thread may be dropping the request -- two owners
-    // whose deaths cannot be ordered, which is the one case Q1 answers with shared_ptr and not a
-    // preference. The fourth, an announced-but-unread asset in the noise service, is co-held with the
-    // AssetManager. See the arithmetic at TheScanFindsTheCensusedPopulation.
-    // 330 -> 331 with Г28: MeshRenderer::m_InstancedVariantInstances, one MaterialInstance per instanced
-    // material variant. Shared because MaterialInstancePtr is the engine's one spelling of an instance
-    // handle and every other holder of one is a shared_ptr too; what makes it safe is not the count but
-    // the stamp check that empties the map when MaterialService retires the materials they point at.
-    // 331 -> 334 with M4: StaticMeshComponent::EditableMesh, PolyEditTool::m_DragBefore and the
-    // EditMeshCommand's m_Before/m_After. Shared BY DESIGN: the EditMesh is immutable once set on a
-    // component, so the undo record keeping the old one by reference is the snapshot, with no copy and
-    // nothing able to change it under the history. See TheScanFindsTheCensusedPopulation.
-    // 331 -> 332 with LS-4: LandscapeECSSystem::TileGpu::Heightmap, a GPU image — the case this test's
-    // opening paragraph describes (the cache, the descriptor sets and the deletion queue all hold it).
-    // 334 -> 335: M4's three and LS-4's one, merged 2026-09-24.
-    // 335 -> 337 with LS-5: TerrainRenderer's G-buffer and shadow-caster pipelines, from the pipeline cache
-    // that co-holds every pipeline it hands out.
-    // 335 -> 337 with M13: MeshElementSelection::m_Mesh and the Select Elements tool's Target::Mesh, the
-    // same immutable EditMesh - see TheScanFindsTheCensusedPopulation.
-    // 337 -> 339: LS-5's two and M13/M14's two, merged 2026-09-24.
-    // 339 -> 338 with LS-6 (the procedural terrain's SplatMap), -> 339 with M16b (SplitCopyCommand::m_Mesh),
-    // -> 343 with WP9: a cooked world's index, the Play snapshot and the cell source, co-held by the JobSystem
-    // workers reading cells - see TheScanFindsTheCensusedPopulation.
-    // -> 345 with M17: XformEntityState::Mesh and XformCommand::Gone::Mesh.
-    // -> 348 with P8a: EditMeshBridge's cached EditMesh view and the selection tools' EditMesh views.
-    // -> 350 with P12: ModelingToolTarget.hpp's ToolTargetMesh::Mesh and ::Committed, the same immutable
-    // EditMesh held by the tool and by its committed snapshot - see TheScanFindsTheCensusedPopulation.
-    // -> 351 with L8g: LandscapeECSSystem::TileGpu::Weightmap, the tile's weight image beside its heightmap.
-    // -> 352 with WP20b: WorldPartitionPanel::m_Scene, the bound scene every panel co-holds with EditorLayer.
-    // -> 354 with RT2e: a view's descriptor pool, co-held by its chain and by every set allocated from it.
-    EXPECT_EQ( CountOf( Form::Shared ), 354 );
     EXPECT_GT( CountOf( Form::Shared ), CountOf( Form::Unique ) + CountOf( Form::Weak ) );
 }
 
