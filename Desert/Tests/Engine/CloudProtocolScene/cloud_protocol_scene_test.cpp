@@ -20,14 +20,13 @@
 // It is a pure-function suite: it parses JSON, walks the reflection registry, and asks the loader's own
 // version gate whether each file is one the engine will read. No GPU, no asset manager, no scene graph.
 
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
-
-#include <rflcpp/rfl/json.hpp>
 
 #include <gtest/gtest.h>
 
@@ -108,13 +107,24 @@ namespace
         return buffer.str();
     }
 
-    // Every key the parsed payload carries. Written by hand because rfl::Object exposes no `contains`.
-    std::set<std::string> KeysOf( const Common::Json::Object& object )
+    // Every key the parsed payload carries.
+    std::set<std::string> KeysOf( const Common::Json::Node& object )
     {
         std::set<std::string> keys;
-        for ( auto it = object.begin(); it != object.end(); ++it )
-            keys.insert( it->first );
+        object.ForEachMember( [&]( std::string_view name, const Common::Json::Node& )
+                              { keys.insert( std::string( name ) ); } );
         return keys;
+    }
+
+    // The payload rebuilt member by member in file order with one member replaced — the payload a leg
+    // would carry if it agreed with the others on that member.
+    Common::Json::Value WithMember( const Common::Json::Node& payload, std::string_view key,
+                                    const Common::Json::Value& replacement )
+    {
+        Common::Json::ObjectBuilder rebuilt;
+        payload.ForEachMember( [&]( std::string_view name, const Common::Json::Node& member )
+                               { rebuilt.Set( name, name == key ? replacement : member.Raw() ); } );
+        return Common::Json::Value( rebuilt.Build() );
     }
 
     const TypeInfo* Reflected( const char* typeName )
@@ -149,15 +159,16 @@ TEST( CloudProtocolScene, EveryReflectedFieldIsWrittenExplicitlySoNoDefaultCanMo
                 if ( !found.has_value() )
                     continue;
 
-                const auto payload = found.value().to_object();
-                ASSERT_TRUE( payload ) << sceneName << ": '" << component.Key << "' is not an object";
+                const Common::Json::Node payload = Common::Json::Root( found.value() );
+                ASSERT_EQ( payload.GetKind(), Common::Json::Kind::Object )
+                     << sceneName << ": '" << component.Key << "' is not an object";
 
                 const TypeInfo* type = Reflected( component.TypeName );
                 ASSERT_NE( type, nullptr ) << component.TypeName
                                            << " is not in the reflection registry, so nothing here means "
                                               "anything";
 
-                const std::set<std::string> present = KeysOf( payload.value() );
+                const std::set<std::string> present = KeysOf( payload );
                 for ( const auto& field : type->Fields )
                     EXPECT_TRUE( present.count( field.Name ) != 0 )
                          << sceneName << ": '" << component.Key << "." << field.Name
@@ -184,10 +195,10 @@ TEST( CloudProtocolScene, TheSettingsBlockIsWrittenInFull )
         ASSERT_TRUE( parsed ) << sceneName;
         ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName << " has no Settings block";
 
-        const auto settings = parsed.GetValue().Settings->to_object();
-        ASSERT_TRUE( settings ) << sceneName << ": Settings is not an object";
+        const Common::Json::Node settings = Common::Json::Root( *parsed.GetValue().Settings );
+        ASSERT_EQ( settings.GetKind(), Common::Json::Kind::Object ) << sceneName << ": Settings is not an object";
 
-        const std::set<std::string> present = KeysOf( settings.value() );
+        const std::set<std::string> present = KeysOf( settings );
         for ( const auto& field : type->Fields )
             EXPECT_TRUE( present.count( field.Name ) != 0 )
                  << sceneName << ": 'Settings." << field.Name << "' is not written, so it is a default";
@@ -218,10 +229,10 @@ TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndTh
         const auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
         ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName;
-        const auto settings = parsed.GetValue().Settings->to_object();
-        ASSERT_TRUE( settings ) << sceneName;
+        const Common::Json::Node settings = Common::Json::Root( *parsed.GetValue().Settings );
+        ASSERT_EQ( settings.GetKind(), Common::Json::Kind::Object ) << sceneName;
 
-        const std::set<std::string> present = KeysOf( settings.value() );
+        const std::set<std::string> present = KeysOf( settings );
         for ( const char* key : { "CloudQualityTier", "AA", "MeshLOD", "TextureFilterMode", "Anisotropy" } )
             EXPECT_TRUE( present.count( key ) == 0 )
                  << sceneName << " states Settings." << key
@@ -291,16 +302,17 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
             if ( !found.has_value() )
                 continue;
 
-            auto payload = found.value().to_object();
-            ASSERT_TRUE( payload ) << leg.Scene;
-            const auto enabled = payload.value()["Enabled"].to_bool();
-            ASSERT_TRUE( enabled ) << leg.Scene << ": HeroCloud.Enabled is not a bool";
-            if ( *enabled )
+            const Common::Json::Node payload = Common::Json::Root( found.value() );
+            ASSERT_EQ( payload.GetKind(), Common::Json::Kind::Object ) << leg.Scene;
+            const auto enabledNode = payload.Get( "Enabled" );
+            ASSERT_TRUE( enabledNode ) << leg.Scene << ": " << enabledNode.GetError();
+            const auto enabled = enabledNode.GetValue().AsBool();
+            ASSERT_TRUE( enabled ) << leg.Scene << ": " << enabled.GetError();
+            if ( enabled.GetValue() )
                 ++live;
 
             // Erase the one field the legs are allowed to differ in, so the rest can be compared whole.
-            payload.value()["Enabled"]     = false;
-            entity.Components["HeroCloud"] = Common::Json::Value( payload.value() );
+            entity.Components["HeroCloud"] = WithMember( payload, "Enabled", Common::Json::Value( false ) );
         }
         EXPECT_EQ( live, leg.Expected ) << leg.Scene << " does not carry the instance count its name claims";
 
@@ -317,19 +329,22 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
             if ( !found.has_value() )
                 continue;
 
-            auto payload = found.value().to_object();
-            ASSERT_TRUE( payload ) << leg.Scene << ": the VolumetricCloud payload is not an object";
-            const auto material = payload.value()["Material"].to_string();
+            const Common::Json::Node payload = Common::Json::Root( found.value() );
+            ASSERT_EQ( payload.GetKind(), Common::Json::Kind::Object )
+                 << leg.Scene << ": the VolumetricCloud payload is not an object";
+            const auto materialNode = payload.Get( "Material" );
+            ASSERT_TRUE( materialNode ) << leg.Scene << ": " << materialNode.GetError();
+            const auto material = materialNode.GetValue().AsString();
             ASSERT_TRUE( material ) << leg.Scene
                                     << ": the cloud layer names no material, so its look comes from "
                                        "nowhere this suite can pin";
 
-            const std::string materialJson = ReadAll( AssetPath( *material ) );
+            const std::string materialJson = ReadAll( AssetPath( material.GetValue() ) );
             EXPECT_FALSE( materialJson.empty() )
-                 << leg.Scene << " names '" << *material << "', which is not on disk";
+                 << leg.Scene << " names '" << material.GetValue() << "', which is not on disk";
 
             auto parsedMaterial = Common::Json::Read<Desert::Assets::MaterialData>( materialJson );
-            ASSERT_TRUE( parsedMaterial ) << leg.Scene << ": '" << *material << "' is not a material";
+            ASSERT_TRUE( parsedMaterial ) << leg.Scene << ": '" << material.GetValue() << "' is not a material";
 
             // The header GUID is the FILE's identity, not the sky's — it is derived from the file's own
             // path so that two runs of the migration produce byte-identical output, which means three
@@ -339,8 +354,8 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
             look.Header                       = std::nullopt; // the file's identity, cleared for the comparison
             cloudLook.push_back( Common::Json::Write( look ) );
 
-            payload.value()["Material"]          = std::string( "normalised" );
-            entity.Components["VolumetricCloud"] = Common::Json::Value( payload.value() );
+            entity.Components["VolumetricCloud"] =
+                 WithMember( payload, "Material", Common::Json::Value( std::string( "normalised" ) ) );
         }
 
         normalised.push_back( Common::Json::Write( scene ) );
