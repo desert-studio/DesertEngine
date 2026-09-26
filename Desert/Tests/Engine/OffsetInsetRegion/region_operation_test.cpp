@@ -259,13 +259,13 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
 
     FMeshBoundaryLoops loops( &mesh );
     ASSERT_EQ( loops.GetLoopCount(), 1 );
-    EXPECT_EQ( loops.Spans.Num(), 0 );
+    EXPECT_EQ( static_cast<int32_t>( loops.Spans.size() ), 0 );
     EXPECT_EQ( loops.Loops[0].GetEdgeCount(), 4 );
     EXPECT_TRUE( loops.Loops[0].IsBoundaryLoop( mesh ) );
 
     FSimpleHoleFiller filler( &mesh, loops.Loops[0] );
     ASSERT_TRUE( filler.Fill() ) << filler.FailureReason;
-    EXPECT_EQ( filler.NewTriangles.Num(), 4 );
+    EXPECT_EQ( static_cast<int32_t>( filler.NewTriangles.size() ), 4 );
     EXPECT_TRUE( mesh.IsClosed() );
     int open = 0;
     for ( int e : mesh.BoundaryEdgeIndicesItr() )
@@ -354,7 +354,7 @@ namespace
     {
         const FGroupTopology topology( &mesh, true );
         ElementSelection     selection( ElementMode::Edge );
-        for ( int e = 0; e < topology.Edges.Num(); ++e )
+        for ( int e = 0; e < static_cast<int32_t>( topology.Edges.size() ); ++e )
         {
             const FIndex2i g = topology.Edges[e].Groups;
             if ( ( g.A == faceA + 1 && g.B == faceB + 1 ) || ( g.A == faceB + 1 && g.B == faceA + 1 ) )

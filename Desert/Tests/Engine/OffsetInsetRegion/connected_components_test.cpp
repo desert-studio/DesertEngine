@@ -1,6 +1,7 @@
 // FMeshConnectedComponents (seed-list path) and FMeshRegionBoundaryLoops' loop overlay map: the two pieces of
 // GeometryCore that UE's FGroupEdgeInserter builds on (CreateNewGroups, DeleteGroupTrianglesAndGetLoop).
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 #include "Engine/Geometry/UECore/MeshRegionBoundaryLoops.hpp"
 #include "Engine/Geometry/UECore/Selections/MeshConnectedComponents.hpp"
 
@@ -40,7 +41,7 @@ namespace
         return mesh;
     }
 
-    std::vector<int> Sorted( const TArray<int>& ids )
+    std::vector<int> Sorted( const std::vector<int>& ids )
     {
         std::vector<int> out( ids.begin(), ids.end() );
         std::sort( out.begin(), out.end() );
@@ -140,20 +141,20 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
     const FDynamicMeshUVOverlay& uv   = *mesh.Attributes()->GetUVLayer( 0 );
     FMeshRegionBoundaryLoops     loops( &mesh, { 2, 3 } );
     ASSERT_FALSE( loops.bFailed ) << loops.FailureReason;
-    ASSERT_EQ( loops.Loops.Num(), 1 );
+    ASSERT_EQ( static_cast<int32_t>( loops.Loops.size() ), 1 );
     ASSERT_EQ( loops.Loops[0].GetVertexCount(), 4 );
 
     FMeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     ASSERT_TRUE( loops.GetLoopOverlayMap( loops.Loops[0], uv, map ) );
-    ASSERT_EQ( map.Num(), 4 );
+    ASSERT_EQ( static_cast<int32_t>( map.size() ), 4 );
     for ( int v : { 2, 3, 4, 5 } )
     {
-        const auto* entry = map.Find( v );
+        const auto* entry = FindValue( map, v );
         ASSERT_NE( entry, nullptr ) << "vertex " << v;
         const glm::dvec3 p = mesh.GetVertex( v );
-        EXPECT_EQ( uv.GetParentVertex( entry->Key ), v );
-        EXPECT_FLOAT_EQ( entry->Value.x, float( p.x ) + 10.0f ) << "vertex " << v << " took the outside element";
-        EXPECT_FLOAT_EQ( entry->Value.y, float( p.y ) + 10.0f ) << "vertex " << v;
+        EXPECT_EQ( uv.GetParentVertex( entry->first ), v );
+        EXPECT_FLOAT_EQ( entry->second.x, float( p.x ) + 10.0f ) << "vertex " << v << " took the outside element";
+        EXPECT_FLOAT_EQ( entry->second.y, float( p.y ) + 10.0f ) << "vertex " << v;
     }
 
     // Deleting the region frees its own elements; the map must say so rather than point at a dead element.
@@ -161,7 +162,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapTakesTheInsideTrianglesElementAcros
     ASSERT_EQ( mesh.RemoveTriangle( 3 ), EMeshResult::Ok );
     FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity( map, uv );
     for ( int v : { 2, 3, 4, 5 } )
-        EXPECT_EQ( map[v].Key, IndexConstants::InvalidID ) << "vertex " << v;
+        EXPECT_EQ( map[v].first, IndexConstants::InvalidID ) << "vertex " << v;
 }
 
 TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheElement )
@@ -169,18 +170,18 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapStaysValidWhereNeighboursShareTheEl
     FDynamicMesh3                mesh = StripWithUVs( false );
     const FDynamicMeshUVOverlay& uv   = *mesh.Attributes()->GetUVLayer( 0 );
     FMeshRegionBoundaryLoops     loops( &mesh, { 2, 3 } );
-    ASSERT_EQ( loops.Loops.Num(), 1 );
+    ASSERT_EQ( static_cast<int32_t>( loops.Loops.size() ), 1 );
     FMeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     ASSERT_TRUE( loops.GetLoopOverlayMap( loops.Loops[0], uv, map ) );
 
     ASSERT_EQ( mesh.RemoveTriangle( 2 ), EMeshResult::Ok );
     ASSERT_EQ( mesh.RemoveTriangle( 3 ), EMeshResult::Ok );
     FMeshRegionBoundaryLoops::UpdateLoopOverlayMapValidity( map, uv );
-    ASSERT_EQ( map.Num(), 4 );
+    ASSERT_EQ( static_cast<int32_t>( map.size() ), 4 );
     for ( int v : { 2, 3, 4, 5 } )
     {
-        EXPECT_TRUE( uv.IsElement( map[v].Key ) ) << "vertex " << v;
-        EXPECT_FLOAT_EQ( map[v].Value.x, float( mesh.GetVertex( v ).x ) ) << "vertex " << v;
+        EXPECT_TRUE( uv.IsElement( map[v].first ) ) << "vertex " << v;
+        EXPECT_FLOAT_EQ( map[v].second.x, float( mesh.GetVertex( v ).x ) ) << "vertex " << v;
     }
 }
 
@@ -189,7 +190,7 @@ TEST( MeshRegionBoundaryLoops, LoopOverlayMapRefusesALoopOfAnotherRegion )
     const FDynamicMesh3            mesh = StripWithUVs( false );
     FMeshRegionBoundaryLoops       quad0( &mesh, { 0, 1 } );
     const FMeshRegionBoundaryLoops quad3( &mesh, { 6, 7 } );
-    ASSERT_EQ( quad3.Loops.Num(), 1 );
+    ASSERT_EQ( static_cast<int32_t>( quad3.Loops.size() ), 1 );
     FMeshRegionBoundaryLoops::VidOverlayMap<glm::vec2> map;
     EXPECT_FALSE( quad0.GetLoopOverlayMap( quad3.Loops[0], *mesh.Attributes()->GetUVLayer( 0 ), map ) );
 }

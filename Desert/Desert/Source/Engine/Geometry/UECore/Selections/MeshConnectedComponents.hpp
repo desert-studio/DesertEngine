@@ -24,10 +24,10 @@ namespace Desert::Geometry
         struct FComponent
         {
             /** Triangle IDs in the component, in the order they were reached. */
-            TArray<int> Indices;
+            std::vector<int> Indices;
         };
 
-        TArray<FComponent> Components;
+        std::vector<FComponent> Components;
 
         explicit FMeshConnectedComponents( const FDynamicMesh3* MeshIn ) : Mesh( MeshIn )
         {
@@ -35,7 +35,7 @@ namespace Desert::Geometry
 
         [[nodiscard]] int32_t Num() const
         {
-            return Components.Num();
+            return static_cast<int32_t>( Components.size() );
         }
         [[nodiscard]] const FComponent& GetComponent( int32_t Index ) const
         {
@@ -60,16 +60,17 @@ namespace Desert::Geometry
          * reached from its neighbour t0.
          */
         void FindTrianglesConnectedToSeeds(
-             const TArray<int>&                             SeedTriangles,
+             const std::vector<int>&                        SeedTriangles,
              const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate = nullptr );
 
     protected:
-        void FindTriComponents( const TArray<int32_t>& SeedList, TArray<uint8_t>& ActiveSet,
-                                const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate );
-        void FindTriComponent( FComponent& Component, TArray<int32_t>& ComponentQueue,
-                               TArray<uint8_t>& ActiveSet ) const;
-        void FindTriComponent( FComponent& Component, TArray<int32_t>& ComponentQueue, TArray<uint8_t>& ActiveSet,
-                               const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate ) const;
-        static void RemoveFromActiveSet( const FComponent& Component, TArray<uint8_t>& ActiveSet );
+        void        FindTriComponents( const std::vector<int32_t>& SeedList, std::vector<uint8_t>& ActiveSet,
+                                       const std::function<bool( int32_t, int32_t )>& TrisConnectedPredicate );
+        void        FindTriComponent( FComponent& Component, std::vector<int32_t>& ComponentQueue,
+                                      std::vector<uint8_t>& ActiveSet ) const;
+        void        FindTriComponent( FComponent& Component, std::vector<int32_t>& ComponentQueue,
+                                      std::vector<uint8_t>&                          ActiveSet,
+                                      const std::function<bool( int32_t, int32_t )>& TriConnectedPredicate ) const;
+        static void RemoveFromActiveSet( const FComponent& Component, std::vector<uint8_t>& ActiveSet );
     };
 } // namespace Desert::Geometry

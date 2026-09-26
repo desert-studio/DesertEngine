@@ -24,14 +24,14 @@ namespace
     }
 
     // A 100 x 100 cm square in the XY plane, two triangles, counter-clockwise corners 0..3 from the origin.
-    FDynamicMesh3 Square( TArray<int32_t>& CornersOut )
+    FDynamicMesh3 Square( std::vector<int32_t>& CornersOut )
     {
         FDynamicMesh3 Mesh;
-        CornersOut.Reset();
-        CornersOut.Add( Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) ) );
-        CornersOut.Add( Mesh.AppendVertex( glm::dvec3( 100, 0, 0 ) ) );
-        CornersOut.Add( Mesh.AppendVertex( glm::dvec3( 100, 100, 0 ) ) );
-        CornersOut.Add( Mesh.AppendVertex( glm::dvec3( 0, 100, 0 ) ) );
+        CornersOut.clear();
+        CornersOut.push_back( Mesh.AppendVertex( glm::dvec3( 0, 0, 0 ) ) );
+        CornersOut.push_back( Mesh.AppendVertex( glm::dvec3( 100, 0, 0 ) ) );
+        CornersOut.push_back( Mesh.AppendVertex( glm::dvec3( 100, 100, 0 ) ) );
+        CornersOut.push_back( Mesh.AppendVertex( glm::dvec3( 0, 100, 0 ) ) );
         Mesh.AppendTriangle( CornersOut[0], CornersOut[1], CornersOut[2] );
         Mesh.AppendTriangle( CornersOut[0], CornersOut[2], CornersOut[3] );
         return Mesh;
@@ -45,7 +45,7 @@ namespace
         return { X + 7.0, Y * c - 3.0, Y * s + 11.0 };
     }
 
-    glm::dvec3 TriangleCross( const TArray<glm::dvec3>& P, const FIndex3i& T )
+    glm::dvec3 TriangleCross( const std::vector<glm::dvec3>& P, const FIndex3i& T )
     {
         return glm::cross( ( P[T.B] - P[T.A] ), P[T.C] - P[T.A] );
     }
@@ -108,35 +108,35 @@ TEST( BevelPrimitives, InsetPairIsMidpointOfClosestPoints )
 
 TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 {
-    TArray<int32_t>     Corners;
+    std::vector<int32_t> Corners;
     const FDynamicMesh3 Mesh = Square( Corners );
-    TArray<int32_t>     Edges;
+    std::vector<int32_t> Edges;
     for ( int32_t i = 0; i < 4; ++i )
-        Edges.Add( Mesh.FindEdge( Corners[i], Corners[( i + 1 ) % 4] ) );
+        Edges.push_back( Mesh.FindEdge( Corners[i], Corners[( i + 1 ) % 4] ) );
 
-    TArray<FLine3d> Lines;
+    std::vector<FLine3d> Lines;
     ComputeInsetLineSegmentsFromEdges( Mesh, Edges, 10.0, Lines );
-    ASSERT_EQ( Lines.Num(), 4 );
+    ASSERT_EQ( static_cast<int32_t>( Lines.size() ), 4 );
     // Each line runs along its edge, moved 10 cm towards the square's inside.
     EXPECT_NEAR( Lines[0].DistanceSquared( glm::dvec3( 50, 10, 0 ) ), 0.0, Tol );
     EXPECT_NEAR( Lines[1].DistanceSquared( glm::dvec3( 90, 50, 0 ) ), 0.0, Tol );
     EXPECT_NEAR( Lines[2].DistanceSquared( glm::dvec3( 50, 90, 0 ) ), 0.0, Tol );
     EXPECT_NEAR( Lines[3].DistanceSquared( glm::dvec3( 10, 50, 0 ) ), 0.0, Tol );
 
-    TArray<glm::dvec3> Loop;
+    std::vector<glm::dvec3> Loop;
     SolveInsetVertexPositionsFromInsetLines( Mesh, Lines, Corners, Loop, true );
-    ASSERT_EQ( Loop.Num(), 4 );
+    ASSERT_EQ( static_cast<int32_t>( Loop.size() ), 4 );
     ExpectNear( Loop[0], glm::dvec3( 10, 10, 0 ), "loop corner 0" );
     ExpectNear( Loop[1], glm::dvec3( 90, 10, 0 ), "loop corner 1" );
     ExpectNear( Loop[2], glm::dvec3( 90, 90, 0 ), "loop corner 2" );
     ExpectNear( Loop[3], glm::dvec3( 10, 90, 0 ), "loop corner 3" );
 
     // An open span 0-1-2 over edges 0 and 1: the ends are projected onto their one line.
-    const TArray<int32_t> SpanVertices = { Corners[0], Corners[1], Corners[2] };
-    const TArray<FLine3d> SpanLines    = { Lines[0], Lines[1] };
-    TArray<glm::dvec3>    Span;
+    const std::vector<int32_t> SpanVertices = { Corners[0], Corners[1], Corners[2] };
+    const std::vector<FLine3d> SpanLines    = { Lines[0], Lines[1] };
+    std::vector<glm::dvec3>    Span;
     SolveInsetVertexPositionsFromInsetLines( Mesh, SpanLines, SpanVertices, Span, false );
-    ASSERT_EQ( Span.Num(), 3 );
+    ASSERT_EQ( static_cast<int32_t>( Span.size() ), 3 );
     ExpectNear( Span[0], glm::dvec3( 0, 10, 0 ), "span start" );
     ExpectNear( Span[1], glm::dvec3( 90, 10, 0 ), "span middle" );
     ExpectNear( Span[2], glm::dvec3( 90, 100, 0 ), "span end" );
@@ -144,19 +144,19 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 
 TEST( BevelPrimitives, InsetLineOfAMissingEdgeIsTheDefaultLine )
 {
-    TArray<int32_t>     Corners;
+    std::vector<int32_t> Corners;
     const FDynamicMesh3 Mesh = Square( Corners );
-    TArray<FLine3d>     Lines;
-    ComputeInsetLineSegmentsFromEdges( Mesh, TArray<int32_t>{ 12345 }, 10.0, Lines );
-    ASSERT_EQ( Lines.Num(), 1 );
+    std::vector<FLine3d> Lines;
+    ComputeInsetLineSegmentsFromEdges( Mesh, std::vector<int32_t>{ 12345 }, 10.0, Lines );
+    ASSERT_EQ( static_cast<int32_t>( Lines.size() ), 1 );
     ExpectNear( Lines[0].Origin, glm::dvec3( 0, 0, 0 ), "default origin" );
     ExpectNear( Lines[0].Direction, glm::dvec3( 1, 0, 0 ), "default direction" );
 }
 
 TEST( BevelPrimitives, PolygonPlaneIsNewellNormalCentroidAndArea )
 {
-    const TArray<glm::dvec3> P = { glm::dvec3( 0, 0, 0 ), glm::dvec3( 100, 0, 0 ), glm::dvec3( 100, 100, 0 ),
-                                   glm::dvec3( 0, 100, 0 ) };
+    const std::vector<glm::dvec3> P = { glm::dvec3( 0, 0, 0 ), glm::dvec3( 100, 0, 0 ), glm::dvec3( 100, 100, 0 ),
+                                        glm::dvec3( 0, 100, 0 ) };
     glm::dvec3               Normal{};
     glm::dvec3               Centroid{};
     const double            Area = PolygonTriangulation::ComputePolygonPlane( P, Normal, Centroid );
@@ -170,17 +170,17 @@ TEST( BevelPrimitives, PolygonPlaneIsNewellNormalCentroidAndArea )
 TEST( BevelPrimitives, EarClipOfAConcavePolygonCoversItOnce )
 {
     // An L of three 10 cm cells, counter-clockwise, tilted out of the axis planes; vertex 3 is the reflex corner.
-    const TArray<glm::dvec3> P = { Tilt( 0, 0 ),   Tilt( 20, 0 ),  Tilt( 20, 10 ),
-                                   Tilt( 10, 10 ), Tilt( 10, 20 ), Tilt( 0, 20 ) };
+    const std::vector<glm::dvec3> P = { Tilt( 0, 0 ),   Tilt( 20, 0 ),  Tilt( 20, 10 ),
+                                        Tilt( 10, 10 ), Tilt( 10, 20 ), Tilt( 0, 20 ) };
     glm::dvec3               PolygonNormal{};
     glm::dvec3               Centroid{};
     PolygonTriangulation::ComputePolygonPlane( P, PolygonNormal, Centroid );
 
     for ( const bool bHoleFill : { true, false } )
     {
-        TArray<FIndex3i> Triangles;
+        std::vector<FIndex3i> Triangles;
         PolygonTriangulation::TriangulateSimplePolygon( P, Triangles, bHoleFill );
-        ASSERT_EQ( Triangles.Num(), 4 ) << "hole fill " << bHoleFill;
+        ASSERT_EQ( static_cast<int32_t>( Triangles.size() ), 4 ) << "hole fill " << bHoleFill;
         double UnsignedArea = 0;
         for ( const FIndex3i& T : Triangles )
         {
@@ -199,15 +199,15 @@ TEST( BevelPrimitives, EarClipOfAConcavePolygonCoversItOnce )
 
 TEST( BevelPrimitives, EarClipOfATriangleHonoursHoleFillWinding )
 {
-    const TArray<glm::dvec3> P = { glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ), glm::dvec3( 0, 1, 0 ) };
-    TArray<FIndex3i>        Triangles;
+    const std::vector<glm::dvec3> P = { glm::dvec3( 0, 0, 0 ), glm::dvec3( 1, 0, 0 ), glm::dvec3( 0, 1, 0 ) };
+    std::vector<FIndex3i>         Triangles;
     PolygonTriangulation::TriangulateSimplePolygon( P, Triangles );
-    ASSERT_EQ( Triangles.Num(), 1 );
+    ASSERT_EQ( static_cast<int32_t>( Triangles.size() ), 1 );
     EXPECT_EQ( Triangles[0], FIndex3i( 0, 2, 1 ) );
     PolygonTriangulation::TriangulateSimplePolygon( P, Triangles, false );
-    ASSERT_EQ( Triangles.Num(), 1 );
+    ASSERT_EQ( static_cast<int32_t>( Triangles.size() ), 1 );
     EXPECT_EQ( Triangles[0], FIndex3i( 0, 1, 2 ) );
 
-    PolygonTriangulation::TriangulateSimplePolygon( TArray<glm::dvec3>{ P[0], P[1] }, Triangles );
-    EXPECT_EQ( Triangles.Num(), 0 );
+    PolygonTriangulation::TriangulateSimplePolygon( std::vector<glm::dvec3>{ P[0], P[1] }, Triangles );
+    EXPECT_EQ( static_cast<int32_t>( Triangles.size() ), 0 );
 }

@@ -267,7 +267,7 @@ namespace Desert::Geometry
         std::vector<int> GroupEdgeSegments( const FGroupTopology& topology )
         {
             std::vector<int> out;
-            for ( int g = 0; g < topology.Edges.Num(); ++g )
+            for ( int g = 0; g < static_cast<int32_t>( topology.Edges.size() ); ++g )
                 for ( const int e : topology.GetGroupEdgeEdges( g ) )
                     out.push_back( e );
             return out;

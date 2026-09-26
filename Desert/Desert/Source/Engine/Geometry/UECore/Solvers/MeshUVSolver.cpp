@@ -77,11 +77,11 @@ namespace Desert::Geometry
 
         // ConstructFullCotangentLaplacian with ECotangentAreaMode::NoArea, written into both diagonal blocks
         // (UE's FEigenDNCPSparseMatrixAssembler): [L 0; 0 L] for the 2V unknowns (U block, then V block).
-        void AppendDNCPCotangentLaplacian( const FDynamicMesh3& Mesh, const TArray<int32_t>& ToVertex,
-                                           const TArray<int32_t>& ToIndex, ECotangentWeightMode WeightMode,
+        void AppendDNCPCotangentLaplacian( const FDynamicMesh3& Mesh, const std::vector<int32_t>& ToVertex,
+                                           const std::vector<int32_t>& ToIndex, ECotangentWeightMode WeightMode,
                                            std::vector<FTriplet>& Triplets )
         {
-            const int32_t                   NumVerts = ToVertex.Num();
+            const int32_t                   NumVerts = static_cast<int32_t>( ToVertex.size() );
             std::vector<FCotanTriangleData> TriData;
             std::vector<int32_t>            ToTriIdx( Mesh.MaxTriangleID(), FDynamicMesh3::InvalidID );
             for ( const int32_t tid : Mesh.TriangleIndicesItr() )
@@ -295,29 +295,30 @@ namespace Desert::Geometry
          : Mesh( MeshIn ), bPreserveIrregularity( bPreserveIrregularityIn )
     {
         // UE's FVertexLinearization(Mesh, false): compact indices in vertex-ID order
-        ToIndex.Init( FDynamicMesh3::InvalidID, Mesh.MaxVertexID() );
+        ToIndex.assign( Mesh.MaxVertexID(), FDynamicMesh3::InvalidID );
         for ( const int32_t vid : Mesh.VertexIndicesItr() )
         {
-            ToIndex[vid] = ToVertex.Num();
-            ToVertex.Add( vid );
+            ToIndex[vid] = static_cast<int32_t>( ToVertex.size() );
+            ToVertex.push_back( vid );
         }
     }
 
     void FSpectralConformalMeshUVSolver::AddBoundaryVertex( int32_t VertexID )
     {
-        if ( VertexID < 0 || VertexID >= ToIndex.Num() || ToIndex[VertexID] == FDynamicMesh3::InvalidID )
+        if ( VertexID < 0 || VertexID >= static_cast<int32_t>( ToIndex.size() ) ||
+             ToIndex[VertexID] == FDynamicMesh3::InvalidID )
             return;
         const int32_t Index = ToIndex[VertexID];
         if ( std::find( Boundary.begin(), Boundary.end(), Index ) == Boundary.end() )
-            Boundary.Add( Index );
+            Boundary.push_back( Index );
     }
 
-    bool FSpectralConformalMeshUVSolver::SolveUVs( TArray<glm::dvec2>& OutUVs )
+    bool FSpectralConformalMeshUVSolver::SolveUVs( std::vector<glm::dvec2>& OutUVs )
     {
-        const int32_t NumVerts = ToVertex.Num();
+        const int32_t NumVerts = static_cast<int32_t>( ToVertex.size() );
         const int32_t N        = 2 * NumVerts;
-        OutUVs.Init( glm::dvec2( 0 ), Mesh.MaxVertexID() );
-        if ( NumVerts == 0 || Boundary.Num() == 0 )
+        OutUVs.assign( Mesh.MaxVertexID(), glm::dvec2( 0 ) );
+        if ( NumVerts == 0 || Boundary.empty() )
             return false;
 
         // conformal energy E_c = -Scale * L_cot - A (ConstructConformalEnergyMatrix), plus Eps*I to make it PSD
@@ -354,7 +355,7 @@ namespace Desert::Geometry
             const FMeshBoundaryLoops Loops( &Mesh, true );
             for ( const FEdgeLoop& Loop : Loops.Loops )
             {
-                const int32_t NumLoopVert = Loop.Vertices.Num();
+                const int32_t NumLoopVert = static_cast<int32_t>( Loop.Vertices.size() );
                 for ( int32_t Idx = 0; Idx < NumLoopVert; ++Idx )
                     AppendAreaEdge( ToIndex[Loop.Vertices[( Idx + 1 ) % NumLoopVert]], ToIndex[Loop.Vertices[Idx]],
                                     NumVerts, -1.0, Triplets );
@@ -367,7 +368,8 @@ namespace Desert::Geometry
 
         // B selects the boundary, E (2V x 2) is its normalized centroid: the iteration uses (B - E E^T) x
         // without forming the dense E E^T
-        const double InvSqrtBndr = 1.0 / std::sqrt( static_cast<double>( Boundary.Num() ) );
+        const double InvSqrtBndr =
+             1.0 / std::sqrt( static_cast<double>( static_cast<int32_t>( Boundary.size() ) ) );
         const auto   ApplyB      = [&]( const std::vector<double>& In, std::vector<double>& Out )
         {
             double MeanU = 0.0;

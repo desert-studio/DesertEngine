@@ -135,9 +135,9 @@ namespace Desert::Geometry
 
     bool FMeshSurfacePath::IsConnected() const
     {
-        for ( int Idx = 1, LastIdx = 0; Idx < Path.Num(); LastIdx = Idx++ )
+        for ( int Idx = 1, LastIdx = 0; Idx < static_cast<int32_t>( Path.size() ); LastIdx = Idx++ )
         {
-            const int WalkingOnTri = Path[LastIdx].Value;
+            const int WalkingOnTri = Path[LastIdx].second;
             if ( !Mesh->IsTriangle( WalkingOnTri ) )
             {
                 return false;
@@ -145,7 +145,7 @@ namespace Desert::Geometry
             const int Inds[2] = { LastIdx, Idx };
             for ( const int Ind : Inds )
             {
-                const FMeshSurfacePoint& P = Path[Ind].Key;
+                const FMeshSurfacePoint& P = Path[Ind].first;
                 switch ( P.PointType )
                 {
                     case ESurfacePointType::Triangle:
@@ -172,19 +172,19 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool FMeshSurfacePath::EmbedSimplePath( TArray<int>& PathVertices, bool bDoNotDuplicateFirstVertexID,
+    bool FMeshSurfacePath::EmbedSimplePath( std::vector<int>& PathVertices, bool bDoNotDuplicateFirstVertexID,
                                             double SnapElementThresholdSq )
     {
         // used to track where the new vertices for *this* path start; used for bDoNotDuplicateFirstVertexID
-        const int32_t InitialPathIdx = PathVertices.Num();
+        const int32_t InitialPathIdx = static_cast<int32_t>( PathVertices.size() );
 
-        if ( Path.Num() == 0 )
+        if ( Path.empty() )
         {
             return true;
         }
 
-        const int32_t            PathNum   = Path.Num();
-        const FMeshSurfacePoint& OrigEndPt = Path[PathNum - 1].Key;
+        const int32_t            PathNum   = static_cast<int32_t>( Path.size() );
+        const FMeshSurfacePoint& OrigEndPt = Path[PathNum - 1].first;
         // If FinalTri is split or poked, we will need to re-locate the last point in the path
         int  StartProcessIdx         = 0;
         int  EndSimpleProcessIdx     = PathNum - 1;
@@ -194,39 +194,39 @@ namespace Desert::Geometry
             EndSimpleProcessIdx     = PathNum - 2;
             bEndPointSpecialProcess = true;
         }
-        FMeshSurfacePoint EndPtUpdated = Path.Last().Key;
+        FMeshSurfacePoint EndPtUpdated = Path.back().first;
         const glm::dvec3  EndPtPos     = OrigEndPt.Pos( Mesh );
 
-        if ( Path[0].Key.PointType == ESurfacePointType::Triangle )
+        if ( Path[0].first.PointType == ESurfacePointType::Triangle )
         {
             // poke triangle, and place initial vertex
             FDynamicMesh3::FPokeTriangleInfo PokeInfo;
-            if ( !UE_ENSURE( Mesh->PokeTriangle( Path[0].Key.ElementID, Path[0].Key.BaryCoord, PokeInfo ) ==
+            if ( !UE_ENSURE( Mesh->PokeTriangle( Path[0].first.ElementID, Path[0].first.BaryCoord, PokeInfo ) ==
                              EMeshResult::Ok ) )
             {
                 return false;
             }
             if ( EndPtUpdated.PointType == ESurfacePointType::Triangle &&
-                 Path[0].Key.ElementID == EndPtUpdated.ElementID )
+                 Path[0].first.ElementID == EndPtUpdated.ElementID )
             {
                 const std::array<int, 3> EndCandidateTris{ PokeInfo.NewTriangles.A, PokeInfo.NewTriangles.B,
                                                            PokeInfo.OriginalTriangle };
                 EndPtUpdated = RelocateTrianglePointAfterRefinement( Mesh, EndPtPos, EndCandidateTris,
                                                                      SnapElementThresholdSq );
             }
-            PathVertices.Add( PokeInfo.NewVertex );
+            PathVertices.push_back( PokeInfo.NewVertex );
             StartProcessIdx = 1;
         }
 
         for ( int32_t PathIdx = StartProcessIdx; PathIdx <= EndSimpleProcessIdx; PathIdx++ )
         {
-            if ( !UE_ENSURE( Path[PathIdx].Key.PointType != ESurfacePointType::Triangle ) )
+            if ( !UE_ENSURE( Path[PathIdx].first.PointType != ESurfacePointType::Triangle ) )
             {
                 // Input assumptions violated -- Simple path can only have Triangle points at the very first and/or
                 // last points!  Would need a more powerful embed function to handle this case.
                 return false;
             }
-            const FMeshSurfacePoint& Pt = Path[PathIdx].Key;
+            const FMeshSurfacePoint& Pt = Path[PathIdx].first;
             if ( Pt.PointType == ESurfacePointType::Edge )
             {
                 FDynamicMesh3::FEdgeSplitInfo SplitInfo;
@@ -235,7 +235,7 @@ namespace Desert::Geometry
                 {
                     return false;
                 }
-                PathVertices.Add( SplitInfo.NewVertex );
+                PathVertices.push_back( SplitInfo.NewVertex );
                 if ( EndPtUpdated.PointType == ESurfacePointType::Triangle &&
                      SplitInfo.OriginalTriangles.Contains( EndPtUpdated.ElementID ) )
                 {
@@ -260,10 +260,11 @@ namespace Desert::Geometry
                 UE_ENSURE( Mesh->IsVertex( Pt.ElementID ) );
                 // make sure we don't add a duplicate vertex for the very first vertex (occurs when appending paths
                 // sequentially)
-                if ( !bDoNotDuplicateFirstVertexID || PathVertices.Num() != InitialPathIdx ||
-                     0 == PathVertices.Num() || PathVertices.Last() != Pt.ElementID )
+                if ( !bDoNotDuplicateFirstVertexID ||
+                     static_cast<int32_t>( PathVertices.size() ) != InitialPathIdx ||
+                     0 == static_cast<int32_t>( PathVertices.size() ) || PathVertices.back() != Pt.ElementID )
                 {
-                    PathVertices.Add( Pt.ElementID );
+                    PathVertices.push_back( Pt.ElementID );
                 }
             }
         }
@@ -278,7 +279,7 @@ namespace Desert::Geometry
                 {
                     return false;
                 }
-                PathVertices.Add( PokeInfo.NewVertex );
+                PathVertices.push_back( PokeInfo.NewVertex );
             }
             else if ( EndPtUpdated.PointType == ESurfacePointType::Edge )
             {
@@ -288,13 +289,13 @@ namespace Desert::Geometry
                 {
                     return false;
                 }
-                PathVertices.Add( SplitInfo.NewVertex );
+                PathVertices.push_back( SplitInfo.NewVertex );
             }
             else
             {
-                if ( PathVertices.Num() == 0 || PathVertices.Last() != EndPtUpdated.ElementID )
+                if ( PathVertices.empty() || PathVertices.back() != EndPtUpdated.ElementID )
                 {
-                    PathVertices.Add( EndPtUpdated.ElementID );
+                    PathVertices.push_back( EndPtUpdated.ElementID );
                 }
             }
         }

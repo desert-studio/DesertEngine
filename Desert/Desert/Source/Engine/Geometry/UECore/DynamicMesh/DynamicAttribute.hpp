@@ -157,7 +157,7 @@ namespace Desert::Geometry
 
         /** Update to reflect an edge merge in the parent mesh */
         virtual void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                    const TArrayView<const int>&             TrianglesToUpdate )
+                                    const std::span<const int>&              TrianglesToUpdate )
         {
         }
 
@@ -188,7 +188,7 @@ namespace Desert::Geometry
     protected:
         // not managed by the base class; we should be able to register any attributes here that we want to be
         // automatically updated
-        TArray<TDynamicAttributeBase<ParentType>*> RegisteredAttributes;
+        std::vector<TDynamicAttributeBase<ParentType>*> RegisteredAttributes;
 
         /**
          * Stores the given attribute pointer in the attribute register, so that it will be updated with mesh
@@ -196,17 +196,17 @@ namespace Desert::Geometry
          */
         void RegisterExternalAttribute( TDynamicAttributeBase<ParentType>* Attribute )
         {
-            RegisteredAttributes.Add( Attribute );
+            RegisteredAttributes.push_back( Attribute );
         }
 
         void UnregisterExternalAttribute( TDynamicAttributeBase<ParentType>* Attribute )
         {
-            RegisteredAttributes.Remove( Attribute );
+            std::erase( RegisteredAttributes, Attribute );
         }
 
         void ResetRegisteredAttributes()
         {
-            RegisteredAttributes.Reset();
+            RegisteredAttributes.clear();
         }
 
     public:
@@ -316,18 +316,18 @@ namespace Desert::Geometry
         }
         virtual void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& MergeInfo )
         {
-            if ( !UE_ENSURE_MSGF( !MergeInfo.EdgeCollapseInfo.IsSet(),
+            if ( !UE_ENSURE_MSGF( !MergeInfo.EdgeCollapseInfo.has_value(),
                                   TEXT( "Vertex merge that resolves as edge collapse "
                                         "is expected to have called OnCollapseEdge, not OnMergeVertices." ) ) )
             {
-                OnCollapseEdge( MergeInfo.EdgeCollapseInfo.GetValue() );
+                OnCollapseEdge( MergeInfo.EdgeCollapseInfo.value() );
                 return;
             }
-            if ( !UE_ENSURE_MSGF( !MergeInfo.MergeEdgesInfo.IsSet(),
+            if ( !UE_ENSURE_MSGF( !MergeInfo.MergeEdgesInfo.has_value(),
                                   TEXT( "Vertex merge that resolves as edge merge "
                                         "is expected to have called OnMergeEdges, not OnMergeVertices." ) ) )
             {
-                OnMergeEdges( MergeInfo.MergeEdgesInfo.GetValue() );
+                OnMergeEdges( MergeInfo.MergeEdgesInfo.value() );
                 return;
             }
 
@@ -337,7 +337,7 @@ namespace Desert::Geometry
             }
         }
         virtual void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                    const TArrayView<const int>&             TrianglesToUpdate )
+                                    const std::span<const int>&              TrianglesToUpdate )
         {
             for ( TDynamicAttributeBase<ParentType>* A : RegisteredAttributes )
             {

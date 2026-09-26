@@ -39,17 +39,17 @@ namespace Desert::Geometry
         // Walk both ways from the two triangles of StartEdgeID, stopping at edges IsSplitEdge accepts.
         template <typename SplitEdgeTest>
         bool WalkOneRingSides( const FDynamicMesh3* Mesh, int32_t VertexID, int32_t StartEdgeID,
-                               SplitEdgeTest IsSplitEdge, TArray<int32_t>& TriangleSet0,
-                               TArray<int32_t>& TriangleSet1 )
+                               SplitEdgeTest IsSplitEdge, std::vector<int32_t>& TriangleSet0,
+                               std::vector<int32_t>& TriangleSet1 )
         {
             const FIndex2i StartTris = Mesh->GetEdgeT( StartEdgeID );
             if ( StartTris.B < 0 )
                 return false;
             for ( int32_t si = 0; si < 2; ++si )
             {
-                TArray<int32_t>& CurrentTriangleSet = ( si == 0 ) ? TriangleSet0 : TriangleSet1;
+                std::vector<int32_t>& CurrentTriangleSet = ( si == 0 ) ? TriangleSet0 : TriangleSet1;
                 const int32_t    StartTri           = StartTris[si];
-                CurrentTriangleSet.Add( StartTri );
+                CurrentTriangleSet.push_back( StartTri );
                 const int32_t EdgeOtherTri = StartTris[si == 0 ? 1 : 0];
                 int32_t       CurTri       = StartTri;
                 int32_t       PrevTri      = EdgeOtherTri;
@@ -63,17 +63,18 @@ namespace Desert::Geometry
                     // Looping back to the start means the split edges did not cut the ring: bad arguments.
                     if ( NextTri.A == EdgeOtherTri )
                         return false;
-                    CurrentTriangleSet.Add( NextTri.A );
+                    CurrentTriangleSet.push_back( NextTri.A );
                     PrevTri = CurTri;
                     CurTri  = NextTri.A;
                 }
             }
-            return TriangleSet0.Num() > 0 && TriangleSet1.Num() > 0;
+            return !TriangleSet0.empty() && !TriangleSet1.empty();
         }
     } // namespace
 
     bool SplitBoundaryVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32_t VertexID, int32_t SplitEdgeID,
-                                                  TArray<int32_t>& TriangleSet0, TArray<int32_t>& TriangleSet1 )
+                                                  std::vector<int32_t>& TriangleSet0,
+                                                  std::vector<int32_t>& TriangleSet1 )
     {
         if ( !Mesh->IsVertex( VertexID ) || !Mesh->IsEdge( SplitEdgeID ) )
             return false;
@@ -84,7 +85,8 @@ namespace Desert::Geometry
 
     bool SplitInteriorVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32_t VertexID,
                                                   int32_t SplitEdgeID0, int32_t SplitEdgeID1,
-                                                  TArray<int32_t>& TriangleSet0, TArray<int32_t>& TriangleSet1 )
+                                                  std::vector<int32_t>& TriangleSet0,
+                                                  std::vector<int32_t>& TriangleSet1 )
     {
         if ( !Mesh->IsVertex( VertexID ) || !Mesh->IsEdge( SplitEdgeID0 ) || !Mesh->IsEdge( SplitEdgeID1 ) )
             return false;

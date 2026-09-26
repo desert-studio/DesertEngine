@@ -52,11 +52,11 @@ namespace
     }
 
     // The top face (+Z, z = 100): triangles 2 and 3.
-    TArray<int32_t> TopFace()
+    std::vector<int32_t> TopFace()
     {
-        TArray<int32_t> T;
-        T.Add( 2 );
-        T.Add( 3 );
+        std::vector<int32_t> T;
+        T.push_back( 2 );
+        T.push_back( 3 );
         return T;
     }
 } // namespace
@@ -76,7 +76,7 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
     EXPECT_EQ( M.TriangleCount(), 20 );
     EXPECT_EQ( CountGroups( M ), 10 );
     EXPECT_EQ( CountBoundaryEdges( M ), 0 ) << "the extruded cube must stay closed";
-    ASSERT_EQ( Op.OffsetRegions.Num(), 1 );
+    ASSERT_EQ( static_cast<int32_t>( Op.OffsetRegions.size() ), 1 );
     EXPECT_FALSE( Op.OffsetRegions[0].bIsSolid );
     for ( int32_t const t : Op.OffsetRegions[0].OffsetTids )
     {
@@ -86,9 +86,9 @@ TEST( OffsetMeshRegion, CubeFaceExtrudeMatchesUETopology )
         EXPECT_NEAR( M.GetTriNormal( t ).z, 1.0, 1e-9 );
     }
     // Four walls, two triangles each, each its own new group, facing outwards (horizontal normals).
-    ASSERT_EQ( Op.OffsetRegions[0].StitchTriangles.Num(), 1 );
-    EXPECT_EQ( Op.OffsetRegions[0].StitchTriangles[0].Num(), 8 );
-    EXPECT_EQ( Op.OffsetRegions[0].StitchPolygonIDs[0].Num(), 4 );
+    ASSERT_EQ( static_cast<int32_t>( Op.OffsetRegions[0].StitchTriangles.size() ), 1 );
+    EXPECT_EQ( static_cast<int32_t>( Op.OffsetRegions[0].StitchTriangles[0].size() ), 8 );
+    EXPECT_EQ( static_cast<int32_t>( Op.OffsetRegions[0].StitchPolygonIDs[0].size() ), 4 );
     for ( int32_t const t : Op.OffsetRegions[0].StitchTriangles[0] )
     {
         const glm::dvec3 N = M.GetTriNormal( t );
@@ -105,7 +105,7 @@ TEST( OffsetMeshRegion, WholeCubeOffsetsIntoASolid )
     FDynamicMesh3     M = MakeCube();
     FOffsetMeshRegion Op( &M );
     for ( int t = 0; t < 12; ++t )
-        Op.Triangles.Add( t );
+        Op.Triangles.push_back( t );
     Op.ExtrusionVectorType =
          FOffsetMeshRegion::EVertexExtrusionVectorType::SelectionTriNormalsAngleWeightedAdjusted;
     Op.DefaultOffsetDistance = 10.0;
@@ -151,7 +151,7 @@ TEST( InsetMeshRegion, RegionWithInteriorVertexIsRefused )
     FInsetMeshRegion Op( &M );
     // The +Z face plus the four side faces around it: vertices 4..7 are interior.
     for ( int t = 2; t < 12; ++t )
-        Op.Triangles.Add( t );
+        Op.Triangles.push_back( t );
     EXPECT_FALSE( Op.Apply() );
     EXPECT_NE( Op.FailureReason.find( "interior" ), std::string::npos ) << Op.FailureReason;
     EXPECT_EQ( M.TriangleCount(), Before );

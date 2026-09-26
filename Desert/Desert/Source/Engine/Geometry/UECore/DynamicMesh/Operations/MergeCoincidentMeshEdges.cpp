@@ -24,11 +24,11 @@ namespace Desert::Geometry
             }
             void InsertPointUnsafe( int32_t Value, const glm::dvec3& Pos )
             {
-                Hash[ToGrid( Pos )].Add( Value );
+                Hash[ToGrid( Pos )].push_back( Value );
             }
             template <typename DistanceSqFn>
             void FindPointsInBall( const glm::dvec3& QueryPoint, double Radius, DistanceSqFn&& DistanceSqFunc,
-                                   TArray<int32_t>& ResultsOut ) const
+                                   std::vector<int32_t>& ResultsOut ) const
             {
                 const glm::dvec3 Lo( QueryPoint.x - Radius, QueryPoint.y - Radius, QueryPoint.z - Radius );
                 const glm::dvec3 Hi( QueryPoint.x + Radius, QueryPoint.y + Radius, QueryPoint.z + Radius );
@@ -43,7 +43,7 @@ namespace Desert::Geometry
                                 continue;
                             for ( int32_t const Value : It->second )
                                 if ( DistanceSqFunc( Value ) < RadiusSquared )
-                                    ResultsOut.Add( Value );
+                                    ResultsOut.push_back( Value );
                         }
             }
 
@@ -56,7 +56,7 @@ namespace Desert::Geometry
                          static_cast<int64_t>( std::floor( P.z / CellSize ) ) };
             }
             double                       CellSize;
-            std::map<Key, TArray<int32_t>> Hash;
+            std::map<Key, std::vector<int32_t>> Hash;
         };
 
     } // namespace
@@ -69,12 +69,15 @@ namespace Desert::Geometry
         double UseMergeSearchTol = ( MergeSearchTolerance > 0 ) ? MergeSearchTolerance : 2 * MergeVertexTolerance;
 
         // hash table of the boundary edge midpoints
-        TArray<glm::dvec3> BoundaryMidPoints;
-        TArray<int32_t>   ToMidPt;
-        ToMidPt.Init( -1, Mesh->MaxEdgeID() );
+        std::vector<glm::dvec3> BoundaryMidPoints;
+        std::vector<int32_t>    ToMidPt;
+        ToMidPt.assign( Mesh->MaxEdgeID(), -1 );
         for ( int32_t const EID : Mesh->BoundaryEdgeIndicesItr() )
-            ToMidPt[EID] = BoundaryMidPoints.Add( Mesh->GetEdgePoint( EID, 0.5 ) );
-        InitialNumBoundaryEdges = BoundaryMidPoints.Num();
+        {
+            BoundaryMidPoints.push_back( Mesh->GetEdgePoint( EID, 0.5 ) );
+            ToMidPt[EID] = static_cast<int32_t>( BoundaryMidPoints.size() ) - 1;
+        }
+        InitialNumBoundaryEdges = static_cast<int32_t>( BoundaryMidPoints.size() );
 
         // denser grid as the number of boundary edges grows
         int hashN = 64;
@@ -93,87 +96,88 @@ namespace Desert::Geometry
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
         glm::dvec3      A{}, B{}, C{}, D{};
-        TArray<int>   equivBuffer;
-        TArray<int32_t> SearchMatches;
+        std::vector<int>     equivBuffer;
+        std::vector<int32_t> SearchMatches;
 
         // Edge equivalence sets: every other boundary edge with the same midpoint, narrowed to those with the same
         // endpoints.
-        using EdgesList = TArray<int>;
+        using EdgesList = std::vector<int>;
         std::vector<std::unique_ptr<EdgesList>> EquivalenceSets( static_cast<size_t>( Mesh->MaxEdgeID() ) );
-        TSet<int>                               RemainingEdges;
+        std::unordered_set<int>                 RemainingEdges;
         for ( int eid : Mesh->BoundaryEdgeIndicesItr() )
         {
             const glm::dvec3 midpt = BoundaryMidPoints[ToMidPt[eid]];
-            SearchMatches.Reset();
+            SearchMatches.clear();
             MidpointsHash.FindPointsInBall(
                  midpt, UseMergeSearchTol, [&]( const int32_t& PtIdx )
                  { return DistSq( midpt, BoundaryMidPoints[ToMidPt[PtIdx]] ); }, SearchMatches );
             // inserted after the query, so only edges with earlier IDs are found
             MidpointsHash.InsertPointUnsafe( eid, midpt );
-            const int N = SearchMatches.Num();
+            const int N = static_cast<int32_t>( SearchMatches.size() );
             if ( N == 0 )
                 continue;
 
             Mesh->GetEdgeV( eid, A, B );
-            equivBuffer.Reset();
+            equivBuffer.clear();
             for ( int i = 0; i < N; ++i )
             {
                 const int32_t MatchEID = SearchMatches[i];
                 Mesh->GetEdgeV( MatchEID, C, D );
                 if ( IsSameEdge( A, B, C, D ) )
                 {
-                    equivBuffer.Add( MatchEID );
+                    equivBuffer.push_back( MatchEID );
                     if ( !EquivalenceSets[MatchEID] )
                     {
                         EquivalenceSets[MatchEID] = std::make_unique<EdgesList>();
-                        RemainingEdges.Add( MatchEID );
+                        RemainingEdges.insert( MatchEID );
                     }
-                    EquivalenceSets[MatchEID]->Add( eid );
+                    EquivalenceSets[MatchEID]->push_back( eid );
                 }
             }
-            if ( equivBuffer.Num() > 0 )
+            if ( !equivBuffer.empty() )
             {
                 EquivalenceSets[eid] = std::make_unique<EdgesList>( equivBuffer );
-                RemainingEdges.Add( eid );
+                RemainingEdges.insert( eid );
             }
         }
 
         // potential duplicates, fewest possible matches first
         FIndexPriorityQueue DuplicatesQueue;
         DuplicatesQueue.Initialize( Mesh->MaxEdgeID() );
-        for ( int eid : RemainingEdges.Array() )
+        for ( int eid : std::vector( RemainingEdges.begin(), RemainingEdges.end() ) )
         {
             if ( OnlyUniquePairs )
             {
-                if ( EquivalenceSets[eid]->Num() != 1 )
+                if ( static_cast<int32_t>( EquivalenceSets[eid]->size() ) != 1 )
                     continue;
                 // the reverse match must be the same and unique
                 const int other_eid = ( *EquivalenceSets[eid] )[0];
-                if ( EquivalenceSets[other_eid]->Num() != 1 || ( *EquivalenceSets[other_eid] )[0] != eid )
+                if ( static_cast<int32_t>( EquivalenceSets[other_eid]->size() ) != 1 ||
+                     ( *EquivalenceSets[other_eid] )[0] != eid )
                     continue;
             }
-            DuplicatesQueue.Insert( eid, (float)EquivalenceSets[eid]->Num() );
+            DuplicatesQueue.Insert( eid, static_cast<int32_t>( (float)EquivalenceSets[eid]->size() ) );
         }
 
         // greedy merge
         while ( DuplicatesQueue.GetCount() > 0 )
         {
             const int eid = DuplicatesQueue.Dequeue();
-            if ( !Mesh->IsEdge( eid ) || !EquivalenceSets[eid] || !RemainingEdges.Contains( eid ) )
+            if ( !Mesh->IsEdge( eid ) || !EquivalenceSets[eid] || !RemainingEdges.contains( eid ) )
                 continue; // dealt with already
             if ( !Mesh->IsBoundaryEdge( eid ) )
                 continue; // merged already
 
             EdgesList& Matches = *EquivalenceSets[eid];
             bool       bMerged = false;
-            for ( int i = 0; i < Matches.Num() && !bMerged; ++i )
+            for ( int i = 0; i < static_cast<int32_t>( Matches.size() ) && !bMerged; ++i )
             {
                 const int other_eid = Matches[i];
                 if ( !Mesh->IsEdge( other_eid ) || !Mesh->IsBoundaryEdge( other_eid ) )
                     continue;
                 const bool bWeldingAcrossEntireMesh = ( EdgesToMerge == nullptr );
-                if ( !bWeldingAcrossEntireMesh && !EdgesToMerge->Contains( eid ) &&
-                     !EdgesToMerge->Contains( other_eid ) )
+                if ( !bWeldingAcrossEntireMesh && !EdgesToMerge->contains( eid ) &&
+                     !EdgesToMerge->contains( other_eid ) )
                     continue;
 
                 FDynamicMesh3::FMergeEdgesInfo MergeInfo;
@@ -181,16 +185,16 @@ namespace Desert::Geometry
                 if ( Result != EMeshResult::Ok )
                 {
                     // a failed pair leaves both equivalence sets
-                    Matches.RemoveAt( i );
+                    Matches.erase( Matches.begin() + i );
                     i--;
                     if ( EquivalenceSets[other_eid] )
-                        EquivalenceSets[other_eid]->Remove( eid );
+                        std::erase( ( *EquivalenceSets[other_eid] ), eid );
                 }
                 else
                 {
                     bMerged = true;
                     EquivalenceSets[other_eid].reset();
-                    RemainingEdges.Remove( other_eid );
+                    RemainingEdges.erase( other_eid );
                     if ( bWeldAttrsOnMergedEdges )
                     {
                         SplitAttributeWelder.WeldSplitElements( *Mesh, MergeInfo.KeptVerts[0] );
@@ -199,7 +203,7 @@ namespace Desert::Geometry
                 }
             }
             EquivalenceSets[eid].reset();
-            RemainingEdges.Remove( eid );
+            RemainingEdges.erase( eid );
         }
 
         FinalNumBoundaryEdges = 0;

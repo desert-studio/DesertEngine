@@ -16,8 +16,8 @@ namespace Desert::Geometry
     {
     public:
         const FDynamicMesh3* Mesh = nullptr;
-        TArray<FEdgeLoop>    Loops;
-        TArray<FEdgeSpan>    Spans;
+        std::vector<FEdgeLoop> Loops;
+        std::vector<FEdgeSpan> Spans;
         /** At least one open span was found (a failed walk becomes one). */
         bool bSawOpenSpans = false;
         /** A loop with bowties could not be split into simple loops and was kept as a span. */
@@ -33,7 +33,7 @@ namespace Desert::Geometry
 
         int GetLoopCount() const
         {
-            return Loops.Num();
+            return static_cast<int32_t>( Loops.size() );
         }
         int FindLoopContainingVertex( int VertexID ) const;
         int FindLoopContainingEdge( int EdgeID ) const;
@@ -41,24 +41,25 @@ namespace Desert::Geometry
     private:
         struct FSubloops
         {
-            TArray<FEdgeLoop> Loops;
-            TArray<FEdgeSpan> Spans;
+            std::vector<FEdgeLoop> Loops;
+            std::vector<FEdgeSpan> Spans;
         };
-        TArray<int> VerticesTemp;
+        std::vector<int> VerticesTemp;
 
         glm::dvec3 GetVertexNormal( int Vid ) const;
-        int       FindLeftTurnEdge( int IncomingE, int BowtieV, const TArray<int>& BdryEdges, int BdryEdgesCount,
-                                    const TArray<bool>& UsedEdges ) const;
-        bool      ExtractSubloops( TArray<int>& LoopV, TArray<int>& LoopE, TArray<int>& Bowties,
-                                   FSubloops& SubloopsOut );
+        int  FindLeftTurnEdge( int IncomingE, int BowtieV, const std::vector<int>& BdryEdges, int BdryEdgesCount,
+                               const std::vector<bool>& UsedEdges ) const;
+        bool ExtractSubloops( std::vector<int>& LoopV, std::vector<int>& LoopE, std::vector<int>& Bowties,
+                              FSubloops& SubloopsOut );
 
-        static bool IsSimpleBowtieLoop( const TArray<int>& LoopVerts, const TArray<int>& BowtieVerts,
+        static bool IsSimpleBowtieLoop( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
                                         int BowtieVertex, int& StartI, int& EndI );
-        static bool IsSimplePath( const TArray<int>& LoopVerts, const TArray<int>& BowtieVerts, int BowtieVertex,
-                                  int I1, int I2 );
-        static void ExtractSpan( TArray<int>& Loop, int I0, int I1, bool bMarkInvalid, TArray<int>& OutSpan );
-        static int  CountSpan( const TArray<int>& Loop, int I0, int I1 );
-        static int  FindIndex( const TArray<int>& Loop, int Start, int Item );
-        static int  CountInList( const TArray<int>& Loop, int Item );
+        static bool IsSimplePath( const std::vector<int>& LoopVerts, const std::vector<int>& BowtieVerts,
+                                  int BowtieVertex, int I1, int I2 );
+        static void ExtractSpan( std::vector<int>& Loop, int I0, int I1, bool bMarkInvalid,
+                                 std::vector<int>& OutSpan );
+        static int  CountSpan( const std::vector<int>& Loop, int I0, int I1 );
+        static int  FindIndex( const std::vector<int>& Loop, int Start, int Item );
+        static int  CountInList( const std::vector<int>& Loop, int Item );
     };
 } // namespace Desert::Geometry

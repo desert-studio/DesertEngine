@@ -104,8 +104,8 @@ namespace Desert::Geometry
 
     public:
         // Inline-allocator array types optionally used for mesh queries, to reduce heap allocations
-        using FLocalIntArray  = TArray<int32_t>;
-        using FLocalBoolArray = TArray<bool>;
+        using FLocalIntArray  = std::vector<int32_t>;
+        using FLocalBoolArray = std::vector<bool>;
 
         struct FEdge
         {
@@ -136,11 +136,11 @@ namespace Desert::Geometry
          * num_triangle_using_vertex. Iterate over this to find out which vertex indices are valid. */
         FRefCountVector VertexRefCounts{};
         /** (optional) List of per-vertex normals */
-        TOptional<TDynamicVector<glm::vec3>> VertexNormals{};
+        std::optional<TDynamicVector<glm::vec3>> VertexNormals{};
         /** (optional) List of per-vertex colors */
-        TOptional<TDynamicVector<glm::vec3>> VertexColors{};
+        std::optional<TDynamicVector<glm::vec3>> VertexColors{};
         /** (optional) List of per-vertex uv's */
-        TOptional<TDynamicVector<glm::vec2>> VertexUVs{};
+        std::optional<TDynamicVector<glm::vec2>> VertexUVs{};
         /** List of per-vertex edge one-rings */
         FSmallListSet VertexEdgeLists;
 
@@ -152,7 +152,7 @@ namespace Desert::Geometry
         /** List of triangle edge triplets [Edge0 Edge1 Edge2] */
         TDynamicVector<FIndex3i> TriangleEdges;
         /** (optional) List of per-triangle group identifiers */
-        TOptional<TDynamicVector<int>> TriangleGroups{};
+        std::optional<TDynamicVector<int>> TriangleGroups{};
         /** Upper bound on the triangle group IDs used in the mesh (may be larger than the actual maximum if
          * triangles have been deleted) */
         int GroupIDCounter = 0;
@@ -354,22 +354,22 @@ namespace Desert::Geometry
         /** @return true if this mesh has per-vertex normals */
         bool HasVertexNormals() const
         {
-            return VertexNormals.IsSet();
+            return VertexNormals.has_value();
         }
         /** @return true if this mesh has per-vertex colors */
         bool HasVertexColors() const
         {
-            return VertexColors.IsSet();
+            return VertexColors.has_value();
         }
         /** @return true if this mesh has per-vertex UVs */
         bool HasVertexUVs() const
         {
-            return VertexUVs.IsSet();
+            return VertexUVs.has_value();
         }
         /** @return true if this mesh has per-triangle groups */
         bool HasTriangleGroups() const
         {
-            return TriangleGroups.IsSet();
+            return TriangleGroups.has_value();
         }
         /** @return true if this mesh has attribute layers */
         bool HasAttributes() const
@@ -914,7 +914,7 @@ namespace Desert::Geometry
                 return glm::vec3( 0, 1, 0 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
-            const TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
+            const TDynamicVector<glm::vec3>& Normals = VertexNormals.value();
             return Normals[vID];
         }
 
@@ -923,7 +923,7 @@ namespace Desert::Geometry
             if ( HasVertexNormals() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
+                TDynamicVector<glm::vec3>& Normals = VertexNormals.value();
                 Normals[vID]                       = vNewNormal;
             }
         }
@@ -939,7 +939,7 @@ namespace Desert::Geometry
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
 
-            const TDynamicVector<glm::vec3>& Colors = VertexColors.GetValue();
+            const TDynamicVector<glm::vec3>& Colors = VertexColors.value();
             return Colors[vID];
         }
 
@@ -948,7 +948,7 @@ namespace Desert::Geometry
             if ( HasVertexColors() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<glm::vec3>& Colors = VertexColors.GetValue();
+                TDynamicVector<glm::vec3>& Colors = VertexColors.value();
                 Colors[vID]                       = vNewColor;
             }
         }
@@ -963,7 +963,7 @@ namespace Desert::Geometry
                 return glm::vec2( 0 );
             }
             UE_CHECK_SLOW( IsVertex( vID ) );
-            const TDynamicVector<glm::vec2>& UVs = VertexUVs.GetValue();
+            const TDynamicVector<glm::vec2>& UVs = VertexUVs.value();
             return UVs[vID];
         }
 
@@ -972,7 +972,7 @@ namespace Desert::Geometry
             if ( HasVertexUVs() )
             {
                 UE_CHECK_SLOW( IsVertex( vID ) );
-                TDynamicVector<glm::vec2>& UVs = VertexUVs.GetValue();
+                TDynamicVector<glm::vec2>& UVs = VertexUVs.value();
                 UVs[vID]                       = vNewUV;
             }
         }
@@ -989,7 +989,7 @@ namespace Desert::Geometry
         {
             return ( HasTriangleGroups() == false )
                         ? -1
-                        : ( TriangleRefCounts.IsValid( tID ) ? TriangleGroups.GetValue()[tID] : 0 );
+                        : ( TriangleRefCounts.IsValid( tID ) ? TriangleGroups.value()[tID] : 0 );
         }
 
         void SetTriangleGroup( int tid, int group_id )
@@ -997,7 +997,7 @@ namespace Desert::Geometry
             if ( HasTriangleGroups() )
             {
                 UE_CHECK_SLOW( IsTriangle( tid ) );
-                TriangleGroups.GetValue()[tid] = group_id;
+                TriangleGroups.value()[tid]    = group_id;
                 GroupIDCounter                 = std::max( GroupIDCounter, group_id + 1 );
             }
         }
@@ -1056,7 +1056,7 @@ namespace Desert::Geometry
          * @param vID Vertex ID
          * @param EdgeListOut boundary edge IDs are appended to this list
          * @return count of number of elements of e that were filled
-         * Note: ArrayType must by TArray<int> or FLocalIntArray
+         * Note: ArrayType must by std::vector<int> or FLocalIntArray
          */
         template <typename ArrayType = FLocalIntArray>
         int GetAllVtxBoundaryEdges( int VertexID, ArrayType& EdgeListOut ) const;
@@ -1068,7 +1068,7 @@ namespace Desert::Geometry
 
         /**
          * Get triangle one-ring at vertex.
-         * Note: ArrayType must by TArray<int> or FLocalIntArray
+         * Note: ArrayType must by std::vector<int> or FLocalIntArray
          */
         template <typename ArrayType = FLocalIntArray>
         EMeshResult GetVtxTriangles( int VertexID, ArrayType& TrianglesOut ) const;
@@ -1087,7 +1087,7 @@ namespace Desert::Geometry
          * @param ContiguousGroupLengths Lengths of contiguous groups packed into TrianglesOut (if not a bowtie,
          * this will just be a length-one array w/ {TrianglesOut.Num()})
          * @param GroupIsLoop Indicates whether each contiguous group is a loop (first triangle connected to last)
-         * or not Note: ArrayTypes must by TArray<int>/<bool> or FLocalIntArray/FLocalBoolArry
+         * or not Note: ArrayTypes must by std::vector<int>/<bool> or FLocalIntArray/FLocalBoolArry
          */
         template <typename IntArrayType = FLocalIntArray, typename BoolArrayType = FLocalBoolArray>
         EMeshResult GetVtxContiguousTriangles( int VertexID, IntArrayType& TrianglesOut,
@@ -1106,7 +1106,7 @@ namespace Desert::Geometry
         /** Returns up to 4 group IDs at vertex. Returns false if > 4 encountered */
         bool GetVertexGroups( int VertexID, FIndex4i& GroupsOut ) const;
 
-        /** Returns all group IDs at vertex. ArrayType must by TArray<int> or FLocalIntArray */
+        /** Returns all group IDs at vertex. ArrayType must by std::vector<int> or FLocalIntArray */
         template <typename ArrayType = FLocalIntArray>
         bool GetAllVertexGroups( int VertexID, ArrayType& GroupsOut ) const;
 
@@ -1151,11 +1151,11 @@ namespace Desert::Geometry
 
         /** Returns bounding box of all selected mesh vertices. Will use a chunked parallel implementation for
          * larger selections. */
-        FAxisAlignedBox3d GetBoundsForVertexSelection( TConstArrayView<int32_t> VertexIDs ) const;
+        FAxisAlignedBox3d GetBoundsForVertexSelection( std::span<const int32_t> VertexIDs ) const;
 
         /** Returns bounding box of all selected mesh triangles. Will use a chunked parallel implementation for
          * larger selections. */
-        FAxisAlignedBox3d GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const;
+        FAxisAlignedBox3d GetBoundsForTriangleSelection( std::span<const int32_t> TriangleIDs ) const;
 
         /** Calculate face normal of triangle */
         glm::dvec3 GetTriNormal( int TriangleID ) const;
@@ -1229,15 +1229,15 @@ namespace Desert::Geometry
         }
         const TDynamicVector<glm::vec3>* GetNormalsBuffer() const
         {
-            return HasVertexNormals() ? &VertexNormals.GetValue() : nullptr;
+            return HasVertexNormals() ? &VertexNormals.value() : nullptr;
         }
         const TDynamicVector<glm::vec3>* GetColorsBuffer() const
         {
-            return HasVertexColors() ? &VertexColors.GetValue() : nullptr;
+            return HasVertexColors() ? &VertexColors.value() : nullptr;
         }
         const TDynamicVector<glm::vec2>* GetUVBuffer() const
         {
-            return HasVertexUVs() ? &VertexUVs.GetValue() : nullptr;
+            return HasVertexUVs() ? &VertexUVs.value() : nullptr;
         }
         const TDynamicVector<FIndex3i>& GetTrianglesBuffer() const
         {
@@ -1249,7 +1249,7 @@ namespace Desert::Geometry
         }
         const TDynamicVector<int>* GetTriangleGroupsBuffer() const
         {
-            return HasTriangleGroups() ? &TriangleGroups.GetValue() : nullptr;
+            return HasTriangleGroups() ? &TriangleGroups.value() : nullptr;
         }
         const TDynamicVector<FEdge>& GetEdgesBuffer() const
         {
@@ -1396,7 +1396,7 @@ namespace Desert::Geometry
          * @return Ok on success, or enum value indicates why operation cannot be applied. Mesh remains unmodified
          * on error.
          */
-        virtual EMeshResult SplitVertex( int VertexID, const TArrayView<const int>& TrianglesToUpdate,
+        virtual EMeshResult SplitVertex( int VertexID, const std::span<const int>& TrianglesToUpdate,
                                          FVertexSplitInfo& SplitInfo );
 
         /**
@@ -1408,7 +1408,7 @@ namespace Desert::Geometry
          * @return true if calling SplitVertex with these arguments would leave an isolated vertex at the original
          * VertexID
          */
-        virtual bool SplitVertexWouldLeaveIsolated( int VertexID, const TArrayView<const int>& TrianglesToUpdate );
+        virtual bool SplitVertexWouldLeaveIsolated( int VertexID, const std::span<const int>& TrianglesToUpdate );
 
         struct FCollapseEdgeOptions
         {
@@ -1677,7 +1677,7 @@ namespace Desert::Geometry
         {
             for ( int eid : VertexEdgeLists.Values( VertexID ) )
             {
-                EdgesOut.Add( eid );
+                EdgesOut.push_back( eid );
             }
         }
 

@@ -123,9 +123,9 @@ void FDynamicMesh3::Copy( const FDynamicMesh3& copy, bool bNormals, bool bColors
     if ( this != &copy )
     {
         Vertices        = copy.Vertices;
-        VertexNormals   = bNormals ? copy.VertexNormals : TOptional<TDynamicVector<glm::vec3>>{};
-        VertexColors    = bColors ? copy.VertexColors : TOptional<TDynamicVector<glm::vec3>>{};
-        VertexUVs       = bUVs ? copy.VertexUVs : TOptional<TDynamicVector<glm::vec2>>{};
+        VertexNormals   = bNormals ? copy.VertexNormals : std::optional<TDynamicVector<glm::vec3>>{};
+        VertexColors    = bColors ? copy.VertexColors : std::optional<TDynamicVector<glm::vec3>>{};
+        VertexUVs       = bUVs ? copy.VertexUVs : std::optional<TDynamicVector<glm::vec2>>{};
         VertexRefCounts = copy.VertexRefCounts;
         VertexEdgeLists = copy.VertexEdgeLists;
 
@@ -176,13 +176,13 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
         }
     }
     Vertices.Add( ToAppend.Vertices );
-    auto MatchOptional = []<typename T>( TOptional<TDynamicVector<T>>&       Src,
-                                         const TOptional<TDynamicVector<T>>& ToAppend, int32_t NumDefault,
+    auto MatchOptional = []<typename T>( std::optional<TDynamicVector<T>>&       Src,
+                                         const std::optional<TDynamicVector<T>>& ToAppend, int32_t NumDefault,
                                          T DefaultValue = T() )
     {
-        if ( Src.IsSet() )
+        if ( Src.has_value() )
         {
-            if ( ToAppend.IsSet() )
+            if ( ToAppend.has_value() )
             {
                 Src->Add( *ToAppend );
             }
@@ -225,10 +225,10 @@ void FDynamicMesh3::AppendWithOffsets( const FDynamicMesh3& ToAppend, FAppendInf
     }
     TriangleRefCounts.Append( ToAppend.TriangleRefCounts );
 
-    if ( TriangleGroups.IsSet() )
+    if ( TriangleGroups.has_value() )
     {
         GroupIDCounter += ToAppend.MaxGroupID();
-        if ( ToAppend.TriangleGroups.IsSet() )
+        if ( ToAppend.TriangleGroups.has_value() )
         {
             TriangleGroups->Add( *ToAppend.TriangleGroups );
             for ( int32_t Idx = UseAppendInfo->TriangleOffset, N = static_cast<int32_t>( Triangles.Num() );
@@ -352,15 +352,15 @@ void FDynamicMesh3::Clear()
 {
     Vertices.Clear();
     VertexRefCounts.Clear();
-    VertexNormals.Reset();
-    VertexColors.Reset();
-    VertexUVs.Reset();
+    VertexNormals.reset();
+    VertexColors.reset();
+    VertexUVs.reset();
     VertexEdgeLists.Reset();
 
     Triangles.Clear();
     TriangleRefCounts.Clear();
     TriangleEdges.Clear();
-    TriangleGroups.Reset();
+    TriangleGroups.reset();
     GroupIDCounter = 0;
 
     Edges.Clear();
@@ -529,7 +529,7 @@ void FDynamicMesh3::EnableVertexNormals( const glm::vec3& InitialNormal )
 
 void FDynamicMesh3::DiscardVertexNormals()
 {
-    VertexNormals.Reset();
+    VertexNormals.reset();
 }
 
 void FDynamicMesh3::EnableVertexColors( const glm::vec3& InitialColor )
@@ -543,13 +543,13 @@ void FDynamicMesh3::EnableVertexColors( const glm::vec3& InitialColor )
     VertexColors->Resize( NV );
     for ( int i = 0; i < NV; ++i )
     {
-        VertexColors.GetValue()[i] = InitialColor;
+        VertexColors.value()[i] = InitialColor;
     }
 }
 
 void FDynamicMesh3::DiscardVertexColors()
 {
-    VertexColors.Reset();
+    VertexColors.reset();
 }
 
 void FDynamicMesh3::EnableVertexUVs( const glm::vec2& InitialUV )
@@ -563,13 +563,13 @@ void FDynamicMesh3::EnableVertexUVs( const glm::vec2& InitialUV )
     VertexUVs->Resize( NV );
     for ( int i = 0; i < NV; ++i )
     {
-        VertexUVs.GetValue()[i] = InitialUV;
+        VertexUVs.value()[i] = InitialUV;
     }
 }
 
 void FDynamicMesh3::DiscardVertexUVs()
 {
-    VertexUVs.Reset();
+    VertexUVs.reset();
 }
 
 void FDynamicMesh3::EnableTriangleGroups( int InitialGroup )
@@ -584,14 +584,14 @@ void FDynamicMesh3::EnableTriangleGroups( int InitialGroup )
     TriangleGroups->Resize( NT );
     for ( int i = 0; i < NT; ++i )
     {
-        TriangleGroups.GetValue()[i] = InitialGroup;
+        TriangleGroups.value()[i] = InitialGroup;
     }
     GroupIDCounter = InitialGroup + 1;
 }
 
 void FDynamicMesh3::DiscardTriangleGroups()
 {
-    TriangleGroups.Reset();
+    TriangleGroups.reset();
     GroupIDCounter = 0;
 }
 
@@ -607,19 +607,19 @@ bool FDynamicMesh3::GetVertex( int vID, FVertexInfo& vinfo, bool bWantNormals, b
     if ( HasVertexNormals() && bWantNormals )
     {
         vinfo.bHaveN                               = true;
-        const TDynamicVector<glm::vec3>& NormalVec = VertexNormals.GetValue();
+        const TDynamicVector<glm::vec3>& NormalVec = VertexNormals.value();
         vinfo.Normal                               = NormalVec[vID];
     }
     if ( HasVertexColors() && bWantColors )
     {
         vinfo.bHaveC                              = true;
-        const TDynamicVector<glm::vec3>& ColorVec = VertexColors.GetValue();
+        const TDynamicVector<glm::vec3>& ColorVec = VertexColors.value();
         vinfo.Color                               = ColorVec[vID];
     }
     if ( HasVertexUVs() && bWantUVs )
     {
         vinfo.bHaveUV                          = true;
-        const TDynamicVector<glm::vec2>& UVVec = VertexUVs.GetValue();
+        const TDynamicVector<glm::vec2>& UVVec = VertexUVs.value();
         vinfo.UV                               = UVVec[vID];
     }
     return true;
@@ -735,8 +735,8 @@ size_t FDynamicMesh3::GetByteCount() const
 bool FDynamicMesh3::CheckValidity( FValidityOptions ValidityOptions, EValidityCheckFailMode FailMode ) const
 {
 
-    TArray<int> triToVtxRefs;
-    triToVtxRefs.SetNum( MaxVertexID() );
+    std::vector<int> triToVtxRefs;
+    triToVtxRefs.resize( MaxVertexID() );
 
     bool                    is_ok        = true;
     std::function<void( bool )> CheckOrFailF = [&]( bool b ) { is_ok = is_ok && b; };
@@ -823,7 +823,7 @@ bool FDynamicMesh3::CheckValidity( FValidityOptions ValidityOptions, EValidityCh
 
     if ( HasTriangleGroups() )
     {
-        const TDynamicVector<int>& Groups = TriangleGroups.GetValue();
+        const TDynamicVector<int>& Groups = TriangleGroups.value();
         // must have a group per triangle ID
         CheckOrFailF( Groups.Num() == MaxTriangleID() );
         // group IDs must be in range [0, GroupIDCounter)
@@ -897,37 +897,38 @@ bool FDynamicMesh3::CheckValidity( FValidityOptions ValidityOptions, EValidityCh
         // System.Console.WriteLine(string.Format("{0} {1} {2}", vID, vTris.Count, GetVtxEdges(vID).Count));
         if ( ValidityOptions.bAllowNonManifoldVertices )
         {
-            CheckOrFailF( vTris.Num() <= GetVtxEdgeCount( vID ) );
+            CheckOrFailF( static_cast<int32_t>( vTris.size() ) <= GetVtxEdgeCount( vID ) );
         }
         else
         {
-            CheckOrFailF( vTris.Num() == GetVtxEdgeCount( vID ) || vTris.Num() == GetVtxEdgeCount( vID ) - 1 );
+            CheckOrFailF( static_cast<int32_t>( vTris.size() ) == GetVtxEdgeCount( vID ) ||
+                          static_cast<int32_t>( vTris.size() ) == GetVtxEdgeCount( vID ) - 1 );
         }
         int32_t const VertexRefCount = VertexRefCounts.GetRefCount( vID );
-        CheckOrFailF( VertexRefCount == ( vTris.Num() + 1 ) );
-        CheckOrFailF( triToVtxRefs[vID] == vTris.Num() );
+        CheckOrFailF( VertexRefCount == ( static_cast<int32_t>( vTris.size() ) + 1 ) );
+        CheckOrFailF( triToVtxRefs[vID] == static_cast<int32_t>( vTris.size() ) );
         for ( int tID : vTris )
         {
             CheckOrFailF( TriangleHasVertex( tID, vID ) );
         }
 
         // check that edges around vert only references tris above, and reference all of them!
-        TArray<int> vRemoveTris( vTris );
+        std::vector<int> vRemoveTris( vTris );
         for ( int edgeid : VertexEdgeLists.Values( vID ) )
         {
             FIndex2i edget = GetEdgeT( edgeid );
-            CheckOrFailF( vTris.Contains( edget[0] ) );
+            CheckOrFailF( ( std::find( vTris.begin(), vTris.end(), edget[0] ) != vTris.end() ) );
             if ( edget[1] != InvalidID )
             {
-                CheckOrFailF( vTris.Contains( edget[1] ) );
+                CheckOrFailF( ( std::find( vTris.begin(), vTris.end(), edget[1] ) != vTris.end() ) );
             }
-            vRemoveTris.Remove( edget[0] );
+            std::erase( vRemoveTris, edget[0] );
             if ( edget[1] != InvalidID )
             {
-                vRemoveTris.Remove( edget[1] );
+                std::erase( vRemoveTris, edget[1] );
             }
         }
-        CheckOrFailF( vRemoveTris.Num() == 0 );
+        CheckOrFailF( vRemoveTris.empty() );
     }
 
     if ( HasAttributes() )

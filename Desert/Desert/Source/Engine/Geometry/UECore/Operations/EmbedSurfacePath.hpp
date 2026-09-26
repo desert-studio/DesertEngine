@@ -78,7 +78,7 @@ namespace Desert::Geometry
     public:
         FDynamicMesh3* Mesh;
         // Surface points paired with triangle to walk to get to next surface point
-        TArray<TPair<FMeshSurfacePoint, int>> Path;
+        std::vector<std::pair<FMeshSurfacePoint, int>> Path;
 
         explicit FMeshSurfacePath( FDynamicMesh3* InMesh ) : Mesh( InMesh )
         {
@@ -104,7 +104,7 @@ namespace Desert::Geometry
          *        existing vertex or edge
          * @return true if embedding succeeded.
          */
-        bool EmbedSimplePath( TArray<int>& PathVertices, bool bDoNotDuplicateFirstVertexID = true,
+        bool EmbedSimplePath( std::vector<int>& PathVertices, bool bDoNotDuplicateFirstVertexID = true,
                               double SnapElementThresholdSq = FMathf::ZeroTolerance * 100 );
     };
 } // namespace Desert::Geometry

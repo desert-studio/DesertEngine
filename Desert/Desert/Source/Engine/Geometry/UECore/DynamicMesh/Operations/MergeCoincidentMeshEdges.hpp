@@ -38,7 +38,7 @@ namespace Desert::Geometry
         bool                  bWeldAttrsOnMergedEdges = false;
         FSplitAttributeWelder SplitAttributeWelder;
         /** Edges to merge (a pair qualifies when EITHER edge is in it); null merges across the entire mesh. */
-        TSet<int32_t>* EdgesToMerge = nullptr;
+        std::unordered_set<int32_t>* EdgesToMerge = nullptr;
 
         explicit FMergeCoincidentMeshEdges( FDynamicMesh3* mesh ) : Mesh( mesh )
         {

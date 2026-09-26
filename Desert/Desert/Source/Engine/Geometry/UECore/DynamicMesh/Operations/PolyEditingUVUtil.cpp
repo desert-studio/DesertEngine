@@ -10,9 +10,9 @@
 namespace Desert::Geometry
 {
     bool ComputeArbitraryTrianglePatchUVs( FDynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
-                                           const TArray<int32_t>& TriangleSet )
+                                           const std::vector<int32_t>& TriangleSet )
     {
-        TArray<int32_t> NbrTriSet;
+        std::vector<int32_t> NbrTriSet;
         double        NbrUVAreaSum = 0.0;
         double        Nbr3DAreaSum = 0.0;
         for ( const int32_t tid : TriangleSet )
@@ -20,9 +20,10 @@ namespace Desert::Geometry
             const FIndex3i NbrTris = Mesh.GetTriNeighbourTris( tid );
             for ( int32_t j = 0; j < 3; ++j )
             {
-                if ( NbrTris[j] == FDynamicMesh3::InvalidID || NbrTriSet.Contains( NbrTris[j] ) )
+                if ( NbrTris[j] == FDynamicMesh3::InvalidID ||
+                     ( std::find( NbrTriSet.begin(), NbrTriSet.end(), NbrTris[j] ) != NbrTriSet.end() ) )
                     continue;
-                NbrTriSet.Add( NbrTris[j] );
+                NbrTriSet.push_back( NbrTris[j] );
                 if ( !UVOverlay.IsSetTriangle( NbrTris[j] ) )
                     continue;
                 glm::dvec3 A{};

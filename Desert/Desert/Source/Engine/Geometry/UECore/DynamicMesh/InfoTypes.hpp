@@ -213,7 +213,7 @@ namespace Desert::Geometry
             // Even more Removed and Kept edges, in cases where there were multiple such edges on one or both sides
             // of the merged edge Only possible if the pre-merge mesh had non-manifold vertices (aka bowties), in
             // almost all meshes these arrays will be empty
-            TArray<int> BowtiesRemovedEdges, BowtiesKeptEdges;
+            std::vector<int> BowtiesRemovedEdges, BowtiesKeptEdges;
 
             double InterpolationT = 0; // Interpolation parameter for each kept vertex in range [0,1] where 0 =>
                                        // KeptVertex and 1 => RemovedVertex
@@ -228,9 +228,9 @@ namespace Desert::Geometry
                                        // KeptVertex and 1 => RemovedVertex
 
             // If the merge resolves as an edge collapse, the information is stored here
-            TOptional<FEdgeCollapseInfo> EdgeCollapseInfo;
+            std::optional<FEdgeCollapseInfo> EdgeCollapseInfo;
             // If the merge resolves as an edge weld, the information is stored here
-            TOptional<FMergeEdgesInfo> MergeEdgesInfo;
+            std::optional<FMergeEdgesInfo> MergeEdgesInfo;
         };
 
         /** Information about mesh elements modified/created by PokeTriangle() */

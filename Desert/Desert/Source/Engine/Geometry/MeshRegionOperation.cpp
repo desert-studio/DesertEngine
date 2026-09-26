@@ -56,12 +56,12 @@ namespace Desert::Geometry
 
         // Ported from UE 5.8 GeometryCore/Private/CompGeom/PolygonTriangulation.cpp:170-192
         // (ComputePolygonPlane, Newell's method), adapted: the loop's vertex IDs in, no area returned.
-        void ComputeLoopPlane( const FDynamicMesh3& mesh, const TArray<int>& loopVertices, glm::dvec3& normal,
+        void ComputeLoopPlane( const FDynamicMesh3& mesh, const std::vector<int>& loopVertices, glm::dvec3& normal,
                                glm::dvec3& origin )
         {
             normal          = glm::dvec3( 0, 0, 0 );
             origin          = glm::dvec3( 0, 0, 0 );
-            const int count = loopVertices.Num();
+            const int count = static_cast<int32_t>( loopVertices.size() );
             for ( int i = count - 1, j = 0; j < count; i = j++ )
             {
                 const glm::dvec3 pi = mesh.GetVertex( loopVertices[i] );
@@ -78,7 +78,7 @@ namespace Desert::Geometry
         // UE HoleFillOp.cpp:19-40 (LoopIsValid); FEdgeLoop::IsBoundaryLoop stands for CheckValidity.
         bool LoopIsValid( const FDynamicMesh3& mesh, const FEdgeLoop& loop )
         {
-            if ( loop.Edges.Num() == 0 )
+            if ( loop.Edges.empty() )
                 return false;
             for ( const int e : loop.Edges )
                 if ( !mesh.IsBoundaryEdge( e ) )
@@ -93,8 +93,9 @@ namespace Desert::Geometry
         const FMeshBoundaryLoops boundary( mesh.get() );
         if ( boundary.GetLoopCount() == 0 )
             return Common::MakeFormattedError<RegionOutcome>(
-                 "Mesh Fill Hole: the mesh has no open loop ({} open spans)", boundary.Spans.Num() );
-        TArray<int> loopIndices;
+                 "Mesh Fill Hole: the mesh has no open loop ({} open spans)",
+                 static_cast<int32_t>( boundary.Spans.size() ) );
+        std::vector<int> loopIndices;
         if ( selection.Mode() == ElementMode::Edge && !selection.Empty() )
         {
             for ( const int e : selection.Ids() )
@@ -104,18 +105,18 @@ namespace Desert::Geometry
                     return Common::MakeFormattedError<RegionOutcome>(
                          "Mesh Fill Hole: selected edge {} lies on none of the {} open loops", e,
                          boundary.GetLoopCount() );
-                if ( !loopIndices.Contains( loop ) )
-                    loopIndices.Add( loop );
+                if ( !( std::find( loopIndices.begin(), loopIndices.end(), loop ) != loopIndices.end() ) )
+                    loopIndices.push_back( loop );
             }
         }
         else
             for ( int i = 0; i < boundary.GetLoopCount(); ++i )
-                loopIndices.Add( i );
+                loopIndices.push_back( i );
 
         // UE's MaxDim: the largest side of the bounds (Extents are half sides).
         const glm::dvec3 extents = mesh->GetBounds().Extents();
         const double     uvScale = 1.0 / ( 2.0 * std::max( extents.x, std::max( extents.y, extents.z ) ) );
-        TArray<int32_t> newTriangles;
+        std::vector<int32_t> newTriangles;
         for ( const int index : loopIndices )
         {
             const FEdgeLoop& loop = boundary.Loops[index];
@@ -141,7 +142,7 @@ namespace Desert::Geometry
                                                      static_cast<float>( uvScale ) );
             }
             for ( const int t : filler.NewTriangles )
-                newTriangles.Add( t );
+                newTriangles.push_back( t );
         }
         if ( auto tangents = RecomputeTangents( *mesh, "Fill Hole" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
@@ -188,22 +189,22 @@ namespace Desert::Geometry
             groupEdge = found;
         }
 
-        const TArray<double>                         proportions = { static_cast<double>( position ) };
+        const std::vector<double>                    proportions = { static_cast<double>( position ) };
         FGroupEdgeInserter::FEdgeLoopInsertionParams params;
         params.Mesh               = mesh.get();
         params.Topology           = &topology;
         params.GroupEdgeID        = groupEdge;
         params.SortedInputLengths = &proportions;
         params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
-        TSet<int32_t>                             newEids;
-        TSet<int32_t>                             problemGroupEdges;
+        std::unordered_set<int32_t>               newEids;
+        std::unordered_set<int32_t>               problemGroupEdges;
         FGroupEdgeInserter::FOptionalOutputParams out;
         out.NewEidsOut             = &newEids;
         out.ProblemGroupEdgeIDsOut = &problemGroupEdges;
         if ( !FGroupEdgeInserter::InsertEdgeLoops( params, out ) )
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh Insert Edge Loop: the loop across group edge {} failed ({} problem group edges)", groupEdge,
-                 problemGroupEdges.Num() );
+                 static_cast<int32_t>( problemGroupEdges.size() ) );
         if ( auto tangents = RecomputeTangents( *mesh, "Insert Edge Loop" ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );
 
@@ -260,12 +261,12 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<RegionOutcome>(
                  "Mesh {}: the {} selected {} cover no whole triangle", name, selection.Size(),
                  ToString( selection.Mode() ) );
-        TArray<int32_t> regionTriangles;
+        std::vector<int32_t> regionTriangles;
         for ( const int t : triangles.Ids() )
-            regionTriangles.Add( t );
+            regionTriangles.push_back( t );
 
         auto          mesh = std::make_shared<FDynamicMesh3>( before );
-        TArray<int32_t> resultTriangles;
+        std::vector<int32_t> resultTriangles;
         if ( operation == RegionOperation::Extrude || operation == RegionOperation::PushPull )
         {
             FOffsetMeshRegion extruder( mesh.get() );
@@ -296,7 +297,7 @@ namespace Desert::Geometry
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, extruder.FailureReason );
             for ( const auto& region : extruder.OffsetRegions )
                 for ( const int32_t t : region.OffsetTids )
-                    resultTriangles.Add( t );
+                    resultTriangles.push_back( t );
         }
         else
         {
@@ -307,7 +308,7 @@ namespace Desert::Geometry
                 return Common::MakeFormattedError<RegionOutcome>( "Mesh {}: {}", name, inset.FailureReason );
             for ( const auto& region : inset.InsetRegions )
                 for ( const int32_t t : region.InitialTriangles )
-                    resultTriangles.Add( t );
+                    resultTriangles.push_back( t );
         }
         if ( auto tangents = RecomputeTangents( *mesh, name ); !tangents.IsSuccess() )
             return Common::MakeError<RegionOutcome>( tangents.GetError() );

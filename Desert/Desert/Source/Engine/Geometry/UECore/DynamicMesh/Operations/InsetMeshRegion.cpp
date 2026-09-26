@@ -15,23 +15,25 @@ namespace Desert::Geometry
 {
     bool FInsetMeshRegion::Apply()
     {
-        TArray<TArray<int32_t>> Components;
+        std::vector<std::vector<int32_t>> Components;
         FindConnectedTriangleComponents( *Mesh, Triangles, Components );
         bool bAllOK = true;
-        InsetRegions.SetNum( Components.Num() );
-        for ( int32_t k = 0; k < Components.Num(); ++k )
+        InsetRegions.resize( static_cast<int32_t>( Components.size() ) );
+        for ( int32_t k = 0; k < static_cast<int32_t>( Components.size() ); ++k )
         {
             FInsetInfo& Region      = InsetRegions[k];
             Region.InitialTriangles = Components[k];
             if ( !ApplyInset( Region ) )
             {
-                FailureReason = fmt::format( "region {} of {}: {}", k, Components.Num(), FailureReason );
+                FailureReason = fmt::format( "region {} of {}: {}", k, static_cast<int32_t>( Components.size() ),
+                                             FailureReason );
                 bAllOK        = false;
                 continue;
             }
-            AllModifiedTriangles.Append( Region.InitialTriangles );
-            for ( const TArray<int32_t>& RegionTris : Region.StitchTriangles )
-                AllModifiedTriangles.Append( RegionTris );
+            AllModifiedTriangles.insert( AllModifiedTriangles.end(), Region.InitialTriangles.begin(),
+                                         Region.InitialTriangles.end() );
+            for ( const std::vector<int32_t>& RegionTris : Region.StitchTriangles )
+                AllModifiedTriangles.insert( AllModifiedTriangles.end(), RegionTris.begin(), RegionTris.end() );
         }
         return bAllOK;
     }
@@ -47,66 +49,66 @@ namespace Desert::Geometry
                 FailureReason = Loops.FailureReason;
                 return false;
             }
-            TSet<int32_t> LoopVertices;
+            std::unordered_set<int32_t> LoopVertices;
             for ( const FEdgeLoop& Loop : Loops.Loops )
                 for ( int32_t const v : Loop.Vertices )
-                    LoopVertices.Add( v );
+                    LoopVertices.insert( v );
             for ( int32_t const tid : Region.InitialTriangles )
             {
                 const FIndex3i Tri = Mesh->GetTriangle( tid );
                 for ( int j = 0; j < 3; ++j )
-                    if ( !LoopVertices.Contains( Tri[j] ) )
+                    if ( !LoopVertices.contains( Tri[j] ) )
                     {
                         FailureReason =
                              fmt::format( "vertex {} is inside the region ({} triangles): an inset of a "
                                           "region with interior vertices needs UE's interior solve, "
                                           "which is not ported",
-                                          Tri[j], Region.InitialTriangles.Num() );
+                                          Tri[j], static_cast<int32_t>( Region.InitialTriangles.size() ) );
                         return false;
                     }
             }
         }
 
         FDynamicMeshEditor                       Editor( Mesh );
-        TArray<FDynamicMeshEditor::FLoopPairSet> LoopPairs;
+        std::vector<FDynamicMeshEditor::FLoopPairSet> LoopPairs;
         if ( !Editor.DisconnectTriangles( Region.InitialTriangles, LoopPairs, true, FailureReason ) )
             return false;
 
-        TArray<TArray<FTriVidPair>> InsetStitchSides;
-        InsetStitchSides.SetNum( LoopPairs.Num() );
-        for ( int32_t i = 0; i < LoopPairs.Num(); ++i )
+        std::vector<std::vector<FTriVidPair>> InsetStitchSides;
+        InsetStitchSides.resize( static_cast<int32_t>( LoopPairs.size() ) );
+        for ( int32_t i = 0; i < static_cast<int32_t>( LoopPairs.size() ); ++i )
             FDynamicMeshEditor::ConvertLoopToTriVidPairSequence( *Mesh, LoopPairs[i].InnerVertices,
                                                                  LoopPairs[i].InnerEdges, InsetStitchSides[i] );
 
-        Region.InsetLoops.Reset();
+        Region.InsetLoops.clear();
         for ( const FDynamicMeshEditor::FLoopPairSet& LoopPair : LoopPairs )
         {
-            const TArray<int32_t>& LoopVids = LoopPair.InnerVertices;
-            TArray<FLine3d>      InsetLines;
+            const std::vector<int32_t>& LoopVids = LoopPair.InnerVertices;
+            std::vector<FLine3d>        InsetLines;
             ComputeInsetLineSegmentsFromEdges( *Mesh, LoopPair.InnerEdges, InsetDistance, InsetLines );
-            TArray<glm::dvec3> NewPositions;
+            std::vector<glm::dvec3> NewPositions;
             SolveInsetVertexPositionsFromInsetLines( *Mesh, InsetLines, LoopVids, NewPositions, true );
-            const int32_t N = LoopVids.Num();
+            const int32_t N = static_cast<int32_t>( LoopVids.size() );
             for ( int32_t k = 0; k < N; ++k )
                 Mesh->SetVertex( LoopVids[k], NewPositions[k] );
-            Region.InsetLoops.Emplace();
-            Region.InsetLoops.Last().Vertices = LoopVids;
-            Region.InsetLoops.Last().Edges    = LoopPair.InnerEdges;
+            Region.InsetLoops.emplace_back();
+            Region.InsetLoops.back().Vertices = LoopVids;
+            Region.InsetLoops.back().Edges    = LoopPair.InnerEdges;
         }
 
-        const int32_t NumInitialLoops = LoopPairs.Num();
-        Region.BaseLoops.SetNum( NumInitialLoops );
-        Region.StitchTriangles.SetNum( NumInitialLoops );
-        Region.StitchPolygonIDs.SetNum( NumInitialLoops );
-        TArray<TArray<FIndex2i>> QuadStrips;
+        const int32_t NumInitialLoops = static_cast<int32_t>( LoopPairs.size() );
+        Region.BaseLoops.resize( NumInitialLoops );
+        Region.StitchTriangles.resize( NumInitialLoops );
+        Region.StitchPolygonIDs.resize( NumInitialLoops );
+        std::vector<std::vector<FIndex2i>> QuadStrips;
         for ( int32_t LoopIndex = 0; LoopIndex < NumInitialLoops; ++LoopIndex )
         {
             const FDynamicMeshEditor::FLoopPairSet& LoopPair  = LoopPairs[LoopIndex];
-            const TArray<int32_t>&                  BaseLoopV = LoopPair.OuterVertices;
-            const int32_t                           NumLoopV  = BaseLoopV.Num();
-            TArray<int32_t>                         NewGroupIDs;
-            TArray<int32_t>                         EdgeGroups;
-            TMap<int64_t, int32_t>                  NewGroupsMap; // (min, max) group pair packed
+            const std::vector<int32_t>&             BaseLoopV = LoopPair.OuterVertices;
+            const int32_t                           NumLoopV  = static_cast<int32_t>( BaseLoopV.size() );
+            std::vector<int32_t>                    NewGroupIDs;
+            std::vector<int32_t>                    EdgeGroups;
+            std::unordered_map<int64_t, int32_t>    NewGroupsMap; // (min, max) group pair packed
             for ( int32_t k = 0; k < NumLoopV; ++k )
             {
                 int32_t const InsetGroupID = Mesh->GetTriangleGroup( InsetStitchSides[LoopIndex][k].first );
@@ -115,13 +117,13 @@ namespace Desert::Geometry
                      ( BaseEdgeID >= 0 ) ? Mesh->GetTriangleGroup( Mesh->GetEdgeT( BaseEdgeID ).A ) : InsetGroupID;
                 const int64_t GroupPair = ( int64_t( std::min( BaseGroupID, InsetGroupID ) ) << 32 ) |
                                           uint32_t( std::max( BaseGroupID, InsetGroupID ) );
-                if ( !NewGroupsMap.Contains( GroupPair ) )
+                if ( !NewGroupsMap.contains( GroupPair ) )
                 {
                     int32_t const NewGroupID = Mesh->AllocateTriangleGroup();
-                    NewGroupIDs.Add( NewGroupID );
-                    NewGroupsMap.Add( GroupPair, NewGroupID );
+                    NewGroupIDs.push_back( NewGroupID );
+                    NewGroupsMap.insert_or_assign( GroupPair, NewGroupID );
                 }
-                EdgeGroups.Add( NewGroupsMap[GroupPair] );
+                EdgeGroups.push_back( NewGroupsMap[GroupPair] );
             }
             FDynamicMeshEditResult StitchResult;
             if ( !Editor.StitchVertexLoopToTriVidPairSequence( InsetStitchSides[LoopIndex], BaseLoopV,
@@ -130,25 +132,25 @@ namespace Desert::Geometry
                 FailureReason = fmt::format( "loop {} ({} vertices) could not be stitched", LoopIndex, NumLoopV );
                 return false;
             }
-            for ( int32_t k = 0; k < StitchResult.NewQuads.Num(); k++ )
+            for ( int32_t k = 0; k < static_cast<int32_t>( StitchResult.NewQuads.size() ); k++ )
             {
                 Mesh->SetTriangleGroup( StitchResult.NewQuads[k].A, EdgeGroups[k] );
                 Mesh->SetTriangleGroup( StitchResult.NewQuads[k].B, EdgeGroups[k] );
             }
             StitchResult.GetAllTriangles( Region.StitchTriangles[LoopIndex] );
             Region.StitchPolygonIDs[LoopIndex] = NewGroupIDs;
-            QuadStrips.Add( StitchResult.NewQuads );
+            QuadStrips.push_back( StitchResult.NewQuads );
             Region.BaseLoops[LoopIndex].Vertices = BaseLoopV;
             VertexLoopToEdgeLoop( *Mesh, BaseLoopV, Region.BaseLoops[LoopIndex].Edges );
         }
 
         if ( Mesh->HasAttributes() )
-            for ( int32_t StripIndex = 0; StripIndex < QuadStrips.Num(); ++StripIndex )
+            for ( int32_t StripIndex = 0; StripIndex < static_cast<int32_t>( QuadStrips.size() ); ++StripIndex )
             {
-                const TArray<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
+                const std::vector<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
                 float                AccumUVTranslation = 0;
                 glm::dvec3             FirstAxisX{}, FrameUp{};
-                for ( int32_t k = 0; k < QuadStrips[StripIndex].Num(); k++ )
+                for ( int32_t k = 0; k < static_cast<int32_t>( QuadStrips[StripIndex].size() ); k++ )
                 {
                     const glm::vec3  NF = Editor.ComputeAndSetQuadNormal( QuadStrips[StripIndex][k], true );
                     const glm::dvec3 Normal( NF.x, NF.y, NF.z );

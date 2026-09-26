@@ -102,11 +102,11 @@ namespace
         return s;
     }
 
-    TArray<int32_t> AllTriangles( const FDynamicMesh3& mesh )
+    std::vector<int32_t> AllTriangles( const FDynamicMesh3& mesh )
     {
-        TArray<int32_t> triangles;
+        std::vector<int32_t> triangles;
         for ( const int t : mesh.TriangleIndicesItr() )
-            triangles.Add( t );
+            triangles.push_back( t );
         return triangles;
     }
 } // namespace
@@ -121,7 +121,7 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
         FUVEditResult          result;
         ASSERT_TRUE( editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), false,
                                                                              preserveIrregularity, &result ) );
-        EXPECT_EQ( result.NewUVElements.Num(), mesh.VertexCount() );
+        EXPECT_EQ( static_cast<int32_t>( result.NewUVElements.size() ), mesh.VertexCount() );
         const FStats s = Measure( mesh, uvs );
         // a similarity keeps every angle, the square's 90-degree corners included (the boundary is free)
         EXPECT_LT( s.MaxAngleError, 1e-4 ) << "irregularity " << preserveIrregularity;
@@ -143,7 +143,7 @@ TEST( SpectralConformalUV, SphericalCapInPlaceKeepsOrientationAndAngles )
     ASSERT_TRUE(
          editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), true, true, &result ) );
     EXPECT_EQ( uvs.ElementCount(), elementsBefore );
-    EXPECT_EQ( result.NewUVElements.Num(), elementsBefore );
+    EXPECT_EQ( static_cast<int32_t>( result.NewUVElements.size() ), elementsBefore );
     const FStats s = Measure( mesh, uvs );
     EXPECT_EQ( s.Negative, 2 * Cells * Cells ) << s.Positive << " / " << s.Negative;
     // measured: mean 0.0058 rad, max 0.016, smallest normalized area ratio 0.946

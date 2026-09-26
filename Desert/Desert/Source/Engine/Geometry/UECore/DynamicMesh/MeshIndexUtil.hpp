@@ -20,13 +20,15 @@ namespace Desert::Geometry
 
     /** Split the triangle fan of boundary vertex VertexID into the two sides of interior edge SplitEdgeID. */
     bool SplitBoundaryVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32_t VertexID, int32_t SplitEdgeID,
-                                                  TArray<int32_t>& TriangleSet0, TArray<int32_t>& TriangleSet1 );
+                                                  std::vector<int32_t>& TriangleSet0,
+                                                  std::vector<int32_t>& TriangleSet1 );
 
     /** Split the closed one-ring of interior vertex VertexID into the two sides of the path SplitEdgeID0 ->
      *  VertexID -> SplitEdgeID1. Which side lands in Set0 is arbitrary (UE: callers reconcile it). */
     bool SplitInteriorVertexTrianglesIntoSubsets( const FDynamicMesh3* Mesh, int32_t VertexID,
                                                   int32_t SplitEdgeID0, int32_t SplitEdgeID1,
-                                                  TArray<int32_t>& TriangleSet0, TArray<int32_t>& TriangleSet1 );
+                                                  std::vector<int32_t>& TriangleSet0,
+                                                  std::vector<int32_t>& TriangleSet1 );
 
     /** Next triangle around VertexID from FromTriangleID, not going back to PrevTriangleID, allowed by
      *  TrisConnectedTest(Tri0, Tri1, SharedEdge). Returns (TriangleID, SharedEdgeID, edge index in From). */

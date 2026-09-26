@@ -87,8 +87,8 @@ namespace Desert::Geometry
     struct TIndexMap
     {
     protected:
-        TMap<IntType, IntType> ForwardMap;
-        TMap<IntType, IntType> ReverseMap;
+        std::unordered_map<IntType, IntType> ForwardMap;
+        std::unordered_map<IntType, IntType> ReverseMap;
         bool                   bWantForward;
         bool                   bWantReverse;
 
@@ -110,20 +110,20 @@ namespace Desert::Geometry
             return (IntType)-1;
         }
 
-        TMap<IntType, IntType>& GetForwardMap()
+        std::unordered_map<IntType, IntType>& GetForwardMap()
         {
             return ForwardMap;
         }
-        const TMap<IntType, IntType>& GetForwardMap() const
+        const std::unordered_map<IntType, IntType>& GetForwardMap() const
         {
             return ForwardMap;
         }
 
-        TMap<IntType, IntType>& GetReverseMap()
+        std::unordered_map<IntType, IntType>& GetReverseMap()
         {
             return ReverseMap;
         }
-        const TMap<IntType, IntType>& GetReverseMap() const
+        const std::unordered_map<IntType, IntType>& GetReverseMap() const
         {
             return ReverseMap;
         }

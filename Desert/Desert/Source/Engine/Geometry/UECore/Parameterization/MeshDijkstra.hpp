@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Engine/Geometry/UECore/IndexPriorityQueue.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 #include "Engine/Geometry/UECore/VectorTypes.hpp"
 
 namespace Desert::Geometry
@@ -25,11 +26,11 @@ namespace Desert::Geometry
             Queue.Initialize( PointSet->MaxVertexID() );
         }
 
-        void ComputeToMaxDistance( const TArray<FSeedPoint>& SeedPointsIn, double ComputeToMaxDistanceIn )
+        void ComputeToMaxDistance( const std::vector<FSeedPoint>& SeedPointsIn, double ComputeToMaxDistanceIn )
         {
             MaxGraphDistance        = 0.0;
             MaxGraphDistancePointID = -1;
-            for ( int32_t SeedIndex = 0; SeedIndex < SeedPointsIn.Num(); ++SeedIndex )
+            for ( int32_t SeedIndex = 0; SeedIndex < static_cast<int32_t>( SeedPointsIn.size() ); ++SeedIndex )
             {
                 const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
                 if ( Queue.Contains( PointID ) )
@@ -71,20 +72,21 @@ namespace Desert::Geometry
             bool   bFrozen;
         };
         const PointSetType* PointSet;
-        TMap<int32_t, int32_t> IDToNodeIndexMap;
-        TArray<FGraphNode>  AllocatedNodes;
+        std::unordered_map<int32_t, int32_t> IDToNodeIndexMap;
+        std::vector<FGraphNode>              AllocatedNodes;
         FIndexPriorityQueue Queue;
         double              MaxGraphDistance        = 0.0;
         int32_t                MaxGraphDistancePointID = -1;
 
         int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
-            if ( const int32_t* Found = IDToNodeIndexMap.Find( PointSetID ) )
+            if ( const int32_t* Found = FindValue( IDToNodeIndexMap, PointSetID ) )
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            const int32_t NewIndex = AllocatedNodes.Add( FGraphNode{ PointSetID, -1, 0, 0.0, false } );
-            IDToNodeIndexMap.Add( PointSetID, NewIndex );
+            AllocatedNodes.push_back( FGraphNode{ PointSetID, -1, 0, 0.0, false } );
+            const int32_t NewIndex = static_cast<int32_t>( AllocatedNodes.size() ) - 1;
+            IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
             return NewIndex;
         }
         void UpdateNeighboursSparse( int32_t ParentIndex )

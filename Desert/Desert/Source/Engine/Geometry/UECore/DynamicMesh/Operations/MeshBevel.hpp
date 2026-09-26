@@ -66,13 +66,13 @@ namespace Desert::Geometry
         int32_t SetConstantMaterialID = 0;
 
         /** Triangles created by Apply: the vertex polygons, then the edge and loop strips. */
-        TArray<int32_t> NewTriangles;
+        std::vector<int32_t> NewTriangles;
 
         /** Initialize the bevel with all edges of the given GroupTopology. */
         bool InitializeFromGroupTopology( const FDynamicMesh3& Mesh, const FGroupTopology& Topology );
         /** Initialize the bevel with the specified edges of a GroupTopology. */
         bool InitializeFromGroupTopologyEdges( const FDynamicMesh3& Mesh, const FGroupTopology& Topology,
-                                               const TArray<int32_t>& GroupEdges );
+                                               const std::vector<int32_t>& GroupEdges );
 
         /**
          * Bevel the initialized edges in place (UE Apply, B:576): unlink, displace, mesh, then the primary normals
@@ -85,48 +85,52 @@ namespace Desert::Geometry
 
         struct FBevelLoop
         {
-            TArray<int32_t>   MeshVertices;     // sequential list of mesh vertex IDs along edge loop
-            TArray<int32_t>   MeshEdges;        // sequential list of mesh edge IDs along edge loop
-            TArray<FIndex2i>  MeshEdgeTris;     // the one or two triangles of each MeshEdges element in the input
-            TArray<glm::dvec3> InitialPositions; // initial vertex positions
-            TArray<int32_t>
+            std::vector<int32_t>  MeshVertices; // sequential list of mesh vertex IDs along edge loop
+            std::vector<int32_t>  MeshEdges;    // sequential list of mesh edge IDs along edge loop
+            std::vector<FIndex2i> MeshEdgeTris; // the one or two triangles of each MeshEdges element in the input
+            std::vector<glm::dvec3> InitialPositions; // initial vertex positions
+            std::vector<int32_t>
                  NewMeshVertices; // vertices on the "other" side of the unlinked edge, 1-1 w/ MeshVertices
-            TArray<int32_t>   NewMeshEdges;  // edges on the "other" side of the unlinked edge, 1-1 with MeshEdges
-            TArray<glm::dvec3> NewPositions0; // new positions for MeshVertices
-            TArray<glm::dvec3> NewPositions1; // new positions for NewMeshVertices
-            TArray<int32_t>   NewGroupIDs;
-            TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
+            std::vector<int32_t>
+                 NewMeshEdges; // edges on the "other" side of the unlinked edge, 1-1 with MeshEdges
+            std::vector<glm::dvec3> NewPositions0; // new positions for MeshVertices
+            std::vector<glm::dvec3> NewPositions1; // new positions for NewMeshVertices
+            std::vector<int32_t>    NewGroupIDs;
+            std::vector<FIndex2i>
+                              StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
             FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
             // normals at NewPositions0 / NewPositions1 before the strips are added (the arc's tangent-plane
             // boundary condition); only filled for a round profile
-            TArray<glm::dvec3> NormalsA, NormalsB;
+            std::vector<glm::dvec3> NormalsA, NormalsB;
         };
 
         struct FBevelEdge
         {
             int32_t           EdgeIndex = -1; // index of this BevelEdge in Edges
-            TArray<int32_t>   MeshVertices;   // sequential list of mesh vertex IDs along edge
-            TArray<int32_t>   MeshEdges;      // sequential list of mesh edge IDs along edge
-            TArray<FIndex2i> MeshEdgeTris;   // the one or two triangles of each MeshEdges element in the input
+            std::vector<int32_t>  MeshVertices;   // sequential list of mesh vertex IDs along edge
+            std::vector<int32_t>  MeshEdges;      // sequential list of mesh edge IDs along edge
+            std::vector<FIndex2i> MeshEdgeTris; // the one or two triangles of each MeshEdges element in the input
             bool             bEndpointBoundaryFlag[2] = { false, false }; // start/end vertex was a boundary vertex
-            TArray<glm::dvec3> InitialPositions;                            // initial vertex positions
+            std::vector<glm::dvec3> InitialPositions;                          // initial vertex positions
             FIndex2i          BevelVertices; // indices of the Bevel Vertices at either end of the Bevel Edge
-            TArray<int32_t>
+            std::vector<int32_t>
                  NewMeshVertices; // vertices on the "other" side of the unlinked edge, 1-1 w/ MeshVertices
-            TArray<int32_t>   NewMeshEdges;  // edges on the "other" side of the unlinked edge, 1-1 with MeshEdges
-            TArray<glm::dvec3> NewPositions0; // new positions for MeshVertices
-            TArray<glm::dvec3> NewPositions1; // new positions for NewMeshVertices
+            std::vector<int32_t>
+                 NewMeshEdges; // edges on the "other" side of the unlinked edge, 1-1 with MeshEdges
+            std::vector<glm::dvec3> NewPositions0; // new positions for MeshVertices
+            std::vector<glm::dvec3> NewPositions1; // new positions for NewMeshVertices
             int32_t           NewGroupID = -1;
-            TArray<FIndex2i>  StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
+            std::vector<FIndex2i>
+                              StripQuads; // triangle-ID pairs of the new quads (1-1 with MeshEdges in the chamfer)
             FQuadGridPatch    StripQuadPatch; // only initialized in multi-segment bevel
             // normals at NewPositions0 / NewPositions1 before the strips are added (the arc's tangent-plane
             // boundary condition); only filled for a round profile
-            TArray<glm::dvec3> NormalsA, NormalsB;
+            std::vector<glm::dvec3> NormalsA, NormalsB;
         };
 
         struct FOneRingWedge
         {
-            TArray<int32_t> Triangles;   // sequential triangles in this wedge
+            std::vector<int32_t> Triangles;   // sequential triangles in this wedge
             FIndex2i        BorderEdges; // first and last edges of Triangles (connected to the vertex)
             FIndex2i        BorderEdgeTriEdgeIndices; // index 0/1/2 of BorderEdges[j] in the start/end Triangles
             int32_t         WedgeVertex = -1; // central vertex of this wedge (updated by the unlink functions)
@@ -150,35 +154,38 @@ namespace Desert::Geometry
             // (w, u, v), its barycentrics of InteriorBorderLoop[0..2]; 5+-sided: one per InteriorBorderLoop
             // vertex, (DeltaX, DeltaY, MVC weight): its flattened offset in that border vertex's frame and its
             // normalized mean-value coordinate
-            TArray<glm::dvec3> BorderFrameWeight;
+            std::vector<glm::dvec3> BorderFrameWeight;
         };
 
         struct FBevelVertex
         {
             int32_t          VertexID   = -1; // initial mesh vertex ID of the Bevel Vertex
             EBevelVertexType VertexType = EBevelVertexType::Unknown;
-            TArray<int32_t>  IncomingBevelMeshEdges; // (unsorted) mesh edges to be beveled, coming into the vertex
-            TArray<int32_t>  IncomingBevelEdgeIndices; // (unsorted) indices of FBevelEdge coming into the vertex
-            TArray<int32_t>  SortedTriangles;          // ordered triangle one-ring around VertexID
-            TArray<FOneRingWedge>
-                            Wedges; // ordered one-ring decomposition into wedges between incoming bevel edges
+            std::vector<int32_t>
+                 IncomingBevelMeshEdges; // (unsorted) mesh edges to be beveled, coming into the vertex
+            std::vector<int32_t>
+                 IncomingBevelEdgeIndices;        // (unsorted) indices of FBevelEdge coming into the vertex
+            std::vector<int32_t> SortedTriangles; // ordered triangle one-ring around VertexID
+            std::vector<FOneRingWedge>
+                                 Wedges; // ordered one-ring decomposition into wedges between incoming bevel edges
             int32_t         NewGroupID = -1;   // polygroup of the polygon generated by this vertex (NumEdges > 2)
-            TArray<int32_t> NewTriangles;      // triangles of the polygon generated by this vertex (NumEdges > 2)
+            std::vector<int32_t> NewTriangles; // triangles of the polygon generated by this vertex (NumEdges > 2)
             FIndex2i        TerminatorInfo;    // TerminatorVertex: [EdgeID, FarVertexID] in the one-ring
             int32_t ConnectedBevelVertex = -1; // another FBevelVertex index TerminatorInfo's edge directly reaches
             // multi-segment junction polygon: its added interior vertices, and its corners in the order c00, c10,
             // c01, c11 (quad) or in wedge order (triangle), or for 5+ corners (round profile only) its whole
             // border loop; read by the round profile
-            TArray<FBevelVertex_InteriorVertex> InteriorVertices;
-            TArray<int32_t>                     InteriorBorderLoop;
+            std::vector<FBevelVertex_InteriorVertex> InteriorVertices;
+            std::vector<int32_t>                     InteriorBorderLoop;
         };
 
     protected:
-        TMap<int32_t, int32_t> VertexIDToIndexMap; // mesh vertex ID -> index into Vertices
-        TArray<FBevelVertex>   Vertices;           // mesh vertices that need beveling
-        TArray<FBevelEdge>     Edges;              // mesh edge spans that need beveling
-        TArray<FBevelLoop>     Loops;              // mesh edge loops that need beveling
-        TMap<int32_t, int32_t> MeshEdgePairs;      // input edges split into edge pairs, later stitched with quads
+        std::unordered_map<int32_t, int32_t> VertexIDToIndexMap; // mesh vertex ID -> index into Vertices
+        std::vector<FBevelVertex>            Vertices;           // mesh vertices that need beveling
+        std::vector<FBevelEdge>              Edges;              // mesh edge spans that need beveling
+        std::vector<FBevelLoop>              Loops;              // mesh edge loops that need beveling
+        std::unordered_map<int32_t, int32_t>
+             MeshEdgePairs; // input edges split into edge pairs, later stitched with quads
 
         FBevelVertex* GetBevelVertexFromVertexID( int32_t VertexID, int32_t* IndexOut = nullptr );
 
@@ -253,9 +260,9 @@ namespace Desert::Geometry
         void FinalizeTerminatorVertex( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         /** Records the first refusal; later ones are consequences of the same input. */
         void Refuse( const std::string& Reason );
-        bool RefuseBowties( const FDynamicMesh3& Mesh, const TArray<int32_t>& MeshVertices );
+        bool RefuseBowties( const FDynamicMesh3& Mesh, const std::vector<int32_t>& MeshVertices );
         /** SplitVertex, refusing (with Where and the result) when it fails; NewVertexOut = VertexID then. */
-        bool SplitOrKeep( FDynamicMesh3& Mesh, int32_t VertexID, const TArray<int32_t>& Triangles,
+        bool SplitOrKeep( FDynamicMesh3& Mesh, int32_t VertexID, const std::vector<int32_t>& Triangles,
                           const std::string& Where, int32_t& NewVertexOut );
         void PairSplitWedgeBorderEdges( const FDynamicMesh3& Mesh, FBevelVertex& Vertex );
         /** AppendTriangle, refusing (with Where and the result) when it fails; UE drops such a triangle and

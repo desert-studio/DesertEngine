@@ -352,7 +352,7 @@ namespace Desert::Geometry
 
         /** Update the overlay to reflect a vertex split in the parent */
         void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                            const TArrayView<const int>&             TrianglesToUpdate ) override
+                            const std::span<const int>&              TrianglesToUpdate ) override
         {
             // nothing to do here because triangles did not change
         }

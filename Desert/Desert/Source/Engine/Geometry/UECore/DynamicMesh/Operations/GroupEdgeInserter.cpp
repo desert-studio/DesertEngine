@@ -46,17 +46,20 @@ namespace Desert::Geometry
             const FGroupTopology::FGroup* Group = Topology.FindGroupByID( GroupID );
             UE_CHECK( Group );
 
-            for ( int32_t i = 0; i < Group->Boundaries.Num(); ++i )
+            for ( int32_t i = 0; i < static_cast<int32_t>( Group->Boundaries.size() ); ++i )
             {
                 const FGroupTopology::FGroupBoundary& Boundary       = Group->Boundaries[i];
-                const int32_t                         GroupEdgeIndex = Boundary.GroupEdges.Find( GroupEdgeIDIn );
-                if ( GroupEdgeIndex != INDEX_NONE )
+                const int32_t                         GroupEdgeIndex = static_cast<int32_t>(
+                     std::find( Boundary.GroupEdges.begin(), Boundary.GroupEdges.end(), GroupEdgeIDIn ) -
+                     Boundary.GroupEdges.begin() );
+                if ( GroupEdgeIndex != static_cast<int32_t>( Boundary.GroupEdges.size() ) )
                 {
-                    if ( Boundary.GroupEdges.Num() != 4 )
+                    if ( static_cast<int32_t>( Boundary.GroupEdges.size() ) != 4 )
                     {
                         if ( OptionalOut.ProblemGroupEdgeIDsOut != nullptr )
                         {
-                            OptionalOut.ProblemGroupEdgeIDsOut->Append( Boundary.GroupEdges );
+                            OptionalOut.ProblemGroupEdgeIDsOut->insert( Boundary.GroupEdges.begin(),
+                                                                        Boundary.GroupEdges.end() );
                         }
                         return false;
                     }
@@ -87,14 +90,15 @@ namespace Desert::Geometry
         }
 
         void ConvertProportionsToArcLengths( const FGroupTopology& Topology, int32_t GroupEdgeID,
-                                             const TArray<double>& ProportionsIn, TArray<double>& ArcLengthsOut,
-                                             TArray<double>* PerVertexLengthsOut )
+                                             const std::vector<double>& ProportionsIn,
+                                             std::vector<double>&       ArcLengthsOut,
+                                             std::vector<double>*       PerVertexLengthsOut )
         {
-            ArcLengthsOut.Reset();
+            ArcLengthsOut.clear();
             const double TotalLength = Topology.GetEdgeArcLength( GroupEdgeID, PerVertexLengthsOut );
             for ( const double Proportion : ProportionsIn )
             {
-                ArcLengthsOut.Add( Proportion * TotalLength );
+                ArcLengthsOut.push_back( Proportion * TotalLength );
             }
         }
 
@@ -104,10 +108,10 @@ namespace Desert::Geometry
          */
         bool InsertNewVertexEndpoints( const FGroupEdgeInserter::FEdgeLoopInsertionParams& Params,
                                        int32_t GroupEdgeID, int32_t StartCornerID,
-                                       TArray<FSplitPoint>& EndPointsOut, FOutParams& OptionalOut )
+                                       std::vector<FSplitPoint>& EndPointsOut, FOutParams& OptionalOut )
         {
-            EndPointsOut.Reset();
-            if ( Params.SortedInputLengths->Num() == 0 )
+            EndPointsOut.clear();
+            if ( Params.SortedInputLengths->empty() )
             {
                 return false;
             }
@@ -116,22 +120,22 @@ namespace Desert::Geometry
 
             // Our own copies, because we may need to iterate backwards relative to the order in the topology.
             const bool bGoBackward =
-                 ( GroupEdge.Span.Vertices.Last() == Params.Topology->GetCornerVertexID( StartCornerID ) );
-            TArray<int32_t> SpanVids;
+                 ( GroupEdge.Span.Vertices.back() == Params.Topology->GetCornerVertexID( StartCornerID ) );
+            std::vector<int32_t> SpanVids;
             if ( !bGoBackward )
             {
                 SpanVids = GroupEdge.Span.Vertices;
             }
             else
             {
-                for ( int i = GroupEdge.Span.Vertices.Num() - 1; i >= 0; --i )
+                for ( int i = static_cast<int32_t>( GroupEdge.Span.Vertices.size() ) - 1; i >= 0; --i )
                 {
-                    SpanVids.Add( GroupEdge.Span.Vertices[i] );
+                    SpanVids.push_back( GroupEdge.Span.Vertices[i] );
                 }
             }
 
-            TArray<double> PerVertexLengths;
-            TArray<double> ArcLengths;
+            std::vector<double> PerVertexLengths;
+            std::vector<double> ArcLengths;
             if ( Params.bInputsAreProportions )
             {
                 ConvertProportionsToArcLengths( *Params.Topology, GroupEdgeID, *Params.SortedInputLengths,
@@ -143,7 +147,7 @@ namespace Desert::Geometry
                 Params.Topology->GetEdgeArcLength( GroupEdgeID, &PerVertexLengths );
             }
 
-            const double TotalLength = PerVertexLengths.Last();
+            const double TotalLength = PerVertexLengths.back();
             if ( bGoBackward )
             {
                 std::reverse( PerVertexLengths.begin(), PerVertexLengths.end() );
@@ -168,7 +172,8 @@ namespace Desert::Geometry
                 }
 
                 // Advance until the next vertex would overshoot the target length.
-                while ( NextIndex < PerVertexLengths.Num() && PerVertexLengths[NextIndex] <= TargetLength )
+                while ( NextIndex < static_cast<int32_t>( PerVertexLengths.size() ) &&
+                        PerVertexLengths[NextIndex] <= TargetLength )
                 {
                     CurrentVid       = SpanVids[NextIndex];
                     CurrentArcLength = PerVertexLengths[NextIndex];
@@ -198,7 +203,7 @@ namespace Desert::Geometry
                             SplitPoint.Tangent +=
                                  Normalized( VertexPosition - Params.Mesh->GetVertex( SpanVids[NextIndex - 2] ) );
                         }
-                        if ( NextIndex < SpanVids.Num() )
+                        if ( NextIndex < static_cast<int32_t>( SpanVids.size() ) )
                         {
                             SplitPoint.Tangent +=
                                  Normalized( Params.Mesh->GetVertex( SpanVids[NextIndex] ) - VertexPosition );
@@ -211,7 +216,7 @@ namespace Desert::Geometry
                 {
                     SetSplitPointToVertex( CurrentVid );
                 }
-                else if ( NextIndex < PerVertexLengths.Num() &&
+                else if ( NextIndex < static_cast<int32_t>( PerVertexLengths.size() ) &&
                           PerVertexLengths[NextIndex] - CurrentArcLength <= Params.VertexTolerance )
                 {
                     SetSplitPointToVertex( SpanVids[NextIndex] );
@@ -242,10 +247,10 @@ namespace Desert::Geometry
 
                     if ( OptionalOut.ChangedTidsOut != nullptr )
                     {
-                        OptionalOut.ChangedTidsOut->Add( EdgeSplitInfo.OriginalTriangles.A );
+                        OptionalOut.ChangedTidsOut->insert( EdgeSplitInfo.OriginalTriangles.A );
                         if ( EdgeSplitInfo.OriginalTriangles.B != InvalidID )
                         {
-                            OptionalOut.ChangedTidsOut->Add( EdgeSplitInfo.OriginalTriangles.B );
+                            OptionalOut.ChangedTidsOut->insert( EdgeSplitInfo.OriginalTriangles.B );
                         }
                     }
 
@@ -258,7 +263,7 @@ namespace Desert::Geometry
                                                        Params.Mesh->GetVertex( CurrentVid ) );
                 }
 
-                EndPointsOut.Add( SplitPoint );
+                EndPointsOut.push_back( SplitPoint );
             }
             return true;
         }
@@ -269,12 +274,13 @@ namespace Desert::Geometry
          * @returns false if path could not be found.
          */
         bool GetPlaneCutPath( const FDynamicMesh3& Mesh, int32_t GroupID, const FSplitPoint& StartPoint,
-                              const FSplitPoint& EndPoint, TArray<TPair<FMeshSurfacePoint, int>>& OutputPath,
-                              double VertexCutTolerance, const TSet<int32_t>& DisallowedVids )
+                              const FSplitPoint&                              EndPoint,
+                              std::vector<std::pair<FMeshSurfacePoint, int>>& OutputPath,
+                              double VertexCutTolerance, const std::unordered_set<int32_t>& DisallowedVids )
         {
             // Guards against walking in a loop or backwards.
-            TSet<int32_t> CrossedVids;
-            TSet<int32_t> CrossedEids;
+            std::unordered_set<int32_t> CrossedVids;
+            std::unordered_set<int32_t> CrossedEids;
 
             const glm::dvec3 StartPosition =
                  StartPoint.bIsVertex ? Mesh.GetVertex( StartPoint.ElementID )
@@ -315,10 +321,10 @@ namespace Desert::Geometry
             // Distances of the current edge's vertices from the plane.
             double CurrentEdgeVertPlaneDistances[2] = { 0, 0 };
 
-            OutputPath.Empty();
+            OutputPath.clear();
             if ( StartPoint.bIsVertex )
             {
-                OutputPath.Emplace( FMeshSurfacePoint( StartPoint.ElementID ), InvalidID );
+                OutputPath.emplace_back( FMeshSurfacePoint( StartPoint.ElementID ), InvalidID );
             }
             else
             {
@@ -330,12 +336,12 @@ namespace Desert::Geometry
                      PointPlaneDist( Mesh.GetVertex( EdgeVids.A ), CutPlaneOrigin, CutPlaneNormal );
                 CurrentEdgeVertPlaneDistances[1] =
                      PointPlaneDist( Mesh.GetVertex( EdgeVids.B ), CutPlaneOrigin, CutPlaneNormal );
-                OutputPath.Emplace(
+                OutputPath.emplace_back(
                      FMeshSurfacePoint::MakeEdgePoint( StartPoint.ElementID, StartPoint.EdgeTValue ), InvalidID );
             }
 
-            bool  bCurrentPointIsVertex = ( OutputPath[0].Key.PointType == ESurfacePointType::Vertex );
-            int32_t CurrentElementID      = OutputPath[0].Key.ElementID;
+            bool    bCurrentPointIsVertex = ( OutputPath[0].first.PointType == ESurfacePointType::Vertex );
+            int32_t CurrentElementID      = OutputPath[0].first.ElementID;
             int32_t PointCount            = 1;
             // The triangle traversed to reach the current edge point, so the next step does not backtrack.
             int32_t TraversedTid = InvalidID;
@@ -344,15 +350,15 @@ namespace Desert::Geometry
             {
                 if ( bCurrentPointIsVertex )
                 {
-                    if ( CrossedVids.Contains( CurrentElementID ) )
+                    if ( CrossedVids.contains( CurrentElementID ) )
                         return false;
-                    CrossedVids.Add( CurrentElementID );
+                    CrossedVids.insert( CurrentElementID );
                 }
                 else
                 {
-                    if ( CrossedEids.Contains( CurrentElementID ) )
+                    if ( CrossedEids.contains( CurrentElementID ) )
                         return false;
-                    CrossedEids.Add( CurrentElementID );
+                    CrossedEids.insert( CurrentElementID );
                 }
 
                 if ( !UE_ENSURE( PointCount < Mesh.EdgeCount() ) )
@@ -363,7 +369,7 @@ namespace Desert::Geometry
                 if ( bCurrentPointIsVertex )
                 {
                     FMeshSurfacePoint NextPoint( InvalidID );
-                    const glm::dvec3  CurrentPosition = OutputPath.Last().Key.Pos( &Mesh );
+                    const glm::dvec3  CurrentPosition = OutputPath.back().first.Pos( &Mesh );
 
                     // Find a surrounding triangle of our group that intersects the plane
                     int32_t CandidateTraversedTid = InvalidID;
@@ -382,9 +388,9 @@ namespace Desert::Geometry
                             {
                                 if ( EndPoint.ElementID == TriangleEids[i] )
                                 {
-                                    OutputPath.Emplace( FMeshSurfacePoint::MakeEdgePoint( EndPoint.ElementID,
-                                                                                          EndPoint.EdgeTValue ),
-                                                        InvalidID );
+                                    OutputPath.emplace_back( FMeshSurfacePoint::MakeEdgePoint(
+                                                                  EndPoint.ElementID, EndPoint.EdgeTValue ),
+                                                             InvalidID );
                                     return true;
                                 }
                             }
@@ -397,7 +403,7 @@ namespace Desert::Geometry
                              ( TriangleVids.B == CurrentElementID ) ? TriangleVids.C : TriangleVids.B;
                         if ( EndPoint.bIsVertex && ( EndPoint.ElementID == VertA || EndPoint.ElementID == VertB ) )
                         {
-                            OutputPath.Emplace( FMeshSurfacePoint( EndPoint.ElementID ), InvalidID );
+                            OutputPath.emplace_back( FMeshSurfacePoint( EndPoint.ElementID ), InvalidID );
                             return true;
                         }
 
@@ -430,12 +436,12 @@ namespace Desert::Geometry
                         };
 
                         bool bEdgeVertIsPreferred = false;
-                        if ( bVertAIsOnPlane && !DisallowedVids.Contains( VertA ) )
+                        if ( bVertAIsOnPlane && !DisallowedVids.contains( VertA ) )
                         {
                             bEdgeVertIsPreferred = true;
                             UpdateNextPoint( FMeshSurfacePoint( VertA ) );
                         }
-                        if ( bVertBIsOnPlane && !DisallowedVids.Contains( VertB ) )
+                        if ( bVertBIsOnPlane && !DisallowedVids.contains( VertB ) )
                         {
                             bEdgeVertIsPreferred = true;
                             UpdateNextPoint( FMeshSurfacePoint( VertB ) );
@@ -468,7 +474,7 @@ namespace Desert::Geometry
                     {
                         return false;
                     }
-                    OutputPath.Emplace( NextPoint, InvalidID );
+                    OutputPath.emplace_back( NextPoint, InvalidID );
                     TraversedTid =
                          ( NextPoint.PointType == ESurfacePointType::Edge ) ? CandidateTraversedTid : InvalidID;
                 }
@@ -495,7 +501,7 @@ namespace Desert::Geometry
                          IndexUtil::FindTriOtherVtx( Edge.Vert.A, Edge.Vert.B, Mesh.GetTriangle( NextTid ) );
                     if ( EndPoint.bIsVertex && EndPoint.ElementID == OppositeVert )
                     {
-                        OutputPath.Emplace( FMeshSurfacePoint( EndPoint.ElementID ), InvalidID );
+                        OutputPath.emplace_back( FMeshSurfacePoint( EndPoint.ElementID ), InvalidID );
                         return true;
                     }
 
@@ -506,7 +512,7 @@ namespace Desert::Geometry
                         {
                             if ( EndPoint.ElementID == TriangleEids[i] )
                             {
-                                OutputPath.Emplace(
+                                OutputPath.emplace_back(
                                      FMeshSurfacePoint::MakeEdgePoint( EndPoint.ElementID, EndPoint.EdgeTValue ),
                                      InvalidID );
                                 return true;
@@ -517,9 +523,10 @@ namespace Desert::Geometry
                     const double OppositeVertPlaneDistance =
                          PointPlaneDist( Mesh.GetVertex( OppositeVert ), CutPlaneOrigin, CutPlaneNormal );
                     if ( std::abs( OppositeVertPlaneDistance ) <= VertexCutTolerance &&
-                         !DisallowedVids.Contains( OppositeVert ) )
+                         !DisallowedVids.contains( OppositeVert ) )
                     {
-                        OutputPath.Emplace( FMeshSurfacePoint( OppositeVert ), InvalidID ); // cutting a vertex
+                        OutputPath.emplace_back( FMeshSurfacePoint( OppositeVert ),
+                                                 InvalidID ); // cutting a vertex
                     }
                     else
                     {
@@ -554,14 +561,14 @@ namespace Desert::Geometry
                             EdgeTValue = 1 - EdgeTValue;
                             std::swap( CurrentEdgeVertPlaneDistances[0], CurrentEdgeVertPlaneDistances[1] );
                         }
-                        OutputPath.Emplace( FMeshSurfacePoint::MakeEdgePoint( Eid, EdgeTValue ), InvalidID );
+                        OutputPath.emplace_back( FMeshSurfacePoint::MakeEdgePoint( Eid, EdgeTValue ), InvalidID );
                     }
                 }
 
                 ++PointCount;
-                UE_CHECK( PointCount == OutputPath.Num() );
-                CurrentElementID      = OutputPath.Last().Key.ElementID;
-                bCurrentPointIsVertex = ( OutputPath.Last().Key.PointType == ESurfacePointType::Vertex );
+                UE_CHECK( PointCount == static_cast<int32_t>( OutputPath.size() ) );
+                CurrentElementID      = OutputPath.back().first.ElementID;
+                bCurrentPointIsVertex = ( OutputPath.back().first.PointType == ESurfacePointType::Vertex );
             }
             return true;
         }
@@ -572,11 +579,12 @@ namespace Desert::Geometry
          */
         bool EmbedPlaneCutPath( FDynamicMesh3& Mesh, const FGroupTopology& Topology, int32_t GroupID,
                                 const FSplitPoint& StartPoint, const FSplitPoint& EndPoint, double VertexTolerance,
-                                TSet<int32_t>& PathEidsOut, TSet<int32_t>* ChangedTrisOut )
+                                std::unordered_set<int32_t>& PathEidsOut,
+                                std::unordered_set<int32_t>* ChangedTrisOut )
         {
             // No snapping to the group's boundary vertices by plane distance: it could join the boundary at a
             // different point from the one the loop continues from on the other side.
-            TSet<int32_t>                 DisallowedVids;
+            std::unordered_set<int32_t>   DisallowedVids;
             const FGroupTopology::FGroup* Group = Topology.FindGroupByID( GroupID );
             if ( UE_ENSURE( Group ) )
             {
@@ -584,34 +592,35 @@ namespace Desert::Geometry
                 {
                     for ( const int32_t GroupEdgeID : Boundary.GroupEdges )
                     {
-                        if ( UE_ENSURE( GroupEdgeID < Topology.Edges.Num() ) )
+                        if ( UE_ENSURE( GroupEdgeID < static_cast<int32_t>( Topology.Edges.size() ) ) )
                         {
-                            DisallowedVids.Append( Topology.Edges[GroupEdgeID].Span.Vertices );
+                            DisallowedVids.insert( Topology.Edges[GroupEdgeID].Span.Vertices.begin(),
+                                                   Topology.Edges[GroupEdgeID].Span.Vertices.end() );
                         }
                     }
                 }
             }
 
-            TArray<TPair<FMeshSurfacePoint, int>> CutPath;
+            std::vector<std::pair<FMeshSurfacePoint, int>> CutPath;
             if ( !GetPlaneCutPath( Mesh, GroupID, StartPoint, EndPoint, CutPath, VertexTolerance,
                                    DisallowedVids ) )
             {
                 return false;
             }
-            UE_CHECK( CutPath.Num() >= 2 );
+            UE_CHECK( static_cast<int32_t>( CutPath.size() ) >= 2 );
 
             if ( ChangedTrisOut != nullptr )
             {
-                for ( int32_t i = 0; i < CutPath.Num(); ++i )
+                for ( int32_t i = 0; i < static_cast<int32_t>( CutPath.size() ); ++i )
                 {
-                    const FMeshSurfacePoint& Point = CutPath[i].Key;
+                    const FMeshSurfacePoint& Point = CutPath[i].first;
                     if ( Point.PointType == ESurfacePointType::Edge )
                     {
                         const FIndex2i EdgeTris = Mesh.GetEdgeT( Point.ElementID );
-                        ChangedTrisOut->Add( EdgeTris.A );
+                        ChangedTrisOut->insert( EdgeTris.A );
                         if ( EdgeTris.B != InvalidID )
                         {
-                            ChangedTrisOut->Add( EdgeTris.B );
+                            ChangedTrisOut->insert( EdgeTris.B );
                         }
                     }
                 }
@@ -619,42 +628,42 @@ namespace Desert::Geometry
 
             FMeshSurfacePath PathEmbedder( &Mesh );
             PathEmbedder.Path = CutPath;
-            TArray<int32_t> PathVertices;
+            std::vector<int32_t> PathVertices;
             if ( !PathEmbedder.EmbedSimplePath( PathVertices, false ) )
             {
                 return false;
             }
-            UE_CHECK( PathVertices.Num() >= 2 );
+            UE_CHECK( static_cast<int32_t>( PathVertices.size() ) >= 2 );
 
-            for ( int32_t i = 1; i < PathVertices.Num(); ++i )
+            for ( int32_t i = 1; i < static_cast<int32_t>( PathVertices.size() ); ++i )
             {
                 const int32_t Eid = Mesh.FindEdge( PathVertices[i - 1], PathVertices[i] );
                 if ( UE_ENSURE( Eid >= 0 ) )
                 {
-                    PathEidsOut.Add( Eid );
+                    PathEidsOut.insert( Eid );
                 }
             }
             return true;
         }
 
         /** Uses the given path edge IDs to split a group into new groups. */
-        bool CreateNewGroups( FDynamicMesh3& Mesh, const TSet<int32_t>& PathEids, int32_t OriginalGroup,
-                              int32_t& NumGroupsCreated, FOutParams& OptionalOut )
+        bool CreateNewGroups( FDynamicMesh3& Mesh, const std::unordered_set<int32_t>& PathEids,
+                              int32_t OriginalGroup, int32_t& NumGroupsCreated, FOutParams& OptionalOut )
         {
-            TSet<int32_t> SeedTriangleSet;
+            std::unordered_set<int32_t> SeedTriangleSet;
             for ( const int32_t Eid : PathEids )
             {
                 const FIndex2i Tris = Mesh.GetEdgeT( Eid );
                 if ( Mesh.GetTriangleGroup( Tris.A ) == OriginalGroup )
                 {
-                    SeedTriangleSet.Add( Tris.A );
+                    SeedTriangleSet.insert( Tris.A );
                 }
                 if ( Tris.B != InvalidID && Mesh.GetTriangleGroup( Tris.B ) == OriginalGroup )
                 {
-                    SeedTriangleSet.Add( Tris.B );
+                    SeedTriangleSet.insert( Tris.B );
                 }
             }
-            TArray<int> Seeds = SeedTriangleSet.Array();
+            std::vector<int> Seeds = std::vector( SeedTriangleSet.begin(), SeedTriangleSet.end() );
             std::sort( Seeds.begin(), Seeds.end() );
 
             FMeshConnectedComponents ConnectedComponents( &Mesh );
@@ -666,7 +675,7 @@ namespace Desert::Geometry
                      // one of the newly inserted group edges.
                      if ( Mesh.GetTriangleGroup( t0 ) == Mesh.GetTriangleGroup( t1 ) )
                      {
-                         return !PathEids.Contains( Mesh.FindEdgeFromTriPair( t0, t1 ) );
+                         return !PathEids.contains( Mesh.FindEdgeFromTriPair( t0, t1 ) );
                      }
                      return false;
                  } );
@@ -677,7 +686,7 @@ namespace Desert::Geometry
                 const FMeshConnectedComponents::FComponent& Component = ConnectedComponents.GetComponent( i );
                 if ( OptionalOut.ChangedTidsOut != nullptr )
                 {
-                    OptionalOut.ChangedTidsOut->Append( Component.Indices );
+                    OptionalOut.ChangedTidsOut->insert( Component.Indices.begin(), Component.Indices.end() );
                 }
                 const int32_t NewGroupID = Mesh.AllocateTriangleGroup();
                 for ( const int Tid : Component.Indices )
@@ -695,12 +704,14 @@ namespace Desert::Geometry
          * sequentially away from the first start point and first end point.
          */
         bool ConnectEndpoints( const FGroupEdgeInserter::FEdgeLoopInsertionParams& Params, int32_t GroupID,
-                               const TArray<FSplitPoint>& StartPoints, const TArray<FSplitPoint>& EndPoints,
-                               int32_t& NumGroupsCreated, FOutParams& OptionalOut )
+                               const std::vector<FSplitPoint>& StartPoints,
+                               const std::vector<FSplitPoint>& EndPoints, int32_t& NumGroupsCreated,
+                               FOutParams& OptionalOut )
         {
             NumGroupsCreated             = 0;
-            const int32_t NumEdgesToInsert = std::min( StartPoints.Num(), EndPoints.Num() );
-            TSet<int32_t> PathsEids;
+            const int32_t NumEdgesToInsert =
+                 std::min( static_cast<int32_t>( StartPoints.size() ), static_cast<int32_t>( EndPoints.size() ) );
+            std::unordered_set<int32_t> PathsEids;
             for ( int32_t i = 0; i < NumEdgesToInsert; ++i )
             {
                 if ( !EmbedPlaneCutPath( *Params.Mesh, *Params.Topology, GroupID, StartPoints[i], EndPoints[i],
@@ -712,7 +723,7 @@ namespace Desert::Geometry
 
             if ( OptionalOut.NewEidsOut != nullptr )
             {
-                OptionalOut.NewEidsOut->Append( PathsEids );
+                OptionalOut.NewEidsOut->insert( PathsEids.begin(), PathsEids.end() );
             }
 
             return CreateNewGroups( *Params.Mesh, PathsEids, GroupID, NumGroupsCreated, OptionalOut );
@@ -720,25 +731,25 @@ namespace Desert::Geometry
 
         /** Continues the loop in one direction from a start edge. @returns false if there is an error. */
         bool InsertEdgeLoopEdgesInDirection( const FGroupEdgeInserter::FEdgeLoopInsertionParams& Params,
-                                             const TArray<FSplitPoint>& StartEndpoints, int32_t NextGroupID,
+                                             const std::vector<FSplitPoint>& StartEndpoints, int32_t NextGroupID,
                                              int32_t NextEdgeID, int32_t NextCornerID, int32_t NextBoundaryIndex,
-                                             TSet<int32_t>& AlteredGroups, int32_t& NumInserted,
+                                             std::unordered_set<int32_t>& AlteredGroups, int32_t& NumInserted,
                                              FOutParams& OptionalOut )
         {
             NumInserted = 0;
-            if ( AlteredGroups.Contains( NextGroupID ) || StartEndpoints.Num() == 0 )
+            if ( AlteredGroups.contains( NextGroupID ) || StartEndpoints.empty() )
             {
                 return true;
             }
 
-            TArray<FSplitPoint>  EndpointStorage1 = StartEndpoints;
-            TArray<FSplitPoint>  EndpointStorage2;
-            TArray<FSplitPoint>* CurrentEndpoints = &EndpointStorage1;
-            TArray<FSplitPoint>* NextEndpoints    = &EndpointStorage2;
+            std::vector<FSplitPoint>  EndpointStorage1 = StartEndpoints;
+            std::vector<FSplitPoint>  EndpointStorage2;
+            std::vector<FSplitPoint>* CurrentEndpoints = &EndpointStorage1;
+            std::vector<FSplitPoint>* NextEndpoints    = &EndpointStorage2;
 
             bool bHaveNextGroup = true;
             bool bSuccess       = true;
-            while ( bHaveNextGroup && !AlteredGroups.Contains( NextGroupID ) )
+            while ( bHaveNextGroup && !AlteredGroups.contains( NextGroupID ) )
             {
                 // See if we looped around to the start
                 if ( NextEdgeID == Params.GroupEdgeID )
@@ -746,7 +757,7 @@ namespace Desert::Geometry
                     int32_t NumGroupsCreated = 0;
                     bSuccess = ConnectEndpoints( Params, NextGroupID, *CurrentEndpoints, StartEndpoints,
                                                  NumGroupsCreated, OptionalOut );
-                    AlteredGroups.Add( NextGroupID );
+                    AlteredGroups.insert( NextGroupID );
                     NumInserted += ( NumGroupsCreated > 1 ? 1 : 0 );
                     break;
                 }
@@ -756,7 +767,7 @@ namespace Desert::Geometry
                 {
                     return false;
                 }
-                if ( NextEndpoints->Num() == 0 )
+                if ( NextEndpoints->empty() )
                 {
                     return true; // the next edge was not long enough for the input lengths
                 }
@@ -764,7 +775,7 @@ namespace Desert::Geometry
                 int32_t NumGroupsCreated = 0;
                 bSuccess               = ConnectEndpoints( Params, NextGroupID, *CurrentEndpoints, *NextEndpoints,
                                                            NumGroupsCreated, OptionalOut );
-                AlteredGroups.Add( NextGroupID );
+                AlteredGroups.insert( NextGroupID );
                 NumInserted += ( NumGroupsCreated > 1 ? 1 : 0 );
                 if ( !bSuccess )
                 {
@@ -823,14 +834,14 @@ namespace Desert::Geometry
 
         // The loop ends when it arrives at a group it already altered (it may try to cross itself from the side);
         // this also means the topology need not be updated as we go.
-        TSet<int32_t> AlteredGroups;
+        std::unordered_set<int32_t> AlteredGroups;
 
         // The first endpoints are kept in case they close the loop. Splitting ahead of time keeps a split from
         // changing the eid of the next endpoint.
-        TArray<FGroupEdgeSplitPoint> StartEndpoints;
+        std::vector<FGroupEdgeSplitPoint> StartEndpoints;
         bool bSuccess = InsertNewVertexEndpoints( Params, Params.GroupEdgeID, Params.StartCornerID, StartEndpoints,
                                                   OptionalOut );
-        if ( !bSuccess || StartEndpoints.Num() == 0 )
+        if ( !bSuccess || StartEndpoints.empty() )
         {
             return false;
         }
@@ -877,8 +888,9 @@ namespace Desert::Geometry
             return false; // points are on the same vertex or edge
         }
 
-        TSet<int32_t>  TempNewEids;
-        TSet<int32_t>* NewEids = OptionalOut.NewEidsOut != nullptr ? OptionalOut.NewEidsOut : &TempNewEids;
+        std::unordered_set<int32_t>  TempNewEids;
+        std::unordered_set<int32_t>* NewEids =
+             OptionalOut.NewEidsOut != nullptr ? OptionalOut.NewEidsOut : &TempNewEids;
 
         if ( !EmbedPlaneCutPath( *Params.Mesh, *Params.Topology, Params.GroupID, Params.StartPoint,
                                  Params.EndPoint, Params.VertexTolerance, *NewEids, OptionalOut.ChangedTidsOut ) )

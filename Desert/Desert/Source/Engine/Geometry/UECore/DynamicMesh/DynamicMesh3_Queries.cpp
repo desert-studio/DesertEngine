@@ -59,7 +59,7 @@ int FDynamicMesh3::GetAllVtxBoundaryEdges( int vID, ArrayType& EdgeListOut ) con
         {
             if ( Edges[eid].Tri[1] == InvalidID )
             {
-                EdgeListOut.Add( eid );
+                EdgeListOut.push_back( eid );
                 count++;
             }
         }
@@ -68,7 +68,8 @@ int FDynamicMesh3::GetAllVtxBoundaryEdges( int vID, ArrayType& EdgeListOut ) con
     return 0;
 }
 
-template int FDynamicMesh3::GetAllVtxBoundaryEdges<TArray<int32_t>>( int vID, TArray<int32_t>& EdgeListOut ) const;
+template int
+FDynamicMesh3::GetAllVtxBoundaryEdges<std::vector<int32_t>>( int vID, std::vector<int32_t>& EdgeListOut ) const;
 
 void FDynamicMesh3::GetVtxNbrhood( int eID, int vID, int& vOther, int& oppV1, int& oppV2, int& t1, int& t2 ) const
 {
@@ -144,12 +145,12 @@ EMeshResult FDynamicMesh3::GetVtxTriangles( int vID, ArrayType& TrianglesOut ) c
                                        const int   vOther = Edge.Vert.A == vID ? Edge.Vert.B : Edge.Vert.A;
                                        if ( TriHasSequentialVertices( Edge.Tri[0], vID, vOther ) )
                                        {
-                                           TrianglesOut.Add( Edge.Tri[0] );
+                                           TrianglesOut.push_back( Edge.Tri[0] );
                                        }
                                        if ( Edge.Tri[1] != InvalidID &&
                                             TriHasSequentialVertices( Edge.Tri[1], vID, vOther ) )
                                        {
-                                           TrianglesOut.Add( Edge.Tri[1] );
+                                           TrianglesOut.push_back( Edge.Tri[1] );
                                        }
                                    } );
     }
@@ -159,26 +160,34 @@ EMeshResult FDynamicMesh3::GetVtxTriangles( int vID, ArrayType& TrianglesOut ) c
                                    [&]( int32_t eid )
                                    {
                                        const FEdge Edge = Edges[eid];
-                                       TrianglesOut.AddUnique( Edge.Tri[0] );
+                                       if ( std::find( TrianglesOut.begin(), TrianglesOut.end(), Edge.Tri[0] ) ==
+                                            TrianglesOut.end() )
+                                       {
+                                           TrianglesOut.push_back( Edge.Tri[0] );
+                                       }
                                        if ( Edge.Tri[1] != InvalidID )
                                        {
-                                           TrianglesOut.AddUnique( Edge.Tri[1] );
+                                           if ( std::find( TrianglesOut.begin(), TrianglesOut.end(),
+                                                           Edge.Tri[1] ) == TrianglesOut.end() )
+                                           {
+                                               TrianglesOut.push_back( Edge.Tri[1] );
+                                           }
                                        }
                                    } );
     }
     return EMeshResult::Ok;
 }
 
-template EMeshResult FDynamicMesh3::GetVtxTriangles<TArray<int32_t>>( int              vID,
-                                                                      TArray<int32_t>& TrianglesOut ) const;
+template EMeshResult
+FDynamicMesh3::GetVtxTriangles<std::vector<int32_t>>( int vID, std::vector<int32_t>& TrianglesOut ) const;
 
 template <typename IntArray, typename BoolArray>
 EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& TrianglesOut, IntArray& SpanLengths,
                                                       BoolArray& IsLoop ) const
 {
-    TrianglesOut.Reset();
-    SpanLengths.Reset();
-    IsLoop.Reset();
+    TrianglesOut.clear();
+    SpanLengths.clear();
+    IsLoop.clear();
 
     if ( !UE_ENSURE( IsVertex( VertexID ) ) )
     {
@@ -200,25 +209,25 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
     {
         if ( Edges[EID].Tri[1] == InvalidID )
         {
-            StartEdgeIDs.Push( EID );
+            StartEdgeIDs.push_back( EID );
         }
     }
-    bool bHasBoundaries = StartEdgeIDs.Num() != 0;
+    bool bHasBoundaries = !StartEdgeIDs.empty();
 
     if ( !bHasBoundaries )
     {
         for ( int EID : VertexEdgeLists.Values( VertexID ) )
         {
-            StartEdgeIDs.Push( EID );
+            StartEdgeIDs.push_back( EID );
             break;
         }
     }
 
     int  WalkedEdges             = 0;
     bool bHasRemainingBoundaries = bHasBoundaries;
-    while ( StartEdgeIDs.Num() || WalkedEdges < NumEdges )
+    while ( static_cast<int32_t>( StartEdgeIDs.size() ) || WalkedEdges < NumEdges )
     {
-        if ( !StartEdgeIDs.Num() )
+        if ( !static_cast<int32_t>( StartEdgeIDs.size() ) )
         {
             bHasRemainingBoundaries = false;
             // fallback for (hopefully very rare) case of a non-manifold vertex where there are separate one-rings
@@ -227,10 +236,11 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
             for ( int EID : VertexEdgeLists.Values( VertexID ) )
             {
                 int  AttachedTriID = Edges[EID].Tri[0];
-                bool UsedEdge      = TrianglesOut.Contains( AttachedTriID );
+                bool UsedEdge      = ( std::find( TrianglesOut.begin(), TrianglesOut.end(), AttachedTriID ) !=
+                                  TrianglesOut.end() );
                 if ( !UsedEdge )
                 {
-                    StartEdgeIDs.Push( EID );
+                    StartEdgeIDs.push_back( EID );
                     break;
                 }
             }
@@ -238,15 +248,16 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
 
         // walk starting from this edge, add the found span
 
-        int StartEID = StartEdgeIDs.Pop();
+        int StartEID = StartEdgeIDs.back();
+        StartEdgeIDs.pop_back();
         int PrevEID  = StartEID;
         WalkedEdges++;
         int   WalkTri   = Edges[StartEID].Tri[0];
-        int32_t const SpanStart = TrianglesOut.Num();
-        IsLoop.Add( !bHasRemainingBoundaries );
+        int32_t const SpanStart = static_cast<int32_t>( TrianglesOut.size() );
+        IsLoop.push_back( !bHasRemainingBoundaries );
         while ( true )
         {
-            TrianglesOut.Add( WalkTri );
+            TrianglesOut.push_back( WalkTri );
 
             int             TriIdx     = WalkTri;
             const FIndex3i& TriVIDs    = Triangles[TriIdx];
@@ -272,25 +283,33 @@ EMeshResult FDynamicMesh3::GetVtxContiguousTriangles( int VertexID, IntArray& Tr
             if ( NextTriID == InvalidID )
             {
                 // remove the corresponding boundary
-                UE_CHECK_SLOW( StartEdgeIDs.Num() > 0 );
-                if ( StartEdgeIDs.Num() > 0 )
+                UE_CHECK_SLOW( !StartEdgeIDs.empty() );
+                if ( !StartEdgeIDs.empty() )
                 {
-                    StartEdgeIDs.RemoveSingleSwap( NextEID );
+                    // UE RemoveSingleSwap: the first equal element takes the last one's place.
+                    const auto Found = std::find( StartEdgeIDs.begin(), StartEdgeIDs.end(), NextEID );
+                    if ( Found != StartEdgeIDs.end() )
+                    {
+                        *Found = StartEdgeIDs.back();
+                        StartEdgeIDs.pop_back();
+                    }
                 }
                 break;
             }
             WalkTri = NextTriID;
             PrevEID = NextEID;
         }
-        SpanLengths.Add( TrianglesOut.Num() - SpanStart );
+        SpanLengths.push_back( static_cast<int32_t>( TrianglesOut.size() ) - SpanStart );
     }
 
-    return UE_ENSURE( SpanLengths.Num() == IsLoop.Num() ) ? EMeshResult::Ok
-                                                          : EMeshResult::Failed_InvalidNeighbourhood;
+    return UE_ENSURE( static_cast<int32_t>( SpanLengths.size() ) == static_cast<int32_t>( IsLoop.size() ) )
+                ? EMeshResult::Ok
+                : EMeshResult::Failed_InvalidNeighbourhood;
 }
 
-template EMeshResult FDynamicMesh3::GetVtxContiguousTriangles<TArray<int32_t>, TArray<bool>>(
-     int VertexID, TArray<int32_t>& TrianglesOut, TArray<int32_t>& SpanLengths, TArray<bool>& IsLoop ) const;
+template EMeshResult FDynamicMesh3::GetVtxContiguousTriangles<std::vector<int32_t>, std::vector<bool>>(
+     int VertexID, std::vector<int32_t>& TrianglesOut, std::vector<int32_t>& SpanLengths,
+     std::vector<bool>& IsLoop ) const;
 
 bool FDynamicMesh3::IsBoundaryVertex( int vID ) const
 {
@@ -352,9 +371,9 @@ bool FDynamicMesh3::IsGroupBoundaryEdge( int eID ) const
     {
         return false;
     }
-    int g1  = TriangleGroups.GetValue()[et1];
+    int g1  = TriangleGroups.value()[et1];
     int et0 = Edge.Tri[0];
-    int g0  = TriangleGroups.GetValue()[et0];
+    int g0  = TriangleGroups.value()[et0];
     return g1 != g0;
 }
 
@@ -368,7 +387,7 @@ bool FDynamicMesh3::IsGroupBoundaryVertex( int vID ) const
     {
         const FEdge Edge = Edges[eID];
         int         et0  = Edge.Tri[0];
-        int         g0   = TriangleGroups.GetValue()[et0];
+        int         g0   = TriangleGroups.value()[et0];
         if ( group_id != g0 )
         {
             if ( group_id == InvalidID )
@@ -383,7 +402,7 @@ bool FDynamicMesh3::IsGroupBoundaryVertex( int vID ) const
         int et1 = Edge.Tri[1];
         if ( et1 != InvalidID )
         {
-            int g1 = TriangleGroups.GetValue()[et1];
+            int g1 = TriangleGroups.value()[et1];
             if ( group_id != g1 )
             {
                 return true; // saw multiple group IDs
@@ -409,7 +428,7 @@ bool FDynamicMesh3::IsGroupJunctionVertex( int vID ) const
             {
                 continue;
             }
-            int g0 = TriangleGroups.GetValue()[et[k]];
+            int g0 = TriangleGroups.value()[et[k]];
             if ( g0 != groups[0] && g0 != groups[1] )
             {
                 if ( groups[0] != InvalidID && groups[1] != InvalidID )
@@ -442,7 +461,7 @@ bool FDynamicMesh3::GetVertexGroups( int vID, FIndex4i& groups ) const
         const FEdge Edge = Edges[eID];
 
         int et0 = Edge.Tri[0];
-        int g0  = TriangleGroups.GetValue()[et0];
+        int g0  = TriangleGroups.value()[et0];
         if ( groups.Contains( g0 ) == false )
         {
             groups[ng++] = g0;
@@ -454,7 +473,7 @@ bool FDynamicMesh3::GetVertexGroups( int vID, FIndex4i& groups ) const
         int et1 = Edge.Tri[1];
         if ( et1 != InvalidID )
         {
-            int g1 = TriangleGroups.GetValue()[et1];
+            int g1 = TriangleGroups.value()[et1];
             if ( groups.Contains( g1 ) == false )
             {
                 groups[ng++] = g1;
@@ -478,20 +497,27 @@ bool FDynamicMesh3::GetAllVertexGroups( int vID, ArrayType& GroupsOut ) const
     {
         const FEdge Edge = Edges[eID];
         int         et0  = Edge.Tri[0];
-        int         g0   = TriangleGroups.GetValue()[et0];
-        GroupsOut.AddUnique( g0 );
+        int         g0   = TriangleGroups.value()[et0];
+        if ( std::find( GroupsOut.begin(), GroupsOut.end(), g0 ) == GroupsOut.end() )
+        {
+            GroupsOut.push_back( g0 );
+        }
 
         int et1 = Edge.Tri[1];
         if ( et1 != InvalidID )
         {
-            int g1 = TriangleGroups.GetValue()[et1];
-            GroupsOut.AddUnique( g1 );
+            int g1 = TriangleGroups.value()[et1];
+            if ( std::find( GroupsOut.begin(), GroupsOut.end(), g1 ) == GroupsOut.end() )
+            {
+                GroupsOut.push_back( g1 );
+            }
         }
     }
     return true;
 }
 
-template bool FDynamicMesh3::GetAllVertexGroups<TArray<int32_t>>( int vID, TArray<int32_t>& GroupsOut ) const;
+template bool FDynamicMesh3::GetAllVertexGroups<std::vector<int32_t>>( int                   vID,
+                                                                       std::vector<int32_t>& GroupsOut ) const;
 
 /**
  * returns true if vID is a "bowtie" vertex, ie multiple disjoint triangle sets in one-ring
@@ -615,9 +641,9 @@ FAxisAlignedBox3d FDynamicMesh3::GetBounds() const
 /**
  * Computes bounding box of selected vertices.
  */
-FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<int32_t> VertexIDs ) const
+FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( std::span<const int32_t> VertexIDs ) const
 {
-    int32_t const NumVertices = VertexIDs.Num();
+    int32_t const NumVertices = static_cast<int32_t>( VertexIDs.size() );
     if ( NumVertices == 0 )
     {
         return FAxisAlignedBox3d::Empty();
@@ -625,7 +651,7 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<in
 
     glm::dvec3 MinVec = Vertices[VertexIDs[0]];
     glm::dvec3 MaxVec = MinVec;
-    for ( int Idx = 1; Idx < VertexIDs.Num(); ++Idx )
+    for ( int Idx = 1; Idx < static_cast<int32_t>( VertexIDs.size() ); ++Idx )
     {
         int32_t const VID = VertexIDs[Idx];
         MinVec    = Min( MinVec, Vertices[VID] );
@@ -634,15 +660,15 @@ FAxisAlignedBox3d FDynamicMesh3::GetBoundsForVertexSelection( TConstArrayView<in
     return FAxisAlignedBox3d( MinVec, MaxVec );
 }
 
-FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( TConstArrayView<int32_t> TriangleIDs ) const
+FAxisAlignedBox3d FDynamicMesh3::GetBoundsForTriangleSelection( std::span<const int32_t> TriangleIDs ) const
 {
-    int32_t const NumTriangles = TriangleIDs.Num();
+    int32_t const NumTriangles = static_cast<int32_t>( TriangleIDs.size() );
     if ( NumTriangles == 0 )
     {
         return FAxisAlignedBox3d::Empty();
     }
 
-    auto UpdateBoundsWithTriangles = [this]( FAxisAlignedBox3d& Bounds, TConstArrayView<int32_t> IndexArray )
+    auto UpdateBoundsWithTriangles = [this]( FAxisAlignedBox3d& Bounds, std::span<const int32_t> IndexArray )
     {
         for ( int32_t const TID : IndexArray )
         {
@@ -763,7 +789,7 @@ glm::dvec3 FDynamicMesh3::GetTriBaryNormal( int tID, double bary0, double bary1,
     if ( HasVertexNormals() )
     {
         const FIndex3i&                  tIDs     = Triangles[tID];
-        const TDynamicVector<glm::vec3>& normalsR = VertexNormals.GetValue();
+        const TDynamicVector<glm::vec3>& normalsR = VertexNormals.value();
         glm::dvec3 n = glm::dvec3( float( bary0 ) * normalsR[tIDs[0]] + float( bary1 ) * normalsR[tIDs[1]] +
                                    float( bary2 ) * normalsR[tIDs[2]] );
         Normalize( n );
@@ -787,7 +813,7 @@ void FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double
     vinfo.bHaveN         = HasVertexNormals();
     if ( vinfo.bHaveN )
     {
-        const TDynamicVector<glm::vec3>& normalsR = this->VertexNormals.GetValue();
+        const TDynamicVector<glm::vec3>& normalsR = this->VertexNormals.value();
         vinfo.Normal = (float)bary0 * normalsR[tIDs[0]] + (float)bary1 * normalsR[tIDs[1]] +
                        (float)bary2 * normalsR[tIDs[2]];
         Normalize( vinfo.Normal );
@@ -795,14 +821,14 @@ void FDynamicMesh3::GetTriBaryPoint( int tID, double bary0, double bary1, double
     vinfo.bHaveC = HasVertexColors();
     if ( vinfo.bHaveC )
     {
-        const TDynamicVector<glm::vec3>& colorsR = this->VertexColors.GetValue();
+        const TDynamicVector<glm::vec3>& colorsR = this->VertexColors.value();
         vinfo.Color =
              (float)bary0 * colorsR[tIDs[0]] + (float)bary1 * colorsR[tIDs[1]] + (float)bary2 * colorsR[tIDs[2]];
     }
     vinfo.bHaveUV = HasVertexUVs();
     if ( vinfo.bHaveUV )
     {
-        const TDynamicVector<glm::vec2>& uvR = this->VertexUVs.GetValue();
+        const TDynamicVector<glm::vec2>& uvR = this->VertexUVs.value();
         vinfo.UV = (float)bary0 * uvR[tIDs[0]] + (float)bary1 * uvR[tIDs[1]] + (float)bary2 * uvR[tIDs[2]];
     }
 }

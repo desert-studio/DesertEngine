@@ -1,6 +1,7 @@
 // Ported from UE 5.8 .../DynamicMesh/Private/Operations/OffsetMeshRegion.cpp (see the header for the line ranges
 // and the adaptations).
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/OffsetMeshRegion.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
@@ -12,55 +13,57 @@
 
 namespace Desert::Geometry
 {
-    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
-                                          TArray<TArray<int32_t>>& ComponentsOut )
+    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const std::vector<int32_t>& Triangles,
+                                          std::vector<std::vector<int32_t>>& ComponentsOut )
     {
-        TSet<int32_t> const Remaining( Triangles );
-        TSet<int32_t>       Visited;
+        std::unordered_set<int32_t> const Remaining( Triangles.begin(), Triangles.end() );
+        std::unordered_set<int32_t>       Visited;
         for ( int32_t const Seed : Triangles )
         {
-            if ( Visited.Contains( Seed ) )
+            if ( Visited.contains( Seed ) )
                 continue;
-            TArray<int32_t> Component;
-            TArray<int32_t> Stack;
-            Stack.Add( Seed );
-            Visited.Add( Seed );
-            while ( Stack.Num() > 0 )
+            std::vector<int32_t> Component;
+            std::vector<int32_t> Stack;
+            Stack.push_back( Seed );
+            Visited.insert( Seed );
+            while ( !Stack.empty() )
             {
-                const int32_t tid = Stack.Pop();
-                Component.Add( tid );
+                const int32_t tid = Stack.back();
+                Stack.pop_back();
+                Component.push_back( tid );
                 const FIndex3i Nbrs = Mesh.GetTriNeighbourTris( tid );
                 for ( int j = 0; j < 3; ++j )
-                    if ( Nbrs[j] >= 0 && Remaining.Contains( Nbrs[j] ) && !Visited.Contains( Nbrs[j] ) )
+                    if ( Nbrs[j] >= 0 && Remaining.contains( Nbrs[j] ) && !Visited.contains( Nbrs[j] ) )
                     {
-                        Visited.Add( Nbrs[j] );
-                        Stack.Add( Nbrs[j] );
+                        Visited.insert( Nbrs[j] );
+                        Stack.push_back( Nbrs[j] );
                     }
             }
             std::sort( Component.begin(), Component.end() );
-            ComponentsOut.Add( Component );
+            ComponentsOut.push_back( Component );
         }
     }
 
     void
-    ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const TArray<int32_t>& LoopEdgeIDs,
-                                     TArray<int32_t>& NewLoopEdgeGroupIDs, TArray<int32_t>& NewGroupIDsOut,
+    ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const std::vector<int32_t>& LoopEdgeIDs,
+                                     std::vector<int32_t>&                          NewLoopEdgeGroupIDs,
+                                     std::vector<int32_t>&                          NewGroupIDsOut,
                                      const std::function<bool( int32_t, int32_t )>& EdgesShouldHaveSameGroupFunc )
     {
-        int32_t const NumEdgeIDs = LoopEdgeIDs.Num();
-        NewLoopEdgeGroupIDs.SetNum( NumEdgeIDs );
+        int32_t const NumEdgeIDs = static_cast<int32_t>( LoopEdgeIDs.size() );
+        NewLoopEdgeGroupIDs.resize( NumEdgeIDs );
         if ( NumEdgeIDs <= 2 )
         {
             if ( NumEdgeIDs > 0 )
             {
                 int32_t const OneGroupID = Mesh.AllocateTriangleGroup();
-                NewLoopEdgeGroupIDs.Init( OneGroupID, NumEdgeIDs );
-                NewGroupIDsOut.Add( OneGroupID );
+                NewLoopEdgeGroupIDs.assign( NumEdgeIDs, OneGroupID );
+                NewGroupIDsOut.push_back( OneGroupID );
             }
             return;
         }
         NewLoopEdgeGroupIDs[0] = Mesh.AllocateTriangleGroup();
-        NewGroupIDsOut.Add( NewLoopEdgeGroupIDs[0] );
+        NewGroupIDsOut.push_back( NewLoopEdgeGroupIDs[0] );
         int32_t LastDifferentGroupIndex = NumEdgeIDs - 1;
         while ( LastDifferentGroupIndex > 0 &&
                 EdgesShouldHaveSameGroupFunc( LoopEdgeIDs[0], LoopEdgeIDs[LastDifferentGroupIndex] ) )
@@ -73,7 +76,7 @@ namespace Desert::Geometry
             if ( !EdgesShouldHaveSameGroupFunc( LoopEdgeIDs[j], LoopEdgeIDs[j - 1] ) )
             {
                 NewLoopEdgeGroupIDs[j] = Mesh.AllocateTriangleGroup();
-                NewGroupIDsOut.Add( NewLoopEdgeGroupIDs[j] );
+                NewGroupIDsOut.push_back( NewLoopEdgeGroupIDs[j] );
             }
             else
                 NewLoopEdgeGroupIDs[j] = NewLoopEdgeGroupIDs[j - 1];
@@ -94,9 +97,9 @@ namespace Desert::Geometry
             return std::abs( glm::dot( Vec1, Vec2 ) ) >= 1 - KindaSmall;
         }
 
-        int32_t FindLoopShiftFromGroupIDs( const TArray<int32_t>& GroupIDs )
+        int32_t FindLoopShiftFromGroupIDs( const std::vector<int32_t>& GroupIDs )
         {
-            int32_t const N = GroupIDs.Num();
+            int32_t const N = static_cast<int32_t>( GroupIDs.size() );
             if ( GroupIDs[0] != GroupIDs[N - 1] )
                 return 0;
             for ( int32_t k = 0; k < N - 1; ++k )
@@ -106,24 +109,24 @@ namespace Desert::Geometry
         }
 
         template <typename ValueType>
-        void LeftShiftArray( TArray<ValueType>& Values, int ShiftNum )
+        void LeftShiftArray( std::vector<ValueType>& Values, int ShiftNum )
         {
             if ( ShiftNum == 0 )
                 return;
-            int32_t const     N = Values.Num();
-            TArray<ValueType> Tmp;
-            Tmp.SetNum( N );
+            int32_t const          N = static_cast<int32_t>( Values.size() );
+            std::vector<ValueType> Tmp;
+            Tmp.resize( N );
             for ( int32_t k = 0; k < N; ++k )
                 Tmp[k] = Values[( ShiftNum + k ) % N];
             Values = Tmp;
         }
 
         glm::dvec3 GetAngleWeightedAverageNormal( const FDynamicMesh3& Mesh, int32_t VertexID,
-                                                  const TSet<int32_t>& TriangleList )
+                                                  const std::unordered_set<int32_t>& TriangleList )
         {
             glm::dvec3 ExtrusionVector( 0, 0, 0 );
             for ( int32_t const TriangleID : Mesh.VtxTrianglesItr( VertexID ) )
-                if ( TriangleList.Contains( TriangleID ) )
+                if ( TriangleList.contains( TriangleID ) )
                 {
                     FIndex3i Triangle = Mesh.GetTriangle( TriangleID );
                     double   Angle    = Mesh.GetTriInternalAngleR( TriangleID, Triangle.IndexOf( VertexID ) );
@@ -134,13 +137,14 @@ namespace Desert::Geometry
         }
 
         glm::dvec3 GetAngleWeightedAdjustedNormal( const FDynamicMesh3& Mesh, int32_t VertexID,
-                                                   const TSet<int32_t>& TriangleList, double MaxAdjustmentScale )
+                                                   const std::unordered_set<int32_t>& TriangleList,
+                                                   double                             MaxAdjustmentScale )
         {
             glm::dvec3 InitialExtrusionVector = GetAngleWeightedAverageNormal( Mesh, VertexID, TriangleList );
             double    AngleSum = 0, Adjustment = 0;
             double    InvertedMaxScale = std::max( 1e-8, 1.0 / MaxAdjustmentScale );
             for ( int32_t const TriangleID : Mesh.VtxTrianglesItr( VertexID ) )
-                if ( TriangleList.Contains( TriangleID ) )
+                if ( TriangleList.contains( TriangleID ) )
                 {
                     FIndex3i Triangle = Mesh.GetTriangle( TriangleID );
                     double   Angle    = Mesh.GetTriInternalAngleR( TriangleID, Triangle.IndexOf( VertexID ) );
@@ -156,10 +160,10 @@ namespace Desert::Geometry
         // UE ComputeAverageUVScaleRatioAlongVertexPath (PolyEditingUVUtil.cpp:55): UV length over mesh length
         // along the path's edges that have UVs; 0 when none do.
         double UVScaleRatioAlongPath( const FDynamicMesh3& Mesh, const FDynamicMeshUVOverlay& UVOverlay,
-                                      const TArray<int32_t>& VertexPath, double& PathLengthOut )
+                                      const std::vector<int32_t>& VertexPath, double& PathLengthOut )
         {
             double MeshLength = 0, UVLength = 0;
-            for ( int32_t k = 0; k + 1 < VertexPath.Num(); ++k )
+            for ( int32_t k = 0; k + 1 < static_cast<int32_t>( VertexPath.size() ); ++k )
             {
                 int32_t const EdgeID = Mesh.FindEdge( VertexPath[k], VertexPath[k + 1] );
                 if ( EdgeID == FDynamicMesh3::InvalidID )
@@ -197,8 +201,8 @@ namespace Desert::Geometry
         // (row 1, the offset loop) - UE's FQuadGridPatch after its second ReverseRows, NumSubdivisions = 0.
         struct FStrip
         {
-            TArray<int32_t>  Outer, Inner; // Columns + 1 vertices each
-            TArray<FIndex2i> Quads;
+            std::vector<int32_t>  Outer, Inner; // Columns + 1 vertices each
+            std::vector<FIndex2i> Quads;
         };
 
         void ComputeUVIslandForStrip( FDynamicMesh3& Mesh, const FStrip& Strip, double UVScaleFactor )
@@ -225,22 +229,22 @@ namespace Desert::Geometry
             }
             UVLengthScale =
                  ( UVLengthWeight == 0 || UVLengthScale == 0 ) ? 1.0 : ( UVLengthScale / UVLengthWeight );
-            const int32_t   NumU = Strip.Outer.Num();
-            TArray<int32_t> Row0;
-            TArray<int32_t> Row1;
+            const int32_t        NumU = static_cast<int32_t>( Strip.Outer.size() );
+            std::vector<int32_t> Row0;
+            std::vector<int32_t> Row1;
             double        AccumDistU = 0;
             for ( int32_t k = 0; k < NumU; ++k )
             {
                 double DistV = Distance( Mesh.GetVertex( Strip.Outer[k] ), Mesh.GetVertex( Strip.Inner[k] ) );
                 float  UseU  = (float)( UVLengthScale * AccumDistU * UVScaleFactor );
                 float  EndV  = (float)( UVLengthScale * DistV * UVScaleFactor );
-                Row0.Add( UVOverlay->AppendElement( glm::vec2( UseU, 0.0f ) ) );
-                Row1.Add( UVOverlay->AppendElement( glm::vec2( UseU, EndV ) ) );
+                Row0.push_back( UVOverlay->AppendElement( glm::vec2( UseU, 0.0f ) ) );
+                Row1.push_back( UVOverlay->AppendElement( glm::vec2( UseU, EndV ) ) );
                 if ( k < NumU - 1 )
                     AccumDistU +=
                          Distance( Mesh.GetVertex( Strip.Outer[k] ), Mesh.GetVertex( Strip.Outer[k + 1] ) );
             }
-            for ( int32_t q = 0; q < Strip.Quads.Num(); ++q )
+            for ( int32_t q = 0; q < static_cast<int32_t>( Strip.Quads.size() ); ++q )
                 for ( int32_t TriIdx = 0; TriIdx < 2; ++TriIdx )
                 {
                     const int tid = TriIdx == 0 ? Strip.Quads[q].A : Strip.Quads[q].B;
@@ -279,11 +283,11 @@ namespace Desert::Geometry
 
     bool FOffsetMeshRegion::Apply()
     {
-        TArray<TArray<int32_t>> Components;
+        std::vector<std::vector<int32_t>> Components;
         FindConnectedTriangleComponents( *Mesh, Triangles, Components );
         bool bAllOK = true;
-        OffsetRegions.SetNum( Components.Num() );
-        for ( int k = 0; k < Components.Num(); ++k )
+        OffsetRegions.resize( static_cast<int32_t>( Components.size() ) );
+        for ( int k = 0; k < static_cast<int32_t>( Components.size() ); ++k )
         {
             FOffsetInfo& Region = OffsetRegions[k];
             Region.OffsetTids   = Components[k];
@@ -291,19 +295,20 @@ namespace Desert::Geometry
             {
                 // GrowToConnectedTriangles: the region is a whole component when no triangle outside it touches
                 // it.
-                TSet<int32_t> const InRegion( Region.OffsetTids );
+                std::unordered_set<int32_t> const InRegion( Region.OffsetTids.begin(), Region.OffsetTids.end() );
                 bool        bTouchesOutside = false;
                 for ( int32_t const tid : Region.OffsetTids )
                 {
                     const FIndex3i Nbrs = Mesh->GetTriNeighbourTris( tid );
                     for ( int j = 0; j < 3; ++j )
-                        bTouchesOutside |= Nbrs[j] >= 0 && !InRegion.Contains( Nbrs[j] );
+                        bTouchesOutside |= Nbrs[j] >= 0 && !InRegion.contains( Nbrs[j] );
                 }
                 Region.bIsSolid = !bTouchesOutside;
             }
             if ( !ApplyOffset( Region ) )
             {
-                FailureReason = fmt::format( "region {} of {}: {}", k, Components.Num(), FailureReason );
+                FailureReason = fmt::format( "region {} of {}: {}", k, static_cast<int32_t>( Components.size() ),
+                                             FailureReason );
                 bAllOK        = false;
             }
         }
@@ -312,20 +317,20 @@ namespace Desert::Geometry
 
     bool FOffsetMeshRegion::ApplyOffset( FOffsetInfo& Region )
     {
-        const TArray<int32_t>& RegionTriangles = Region.OffsetTids;
-        TMap<int32_t, int32_t> OffsetGroupMap;
+        const std::vector<int32_t>&          RegionTriangles = Region.OffsetTids;
+        std::unordered_map<int32_t, int32_t> OffsetGroupMap;
         if ( Mesh->HasTriangleGroups() )
             for ( int32_t const TriangleID : RegionTriangles )
             {
                 int32_t const CurGroupID = Mesh->GetTriangleGroup( TriangleID );
                 int32_t       NewGroupID = 0;
-                if ( const int32_t* Found = OffsetGroupMap.Find( CurGroupID ) )
+                if ( const int32_t* Found = FindValue( OffsetGroupMap, CurGroupID ) )
                     NewGroupID = *Found;
                 else
                 {
                     NewGroupID = Mesh->AllocateTriangleGroup();
-                    OffsetGroupMap.Add( CurGroupID, NewGroupID );
-                    Region.OffsetGroups.Add( NewGroupID );
+                    OffsetGroupMap.insert_or_assign( CurGroupID, NewGroupID );
+                    Region.OffsetGroups.push_back( NewGroupID );
                 }
                 Mesh->SetTriangleGroup( TriangleID, NewGroupID );
             }
@@ -336,15 +341,16 @@ namespace Desert::Geometry
             FailureReason = InitialLoops.FailureReason;
             return false;
         }
-        AllModifiedAndNewTriangles.Append( RegionTriangles );
-        TSet<int32_t> const TriangleSet( RegionTriangles );
+        AllModifiedAndNewTriangles.insert( AllModifiedAndNewTriangles.end(), RegionTriangles.begin(),
+                                           RegionTriangles.end() );
+        std::unordered_set<int32_t> const TriangleSet( RegionTriangles.begin(), RegionTriangles.end() );
 
-        TArray<TArray<int32_t>> LoopsEdgeGroups;
-        TArray<int32_t>         NewGroupIDs;
-        LoopsEdgeGroups.SetNum( InitialLoops.Loops.Num() );
-        for ( int32_t i = 0; i < InitialLoops.Loops.Num(); ++i )
+        std::vector<std::vector<int32_t>> LoopsEdgeGroups;
+        std::vector<int32_t>              NewGroupIDs;
+        LoopsEdgeGroups.resize( static_cast<int32_t>( InitialLoops.Loops.size() ) );
+        for ( int32_t i = 0; i < static_cast<int32_t>( InitialLoops.Loops.size() ); ++i )
         {
-            TArray<int32_t>& CurrentEdgeGroups = LoopsEdgeGroups[i];
+            std::vector<int32_t>& CurrentEdgeGroups = LoopsEdgeGroups[i];
             ComputeNewGroupIDsAlongEdgeLoop( *Mesh, InitialLoops.Loops[i].Edges, CurrentEdgeGroups, NewGroupIDs,
                                              LoopEdgesShouldHaveSameGroup );
             int GroupShift = FindLoopShiftFromGroupIDs( CurrentEdgeGroups );
@@ -359,15 +365,17 @@ namespace Desert::Geometry
                                                                               : nullptr;
 
         FDynamicMeshEditor                       Editor( Mesh );
-        TArray<FDynamicMeshEditor::FLoopPairSet> LoopPairs;
+        std::vector<FDynamicMeshEditor::FLoopPairSet> LoopPairs;
         FDynamicMeshEditResult                   DuplicateResult;
         if ( Region.bIsSolid )
         {
-            TMap<int, int> IndexMap;
+            std::unordered_map<int, int> IndexMap;
             Editor.DuplicateTriangles( RegionTriangles, IndexMap, DuplicateResult );
-            AllModifiedAndNewTriangles.Append( DuplicateResult.NewTriangles );
-            LoopPairs.SetNum( InitialLoops.Loops.Num() );
-            for ( int LoopIndex = 0; LoopIndex < InitialLoops.Loops.Num(); ++LoopIndex )
+            AllModifiedAndNewTriangles.insert( AllModifiedAndNewTriangles.end(),
+                                               DuplicateResult.NewTriangles.begin(),
+                                               DuplicateResult.NewTriangles.end() );
+            LoopPairs.resize( static_cast<int32_t>( InitialLoops.Loops.size() ) );
+            for ( int LoopIndex = 0; LoopIndex < static_cast<int32_t>( InitialLoops.Loops.size() ); ++LoopIndex )
             {
                 FEdgeLoop&                        BaseLoop = InitialLoops.Loops[LoopIndex];
                 FDynamicMeshEditor::FLoopPairSet& LoopPair = LoopPairs[LoopIndex];
@@ -376,15 +384,17 @@ namespace Desert::Geometry
                 if ( !bIsPositiveOffset )
                 {
                     std::reverse( LoopPair.InnerVertices.begin(), LoopPair.InnerVertices.end() );
-                    int32_t const LastEid = LoopPair.InnerEdges.Pop();
+                    int32_t const LastEid = LoopPair.InnerEdges.back();
+                    LoopPair.InnerEdges.pop_back();
                     std::reverse( LoopPair.InnerEdges.begin(), LoopPair.InnerEdges.end() );
-                    LoopPair.InnerEdges.Add( LastEid );
-                    int32_t const LastEdgeGroupID = LoopsEdgeGroups[LoopIndex].Pop();
+                    LoopPair.InnerEdges.push_back( LastEid );
+                    int32_t const LastEdgeGroupID = LoopsEdgeGroups[LoopIndex].back();
+                    LoopsEdgeGroups[LoopIndex].pop_back();
                     std::reverse( LoopsEdgeGroups[LoopIndex].begin(), LoopsEdgeGroups[LoopIndex].end() );
-                    LoopsEdgeGroups[LoopIndex].Add( LastEdgeGroupID );
+                    LoopsEdgeGroups[LoopIndex].push_back( LastEdgeGroupID );
                 }
                 for ( int32_t const Vid : LoopPair.InnerVertices )
-                    LoopPair.OuterVertices.Add( IndexMap[Vid] );
+                    LoopPair.OuterVertices.push_back( IndexMap[Vid] );
                 VertexLoopToEdgeLoop( *Mesh, LoopPair.OuterVertices, LoopPair.OuterEdges );
             }
         }
@@ -392,30 +402,30 @@ namespace Desert::Geometry
             return false;
 
         // Materials along each (inner) loop, from the region triangle on the edge.
-        TArray<TArray<int32_t>> LoopMaterialIDs;
-        LoopMaterialIDs.SetNum( LoopPairs.Num() );
+        std::vector<std::vector<int32_t>> LoopMaterialIDs;
+        LoopMaterialIDs.resize( static_cast<int32_t>( LoopPairs.size() ) );
         if ( MaterialIDAttrib )
-            for ( int32_t i = 0; i < LoopPairs.Num(); ++i )
+            for ( int32_t i = 0; i < static_cast<int32_t>( LoopPairs.size() ); ++i )
                 for ( int32_t const e : LoopPairs[i].InnerEdges )
-                    LoopMaterialIDs[i].Add( bInferMaterialID ? MaterialIDAttrib->GetValue( Mesh->GetEdgeT( e ).A )
-                                                             : SetMaterialID );
+                    LoopMaterialIDs[i].push_back(
+                         bInferMaterialID ? MaterialIDAttrib->GetValue( Mesh->GetEdgeT( e ).A ) : SetMaterialID );
 
         // FMeshVertexSelection::SelectTriangleVertices, in ascending order.
-        TSet<int32_t> SelectedSet;
+        std::unordered_set<int32_t> SelectedSet;
         for ( int32_t const tid : RegionTriangles )
         {
             const FIndex3i Tri = Mesh->GetTriangle( tid );
             for ( int j = 0; j < 3; ++j )
-                SelectedSet.Add( Tri[j] );
+                SelectedSet.insert( Tri[j] );
         }
-        TArray<int32_t> SelectedVids;
+        std::vector<int32_t> SelectedVids;
         for ( int32_t const v : SelectedSet )
-            SelectedVids.Add( v );
+            SelectedVids.push_back( v );
         std::sort( SelectedVids.begin(), SelectedVids.end() );
 
-        TArray<glm::dvec3> VertexExtrudeVectors;
-        VertexExtrudeVectors.SetNum( SelectedVids.Num() );
-        for ( int32_t i = 0; i < SelectedVids.Num(); ++i )
+        std::vector<glm::dvec3> VertexExtrudeVectors;
+        VertexExtrudeVectors.resize( static_cast<int32_t>( SelectedVids.size() ) );
+        for ( int32_t i = 0; i < static_cast<int32_t>( SelectedVids.size() ); ++i )
         {
             switch ( ExtrusionVectorType )
             {
@@ -434,7 +444,7 @@ namespace Desert::Geometry
                     break;
             }
         }
-        for ( int32_t i = 0; i < SelectedVids.Num(); ++i )
+        for ( int32_t i = 0; i < static_cast<int32_t>( SelectedVids.size() ); ++i )
         {
             const int32_t VertexID = SelectedVids[i];
             Mesh->SetVertex(
@@ -443,15 +453,15 @@ namespace Desert::Geometry
 
         // StitchRegionBorderLoopPairs_Version1 with NumSubdivisions = 0.
         bool bSuccess = true;
-        Region.BaseLoops.SetNum( LoopPairs.Num() );
-        Region.OffsetLoops.SetNum( LoopPairs.Num() );
-        Region.StitchTriangles.SetNum( LoopPairs.Num() );
-        Region.StitchPolygonIDs.SetNum( LoopPairs.Num() );
-        for ( int32_t LoopIndex = 0; LoopIndex < LoopPairs.Num(); ++LoopIndex )
+        Region.BaseLoops.resize( static_cast<int32_t>( LoopPairs.size() ) );
+        Region.OffsetLoops.resize( static_cast<int32_t>( LoopPairs.size() ) );
+        Region.StitchTriangles.resize( static_cast<int32_t>( LoopPairs.size() ) );
+        Region.StitchPolygonIDs.resize( static_cast<int32_t>( LoopPairs.size() ) );
+        for ( int32_t LoopIndex = 0; LoopIndex < static_cast<int32_t>( LoopPairs.size() ); ++LoopIndex )
         {
-            const TArray<int32_t>& OuterLoopV = LoopPairs[LoopIndex].OuterVertices;
-            const TArray<int32_t>& InnerLoopV = LoopPairs[LoopIndex].InnerVertices;
-            const int32_t          NV         = OuterLoopV.Num();
+            const std::vector<int32_t>& OuterLoopV = LoopPairs[LoopIndex].OuterVertices;
+            const std::vector<int32_t>& InnerLoopV = LoopPairs[LoopIndex].InnerVertices;
+            const int32_t               NV         = static_cast<int32_t>( OuterLoopV.size() );
             FDynamicMeshEditResult StitchResult;
             if ( !Editor.StitchVertexLoopsMinimal( InnerLoopV, OuterLoopV, StitchResult ) )
             {
@@ -460,7 +470,7 @@ namespace Desert::Geometry
                 bSuccess = false;
                 continue;
             }
-            const TArray<int32_t>& PerEdgeNewGroupIDs = LoopsEdgeGroups[LoopIndex];
+            const std::vector<int32_t>& PerEdgeNewGroupIDs = LoopsEdgeGroups[LoopIndex];
             for ( int32_t q = 0; q < NV; ++q )
             {
                 const FIndex2i QuadTris = StitchResult.NewQuads[q];
@@ -474,28 +484,28 @@ namespace Desert::Geometry
             }
             // Split the columns into strips of equal group (SplitColumnsByPredicate); the loop was shifted so
             // column 0 starts a group.
-            TArray<FStrip> GroupStrips;
+            std::vector<FStrip> GroupStrips;
             for ( int32_t q = 0; q < NV; ++q )
             {
                 if ( q == 0 || PerEdgeNewGroupIDs[q] != PerEdgeNewGroupIDs[q - 1] )
                 {
-                    GroupStrips.Emplace();
-                    GroupStrips.Last().Outer.Add( OuterLoopV[q] );
-                    GroupStrips.Last().Inner.Add( InnerLoopV[q] );
+                    GroupStrips.emplace_back();
+                    GroupStrips.back().Outer.push_back( OuterLoopV[q] );
+                    GroupStrips.back().Inner.push_back( InnerLoopV[q] );
                 }
-                GroupStrips.Last().Outer.Add( OuterLoopV[( q + 1 ) % NV] );
-                GroupStrips.Last().Inner.Add( InnerLoopV[( q + 1 ) % NV] );
-                GroupStrips.Last().Quads.Add( StitchResult.NewQuads[q] );
+                GroupStrips.back().Outer.push_back( OuterLoopV[( q + 1 ) % NV] );
+                GroupStrips.back().Inner.push_back( InnerLoopV[( q + 1 ) % NV] );
+                GroupStrips.back().Quads.push_back( StitchResult.NewQuads[q] );
             }
             if ( Mesh->HasAttributes() )
             {
                 for ( const FStrip& Strip : GroupStrips )
                 {
-                    TArray<int32_t> PatchTriangles;
+                    std::vector<int32_t> PatchTriangles;
                     for ( const FIndex2i& Q : Strip.Quads )
                     {
-                        PatchTriangles.Add( Q.A );
-                        PatchTriangles.Add( Q.B );
+                        PatchTriangles.push_back( Q.A );
+                        PatchTriangles.push_back( Q.B );
                     }
                     Editor.SetTriangleNormals( PatchTriangles );
                     if ( bUVIslandPerGroup )
@@ -506,8 +516,8 @@ namespace Desert::Geometry
                     FStrip Whole;
                     for ( int32_t q = 0; q <= NV; ++q )
                     {
-                        Whole.Outer.Add( OuterLoopV[q % NV] );
-                        Whole.Inner.Add( InnerLoopV[q % NV] );
+                        Whole.Outer.push_back( OuterLoopV[q % NV] );
+                        Whole.Inner.push_back( InnerLoopV[q % NV] );
                     }
                     Whole.Quads = StitchResult.NewQuads;
                     ComputeUVIslandForStrip( *Mesh, Whole, UVScaleFactor );
@@ -515,9 +525,14 @@ namespace Desert::Geometry
             }
             for ( const FIndex2i& Q : StitchResult.NewQuads )
             {
-                Region.StitchTriangles[LoopIndex].Add( Q.A );
-                Region.StitchTriangles[LoopIndex].Add( Q.B );
-                Region.StitchPolygonIDs[LoopIndex].AddUnique( Mesh->GetTriangleGroup( Q.A ) );
+                Region.StitchTriangles[LoopIndex].push_back( Q.A );
+                Region.StitchTriangles[LoopIndex].push_back( Q.B );
+                if ( std::find( Region.StitchPolygonIDs[LoopIndex].begin(),
+                                Region.StitchPolygonIDs[LoopIndex].end(),
+                                Mesh->GetTriangleGroup( Q.A ) ) == Region.StitchPolygonIDs[LoopIndex].end() )
+                {
+                    Region.StitchPolygonIDs[LoopIndex].push_back( Mesh->GetTriangleGroup( Q.A ) );
+                }
             }
             Region.BaseLoops[LoopIndex].Vertices   = OuterLoopV;
             Region.OffsetLoops[LoopIndex].Vertices = InnerLoopV;
@@ -532,11 +547,12 @@ namespace Desert::Geometry
             else
                 Editor.ReverseTriangleOrientations( RegionTriangles, true );
         }
-        if ( bSingleGroupPerArea && Mesh->HasTriangleGroups() && Region.OffsetGroups.Num() > 1 )
+        if ( bSingleGroupPerArea && Mesh->HasTriangleGroups() &&
+             static_cast<int32_t>( Region.OffsetGroups.size() ) > 1 )
         {
             for ( int32_t const TriangleID : RegionTriangles )
                 Mesh->SetTriangleGroup( TriangleID, Region.OffsetGroups[0] );
-            Region.OffsetGroups.SetNum( 1 );
+            Region.OffsetGroups.resize( 1 );
         }
         return bSuccess;
     }

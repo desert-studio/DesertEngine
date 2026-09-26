@@ -113,8 +113,8 @@ namespace Desert::Geometry
             ClearElements();
 
             // map of element IDs
-            TArray<int> MapE;
-            MapE.SetNumUninitialized( Copy.MaxElementID() );
+            std::vector<int> MapE;
+            MapE.resize( Copy.MaxElementID() );
 
             // copy elements across
             RealType Data[ElementSize];
@@ -163,9 +163,9 @@ namespace Desert::Geometry
             // make a map to track element index changes, to use to update element triangles later
             // TODO: it may be faster to not construct this and to do the remapping per element as we go (by
             // iterating the one ring of each parent vertex for each element)
-            TArray<int> MapE;
-            MapE.SetNumUninitialized( MaxElementID() );
-            for ( int ID = 0; ID < MapE.Num(); ID++ )
+            std::vector<int> MapE;
+            MapE.resize( MaxElementID() );
+            for ( int ID = 0; ID < static_cast<int32_t>( MapE.size() ); ID++ )
             {
                 // mapping is 1:1 by default; sparsely re-mapped below
                 MapE[ID] = ID;
@@ -361,7 +361,7 @@ namespace Desert::Geometry
          *
          * @param ElementsToCheck If provided, only these element ID's will be checked.
          */
-        void FreeUnusedElements( const TSet<int>* ElementsToCheck = nullptr );
+        void FreeUnusedElements( const std::unordered_set<int>* ElementsToCheck = nullptr );
 
         /**
          * Set the triangle to have InvalidID element IDs, decrementing element reference counts if needed.
@@ -449,7 +449,7 @@ namespace Desert::Geometry
          * @param TrianglesToUpdate the triangles that should now reference the new element
          * @return the ID of the newly created element
          */
-        int SplitElement( int ElementID, const TArrayView<const int>& TrianglesToUpdate );
+        int SplitElement( int ElementID, const std::span<const int>& TrianglesToUpdate );
 
         /**
          * Create a new copy of ElementID, and update connected triangles in the TrianglesToUpdate array to
@@ -464,7 +464,7 @@ namespace Desert::Geometry
          * @return the ID of the newly created element
          */
         int SplitElementWithNewParent( int ElementID, int SplitParentVertexID,
-                                       const TArrayView<const int>& TrianglesToUpdate );
+                                       const std::span<const int>& TrianglesToUpdate );
 
         /**
          * Split any bowties at given vertex.
@@ -472,7 +472,7 @@ namespace Desert::Geometry
          * @param NewElementIDs If not null, newly created element IDs are placed here. Note that this array is
          *   intentionally not cleared before appending to it.
          */
-        void SplitBowtiesAtVertex( int32_t VertexID, TArray<int32_t>* NewElementIDs = nullptr );
+        void SplitBowtiesAtVertex( int32_t VertexID, std::vector<int32_t>* NewElementIDs = nullptr );
 
         /**
          * Refine an existing overlay topology by splitting any bowties
@@ -634,12 +634,12 @@ namespace Desert::Geometry
         bool AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const;
 
         /** find the elements associated with a given parent-mesh vertex */
-        void GetVertexElements( int VertexID, TArray<int>& OutElements ) const;
+        void GetVertexElements( int VertexID, std::vector<int>& OutElements ) const;
         /** Count the number of unique elements for a given parent-mesh vertex */
         int CountVertexElements( int VertexID, bool bBruteForce = false ) const;
 
         /** find the triangles connected to an element */
-        void GetElementTriangles( int ElementID, TArray<int>& OutTriangles ) const;
+        void GetElementTriangles( int ElementID, std::vector<int>& OutTriangles ) const;
 
         /**
          * Find the element ID at a vertex of a triangle.
@@ -722,7 +722,7 @@ namespace Desert::Geometry
         void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& MergeInfo );
         /** Update the overlay to reflect a vertex split in the parent mesh */
         void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                            const TArrayView<const int>&             TrianglesToUpdate );
+                            const std::span<const int>&              TrianglesToUpdate );
 
     protected:
         /** Set the value at an Element to be a linear interpolation of two other Elements */

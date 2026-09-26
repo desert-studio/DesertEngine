@@ -5,38 +5,39 @@
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 
 namespace Desert::Geometry
 {
     class FDynamicSubmesh3
     {
     public:
-        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const TArray<int32_t>& Triangles )
+        FDynamicSubmesh3( const FDynamicMesh3* BaseMeshIn, const std::vector<int32_t>& Triangles )
              : BaseMesh( BaseMeshIn )
         {
-            TMap<int32_t, int32_t> BaseToSubV;
+            std::unordered_map<int32_t, int32_t> BaseToSubV;
             for ( const int32_t BaseTID : Triangles )
             {
                 const FIndex3i BaseTri = BaseMesh->GetTriangle( BaseTID );
                 FIndex3i       SubTri;
                 for ( int32_t j = 0; j < 3; ++j )
                 {
-                    if ( const int32_t* Found = BaseToSubV.Find( BaseTri[j] ) )
+                    if ( const int32_t* Found = FindValue( BaseToSubV, BaseTri[j] ) )
                     {
                         SubTri[j] = *Found;
                         continue;
                     }
                     SubTri[j] = Submesh.AppendVertex( BaseMesh->GetVertex( BaseTri[j] ) );
-                    BaseToSubV.Add( BaseTri[j], SubTri[j] );
-                    SubToBaseV.Add( BaseTri[j] );
+                    BaseToSubV.insert_or_assign( BaseTri[j], SubTri[j] );
+                    SubToBaseV.push_back( BaseTri[j] );
                 }
                 const int32_t SubTID = Submesh.AppendTriangle( SubTri );
                 if ( SubTID < 0 )
                 {
-                    FailedTriangles.Add( BaseTID );
+                    FailedTriangles.push_back( BaseTID );
                     continue;
                 }
-                SubToBaseT.Add( BaseTID );
+                SubToBaseT.push_back( BaseTID );
             }
         }
         FDynamicMesh3& GetSubmesh()
@@ -52,7 +53,7 @@ namespace Desert::Geometry
             return SubToBaseT[SubTID];
         }
         /** Base triangles AppendTriangle refused (non-manifold within the set); UE check()s this away. */
-        const TArray<int32_t>& GetFailedTriangles() const
+        const std::vector<int32_t>& GetFailedTriangles() const
         {
             return FailedTriangles;
         }
@@ -60,8 +61,8 @@ namespace Desert::Geometry
     private:
         const FDynamicMesh3* BaseMesh;
         FDynamicMesh3        Submesh;
-        TArray<int32_t>      SubToBaseV;
-        TArray<int32_t>      SubToBaseT;
-        TArray<int32_t>      FailedTriangles;
+        std::vector<int32_t> SubToBaseV;
+        std::vector<int32_t> SubToBaseT;
+        std::vector<int32_t> FailedTriangles;
     };
 } // namespace Desert::Geometry

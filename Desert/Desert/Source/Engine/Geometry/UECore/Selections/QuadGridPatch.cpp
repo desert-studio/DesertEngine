@@ -7,29 +7,30 @@
 
 namespace Desert::Geometry
 {
-    bool FQuadGridPatch::InitializeFromQuadPatch( const FDynamicMesh3&            Mesh,
-                                                  const TArray<TArray<FIndex2i>>& QuadRowsIn,
-                                                  const TArray<TArray<int32_t>>&  VertexSpansIn )
+    bool FQuadGridPatch::InitializeFromQuadPatch( const FDynamicMesh3&                      Mesh,
+                                                  const std::vector<std::vector<FIndex2i>>& QuadRowsIn,
+                                                  const std::vector<std::vector<int32_t>>&  VertexSpansIn )
     {
-        if ( VertexSpansIn.Num() < 2 || QuadRowsIn.Num() != VertexSpansIn.Num() - 1 )
+        if ( static_cast<int32_t>( VertexSpansIn.size() ) < 2 ||
+             static_cast<int32_t>( QuadRowsIn.size() ) != static_cast<int32_t>( VertexSpansIn.size() ) - 1 )
             return false;
-        const int32_t NumV = VertexSpansIn[0].Num();
-        const int32_t NumQ = QuadRowsIn[0].Num();
+        const int32_t NumV = static_cast<int32_t>( VertexSpansIn[0].size() );
+        const int32_t NumQ = static_cast<int32_t>( QuadRowsIn[0].size() );
         if ( NumQ != NumV - 1 )
             return false;
-        for ( int32_t j = 1; j < VertexSpansIn.Num(); ++j )
+        for ( int32_t j = 1; j < static_cast<int32_t>( VertexSpansIn.size() ); ++j )
         {
-            if ( VertexSpansIn[j].Num() != NumV )
+            if ( static_cast<int32_t>( VertexSpansIn[j].size() ) != NumV )
                 return false;
         }
-        const int32_t NumQuadRows = QuadRowsIn.Num();
+        const int32_t NumQuadRows = static_cast<int32_t>( QuadRowsIn.size() );
         for ( int32_t j = 1; j < NumQuadRows; ++j )
         {
-            if ( QuadRowsIn[j].Num() != NumQ )
+            if ( static_cast<int32_t>( QuadRowsIn[j].size() ) != NumQ )
                 return false;
         }
         NumVertexColsU = NumV;
-        NumVertexRowsV = VertexSpansIn.Num();
+        NumVertexRowsV = static_cast<int32_t>( VertexSpansIn.size() );
         VertexSpans    = VertexSpansIn;
         QuadTriangles  = QuadRowsIn;
 
@@ -51,15 +52,27 @@ namespace Desert::Geometry
                 }
                 const FIndex3i TriA = Mesh.GetTriangle( QuadTris.A );
                 const FIndex3i TriB = Mesh.GetTriangle( QuadTris.B );
-                TArray<int32_t> TriVerts;
-                TriVerts.Add( TriA.A );
-                TriVerts.Add( TriA.B );
-                TriVerts.Add( TriA.C );
-                TriVerts.AddUnique( TriB.A );
-                TriVerts.AddUnique( TriB.B );
-                TriVerts.AddUnique( TriB.C );
-                if ( TriVerts.Num() != 4 || !TriVerts.Contains( VertexA ) || !TriVerts.Contains( VertexB ) ||
-                     !TriVerts.Contains( VertexC ) || !TriVerts.Contains( VertexD ) )
+                std::vector<int32_t> TriVerts;
+                TriVerts.push_back( TriA.A );
+                TriVerts.push_back( TriA.B );
+                TriVerts.push_back( TriA.C );
+                if ( std::find( TriVerts.begin(), TriVerts.end(), TriB.A ) == TriVerts.end() )
+                {
+                    TriVerts.push_back( TriB.A );
+                }
+                if ( std::find( TriVerts.begin(), TriVerts.end(), TriB.B ) == TriVerts.end() )
+                {
+                    TriVerts.push_back( TriB.B );
+                }
+                if ( std::find( TriVerts.begin(), TriVerts.end(), TriB.C ) == TriVerts.end() )
+                {
+                    TriVerts.push_back( TriB.C );
+                }
+                if ( static_cast<int32_t>( TriVerts.size() ) != 4 ||
+                     !( std::find( TriVerts.begin(), TriVerts.end(), VertexA ) != TriVerts.end() ) ||
+                     !( std::find( TriVerts.begin(), TriVerts.end(), VertexB ) != TriVerts.end() ) ||
+                     !( std::find( TriVerts.begin(), TriVerts.end(), VertexC ) != TriVerts.end() ) ||
+                     !( std::find( TriVerts.begin(), TriVerts.end(), VertexD ) != TriVerts.end() ) )
                 {
                     bAllOK = false;
                     break;
@@ -71,8 +84,8 @@ namespace Desert::Geometry
         }
         if ( !bAllOK )
         {
-            VertexSpans.Reset();
-            QuadTriangles.Reset();
+            VertexSpans.clear();
+            QuadTriangles.clear();
             NumVertexColsU = 0;
             NumVertexRowsV = 0;
             return false;
@@ -80,21 +93,22 @@ namespace Desert::Geometry
         return true;
     }
 
-    bool FQuadGridPatch::GetVertexColumn( int32_t ColumnIndex, TArray<int32_t>& VerticesOut ) const
+    bool FQuadGridPatch::GetVertexColumn( int32_t ColumnIndex, std::vector<int32_t>& VerticesOut ) const
     {
-        if ( VertexSpans.IsEmpty() || ColumnIndex < 0 || ColumnIndex >= VertexSpans[0].Num() )
+        if ( VertexSpans.empty() || ColumnIndex < 0 ||
+             ColumnIndex >= static_cast<int32_t>( VertexSpans[0].size() ) )
             return false;
-        VerticesOut.Reset();
-        for ( int32_t k = 0; k < VertexSpans.Num(); ++k )
-            VerticesOut.Add( VertexSpans[k][ColumnIndex] );
+        VerticesOut.clear();
+        for ( int32_t k = 0; k < static_cast<int32_t>( VertexSpans.size() ); ++k )
+            VerticesOut.push_back( VertexSpans[k][ColumnIndex] );
         return true;
     }
 
     int32_t FQuadGridPatch::FindColumnIndex( int32_t VertexID ) const
     {
-        for ( const TArray<int32_t>& Span : VertexSpans )
+        for ( const std::vector<int32_t>& Span : VertexSpans )
         {
-            for ( int32_t Index = 0; Index < Span.Num(); ++Index )
+            for ( int32_t Index = 0; Index < static_cast<int32_t>( Span.size() ); ++Index )
             {
                 if ( Span[Index] == VertexID )
                     return Index;

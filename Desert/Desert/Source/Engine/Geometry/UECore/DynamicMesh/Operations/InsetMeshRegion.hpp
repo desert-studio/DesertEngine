@@ -22,20 +22,20 @@ namespace Desert::Geometry
     {
     public:
         FDynamicMesh3* Mesh;
-        TArray<int32_t> Triangles;
+        std::vector<int32_t> Triangles;
         double         InsetDistance = 1.0;
         float          UVScaleFactor = 1.0f;
 
         struct FInsetInfo
         {
-            TArray<int32_t>     InitialTriangles;
-            TArray<FEdgeLoop>   BaseLoops;
-            TArray<FEdgeLoop>   InsetLoops;
-            TArray<TArray<int>> StitchTriangles;
-            TArray<TArray<int>> StitchPolygonIDs;
+            std::vector<int32_t>          InitialTriangles;
+            std::vector<FEdgeLoop>        BaseLoops;
+            std::vector<FEdgeLoop>        InsetLoops;
+            std::vector<std::vector<int>> StitchTriangles;
+            std::vector<std::vector<int>> StitchPolygonIDs;
         };
-        TArray<FInsetInfo> InsetRegions;
-        TArray<int32_t>    AllModifiedTriangles;
+        std::vector<FInsetInfo> InsetRegions;
+        std::vector<int32_t>    AllModifiedTriangles;
         std::string        FailureReason;
 
         explicit FInsetMeshRegion( FDynamicMesh3* MeshIn ) : Mesh( MeshIn )

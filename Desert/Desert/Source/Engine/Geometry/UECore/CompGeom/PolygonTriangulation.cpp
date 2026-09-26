@@ -9,12 +9,12 @@
 namespace Desert::Geometry::PolygonTriangulation
 {
     template <typename T>
-    T ComputePolygonPlane( const TArray<glm::vec<3, T>>& VertexPositions, glm::vec<3, T>& PlaneNormalOut,
+    T ComputePolygonPlane( const std::vector<glm::vec<3, T>>& VertexPositions, glm::vec<3, T>& PlaneNormalOut,
                            glm::vec<3, T>& PlanePointOut )
     {
         PlaneNormalOut            = glm::vec<3, T>( 0 );
         PlanePointOut             = glm::vec<3, T>( 0 );
-        const int32_t NumVertices = VertexPositions.Num();
+        const int32_t NumVertices = static_cast<int32_t>( VertexPositions.size() );
         // Newell's method: the sum over edges gives twice the projected area on each axis plane.
         for ( int32_t VertexNumberI = NumVertices - 1, VertexNumberJ = 0; VertexNumberJ < NumVertices;
               VertexNumberI = VertexNumberJ++ )
@@ -31,8 +31,8 @@ namespace Desert::Geometry::PolygonTriangulation
     }
 
     template <typename T>
-    void TriangulateSimplePolygon( const TArray<glm::vec<3, T>>& VertexPositions, TArray<FIndex3i>& OutTriangles,
-                                   bool bOrientAsHoleFill )
+    void TriangulateSimplePolygon( const std::vector<glm::vec<3, T>>& VertexPositions,
+                                   std::vector<FIndex3i>& OutTriangles, bool bOrientAsHoleFill )
     {
         struct Local3
         {
@@ -67,16 +67,16 @@ namespace Desert::Geometry::PolygonTriangulation
         // UE's SMALL_NUMBER.
         constexpr T InsideTriangleEpsilon = static_cast<T>( 1.e-8 );
 
-        OutTriangles.Reset();
+        OutTriangles.clear();
 
-        const int32_t PolygonVertexCount = VertexPositions.Num();
+        const int32_t PolygonVertexCount = static_cast<int32_t>( VertexPositions.size() );
         if ( PolygonVertexCount < 3 )
         {
             return;
         }
         if ( PolygonVertexCount == 3 )
         {
-            OutTriangles.Add( bOrientAsHoleFill ? FIndex3i( 0, 2, 1 ) : FIndex3i( 0, 1, 2 ) );
+            OutTriangles.push_back( bOrientAsHoleFill ? FIndex3i( 0, 2, 1 ) : FIndex3i( 0, 1, 2 ) );
             return;
         }
 
@@ -86,10 +86,10 @@ namespace Desert::Geometry::PolygonTriangulation
         ComputePolygonPlane( VertexPositions, PolygonNormal, PolygonCentroid );
 
         // A doubly-linked ring over the vertex numbers; clipping an ear unlinks its tip.
-        TArray<int32_t> PrevVertexNumbers;
-        TArray<int32_t> NextVertexNumbers;
-        PrevVertexNumbers.SetNumUninitialized( PolygonVertexCount, EAllowShrinking::No );
-        NextVertexNumbers.SetNumUninitialized( PolygonVertexCount, EAllowShrinking::No );
+        std::vector<int32_t> PrevVertexNumbers;
+        std::vector<int32_t> NextVertexNumbers;
+        PrevVertexNumbers.resize( PolygonVertexCount );
+        NextVertexNumbers.resize( PolygonVertexCount );
         for ( int32_t VertexNumber = 0; VertexNumber < PolygonVertexCount; ++VertexNumber )
         {
             PrevVertexNumbers[VertexNumber] = VertexNumber - 1;
@@ -140,7 +140,7 @@ namespace Desert::Geometry::PolygonTriangulation
                     const int32_t A = PrevVertexNumbers[EarVertexNumber];
                     const int32_t B = EarVertexNumber;
                     const int32_t C = NextVertexNumbers[EarVertexNumber];
-                    OutTriangles.Add( bOrientAsHoleFill ? FIndex3i( A, C, B ) : FIndex3i( A, B, C ) );
+                    OutTriangles.push_back( bOrientAsHoleFill ? FIndex3i( A, C, B ) : FIndex3i( A, B, C ) );
                 }
                 NextVertexNumbers[PrevVertexNumbers[EarVertexNumber]] = NextVertexNumbers[EarVertexNumber];
                 PrevVertexNumbers[NextVertexNumbers[EarVertexNumber]] = PrevVertexNumbers[EarVertexNumber];
@@ -158,10 +158,12 @@ namespace Desert::Geometry::PolygonTriangulation
         }
     }
 
-    template float  ComputePolygonPlane<float>( const TArray<glm::vec<3, float>>&, glm::vec<3, float>&,
+    template float  ComputePolygonPlane<float>( const std::vector<glm::vec<3, float>>&, glm::vec<3, float>&,
                                                 glm::vec<3, float>& );
-    template double ComputePolygonPlane<double>( const TArray<glm::vec<3, double>>&, glm::vec<3, double>&,
+    template double ComputePolygonPlane<double>( const std::vector<glm::vec<3, double>>&, glm::vec<3, double>&,
                                                  glm::vec<3, double>& );
-    template void   TriangulateSimplePolygon<float>( const TArray<glm::vec<3, float>>&, TArray<FIndex3i>&, bool );
-    template void TriangulateSimplePolygon<double>( const TArray<glm::vec<3, double>>&, TArray<FIndex3i>&, bool );
+    template void TriangulateSimplePolygon<float>( const std::vector<glm::vec<3, float>>&, std::vector<FIndex3i>&,
+                                                   bool );
+    template void TriangulateSimplePolygon<double>( const std::vector<glm::vec<3, double>>&,
+                                                    std::vector<FIndex3i>&, bool );
 } // namespace Desert::Geometry::PolygonTriangulation

@@ -15,13 +15,13 @@ namespace Desert::Geometry
             if ( !ParentMesh || !ParentMesh->IsVertex( ParentVID ) )
                 return;
 
-            TArray<int> ElementIDs;
+            std::vector<int> ElementIDs;
             Overlay.GetVertexElements( ParentVID, ElementIDs );
 
             // the number of elements at one vertex is small: simple O(n^2), as UE
-            const int32_t NumElements = ElementIDs.Num();
-            TArray<int> ConsumedMask;
-            ConsumedMask.SetNumZeroed( NumElements );
+            const int32_t    NumElements = static_cast<int32_t>( ElementIDs.size() );
+            std::vector<int> ConsumedMask;
+            ConsumedMask.resize( NumElements );
             for ( int32_t i = 0; i < NumElements; ++i )
             {
                 if ( ConsumedMask[i] == 1 )

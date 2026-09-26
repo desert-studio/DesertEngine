@@ -53,14 +53,14 @@ TEST( DynamicMeshUVEditor, ExpMapUnrollsACylinderStripKeepingEdgeLengths )
     FDynamicMesh3 mesh = CylinderStrip();
     ASSERT_GE( mesh.Attributes()->NumUVLayers(), 1 );
     FDynamicMeshUVOverlay& uvs = *mesh.Attributes()->PrimaryUV();
-    TArray<int32_t>        triangles;
+    std::vector<int32_t>   triangles;
     for ( const int t : mesh.TriangleIndicesItr() )
-        triangles.Add( t );
+        triangles.push_back( t );
 
     FDynamicMeshUVEditor editor( &mesh, &uvs );
     FUVEditResult        result;
     ASSERT_TRUE( editor.SetTriangleUVsFromExpMap( triangles, &result ) );
-    EXPECT_EQ( result.NewUVElements.Num(), mesh.VertexCount() );
+    EXPECT_EQ( static_cast<int32_t>( result.NewUVElements.size() ), mesh.VertexCount() );
 
     double worst = 0.0;
     for ( const int t : triangles )

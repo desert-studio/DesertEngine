@@ -14,28 +14,29 @@ namespace Desert::Geometry
     public:
         void Initialize( int MaxNodeID )
         {
-            Nodes.Reset();
-            Nodes.Add( {} ); // [0] unused, as UE
-            IdToIndex.Init( 0, MaxNodeID );
+            Nodes.clear();
+            Nodes.push_back( {} ); // [0] unused, as UE
+            IdToIndex.assign( MaxNodeID, 0 );
         }
         void Clear()
         {
-            for ( int Index = 1; Index < Nodes.Num(); ++Index )
+            for ( int Index = 1; Index < static_cast<int32_t>( Nodes.size() ); ++Index )
                 IdToIndex[Nodes[Index].Id] = 0;
-            Nodes.Reset();
-            Nodes.Add( {} );
+            Nodes.clear();
+            Nodes.push_back( {} );
         }
         [[nodiscard]] int GetCount() const
         {
-            return Nodes.Num() - 1;
+            return static_cast<int32_t>( Nodes.size() ) - 1;
         }
         [[nodiscard]] bool Contains( int NodeID ) const
         {
-            return NodeID >= 0 && NodeID < IdToIndex.Num() && IdToIndex[NodeID] > 0;
+            return NodeID >= 0 && NodeID < static_cast<int32_t>( IdToIndex.size() ) && IdToIndex[NodeID] > 0;
         }
         void Insert( int NodeID, float Priority )
         {
-            const int Index   = Nodes.Add( { NodeID, Priority } );
+            Nodes.push_back( { NodeID, Priority } );
+            const int Index   = static_cast<int32_t>( Nodes.size() ) - 1;
             IdToIndex[NodeID] = Index;
             MoveUp( Index );
         }
@@ -51,7 +52,7 @@ namespace Desert::Geometry
             const int Head = Nodes[1].Id;
             const int Last = GetCount();
             Swap( 1, Last );
-            Nodes.RemoveAt( Last );
+            Nodes.erase( Nodes.begin() + Last );
             IdToIndex[Head] = 0;
             if ( GetCount() > 0 )
                 MoveDown( 1 );
@@ -96,7 +97,7 @@ namespace Desert::Geometry
                 Index = Smallest;
             }
         }
-        TArray<FNode> Nodes;
-        TArray<int>   IdToIndex;
+        std::vector<FNode> Nodes;
+        std::vector<int>   IdToIndex;
     };
 } // namespace Desert::Geometry

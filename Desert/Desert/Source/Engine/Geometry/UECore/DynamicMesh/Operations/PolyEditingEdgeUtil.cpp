@@ -8,11 +8,11 @@
 
 namespace Desert::Geometry
 {
-    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const TArray<int32_t>& EdgeList,
-                                            double InsetDistance, TArray<FLine3d>& InsetLinesOut )
+    void ComputeInsetLineSegmentsFromEdges( const FDynamicMesh3& Mesh, const std::vector<int32_t>& EdgeList,
+                                            double InsetDistance, std::vector<FLine3d>& InsetLinesOut )
     {
-        const int32_t NumEdges = EdgeList.Num();
-        InsetLinesOut.SetNum( NumEdges );
+        const int32_t NumEdges = static_cast<int32_t>( EdgeList.size() );
+        InsetLinesOut.resize( NumEdges );
         for ( int32_t k = 0; k < NumEdges; ++k )
         {
             if ( Mesh.IsEdge( EdgeList[k] ) )
@@ -56,12 +56,13 @@ namespace Desert::Geometry
         return 0.5 * ( Distance.Line1ClosestPoint + Distance.Line2ClosestPoint );
     }
 
-    void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3& Mesh, const TArray<FLine3d>& InsetEdgeLines,
-                                                  const TArray<int32_t>& VertexIDs,
-                                                  TArray<glm::dvec3>& VertexPositionsOut, bool bIsLoop )
+    void SolveInsetVertexPositionsFromInsetLines( const FDynamicMesh3&        Mesh,
+                                                  const std::vector<FLine3d>& InsetEdgeLines,
+                                                  const std::vector<int32_t>& VertexIDs,
+                                                  std::vector<glm::dvec3>& VertexPositionsOut, bool bIsLoop )
     {
-        const int32_t NumVertices = VertexIDs.Num();
-        VertexPositionsOut.SetNum( NumVertices );
+        const int32_t NumVertices = static_cast<int32_t>( VertexIDs.size() );
+        VertexPositionsOut.resize( NumVertices );
 
         int32_t StartIndex = 0;
         int32_t EndIndex   = NumVertices;
@@ -73,12 +74,12 @@ namespace Desert::Geometry
             EndIndex   = NumVertices - 1;
 
             VertexPositionsOut[0]     = InsetEdgeLines[0].NearestPoint( Mesh.GetVertex( VertexIDs[0] ) );
-            VertexPositionsOut.Last() = InsetEdgeLines.Last().NearestPoint( Mesh.GetVertex( VertexIDs.Last() ) );
+            VertexPositionsOut.back() = InsetEdgeLines.back().NearestPoint( Mesh.GetVertex( VertexIDs.back() ) );
         }
 
         for ( int32_t vi = StartIndex; vi < EndIndex; ++vi )
         {
-            const FLine3d& PrevLine = ( vi == 0 ) ? InsetEdgeLines.Last() : InsetEdgeLines[vi - 1];
+            const FLine3d& PrevLine = ( vi == 0 ) ? InsetEdgeLines.back() : InsetEdgeLines[vi - 1];
             const FLine3d& NextLine = InsetEdgeLines[vi];
             VertexPositionsOut[vi] =
                  SolveInsetVertexPositionFromLinePair( Mesh.GetVertex( VertexIDs[vi] ), PrevLine, NextLine );

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "Engine/Geometry/UECore/UECore.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicAttribute.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
@@ -291,42 +292,42 @@ namespace Desert::Geometry
 
         void AttachAttribute( const std::string& AttribName, FDynamicMeshAttributeBase* Attribute )
         {
-            if ( GenericAttributes.Contains( AttribName ) )
+            if ( GenericAttributes.contains( AttribName ) )
             {
                 UnregisterExternalAttribute( GenericAttributes[AttribName].get() );
             }
-            GenericAttributes.FindOrAdd( AttribName ) = std::unique_ptr<FDynamicMeshAttributeBase>( Attribute );
+            GenericAttributes[AttribName] = std::unique_ptr<FDynamicMeshAttributeBase>( Attribute );
             RegisterExternalAttribute( Attribute );
         }
 
         void RemoveAttribute( const std::string& AttribName )
         {
-            if ( GenericAttributes.Contains( AttribName ) )
+            if ( GenericAttributes.contains( AttribName ) )
             {
                 UnregisterExternalAttribute( GenericAttributes[AttribName].get() );
-                GenericAttributes.Remove( AttribName );
+                GenericAttributes.erase( AttribName );
             }
         }
 
         FDynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName )
         {
-            return GenericAttributes.Contains( AttribName ) ? GenericAttributes[AttribName].get() : nullptr;
+            return GenericAttributes.contains( AttribName ) ? GenericAttributes[AttribName].get() : nullptr;
         }
 
         [[nodiscard]] const FDynamicMeshAttributeBase* GetAttachedAttribute( const std::string& AttribName ) const
         {
-            const std::unique_ptr<FDynamicMeshAttributeBase>* Found = GenericAttributes.Find( AttribName );
+            const std::unique_ptr<FDynamicMeshAttributeBase>* Found = FindValue( GenericAttributes, AttribName );
             return Found ? Found->get() : nullptr;
         }
 
         int NumAttachedAttributes() const
         {
-            return GenericAttributes.Num();
+            return static_cast<int32_t>( GenericAttributes.size() );
         }
 
         [[nodiscard]] bool HasAttachedAttribute( const std::string& AttribName ) const
         {
-            return GenericAttributes.Contains( AttribName );
+            return GenericAttributes.contains( AttribName );
         }
 
         [[nodiscard]] size_t GetByteCount() const;
@@ -343,7 +344,7 @@ namespace Desert::Geometry
 
         std::vector<std::unique_ptr<FDynamicMeshPolygroupAttribute>> PolygroupLayers;
 
-        using GenericAttributesMap = TMap<std::string, std::unique_ptr<FDynamicMeshAttributeBase>>;
+        using GenericAttributesMap = std::unordered_map<std::string, std::unique_ptr<FDynamicMeshAttributeBase>>;
         GenericAttributesMap GenericAttributes;
 
     protected:
@@ -380,7 +381,7 @@ namespace Desert::Geometry
         virtual void OnMergeEdges( const DynamicMeshInfo::FMergeEdgesInfo& mergeInfo ) override;
         virtual void OnMergeVertices( const DynamicMeshInfo::FMergeVerticesInfo& mergeInfo ) override;
         virtual void OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                    const TArrayView<const int>&             TrianglesToUpdate ) override;
+                                    const std::span<const int>&              TrianglesToUpdate ) override;
 
         /**
          * Check validity of attributes

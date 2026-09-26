@@ -12,10 +12,10 @@ using namespace Desert::Geometry;
 namespace
 {
     // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/MeshIndexUtil.cpp:8-51.
-    void TriangleToVertexIDs( const FDynamicMesh3* Mesh, const TArray<int>& TriangleIDs,
-                              TArray<int>& VertexIDsOut )
+    void TriangleToVertexIDs( const FDynamicMesh3* Mesh, const std::vector<int>& TriangleIDs,
+                              std::vector<int>& VertexIDsOut )
     {
-        int NumTris = TriangleIDs.Num();
+        int NumTris = static_cast<int32_t>( TriangleIDs.size() );
         if ( NumTris < 25 )
         {
             for ( int k = 0; k < NumTris; ++k )
@@ -23,30 +23,39 @@ namespace
                 if ( Mesh->IsTriangle( TriangleIDs[k] ) )
                 {
                     FIndex3i Tri = Mesh->GetTriangle( TriangleIDs[k] );
-                    VertexIDsOut.AddUnique( Tri[0] );
-                    VertexIDsOut.AddUnique( Tri[1] );
-                    VertexIDsOut.AddUnique( Tri[2] );
+                    if ( std::find( VertexIDsOut.begin(), VertexIDsOut.end(), Tri[0] ) == VertexIDsOut.end() )
+                    {
+                        VertexIDsOut.push_back( Tri[0] );
+                    }
+                    if ( std::find( VertexIDsOut.begin(), VertexIDsOut.end(), Tri[1] ) == VertexIDsOut.end() )
+                    {
+                        VertexIDsOut.push_back( Tri[1] );
+                    }
+                    if ( std::find( VertexIDsOut.begin(), VertexIDsOut.end(), Tri[2] ) == VertexIDsOut.end() )
+                    {
+                        VertexIDsOut.push_back( Tri[2] );
+                    }
                 }
             }
         }
         else
         {
-            TSet<int> VertexSet;
-            VertexSet.Reserve( TriangleIDs.Num() * 3 );
+            std::unordered_set<int> VertexSet;
+            VertexSet.reserve( static_cast<int32_t>( TriangleIDs.size() ) * 3 );
             for ( int k = 0; k < NumTris; ++k )
             {
                 if ( Mesh->IsTriangle( TriangleIDs[k] ) )
                 {
                     FIndex3i Tri = Mesh->GetTriangle( TriangleIDs[k] );
-                    VertexSet.Add( Tri[0] );
-                    VertexSet.Add( Tri[1] );
-                    VertexSet.Add( Tri[2] );
+                    VertexSet.insert( Tri[0] );
+                    VertexSet.insert( Tri[1] );
+                    VertexSet.insert( Tri[2] );
                 }
             }
-            VertexIDsOut.Reserve( VertexSet.Num() );
+            VertexIDsOut.reserve( static_cast<int32_t>( VertexSet.size() ) );
             for ( int VertexID : VertexSet )
             {
-                VertexIDsOut.Add( VertexID );
+                VertexIDsOut.push_back( VertexID );
             }
         }
     }
@@ -70,13 +79,14 @@ namespace
 
 void FMeshNormals::SetCount( int Count, bool bClearToZero )
 {
-    if ( Normals.Num() < Count )
+    if ( static_cast<int32_t>( Normals.size() ) < Count )
     {
-        Normals.SetNumUninitialized( Count );
+        Normals.resize( Count );
     }
     if ( bClearToZero )
     {
-        std::memset( Normals.GetData(), 0, static_cast<size_t>( Normals.Num() ) * sizeof( glm::dvec3 ) );
+        std::memset( Normals.data(), 0,
+                     static_cast<size_t>( static_cast<int32_t>( Normals.size() ) ) * sizeof( glm::dvec3 ) );
     }
 }
 
@@ -88,7 +98,7 @@ void FMeshNormals::CopyToVertexNormals( FDynamicMesh3* SetMesh, bool bInvert ) c
     }
 
     float sign = ( bInvert ) ? -1.0f : 1.0f;
-    int const N    = std::min( Normals.Num(), SetMesh->MaxVertexID() );
+    int const N    = std::min( static_cast<int32_t>( Normals.size() ), SetMesh->MaxVertexID() );
     for ( int vi = 0; vi < N; ++vi )
     {
         if ( Mesh->IsVertex( vi ) && SetMesh->IsVertex( vi ) )
@@ -105,14 +115,14 @@ void FMeshNormals::GetVertexNormalsFromOverlayNormals( ECombineSplitNormalsMetho
     // no overlay to copy from
     if ( !Mesh->HasAttributes() || !Mesh->Attributes()->PrimaryNormals() )
     {
-        Normals.Init( glm::dvec3( 0, 0, 1 ), Mesh->MaxVertexID() );
+        Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0, 0, 1 ) );
         return;
     }
 
     const FDynamicMeshNormalOverlay* NormalOverlay = Mesh->Attributes()->PrimaryNormals();
     if ( CombineSplitNormals == ECombineSplitNormalsMethod::Average )
     {
-        Normals.Init( glm::dvec3( 0 ), Mesh->MaxVertexID() );
+        Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0 ) );
         for ( int32_t const TID : Mesh->TriangleIndicesItr() )
         {
             if ( NormalOverlay->IsSetTriangle( TID ) )
@@ -126,14 +136,14 @@ void FMeshNormals::GetVertexNormalsFromOverlayNormals( ECombineSplitNormalsMetho
             }
         }
 
-        for ( int32_t k = 0; k < Normals.Num(); ++k )
+        for ( int32_t k = 0; k < static_cast<int32_t>( Normals.size() ); ++k )
         {
             Normalize( Normals[k] );
         }
     }
     else // ECombineSplitNormalsMethod::CopyAny
     {
-        Normals.Init( glm::dvec3( 0, 0, 1 ), Mesh->MaxVertexID() );
+        Normals.assign( Mesh->MaxVertexID(), glm::dvec3( 0, 0, 1 ) );
         for ( int32_t const TID : Mesh->TriangleIndicesItr() )
         {
             if ( NormalOverlay->IsSetTriangle( TID ) )
@@ -228,7 +238,7 @@ void FMeshNormals::Compute_Triangle()
 
 void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 {
-    UE_CHECK( Normals.Num() >= Mesh->MaxTriangleID() );
+    UE_CHECK( static_cast<int32_t>( Normals.size() ) >= Mesh->MaxTriangleID() );
 
     // We're going to look through the triangles and set any zero normals
     // to the normal of their neighbor, preferring to go toward the neighbor
@@ -236,24 +246,25 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
     // triangles linked together, this may require a little neighborhood walk.
 
     // Our walking function
-    auto GetNeighborThatHasNormal =
-         [this]( int32_t StartTid, TSet<int32_t>& WalkedTidsOut, int32_t& NonDegenerateNeighborTidOut )
+    auto GetNeighborThatHasNormal = [this]( int32_t StartTid, std::unordered_set<int32_t>& WalkedTidsOut,
+                                            int32_t& NonDegenerateNeighborTidOut )
     {
-        WalkedTidsOut.Reset();
+        WalkedTidsOut.clear();
         NonDegenerateNeighborTidOut = FDynamicMesh3::InvalidID;
 
         UE_CHECK( StartTid != FDynamicMesh3::InvalidID && Normals[StartTid] == glm::dvec3( 0 ) );
 
         // We don't like recursion, so we use a little stack instead to help us prioritize
         // the longer-side neighbors in our walk.
-        TArray<int32_t> TidsToSearch;
-        TidsToSearch.Push( StartTid );
+        std::vector<int32_t> TidsToSearch;
+        TidsToSearch.push_back( StartTid );
 
-        while ( !TidsToSearch.IsEmpty() )
+        while ( !TidsToSearch.empty() )
         {
-            int32_t const CurrentTid = TidsToSearch.Pop();
+            int32_t const CurrentTid = TidsToSearch.back();
+            TidsToSearch.pop_back();
 
-            if ( WalkedTidsOut.Contains( CurrentTid ) )
+            if ( WalkedTidsOut.contains( CurrentTid ) )
             {
                 continue;
             }
@@ -265,10 +276,10 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
                 return;
             }
 
-            WalkedTidsOut.Add( CurrentTid );
+            WalkedTidsOut.insert( CurrentTid );
 
             // Sanity check so we don't go forever
-            if ( WalkedTidsOut.Num() > Mesh->MaxTriangleID() )
+            if ( static_cast<int32_t>( WalkedTidsOut.size() ) > Mesh->MaxTriangleID() )
             {
                 UE_CHECK( false );
                 return;
@@ -318,7 +329,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
             {
                 if ( NeighborTid != FDynamicMesh3::InvalidID )
                 {
-                    TidsToSearch.Push( NeighborTid );
+                    TidsToSearch.push_back( NeighborTid );
                 }
             }
         }
@@ -326,16 +337,16 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
 
     // It's possible that we could have an island of degenerates, ie no normal neighbor.
     // In that case we might as well not waste time starting the same walk from each one.
-    TSet<int32_t> IslandDegenerates;
+    std::unordered_set<int32_t> IslandDegenerates;
 
-    TSet<int32_t> CurrentWalkedTids;
+    std::unordered_set<int32_t> CurrentWalkedTids;
 
     for ( int32_t const Tid : Mesh->TriangleIndicesItr() )
     {
-        if ( Normals[Tid] == glm::dvec3( 0 ) && !IslandDegenerates.Contains( Tid ) )
+        if ( Normals[Tid] == glm::dvec3( 0 ) && !IslandDegenerates.contains( Tid ) )
         {
             // Find a normal to use
-            CurrentWalkedTids.Reset();
+            CurrentWalkedTids.clear();
             int32_t NonDegenerateNeighborTid = FDynamicMesh3::InvalidID;
             GetNeighborThatHasNormal( Tid, CurrentWalkedTids, NonDegenerateNeighborTid );
 
@@ -345,7 +356,7 @@ void FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal()
                 UE_ENSURE_MSGF( false,
                                 TEXT( "FMeshNormals::SetDegenerateTriangleNormalsToNeighborNormal: "
                                       "Had a component entirely composed of degenerate triangle normals." ) );
-                IslandDegenerates.Append( CurrentWalkedTids );
+                IslandDegenerates.insert( CurrentWalkedTids.begin(), CurrentWalkedTids.end() );
             }
             else
             {
@@ -444,11 +455,11 @@ void FMeshNormals::SmoothVertexNormals( FDynamicMesh3& Mesh, int32_t SmoothingRo
     if ( SmoothingRounds > 0 && SmoothingAlpha > 0 )
     {
         int32_t const     NumV = Mesh.MaxVertexID();
-        TArray<glm::dvec3> SmoothedNormals;
-        SmoothedNormals.SetNum( NumV );
+        std::vector<glm::dvec3> SmoothedNormals;
+        SmoothedNormals.resize( NumV );
         for ( int32_t ri = 0; ri < SmoothingRounds; ++ri )
         {
-            SmoothedNormals.Init( glm::dvec3( 0 ), NumV );
+            SmoothedNormals.assign( NumV, glm::dvec3( 0 ) );
 
             // compute
             ParallelFor( NumV,
@@ -476,7 +487,8 @@ void FMeshNormals::SmoothVertexNormals( FDynamicMesh3& Mesh, int32_t SmoothingRo
     }
 }
 
-void FMeshNormals::QuickComputeVertexNormalsForTriangles( FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
+void FMeshNormals::QuickComputeVertexNormalsForTriangles( FDynamicMesh3&              Mesh,
+                                                          const std::vector<int32_t>& Triangles,
                                                           bool bWeightByArea, bool bWeightByAngle, bool bInvert )
 {
     if ( Mesh.HasVertexNormals() == false )
@@ -484,9 +496,9 @@ void FMeshNormals::QuickComputeVertexNormalsForTriangles( FDynamicMesh3& Mesh, c
         Mesh.EnableVertexNormals( glm::vec3( 1, 0, 0 ) );
     }
 
-    TArray<int32_t> VertexIDs;
+    std::vector<int32_t> VertexIDs;
     TriangleToVertexIDs( &Mesh, Triangles, VertexIDs );
-    ParallelFor( VertexIDs.Num(),
+    ParallelFor( static_cast<int32_t>( VertexIDs.size() ),
                  [&]( int32_t i )
                  {
                      int32_t const vid       = VertexIDs[i];
@@ -540,8 +552,8 @@ bool FMeshNormals::QuickRecomputeOverlayNormals( FDynamicMesh3& Mesh, bool bInve
         // for the parallel case we want to compute once per triangle normal, and accumulate results in element
         // normals there is some overhead to using the atomic float buffer, so if not threading it is better to not
         // do this
-        TArray<std::atomic<float>> Normals;
-        Normals.SetNumZeroed( NormalOverlay->MaxElementID() * 3 );
+        // Sized at construction: std::atomic is not movable, so vector::resize cannot grow it.
+        std::vector<std::atomic<float>> Normals( static_cast<size_t>( NormalOverlay->MaxElementID() ) * 3 );
 
         constexpr bool bForceSingleThreaded = false;
 
@@ -605,36 +617,38 @@ bool FMeshNormals::QuickRecomputeOverlayNormals( FDynamicMesh3& Mesh, bool bInve
     return true;
 }
 
-bool FMeshNormals::RecomputeOverlayTriNormals( FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
+bool FMeshNormals::RecomputeOverlayTriNormals( FDynamicMesh3& Mesh, const std::vector<int32_t>& Triangles,
                                                bool bWeightByArea, bool bWeightByAngle )
 {
     if ( Mesh.HasAttributes() && Mesh.Attributes()->PrimaryNormals() != nullptr )
     {
         FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
-        TSet<int32_t>              UniqueElementIDs;
+        std::unordered_set<int32_t> UniqueElementIDs;
         for ( int32_t const tid : Triangles )
         {
             if ( NormalOverlay->IsSetTriangle( tid ) )
             {
                 FIndex3i NormalTri = NormalOverlay->GetTriangle( tid );
-                UniqueElementIDs.Add( NormalTri.A );
-                UniqueElementIDs.Add( NormalTri.B );
-                UniqueElementIDs.Add( NormalTri.C );
+                UniqueElementIDs.insert( NormalTri.A );
+                UniqueElementIDs.insert( NormalTri.B );
+                UniqueElementIDs.insert( NormalTri.C );
             }
         }
 
-        return RecomputeOverlayElementNormals( Mesh, UniqueElementIDs.Array(), bWeightByArea, bWeightByAngle );
+        return RecomputeOverlayElementNormals( Mesh,
+                                               std::vector( UniqueElementIDs.begin(), UniqueElementIDs.end() ),
+                                               bWeightByArea, bWeightByAngle );
     }
     return false;
 }
 
-bool FMeshNormals::RecomputeOverlayElementNormals( FDynamicMesh3& Mesh, const TArray<int32_t>& ElementIDs,
+bool FMeshNormals::RecomputeOverlayElementNormals( FDynamicMesh3& Mesh, const std::vector<int32_t>& ElementIDs,
                                                    bool bWeightByArea, bool bWeightByAngle )
 {
     if ( Mesh.HasAttributes() && Mesh.Attributes()->PrimaryNormals() != nullptr )
     {
         FDynamicMeshNormalOverlay* NormalOverlay = Mesh.Attributes()->PrimaryNormals();
-        ParallelFor( ElementIDs.Num(),
+        ParallelFor( static_cast<int32_t>( ElementIDs.size() ),
                      [&]( int32_t k )
                      {
                          int32_t const ElementID = ElementIDs[k];
@@ -736,8 +750,8 @@ void FMeshNormals::InitializeOverlayToPerVertexNormals( FDynamicMeshNormalOverla
 
     NormalOverlay->ClearElements();
 
-    TArray<int> VertToNormalMap;
-    VertToNormalMap.SetNumUninitialized( Mesh->MaxVertexID() );
+    std::vector<int> VertToNormalMap;
+    VertToNormalMap.resize( Mesh->MaxVertexID() );
     for ( int vid : Mesh->VertexIndicesItr() )
     {
         glm::vec3 Normal     = ( bUseMeshNormals ) ? Mesh->GetVertexNormal( vid ) : (glm::vec3)Normals[vid];
@@ -779,7 +793,7 @@ void FMeshNormals::InitializeOverlayTopologyFromOpeningAngle( const FDynamicMesh
 
     FMeshNormals FaceNormals( Mesh );
     FaceNormals.ComputeTriangleNormals();
-    const TArray<glm::dvec3>& Normals = FaceNormals.GetNormals();
+    const std::vector<glm::dvec3>& Normals = FaceNormals.GetNormals();
     NormalOverlay->CreateFromPredicate( [&Normals, &NormalDotProdThreshold]( int VID, int TA, int TB )
                                         { return glm::dot( Normals[TA], Normals[TB] ) > NormalDotProdThreshold; },
                                         0 );
@@ -804,23 +818,23 @@ void FMeshNormals::InitializeMeshToPerTriangleNormals( FDynamicMesh3* Mesh )
     InitializeOverlayToPerTriangleNormals( Overlay );
 }
 
-void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormalOverlay* NormalOverlay,
-                                                              const TArray<int32_t>&     Triangles )
+void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormalOverlay*  NormalOverlay,
+                                                              const std::vector<int32_t>& Triangles )
 {
     const FDynamicMesh3* Mesh = NormalOverlay->GetParentMesh();
 
     // should we remove existing elements that may become unreferenced?
 
-    TSet<int32_t>   TriangleSet( Triangles );
-    TArray<int32_t> Vertices;
+    std::unordered_set<int32_t> TriangleSet( Triangles.begin(), Triangles.end() );
+    std::vector<int32_t>        Vertices;
     TriangleToVertexIDs( Mesh, Triangles, Vertices );
-    auto                   TriangleSetFunc = [&]( int32_t tid ) { return TriangleSet.Contains( tid ); };
-    int32_t const          NumVertices     = Vertices.Num();
-    TMap<int32_t, int32_t> TriangleMap;
-    TriangleMap.Reserve( NumVertices );
+    auto          TriangleSetFunc = [&]( int32_t tid ) { return TriangleSet.contains( tid ); };
+    int32_t const NumVertices     = static_cast<int32_t>( Vertices.size() );
+    std::unordered_map<int32_t, int32_t> TriangleMap;
+    TriangleMap.reserve( NumVertices );
 
-    TArray<int32_t> VertNormals;
-    VertNormals.SetNum( NumVertices );
+    std::vector<int32_t> VertNormals;
+    VertNormals.resize( NumVertices );
     for ( int32_t i = 0; i < NumVertices; ++i )
     {
         int32_t const   vid    = Vertices[i];
@@ -829,7 +843,7 @@ void FMeshNormals::InitializeOverlayRegionToPerVertexNormals( FDynamicMeshNormal
         int32_t const nid = NormalOverlay->AppendElement( glm::vec3( Normal ) );
         VertNormals[i] = nid;
 
-        TriangleMap.Add( vid, i );
+        TriangleMap.insert_or_assign( vid, i );
     }
 
     for ( int32_t const tid : Triangles )

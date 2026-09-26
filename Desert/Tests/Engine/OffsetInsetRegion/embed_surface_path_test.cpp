@@ -47,14 +47,14 @@ namespace
         return FMeshSurfacePoint::MakeEdgePoint( eid, Distance( ea, p ) / Distance( ea, eb ) );
     }
 
-    void ExpectEmbedded( const FDynamicMesh3& mesh, const TArray<int>& pathVertices,
+    void ExpectEmbedded( const FDynamicMesh3& mesh, const std::vector<int>& pathVertices,
                          const std::vector<glm::dvec3>& expected )
     {
-        ASSERT_EQ( pathVertices.Num(), (int)expected.size() );
-        for ( int i = 0; i < pathVertices.Num(); ++i )
+        ASSERT_EQ( static_cast<int32_t>( pathVertices.size() ), (int)expected.size() );
+        for ( int i = 0; i < static_cast<int32_t>( pathVertices.size() ); ++i )
         {
             EXPECT_LT( Distance( mesh.GetVertex( pathVertices[i] ), expected[i] ), 1e-9 ) << "path vertex " << i;
-            if ( i + 1 < pathVertices.Num() )
+            if ( i + 1 < static_cast<int32_t>( pathVertices.size() ) )
             {
                 EXPECT_NE( mesh.FindEdge( pathVertices[i], pathVertices[i + 1] ), FDynamicMesh3::InvalidID )
                      << "no mesh edge between path vertices " << i << " and " << i + 1;
@@ -72,13 +72,13 @@ TEST( EmbedSurfacePath, StraightEdgePathAcrossAQuadBecomesMeshEdges )
     const glm::dvec3 p0( 50, 0, Size );
     const glm::dvec3 p1( 50, 50, Size );
     const glm::dvec3 p2( 50, Size, Size );
-    path.Path.Emplace( EdgePoint( mesh, 4, 5, p0 ), 2 );
-    path.Path.Emplace( EdgePoint( mesh, 4, 6, p1 ), 3 );
-    path.Path.Emplace( EdgePoint( mesh, 7, 6, p2 ), FDynamicMesh3::InvalidID );
+    path.Path.emplace_back( EdgePoint( mesh, 4, 5, p0 ), 2 );
+    path.Path.emplace_back( EdgePoint( mesh, 4, 6, p1 ), 3 );
+    path.Path.emplace_back( EdgePoint( mesh, 7, 6, p2 ), FDynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
-    EXPECT_LT( Distance( path.Path[1].Key.Pos( &mesh ), p1 ), 1e-9 );
+    EXPECT_LT( Distance( path.Path[1].first.Pos( &mesh ), p1 ), 1e-9 );
 
-    TArray<int> pathVertices;
+    std::vector<int> pathVertices;
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
     // Three edge splits, each of an interior edge: two triangles more per split.
     EXPECT_EQ( mesh.TriangleCount(), 12 + 3 * 2 );
@@ -95,14 +95,14 @@ TEST( EmbedSurfacePath, TriangleEndPointsArePokedAndTheEndIsRelocatedAfterTheSpl
     const glm::dvec3 start( 60, 20, Size );
     const glm::dvec3 cross( 50, 50, Size );
     const glm::dvec3 end( 40, 80, Size );
-    path.Path.Emplace( FMeshSurfacePoint( 2, glm::dvec3( 0.4, 0.4, 0.2 ) ), 2 );
-    path.Path.Emplace( EdgePoint( mesh, 4, 6, cross ), 3 );
-    path.Path.Emplace( FMeshSurfacePoint( 3, glm::dvec3( 0.2, 0.4, 0.4 ) ), FDynamicMesh3::InvalidID );
+    path.Path.emplace_back( FMeshSurfacePoint( 2, glm::dvec3( 0.4, 0.4, 0.2 ) ), 2 );
+    path.Path.emplace_back( EdgePoint( mesh, 4, 6, cross ), 3 );
+    path.Path.emplace_back( FMeshSurfacePoint( 3, glm::dvec3( 0.2, 0.4, 0.4 ) ), FDynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
-    ASSERT_LT( Distance( path.Path[0].Key.Pos( &mesh ), start ), 1e-9 );
-    ASSERT_LT( Distance( path.Path[2].Key.Pos( &mesh ), end ), 1e-9 );
+    ASSERT_LT( Distance( path.Path[0].first.Pos( &mesh ), start ), 1e-9 );
+    ASSERT_LT( Distance( path.Path[2].first.Pos( &mesh ), end ), 1e-9 );
 
-    TArray<int> pathVertices;
+    std::vector<int> pathVertices;
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
     EXPECT_EQ( mesh.TriangleCount(), 12 + 2 + 2 + 2 );
     ExpectEmbedded( mesh, pathVertices, { start, cross, end } );
@@ -116,16 +116,16 @@ TEST( EmbedSurfacePath, PathStartingInsideATriangleGetsItsFirstVertexAtThatExact
     // a vertex, nor on an edge, nor the centroid a poke without its barycentric coordinate would land on.
     const glm::dvec3 start( 50, 20, Size );
     const glm::dvec3 corner( Size, 0, Size ); // vertex 5
-    path.Path.Emplace( FMeshSurfacePoint( 2, glm::dvec3( 0.5, 0.3, 0.2 ) ), 2 );
-    path.Path.Emplace( FMeshSurfacePoint( 5 ), FDynamicMesh3::InvalidID );
+    path.Path.emplace_back( FMeshSurfacePoint( 2, glm::dvec3( 0.5, 0.3, 0.2 ) ), 2 );
+    path.Path.emplace_back( FMeshSurfacePoint( 5 ), FDynamicMesh3::InvalidID );
     ASSERT_TRUE( path.IsConnected() );
-    ASSERT_LT( Distance( path.Path[0].Key.Pos( &mesh ), start ), 1e-9 );
+    ASSERT_LT( Distance( path.Path[0].first.Pos( &mesh ), start ), 1e-9 );
 
-    TArray<int> pathVertices;
+    std::vector<int> pathVertices;
     ASSERT_TRUE( path.EmbedSimplePath( pathVertices ) );
     // One poke: one triangle becomes three.
     EXPECT_EQ( mesh.TriangleCount(), 12 + 2 );
-    ASSERT_EQ( pathVertices.Num(), 2 );
+    ASSERT_EQ( static_cast<int32_t>( pathVertices.size() ), 2 );
     EXPECT_EQ( pathVertices[0], 8 ) << "the poke appends the path's first vertex";
     EXPECT_EQ( pathVertices[1], 5 );
     ExpectEmbedded( mesh, pathVertices, { start, corner } );
@@ -136,14 +136,14 @@ TEST( EmbedSurfacePath, AppendedPathDoesNotRepeatTheSharedVertexUnlessAsked )
     for ( const bool dedupe : { true, false } )
     {
         FDynamicMesh3    mesh = Cube();
-        TArray<int>      pathVertices;
+        std::vector<int> pathVertices;
         FMeshSurfacePath first( &mesh );
-        first.Path.Emplace( FMeshSurfacePoint( 5 ), 2 );
-        first.Path.Emplace( FMeshSurfacePoint( 6 ), FDynamicMesh3::InvalidID );
+        first.Path.emplace_back( FMeshSurfacePoint( 5 ), 2 );
+        first.Path.emplace_back( FMeshSurfacePoint( 6 ), FDynamicMesh3::InvalidID );
         ASSERT_TRUE( first.EmbedSimplePath( pathVertices, dedupe ) );
         FMeshSurfacePath second( &mesh );
-        second.Path.Emplace( FMeshSurfacePoint( 6 ), 3 );
-        second.Path.Emplace( FMeshSurfacePoint( 7 ), FDynamicMesh3::InvalidID );
+        second.Path.emplace_back( FMeshSurfacePoint( 6 ), 3 );
+        second.Path.emplace_back( FMeshSurfacePoint( 7 ), FDynamicMesh3::InvalidID );
         ASSERT_TRUE( second.EmbedSimplePath( pathVertices, dedupe ) );
         const std::vector<int> expected = dedupe ? std::vector<int>{ 5, 6, 7 } : std::vector<int>{ 5, 6, 6, 7 };
         EXPECT_EQ( std::vector<int>( pathVertices.begin(), pathVertices.end() ), expected ) << "dedupe " << dedupe;
@@ -155,8 +155,9 @@ TEST( EmbedSurfacePath, PathThatLeavesItsWalkingTriangleIsNotConnected )
 {
     FDynamicMesh3    mesh = Cube();
     FMeshSurfacePath path( &mesh );
-    path.Path.Emplace( EdgePoint( mesh, 4, 5, glm::dvec3( 50, 0, Size ) ), 0 ); // triangle 0 is the bottom face
-    path.Path.Emplace( EdgePoint( mesh, 4, 6, glm::dvec3( 50, 50, Size ) ), FDynamicMesh3::InvalidID );
+    path.Path.emplace_back( EdgePoint( mesh, 4, 5, glm::dvec3( 50, 0, Size ) ),
+                            0 ); // triangle 0 is the bottom face
+    path.Path.emplace_back( EdgePoint( mesh, 4, 6, glm::dvec3( 50, 50, Size ) ), FDynamicMesh3::InvalidID );
     EXPECT_FALSE( path.IsConnected() );
 }
 

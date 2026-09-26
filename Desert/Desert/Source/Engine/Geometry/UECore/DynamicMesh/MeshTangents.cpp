@@ -70,12 +70,12 @@ namespace Desert::Geometry
         // Set aliases to make iterating over tangents and bitangents easier
         FDynamicMeshNormalOverlay*       TangentOverlays[2] = { MeshToSet.Attributes()->PrimaryTangents(),
                                                                 MeshToSet.Attributes()->PrimaryBiTangents() };
-        const TArray<glm::vec<3, RealType>>* TangentValues[2]   = { &Tangents, &Bitangents };
+        const std::vector<glm::vec<3, RealType>>* TangentValues[2]   = { &Tangents, &Bitangents };
 
         for ( int Idx = 0; Idx < 2; Idx++ )
         {
             // Create overlay topology
-            const TArray<glm::vec<3, RealType>>& TV = *TangentValues[Idx];
+            const std::vector<glm::vec<3, RealType>>& TV = *TangentValues[Idx];
             TangentOverlays[Idx]->CreateFromPredicate(
                  [&MeshToSet, &TV]( int ParentVertexIdx, int TriIDA, int TriIDB ) -> bool
                  {

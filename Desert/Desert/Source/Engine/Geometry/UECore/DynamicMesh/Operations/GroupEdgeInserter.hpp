@@ -17,19 +17,19 @@ namespace Desert::Geometry
     struct FGroupEdgeInserterOptionalOutputParams
     {
         /** Edge IDs of the edges composing the newly inserted group edges. */
-        TSet<int32_t>* NewEidsOut = nullptr;
+        std::unordered_set<int32_t>* NewEidsOut = nullptr;
 
         /**
          * Any triangle IDs whose triangles were deleted or changed by the operation (but not newly
          * created tids). Useful for setting up undo.
          */
-        TSet<int32_t>* ChangedTidsOut = nullptr;
+        std::unordered_set<int32_t>* ChangedTidsOut = nullptr;
 
         /**
          * In loop insertion, the group edge IDs in the original topology that surround non-quad-like
          * groups that stopped the loop.
          */
-        TSet<int32_t>* ProblemGroupEdgeIDsOut = nullptr;
+        std::unordered_set<int32_t>* ProblemGroupEdgeIDsOut = nullptr;
     };
 
     /**
@@ -52,7 +52,7 @@ namespace Desert::Geometry
              * Inputs can be proportions in the range (0,1), or absolute lengths.
              * As the name suggests, they must already be sorted.
              */
-            const TArray<double>* SortedInputLengths    = nullptr;
+            const std::vector<double>* SortedInputLengths    = nullptr;
             bool                  bInputsAreProportions = true;
 
             /**

@@ -4,6 +4,7 @@
 // weight/label/skin/morph/bone/sculpt branches of every function, IsSameAs, Serialize (1580-2227) and the bone
 // helpers (2408-2478) are not ported; SplitAllBowties runs its layers serially.
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 
 using namespace Desert::Geometry;
 
@@ -86,7 +87,7 @@ void FDynamicMeshAttributeSet::Copy( const FDynamicMeshAttributeSet& Copy )
     }
 
     ResetRegisteredAttributes();
-    GenericAttributes.Empty();
+    GenericAttributes.clear();
     for ( const auto& AttribPair : Copy.GenericAttributes )
     {
         AttachAttribute( AttribPair.first, AttribPair.second->MakeCopy( ParentMesh ) );
@@ -158,7 +159,7 @@ void FDynamicMeshAttributeSet::CompactCopy( const FCompactMaps& CompactMaps, con
     }
 
     ResetRegisteredAttributes();
-    GenericAttributes.Empty();
+    GenericAttributes.clear();
     for ( const auto& AttribPair : Copy.GenericAttributes )
     {
         AttachAttribute( AttribPair.first, AttribPair.second->MakeCompactCopy( CompactMaps, ParentMesh ) );
@@ -204,7 +205,7 @@ void FDynamicMeshAttributeSet::Append( const FDynamicMeshAttributeSet&   ToAppen
     for ( const auto& AttribPair : GenericAttributes )
     {
         const std::unique_ptr<FDynamicMeshAttributeBase>* AppendAttr =
-             ToAppend.GenericAttributes.Find( AttribPair.first );
+             FindValue( ToAppend.GenericAttributes, AttribPair.first );
         FDynamicMeshAttributeBase& Target = *AttribPair.second;
         if ( AppendAttr && *AppendAttr )
         {
@@ -351,16 +352,16 @@ void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttri
     if ( bClearExisting )
     {
         ResetRegisteredAttributes();
-        GenericAttributes.Empty();
+        GenericAttributes.clear();
     }
     else if ( bDiscardExtraAttributes )
     {
-        TArray<std::string> ToRemove;
+        std::vector<std::string> ToRemove;
         for ( const auto& AttribPair : GenericAttributes )
         {
-            if ( !ToMatch.GenericAttributes.Contains( AttribPair.first ) )
+            if ( !ToMatch.GenericAttributes.contains( AttribPair.first ) )
             {
-                ToRemove.Add( AttribPair.first );
+                ToRemove.push_back( AttribPair.first );
             }
         }
         for ( const std::string& Name : ToRemove )
@@ -370,7 +371,7 @@ void FDynamicMeshAttributeSet::EnableMatchingAttributes( const FDynamicMeshAttri
     }
     for ( const auto& AttribPair : ToMatch.GenericAttributes )
     {
-        if ( !GenericAttributes.Contains( AttribPair.first ) )
+        if ( !GenericAttributes.contains( AttribPair.first ) )
         {
             AttachAttribute( AttribPair.first, AttribPair.second->MakeNew( ParentMesh ) );
         }
@@ -749,7 +750,7 @@ void FDynamicMeshAttributeSet::OnMergeVertices( const DynamicMeshInfo::FMergeVer
 }
 
 void FDynamicMeshAttributeSet::OnSplitVertex( const DynamicMeshInfo::FVertexSplitInfo& SplitInfo,
-                                              const TArrayView<const int>&             TrianglesToUpdate ){
+                                              const std::span<const int>&              TrianglesToUpdate ){
      DESERT_ATTRIBUTE_SET_FORWARD( OnSplitVertex, SplitInfo, TrianglesToUpdate ) }
 
 #undef DESERT_ATTRIBUTE_SET_FORWARD

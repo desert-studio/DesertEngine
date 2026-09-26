@@ -23,9 +23,9 @@ namespace Desert::Geometry
         /** Target Mesh */
         const FDynamicMesh3* Mesh = nullptr;
         /** Set of computed tangents */
-        TArray<glm::vec<3, RealType>> Tangents;
+        std::vector<glm::vec<3, RealType>> Tangents;
         /** Set of computed bitangents */
-        TArray<glm::vec<3, RealType>> Bitangents;
+        std::vector<glm::vec<3, RealType>> Bitangents;
 
     public:
         TMeshTangents() = default;
@@ -40,12 +40,12 @@ namespace Desert::Geometry
             this->Mesh = MeshIn;
         }
 
-        const TArray<glm::vec<3, RealType>>& GetTangents() const
+        const std::vector<glm::vec<3, RealType>>& GetTangents() const
         {
             return Tangents;
         }
 
-        const TArray<glm::vec<3, RealType>>& GetBitangents() const
+        const std::vector<glm::vec<3, RealType>>& GetBitangents() const
         {
             return Bitangents;
         }
@@ -92,10 +92,10 @@ namespace Desert::Geometry
     protected:
         void SetTangentCount( int Count, bool bClearToZero )
         {
-            if ( Tangents.Num() < Count )
-                Tangents.SetNum( Count );
-            if ( Bitangents.Num() < Count )
-                Bitangents.SetNum( Count );
+            if ( static_cast<int32_t>( Tangents.size() ) < Count )
+                Tangents.resize( Count );
+            if ( static_cast<int32_t>( Bitangents.size() ) < Count )
+                Bitangents.resize( Count );
             if ( bClearToZero )
             {
                 for ( glm::vec<3, RealType>& T : Tangents )

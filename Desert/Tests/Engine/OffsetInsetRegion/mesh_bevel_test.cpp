@@ -5,6 +5,7 @@
 // into its own face. The subdivided cube (each face 2x2 quads) gives spans of two mesh edges, whose middle vertex
 // is split by the span interior unlink (ReconcileTriangleSets) before the terminator and junction unlinks.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/UECore/DynamicMesh/Operations/MeshBevel.hpp"
 
@@ -221,20 +222,21 @@ namespace
     {
         for ( const FMeshBevel::FBevelEdge& e : bevel.Edges )
         {
-            ASSERT_EQ( e.NewMeshEdges.Num(), e.MeshEdges.Num() );
-            ASSERT_EQ( e.NewMeshVertices.Num(), e.MeshVertices.Num() );
-            for ( int32_t i = 0; i < e.MeshEdges.Num(); ++i )
+            ASSERT_EQ( static_cast<int32_t>( e.NewMeshEdges.size() ), static_cast<int32_t>( e.MeshEdges.size() ) );
+            ASSERT_EQ( static_cast<int32_t>( e.NewMeshVertices.size() ),
+                       static_cast<int32_t>( e.MeshVertices.size() ) );
+            for ( int32_t i = 0; i < static_cast<int32_t>( e.MeshEdges.size() ); ++i )
             {
                 const int e0 = e.MeshEdges[i];
                 const int e1 = e.NewMeshEdges[i];
                 EXPECT_NE( e0, e1 ) << "bevel edge " << e.EdgeIndex;
                 EXPECT_TRUE( mesh.IsBoundaryEdge( e0 ) ) << e0;
                 EXPECT_TRUE( mesh.IsBoundaryEdge( e1 ) ) << e1;
-                const int32_t* partner = bevel.MeshEdgePairs.Find( e0 );
+                const int32_t* partner = FindValue( bevel.MeshEdgePairs, e0 );
                 ASSERT_NE( partner, nullptr ) << e0;
                 EXPECT_EQ( *partner, e1 );
             }
-            for ( int32_t i = 0; i < e.MeshVertices.Num(); ++i )
+            for ( int32_t i = 0; i < static_cast<int32_t>( e.MeshVertices.size() ); ++i )
             {
                 EXPECT_NE( e.MeshVertices[i], e.NewMeshVertices[i] ) << "bevel edge " << e.EdgeIndex;
                 EXPECT_EQ( mesh.GetVertex( e.MeshVertices[i] ), e.InitialPositions[i] );
@@ -247,7 +249,7 @@ namespace
     {
         for ( const auto& pair : bevel.MeshEdgePairs )
         {
-            const int32_t* back = bevel.MeshEdgePairs.Find( pair.second );
+            const int32_t* back = FindValue( bevel.MeshEdgePairs, pair.second );
             ASSERT_NE( back, nullptr ) << pair.first << " -> " << pair.second;
             EXPECT_EQ( *back, pair.first );
         }
@@ -255,7 +257,7 @@ namespace
 
     int GroupEdgeBetween( const FGroupTopology& topology, int groupA, int groupB )
     {
-        for ( int32_t i = 0; i < topology.Edges.Num(); ++i )
+        for ( int32_t i = 0; i < static_cast<int32_t>( topology.Edges.size() ); ++i )
         {
             const FIndex2i g = topology.Edges[i].Groups;
             if ( ( g.A == groupA && g.B == groupB ) || ( g.A == groupB && g.B == groupA ) )
@@ -270,7 +272,7 @@ namespace
         std::set<int> all;
         for ( const FMeshBevel::FOneRingWedge& w : v.Wedges )
         {
-            EXPECT_GT( w.Triangles.Num(), 0 );
+            EXPECT_GT( static_cast<int32_t>( w.Triangles.size() ), 0 );
             for ( const int32_t t : w.Triangles )
                 EXPECT_TRUE( all.insert( t ).second ) << "triangle " << t << " is in two wedges of " << v.VertexID;
         }
@@ -288,12 +290,12 @@ TEST( MeshBevel, OneGroupEdgeEndsInTwoTerminatorsCappedByThePerpendicularFace )
 
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, { edge } ) ) << bevel.FailureReason;
-    ASSERT_EQ( bevel.Edges.Num(), 1 );
-    ASSERT_EQ( bevel.Vertices.Num(), 2 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 1 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 2 );
     for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
     {
         ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::TerminatorVertex ) << v.VertexID;
-        ASSERT_EQ( v.Wedges.Num(), 2 );
+        ASSERT_EQ( static_cast<int32_t>( v.Wedges.size() ), 2 );
         ExpectWedgesPartitionRing( mesh, v );
         const int capGroup = mesh.GetVertex( v.VertexID ).z > 0 ? 5 : 6;
         EXPECT_EQ( v.NewGroupID, capGroup ) << "the end cap must join the existing perpendicular face (B:1061)";
@@ -312,12 +314,12 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
 
     FMeshBevelProbe bevel;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-    ASSERT_EQ( bevel.Edges.Num(), 12 );
-    ASSERT_EQ( bevel.Vertices.Num(), 8 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 12 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 8 );
     for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
     {
         ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::JunctionVertex ) << v.VertexID;
-        ASSERT_EQ( v.Wedges.Num(), 3 );
+        ASSERT_EQ( static_cast<int32_t>( v.Wedges.size() ), 3 );
         ExpectWedgesPartitionRing( mesh, v );
         std::set<int> wedgeGroups;
         for ( const FMeshBevel::FOneRingWedge& w : v.Wedges )
@@ -327,8 +329,10 @@ TEST( MeshBevel, AllTwelveEdgesMakeEightJunctionsOfThreeSingleFaceWedges )
                 EXPECT_EQ( mesh.GetTriangleGroup( t ), g ) << "a wedge between bevel edges is one face";
             wedgeGroups.insert( g );
             // each wedge is bounded by two of the vertex's incoming bevel edges
-            EXPECT_TRUE( v.IncomingBevelMeshEdges.Contains( w.BorderEdges.A ) );
-            EXPECT_TRUE( v.IncomingBevelMeshEdges.Contains( w.BorderEdges.B ) );
+            EXPECT_TRUE( ( std::find( v.IncomingBevelMeshEdges.begin(), v.IncomingBevelMeshEdges.end(),
+                                      w.BorderEdges.A ) != v.IncomingBevelMeshEdges.end() ) );
+            EXPECT_TRUE( ( std::find( v.IncomingBevelMeshEdges.begin(), v.IncomingBevelMeshEdges.end(),
+                                      w.BorderEdges.B ) != v.IncomingBevelMeshEdges.end() ) );
         }
         EXPECT_EQ( wedgeGroups.size(), 3u );
     }
@@ -362,7 +366,7 @@ TEST( MeshBevel, UnlinkAllTwelveEdgesGivesEachFaceItsOwnCorners )
         ++boundary;
     }
     EXPECT_EQ( boundary, 24 );
-    EXPECT_EQ( bevel.MeshEdgePairs.Num(), 24 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.MeshEdgePairs.size() ), 24 );
     ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
     ExpectPairsSymmetric( bevel );
     ExpectPositionsAreCubeCorners( mesh );
@@ -452,11 +456,11 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
         FMeshBevelProbe bevel;
         bevel.InsetDistance = 7.0;
         ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        ASSERT_EQ( bevel.Edges.Num(), 12 );
+        ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 12 );
         int flippedSpans = 0;
         for ( const FMeshBevel::FBevelEdge& e : bevel.Edges )
         {
-            ASSERT_EQ( e.MeshEdges.Num(), n ) << "bevel edge " << e.EdgeIndex;
+            ASSERT_EQ( static_cast<int32_t>( e.MeshEdges.size() ), n ) << "bevel edge " << e.EdgeIndex;
             std::set<int> firstSides;
             for ( const int32_t me : e.MeshEdges )
                 firstSides.insert( mesh.GetTriangleGroup( mesh.GetEdgeT( me ).A ) );
@@ -470,7 +474,7 @@ TEST( MeshBevel, SubdividedCubeSplitsEachSpanInteriorVertexAndInsetsIt )
         // six islands of (n+1)^2 vertices, each bounded by 4n edges: corners split in three, span interiors in two
         EXPECT_EQ( mesh.VertexCount(), 6 * ( n + 1 ) * ( n + 1 ) );
         EXPECT_EQ( CountBoundaryEdges( mesh ), 24 * n );
-        EXPECT_EQ( bevel.MeshEdgePairs.Num(), 24 * n );
+        EXPECT_EQ( static_cast<int32_t>( bevel.MeshEdgePairs.size() ), 24 * n );
         ExpectEdgesUnlinkedIntoPairs( mesh, bevel );
         ExpectPairsSymmetric( bevel );
         EXPECT_TRUE( mesh.CheckValidity( FDynamicMesh3::FValidityOptions(), EValidityCheckFailMode::ReturnOnly ) );
@@ -719,9 +723,9 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
 
         EXPECT_EQ( Groups( mesh ).size(), 7u );
         ExpectClosedSolid( mesh, 1.0e6 - 100.0 * 12.5 );
-        ASSERT_EQ( bevel.Edges.Num(), 1 );
+        ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 1 );
         const FMeshBevel::FBevelEdge& strip = bevel.Edges[0];
-        EXPECT_EQ( strip.StripQuads.Num(), n );
+        EXPECT_EQ( static_cast<int32_t>( strip.StripQuads.size() ), n );
         for ( const int t : mesh.TriangleIndicesItr() )
         {
             if ( mesh.GetTriangleGroup( t ) != strip.NewGroupID )
@@ -737,8 +741,8 @@ TEST( MeshBevel, ChamferOneEdgeClosesTheCubeWithOneStripGroup )
         for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
         {
             ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::TerminatorVertex );
-            EXPECT_EQ( v.NewTriangles.Num(), 1 ) << "terminator " << v.VertexID;
-            ASSERT_EQ( v.NewTriangles.Num(), 1 );
+            EXPECT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 ) << "terminator " << v.VertexID;
+            ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 );
             // the top cap closes +Z (group 5), the bottom one -Z (group 6)
             const int group = mesh.GetTriangleGroup( v.NewTriangles[0] );
             EXPECT_EQ( group, mesh.GetVertex( v.VertexID ).z > 0.0 ? 5 : 6 ) << "terminator " << v.VertexID;
@@ -771,8 +775,8 @@ TEST( MeshBevel, ChamferAllTwelveEdgesGivesTwentySixGroups )
         ExpectClosedSolid( mesh, 1.0e6 - 8.0 * ( 625.0 + 1125.0 + 125.0 / 3.0 ) );
         for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
         {
-            EXPECT_EQ( v.NewTriangles.Num(), 1 ) << "junction " << v.VertexID;
-            ASSERT_EQ( v.NewTriangles.Num(), 1 );
+            EXPECT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 ) << "junction " << v.VertexID;
+            ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 );
             // the corner triangle faces away from the cube centre along (+-1, +-1, +-1)
             const glm::dvec3 normal = mesh.GetTriNormal( v.NewTriangles[0] );
             const glm::dvec3 corner = mesh.GetTriCentroid( v.NewTriangles[0] );
@@ -801,7 +805,7 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
              bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
              << bevel.FailureReason;
         ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
-        EXPECT_EQ( bevel.NewTriangles.Num(), 4 );
+        EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 4 );
         ExpectNewTriangleNormals( mesh, bevel );
 
         const int stripMaterial = mode == EMode::InferMaterialID ? 10 : 7;
@@ -830,7 +834,7 @@ TEST( MeshBevel, ApplyAllEdgesCornerTakesTheMostFrequentStripMaterial )
     bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
     ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
     ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
-    EXPECT_EQ( bevel.NewTriangles.Num(), 8 + 12 * 2 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 8 + 12 * 2 );
     for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
     {
         const int gx = mesh.GetVertex( v.VertexID ).x > 0.0 ? 1 : 2;
@@ -851,7 +855,7 @@ TEST( MeshBevel, ApplyAfterRefusedInitializationReturnsFalse )
     EXPECT_EQ( bevel.FailureReason, reason );
     EXPECT_EQ( mesh.VertexCount(), 8 );
     EXPECT_EQ( mesh.TriangleCount(), 12 );
-    EXPECT_EQ( bevel.NewTriangles.Num(), 0 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 0 );
 }
 
 // Top (group 1), sides (group 2), bottom (group 3): the two group edges are closed loops without a corner, so they
@@ -878,9 +882,9 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
         FMeshBevelProbe      bevel;
         bevel.MaterialIDMode = FMeshBevel::EMaterialIDMode::InferMaterialID;
         ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-        ASSERT_EQ( bevel.Loops.Num(), 2 );
-        EXPECT_EQ( bevel.Edges.Num(), 0 );
-        EXPECT_EQ( bevel.Vertices.Num(), 0 );
+        ASSERT_EQ( static_cast<int32_t>( bevel.Loops.size() ), 2 );
+        EXPECT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 0 );
+        EXPECT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 0 );
         ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
 
         EXPECT_EQ( Groups( mesh ).size(), 5u );
@@ -888,7 +892,7 @@ TEST( MeshBevel, ApplyClosedLoopsWithoutCornersGiveTwoLoopStrips )
         ExpectNewTriangleNormals( mesh, bevel, false );
         for ( const FMeshBevel::FBevelLoop& loop : bevel.Loops )
         {
-            EXPECT_EQ( loop.StripQuads.Num(), 4 * n );
+            EXPECT_EQ( static_cast<int32_t>( loop.StripQuads.size() ), 4 * n );
             // top loop: sides 20 against top 10; bottom loop: sides 20 against bottom 30
             const int material = mesh.GetVertex( loop.MeshVertices[0] ).z > 0.0 ? 10 : 20;
             for ( const FIndex2i& quad : loop.StripQuads )
@@ -910,7 +914,7 @@ TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
     ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges(
          mesh, topology, { GroupEdgeBetween( topology, 1, 3 ), GroupEdgeBetween( topology, 2, 4 ) } ) )
          << bevel.FailureReason;
-    ASSERT_EQ( bevel.Vertices.Num(), 4 );
+    ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 4 );
     for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
     {
         ASSERT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::TerminatorVertex );
@@ -919,12 +923,12 @@ TEST( MeshBevel, ApplyTwoTerminatorsOnOneDiagonalShareAQuad )
     ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
 
     EXPECT_EQ( Groups( mesh ).size(), 8u );
-    EXPECT_EQ( bevel.NewTriangles.Num(), 2 * 2 + 2 * 2 );
+    EXPECT_EQ( static_cast<int32_t>( bevel.NewTriangles.size() ), 2 * 2 + 2 * 2 );
     ExpectClosedSolid( mesh, 1.0e6 - 2.0 * 100.0 * 12.5 );
     ExpectNewTriangleNormals( mesh, bevel );
     for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
     {
-        ASSERT_EQ( v.NewTriangles.Num(), 1 );
+        ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 1 );
         EXPECT_EQ( mesh.GetTriangleGroup( v.NewTriangles[0] ), mesh.GetVertex( v.VertexID ).z > 0.0 ? 5 : 6 );
     }
 }
@@ -979,11 +983,11 @@ namespace
         ASSERT_EQ( patch.NumVertexRows(), subdivisions + 2 );
         for ( int c = 0; c < patch.NumVertexCols(); ++c )
         {
-            TArray<int32_t> column;
+            std::vector<int32_t> column;
             ASSERT_TRUE( patch.GetVertexColumn( c, column ) );
             const glm::dvec3 a = mesh.GetVertex( column[0] );
-            const glm::dvec3 b = mesh.GetVertex( column.Last() );
-            for ( int j = 0; j < column.Num(); ++j )
+            const glm::dvec3 b = mesh.GetVertex( column.back() );
+            for ( int j = 0; j < static_cast<int32_t>( column.size() ); ++j )
             {
                 const glm::dvec3 expected = Lerp( a, b, static_cast<double>( j ) / ( subdivisions + 1 ) );
                 EXPECT_NEAR( Distance( mesh.GetVertex( column[j] ), expected ), 0.0, 1e-9 ) << "column " << c;
@@ -991,7 +995,7 @@ namespace
         }
     }
 
-    double ChamferVolume( FDynamicMesh3 mesh, const TArray<int32_t>& groupEdges )
+    double ChamferVolume( FDynamicMesh3 mesh, const std::vector<int32_t>& groupEdges )
     {
         const FGroupTopology topology( &mesh, true );
         FMeshBevel           bevel;
@@ -1031,7 +1035,8 @@ TEST( MeshBevel, MultiSegmentAllTwelveEdgesKeepsTheChamferVolume )
                 ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
             for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
             {
-                ASSERT_EQ( v.NewTriangles.Num(), ( N + 1 ) * ( N + 1 ) ) << "junction " << v.VertexID;
+                ASSERT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), ( N + 1 ) * ( N + 1 ) )
+                     << "junction " << v.VertexID;
                 for ( const int t : v.NewTriangles )
                 {
                     const glm::dvec3 corner = mesh.GetTriCentroid( t );
@@ -1054,7 +1059,7 @@ TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
         struct FCase
         {
             std::string     Name;
-            TArray<int32_t> GroupEdges;
+            std::vector<int32_t> GroupEdges;
             int             TerminatorTrianglesPerSegment;
         };
         const std::vector<FCase> cases = {
@@ -1083,7 +1088,7 @@ TEST( MeshBevel, MultiSegmentTerminatorsMatchTheChamferSolid )
                     ExpectEvenStripColumns( mesh, edge.StripQuadPatch, N );
                 int terminatorTriangles = 0;
                 for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
-                    terminatorTriangles += v.NewTriangles.Num();
+                    terminatorTriangles += static_cast<int32_t>( v.NewTriangles.size() );
                 EXPECT_EQ( terminatorTriangles, c.TerminatorTrianglesPerSegment * ( N + 1 ) );
             }
         }
@@ -1125,7 +1130,7 @@ TEST( MeshBevel, MultiSegmentTopLoopKeepsTheChamferVolume )
             bevel.InsetDistance   = 5.0;
             bevel.NumSubdivisions = N;
             ASSERT_TRUE( bevel.InitializeFromGroupTopology( mesh, topology ) ) << bevel.FailureReason;
-            ASSERT_EQ( bevel.Loops.Num(), 1 );
+            ASSERT_EQ( static_cast<int32_t>( bevel.Loops.size() ), 1 );
             ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
             ExpectClosedSolid( mesh, TopFaceChamferVolume( 5.0 ) );
             ExpectNewTriangleNormals( mesh, bevel, false );
@@ -1144,9 +1149,9 @@ TEST( MeshBevel, MultiSegmentTopFourEdgesKeepTheChamferVolume )
     {
         const FDynamicMesh3  base = TangentCube( n );
         const FGroupTopology baseTopology( &base, true );
-        TArray<int32_t>      groupEdges;
+        std::vector<int32_t> groupEdges;
         for ( const int side : { 1, 2, 3, 4 } )
-            groupEdges.Add( GroupEdgeBetween( baseTopology, 5, side ) );
+            groupEdges.push_back( GroupEdgeBetween( baseTopology, 5, side ) );
         const double chamfer = ChamferVolume( base, groupEdges );
         EXPECT_NEAR( chamfer, TopFaceChamferVolume( 5.0 ), 1e-6 * chamfer );
         for ( const int N : { 2, 3 } )
@@ -1160,12 +1165,12 @@ TEST( MeshBevel, MultiSegmentTopFourEdgesKeepTheChamferVolume )
             bevel.NumSubdivisions = N;
             ASSERT_TRUE( bevel.InitializeFromGroupTopologyEdges( mesh, topology, groupEdges ) )
                  << bevel.FailureReason;
-            ASSERT_EQ( bevel.Edges.Num(), 4 );
-            ASSERT_EQ( bevel.Vertices.Num(), 4 );
+            ASSERT_EQ( static_cast<int32_t>( bevel.Edges.size() ), 4 );
+            ASSERT_EQ( static_cast<int32_t>( bevel.Vertices.size() ), 4 );
             for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
             {
                 EXPECT_EQ( v.VertexType, FMeshBevel::EBevelVertexType::JunctionVertex ) << "vertex " << v.VertexID;
-                EXPECT_EQ( v.Wedges.Num(), 2 ) << "vertex " << v.VertexID;
+                EXPECT_EQ( static_cast<int32_t>( v.Wedges.size() ), 2 ) << "vertex " << v.VertexID;
             }
             ASSERT_TRUE( ApplyKeepingOldUVs( bevel, mesh ) ) << bevel.FailureReason;
             ExpectClosedSolid( mesh, TopFaceChamferVolume( 5.0 ) );
@@ -1192,7 +1197,7 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
                 mesh.SetTriangleGroup( t, 7 + ( c.x > 0.0 ? 1 : 0 ) + ( c.y > 0.0 ? 2 : 0 ) );
         }
         const FGroupTopology  topology( &mesh, true );
-        const TArray<int32_t> groupEdges = {
+        const std::vector<int32_t> groupEdges = {
              GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 8, 10 ),
              GroupEdgeBetween( topology, 10, 9 ), GroupEdgeBetween( topology, 9, 7 ) };
         FMeshBevelProbe bevel;
@@ -1205,7 +1210,7 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
             if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex )
                 continue;
             ++junctions;
-            EXPECT_EQ( v.Wedges.Num(), 4 ) << "vertex " << v.VertexID;
+            EXPECT_EQ( static_cast<int32_t>( v.Wedges.size() ), 4 ) << "vertex " << v.VertexID;
             EXPECT_NEAR( Distance( mesh.GetVertex( v.VertexID ), glm::dvec3( 0, 0, 50 ) ), 0.0, 1e-9 );
         }
         EXPECT_EQ( junctions, 1 );
@@ -1214,7 +1219,7 @@ TEST( MeshBevel, MultiSegmentFlatFourEdgeJunctionKeepsTheCube )
         // the centre polygon: an (N + 1) x (N + 1) quad grid
         for ( const FMeshBevel::FBevelVertex& v : bevel.Vertices )
             if ( v.VertexType == FMeshBevel::EBevelVertexType::JunctionVertex )
-                EXPECT_EQ( v.NewTriangles.Num(), 2 * ( N + 1 ) * ( N + 1 ) );
+                EXPECT_EQ( static_cast<int32_t>( v.NewTriangles.size() ), 2 * ( N + 1 ) * ( N + 1 ) );
         ExpectNewTriangleNormals( mesh, bevel );
         ExpectAllTrianglesOutward( mesh );
     }
@@ -1234,13 +1239,13 @@ namespace
         bool            bApplied = false;
     };
 
-    void RunRound( FRoundRun& run, const TArray<int32_t>& groupEdges, int subdivisions, double roundWeight )
+    void RunRound( FRoundRun& run, const std::vector<int32_t>& groupEdges, int subdivisions, double roundWeight )
     {
         const FGroupTopology topology( &run.Mesh, true );
         run.Bevel.InsetDistance   = 5.0;
         run.Bevel.NumSubdivisions = subdivisions;
         run.Bevel.RoundWeight     = roundWeight;
-        ASSERT_TRUE( groupEdges.IsEmpty()
+        ASSERT_TRUE( groupEdges.empty()
                           ? run.Bevel.InitializeFromGroupTopology( run.Mesh, topology )
                           : run.Bevel.InitializeFromGroupTopologyEdges( run.Mesh, topology, groupEdges ) )
              << run.Bevel.FailureReason;
@@ -1276,7 +1281,7 @@ TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
 {
     const FDynamicMesh3   base = TangentCube( 1 );
     const FGroupTopology  baseTopology( &base, true );
-    const TArray<int32_t> groupEdges = { GroupEdgeBetween( baseTopology, 1, 3 ) };
+    const std::vector<int32_t> groupEdges = { GroupEdgeBetween( baseTopology, 1, 3 ) };
     const double          chamfer    = ChamferVolume( base, groupEdges );
     double                previous   = chamfer;
     for ( const int N : { 1, 2, 3, 5, 8 } )
@@ -1289,20 +1294,20 @@ TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
         EXPECT_TRUE( run.Mesh.CheckValidity() );
         const FMeshBevel::FBevelEdge& edge  = run.Bevel.Edges[0];
         const glm::dvec3              e0    = edge.InitialPositions[0];
-        const glm::dvec3              dir   = Normalized( edge.InitialPositions.Last() - e0 );
+        const glm::dvec3              dir   = Normalized( edge.InitialPositions.back() - e0 );
         const FQuadGridPatch&         patch = edge.StripQuadPatch;
         ASSERT_EQ( patch.NumVertexRows(), N + 2 );
         for ( int c = 0; c < patch.NumVertexCols(); ++c )
         {
-            TArray<int32_t> column;
+            std::vector<int32_t> column;
             ASSERT_TRUE( patch.GetVertexColumn( c, column ) );
             const glm::dvec3 a      = run.Mesh.GetVertex( column[0] );
-            const glm::dvec3 b      = run.Mesh.GetVertex( column.Last() );
+            const glm::dvec3 b      = run.Mesh.GetVertex( column.back() );
             const glm::dvec3 p0     = e0 + glm::dot( ( a - e0 ), dir ) * dir;
             const glm::dvec3 centre = a + b - p0;
             EXPECT_NEAR( Distance( a, centre ), 5.0, 1e-9 );
             EXPECT_NEAR( Distance( b, centre ), 5.0, 1e-9 );
-            for ( int k = 1; k < column.Num() - 1; ++k )
+            for ( int k = 1; k < static_cast<int32_t>( column.size() ) - 1; ++k )
             {
                 const double r = Distance( run.Mesh.GetVertex( column[k] ), centre );
                 EXPECT_LE( r, 5.0 + 1e-9 ) << "column " << c << " row " << k;
@@ -1329,7 +1334,7 @@ TEST( MeshBevel, RoundTopLoopLiesBetweenChamferAndCube )
         for ( const int t : run.Mesh.TriangleIndicesItr() )
             run.Mesh.SetTriangleGroup( t, t / 2 == 4 ? 1 : 2 );
         RunRound( run, {}, N, 1.0 );
-        ASSERT_EQ( run.Bevel.Loops.Num(), 1 );
+        ASSERT_EQ( static_cast<int32_t>( run.Bevel.Loops.size() ), 1 );
         ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
         EXPECT_TRUE( run.Mesh.CheckValidity() );
@@ -1358,7 +1363,7 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
                 run.Mesh.SetTriangleGroup( t, c.x > 0.0 ? 10 : 9 );
         }
         const FGroupTopology  topology( &run.Mesh, true );
-        const TArray<int32_t> groupEdges = {
+        const std::vector<int32_t> groupEdges = {
              GroupEdgeBetween( topology, 7, 8 ), GroupEdgeBetween( topology, 7, 9 ),
              GroupEdgeBetween( topology, 8, 10 ), GroupEdgeBetween( topology, 9, 10 ) };
         const double chamfer = ChamferVolume( run.Mesh, groupEdges );
@@ -1372,8 +1377,8 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
             if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex )
                 continue;
             ++patches;
-            ASSERT_EQ( v.Wedges.Num(), 4 );
-            ASSERT_EQ( v.InteriorVertices.Num(), N * N );
+            ASSERT_EQ( static_cast<int32_t>( v.Wedges.size() ), 4 );
+            ASSERT_EQ( static_cast<int32_t>( v.InteriorVertices.size() ), N * N );
             // the X curves run along the cylinder axis (the flat strips): a patch vertex stays strictly between
             // the corners' x, or an end tangent of the blended X curve points the wrong way
             double cornerMinX = std::numeric_limits<double>::max();
@@ -1410,10 +1415,10 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
 {
     const FDynamicMesh3  base = TangentCube( 1 );
     const FGroupTopology baseTopology( &base, true );
-    TArray<int32_t>      allEdges;
-    for ( int e = 0; e < baseTopology.Edges.Num(); ++e )
-        allEdges.Add( e );
-    ASSERT_EQ( allEdges.Num(), 12 );
+    std::vector<int32_t> allEdges;
+    for ( int e = 0; e < static_cast<int32_t>( baseTopology.Edges.size() ); ++e )
+        allEdges.push_back( e );
+    ASSERT_EQ( static_cast<int32_t>( allEdges.size() ), 12 );
     const double chamfer = ChamferVolume( base, allEdges );
     // PN centre (w = u = v = 1/3) for three unit corners and sqrt(2)-scaled right-angle border tangents:
     // b300/27 + 3 (sum of edge points)/27 + 6 b111/27 per axis, times sqrt(3)
@@ -1435,9 +1440,9 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
             if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex )
                 continue;
             ++patches;
-            ASSERT_EQ( v.Wedges.Num(), 3 );
-            ASSERT_EQ( v.InteriorBorderLoop.Num(), 3 );
-            ASSERT_EQ( v.InteriorVertices.Num(), N * ( N - 1 ) / 2 );
+            ASSERT_EQ( static_cast<int32_t>( v.Wedges.size() ), 3 );
+            ASSERT_EQ( static_cast<int32_t>( v.InteriorBorderLoop.size() ), 3 );
+            ASSERT_EQ( static_cast<int32_t>( v.InteriorVertices.size() ), N * ( N - 1 ) / 2 );
             const glm::dvec3 corner = base.GetVertex( v.VertexID );
             const glm::dvec3 sign( corner.x > 0 ? 1.0 : -1.0, corner.y > 0 ? 1.0 : -1.0,
                                    corner.z > 0 ? 1.0 : -1.0 );
@@ -1534,9 +1539,9 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
         SCOPED_TRACE( std::to_string( n ) + "-sided pyramid" );
         const FDynamicMesh3  base = Pyramid( n );
         const FGroupTopology topology( &base, true );
-        TArray<int32_t>      lateral;
+        std::vector<int32_t> lateral;
         for ( int i = 0; i < n; ++i )
-            lateral.Add( GroupEdgeBetween( topology, 1 + i, 1 + ( i + 1 ) % n ) );
+            lateral.push_back( GroupEdgeBetween( topology, 1 + i, 1 + ( i + 1 ) % n ) );
         const double original = SignedVolume( base );
         const double chamfer  = ChamferVolume( base, lateral );
         // outward normals of two neighbouring lateral faces (edge midpoints at angles pi/n and 3 pi/n)
@@ -1569,9 +1574,9 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
                     apex = &v;
             }
             ASSERT_NE( apex, nullptr );
-            ASSERT_EQ( apex->Wedges.Num(), n );
-            ASSERT_EQ( apex->InteriorBorderLoop.Num(), n * ( N + 1 ) );
-            ASSERT_FALSE( apex->InteriorVertices.IsEmpty() );
+            ASSERT_EQ( static_cast<int32_t>( apex->Wedges.size() ), n );
+            ASSERT_EQ( static_cast<int32_t>( apex->InteriorBorderLoop.size() ), n * ( N + 1 ) );
+            ASSERT_FALSE( apex->InteriorVertices.empty() );
             for ( const FMeshBevel::FOneRingWedge& w : apex->Wedges )
                 EXPECT_NEAR( Distance( run.Mesh.GetVertex( w.WedgeVertex ), centre ), rho, 1e-6 );
             double borderLow  = std::numeric_limits<double>::max();
@@ -1647,19 +1652,20 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
         }
     }
     const FGroupTopology topology( &fan, true );
-    TArray<int32_t>      groupEdges;
+    std::vector<int32_t> groupEdges;
     for ( int s = 0; s < 5; ++s )
-        groupEdges.Add( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
+        groupEdges.push_back( GroupEdgeBetween( topology, 7 + s, 7 + ( s + 1 ) % 5 ) );
     FRoundRun run{ fan };
     RunRound( run, groupEdges, 2, 1.0 );
     ASSERT_TRUE( run.bApplied ) << run.Bevel.FailureReason;
     int patches = 0;
     for ( const FMeshBevel::FBevelVertex& v : run.Bevel.Vertices )
     {
-        if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex || v.Wedges.Num() != 5 )
+        if ( v.VertexType != FMeshBevel::EBevelVertexType::JunctionVertex ||
+             static_cast<int32_t>( v.Wedges.size() ) != 5 )
             continue;
         ++patches;
-        ASSERT_FALSE( v.InteriorVertices.IsEmpty() );
+        ASSERT_FALSE( v.InteriorVertices.empty() );
         for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : v.InteriorVertices )
             EXPECT_NEAR( run.Mesh.GetVertex( iv.VertexID ).z, 50.0, 1e-6 ) << "vertex " << iv.VertexID;
     }

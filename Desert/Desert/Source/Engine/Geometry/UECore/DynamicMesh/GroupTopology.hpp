@@ -18,19 +18,19 @@ namespace Desert::Geometry
     /** A selection of group-topology elements: groups (faces), corners and group edges, by their topology IDs. */
     struct FGroupTopologySelection
     {
-        TSet<int32_t> SelectedGroupIDs;
-        TSet<int32_t> SelectedCornerIDs;
-        TSet<int32_t> SelectedEdgeIDs;
+        std::unordered_set<int32_t> SelectedGroupIDs;
+        std::unordered_set<int32_t> SelectedCornerIDs;
+        std::unordered_set<int32_t> SelectedEdgeIDs;
 
         void Clear()
         {
-            SelectedGroupIDs.Reset();
-            SelectedCornerIDs.Reset();
-            SelectedEdgeIDs.Reset();
+            SelectedGroupIDs.clear();
+            SelectedCornerIDs.clear();
+            SelectedEdgeIDs.clear();
         }
         bool IsEmpty() const
         {
-            return SelectedGroupIDs.Num() == 0 && SelectedCornerIDs.Num() == 0 && SelectedEdgeIDs.Num() == 0;
+            return SelectedGroupIDs.empty() && SelectedCornerIDs.empty() && SelectedEdgeIDs.empty();
         }
     };
 
@@ -65,26 +65,26 @@ namespace Desert::Geometry
         struct FCorner
         {
             int         VertexID = IndexConstants::InvalidID;
-            TArray<int> NeighbourGroupIDs;
+            std::vector<int> NeighbourGroupIDs;
         };
-        TArray<FCorner> Corners;
+        std::vector<FCorner> Corners;
 
         /** One closed boundary of a group, as the ordered group edges around it. */
         struct FGroupBoundary
         {
-            TArray<int> GroupEdges;
-            TArray<int> NeighbourGroupIDs;
+            std::vector<int> GroupEdges;
+            std::vector<int> NeighbourGroupIDs;
             bool        bIsOnBoundary = false;
         };
 
         struct FGroup
         {
             int                    GroupID = 0;
-            TArray<int>            Triangles;
-            TArray<FGroupBoundary> Boundaries;
-            TArray<int>            NeighbourGroupIDs;
+            std::vector<int>            Triangles;
+            std::vector<FGroupBoundary> Boundaries;
+            std::vector<int>            NeighbourGroupIDs;
         };
-        TArray<FGroup> Groups;
+        std::vector<FGroup> Groups;
 
         /** The mesh-edge span between two corners (or a closed loop with no corners) shared by two groups. */
         struct FGroupEdge
@@ -98,47 +98,49 @@ namespace Desert::Geometry
                 UE_CHECK( Groups.A == GroupID || Groups.B == GroupID );
                 return ( Groups.A == GroupID ) ? Groups.B : Groups.A;
             }
-            bool IsConnectedToVertices( const TSet<int>& Vertices ) const;
+            bool IsConnectedToVertices( const std::unordered_set<int>& Vertices ) const;
         };
-        TArray<FGroupEdge> Edges;
+        std::vector<FGroupEdge> Edges;
 
         int                GetCornerVertexID( int CornerID ) const;
         [[nodiscard]] int32_t GetCornerIDFromVertexID( int32_t VertexID ) const;
         const FGroup*      FindGroupByID( int GroupID ) const;
-        const TArray<int>& GetGroupTriangles( int GroupID ) const;
-        const TArray<int>& GetGroupNbrGroups( int GroupID ) const;
+        const std::vector<int>& GetGroupTriangles( int GroupID ) const;
+        const std::vector<int>& GetGroupNbrGroups( int GroupID ) const;
         int                FindGroupEdgeID( int MeshEdgeID ) const;
-        const TArray<int>& GetGroupEdgeVertices( int GroupEdgeID ) const;
-        const TArray<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
-        void               FindEdgeNbrGroups( int GroupEdgeID, TArray<int>& GroupsOut ) const;
-        void               FindEdgeNbrEdges( int GroupEdgeID, TArray<int>& EdgesOut ) const;
+        const std::vector<int>& GetGroupEdgeVertices( int GroupEdgeID ) const;
+        const std::vector<int>& GetGroupEdgeEdges( int GroupEdgeID ) const;
+        void                    FindEdgeNbrGroups( int GroupEdgeID, std::vector<int>& GroupsOut ) const;
+        void                    FindEdgeNbrEdges( int GroupEdgeID, std::vector<int>& EdgesOut ) const;
         [[nodiscard]] bool    IsBoundaryEdge( int32_t GroupEdgeID ) const;
         /** @return arc length of edge, and optionally accumulated arclength distances for each edge vertex */
-        double GetEdgeArcLength( int32_t GroupEdgeID, TArray<double>* PerVertexLengthsOut = nullptr ) const;
+        double GetEdgeArcLength( int32_t GroupEdgeID, std::vector<double>* PerVertexLengthsOut = nullptr ) const;
         [[nodiscard]] bool IsSimpleGroupEdge( int32_t GroupEdgeID ) const;
         [[nodiscard]] bool IsIsolatedLoop( int32_t GroupEdgeID ) const;
-        void               FindCornerNbrGroups( int CornerID, TArray<int>& GroupsOut ) const;
+        void               FindCornerNbrGroups( int CornerID, std::vector<int>& GroupsOut ) const;
         void               ForCornerNbrEdges( int                                          CornerID,
                                               const std::function<bool( int32_t EdgeID )>& ReturnTrueToContinue ) const;
-        void FindCornerNbrEdges( int CornerID, TArray<int>& EdgesOut ) const;
-        void FindCornerNbrCorners( int CornerID, TArray<int>& CornersOut ) const;
-        void FindVertexNbrGroups( int VertexID, TArray<int>& GroupsOut ) const;
-        void CollectGroupVertices( int GroupID, TSet<int>& Vertices ) const;
-        void CollectGroupBoundaryVertices( int GroupID, TSet<int>& Vertices ) const;
-        void GetSelectedTriangles( const FGroupTopologySelection& Selection, TArray<int32_t>& Triangles ) const;
+        void               FindCornerNbrEdges( int CornerID, std::vector<int>& EdgesOut ) const;
+        void               FindCornerNbrCorners( int CornerID, std::vector<int>& CornersOut ) const;
+        void               FindVertexNbrGroups( int VertexID, std::vector<int>& GroupsOut ) const;
+        void               CollectGroupVertices( int GroupID, std::unordered_set<int>& Vertices ) const;
+        void               CollectGroupBoundaryVertices( int GroupID, std::unordered_set<int>& Vertices ) const;
+        void               GetSelectedTriangles( const FGroupTopologySelection& Selection,
+                                                 std::vector<int32_t>&          Triangles ) const;
 
     protected:
         const FDynamicMesh3* Mesh = nullptr;
-        TArray<int>          GroupIDToGroupIndexMap; // fast lookup of the index in Groups, given a GroupID
-        TArray<int>          EmptyArray;
-        TMap<int32_t, int32_t> VertexIDToCornerIDMap;
+        std::vector<int>     GroupIDToGroupIndexMap; // fast lookup of the index in Groups, given a GroupID
+        std::vector<int>     EmptyArray;
+        std::unordered_map<int32_t, int32_t> VertexIDToCornerIDMap;
         std::string          FailureReason;
 
         bool     ShouldVertBeCorner( int VertexID ) const;
-        bool GenerateBoundaryAndGroupEdges( FGroup& Group, TMap<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
-                                            TArray<bool>& VertCheckedForCorner );
+        bool     GenerateBoundaryAndGroupEdges( FGroup&                               Group,
+                                                std::unordered_map<int32_t, int32_t>& GroupEdgeMinEidToGroupEdgeID,
+                                                std::vector<bool>&                    VertCheckedForCorner );
         FIndex2i MakeEdgeGroupsPair( int MeshEdgeID ) const;
-        void     GetAllVertexGroups( int32_t VertexID, TArray<int32_t>& GroupsOut ) const;
+        void     GetAllVertexGroups( int32_t VertexID, std::vector<int32_t>& GroupsOut ) const;
     };
 
     /** Every triangle is its own group: corners are all vertices, group edges are all mesh edges. */

@@ -399,7 +399,7 @@ TEST( DynamicMesh3Edits, MergeEdgesWeldsTwoComponentsIntoOne )
     EXPECT_FALSE( Mesh.IsVertex( 3 ) );
     EXPECT_FALSE( Mesh.IsVertex( 4 ) );
     EXPECT_EQ( std::set<int>( { Info.RemovedVerts.A, Info.RemovedVerts.B } ), std::set<int>( { 3, 4 } ) );
-    EXPECT_TRUE( Info.BowtiesRemovedEdges.IsEmpty() );
+    EXPECT_TRUE( Info.BowtiesRemovedEdges.empty() );
 }
 
 TEST( DynamicMesh3Edits, MergeEdgesRefusesInteriorAndSameOrientation )
@@ -425,8 +425,8 @@ TEST( DynamicMesh3Edits, MergeVerticesResolvesToTheRightOperator )
     FDynamicMesh3                     Torus = MakeTorus( 8, 6 );
     FDynamicMesh3::FMergeVerticesInfo Info;
     ASSERT_EQ( Torus.MergeVertices( TorusV( 8, 6, 2, 2 ), TorusV( 8, 6, 3, 2 ), Info ), EMeshResult::Ok );
-    EXPECT_TRUE( Info.EdgeCollapseInfo.IsSet() );
-    EXPECT_FALSE( Info.MergeEdgesInfo.IsSet() );
+    EXPECT_TRUE( Info.EdgeCollapseInfo.has_value() );
+    EXPECT_FALSE( Info.MergeEdgesInfo.has_value() );
     EXPECT_TRUE( Valid( Torus ) );
 
     // Unconnected boundary vertices with no shared neighbour: a boundary bowtie, which only the permissive
@@ -434,8 +434,8 @@ TEST( DynamicMesh3Edits, MergeVerticesResolvesToTheRightOperator )
     FDynamicMesh3                     Seam = MakeSeam( true );
     FDynamicMesh3::FMergeVerticesInfo Bowtie;
     ASSERT_EQ( Seam.MergeVertices( 1, 3, Bowtie ), EMeshResult::Ok );
-    EXPECT_FALSE( Bowtie.EdgeCollapseInfo.IsSet() );
-    EXPECT_FALSE( Bowtie.MergeEdgesInfo.IsSet() );
+    EXPECT_FALSE( Bowtie.EdgeCollapseInfo.has_value() );
+    EXPECT_FALSE( Bowtie.MergeEdgesInfo.has_value() );
     EXPECT_FALSE( Seam.IsVertex( 3 ) );
     EXPECT_EQ( Seam.VertexCount(), 5 );
     EXPECT_TRUE( Valid( Seam, true ) );
@@ -486,12 +486,12 @@ TEST( DynamicMesh3Edits, SplitVertexDetachesTheGivenFan )
     // Vertex 4 is the centre of a 2x2 plane; detaching the two triangles of the lower-left quad makes a
     // corner cut: the new vertex carries them, the original keeps the rest, both become boundary vertices.
     FDynamicMesh3 Mesh = MakePlane( 2 );
-    TArray<int>   Fan;
+    std::vector<int> Fan;
     Mesh.GetVtxTriangles( 4, Fan );
-    ASSERT_EQ( Fan.Num(), 6 );
+    ASSERT_EQ( static_cast<int32_t>( Fan.size() ), 6 );
     EXPECT_TRUE( Mesh.SplitVertexWouldLeaveIsolated( 4, Fan ) );
 
-    const TArray<int> Quad( { 0, 1 } ); // triangles of quad (0,0)
+    const std::vector<int> Quad( { 0, 1 } ); // triangles of quad (0,0)
     EXPECT_FALSE( Mesh.SplitVertexWouldLeaveIsolated( 4, Quad ) );
     const FCounts                   Before = Counts( Mesh );
     FDynamicMesh3::FVertexSplitInfo Info;

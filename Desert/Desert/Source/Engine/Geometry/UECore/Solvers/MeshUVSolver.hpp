@@ -75,13 +75,13 @@ namespace Desert::Geometry
 
         /** OutUVs is indexed by vertex ID (size MaxVertexID). False if the factorization or the iteration failed.
          */
-        bool SolveUVs( TArray<glm::dvec2>& OutUVs );
+        bool SolveUVs( std::vector<glm::dvec2>& OutUVs );
 
     private:
         const FDynamicMesh3& Mesh;
         bool                 bPreserveIrregularity;
-        TArray<int32_t>      ToIndex;  // vertex ID -> compact index, InvalidID for gaps
-        TArray<int32_t>      ToVertex; // compact index -> vertex ID
-        TArray<int32_t>      Boundary; // compact indices, in insertion order, no duplicates
+        std::vector<int32_t> ToIndex;  // vertex ID -> compact index, InvalidID for gaps
+        std::vector<int32_t> ToVertex; // compact index -> vertex ID
+        std::vector<int32_t> Boundary; // compact indices, in insertion order, no duplicates
     };
 } // namespace Desert::Geometry

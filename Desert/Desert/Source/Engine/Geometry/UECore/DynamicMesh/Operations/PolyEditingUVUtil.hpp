@@ -11,5 +11,5 @@ namespace Desert::Geometry
      * neighbour triangles. False when the ExpMap reports a failure.
      */
     bool ComputeArbitraryTrianglePatchUVs( FDynamicMesh3& Mesh, FDynamicMeshUVOverlay& UVOverlay,
-                                           const TArray<int32_t>& TriangleSet );
+                                           const std::vector<int32_t>& TriangleSet );
 } // namespace Desert::Geometry

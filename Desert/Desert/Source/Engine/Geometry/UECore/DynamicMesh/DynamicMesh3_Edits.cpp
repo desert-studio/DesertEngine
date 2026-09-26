@@ -46,7 +46,7 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexNormals() )
         {
-            const TDynamicVector<glm::vec3>& FromNormals = from.VertexNormals.GetValue();
+            const TDynamicVector<glm::vec3>& FromNormals = from.VertexNormals.value();
             VertexNormals->InsertAt( FromNormals[fromVID], vid );
         }
         else
@@ -59,7 +59,7 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexColors() )
         {
-            const TDynamicVector<glm::vec3>& FromColors = from.VertexColors.GetValue();
+            const TDynamicVector<glm::vec3>& FromColors = from.VertexColors.value();
             VertexColors->InsertAt( FromColors[fromVID], vid );
         }
         else
@@ -72,7 +72,7 @@ int FDynamicMesh3::AppendVertex( const FDynamicMesh3& from, int fromVID )
     {
         if ( from.HasVertexUVs() )
         {
-            const TDynamicVector<glm::vec2>& FromUVs = from.VertexUVs.GetValue();
+            const TDynamicVector<glm::vec2>& FromUVs = from.VertexUVs.value();
             VertexUVs->InsertAt( FromUVs[fromVID], vid );
         }
         else
@@ -343,17 +343,17 @@ void FDynamicMesh3::CompactInPlace( FCompactMaps* CompactInfo )
         // const int kl = iLastV * 3;
         if ( HasVertexNormals() )
         {
-            TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
+            TDynamicVector<glm::vec3>& Normals = VertexNormals.value();
             Normals[iCurV]                     = Normals[iLastV];
         }
         if ( HasVertexColors() )
         {
-            TDynamicVector<glm::vec3>& Colors = VertexColors.GetValue();
+            TDynamicVector<glm::vec3>& Colors = VertexColors.value();
             Colors[iCurV]                     = Colors[iLastV];
         }
         if ( HasVertexUVs() )
         {
-            TDynamicVector<glm::vec2>& UVs = VertexUVs.GetValue();
+            TDynamicVector<glm::vec2>& UVs = VertexUVs.value();
             UVs[iCurV]                     = UVs[iLastV];
         }
 
@@ -437,7 +437,7 @@ void FDynamicMesh3::CompactInPlace( FCompactMaps* CompactInfo )
 
         if ( HasTriangleGroups() )
         {
-            TriangleGroups.GetValue()[iCurT] = TriangleGroups.GetValue()[iLastT];
+            TriangleGroups.value()[iCurT] = TriangleGroups.value()[iLastT];
         }
 
         // update edges
@@ -568,7 +568,7 @@ void FDynamicMesh3::ReverseOrientation( bool bFlipNormals )
     {
         for ( int vid : VertexIndicesItr() )
         {
-            TDynamicVector<glm::vec3>& Normals = VertexNormals.GetValue();
+            TDynamicVector<glm::vec3>& Normals = VertexNormals.value();
             Normals[vid]                       = -Normals[vid];
         }
     }
@@ -889,7 +889,7 @@ EMeshResult FDynamicMesh3::SplitEdge( int eab, FEdgeSplitInfo& SplitInfo, double
         int t2 = AddTriangleInternal( f, b, c, InvalidID, InvalidID, InvalidID );
         if ( HasTriangleGroups() )
         {
-            int group0 = TriangleGroups.GetValue()[t0];
+            int group0 = TriangleGroups.value()[t0];
             TriangleGroups->InsertAt( group0, t2 );
         }
 
@@ -973,9 +973,9 @@ EMeshResult FDynamicMesh3::SplitEdge( int eab, FEdgeSplitInfo& SplitInfo, double
         int t3 = AddTriangleInternal( f, d, b, InvalidID, InvalidID, InvalidID );
         if ( HasTriangleGroups() )
         {
-            int group0 = TriangleGroups.GetValue()[t0];
+            int group0 = TriangleGroups.value()[t0];
             TriangleGroups->InsertAt( group0, t2 );
-            int group1 = TriangleGroups.GetValue()[t1];
+            int group1 = TriangleGroups.value()[t1];
             TriangleGroups->InsertAt( group1, t3 );
         }
 
@@ -1147,7 +1147,7 @@ EMeshResult FDynamicMesh3::FlipEdge( int vA, int vB, FEdgeFlipInfo& FlipInfo )
     return FlipEdge( eid, FlipInfo );
 }
 
-EMeshResult FDynamicMesh3::SplitVertex( int VertexID, const TArrayView<const int>& TrianglesToUpdate,
+EMeshResult FDynamicMesh3::SplitVertex( int VertexID, const std::span<const int>& TrianglesToUpdate,
                                         FVertexSplitInfo& SplitInfo )
 {
     if ( !UE_ENSURE( IsVertex( VertexID ) ) )
@@ -1164,8 +1164,9 @@ EMeshResult FDynamicMesh3::SplitVertex( int VertexID, const TArrayView<const int
     {
         int  EdgeID       = TriEdges[SubIdx];
         int  OtherTri     = GetOtherEdgeTriangle( EdgeID, TriID );
-        bool bNewBoundary = OtherTri >= 0 && !TrianglesToUpdate.Contains(
-                                                  OtherTri ); // processing this edge will create a new boundary
+        bool bNewBoundary =
+             OtherTri >= 0 && !( std::find( TrianglesToUpdate.begin(), TrianglesToUpdate.end(), OtherTri ) !=
+                                 TrianglesToUpdate.end() ); // processing this edge will create a new boundary
         if ( bNewBoundary ) // there *is* a triangle across from this edge and we do need to separate from it
         {
             ReplaceEdgeTriangle( EdgeID, TriID,
@@ -1212,11 +1213,11 @@ EMeshResult FDynamicMesh3::SplitVertex( int VertexID, const TArrayView<const int
     return EMeshResult::Ok;
 }
 
-bool FDynamicMesh3::SplitVertexWouldLeaveIsolated( int VertexID, const TArrayView<const int>& TrianglesToUpdate )
+bool FDynamicMesh3::SplitVertexWouldLeaveIsolated( int VertexID, const std::span<const int>& TrianglesToUpdate )
 {
     for ( int TID : VtxTrianglesItr( VertexID ) )
     {
-        if ( !TrianglesToUpdate.Contains( TID ) )
+        if ( !( std::find( TrianglesToUpdate.begin(), TrianglesToUpdate.end(), TID ) != TrianglesToUpdate.end() ) )
         {
             return false; // at least one triangle will keep the old VertexID
         }
@@ -1994,7 +1995,7 @@ EMeshResult FDynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpola
 
         FDynamicMesh3::FLocalIntArray edges_v;
         GetVertexEdgesList( v1, edges_v );
-        int Nedges   = (int)edges_v.Num();
+        int Nedges   = static_cast<int32_t>( (int)edges_v.size() );
         int FoundNum = 0;
         // in this loop, we compare 'other' vert_1 and vert_2 of edges around v1.
         // problem case is when vert_1 == vert_2  (ie two edges w/ same other vtx).
@@ -2033,8 +2034,8 @@ EMeshResult FDynamicMesh3::MergeEdges( int eKeep, int eDiscard, double Interpola
                     }
                     else
                     {
-                        MergeInfo.BowtiesRemovedEdges.Add( edge_2 );
-                        MergeInfo.BowtiesKeptEdges.Add( edge_1 );
+                        MergeInfo.BowtiesRemovedEdges.push_back( edge_2 );
+                        MergeInfo.BowtiesKeptEdges.push_back( edge_1 );
                     }
 
                     FoundNum++; // exit outer i loop if we've found all possible merge edges
@@ -2081,9 +2082,9 @@ EMeshResult FDynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double In
         CollapseOptions.bAllowCollapsingInternalEdgeWithBoundaryVertices = true;
         CollapseOptions.bAllowHoleCollapse                               = true;
         CollapseOptions.bAllowTetrahedronCollapse                        = true;
-        MergeInfo.EdgeCollapseInfo.Emplace();
+        MergeInfo.EdgeCollapseInfo.emplace();
         return CollapseEdge( KeepVid, DiscardVid, InterpolationT, CollapseOptions,
-                             MergeInfo.EdgeCollapseInfo.GetValue() );
+                             MergeInfo.EdgeCollapseInfo.value() );
     }
 
     // See if we can resolve this as an edge weld
@@ -2106,9 +2107,9 @@ EMeshResult FDynamicMesh3::MergeVertices( int KeepVid, int DiscardVid, double In
                 }
                 // The MergeEdges operation will do the other neighbor checks for us
 
-                MergeInfo.MergeEdgesInfo.Emplace();
+                MergeInfo.MergeEdgesInfo.emplace();
                 return MergeEdges( KeepAdjacentEid, DiscardAdjacentEid, InterpolationT,
-                                   MergeInfo.MergeEdgesInfo.GetValue(), false );
+                                   MergeInfo.MergeEdgesInfo.value(), false );
             }
         } // end for each adjacent vid to KeepVid
     } // end V shape search
@@ -2225,7 +2226,7 @@ EMeshResult FDynamicMesh3::PokeTriangle( int TriangleID, const glm::dvec3& BaryC
     // transfer groups
     if ( HasTriangleGroups() )
     {
-        int g = TriangleGroups.GetValue()[TriangleID];
+        int g = TriangleGroups.value()[TriangleID];
         TriangleGroups->InsertAt( g, t1 );
         TriangleGroups->InsertAt( g, t2 );
     }

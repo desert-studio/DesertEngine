@@ -17,7 +17,7 @@ namespace Desert::Geometry::PolygonTriangulation
      * @return half the length of the unnormalized Newell normal, i.e. the projected area of the polygon
      */
     template <typename RealType>
-    RealType ComputePolygonPlane( const TArray<glm::vec<3, RealType>>& VertexPositions,
+    RealType ComputePolygonPlane( const std::vector<glm::vec<3, RealType>>& VertexPositions,
                                   glm::vec<3, RealType>& PlaneNormalOut, glm::vec<3, RealType>& PlanePointOut );
 
     /**
@@ -27,6 +27,6 @@ namespace Desert::Geometry::PolygonTriangulation
      *        hole-fill of a boundary loop must be
      */
     template <typename RealType>
-    void TriangulateSimplePolygon( const TArray<glm::vec<3, RealType>>& VertexPositions,
-                                   TArray<FIndex3i>& OutTriangles, bool bOrientAsHoleFill = true );
+    void TriangulateSimplePolygon( const std::vector<glm::vec<3, RealType>>& VertexPositions,
+                                   std::vector<FIndex3i>& OutTriangles, bool bOrientAsHoleFill = true );
 } // namespace Desert::Geometry::PolygonTriangulation

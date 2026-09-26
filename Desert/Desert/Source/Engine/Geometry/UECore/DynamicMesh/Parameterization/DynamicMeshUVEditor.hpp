@@ -15,7 +15,7 @@ namespace Desert::Geometry
 {
     struct FUVEditResult
     {
-        TArray<int32_t> NewUVElements;
+        std::vector<int32_t> NewUVElements;
     };
 
     class FDynamicMeshUVEditor
@@ -26,8 +26,8 @@ namespace Desert::Geometry
         {
         }
 
-        void ResetUVs( const TArray<int32_t>& Triangles );
-        void TransformUVElements( const TArray<int32_t>&                              ElementIDs,
+        void ResetUVs( const std::vector<int32_t>& Triangles );
+        void TransformUVElements( const std::vector<int32_t>&                         ElementIDs,
                                   const std::function<glm::vec2( const glm::vec2& )>& TransformFunc );
 
         /** Frame at the vertex farthest (Dijkstra) from the longest boundary loop; false without a boundary. */
@@ -38,30 +38,30 @@ namespace Desert::Geometry
          * New UV island for the (connected) Triangles from one discrete exponential map centred at
          * EstimateGeodesicCenterFrameVertex. False if the frame was a fallback or any triangle stayed unset.
          */
-        bool SetTriangleUVsFromExpMap( const TArray<int32_t>& Triangles, FUVEditResult* Result = nullptr );
+        bool SetTriangleUVsFromExpMap( const std::vector<int32_t>& Triangles, FUVEditResult* Result = nullptr );
 
         /**
          * Spectral conformal UVs with a free boundary (nothing pinned; the longest boundary loop is the free set).
          * bUseExistingUVTopology keeps the triangles' current UV elements and only moves them (triangles without
          * UVs are skipped); otherwise a new island is made. False without a boundary or if the solve failed.
          */
-        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const TArray<int32_t>& Triangles,
-                                                              bool                   bUseExistingUVTopology,
-                                                              bool                   bPreserveIrregularity,
-                                                              FUVEditResult*         Result = nullptr );
+        bool SetTriangleUVsFromFreeBoundarySpectralConformal( const std::vector<int32_t>& Triangles,
+                                                              bool                        bUseExistingUVTopology,
+                                                              bool                        bPreserveIrregularity,
+                                                              FUVEditResult*              Result = nullptr );
 
         /**
          * One UV element per mesh vertex, set on every triangle (existing elements are cleared). VertexToUVOut
          * maps vertex ID -> element ID; bIsIdentityMapOut is true when the two coincide.
          */
-        void SetToPerVertexUVs( TArray<int32_t>& VertexToUVOut, bool& bIsIdentityMapOut );
+        void SetToPerVertexUVs( std::vector<int32_t>& VertexToUVOut, bool& bIsIdentityMapOut );
 
         /**
          * Scale the Triangles' UVs uniformly about their UV bounding-box centre so their UV area is ScaleFactor^2
          * times their 3D area; bRecenterAtOrigin puts that centre at the origin. False on a zero or non-finite
          * area.
          */
-        bool ScaleUVAreaTo3DArea( const TArray<int32_t>& Triangles, bool bRecenterAtOrigin,
+        bool ScaleUVAreaTo3DArea( const std::vector<int32_t>& Triangles, bool bRecenterAtOrigin,
                                   float ScaleFactor = 1.0f );
 
     private:

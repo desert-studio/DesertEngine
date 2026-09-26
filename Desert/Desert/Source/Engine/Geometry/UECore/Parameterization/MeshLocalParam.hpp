@@ -7,6 +7,7 @@
 #pragma once
 
 #include "Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp"
+#include "Engine/Geometry/UECore/MapLookup.hpp"
 #include "Engine/Geometry/UECore/FrameTypes.hpp"
 #include "Engine/Geometry/UECore/IndexPriorityQueue.hpp"
 
@@ -44,12 +45,12 @@ namespace Desert::Geometry
         }
         [[nodiscard]] bool HasUV( int32_t PointID ) const
         {
-            const int32_t* Found = IDToNodeIndexMap.Find( PointID );
+            const int32_t* Found = FindValue( IDToNodeIndexMap, PointID );
             return Found != nullptr && AllocatedNodes[*Found].bFrozen;
         }
         [[nodiscard]] glm::dvec2 GetUV( int32_t PointID ) const
         {
-            const int32_t* Found = IDToNodeIndexMap.Find( PointID );
+            const int32_t* Found = FindValue( IDToNodeIndexMap, PointID );
             return ( Found != nullptr && AllocatedNodes[*Found].bFrozen )
                         ? AllocatedNodes[*Found].UV
                         : glm::dvec2( std::numeric_limits<double>::max(), std::numeric_limits<double>::max() );
@@ -66,8 +67,8 @@ namespace Desert::Geometry
             glm::dvec3 CachedNormal{};
         };
         const PointSetType* PointSet;
-        TMap<int32_t, int32_t> IDToNodeIndexMap;
-        TArray<FGraphNode>  AllocatedNodes;
+        std::unordered_map<int32_t, int32_t> IDToNodeIndexMap;
+        std::vector<FGraphNode>              AllocatedNodes;
         FIndexPriorityQueue Queue;
         FFrame3d            SeedFrame;
         double              MaxGraphDistance = 0.0;
@@ -142,7 +143,7 @@ namespace Desert::Geometry
         }
         void UpdateUVExpmap( FGraphNode& Node )
         {
-            const FGraphNode& Parent = AllocatedNodes[*IDToNodeIndexMap.Find( Node.ParentPointID )];
+            const FGraphNode& Parent = AllocatedNodes[IDToNodeIndexMap.at( Node.ParentPointID )];
             Node.UV = PropagateUV( GetPosition( Node.PointID ), Parent.UV, GetFrame( Parent ), SeedFrame );
         }
         void UpdateUVExpmapUpwind( FGraphNode& Node )
@@ -152,7 +153,7 @@ namespace Desert::Geometry
             double          WeightSum = 0;
             for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( Node.PointID ) )
             {
-                const int32_t* Found = IDToNodeIndexMap.Find( NbrPointID );
+                const int32_t* Found = FindValue( IDToNodeIndexMap, NbrPointID );
                 if ( Found == nullptr || !AllocatedNodes[*Found].bFrozen )
                     continue;
                 const FFrame3d  NbrFrame = GetFrame( AllocatedNodes[*Found] );
@@ -167,13 +168,14 @@ namespace Desert::Geometry
         }
         int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
-            if ( const int32_t* Found = IDToNodeIndexMap.Find( PointSetID ) )
+            if ( const int32_t* Found = FindValue( IDToNodeIndexMap, PointSetID ) )
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            const int32_t NewIndex = AllocatedNodes.Add(
+            AllocatedNodes.push_back(
                  FGraphNode{ PointSetID, -1, 0.0, glm::dvec2( 0 ), false, GetNormal( PointSetID ) } );
-            IDToNodeIndexMap.Add( PointSetID, NewIndex );
+            const int32_t NewIndex = static_cast<int32_t>( AllocatedNodes.size() ) - 1;
+            IDToNodeIndexMap.insert_or_assign( PointSetID, NewIndex );
             return NewIndex;
         }
         void UpdateNeighboursSparse( int32_t ParentIndex )

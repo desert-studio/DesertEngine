@@ -32,7 +32,7 @@ namespace Desert::Geometry
         };
 
         FDynamicMesh3* Mesh;
-        TArray<int32_t> Triangles;
+        std::vector<int32_t> Triangles;
 
         std::function<glm::dvec3( const glm::dvec3& Position, const glm::dvec3& VertexVector, int Vid )>
              OffsetPositionFunc = [this]( const glm::dvec3& Position, const glm::dvec3& VertexVector, int )
@@ -53,16 +53,16 @@ namespace Desert::Geometry
 
         struct FOffsetInfo
         {
-            TArray<int32_t>         OffsetTids;
-            TArray<int32_t>         OffsetGroups;
+            std::vector<int32_t>              OffsetTids;
+            std::vector<int32_t>              OffsetGroups;
             bool                  bIsSolid = false;
-            TArray<FEdgeLoop>     BaseLoops;
-            TArray<FEdgeLoop>     OffsetLoops;
-            TArray<TArray<int32_t>> StitchTriangles;
-            TArray<TArray<int32_t>> StitchPolygonIDs;
+            std::vector<FEdgeLoop>            BaseLoops;
+            std::vector<FEdgeLoop>            OffsetLoops;
+            std::vector<std::vector<int32_t>> StitchTriangles;
+            std::vector<std::vector<int32_t>> StitchPolygonIDs;
         };
-        TArray<FOffsetInfo> OffsetRegions;
-        TArray<int32_t>     AllModifiedAndNewTriangles;
+        std::vector<FOffsetInfo> OffsetRegions;
+        std::vector<int32_t>     AllModifiedAndNewTriangles;
         // Why Apply returned false, naming the region and the step. Empty on success.
         std::string FailureReason;
 
@@ -80,11 +80,12 @@ namespace Desert::Geometry
     };
 
     // The connected components of @p Triangles (edge adjacency), each in ascending order.
-    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
-                                          TArray<TArray<int32_t>>& ComponentsOut );
+    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const std::vector<int32_t>& Triangles,
+                                          std::vector<std::vector<int32_t>>& ComponentsOut );
     // UE ComputeNewGroupIDsAlongEdgeLoop (PolyEditingEdgeUtil.cpp:108).
     void
-    ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const TArray<int32_t>& LoopEdgeIDs,
-                                     TArray<int32_t>& NewLoopEdgeGroupIDs, TArray<int32_t>& NewGroupIDsOut,
+    ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const std::vector<int32_t>& LoopEdgeIDs,
+                                     std::vector<int32_t>&                          NewLoopEdgeGroupIDs,
+                                     std::vector<int32_t>&                          NewGroupIDsOut,
                                      const std::function<bool( int32_t, int32_t )>& EdgesShouldHaveSameGroupFunc );
 } // namespace Desert::Geometry
