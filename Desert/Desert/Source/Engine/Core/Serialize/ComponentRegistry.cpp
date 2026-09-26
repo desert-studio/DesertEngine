@@ -143,19 +143,19 @@ namespace Desert::Core::Serialize
         {
             const Common::Content::AssetGuid guid = Assets::ReadTextHeaderGuid( path );
             if ( guid.IsNull() )
-                return Common::MakeError<Assets::AssetGuidRef>(
-                     std::format( "scene '{}' states no header GUID to name it by (missing, or no header)", path ) );
-            return Common::MakeSuccess( Assets::AssetGuidRef{
-                 Common::Content::AssetGuidToText( guid ),
-                 Common::AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) } );
+                return Common::MakeError<Assets::AssetGuidRef>( std::format(
+                     "scene '{}' states no header GUID to name it by (missing, or no header)", path ) );
+            return Common::MakeSuccess(
+                 Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid ),
+                                       Common::AssetHandle::StableKeyForPath( std::filesystem::path( path ) ) } );
         }
 
         // BY GUID through the content registry, which indexes scenes by their header GUID (AF6f): a scene
         // moved or renamed keeps its GUID, so `Path` is only named in the error and never looked up.
         Common::ResultStr<std::string> ScenePathForRef( const rfl::Generic& block )
         {
-            const auto  fields = block.to_object();
-            const auto  text   = [&]( const char* key ) -> std::string
+            const auto fields = block.to_object();
+            const auto text   = [&]( const char* key ) -> std::string
             {
                 if ( !fields.has_value() )
                     return {};
@@ -1604,8 +1604,8 @@ namespace Desert::Core::Serialize
             s.Serialize = [reflected = s.Serialize]( ECS::Entity                 entity,
                                                      const Assets::AssetManager& assetManager ) -> rfl::Generic
             {
-                const auto  block = reflected( entity, assetManager ).to_object();
-                const auto& path  = entity.GetComponent<ECS::UIRenderTextureComponent>().Data.ScenePath;
+                const auto           block = reflected( entity, assetManager ).to_object();
+                const auto&          path  = entity.GetComponent<ECS::UIRenderTextureComponent>().Data.ScenePath;
                 rfl::Generic::Object out;
                 if ( !path.empty() )
                 {
@@ -1640,8 +1640,8 @@ namespace Desert::Core::Serialize
                         rest[key] = value;
                 reflected( entity, rfl::Generic( rest ), assetManager );
 
-                auto& data     = entity.GetComponent<ECS::UIRenderTextureComponent>().Data;
-                data.ScenePath = {};
+                auto& data       = entity.GetComponent<ECS::UIRenderTextureComponent>().Data;
+                data.ScenePath   = {};
                 const auto scene = block.value().get( "Scene" );
                 if ( !scene.has_value() )
                     return; // no scene, which the element draws as the magenta error fill

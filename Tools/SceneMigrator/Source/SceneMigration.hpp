@@ -1503,7 +1503,7 @@ namespace Desert::Migration
     // counts the names now stated by GUID, UnknownNames non-empty REFUSES the file. IDEMPOTENT: a block with
     // no `ShaderName` is left as it is. SHELF LIFE: deleted once no v30 file remains.
     TextureGuidsMigrationReport MigrateShaderSceneGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
-                                                            const std::filesystem::path&     assetsRoot );
+                                                                 const std::filesystem::path&     assetsRoot );
 
     struct TextureAssetRefsMigrationReport
     {

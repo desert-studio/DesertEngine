@@ -1,7 +1,7 @@
 // SCNE 31 (T7i): a MaterialComponent stops naming its shader by file stem (`"ShaderName": "MatProbe"`) and states
 // `"Shader": {"Guid": <the .shader header GUID>, "Path": "engine:Shaders/<relative>"}`, the form MATL 4 gave the
-// `.demat` (MigrateShaderSceneGuidsV30ToV31). An empty name becomes no key; a stem no `.shader` carries REFUSES the
-// file, naming the entity; a second run changes nothing.
+// `.demat` (MigrateShaderSceneGuidsV30ToV31). An empty name becomes no key; a stem no `.shader` carries REFUSES
+// the file, naming the entity; a second run changes nothing.
 
 #include <SceneMigration.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -186,7 +186,7 @@ TEST( SceneShaderGuidMigration, TheSceneStepRunTwiceChangesNothing )
 {
     const SceneProject project( "scene_twice" );
     auto               scene = Parse( V30RenderTextureScene( "Resources/Assets/Scenes/World.desce" ) );
-    const auto first = Migration::MigrateShaderSceneGuidsV30ToV31( scene.Entities, project.AssetsRoot );
+    const auto         first = Migration::MigrateShaderSceneGuidsV30ToV31( scene.Entities, project.AssetsRoot );
     ASSERT_TRUE( first.UnknownNames.empty() );
     EXPECT_EQ( first.Rewritten, 2 );
     const std::string once  = rfl::json::write( scene );

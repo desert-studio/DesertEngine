@@ -4035,9 +4035,10 @@ namespace Desert::Migration
                     std::string names;
                     for ( const auto& unknown : report.ShaderSceneGuids.UnknownNames )
                         names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused =
-                         "'" + name + "': " + std::to_string( report.ShaderSceneGuids.UnknownNames.size() ) +
-                         " shader/scene reference(s) cannot be raised to a header GUID: " + names + ". Nothing was written.";
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.ShaderSceneGuids.UnknownNames.size() ) +
+                                     " shader/scene reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
                     return;
                 }
             }
@@ -4090,9 +4091,9 @@ namespace Desert::Migration
             const std::string source( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
             const auto        header = Common::Content::ReadShaderHeader( source );
             if ( !header )
-                return Common::MakeError<Assets::AssetGuidRef>( "names '" + hits.front().generic_string() +
-                                                                "', whose header does not parse: " +
-                                                                header.GetError() );
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     "names '" + hits.front().generic_string() +
+                     "', whose header does not parse: " + header.GetError() );
             const auto guid = Common::Content::AssetGuidFromText( header.GetValue().Guid );
             if ( !guid || guid.GetValue().IsNull() )
                 return Common::MakeError<Assets::AssetGuidRef>( "names '" + hits.front().generic_string() +
@@ -4162,12 +4163,12 @@ namespace Desert::Migration
                                                                 "' cannot be opened)" );
             const auto object = Common::Content::ReadTextHeaderObject( in );
             if ( !object )
-                return Common::MakeError<Assets::AssetGuidRef>( "names '" + file.generic_string() +
-                                                                "', whose header does not read: " + object.GetError() );
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     "names '" + file.generic_string() + "', whose header does not read: " + object.GetError() );
             const auto header = Common::Content::ParseTextHeaderObject( object.GetValue() );
             if ( !header )
-                return Common::MakeError<Assets::AssetGuidRef>( "names '" + file.generic_string() +
-                                                                "', whose header does not parse: " + header.GetError() );
+                return Common::MakeError<Assets::AssetGuidRef>(
+                     "names '" + file.generic_string() + "', whose header does not parse: " + header.GetError() );
             if ( header.GetValue().Kind != "Scene" )
                 return Common::MakeError<Assets::AssetGuidRef>( "names '" + file.generic_string() +
                                                                 "', which is a " + header.GetValue().Kind +
@@ -4176,8 +4177,8 @@ namespace Desert::Migration
             if ( !guid || guid.GetValue().IsNull() )
                 return Common::MakeError<Assets::AssetGuidRef>( "names '" + file.generic_string() +
                                                                 "', which states no header GUID" );
-            return Common::MakeSuccess(
-                 Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ), "assets:" + relative } );
+            return Common::MakeSuccess( Assets::AssetGuidRef{ Common::Content::AssetGuidToText( guid.GetValue() ),
+                                                              "assets:" + relative } );
         }
 
         void RaiseSceneGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
@@ -4223,7 +4224,7 @@ namespace Desert::Migration
     } // namespace
 
     TextureGuidsMigrationReport MigrateShaderSceneGuidsV30ToV31( std::vector<Assets::EntityData>& entities,
-                                                            const std::filesystem::path&     assetsRoot )
+                                                                 const std::filesystem::path&     assetsRoot )
     {
         TextureGuidsMigrationReport report;
         for ( auto& entity : entities )
