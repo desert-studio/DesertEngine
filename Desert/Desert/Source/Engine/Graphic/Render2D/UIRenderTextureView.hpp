@@ -24,7 +24,7 @@ namespace Desert::Graphic::Render2D
      * the last byte, as the Details preview may. Header-only so Tests/Engine/UIRenderTexture pins it.
      */
     [[nodiscard]] constexpr UIRenderTextureViewRequest RequestUIRenderTextureView( const uint32_t width,
-                                                                                    const uint32_t height ) noexcept
+                                                                                   const uint32_t height ) noexcept
     {
         return { Engine::ViewBudget::Demand::UserSurface, kPreviewViewProfile, ViewExtent{ width, height } };
     }

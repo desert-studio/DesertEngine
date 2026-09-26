@@ -1342,7 +1342,8 @@ namespace Desert::Graphic
         if ( m_TargetFramebuffer )
         {
             const ViewExtent requested{ width, height };
-            if ( const auto may = MayResizeView( m_ViewResources.GetName(), m_ViewProfile, m_ViewExtent, requested );
+            if ( const auto may =
+                      MayResizeView( m_ViewResources.GetName(), m_ViewProfile, m_ViewExtent, requested );
                  !may )
             {
                 if ( !( m_RefusedResize == requested ) )
