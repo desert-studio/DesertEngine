@@ -2,6 +2,7 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 
@@ -25,16 +26,6 @@ namespace Desert::Editor
         constexpr float kMinZoom       = 1.0f / 64.0f;
         constexpr float kMaxZoom       = 64.0f;
         constexpr float kWheelZoomStep = 1.15f;
-
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets != nullptr )
-            {
-                if ( const auto* meta = assets->FindMetadataByHandle( subject ) )
-                    return meta->Filepath.filename().string();
-            }
-            return "Texture";
-        }
 
         // Exhaustive on purpose (no default): a format added to the enum is a -Wswitch warning here rather
         // than a viewer that silently prints "?" for it.
@@ -76,7 +67,7 @@ namespace Desert::Editor
 
     TextureViewerDocument::TextureViewerDocument( const Assets::AssetHandle& subject,
                                                   Assets::AssetManager*      assets )
-         : ISubjectDocument( SubjectTitle( subject, assets ),
+         : ISubjectDocument( AssetSubjectTitle( subject, assets, "Texture" ),
                              AssetSubject( subject, static_cast<uint32_t>( Assets::AssetTypeID::Texture2D ) ) ),
            m_Assets( assets )
     {

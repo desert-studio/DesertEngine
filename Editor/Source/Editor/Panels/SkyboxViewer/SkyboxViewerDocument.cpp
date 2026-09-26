@@ -2,6 +2,7 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -32,16 +33,6 @@ namespace Desert::Editor
         constexpr float kMidSkyPitchDegrees  = -35.0f;
         constexpr float kHorizonPitchDegrees = 0.0f;
 
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets != nullptr )
-            {
-                if ( const auto* meta = assets->FindMetadataByHandle( subject ) )
-                    return meta->Filepath.filename().string();
-            }
-            return "Skybox";
-        }
-
         // The cache's cube a picker entry reads. All three come from the one bake (EnvironmentBake.hpp).
         const Runtime::ImageHandle& EnvironmentCube( const Graphic::Environment& environment,
                                                      SkyboxView::Cube            cube )
@@ -70,7 +61,7 @@ namespace Desert::Editor
     } // namespace
 
     SkyboxViewerDocument::SkyboxViewerDocument( const Assets::AssetHandle& skybox, Assets::AssetManager* assets )
-         : SkyboxViewerBase( SubjectTitle( skybox, assets ), skybox ), m_Assets( assets )
+         : SkyboxViewerBase( AssetSubjectTitle( skybox, assets, "Skybox" ), skybox ), m_Assets( assets )
     {
     }
 

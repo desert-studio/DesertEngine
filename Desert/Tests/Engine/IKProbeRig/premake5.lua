@@ -45,7 +45,11 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TimeModel.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/TwoBoneIKControl.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Core/Timestep.cpp",
+        -- Common/Core/Timestep.cpp IS NOT LISTED, unlike in AnimatorBlending and BoneControlContract:
+        -- this suite LINKS Common (below), so Timestep is already in Common.lib, and compiling it here
+        -- too gives the linker two definitions. Nothing said so until the Windows unity build, where
+        -- Timestep shares its object file with Common symbols this suite does need, so the archive
+        -- member gets pulled in beside the local copy (run 36260237438, LNK2005 -> LNK1169).
         -- The cooked-mesh container the fixtures are written in (B11).
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
     }

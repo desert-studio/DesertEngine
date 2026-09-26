@@ -2,6 +2,7 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
+#include <Editor/Core/SubjectTitle.hpp>
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
@@ -22,22 +23,9 @@
 
 namespace Desert::Editor
 {
-    namespace
-    {
-        std::string SubjectTitle( const Assets::AssetHandle& subject, Assets::AssetManager* assets )
-        {
-            if ( assets != nullptr )
-            {
-                if ( const auto* meta = assets->FindMetadataByHandle( subject ) )
-                    return meta->Filepath.filename().string();
-            }
-            return "Static Mesh";
-        }
-    } // namespace
-
     StaticMeshViewerDocument::StaticMeshViewerDocument( const Assets::AssetHandle& mesh,
                                                         Assets::AssetManager*      assets )
-         : StaticMeshViewerBase( SubjectTitle( mesh, assets ), mesh ), m_Assets( assets )
+         : StaticMeshViewerBase( AssetSubjectTitle( mesh, assets, "Static Mesh" ), mesh ), m_Assets( assets )
     {
     }
 
