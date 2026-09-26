@@ -110,7 +110,7 @@ namespace Desert::Graphic::API::Vulkan
              frameIndex,
              [this]( std::string_view /*viewName*/, uint32_t /*frame*/,
                      std::unique_ptr<IViewDescriptorSetCopy>& out )
-             { return AllocateViewSets( RawHandles( m_Layouts ), m_VulkanShader->GetName(), out ); },
+             { return AllocateViewSets( m_Layouts, m_VulkanShader->GetName(), out ); },
              [this]( const uint32_t frame ) { WriteFallbacks( frame ); }, sets );
         if ( !made.IsSuccess() )
         {

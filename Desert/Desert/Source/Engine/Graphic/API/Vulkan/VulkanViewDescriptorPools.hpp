@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDescriptorSetLayout.hpp>
 #include <Engine/Graphic/ViewDescriptorSets.hpp>
 
 #include <vulkan/vulkan.h>
@@ -18,7 +19,8 @@ namespace Desert::Graphic::API::Vulkan
     class ViewPoolBlock
     {
     public:
-        explicit ViewPoolBlock( VkDescriptorPool pool ) : m_Pool( pool )
+        ViewPoolBlock( VkDescriptorPool pool, DescriptorBudget budget )
+             : m_Pool( pool ), m_Budget( std::move( budget ) )
         {
         }
         ~ViewPoolBlock();
@@ -33,8 +35,16 @@ namespace Desert::Graphic::API::Vulkan
             return m_Pool;
         }
 
+        /// What is left of the sizes this pool was created with. The chain reserves out of it before it asks
+        /// the driver for anything, so a full block is never allocated from -- see DescriptorBudget.
+        [[nodiscard]] DescriptorBudget& Budget() noexcept
+        {
+            return m_Budget;
+        }
+
     private:
         VkDescriptorPool m_Pool = VK_NULL_HANDLE;
+        DescriptorBudget m_Budget;
     };
 
     /**
@@ -68,10 +78,24 @@ namespace Desert::Graphic::API::Vulkan
     };
 
     /**
+     * @brief What allocating one set per layout costs a pool: the set count and the descriptors by type, read
+     * off the layouts' own bindings.
+     *
+     * FROM THE LAYOUTS, NOT FROM THE SHADER'S CURRENT REFLECTION, for the reason
+     * VulkanDescriptorSetLayout::Bindings() was kept in the first place: after a recompile the two describe
+     * different shaders, and a pool sized against the wrong one is short by exactly the bindings that changed.
+     */
+    [[nodiscard]] Graphic::DescriptorRequest
+    DescriptorCostOf( const std::vector<DescriptorSetLayoutRef>& layouts );
+
+    /**
      * @brief Allocates one set per layout from the ACTIVE view's pool chain (made on first use and kept in
      * the view, so it closes with it). @p shaderName only names a failure.
+     *
+     * TAKES THE LAYOUT REFS, NOT THE RAW HANDLES: the block a set comes from is chosen by counting what the
+     * set will consume, and only the layout knows its own bindings. A handle answers nothing about its cost.
      */
-    [[nodiscard]] Common::BoolResultStr AllocateViewSets( const std::vector<VkDescriptorSetLayout>& layouts,
-                                                          std::string_view                          shaderName,
-                                                          std::unique_ptr<IViewDescriptorSetCopy>&  out );
+    [[nodiscard]] Common::BoolResultStr AllocateViewSets( const std::vector<DescriptorSetLayoutRef>& layouts,
+                                                          std::string_view                           shaderName,
+                                                          std::unique_ptr<IViewDescriptorSetCopy>&   out );
 } // namespace Desert::Graphic::API::Vulkan

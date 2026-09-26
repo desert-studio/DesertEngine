@@ -133,6 +133,68 @@ TEST( ViewMemory, AViewportSizedViewHoldsTargetsAtTheViewportSize )
     EXPECT_TRUE( sawFull );
 }
 
+// ---- WHAT SIZE A VIEW MAY BE BUILT AT (RT1i) ----
+//
+// The crash this pins: minimising the editor on Windows produced VK_ERROR_INITIALIZATION_FAILED out of
+// vmaCreateImage and a __debugbreak inside VK_CHECK_RESULT. Every unusable size below reached the allocator
+// because SceneRenderer::Resize tested `width == 0 && height == 0` -- an AND, so a panel collapsed on one
+// axis and a panel handing out a negative ImGui float both went straight through.
+
+// A collapsed dock panel is zero on ONE side, which is exactly what the old `&&` let through.
+TEST( ViewExtentRule, ZeroOnEitherSideIsNotBuildable )
+{
+    using namespace Desert::Graphic;
+    EXPECT_FALSE( IsUsableViewExtent( 0, 0 ) ) << "a minimised window";
+    EXPECT_FALSE( IsUsableViewExtent( 1280, 0 ) ) << "a panel collapsed vertically";
+    EXPECT_FALSE( IsUsableViewExtent( 0, 720 ) ) << "a panel collapsed horizontally";
+    EXPECT_TRUE( IsUsableViewExtent( 1, 1 ) ) << "one pixel is small, not unusable";
+    EXPECT_TRUE( IsUsableViewExtent( 1280, 720 ) );
+}
+
+// ImGui reports a NEGATIVE float size for a panel being dragged shut; the cast to uint32_t makes it enormous,
+// and an enormous image is refused by the allocator exactly like a zero-pixel one.
+TEST( ViewExtentRule, AnAbsurdSizeFromANegativeImGuiFloatIsNotBuildable )
+{
+    using namespace Desert::Graphic;
+    // Written as the NUMBERS the engine's own cast produces rather than as the cast itself: converting a
+    // negative float to an unsigned integer is undefined behaviour, so a test that performed it would be
+    // asking the compiler what the defect looks like instead of stating it.
+    constexpr uint32_t kFromNegativeOne   = 4294967295U; // (uint32_t)-1.0f
+    constexpr uint32_t kFromNegativeEight = 4294967288U; // (uint32_t)-8.0f
+    EXPECT_FALSE( IsUsableViewExtent( kFromNegativeOne, 720 ) );
+    EXPECT_FALSE( IsUsableViewExtent( 1280, kFromNegativeEight ) );
+    EXPECT_FALSE( IsUsableViewExtent( kMaxViewExtentSide + 1, kMaxViewExtentSide ) );
+    EXPECT_TRUE( IsUsableViewExtent( kMaxViewExtentSide, kMaxViewExtentSide ) ) << "the bound itself is usable";
+}
+
+// The swapchain's own rule: the SURFACE decides, which is why rebuilding at the window's last known size
+// still ends up 0x0 while the window is minimised.
+TEST( ViewExtentRule, AMinimisedSurfaceOverridesWhateverSizeWasAskedFor )
+{
+    using namespace Desert::Graphic;
+    constexpr ViewExtent lastKnownGood{ 1600, 900 };
+    const ViewExtent     minimised = ResolveSurfaceExtent( ViewExtent{ 0, 0 }, lastKnownGood );
+    EXPECT_EQ( minimised.Width, 0U );
+    EXPECT_EQ( minimised.Height, 0U );
+    EXPECT_FALSE( IsUsableViewExtent( minimised ) ) << "the rebuild must be skipped, not attempted at 0x0";
+
+    const ViewExtent restored = ResolveSurfaceExtent( ViewExtent{ 1280, 720 }, lastKnownGood );
+    EXPECT_EQ( restored.Width, 1280U ) << "the surface's extent wins over the requested one";
+    EXPECT_EQ( restored.Height, 720U );
+    EXPECT_TRUE( IsUsableViewExtent( restored ) );
+}
+
+// The one case where the surface genuinely defers to the caller (0xFFFFFFFF on both sides).
+TEST( ViewExtentRule, ASurfaceWithNoExtentOfItsOwnTakesTheRequestedOne )
+{
+    using namespace Desert::Graphic;
+    const ViewExtent resolved = ResolveSurfaceExtent(
+         ViewExtent{ kSurfaceExtentUndefined, kSurfaceExtentUndefined }, ViewExtent{ 1024, 768 } );
+    EXPECT_EQ( resolved.Width, 1024U );
+    EXPECT_EQ( resolved.Height, 768U );
+    EXPECT_TRUE( IsUsableViewExtent( resolved ) );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );

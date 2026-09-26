@@ -9,6 +9,7 @@
 
 #include <Engine/Graphic/SwapChain.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
+#include <Engine/Graphic/ViewMemory.hpp>
 
 #include <memory>
 #include <vector>
@@ -156,6 +157,9 @@ namespace Desert::Graphic::API::Vulkan
         // were simply missed, and nothing but the attribute would have said so.
         // OnResize without the log: the acquire path needs to know whether the rebuild happened.
         [[nodiscard]] Common::ResultStr<bool> Rebuild( uint32_t width, uint32_t height );
+        /// Whether the surface has area a swapchain image can be created at RIGHT NOW. A minimised window
+        /// reports 0x0 on Windows, and every object the rebuild makes is sized from that extent.
+        [[nodiscard]] bool HasDrawableSurfaceArea( const Graphic::ViewExtent& requested ) const;
         [[nodiscard]] Common::ResultStr<Graphic::AcquireStatus>
         AcquireNextImage( VkSemaphore presentCompleteSemaphore, uint32_t* imageIndex );
         [[nodiscard]] Common::ResultStr<VkResult> CreateSwapChainRenderPass();

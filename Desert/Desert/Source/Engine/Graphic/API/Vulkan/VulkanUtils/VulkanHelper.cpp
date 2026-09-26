@@ -24,6 +24,14 @@ namespace Desert::Graphic::API::Vulkan
             case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
             case VK_ERROR_TOO_MANY_OBJECTS:  return "VK_ERROR_TOO_MANY_OBJECTS";
             case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+            // BOTH ANSWER A FULL DESCRIPTOR POOL, and both used to print as "Unknown VkResult" -- which is
+            // what a reader saw in place of the one fact that explains the whole failure. The pool chain
+            // tests for these two by value (VulkanViewDescriptorPools), so a log line that cannot name them
+            // hides the branch the code is actually taking.
+            case VK_ERROR_OUT_OF_POOL_MEMORY:
+                return "VK_ERROR_OUT_OF_POOL_MEMORY";
+            case VK_ERROR_FRAGMENTED_POOL:
+                return "VK_ERROR_FRAGMENTED_POOL";
             default:                        return "Unknown VkResult";
         }
     }
