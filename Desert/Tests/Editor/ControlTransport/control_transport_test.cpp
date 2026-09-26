@@ -359,7 +359,7 @@ TEST( ControlTransport, ASecondSimultaneousClientIsRefusedInWords )
 
     const std::string refusal = intruder.ReadLine();
     EXPECT_FALSE( refusal.empty() ) << "a refused client must be told, not left waiting";
-    EXPECT_NE( refusal.find( "\"ok\":false" ), std::string::npos );
+    EXPECT_NE( refusal.find( R"("ok":false)" ), std::string::npos );
     EXPECT_NE( refusal.find( "another client" ), std::string::npos );
 
     socket.Close();

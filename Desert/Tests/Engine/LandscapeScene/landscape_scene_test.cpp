@@ -25,8 +25,6 @@
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -140,7 +138,7 @@ namespace
         root.id                      = Common::UUID( kRootId );
         root.Tag                     = "Landscape";
         root.Translation             = glm::vec3( 0.0f );
-        root.Components["Landscape"] = rfl::Generic( WriteComponent( scene.Root ) );
+        root.Components["Landscape"] = Common::Json::Value( WriteComponent( scene.Root ) );
         file.Entities.push_back( root );
 
         for ( TileEntity& entity : scene.Tiles )
@@ -154,12 +152,12 @@ namespace
             EntityData tile;
             tile.id                          = Common::UUID( entity.Id );
             tile.Tag                         = "LandscapeTile";
-            tile.Components["LandscapeTile"] = rfl::Generic( WriteComponent( entity.Tile ) );
+            tile.Components["LandscapeTile"] = Common::Json::Value( WriteComponent( entity.Tile ) );
             file.Entities.push_back( tile );
         }
 
         std::ofstream out( scenePath, std::ios::binary | std::ios::trunc );
-        out << rfl::json::write( file );
+        out << Common::Json::Write( file );
     }
 
     // LOAD, from the text and the bytes: the blocks through the component readers, then each tile's file,
@@ -167,13 +165,13 @@ namespace
     LandscapeScene Load( const fs::path& scenePath )
     {
         LandscapeScene scene;
-        const auto     parsed = rfl::json::read<SceneSerialized>( ReadText( scenePath ) );
-        EXPECT_TRUE( parsed.has_value() ) << scenePath;
-        if ( !parsed.has_value() )
+        const auto     parsed = Common::Json::Read<SceneSerialized>( ReadText( scenePath ) );
+        EXPECT_TRUE( parsed.IsSuccess() ) << scenePath;
+        if ( !parsed.IsSuccess() )
             return scene;
 
         Common::Json::Issues issues;
-        for ( const EntityData& record : parsed->Entities )
+        for ( const EntityData& record : parsed.GetValue().Entities )
         {
             if ( const auto block = record.Components.get( "Landscape" ); block.has_value() )
                 ReadComponent( Common::Json::Root( block.value() ), scene.Root, issues );

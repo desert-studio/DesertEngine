@@ -80,14 +80,14 @@ TEST( ThumbnailFreshness, SameBytesAreShown_WhateverTheClockSays )
     const TempDir  dir;
     const fs::path source = dir.Root / "M_Red.demat";
     const fs::path png    = dir.Root / "assets_Materials_M_Red.png";
-    WriteFile( source, "{ \"AlbedoColor\": [1, 0, 0, 1] }" );
+    WriteFile( source, R"({ "AlbedoColor": [1, 0, 0, 1] })" );
     Capture( png, source );
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show );
 
     fs::last_write_time( source, fs::last_write_time( png ) + std::chrono::hours( 1 ) );
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "a newer modtime alone re-captured";
 
-    WriteFile( source, "{ \"AlbedoColor\": [1, 0, 0, 1] }" ); // re-saved unchanged
+    WriteFile( source, R"({ "AlbedoColor": [1, 0, 0, 1] })" ); // re-saved unchanged
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show ) << "an unchanged re-save re-captured";
 }
 
@@ -110,12 +110,12 @@ TEST( ThumbnailFreshness, AnEditIsCapturedExactlyOnce )
     const TempDir  dir;
     const fs::path source = dir.Root / "M.demat";
     const fs::path png    = dir.Root / "M.png";
-    WriteFile( source, "{ \"Roughness\": 0.5 }" );
+    WriteFile( source, R"({ "Roughness": 0.5 })" );
     Capture( png, source );
     ASSERT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Show );
 
     // Same size, and the modtime may well round to the same tick: the memo must still see the new bytes.
-    WriteFile( source, "{ \"Roughness\": 0.9 }" );
+    WriteFile( source, R"({ "Roughness": 0.9 })" );
     fs::last_write_time( source, fs::last_write_time( source ) + std::chrono::seconds( 2 ) );
     EXPECT_EQ( Verdict( png, source ), ThumbnailFreshness::Verdict::Capture )
          << "an edited material kept its old picture";

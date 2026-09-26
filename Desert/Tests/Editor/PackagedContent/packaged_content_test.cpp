@@ -207,7 +207,7 @@ TEST( PackagedContent, BuildContentPakPacksWhatTheScannersFind )
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "Resources" / "Fonts" / "fake.ttf", "font-body" );
     WriteFile( proj / "Resources" / "Icons" / "fake.svg", "icon-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() ); // keep RegisterRecent out of the real user config
     fs::current_path( proj );        // relative resource trees resolve against the editor cwd
@@ -287,7 +287,7 @@ TEST( PackagedContent, AScriptReferenceResolvesToTheSameFileLooseAndPackaged )
     const std::string body = "-- MoveAlongX\nProperties = { Speed = 3 }\n";
     WriteFile( proj / "GameAssets" / "Scripts" / "Examples" / "MoveAlongX.lua", body );
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -400,7 +400,7 @@ TEST( PackagedContent, AServiceAssetReferenceResolvesToTheSameFileLooseAndPackag
     const std::string iconBody = "<svg><path d=\"M0 0 L1 1\"/></svg>";
     WriteFile( proj / "GameAssets" / "Fonts" / "Custom.ttf", fontBody );
     WriteFile( proj / "GameAssets" / "UI" / "Glyphs" / "spark.svg", iconBody );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -521,7 +521,7 @@ TEST( PackagedContent, ACleanProjectPackagesComplete )
 
     // Nothing the cook can fail on: one scene, no font, no icon, no shader tree.
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -551,7 +551,7 @@ TEST( PackagedContent, AnAssetTheCookCannotBakeMakesThePackageIncompleteAndSaysH
     // whole difference between this case and the clean one, so the verdict below is attributable.
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
     WriteFile( proj / "GameAssets" / "Fonts" / "Corrupt.ttf", "this is not a font" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -599,7 +599,7 @@ TEST( PackagedContent, CookedArtifactsTravelFromThePackagerToTheRuntimeLookup )
     const fs::path proj = base / "proj";
     const fs::path pkg  = base / "pkg";
 
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
@@ -718,7 +718,7 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
                                "}\n";
 
     WriteFile( proj / "Resources" / "Shaders" / "CookProbe.shader", kProbeShader );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
@@ -789,7 +789,7 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
                "        void main() { o_Color = vec4( 1.0 ); }\n"
                "    }\n"
                "}\n" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     SetEnv( "HOME", base.string() );
     fs::create_directories( proj / "GameAssets" );
     fs::current_path( proj );
@@ -836,7 +836,7 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
     const fs::path proj = base / "proj";
 
     WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
 
     // The Runtime the packager copies. It looks one directory ABOVE the editor's cwd, which is why the
     // project sits inside `base` rather than being `base`.
@@ -896,7 +896,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
     fs::remove_all( base );
     const fs::path proj = base / "proj";
 
-    WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":\"\"}" );
+    WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":""})" );
     fs::create_directories( proj / "GameAssets" );
     SetEnv( "HOME", base.string() );
     fs::current_path( proj );
@@ -1047,7 +1047,7 @@ namespace
         const fs::path proj = base / "proj";
         WriteFile( proj / "GameAssets" / "Scenes" / "level.desce", "scene-body" );
         WriteFile( proj / "Resources" / "Fonts" / "fake.ttf", "font-body" );
-        WriteFile( proj / "T.deproj", "{\"Name\":\"T\",\"AssetsRoot\":\"GameAssets\",\"DefaultScene\":"
+        WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":)"
                                       "\"GameAssets/Scenes/level.desce\"}" );
         // The packager looks one directory ABOVE the editor's cwd for it.
         WriteFile( base / "build" / "Bin" / "Release" / runtimeBinaryName, "not really a binary" );

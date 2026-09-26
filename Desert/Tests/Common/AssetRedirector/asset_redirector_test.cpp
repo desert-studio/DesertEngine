@@ -200,7 +200,7 @@ TEST( AssetRedirector, OpeningTheOldPathByFileIsRefusedByNameAndPointsAtTheMoved
          << unresolved.GetError();
 
     // Text and other DAST files are the loader's own parser's business.
-    EXPECT_TRUE( Common::Content::RefuseRedirectorBytes( "t", "{ \"Header\": {} }", keyOf ) );
+    EXPECT_TRUE( Common::Content::RefuseRedirectorBytes( "t", R"({ "Header": {} })", keyOf ) );
     std::ifstream     scene( newPath, std::ios::binary );
     const std::string sceneBytes( ( std::istreambuf_iterator<char>( scene ) ), std::istreambuf_iterator<char>() );
     EXPECT_TRUE( Common::Content::RefuseRedirectorBytes( newPath.string(), sceneBytes, keyOf ) );

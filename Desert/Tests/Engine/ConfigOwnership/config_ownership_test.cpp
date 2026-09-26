@@ -136,6 +136,8 @@
 // accessor chain (`ProjectContext::Current().Name`) and a template-argument declaration
 // (`std::optional<ProjectFile> s_Current;`).
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Editor/Core/EditorPreferences.hpp>
@@ -1108,9 +1110,9 @@ TEST( ConfigOwnershipCorpus, NoSceneOnDiskStatesASettingOfAnotherFilesKind )
 
     for ( const auto& path : scenes )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( ReadAll( path ) );
-        ASSERT_TRUE( parsed.has_value() ) << path.string() << " is not readable JSON";
-        const auto root_object = parsed.value().to_object();
+        const auto parsed = Common::Json::Parse( ReadAll( path ) );
+        ASSERT_TRUE( parsed.IsSuccess() ) << path.string() << " is not readable JSON";
+        const auto root_object = parsed.GetValue().to_object();
         ASSERT_TRUE( root_object.has_value() ) << path.string() << " is not a JSON object";
 
         const auto settings = root_object.value().get( "Settings" );
@@ -1142,9 +1144,9 @@ TEST( ConfigOwnershipCorpus, TheTrackedProjectDescriptorStatesNoMachineSpecificK
     const std::string text = ReadAll( root + "Editor/Desert.deproj" );
     ASSERT_FALSE( text.empty() ) << "Editor/Desert.deproj is missing or empty";
 
-    const auto parsed = rfl::json::read<rfl::Generic>( text );
-    ASSERT_TRUE( parsed.has_value() ) << "Editor/Desert.deproj is not readable JSON";
-    const auto object = parsed.value().to_object();
+    const auto parsed = Common::Json::Parse( text );
+    ASSERT_TRUE( parsed.IsSuccess() ) << "Editor/Desert.deproj is not readable JSON";
+    const auto object = parsed.GetValue().to_object();
     ASSERT_TRUE( object.has_value() );
 
     for ( const FileCensus& file : kFiles )
@@ -1227,7 +1229,7 @@ TEST( ConfigOwnership, TheSerializedSettingsBlockDoesNotMoveWhenTheMachineQualit
     ASSERT_NE( type, nullptr );
 
     const Desert::Core::SceneSettings settings;
-    const std::string before = rfl::json::write( Desert::Reflection::SerializeReflected( *type, &settings ) );
+    const std::string before = Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) );
 
     auto& quality             = Common::Settings::MachineSettings::Get();
     quality.MSAASamples       = 8;
@@ -1237,7 +1239,7 @@ TEST( ConfigOwnership, TheSerializedSettingsBlockDoesNotMoveWhenTheMachineQualit
     quality.Anisotropy        = 16;
     quality.CloudQualityTier  = Common::Settings::CloudQuality::Low;
 
-    EXPECT_EQ( rfl::json::write( Desert::Reflection::SerializeReflected( *type, &settings ) ), before );
+    EXPECT_EQ( Common::Json::Write( Desert::Reflection::SerializeReflected( *type, &settings ) ), before );
 }
 
 // ---------------------------------------------------------------------------------------------------

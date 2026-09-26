@@ -33,8 +33,6 @@ namespace
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -69,20 +67,6 @@ namespace
         return mesh;
     }
 
-    struct EntityProbe
-    {
-        std::optional<std::string>  Tag;
-        std::optional<rfl::Generic> StaticMesh;
-    };
-    struct SceneProbe
-    {
-        std::vector<EntityProbe> Entities;
-    };
-    struct StaticMeshProbe
-    {
-        std::optional<rfl::Generic> EditMesh;
-    };
-
     // Every tracked scene mesh, discovered (as DynamicMeshSerialization discovers them).
     void AddScenes( std::vector<Case>& out )
     {
@@ -95,26 +79,31 @@ namespace
             text << file.rdbuf();
             if ( text.str().find( "\"EditMesh\"" ) == std::string::npos )
                 continue;
-            const auto scene = rfl::json::read<SceneProbe, rfl::DefaultIfMissing>( text.str() );
+            const auto scene = Common::Json::Parse( text.str() );
+            EXPECT_TRUE( scene.IsSuccess() ) << entry.path();
             if ( !scene )
                 continue;
-            for ( const EntityProbe& entity : scene.value().Entities )
-            {
-                if ( !entity.StaticMesh )
-                    continue;
-                const auto probe = rfl::json::read<StaticMeshProbe, rfl::DefaultIfMissing>(
-                     rfl::json::write( *entity.StaticMesh ) );
-                if ( !probe || !probe.value().EditMesh )
-                    continue;
-                const auto block = ReadBlockOf<Assets::StaticMeshComponentSer>( *entity.StaticMesh );
-                if ( !block || !block->EditMesh )
-                    continue;
-                auto mesh = FromSerialized( *block->EditMesh );
-                EXPECT_TRUE( mesh.IsSuccess() ) << entry.path();
-                if ( mesh.IsSuccess() )
-                    out.push_back( { entry.path().filename().string() + ":" + entity.Tag.value_or( "?" ),
-                                     mesh.ExtractValue() } );
-            }
+            const auto entities = Common::Json::Root( scene.GetValue() ).Find( "Entities" );
+            if ( !entities )
+                continue;
+            entities->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& entity )
+                 {
+                     const auto staticMesh = entity.Find( "StaticMesh" );
+                     if ( !staticMesh || !staticMesh->Find( "EditMesh" ) )
+                         return;
+                     std::string tag = "?";
+                     if ( const auto tagNode = entity.Find( "Tag" ) )
+                         if ( const auto tagText = tagNode->AsString() )
+                             tag = tagText.GetValue();
+                     const auto block = ReadBlockOf<Assets::StaticMeshComponentSer>( staticMesh->Raw() );
+                     if ( !block || !block->EditMesh )
+                         return;
+                     auto mesh = FromSerialized( *block->EditMesh );
+                     EXPECT_TRUE( mesh.IsSuccess() ) << entry.path();
+                     if ( mesh.IsSuccess() )
+                         out.push_back( { entry.path().filename().string() + ":" + tag, mesh.ExtractValue() } );
+                 } );
         }
     }
 

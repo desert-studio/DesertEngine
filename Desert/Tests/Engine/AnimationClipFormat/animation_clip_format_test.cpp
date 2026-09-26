@@ -9,6 +9,8 @@
 // playback ever read (Animator::ResolveTrack binds by NAME), so the field is gone from the format. The two
 // census tests below pin that: a field cannot come back without a line here saying so.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <Engine/Animation/BoneInfo.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Animation/ClipSection.hpp>
@@ -51,6 +53,33 @@ namespace
         ch.BoneName = bone;
         ch.Positions.push_back( { 0, glm::vec3( 1.0f, 2.0f, 3.0f ) } );
         return ch;
+    }
+    // THE MIGRATION STOPS AT GENERATION 3, whose version is a top-level `Version`; the header raise
+    // (Tools/SceneMigrator) cuts that member and states the version in the header instead. The struct is the
+    // current generation and reads strictly, so the member is taken off here the way the raise takes it off
+    // -- after checking it says 3 -- rather than read leniently past it.
+    Common::ResultStr<Ser::AnimationAssetData> ReadGenerationThree( const std::string& text )
+    {
+        const auto parsed = Common::Json::Parse( text );
+        if ( !parsed )
+            return Common::MakeError<Ser::AnimationAssetData>( parsed.GetError() );
+        const Common::Json::Node root    = Common::Json::Root( parsed.GetValue() );
+        const auto               version = root.Get( "Version" );
+        if ( !version )
+            return Common::MakeError<Ser::AnimationAssetData>( version.GetError() );
+        const auto stated = version.GetValue().AsInteger();
+        if ( !stated || stated.GetValue() != Ser::kAnimationLastVersionMember )
+            return Common::MakeError<Ser::AnimationAssetData>( "the migration did not stop at generation 3" );
+
+        Common::Json::ObjectBuilder body;
+        root.ForEachMember(
+             [&]( std::string_view name, const Common::Json::Node& member )
+             {
+                 if ( name != "Version" )
+                     body.Set( name, member.Raw() );
+             } );
+        const Common::Json::Value raised( body.Build() );
+        return Common::Json::Root( raised ).As<Ser::AnimationAssetData>();
     }
 } // namespace
 
@@ -194,7 +223,7 @@ TEST( AnimationClipFormat, AClipFromANewerGenerationIsRefusedToo )
          std::array{ Common::Content::SubsystemVersion{ Desert::Assets::kAnimationSchemaTag,
                                                         Desert::Assets::kAnimationSchemaVersion + 1 } } );
 
-    const auto read = Desert::Assets::Serialization::ReadAnimationJson( rfl::json::write( data ) );
+    const auto read = Desert::Assets::Serialization::ReadAnimationJson( Common::Json::Write( data ) );
     EXPECT_FALSE( read ) << "a file from a newer build may hold fields this one would drop on the next save";
 }
 
@@ -239,9 +268,9 @@ TEST( AnimationClipFormat, TheMigrationMovesSecondsOntoTicksAndDerivesTheDisplay
     EXPECT_EQ( report.DisplayRateNumerator, 8 );
     EXPECT_FALSE( report.DisplayRateIsAFallback );
 
-    const auto read = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( migrated.GetValue() );
-    ASSERT_TRUE( read.has_value() );
-    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( read.value() );
+    const auto read = ReadGenerationThree( migrated.GetValue() );
+    ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
+    const auto built = Desert::Assets::Serialization::BuildClipFromAssetData( read.GetValue() );
     ASSERT_TRUE( built ) << built.GetError();
 
     const auto& clip = built.GetValue();
@@ -288,21 +317,22 @@ TEST( AnimationClipFormat, ANewlyWrittenClipCarriesNoBoneIndex )
     data.Name     = "Fresh";
     data.Channels = { Channel( "hips" ) };
 
-    const std::string json = rfl::json::write( data );
+    const std::string json = Common::Json::Write( data );
     EXPECT_EQ( json.find( "BoneIndex" ), std::string::npos ) << json;
 }
 
-TEST( AnimationClipFormat, ASkeletonCookedWithTheOldBoneIndexStillLoads )
+// The field is gone from the format and the reader is strict, so a skeleton that still states it is refused
+// NAMING the key -- it does not load with the key silently dropped. No committed .skeleton carries it.
+TEST( AnimationClipFormat, ASkeletonStillStatingTheOldBoneIndexIsRefusedByName )
 {
     const std::string legacy =
          R"({"Signature":4699069763035776985,"Bones":[{"BoneIndex":0,"Name":"Root",)"
          R"("OffsetMatrix":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0],)"
          R"("LocalBindTransform":[1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0]}]})";
 
-    const auto read = rfl::json::read<Ser::SkeletonAssetData, rfl::DefaultIfMissing>( legacy );
-    ASSERT_TRUE( read.has_value() );
-    ASSERT_EQ( read.value().Bones.size(), 1u );
-    EXPECT_EQ( read.value().Bones[0].Name, "Root" );
+    const auto read = Common::Json::Read<Ser::SkeletonAssetData>( legacy );
+    ASSERT_FALSE( read.IsSuccess() );
+    EXPECT_NE( read.GetError().find( "Bones.BoneIndex" ), std::string::npos ) << read.GetError();
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -312,7 +342,7 @@ TEST( AnimationClipFormat, ASkeletonCookedWithTheOldBoneIndexStillLoads )
 // Until Д35 this suite could only test the direction that READS a `.anim`. The direction that writes one
 // lived inside SequencerPanel::SaveClipToDisk — a member of an ImGui panel — so the format's round trip
 // was an assumption, and the row Д31-D called its WORST was in the part no test could reach: the panel
-// did `out << rfl::json::write( data )` with no check after it at all and returned the path as proof of
+// did `out << Common::Json::Write( data )` with no check after it at all and returned the path as proof of
 // a save.
 
 namespace
@@ -366,10 +396,10 @@ TEST( AnimationClipFormat, AClipWrittenToDiskReadsBackAsTheSameClip )
     const std::ifstream in( path, std::ios::binary );
     std::stringstream text;
     text << in.rdbuf();
-    const auto parsed = rfl::json::read<Ser::AnimationAssetData>( text.str() );
-    ASSERT_TRUE( parsed.has_value() ) << "the file this engine wrote does not parse as the format it is";
+    const auto parsed = Common::Json::Read<Ser::AnimationAssetData>( text.str() );
+    ASSERT_TRUE( parsed.IsSuccess() ) << "the file this engine wrote does not parse as the format it is";
 
-    const auto rebuilt = Desert::Assets::Serialization::BuildClipFromAssetData( parsed.value() );
+    const auto rebuilt = Desert::Assets::Serialization::BuildClipFromAssetData( parsed.GetValue() );
     ASSERT_TRUE( rebuilt ) << rebuilt.GetError();
     const auto& back = rebuilt.GetValue();
 
@@ -440,13 +470,13 @@ TEST( AnimationClipFormat, ASectionAUTHOREDTheWayTheSequencerAuthorsOneSurvivesT
     const std::ifstream in( path, std::ios::binary );
     std::stringstream text;
     text << in.rdbuf();
-    const auto parsed = rfl::json::read<Ser::AnimationAssetData>( text.str() );
-    ASSERT_TRUE( parsed.has_value() );
-    EXPECT_EQ( Desert::Assets::StatedVersion( parsed.value().Header, Desert::Assets::kAnimationSchemaTag ),
+    const auto parsed = Common::Json::Read<Ser::AnimationAssetData>( text.str() );
+    ASSERT_TRUE( parsed.IsSuccess() );
+    EXPECT_EQ( Desert::Assets::StatedVersion( parsed.GetValue().Header, Desert::Assets::kAnimationSchemaTag ),
                Ser::kAnimationVersion )
          << "the authoring surface must not need a new generation; sections have been in the format since A28";
 
-    const auto rebuilt = Desert::Assets::Serialization::BuildClipFromAssetData( parsed.value() );
+    const auto rebuilt = Desert::Assets::Serialization::BuildClipFromAssetData( parsed.GetValue() );
     ASSERT_TRUE( rebuilt ) << rebuilt.GetError();
     const auto& back = rebuilt.GetValue();
 
@@ -487,7 +517,7 @@ TEST( AnimationClipFormat, AClipSaveThatCannotBeWrittenIsARefusalNamingTheClip )
 
     // The destination is writable and already occupied; the primitive's working file is not. A save that
     // "fails" by destroying the clip that was already there would be the defect, not the fix.
-    const std::string previousClip = "{\"Name\":\"the clip that was already saved\"}";
+    const std::string previousClip = R"({"Name":"the clip that was already saved"})";
     {
         std::ofstream previous( path, std::ios::binary | std::ios::trunc );
         previous << previousClip;
@@ -568,11 +598,11 @@ namespace
         data.Channels.push_back( channel );
 
         // Written WITHOUT the sections field, which is what a real generation-2 file on disk looks like.
-        std::string json = "{\"Version\":2," + rfl::json::write( data ).substr( 1 );
-        const auto  at   = json.find( ",\"Sections\":[]" );
+        std::string json = R"({"Version":2,)" + Common::Json::Write( data ).substr( 1 );
+        const auto  at   = json.find( R"(,"Sections":[])" );
         if ( at != std::string::npos )
         {
-            json.erase( at, std::string( ",\"Sections\":[]" ).size() );
+            json.erase( at, std::string( R"(,"Sections":[])" ).size() );
         }
         return json;
     }
@@ -588,9 +618,9 @@ TEST( AnimationClipFormat, TheMigrationToGenerationThreeKeepsEveryAuthoredKeySHA
          << "this step ADDS no shapes — a non-zero count here means it overwrote authored ones";
     EXPECT_EQ( report.SectionsWritten, 1 ) << "…and it is not a relabelling: the file gained a section";
 
-    const auto reread = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( migrated.GetValue() );
-    ASSERT_TRUE( reread.has_value() );
-    const auto& out = reread.value();
+    const auto reread = ReadGenerationThree( migrated.GetValue() );
+    ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
+    const auto& out = reread.GetValue();
     ASSERT_EQ( out.Channels.size(), 1U );
     ASSERT_EQ( out.Channels[0].Positions.size(), 1U );
 
@@ -608,11 +638,11 @@ TEST( AnimationClipFormat, AMigratedClipSTATESOneWholeClipAbsoluteSectionAtFullW
     const auto migrated = Desert::Assets::Serialization::MigrateAnimationJson( GenerationTwoJson(), report );
     ASSERT_TRUE( migrated ) << migrated.GetError();
 
-    const auto reread = rfl::json::read<Ser::AnimationAssetData, rfl::DefaultIfMissing>( migrated.GetValue() );
-    ASSERT_TRUE( reread.has_value() );
-    const auto& out = reread.value();
+    const auto reread = ReadGenerationThree( migrated.GetValue() );
+    ASSERT_TRUE( reread.IsSuccess() ) << reread.GetError();
+    const auto& out = reread.GetValue();
 
-    EXPECT_NE( migrated.GetValue().find( "\"Version\":3" ), std::string::npos )
+    EXPECT_NE( migrated.GetValue().find( R"("Version":3)" ), std::string::npos )
          << "the migration's output is frozen at generation 3, which the header raise reads";
     EXPECT_FALSE( out.Header.has_value() ) << "the GUID is minted once, by the header raise";
     ASSERT_EQ( out.Sections.size(), 1U );

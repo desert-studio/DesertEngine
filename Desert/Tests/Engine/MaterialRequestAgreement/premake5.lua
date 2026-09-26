@@ -24,7 +24,7 @@ project(test_name)
     }
     externalincludedirs {
         "%{wks.location}/ThirdParty/entt/include/",        -- reached through the engine asset headers
-        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- rfl::Generic, to read the assets as JSON
+        "%{wks.location}/ThirdParty/reflect-cpp/include",  -- rfl, under Common::Json
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -45,6 +45,14 @@ project(test_name)
         defines { "DESERT_PLATFORM_MACOS" }
     filter "system:linux"
         defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
+
+    -- Common: the assets are read through Common::Json (Parse/Node, Read), which lives in the library.
+    -- Optick: Common's JobSystem registers its worker threads with the profiler; Cocoa/Foundation:
+    -- Common's FileSystem carries Objective-C (MacOSFileSystem's dialogs).
+    links { "Common", "Optick" }
+    filter "system:macosx"
+        links { "Cocoa.framework", "Foundation.framework" }
     filter {}
 
     filter "system:not windows"

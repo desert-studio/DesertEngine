@@ -20,6 +20,7 @@
 // It is a pure-function suite: it parses JSON, walks the reflection registry, and asks the loader's own
 // version gate whether each file is one the engine will read. No GPU, no asset manager, no scene graph.
 
+#include <Common/Json/Json.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -108,7 +109,7 @@ namespace
     }
 
     // Every key the parsed payload carries. Written by hand because rfl::Object exposes no `contains`.
-    std::set<std::string> KeysOf( const rfl::Generic::Object& object )
+    std::set<std::string> KeysOf( const Common::Json::Object& object )
     {
         std::set<std::string> keys;
         for ( auto it = object.begin(); it != object.end(); ++it )
@@ -136,11 +137,11 @@ TEST( CloudProtocolScene, EveryReflectedFieldIsWrittenExplicitlySoNoDefaultCanMo
         const std::string json = ReadAll( ScenePath( sceneName ) );
         ASSERT_FALSE( json.empty() ) << sceneName << " is missing or empty";
 
-        const auto parsed = rfl::json::read<SceneSerialized>( json );
+        const auto parsed = Common::Json::Read<SceneSerialized>( json );
         ASSERT_TRUE( parsed ) << sceneName << " does not parse as a scene";
 
         int checkedComponents = 0;
-        for ( const auto& entity : parsed.value().Entities )
+        for ( const auto& entity : parsed.GetValue().Entities )
         {
             for ( const auto& component : kReflected )
             {
@@ -179,11 +180,11 @@ TEST( CloudProtocolScene, TheSettingsBlockIsWrittenInFull )
 
     for ( const char* sceneName : kProtocolScenes )
     {
-        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
+        const auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
-        ASSERT_TRUE( parsed.value().Settings.has_value() ) << sceneName << " has no Settings block";
+        ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName << " has no Settings block";
 
-        const auto settings = parsed.value().Settings->to_object();
+        const auto settings = parsed.GetValue().Settings->to_object();
         ASSERT_TRUE( settings ) << sceneName << ": Settings is not an object";
 
         const std::set<std::string> present = KeysOf( settings.value() );
@@ -214,10 +215,10 @@ TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndTh
 
     for ( const char* sceneName : kProtocolScenes )
     {
-        const auto parsed = rfl::json::read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
+        const auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
-        ASSERT_TRUE( parsed.value().Settings.has_value() ) << sceneName;
-        const auto settings = parsed.value().Settings->to_object();
+        ASSERT_TRUE( parsed.GetValue().Settings.has_value() ) << sceneName;
+        const auto settings = parsed.GetValue().Settings->to_object();
         ASSERT_TRUE( settings ) << sceneName;
 
         const std::set<std::string> present = KeysOf( settings.value() );
@@ -241,10 +242,10 @@ TEST( CloudProtocolScene, TheLoaderReadsTheseFilesVerbatimBecauseItAcceptsThemAt
 {
     for ( const char* sceneName : kProtocolScenes )
     {
-        auto parsed = rfl::json::read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
+        auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( sceneName ) ) );
         ASSERT_TRUE( parsed ) << sceneName;
 
-        const SceneSerialized scene = parsed.value();
+        const SceneSerialized scene = parsed.GetValue();
         ASSERT_TRUE( scene.Header.has_value() ) << sceneName << " states no SceneVersion";
         ASSERT_TRUE( scene.Header.has_value() ) << sceneName << " states no UnitVersion";
         EXPECT_EQ( Desert::Assets::StatedVersion( scene.Header, Desert::Assets::kSceneSchemaTag ),
@@ -276,10 +277,10 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
     std::vector<std::string> cloudLook; // the CONTENT of each leg's cloud material, see below
     for ( const auto& leg : kLegs )
     {
-        auto parsed = rfl::json::read<SceneSerialized>( ReadAll( ScenePath( leg.Scene ) ) );
+        auto parsed = Common::Json::Read<SceneSerialized>( ReadAll( ScenePath( leg.Scene ) ) );
         ASSERT_TRUE( parsed ) << leg.Scene;
 
-        SceneSerialized scene = parsed.value();
+        SceneSerialized scene = parsed.GetValue();
         scene.SceneName       = "normalised";
         scene.Header          = std::nullopt; // each file is its own asset: the GUID differs by design
 
@@ -299,7 +300,7 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
 
             // Erase the one field the legs are allowed to differ in, so the rest can be compared whole.
             payload.value()["Enabled"]     = false;
-            entity.Components["HeroCloud"] = rfl::Generic( payload.value() );
+            entity.Components["HeroCloud"] = Common::Json::Value( payload.value() );
         }
         EXPECT_EQ( live, leg.Expected ) << leg.Scene << " does not carry the instance count its name claims";
 
@@ -327,22 +328,22 @@ TEST( CloudProtocolScene, TheThreeHeroCostLegsDifferOnlyInHowManyHeroCloudsAreEn
             EXPECT_FALSE( materialJson.empty() )
                  << leg.Scene << " names '" << *material << "', which is not on disk";
 
-            auto parsedMaterial = rfl::json::read<Desert::Assets::MaterialData>( materialJson );
+            auto parsedMaterial = Common::Json::Read<Desert::Assets::MaterialData>( materialJson );
             ASSERT_TRUE( parsedMaterial ) << leg.Scene << ": '" << *material << "' is not a material";
 
             // The header GUID is the FILE's identity, not the sky's — it is derived from the file's own
             // path so that two runs of the migration produce byte-identical output, which means three
             // legs that name three files necessarily carry three GUIDs. Comparing it would fail on a
             // difference that cannot reach a pixel; comparing everything else is the sky.
-            Desert::Assets::MaterialData look = parsedMaterial.value();
+            Desert::Assets::MaterialData look = parsedMaterial.GetValue();
             look.Header                       = std::nullopt; // the file's identity, cleared for the comparison
-            cloudLook.push_back( rfl::json::write( look ) );
+            cloudLook.push_back( Common::Json::Write( look ) );
 
             payload.value()["Material"]          = std::string( "normalised" );
-            entity.Components["VolumetricCloud"] = rfl::Generic( payload.value() );
+            entity.Components["VolumetricCloud"] = Common::Json::Value( payload.value() );
         }
 
-        normalised.push_back( rfl::json::write( scene ) );
+        normalised.push_back( Common::Json::Write( scene ) );
     }
 
     for ( std::size_t i = 1; i < normalised.size(); ++i )
