@@ -256,36 +256,6 @@ namespace Desert::Editor
     // functions answering one question — the very thing the note above says the editor has already paid for
     // once — and the survivor would have been the one that could still be pointed at the wrong container.
 
-    // How many renderer slots the open documents have SPOKEN FOR but not yet taken.
-    //
-    // The cap is checked as `live + pending >= kMaxRendererSlots`, and `live` counts renderers that exist.
-    // A document is created before it first draws, and a Material Editor builds its PreviewViewport on that
-    // first frame — so between the two it holds no slot and has a claim coming. Counting only live
-    // renderers would admit a document there is no slot for and discover it a frame later, with the
-    // symptom being two surfaces quietly trading each other's per-frame camera.
-    //
-    // A DOCUMENT THAT WILL NEVER CLAIM ONE IS NOT PENDING DEMAND, and that half is not symmetry for its own
-    // sake: the four cloud documents bake on the CPU and upload an Image2D, so five of them open beside the
-    // main viewport would reach the cap on paper and the sixth would be refused — with a census telling the
-    // user to close windows that were holding nothing and would never hold anything. See
-    // ISubjectDocument::ClaimsView.
-    //
-    // A free function over the range, rather than a loop inside EditorLayer, for the reason
-    // FindOpenAssetDocument above is one: EditorLayer.cpp is compiled by no suite
-    // (scripts/CI/UnreachedSources.sh), so a rule written there is a rule nothing can assert. Templated on
-    // the range so a test can drive it with a plain vector and no editor anywhere near.
-    template <typename Range>
-    [[nodiscard]] uint32_t PendingRendererSlotDemand( const Range& panels )
-    {
-        uint32_t pending = 0;
-        for ( const auto& panel : panels )
-        {
-            const auto* document = dynamic_cast<const ISubjectDocument*>( &*panel );
-            if ( document && document->ClaimsView() && !document->HoldsView() )
-                ++pending;
-        }
-        return pending;
-    }
     // How many BYTES the open documents have SPOKEN FOR but not yet allocated: the forecast of every
     // document that will build a view (ClaimsView) and has not built it yet (!HoldsView).
     //

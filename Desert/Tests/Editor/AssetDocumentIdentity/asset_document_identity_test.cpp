@@ -37,7 +37,7 @@ using Desert::Editor::DocumentTitle;
 using Desert::Editor::IPanel;
 using Desert::Editor::ISubjectDocument;
 using Desert::Editor::OpenDocuments;
-using Desert::Editor::PendingRendererSlotDemand;
+using Desert::Editor::PendingViewBytes;
 using Desert::Editor::SubjectId;
 
 namespace
@@ -98,7 +98,7 @@ namespace
     };
 
     // A CPU-only document — the four cloud editors. It never holds a renderer slot and never will, which is
-    // the distinction PendingRendererSlotDemand exists to make.
+    // the distinction PendingViewBytes exists to make.
     class FakeCpuDocument final : public ISubjectDocument
     {
     public:
@@ -345,17 +345,17 @@ TEST( AssetDocumentIdentity, TheSameComponentOnTwoEntitiesIsTwoWindows )
 
 // --- What is spoken for, and what is not ---------------------------------------------------------------
 
-TEST( PendingRendererSlotDemand, AnOpenDocumentThatHasNotDrawnYetIsCounted )
+TEST( PendingViewBytes, AnOpenDocumentThatHasNotDrawnYetIsCounted )
 {
     // The original reason the count exists: a Material Editor is created before it first draws, and builds
     // its PreviewViewport on that frame. Between the two it holds nothing and has a claim coming.
     std::vector<std::unique_ptr<IPanel>> panels;
     panels.push_back( std::make_unique<FakeDocument>( "MP_GreenTint", Asset( 111 ) ) );
 
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+    EXPECT_EQ( PendingViewBytes( panels ), Desert::Editor::ForecastPreviewViewBytes( 0, 0 ) );
 }
 
-TEST( PendingRendererSlotDemand, ADocumentThatAlreadyHoldsItsSlotIsNotCountedTwice )
+TEST( PendingViewBytes, ADocumentThatAlreadyHoldsItsViewIsNotCountedTwice )
 {
     // It is already in the LIVE renderer count, so counting it here as well would refuse the cap one
     // document early for every window that had drawn.
@@ -365,10 +365,10 @@ TEST( PendingRendererSlotDemand, ADocumentThatAlreadyHoldsItsSlotIsNotCountedTwi
     std::vector<std::unique_ptr<IPanel>> panels;
     panels.push_back( std::move( drawn ) );
 
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 0u );
+    EXPECT_EQ( PendingViewBytes( panels ), 0u );
 }
 
-TEST( PendingRendererSlotDemand, CpuOnlyDocumentsAreNotPendingDemand )
+TEST( PendingViewBytes, CpuOnlyDocumentsAreNotPendingDemand )
 {
     // THE DEFECT THIS RULE EXISTS FOR. The four cloud editors bake on the CPU and upload an Image2D; they
     // hold no renderer slot and never will. Counted as pending demand -- which is what "open, holding
@@ -381,12 +381,12 @@ TEST( PendingRendererSlotDemand, CpuOnlyDocumentsAreNotPendingDemand )
         panels.push_back( std::make_unique<FakeCpuDocument>( "cloud", Asset( 700 + i, AssetTypeID::CloudType ) ) );
     }
 
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 0u )
-         << "A CPU-only document was counted as a renderer-slot claim, so opening a sixth cloud asset would "
+    EXPECT_EQ( PendingViewBytes( panels ), 0u )
+         << "A CPU-only document was counted as a view claim, so opening a sixth cloud asset would "
             "be refused for a shortage that does not exist.";
 }
 
-TEST( PendingRendererSlotDemand, CountsOnlyTheDocumentsThatWillActuallyClaim )
+TEST( PendingViewBytes, CountsOnlyTheDocumentsThatWillActuallyClaim )
 {
     // The mixed list, which is the one the editor really has: tool panels, cloud documents, a drawn
     // material and an undrawn one. Only the last is demand.
@@ -399,10 +399,10 @@ TEST( PendingRendererSlotDemand, CountsOnlyTheDocumentsThatWillActuallyClaim )
     panels.push_back( std::make_unique<FakeDocument>( "Undrawn", Asset( 802 ) ) );
     panels.push_back( std::make_unique<FakeCpuDocument>( "L.dclayout", Asset( 803, AssetTypeID::CloudLayout ) ) );
 
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+    EXPECT_EQ( PendingViewBytes( panels ), Desert::Editor::ForecastPreviewViewBytes( 0, 0 ) );
 }
 
-TEST( PendingRendererSlotDemand, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
+TEST( PendingViewBytes, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
 {
     // ClaimsView defaults to TRUE, and that default is the conservative one: a new document type
     // that forgets to answer is refused early rather than admitted past the cap and discovered later as two
@@ -412,7 +412,7 @@ TEST( PendingRendererSlotDemand, ADocumentThatDoesNotSayIsTreatedAsAClaimant )
     panels.push_back( std::make_unique<FakeDocument>( "Silent", Asset( 901 ) ) );
 
     EXPECT_TRUE( static_cast<const ISubjectDocument*>( panels.back().get() )->ClaimsView() );
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+    EXPECT_EQ( PendingViewBytes( panels ), Desert::Editor::ForecastPreviewViewBytes( 0, 0 ) );
 }
 
 // --- The skybox viewer (AV1e) --------------------------------------------------------------------------
@@ -462,18 +462,18 @@ TEST( AssetDocumentIdentity, TwoSkyboxesGiveTwoDifferentWindowIds )
     EXPECT_NE( WindowId( a.GetName() ), WindowId( b.GetName() ) );
 }
 
-TEST( PendingRendererSlotDemand, ASkyboxViewerIsAClaimantUntilItsPreviewHoldsTheSlot )
+TEST( PendingViewBytes, ASkyboxViewerIsAClaimantUntilItsPreviewHoldsTheView )
 {
     std::vector<std::unique_ptr<IPanel>> panels;
     auto                                 viewer = std::make_unique<TestSkyboxViewer>( 903 );
     auto*                                raw    = viewer.get();
     panels.push_back( std::move( viewer ) );
 
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u )
-         << "A skybox viewer that has not drawn yet was not counted, so the census would admit a document "
-            "there is no renderer slot for.";
+    EXPECT_EQ( PendingViewBytes( panels ), raw->ViewForecastBytes() )
+         << "A skybox viewer that has not drawn yet was not counted, so the budget would admit a document "
+            "there is no room for.";
     raw->BuildPreview();
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 0u ) << "A viewer holding its slot was counted twice.";
+    EXPECT_EQ( PendingViewBytes( panels ), 0u ) << "A viewer holding its view was counted twice.";
 }
 
 // --- The static mesh viewer (AV1f) ---------------------------------------------------------------------
@@ -513,16 +513,16 @@ TEST( AssetDocumentIdentity, AStaticMeshViewerIsFoundByItsHandleUnderTheMeshType
     EXPECT_EQ( well.Find( Asset( 911, AssetTypeID::Mesh ) ), nullptr );
 }
 
-TEST( PendingRendererSlotDemand, AStaticMeshViewerIsAClaimantUntilItsPreviewHoldsTheSlot )
+TEST( PendingViewBytes, AStaticMeshViewerIsAClaimantUntilItsPreviewHoldsTheView )
 {
     std::vector<std::unique_ptr<IPanel>> panels;
     auto                                 viewer = std::make_unique<TestStaticMeshViewer>( 912 );
     auto*                                raw    = viewer.get();
     panels.push_back( std::move( viewer ) );
 
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 1u );
+    EXPECT_EQ( PendingViewBytes( panels ), raw->ViewForecastBytes() );
     raw->BuildPreview();
-    EXPECT_EQ( PendingRendererSlotDemand( panels ), 0u );
+    EXPECT_EQ( PendingViewBytes( panels ), 0u );
 }
 
 int main( int argc, char** argv )

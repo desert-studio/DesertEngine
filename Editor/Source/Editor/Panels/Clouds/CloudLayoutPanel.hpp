@@ -132,7 +132,7 @@ namespace Desert::Editor
 
         // NEVER — see CloudNoiseVolumePanel::HoldsView. The "sky" in this panel's right-hand pane is
         // a CPU-evaluated top-down map uploaded as a Graphic::Image2D, not a rendered frame: there is no
-        // Scene of its own and no SceneRenderer, so this document costs none of the six slots. It holds a
+        // Scene of its own and no SceneRenderer, so this document holds no view. It holds a
         // shared_ptr to the ACTIVE scene, which it reads and never renders.
 
         // The `CloudLayout` this window is about, gone from the manager — deleted in the browser, or the project

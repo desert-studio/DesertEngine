@@ -89,7 +89,7 @@ namespace Desert::Editor
 
         // NEVER — see CloudNoiseVolumePanel::HoldsView. This panel bakes one slice plane per frame
         // on the CPU and uploads it as a Graphic::Image2D; it owns no Scene and no SceneRenderer, so it
-        // costs none of the six slots and returns none when it closes.
+        // holds no view and frees none when it closes.
 
         // The `CloudModellingVolume` this window is about, gone from the manager — deleted in the browser, or the
         // project closed under it. Asked of the metadata rather than of a typed lookup: the question is whether

@@ -226,10 +226,10 @@ namespace Desert::Editor
         bool                             m_WindowOpen = true;
     };
 
-    // How many of the six renderer slots the OPEN DOCUMENTS are holding right now.
+    // How many views the OPEN DOCUMENTS are holding right now.
     //
-    // Beside PendingRendererSlotDemand (SubjectEditorRegistry.hpp), which answers the other half: that one
-    // counts claims that have not landed, this one counts the ones that have. Together they are what the
+    // Beside PendingViewBytes (SubjectEditorRegistry.hpp), which answers the other half: that one sums
+    // the claims that have not landed, this one counts the ones that have. Together they are what the
     // status bar shows and what a refusal has to be able to explain, and both are free functions over a
     // range for the same reason — EditorLayer.cpp is compiled by no suite, so a rule written there is a rule
     // nothing can assert.

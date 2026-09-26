@@ -59,7 +59,7 @@ using Desert::Editor::IPanel;
 using Desert::Editor::ISubjectDocument;
 using Desert::Editor::OpenDocuments;
 using Desert::Editor::PanelRegistry;
-using Desert::Editor::PendingRendererSlotDemand;
+using Desert::Editor::PendingViewBytes;
 using Desert::Editor::SubjectDomain;
 using Desert::Editor::SubjectEditorRegistry;
 using Desert::Editor::SubjectId;
@@ -415,8 +415,8 @@ TEST( DocumentSlotLease, ACpuDrawnDocumentIsNotPendingDemand )
 
     well.Add( MakeDocument( DocumentTitle( "M_Crate_Painted", Asset( 22 ) ), Asset( 22 ) ) );
 
-    // One claim outstanding, not two: the material has a slot coming, the cloud never will.
-    EXPECT_EQ( PendingRendererSlotDemand( well.Documents() ), 1u );
+    // One claim outstanding, not two: the material has a view coming, the cloud never will.
+    EXPECT_EQ( PendingViewBytes( well.Documents() ), well.Find( Asset( 22 ) )->ViewForecastBytes() );
     EXPECT_EQ( ViewsHeldByDocuments( well ), 0u );
 }
 
@@ -885,8 +885,8 @@ TEST( DocumentSlotLease, ReleasingTheSlotOfAHiddenDocumentDoesNotCloseIt )
     EXPECT_EQ( well.Count(), 2u );
     EXPECT_NE( well.Find( Asset( 11 ) ), nullptr );
 
-    // Which also makes it pending demand again — it will claim a slot the moment its window is drawn.
-    EXPECT_EQ( PendingRendererSlotDemand( well.Documents() ), 1u );
+    // Which also makes it pending demand again — it will allocate its view the moment its window is drawn.
+    EXPECT_EQ( PendingViewBytes( well.Documents() ), well.Find( Asset( 11 ) )->ViewForecastBytes() );
 }
 
 TEST( DocumentSlotLease, ReleasingTwiceIsNotAnError )

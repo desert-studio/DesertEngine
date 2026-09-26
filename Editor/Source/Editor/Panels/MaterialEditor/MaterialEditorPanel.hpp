@@ -45,7 +45,7 @@ namespace Desert::Editor
     // guards the distinction and fails in BOTH directions.
     //
     // COST WHEN CLOSED IS ZERO, not "small". The PreviewViewport — and with it a Scene, a SceneRenderer and
-    // one of the six renderer slots — is created on the first frame the window actually draws, and released
+    // its view's render targets — is created on the first frame the window actually draws, and released
     // when the window is DISMISSED, which destroys this panel outright (EditorLayer::
     // ServiceDocumentCloses). That is the difference between a document and a tool panel: a tool is
     // hidden and kept, so it has to be told to let go of its renderer; a document ceases to exist, so it
@@ -78,7 +78,7 @@ namespace Desert::Editor
             return ResolveSubject() != nullptr;
         }
 
-        // The preview — a Scene, a SceneRenderer and one of the six slots — while this window is not on
+        // The preview — a Scene, a SceneRenderer and its view memory — while this window is not on
         // screen. ReleasePreview is what a close already does; this is the same teardown reached because
         // nobody is looking, and OnPreUpdate builds it back on the first frame the window is drawn again.
         void ReleaseView() override

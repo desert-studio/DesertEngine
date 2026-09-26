@@ -386,27 +386,29 @@ namespace Desert::Editor
         // nowhere to be shown.
         void DrawOpenRefusedPopup();
 
-        // Who is holding a renderer slot right now, by name. Printed when an open is refused — "no free
-        // slot" without the list leaves the user with nothing to close. The main viewport and every extra
-        // scene view hold one for as long as they exist; the Details preview and each asset document are
+        // Who is holding a view right now, by name. Shown when an open is refused — "out of memory"
+        // without the list leaves the user with nothing to close. The main viewport and every extra scene
+        // view hold one for as long as they exist; the Details preview and each asset document are
         // demand-driven and may be open while holding nothing.
-        struct RendererSlotConsumer
+        struct ViewConsumer
         {
             std::string Name;
-            bool        HoldsSlot = false;
-            // Whether this consumer will ever want a slot. A CPU-only asset document (the four cloud
-            // editors) holds none and is not waiting for one, and the census has to say so — "no slot right
-            // now, but will claim one when it draws" would name it as something to close to free a slot it
-            // was never going to take. See ISubjectDocument::ClaimsView.
-            bool ClaimsSlot = true;
-            // Set for a consumer the user can close FROM THE REFUSAL ITSELF: an open document. A census that
-            // names five things and offers no way to act on any of them is a longer version of "no free
-            // slot". The main viewport and the Details preview carry no handle — neither is a window a
-            // person closes to make room. Last in the struct so the two- and three-field aggregate
-            // initialisations below keep meaning what they say.
+            bool        HoldsView = false;
+            // Whether this consumer will ever build a view. A CPU-only asset document (the four cloud
+            // editors) holds none and is not waiting for one, and the census has to say so — "will allocate
+            // when it draws" would name it as something to close to free memory it was never going to take.
+            // See ISubjectDocument::ClaimsView.
+            bool ClaimsView = true;
+            // What a document that claims a view but has not built it yet will allocate on its first frame
+            // (ISubjectDocument::ViewForecastBytes). Zero for everything else: a view that exists is counted
+            // by what it HOLDS (SceneRenderer::LiveHoldings), not by a forecast.
+            uint64_t ForecastBytes = 0;
+            // Set for a consumer the user can close FROM THE REFUSAL ITSELF: an open document. The main
+            // viewport and the Details preview carry no handle — neither is a window a person closes to make
+            // room. Last in the struct so the shorter aggregate initialisations below keep meaning what they say.
             std::optional<SubjectId> Document = {};
         };
-        [[nodiscard]] std::vector<RendererSlotConsumer> RendererSlotCensus() const;
+        [[nodiscard]] std::vector<ViewConsumer> ViewCensus() const;
         // Rebinds the editor to a focused document: m_MainScene (and thus every play/save/gizmo call site)
         // points at it, Commands + the scene-bound panels follow. kPrimarySceneViewId = the primary/main
         // scene. An id whose document has been closed rebinds nothing and says so — see SceneViewIdentity.hpp
@@ -624,11 +626,13 @@ namespace Desert::Editor
         // is the dangling reference this split exists to avoid.
         struct OpenRefusal
         {
-            std::string                       AssetName;
-            std::string                       TypeName;
-            uint32_t                          Live    = 0;
-            uint32_t                          Pending = 0;
-            std::vector<RendererSlotConsumer> Census;
+            std::string                  AssetName;
+            std::string                  TypeName;
+            Engine::ViewBudget::Verdict  Verdict;      // RequestBytes = the document's forecast + PendingBytes
+            Engine::ViewBudget::Reading  Reading;      // the ceiling, its source and the usage it was judged on
+            uint64_t                     PendingBytes = 0; // spoken for by open documents that have not drawn yet
+            std::vector<Engine::ViewBudget::HeldView> Views; // SceneRenderer::LiveHoldings at the refusal
+            std::vector<ViewConsumer>                 Census;
         };
         std::optional<OpenRefusal> m_OpenRefusal;
         bool                       m_OpenRefusalPending = false; // raise the modal on the next ImGui frame
