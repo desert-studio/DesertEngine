@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <Editor/Core/AssetPickerRows.hpp>
 
 namespace Desert::Editor
 {
@@ -94,25 +95,19 @@ namespace Desert::Editor
 
             if ( ImGui::BeginPopup( "mesh_selector" ) )
             {
-                auto meshAssets = m_AssetManager->FindAllByType<Assets::MeshAsset>();
+                const auto             meshAssets = Assets::ContentRegistry::MeshRows( false );
                 static ImGuiTextFilter meshFilter;
                 meshFilter.Draw( "##Search", 200 );
                 ImGui::Separator();
 
-                for ( const auto& [handle, meshAsset] : meshAssets )
+                for ( const auto& row : meshAssets )
                 {
-                    const auto isSkinnedOpt = Runtime::ResourceRegistry::GetMeshService()->IsSkinned( handle );
-                    if ( isSkinnedOpt.has_value() && isSkinnedOpt.value() )
-                    {
-                        continue;
-                    }
-
-                    const std::string& meshName = Common::Utils::FileSystem::GetFileName( meshAsset->GetMetadata().Filepath );
+                    const std::string meshName = ::Desert::Editor::PickerDisplayName( row );
                     if ( meshFilter.PassFilter( meshName.c_str() ) )
                     {
-                        if ( ImGui::Selectable( meshName.c_str(), staticMesh.MeshHandle == handle ) )
+                        if ( ImGui::Selectable( meshName.c_str(), staticMesh.MeshHandle == row.Handle ) )
                         {
-                            SetMeshAsset( staticMesh, handle );
+                            SetMeshAsset( staticMesh, row.Handle );
                         }
                     }
                 }

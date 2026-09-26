@@ -192,17 +192,17 @@ TEST( CookedAssetRegistry, AMalformedFileIsARefusalAndNotAnEmptyProject )
     EXPECT_FALSE( AssetRegistry::Parse( "" ) );
     EXPECT_FALSE( AssetRegistry::Parse( "DesertContentManifest 1\n" ) ) << "another Desert text format "
                                                                            "was accepted as a registry";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n" ) ) << "a future version was read as "
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 5\n" ) ) << "a future version was read as "
                                                                          "though it were this one";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\n512 Material - -\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n512 Material - -\n" ) )
          << "a row missing its key column was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\nbig Material - - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\nbig Material - - - - - assets:M.demat\n" ) )
          << "a size that is not a number was accepted";
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 2\n5 Material zz - - assets:M.demat\n" ) )
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n5 Material - zz - - - assets:M.demat\n" ) )
          << "an identity that is neither '-' nor a 16-digit hex handle was accepted";
 
     // And the header alone, with no rows, IS a valid registry — an empty project is a real state.
-    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 2\n" );
+    const auto empty = AssetRegistry::Parse( "DesertAssetRegistry 4\n" );
     ASSERT_TRUE( empty ) << empty.GetError();
     EXPECT_TRUE( empty.GetValue().Empty() );
 }
@@ -248,31 +248,22 @@ TEST( CookedAssetRegistry, BoundsSurviveARoundTripBitForBit )
     EXPECT_FALSE( none->Bounds.has_value() ) << "a row with no extent came back with one";
 
     EXPECT_EQ( parsed.GetValue().Serialize(), text ) << "a second write of what was read is a different file";
-    EXPECT_EQ( text.rfind( "DesertAssetRegistry 3\n", 0 ), 0u );
+    EXPECT_EQ( text.rfind( "DesertAssetRegistry 4\n", 0 ), 0u );
 }
 
-// VERSION 1 IS READ, AS ROWS WITH NO BOUNDS, AND WRITTEN BACK AS 2 — the migration is Parse itself. Every
-// other column must survive it: a migration that dropped the identities would be the middle link that
-// loses a property.
-TEST( CookedAssetRegistry, AVersionOneFileMigratesToRowsWithNoBoundsAndKeepsEveryOtherColumn )
+// AN OLDER FORM IS REFUSED, NOT READ WITH ITS MISSING COLUMNS EMPTY. Versions 1-3 predate the tags column;
+// read as before, every row would serve "no name" and "not skinned", and the pickers would list file stems
+// and put skeletal meshes on the static list with nothing saying why. The refusal names the cook.
+TEST( CookedAssetRegistry, AnOlderVersionIsRefusedNamingTheCookThatRewritesIt )
 {
-    const auto parsed =
-         AssetRegistry::Parse( "DesertAssetRegistry 1\n"
-                               "3536 StaticMesh - - cooked:Meshes/StaticProbe.stmesh\n"
-                               "229 Material a3c34fd7f85f1d7b 0000000000000007 assets:Materials/M A.demat\n" );
-    ASSERT_TRUE( parsed ) << parsed.GetError();
-    const AssetRegistry& read = parsed.GetValue();
-    ASSERT_EQ( read.Count(), 2u );
-
-    const AssetRegistryEntry* material = read.FindByKey( "assets:Materials/M A.demat" );
-    ASSERT_NE( material, nullptr ) << "a version-1 key with a space was read as a bounds column";
-    EXPECT_EQ( material->Identity, 0xa3c34fd7f85f1d7bull );
-    EXPECT_EQ( material->Dependencies, ( std::vector<uint64_t>{ 7 } ) );
-    EXPECT_FALSE( material->Bounds.has_value() );
-
-    EXPECT_EQ( read.Serialize(), "DesertAssetRegistry 3\n"
-                                 "229 Material - a3c34fd7f85f1d7b 0000000000000007 - assets:Materials/M A.demat\n"
-                                 "3536 StaticMesh - - - - cooked:Meshes/StaticProbe.stmesh\n" );
+    for ( const char* text : { "DesertAssetRegistry 1\n3536 StaticMesh - - cooked:Meshes/StaticProbe.stmesh\n",
+                               "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n",
+                               "DesertAssetRegistry 3\n229 Material - 0000000000000009 - - assets:M.demat\n" } )
+    {
+        const auto parsed = AssetRegistry::Parse( text );
+        ASSERT_FALSE( parsed ) << "an older registry form was read: " << text;
+        EXPECT_NE( parsed.GetError().find( "AssetRegistryTool cook" ), std::string::npos ) << parsed.GetError();
+    }
 }
 
 // A BOX NO POINT IS INSIDE IS NOT DATA. Five fields, a NaN, an inverted box and a decimal spelling are
@@ -283,7 +274,7 @@ TEST( CookedAssetRegistry, AMalformedBoundsColumnIsRefused )
     const std::string one  = "3f800000";
     const std::string nan  = "7fc00000";
     const auto        row  = []( const std::string& bounds )
-    { return "DesertAssetRegistry 2\n9 StaticMesh - - " + bounds + " cooked:Meshes/M.stmesh\n"; };
+    { return "DesertAssetRegistry 4\n9 StaticMesh - - - " + bounds + " - cooked:Meshes/M.stmesh\n"; };
 
     ASSERT_TRUE(
          AssetRegistry::Parse( row( zero + "," + zero + "," + zero + "," + one + "," + one + "," + one ) ) );
@@ -563,25 +554,69 @@ TEST( CookedAssetRegistry, TheHeaderColumnSurvivesARoundTripWithItsVersionsSorte
     EXPECT_EQ( parsed.GetValue().Serialize(), text );
 }
 
-TEST( CookedAssetRegistry, AVersionTwoFileIsReadAsRowsWithNoHeaderColumn )
+// THE TAGS COLUMN (version 4): a stated name survives any byte a column or an entry would split on, and the
+// skinned flag rides beside it; a row states neither as `-`.
+TEST( CookedAssetRegistry, TheTagsColumnSurvivesARoundTripWithEveryAwkwardByte )
 {
-    const auto parsed =
-         AssetRegistry::Parse( "DesertAssetRegistry 2\n229 Material 0000000000000009 - - assets:M.demat\n" );
+    AssetRegistry      written;
+    AssetRegistryEntry theme = Row( "assets:UI/Themes/Dark.detheme", "UITheme", 10 );
+    theme.DisplayName        = "Desert Dark, 100% = \xD0\x94\xD1\x8E\xD0\xBD\xD0\xB0\tend";
+    AssetRegistryEntry mesh  = Row( "cooked:Meshes/Probe.skmesh", "SkinnedMesh", 20 );
+    mesh.Skinned             = true;
+    AssetRegistryEntry both  = Row( "cooked:Meshes/Named.skmesh", "SkinnedMesh", 30 );
+    both.DisplayName         = "Named";
+    both.Skinned             = true;
+    ASSERT_TRUE( written.Insert( theme ) );
+    ASSERT_TRUE( written.Insert( mesh ) );
+    ASSERT_TRUE( written.Insert( both ) );
+    ASSERT_TRUE( written.Insert( Row( "assets:Materials/M.demat", "Material", 5 ) ) );
+
+    const std::string text = written.Serialize();
+    EXPECT_NE( text.find( " Name=Desert%20Dark%2C%20100%25%20%3D%20" ), std::string::npos ) << text;
+    EXPECT_NE( text.find( " Name=Named,Skinned cooked:Meshes/Named.skmesh" ), std::string::npos ) << text;
+    const auto parsed = AssetRegistry::Parse( text );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    const AssetRegistryEntry* row = parsed.GetValue().FindByKey( "assets:M.demat" );
-    ASSERT_NE( row, nullptr );
-    EXPECT_EQ( row->Identity, 9u );
-    EXPECT_FALSE( row->Guid.has_value() );
+    const AssetRegistry& read = parsed.GetValue();
+    EXPECT_EQ( read.FindByKey( "assets:UI/Themes/Dark.detheme" )->DisplayName, theme.DisplayName );
+    EXPECT_FALSE( read.FindByKey( "assets:UI/Themes/Dark.detheme" )->Skinned );
+    EXPECT_TRUE( read.FindByKey( "cooked:Meshes/Probe.skmesh" )->Skinned );
+    EXPECT_TRUE( read.FindByKey( "cooked:Meshes/Probe.skmesh" )->DisplayName.empty() );
+    EXPECT_EQ( read.FindByKey( "cooked:Meshes/Named.skmesh" )->DisplayName, "Named" );
+    EXPECT_TRUE( read.FindByKey( "cooked:Meshes/Named.skmesh" )->Skinned );
+    EXPECT_TRUE( read.FindByKey( "assets:Materials/M.demat" )->DisplayName.empty() );
+    EXPECT_EQ( read.Serialize(), text ) << "a second write of what was read is a different file";
+}
+
+TEST( CookedAssetRegistry, AMalformedTagsColumnIsRefused )
+{
+    const auto row = []( const std::string& tags )
+    { return "DesertAssetRegistry 4\n9 UITheme - - - - " + tags + " assets:UI/Themes/T.detheme\n"; };
+    ASSERT_TRUE( AssetRegistry::Parse( row( "Name=T" ) ) );
+    EXPECT_FALSE( AssetRegistry::Parse( row( "Colour=Red" ) ) ) << "an unknown tag was skipped, not refused";
+    EXPECT_FALSE( AssetRegistry::Parse( row( "Name=" ) ) ) << "an empty name is `-`, never `Name=`";
+    EXPECT_FALSE( AssetRegistry::Parse( row( "Name=a%2" ) ) ) << "a truncated escape was accepted";
+    EXPECT_FALSE( AssetRegistry::Parse( row( "Name=a%zz" ) ) ) << "a non-hex escape was accepted";
+}
+
+// THE EDITOR'S CACHE IS REBUILT, NOT READ, WHEN IT PREDATES THE TAGS: a version-3 cache's rows would come
+// back with no names for as long as their files' size and stamp held.
+TEST( CookedAssetRegistry, AnOlderRegistryCacheIsRefusedSoTheGatherRebuildsIt )
+{
+    const auto old = Common::Content::ParseRegistryCache(
+         "DesertAssetRegistryCache 3\nDesertAssetRegistry 3\n229 Material - - - - assets:M.demat\n" );
+    EXPECT_FALSE( old ) << "a version-3 registry cache was read";
+    const auto current = Common::Content::ParseRegistryCache( Common::Content::SerializeRegistryCache( {} ) );
+    EXPECT_TRUE( current ) << current.GetError();
 }
 
 TEST( CookedAssetRegistry, AMalformedHeaderColumnIsRefused )
 {
-    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 3\n5 Material zz - - - assets:M.demat\n" ) );
+    EXPECT_FALSE( AssetRegistry::Parse( "DesertAssetRegistry 4\n5 Material zz - - - - assets:M.demat\n" ) );
     EXPECT_FALSE( AssetRegistry::Parse(
-         "DesertAssetRegistry 3\n5 Material 00000000000000000000000000000000; - - - assets:M.demat\n" ) )
+         "DesertAssetRegistry 4\n5 Material 00000000000000000000000000000000; - - - - assets:M.demat\n" ) )
          << "a null GUID is no identity";
     EXPECT_FALSE( AssetRegistry::Parse(
-         "DesertAssetRegistry 3\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - assets:M.demat\n" ) );
+         "DesertAssetRegistry 4\n5 Material b7de7b6da944bded0382e39126712944;MATL - - - - assets:M.demat\n" ) );
 }
 
 TEST( CookedAssetRegistry, ARowWhoseGuidIsNotTheFilesHeaderIsReported )

@@ -19,11 +19,7 @@ namespace Common::Utils
     namespace
     {
         constexpr std::string_view kMagic         = "DesertAssetRegistry";
-        constexpr int              kFormatVersion = 3;
-        // The version before the header column. Read, never written — see the header's note on the form.
-        constexpr int kHeaderlessVersion = 2;
-        // The version before the bounds column. Read, never written — see the header's note on the form.
-        constexpr int kBoundlessVersion = 1;
+        constexpr int              kFormatVersion = 4;
         // The file's name under the Cooked tree. One spelling, here, because both the producer (the
         // editor's cook) and the consumer (both hosts' boot) have to name the same file and a second
         // literal is how they would come to name two.
@@ -191,6 +187,100 @@ namespace Common::Utils
             }
             out = value;
             return true;
+        }
+
+        // A tag value may hold any byte; the column is space-delimited and its entries comma-separated, so
+        // those two, the separator `=`, the escape itself and every non-printing byte are written %XX.
+        bool TagByteIsEscaped( unsigned char c )
+        {
+            return c <= 0x20 || c == 0x7f || c == ',' || c == '=' || c == '%';
+        }
+
+        std::string EscapeTagValue( std::string_view value )
+        {
+            static constexpr char kDigits[] = "0123456789ABCDEF";
+            std::string           out;
+            for ( const char ch : value )
+            {
+                const auto c = static_cast<unsigned char>( ch );
+                if ( !TagByteIsEscaped( c ) )
+                {
+                    out += ch;
+                    continue;
+                }
+                out += '%';
+                out += kDigits[c >> 4];
+                out += kDigits[c & 0xf];
+            }
+            return out;
+        }
+
+        bool UnescapeTagValue( std::string_view text, std::string& out )
+        {
+            out.clear();
+            for ( std::size_t i = 0; i < text.size(); ++i )
+            {
+                if ( text[i] != '%' )
+                {
+                    out += text[i];
+                    continue;
+                }
+                if ( i + 2 >= text.size() )
+                    return false;
+                unsigned int byte   = 0;
+                const auto   parsed = std::from_chars( text.data() + i + 1, text.data() + i + 3, byte, 16 );
+                if ( parsed.ec != std::errc() || parsed.ptr != text.data() + i + 3 )
+                    return false;
+                out += static_cast<char>( byte );
+                i += 2;
+            }
+            return true;
+        }
+
+        constexpr std::string_view kTagName    = "Name";
+        constexpr std::string_view kTagSkinned = "Skinned";
+
+        // `Name=<escaped>` and `Skinned`, comma separated in that order, or `-` when the file states neither.
+        std::string TagsText( const AssetRegistryEntry& entry )
+        {
+            std::string out;
+            if ( !entry.DisplayName.empty() )
+            {
+                out += kTagName;
+                out += '=';
+                out += EscapeTagValue( entry.DisplayName );
+            }
+            if ( entry.Skinned )
+            {
+                if ( !out.empty() )
+                    out += ',';
+                out += kTagSkinned;
+            }
+            return out.empty() ? std::string( kNone ) : out;
+        }
+
+        // An unknown tag is refused, not skipped: a reader that dropped it would serve rows missing a column
+        // the writer meant them to carry, which is the silent read the version line exists to prevent.
+        bool ParseTags( std::string_view text, AssetRegistryEntry& entry )
+        {
+            for ( ;; )
+            {
+                const std::size_t      comma = text.find( ',' );
+                const std::string_view one   = text.substr( 0, comma );
+                if ( one == kTagSkinned )
+                    entry.Skinned = true;
+                else if ( one.starts_with( kTagName ) && one.size() > kTagName.size() + 1 &&
+                          one[kTagName.size()] == '=' )
+                {
+                    if ( !UnescapeTagValue( one.substr( kTagName.size() + 1 ), entry.DisplayName ) )
+                        return false;
+                }
+                else
+                    return false;
+                if ( comma == std::string_view::npos )
+                    return true;
+                text = text.substr( comma + 1 );
+            }
         }
 
         // Splits off the next whitespace-delimited column, leaving `rest` at the start of the one
@@ -529,6 +619,8 @@ namespace Common::Utils
                                             : std::string( kNone ); // NOLINT(bugprone-unchecked-optional-access)
             // NOLINTEND(bugprone-unchecked-optional-access)
             out += ' ';
+            out += TagsText( entry );
+            out += ' ';
             out += entry.Key;
             out += '\n';
         }
@@ -557,15 +649,21 @@ namespace Common::Utils
         if ( !nextLine( header ) )
             return MakeError<AssetRegistry>( "the asset registry is empty — its header line is missing" );
 
-        const std::string expected   = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
-        const std::string headerless = std::string( kMagic ) + " " + std::to_string( kHeaderlessVersion );
-        const std::string boundless  = std::string( kMagic ) + " " + std::to_string( kBoundlessVersion );
-        const bool        hasHeader  = header == expected;
-        const bool        hasBounds  = hasHeader || header == headerless;
-        if ( !hasBounds && header != boundless )
+        // ONE FORM IS READ: the one this build writes. An older form lacks columns (the tags, before 4) that
+        // its rows would then silently serve as empty — a picker listing file stems for names the files state.
+        // A registry is derived state; the answer to an old one is the cook that rewrites it.
+        const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
+        if ( header != expected )
+        {
+            if ( header.starts_with( kMagic ) )
+                return MakeFormattedError<AssetRegistry>(
+                     R"(an asset registry of another form: line 1 is "{}", this build reads only "{}" — )"
+                     "re-cook it (AssetRegistryTool cook)",
+                     std::string( header ), expected );
             return MakeFormattedError<AssetRegistry>(
                  R"(not a Desert asset registry: line 1 is "{}", expected "{}")", std::string( header ),
                  expected );
+        }
 
         AssetRegistry    registry;
         std::string_view line;
@@ -577,18 +675,20 @@ namespace Common::Utils
             std::string_view rest = line;
             std::string_view sizeText;
             std::string_view kindText;
-            std::string_view headerText = kNone;
+            std::string_view headerText;
             std::string_view identityText;
             std::string_view depsText;
-            std::string_view boundsText = kNone;
+            std::string_view boundsText;
+            std::string_view tagsText;
             if ( !NextColumn( rest, sizeText ) || !NextColumn( rest, kindText ) ||
-                 ( hasHeader && !NextColumn( rest, headerText ) ) || !NextColumn( rest, identityText ) ||
-                 !NextColumn( rest, depsText ) || ( hasBounds && !NextColumn( rest, boundsText ) ) ||
-                 rest.empty() )
+                 !NextColumn( rest, headerText ) || !NextColumn( rest, identityText ) ||
+                 !NextColumn( rest, depsText ) || !NextColumn( rest, boundsText ) ||
+                 !NextColumn( rest, tagsText ) || rest.empty() )
             {
                 return MakeFormattedError<AssetRegistry>(
-                     "line {} is not a registry row — expected \"<size> <kind>{} <identity> <deps>{} <key>\"",
-                     lineNo, hasHeader ? " <header>" : "", hasBounds ? " <bounds>" : "" );
+                     "line {} is not a registry row — expected \"<size> <kind> "
+                     "<header> <identity> <deps> <bounds> <tags> <key>\"",
+                     lineNo );
             }
 
             AssetRegistryEntry entry;
@@ -640,6 +740,11 @@ namespace Common::Utils
                          lineNo, std::string( boundsText ) );
                 entry.Bounds = box;
             }
+
+            if ( tagsText != kNone && !ParseTags( tagsText, entry ) )
+                return MakeFormattedError<AssetRegistry>( "line {}: '{}' is neither '-' nor 'Name=<%XX-escaped "
+                                                          "text>' and/or 'Skinned', comma separated",
+                                                          lineNo, std::string( tagsText ) );
 
             if ( const auto inserted = registry.Insert( std::move( entry ) ); !inserted )
                 return MakeFormattedError<AssetRegistry>( "line {}: {}", lineNo, inserted.GetError() );

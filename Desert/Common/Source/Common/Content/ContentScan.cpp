@@ -9,7 +9,11 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <rflcpp/rfl/Generic.hpp>
+#include <rflcpp/rfl/json.hpp>
+
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <span>
 #include <string>
@@ -222,6 +226,28 @@ namespace Common::Content
         }
     } // namespace
 
+    namespace
+    {
+        // The string a JSON document states under its top-level `member`, or empty. The document is parsed as a
+        // generic tree and nothing is built from it — the asset stays unloaded; the files carrying a name are
+        // small documents (themes, rigs, retargets, graphs, cloud types).
+        std::string StatedDisplayName( const std::filesystem::path& file, std::string_view member )
+        {
+            const auto text =
+                 Utils::FileSystem::ReadFileContentPrefix( file, Utils::FileSystem::GetFileSize( file ) );
+            if ( !text )
+                return {};
+            const auto document = rfl::json::read<rfl::Generic::Object>( text.GetValue() );
+            if ( !document )
+                return {};
+            const auto value = document.value().get( std::string( member ) );
+            if ( !value )
+                return {};
+            const auto name = value.value().to_string();
+            return name ? name.value() : std::string();
+        }
+    } // namespace
+
     ContentFile DescribeContentFile( const std::filesystem::path& file, ContentKind kind )
     {
         ContentFile described{ kind, Utils::FileSystem::GetFileSize( file ), std::nullopt, {}, {}, std::nullopt };
@@ -232,8 +258,20 @@ namespace Common::Content
             // The mesh's box, from its 64-byte header and not its body — the reason the box is in the header.
             const auto head = Utils::FileSystem::ReadFileContentPrefix( file, sizeof( MeshBinaryFileHeader ) );
             if ( head )
+            {
                 described.MeshBounds = ReadMeshHeaderBounds( head.GetValue() );
+                // The same header states the skeleton: a mesh the picker for skinned meshes must list, and the
+                // static one must not — known before the body is read, as the box is.
+                if ( described.MeshBounds )
+                {
+                    MeshBinaryFileHeader header{};
+                    std::memcpy( &header, head.GetValue().data(), sizeof( header ) );
+                    described.Skinned = ( header.Flags & kMeshFlagIsSkinned ) != 0;
+                }
+            }
         }
+        if ( const std::string_view member = KindSpec( kind ).DisplayNameMember; !member.empty() )
+            described.DisplayName = StatedDisplayName( file, member );
         // RECORD ONLY: the versions are the loading build's to judge, not this walk's (see the context).
         const AssetHeaderReadContext context{ {}, true };
         auto                         stated = ReadAssetHeaderIfStated( file, context );
@@ -301,7 +339,9 @@ namespace Common::Content
         //    header is their only writer. A version-2 cache holds identities and edges a running editor
         //    learned from loaded assets (path-derived numbers among them); reusing one would keep those rows
         //    for as long as their files' size and stamp hold, so a version-2 cache is rebuilt once.
-        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 3";
+        // 4: rows carry the tags column (display name, skinned). A version-3 cache would hand back rows with
+        //    both empty for as long as their files' size and stamp hold, so it is refused and rebuilt once.
+        constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 4";
     } // namespace
 
     std::map<std::string, ContentFile> ScanContentRoots()
@@ -365,6 +405,8 @@ namespace Common::Content
         }
         if ( file.MeshBounds && file.MeshBounds->Stated )
             entry.Bounds = file.MeshBounds->Bounds;
+        entry.DisplayName = file.DisplayName;
+        entry.Skinned     = file.Skinned;
         return MakeSuccess( std::move( entry ) );
     }
 
