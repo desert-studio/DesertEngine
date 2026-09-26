@@ -2059,11 +2059,17 @@ namespace Desert::Migration
 
     namespace
     {
-        // The header GUID of the mesh `meshPath` names, after checking that `oldHandle` is that file's
-        // path-derived handle. An error string names why not.
-        Common::ResultStr<Common::Content::AssetGuid> MeshGuidForBlock( uint64_t                     oldHandle,
-                                                                        const std::string&           meshPath,
-                                                                        const std::filesystem::path& assetsRoot )
+        // The project a mesh block's `meshPath` is relative to (the nearest ancestor of `assetsRoot` under
+        // which that file exists) and the file itself. An error string names why there is none.
+        struct MeshFileLocation
+        {
+            std::filesystem::path Start; // `assetsRoot`, absolute and normalised
+            std::filesystem::path Project;
+            std::filesystem::path File;
+        };
+
+        Common::ResultStr<MeshFileLocation> LocateMeshFile( const std::string&           meshPath,
+                                                            const std::filesystem::path& assetsRoot )
         {
             namespace fs = std::filesystem;
             std::error_code ec;
@@ -2080,10 +2086,58 @@ namespace Desert::Migration
                     break;
             }
             if ( project.empty() )
-                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                return Common::MakeFormattedError<MeshFileLocation>(
                      "{}", "no file '" + meshPath + "' under any ancestor of " + start.generic_string() );
+            return Common::MakeSuccess(
+                 MeshFileLocation{ start, project, ( project / meshPath ).lexically_normal() } );
+        }
 
-            const fs::path file = ( project / meshPath ).lexically_normal();
+        // The GUID the mesh file `file` states. Two headers carry one: the cooked v3 mesh binary, and the
+        // DAST envelope a source mesh asset (.stmesh) is written in. A file stating neither, a file of
+        // another kind, or the null GUID is an error.
+        Common::ResultStr<Common::Content::AssetGuid> MeshFileHeaderGuid( const std::filesystem::path& file )
+        {
+            {
+                std::ifstream in( file, std::ios::binary );
+                std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
+                in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
+                prefix.resize( static_cast<std::size_t>( in.gcount() ) );
+                const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
+                if ( guid && !guid->IsNull() )
+                    return Common::MakeSuccess( Common::Content::AssetGuid( *guid ) );
+            }
+            // Record-only: the migrator links no subsystem table, it only reads what the header states.
+            const auto header =
+                 Common::Content::ReadAssetHeader( file, Common::Content::AssetHeaderReadContext{ {}, true } );
+            if ( !header )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() +
+                                "' states no mesh GUID (not a v3 mesh; envelope: " + header.GetError() + ")" );
+            const auto& asset = header.GetValue();
+            if ( asset.Kind != Common::Content::ContentKind::StaticMesh &&
+                 asset.Kind != Common::Content::ContentKind::SkinnedMesh )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() + "' is not a mesh (kind " +
+                                std::string( Common::Content::KindName( asset.Kind ) ) + ")" );
+            if ( asset.Guid.IsNull() )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>(
+                     "{}", "'" + file.generic_string() + "' states the null GUID" );
+            return Common::MakeSuccess( asset.Guid );
+        }
+
+        // The header GUID of the mesh `meshPath` names, after checking that `oldHandle` is that file's
+        // path-derived handle. An error string names why not.
+        Common::ResultStr<Common::Content::AssetGuid> MeshGuidForBlock( uint64_t                     oldHandle,
+                                                                        const std::string&           meshPath,
+                                                                        const std::filesystem::path& assetsRoot )
+        {
+            namespace fs       = std::filesystem;
+            const auto located = LocateMeshFile( meshPath, assetsRoot );
+            if ( !located )
+                return Common::MakeFormattedError<Common::Content::AssetGuid>( "{}", located.GetError() );
+            const fs::path& start   = located.GetValue().Start;
+            const fs::path& project = located.GetValue().Project;
+            const fs::path& file    = located.GetValue().File;
             // The key the writer hashed: the file's place under the Cooked tree or the assets root.
             std::string       key;
             const std::string underCooked =
@@ -2101,15 +2155,7 @@ namespace Desert::Migration
                 return Common::MakeFormattedError<Common::Content::AssetGuid>(
                      "{}", "is not the handle of '" + key + "' (" + std::to_string( pathHandle ) + ")" );
 
-            std::ifstream in( file, std::ios::binary );
-            std::string   prefix( Common::Content::kMeshBinaryPrefixV3, '\0' );
-            in.read( prefix.data(), static_cast<std::streamsize>( prefix.size() ) );
-            prefix.resize( static_cast<std::size_t>( in.gcount() ) );
-            const auto guid = Common::Content::ReadMeshHeaderGuid( prefix );
-            if ( !guid || guid->IsNull() )
-                return Common::MakeFormattedError<Common::Content::AssetGuid>(
-                     "{}", "'" + file.generic_string() + "' states no mesh GUID (not a v3 mesh)" );
-            return Common::MakeSuccess( Common::Content::AssetGuid( *guid ) );
+            return MeshFileHeaderGuid( file );
         }
 
         void RaiseMeshGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
@@ -2177,6 +2223,86 @@ namespace Desert::Migration
             for ( std::size_t i = 0; i < overrides.size(); ++i )
                 RaiseMeshGuids( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]",
                                 assetsRoot, report );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        void RaisePathOnlyMeshGuids( rfl::ExtraFields<rfl::Generic>& components, const std::string& tag,
+                                     const std::filesystem::path& assetsRoot, MeshGuidsMigrationReport& report )
+        {
+            static constexpr auto kMeshComponents =
+                 std::to_array<const char*>( { "StaticMesh", "SkinnedMesh", "InstancedStaticMesh" } );
+            for ( const char* component : kMeshComponents )
+            {
+                const auto payload = components.get( component );
+                if ( !payload.has_value() )
+                    continue;
+                const auto fields = payload.value().to_object();
+                if ( !fields.has_value() )
+                    continue;
+                const auto        path = fields.value().get( "MeshPath" );
+                const std::string text = path.has_value() ? path.value().to_string().value_or( "" ) : "";
+                if ( text.empty() )
+                    continue;
+                const std::string site  = tag + " > " + component + ".MeshPath = '" + text + "'";
+                const auto        value = fields.value().get( "MeshGuid" );
+                if ( value.has_value() )
+                {
+                    const auto stated = value.value().to_string();
+                    if ( !stated.has_value() )
+                    {
+                        report.UnknownNames.push_back( site + ": MeshGuid is " + Describe( value.value() ) +
+                                                       ", not GUID text" );
+                        continue;
+                    }
+                    if ( !stated.value().empty() )
+                        continue; // already named by its GUID
+                }
+                const auto located = LocateMeshFile( text, assetsRoot );
+                if ( !located )
+                {
+                    report.UnknownNames.push_back( site + ": " + located.GetError() );
+                    continue;
+                }
+                const auto guid = MeshFileHeaderGuid( located.GetValue().File );
+                if ( !guid )
+                {
+                    report.UnknownNames.push_back( site + ": " + guid.GetError() );
+                    continue;
+                }
+                ++report.Rewritten;
+                // MeshGuid follows MeshPath, the order the component's writer states them in.
+                rfl::Generic::Object raised;
+                for ( const auto& [key, field] : fields.value() )
+                {
+                    if ( key == "MeshGuid" )
+                        continue;
+                    raised[key] = field;
+                    if ( key == "MeshPath" )
+                        raised["MeshGuid"] = rfl::Generic( Common::Content::AssetGuidToText( guid.GetValue() ) );
+                }
+                components[component] = rfl::Generic( std::move( raised ) );
+            }
+        }
+    } // namespace
+
+    MeshGuidsMigrationReport MigratePathOnlyMeshGuidsV31ToV32( std::vector<Assets::EntityData>& entities,
+                                                               const std::filesystem::path&     assetsRoot )
+    {
+        MeshGuidsMigrationReport report;
+        for ( auto& entity : entities )
+        {
+            const std::string tag = entity.Tag.value_or( "Entity" );
+            RaisePathOnlyMeshGuids( entity.Components, tag, assetsRoot, report );
+            if ( !entity.PrefabOverrides )
+                continue;
+            auto& overrides = *entity.PrefabOverrides;
+            for ( std::size_t i = 0; i < overrides.size(); ++i )
+                RaisePathOnlyMeshGuids( overrides[i].Components,
+                                        tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot,
+                                        report );
         }
         return report;
     }
@@ -4125,6 +4251,24 @@ namespace Desert::Migration
                     report.Refused = "'" + name +
                                      "': " + std::to_string( report.ShaderSceneGuids.UnknownNames.size() ) +
                                      " shader/scene reference(s) cannot be raised to a header GUID: " + names +
+                                     ". Nothing was written.";
+                    return;
+                }
+            }
+
+            // Adds MeshGuid where the v28 step found no key to rewrite; no step above writes one it lacks.
+            if ( statedSceneVersion < kSceneVersionPathOnlyMeshGuids )
+            {
+                report.PathOnlyMeshGuidsRaised = true;
+                report.PathOnlyMeshGuids       = MigratePathOnlyMeshGuidsV31ToV32( entities, assetsRoot );
+                if ( !report.PathOnlyMeshGuids.UnknownNames.empty() )
+                {
+                    std::string names;
+                    for ( const auto& unknown : report.PathOnlyMeshGuids.UnknownNames )
+                        names += ( names.empty() ? "" : "; " ) + unknown;
+                    report.Refused = "'" + name +
+                                     "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
+                                     " path-only mesh reference(s) cannot be given a header GUID: " + names +
                                      ". Nothing was written.";
                     return;
                 }

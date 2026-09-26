@@ -1235,6 +1235,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionSpriteGuids << "->v"
                 << Desert::Migration::kSceneVersionShaderGuids << " (" << report.ShaderSceneGuids.Rewritten
                 << " material shader / render-texture scene reference(s) now state the header GUID)";
+        if ( report.PathOnlyMeshGuidsRaised )
+            out << " scene v" << Desert::Migration::kSceneVersionShaderGuids << "->v"
+                << Desert::Migration::kSceneVersionPathOnlyMeshGuids << " (" << report.PathOnlyMeshGuids.Rewritten
+                << " path-only mesh reference(s) now state the mesh header GUID)";
         if ( report.TextHeaderRaised )
             out << " scene v" << Desert::Migration::kSceneVersionSiblingOrder << "->v"
                 << Desert::Migration::kSceneVersionTextHeader << " (text header stated: kind, GUID, SCNE/UNIT)";
@@ -1418,9 +1422,13 @@ namespace Desert::Migration
         return kExclusions;
     }
 
-    int RunSceneMigrator( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
+    // One pass of the tool over `args`. `dryRun` forces --check whatever `args` say; `failedOut` receives the
+    // number of files the pass refused, which RunSceneMigrator's all-or-nothing verdict reads.
+    static int RunSceneMigratorPass( const std::vector<std::string>& args, bool dryRun, std::ostream& out,
+                                     std::ostream& err, int& failedOut )
     {
-        bool                               check = false;
+        failedOut                                = 0;
+        bool                               check = dryRun;
         std::vector<std::filesystem::path> roots;
 
         for ( const std::string& arg : args )
@@ -2575,8 +2583,38 @@ namespace Desert::Migration
             << " other text asset(s), " << relaid << ( check ? " would be re-laid-out, " : " re-laid-out, " )
             << failed << " failed\n";
 
+        failedOut = failed;
         if ( failed > 0 )
             return 1;
         return ( check && ( changed > 0 || materialsChanged > 0 || prefabsChanged > 0 || relaid > 0 ) ) ? 1 : 0;
+    }
+
+    // ALL OR NOTHING. A write run used to raise file after file and let one refusal fail only itself: over
+    // Editor/Resources/Assets that rewrote 147 files around the one it refused, so the tree held two
+    // generations at once and the refusal had to be fixed against content already half-moved. Now the
+    // whole set is migrated in memory first (the --check pass computes every step without writing), and
+    // any refusal there writes NOTHING: every refusal is printed and the exit code is 1. Only a set with
+    // no refusal reaches the writing pass. A write that fails after that is an I/O failure of one file,
+    // which the atomic write-then-rename already leaves byte-identical.
+    int RunSceneMigrator( const std::vector<std::string>& args, std::ostream& out, std::ostream& err )
+    {
+        int failed = 0;
+        if ( std::ranges::find( args, std::string( "--check" ) ) != args.end() )
+            return RunSceneMigratorPass( args, false, out, err, failed );
+
+        std::ostringstream dryOut;
+        std::ostringstream dryErr;
+        const int          dry = RunSceneMigratorPass( args, true, dryOut, dryErr, failed );
+        if ( dry == 2 || failed > 0 )
+        {
+            out << dryOut.str();
+            err << dryErr.str();
+            if ( failed > 0 )
+                err << "SceneMigrator: " << failed
+                    << " file(s) refused in the in-memory pass - NOTHING was written; fix every refusal above "
+                       "and run again\n";
+            return dry == 2 ? 2 : 1;
+        }
+        return RunSceneMigratorPass( args, false, out, err, failed );
     }
 } // namespace Desert::Migration

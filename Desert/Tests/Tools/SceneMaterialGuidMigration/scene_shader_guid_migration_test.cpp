@@ -125,9 +125,9 @@ TEST( SceneShaderGuidMigration, ANameNoShaderCarriesRefusesTheFileNamingTheEntit
     EXPECT_NE( report.Refused.find( "Inst > PrefabOverrides[0]" ), std::string::npos ) << report.Refused;
 }
 
-TEST( SceneShaderGuidMigration, TheEngineRequiresTheShaderGuidGeneration )
+TEST( SceneShaderGuidMigration, TheShaderGuidStepIsTheOneBeforeThePathOnlyMeshStep )
 {
-    EXPECT_EQ( Desert::Core::kSceneVersion, Migration::kSceneVersionShaderGuids );
+    EXPECT_EQ( Migration::kSceneVersionShaderGuids + 1, Migration::kSceneVersionPathOnlyMeshGuids );
 }
 
 // The same step raises a UIRenderTexture's `ScenePath` ("Resources/Assets/Scenes/X.desce", the path the editor
