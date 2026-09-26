@@ -6,6 +6,11 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
+#include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -71,9 +76,25 @@ namespace Desert::Editor::PreviewEnvironment
                       {
                           if ( assets == nullptr )
                               return std::nullopt;
-                          if ( auto asset = assets->FindByPath<Assets::SkyboxAsset>( Common::Filepath( path ) ) )
-                              return static_cast<uint64_t>( asset->GetMetadata().Handle );
-                          return std::nullopt;
+                          auto asset = assets->FindByPath<Assets::SkyboxAsset>( Common::Filepath( path ) );
+                          if ( !asset )
+                              return std::nullopt;
+                          // Finding the record is not having the sky: the boot only SCANS .hdr files, so
+                          // an HDR no loaded scene uses has no MaterialSkybox, SkyboxECSSystem sends an
+                          // empty SkyboxCommand and the preview is lit by the black EMPTY environment
+                          // (EnsureSkyboxRegistered). Registering bakes it, once per asset.
+                          const auto* service = Runtime::ResourceRegistry::GetSkyboxService();
+                          if ( service != nullptr && !service->Get( asset->GetMetadata().Handle ) )
+                          {
+                              // Same as every mid-session registration in the editor: the bake must not
+                              // overlap a frame still in flight.
+                              Graphic::Renderer::GetInstance().WaitDeviceIdle();
+                              Runtime::EnsureSkyboxRegistered( asset );
+                              LOG_INFO( "[PreviewScene] '{}' was not registered; baked it for the preview "
+                                        "environment",
+                                        path );
+                          }
+                          return static_cast<uint64_t>( asset->GetMetadata().Handle );
                       } );
 
         // Named ONCE per path: this runs every frame in every preview, and the refusal does not change
