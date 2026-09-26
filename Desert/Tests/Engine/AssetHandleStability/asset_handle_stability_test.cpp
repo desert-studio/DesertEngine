@@ -1482,7 +1482,8 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
 // change of its container is what this test sees.
 TEST( AssetHandleStability, AnEnvelopeMeshHandleIsHandleForGuidOfItsHeader )
 {
-    const auto file = CopyCorpusFile( "Editor/Resources/Assets/Meshes/StaticProbe.stmesh", "AF4fEnvelopeMeshHandle" );
+    const auto file =
+         CopyCorpusFile( "Editor/Resources/Assets/Meshes/StaticProbe.stmesh", "AF4fEnvelopeMeshHandle" );
     ExpectHeaderGuidIdentity<Desert::Assets::StaticMeshAsset>( file, Common::Content::ContentKind::StaticMesh );
     std::filesystem::remove_all( file.parent_path() );
 }
