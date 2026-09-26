@@ -1259,8 +1259,8 @@ namespace Desert::Geometry
                 {
                     std::vector<int32_t>& Span =
                          EdgeVertices.insert_or_assign( Key, std::vector<int32_t>() ).first->second;
-                    const glm::dvec3 Lo   = Out.GetVertex( Key.A );
-                    const glm::dvec3 Hi   = Out.GetVertex( Key.B );
+                    const glm::dvec3 Lo = Out.GetVertex( Key.A );
+                    const glm::dvec3 Hi = Out.GetVertex( Key.B );
                     for ( int32_t s = 1; s < N; ++s )
                     {
                         const double T = static_cast<double>( s ) / N;

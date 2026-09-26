@@ -95,7 +95,7 @@ namespace Desert::Geometry
         FPointHashGrid3         MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
-        glm::dvec3      A{}, B{}, C{}, D{};
+        glm::dvec3           A{}, B{}, C{}, D{};
         std::vector<int>     equivBuffer;
         std::vector<int32_t> SearchMatches;
 

@@ -149,7 +149,7 @@ namespace Desert::Geometry
             {
                 const std::vector<int32_t>& BaseLoopV          = LoopPairs[StripIndex].OuterVertices;
                 float                AccumUVTranslation = 0;
-                glm::dvec3             FirstAxisX{}, FrameUp{};
+                glm::dvec3                  FirstAxisX{}, FrameUp{};
                 for ( int32_t k = 0; k < static_cast<int32_t>( QuadStrips[StripIndex].size() ); k++ )
                 {
                     const glm::vec3  NF = Editor.ComputeAndSetQuadNormal( QuadStrips[StripIndex][k], true );

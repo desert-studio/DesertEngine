@@ -532,7 +532,7 @@ namespace Desert::Geometry
 
         std::unordered_map<int, int> BaseToOverlay;
         std::vector<int>             AllUVIndices;
-        glm::vec2      UVMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
+        glm::vec2                    UVMin( std::numeric_limits<float>::max(), std::numeric_limits<float>::max() );
         for ( int Tid : Triangles )
         {
             if ( UVs->IsSetTriangle( Tid ) )

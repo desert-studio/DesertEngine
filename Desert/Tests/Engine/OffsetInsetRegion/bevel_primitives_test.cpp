@@ -157,8 +157,8 @@ TEST( BevelPrimitives, PolygonPlaneIsNewellNormalCentroidAndArea )
 {
     const std::vector<glm::dvec3> P = { glm::dvec3( 0, 0, 0 ), glm::dvec3( 100, 0, 0 ), glm::dvec3( 100, 100, 0 ),
                                         glm::dvec3( 0, 100, 0 ) };
-    glm::dvec3               Normal{};
-    glm::dvec3               Centroid{};
+    glm::dvec3                    Normal{};
+    glm::dvec3                    Centroid{};
     const double            Area = PolygonTriangulation::ComputePolygonPlane( P, Normal, Centroid );
     EXPECT_NEAR( Area, 10000.0, Tol );
     // UE's convention (VectorUtil::Normal): the front of a polygon is the side it looks clockwise from, so a
@@ -172,8 +172,8 @@ TEST( BevelPrimitives, EarClipOfAConcavePolygonCoversItOnce )
     // An L of three 10 cm cells, counter-clockwise, tilted out of the axis planes; vertex 3 is the reflex corner.
     const std::vector<glm::dvec3> P = { Tilt( 0, 0 ),   Tilt( 20, 0 ),  Tilt( 20, 10 ),
                                         Tilt( 10, 10 ), Tilt( 10, 20 ), Tilt( 0, 20 ) };
-    glm::dvec3               PolygonNormal{};
-    glm::dvec3               Centroid{};
+    glm::dvec3                    PolygonNormal{};
+    glm::dvec3                    Centroid{};
     PolygonTriangulation::ComputePolygonPlane( P, PolygonNormal, Centroid );
 
     for ( const bool bHoleFill : { true, false } )

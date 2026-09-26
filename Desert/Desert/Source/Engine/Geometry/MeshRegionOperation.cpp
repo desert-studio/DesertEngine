@@ -114,8 +114,8 @@ namespace Desert::Geometry
                 loopIndices.push_back( i );
 
         // UE's MaxDim: the largest side of the bounds (Extents are half sides).
-        const glm::dvec3 extents = mesh->GetBounds().Extents();
-        const double     uvScale = 1.0 / ( 2.0 * std::max( extents.x, std::max( extents.y, extents.z ) ) );
+        const glm::dvec3     extents = mesh->GetBounds().Extents();
+        const double         uvScale = 1.0 / ( 2.0 * std::max( extents.x, std::max( extents.y, extents.z ) ) );
         std::vector<int32_t> newTriangles;
         for ( const int index : loopIndices )
         {
