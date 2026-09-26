@@ -42,6 +42,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",

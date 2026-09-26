@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
@@ -80,5 +81,35 @@ namespace Desert::Assets
         m_ShaderContent.shrink_to_fit();
         m_ReadyForUse = false;
         return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<AssetGuidRef> FindShaderRefByName( const AssetManager& manager, std::string_view name,
+                                                         const AssetRefSite& site )
+    {
+        for ( const auto& [handle, shader] : manager.FindAllByType<ShaderAsset>() )
+        {
+            const Common::Filepath& file = shader->GetMetadata().Filepath;
+            if ( file.stem().string() == name )
+                return WriteAssetGuidRef( ReadShaderHeaderGuid( file ), file, site );
+        }
+        return Common::MakeError<AssetGuidRef>(
+             std::format( "{} on {}: no loaded shader is named '{}'", site.Field, site.Context, name ) );
+    }
+
+    Common::ResultStr<std::string> FindShaderNameByRef( const AssetManager& manager, const AssetGuidRef& ref,
+                                                        const AssetRefSite& site )
+    {
+        // BY GUID, the shader's identity (the constructor adopts HandleForGuid of its header GUID).
+        return ResolveAssetGuidRef(
+             ref,
+             [&manager]( const Common::Content::AssetGuid& guid ) -> std::optional<std::string>
+             {
+                 const auto shader = manager.FindByHandle<ShaderAsset>(
+                      Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ) );
+                 if ( shader == nullptr )
+                     return std::nullopt;
+                 return shader->GetMetadata().Filepath.stem().string();
+             },
+             site );
     }
 } // namespace Desert::Assets

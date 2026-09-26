@@ -2190,11 +2190,9 @@ namespace Desert::ECS
         REFLECT()
 
         // The scene to render, as a path a host can open ("Resources/Assets/Scenes/UI_Portrait.desce").
-        // A PATH and not an AssetHandle because scenes are not assets in this engine: there is no
-        // SceneAsset type, no service that hands one out, and the only other place that names a scene
-        // from a component — UIButtonData::Action, "scene:<path>" — names it exactly this way. Inventing
-        // a handle type for one field would be a second identity for a file the project already
-        // identifies by path.
+        // A PATH at runtime and not an AssetHandle because there is no SceneAsset type and no service that
+        // hands one out: the host opens the file. The SCENE FILE names it by the `.desce` header GUID
+        // (SCNE 31, `"Scene": {Guid, Path}`, ComponentRegistry.cpp), so a moved scene is still found.
         PROPERTY( DisplayName( "Scene" ), Category( "UI Render Texture" ),
                   Tooltip( "Path to a .desce rendered live into this element, e.g. "
                            "Resources/Assets/Scenes/UI_Portrait.desce" ) )
