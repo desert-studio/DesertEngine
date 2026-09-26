@@ -141,8 +141,7 @@ namespace Desert::Assets
         // exist yet. See Animation::PopulateLibrary for the defect that argument is there to state.
         // Clips are NOT created here: the library indexes their registry rows and the loader reads a
         // clip when an animator first names it (AL1-6).
-        const size_t animationFilesFound =
-             ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size();
+        const size_t animationFilesFound = ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size();
 
         ProcessAssetKind<SkeletonAsset>( Common::Content::ContentKind::Skeleton, m_AssetManager,
                                          AssetPriority::Low, &rows );

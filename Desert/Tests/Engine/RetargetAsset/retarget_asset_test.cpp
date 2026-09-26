@@ -1236,7 +1236,8 @@ TEST( RetargetAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
          // names it, read by the loader, and binds its source rig through the rig's own registry row.
          { "Desert/Desert/Source/Engine/ECS/System/AnimationECSSystem.hpp",
            "Demand<Assets::RetargetAsset>( wanted, Common::Content::ContentKind::Retarget, pending )",
-           "without this a retarget nobody created at boot is never created, and the entity plays on its own rig" },
+           "without this a retarget nobody created at boot is never created, and the entity plays on its own "
+           "rig" },
          { "Desert/Desert/Source/Engine/Assets/RetargetAsset.cpp",
            "CreateFromRegistryGuid<SkeletonAsset>( manager, guid.GetValue(),",
            "without this the source rig binds only when something else happened to create it first" },

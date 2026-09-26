@@ -445,7 +445,8 @@ namespace Desert::ECS
             }
 
             bool pending = false;
-            auto asset   = Demand<Assets::AnimGraphAsset>( wanted, Common::Content::ContentKind::AnimGraph, pending );
+            auto asset =
+                 Demand<Assets::AnimGraphAsset>( wanted, Common::Content::ContentKind::AnimGraph, pending );
             if ( !asset || !asset->IsReadyForUse() )
             {
                 // Being read: not missing, so not reported; the clip poses the entity meanwhile.
@@ -531,7 +532,8 @@ namespace Desert::ECS
             }
 
             bool pending = false;
-            auto asset   = Demand<Assets::ControlRigAsset>( wanted, Common::Content::ContentKind::ControlRig, pending );
+            auto asset =
+                 Demand<Assets::ControlRigAsset>( wanted, Common::Content::ContentKind::ControlRig, pending );
             if ( !asset || !asset->IsReadyForUse() )
             {
                 // Being read: not missing, so not reported; the clip poses the entity meanwhile.
@@ -642,7 +644,7 @@ namespace Desert::ECS
             }
 
             bool pending = false;
-            auto asset   = Demand<Assets::RetargetAsset>( wanted, Common::Content::ContentKind::Retarget, pending );
+            auto asset = Demand<Assets::RetargetAsset>( wanted, Common::Content::ContentKind::Retarget, pending );
             if ( !asset || !asset->IsReadyForUse() )
             {
                 // Being read: not missing, so not reported; the clip poses the entity meanwhile.
@@ -742,8 +744,8 @@ namespace Desert::ECS
          * read is in flight: the caller waits quietly; null without it is a real miss the caller reports.
          */
         template <typename AssetType>
-        Assets::Asset<AssetType> Demand( const Assets::AssetHandle& wanted, const Common::Content::ContentKind kind,
-                                         bool& pending ) const
+        Assets::Asset<AssetType> Demand( const Assets::AssetHandle&         wanted,
+                                         const Common::Content::ContentKind kind, bool& pending ) const
         {
             pending    = false;
             auto asset = m_AssetManager->ProbeByHandle<AssetType>( Common::UUID( wanted ) );
@@ -781,8 +783,9 @@ namespace Desert::ECS
             return nullptr;
         }
 
-        mutable std::unordered_set<Assets::AssetHandle> m_Unresolvable; // no registry row of the kind: reported by the caller
-        mutable std::unordered_set<Assets::AssetHandle> m_FailedReads;  // the loader said Failed, logged once
+        mutable std::unordered_set<Assets::AssetHandle>
+             m_Unresolvable; // no registry row of the kind: reported by the caller
+        mutable std::unordered_set<Assets::AssetHandle> m_FailedReads; // the loader said Failed, logged once
         // Declared after everything the callbacks touch; destroyed first, so no callback outlives them.
         mutable std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
 

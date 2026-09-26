@@ -648,7 +648,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::ControlRigAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full, /*loadAfterCreate=*/false );
+                    a = m.CreateAsset<Assets::ControlRigAsset>( Assets::AssetPriority::Medium, full,
+                                                                /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -681,7 +682,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::RetargetAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full, /*loadAfterCreate=*/false );
+                    a = m.CreateAsset<Assets::RetargetAsset>( Assets::AssetPriority::Medium, full,
+                                                              /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {
@@ -714,7 +716,8 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::AnimGraphAsset>( full );
                 if ( !a )
                 {
-                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full, /*loadAfterCreate=*/false );
+                    a = m.CreateAsset<Assets::AnimGraphAsset>( Assets::AssetPriority::Medium, full,
+                                                               /*loadAfterCreate=*/false );
                 }
                 if ( !a )
                 {

@@ -80,7 +80,8 @@ namespace Desert::Assets
         for ( const auto& row : ContentRegistry::Rows( kind ) )
         {
             if ( row.Guid && *row.Guid == guid )
-                return manager.CreateAsset<AssetType>( AssetPriority::Medium, row.Path, /*loadAfterCreate=*/false );
+                return manager.CreateAsset<AssetType>( AssetPriority::Medium, row.Path,
+                                                       /*loadAfterCreate=*/false );
         }
         return nullptr;
     }

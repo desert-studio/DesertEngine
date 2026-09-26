@@ -325,7 +325,8 @@ TEST( AssetPreloadCensus, ThePopulationIsGivenTheScansOwnCountAndSoCannotPrecede
     EXPECT_EQ( source.find( "ProcessAssetKind<AnimationAsset>" ), std::string::npos )
          << kPreloaderSource << " creates clip assets at boot again; they are read on demand since AL1-6.";
     std::smatch      scan;
-    const std::regex scanPattern( R"((\w+)\s*=\s*[\s\S]{0,80}?ContentRegistry::Rows\(\s*Common::Content::ContentKind::Animation\s*\))" );
+    const std::regex scanPattern(
+         R"((\w+)\s*=\s*[\s\S]{0,80}?ContentRegistry::Rows\(\s*Common::Content::ContentKind::Animation\s*\))" );
     ASSERT_TRUE( std::regex_search( source, scan, scanPattern ) )
          << "the `.anim` scan in " << kPreloaderSource
          << " no longer assigns its result to anything. That count is the only thing that can tell 'this "
@@ -570,7 +571,6 @@ TEST( AssetPreloadCensus, TheCloudKindsHaveNoBootStage )
         }
     }
 }
-
 
 TEST( AssetPreloadCensus, TheRigGraphAndRetargetKindsHaveNoBootStageButSkeletonsStillDo )
 {
