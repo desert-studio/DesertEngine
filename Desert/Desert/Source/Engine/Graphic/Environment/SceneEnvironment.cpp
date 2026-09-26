@@ -22,185 +22,182 @@ namespace Desert::Graphic
         // than five claims — see Engine/Graphic/ResourceLedger.hpp on ResourceAttributionScope.
         const ResourceAttributionScope owned( ResourceOwner::Environment );
 
-        if ( Common::Utils::FileSystem::GetFileExtension( skyboxAsset->GetMetadata().Filepath ) == ".hdr" )
+        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+
+        // ── THE BAKED FORM, IF THERE IS ONE ──────────────────────────────────────────────────
+        //
+        // WHAT THIS REPLACES, AND WHY ONLY HERE. The three dispatches below are a function of the
+        // panorama FILE and of nothing else — the authored look is applied where the cubes are
+        // sampled — so on this path, and ONLY on this path, they are work that can be done once.
+        // `CreateProcedural` looks identical three lines at a time and must never grow this branch: its
+        // panorama is a function of the sun's direction, so a cache of it is a cache of one instant of the
+        // day.
+        //
+        // A MISS IS A SENTENCE, NOT A SILENCE. Every refusal below is logged with its reason,
+        // because "the cache never hits" and "the cache is never written" are indistinguishable
+        // from the frame time and would each simply look like the old behaviour.
+        // THE ONE NUMBER THIS WHOLE CHANGE IS ABOUT, PRINTED BY THE CODE THAT PAYS IT. A whole-frame
+        // delta cannot see it — the bake is synchronous inside a scene load — and a figure quoted
+        // from a document is a figure that was true on a different tree.
+        const auto  startedAt = std::chrono::steady_clock::now();
+        const auto& meta      = skyboxAsset->GetMetadata();
+
+        // THE PANORAMA IS A COOKED TEXTURE, AND IT IS ASKED FOR BEFORE ANYTHING IS DECODED. This used
+        // to begin with `Texture2D::Create( {true}, <the .hdr> )`, which decoded the SOURCE through
+        // stb ahead of the cache check below: on a hit that decode was thrown away unread, and on a
+        // miss it was the runtime holding an image decoder. The cook (`TextureImporter`, run over
+        // `Assets/Textures/` at every editor start) writes the panorama's `.tex` and records the
+        // source signature in its header, so the key below needs one prefix read and no source.
+        //
+        // A MISSING COOK IS AN EMPTY ENVIRONMENT, LOUDLY — the same shape a panorama that did not
+        // load has always produced here, so the caller needs nothing new.
+        //
+        // THE ASSET'S HEADER DECIDES WHAT THIS SKYBOX IS, NOT ITS FILE NAME. This whole body used to sit
+        // under `extension == ".hdr"` with a bare `return {};` after it; when AF3 moved every skybox to a
+        // `.detex` container, every HDR sky fell through that return silently — black sky, no IBL, and
+        // not one log line. `FindCookedPanorama` reads the container's own kind and key and names the
+        // reason when it refuses, so it is the only gate.
+        auto cooked = FindCookedPanorama( meta.Filepath );
+        if ( !cooked )
         {
-            auto* imageService = Runtime::ResourceRegistry::GetImageService();
+            LOG_ERROR( "[SceneEnvironment] the skybox '{}' gets NO environment (no radiance, no irradiance, "
+                       "no prefiltered specular): {}",
+                       meta.Filepath.string(), cooked.GetError() );
+            return {};
+        }
+        const std::filesystem::path panoramaPath    = cooked.GetValue().Path;
+        const uint64_t              sourceSignature = cooked.GetValue().SourceSignature;
 
-            // ── THE BAKED FORM, IF THERE IS ONE ──────────────────────────────────────────────────
-            //
-            // WHAT THIS REPLACES, AND WHY ONLY HERE. The three dispatches below are a function of the
-            // panorama FILE and of nothing else — the authored look is applied where the cubes are
-            // sampled — so on this path, and ONLY on this path, they are work that can be done once.
-            // `CreateProcedural` looks identical three lines at a time and must never grow this branch: its
-            // panorama is a function of the sun's direction, so a cache of it is a cache of one instant of the
-            // day.
-            //
-            // A MISS IS A SENTENCE, NOT A SILENCE. Every refusal below is logged with its reason,
-            // because "the cache never hits" and "the cache is never written" are indistinguishable
-            // from the frame time and would each simply look like the old behaviour.
-            // THE ONE NUMBER THIS WHOLE CHANGE IS ABOUT, PRINTED BY THE CODE THAT PAYS IT. A whole-frame
-            // delta cannot see it — the bake is synchronous inside a scene load — and a figure quoted
-            // from a document is a figure that was true on a different tree.
-            const auto  startedAt = std::chrono::steady_clock::now();
-            const auto& meta      = skyboxAsset->GetMetadata();
+        const uint64_t radianceBake =
+             EnvironmentBakeSignature( BakedEnvironmentCube::Radiance, kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
+        const uint64_t irradianceBake =
+             EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
+        const uint64_t prefilterBake = EnvironmentBakeSignature( BakedEnvironmentCube::Prefiltered,
+                                                                 kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
 
-            // THE PANORAMA IS A COOKED TEXTURE, AND IT IS ASKED FOR BEFORE ANYTHING IS DECODED. This used
-            // to begin with `Texture2D::Create( {true}, <the .hdr> )`, which decoded the SOURCE through
-            // stb ahead of the cache check below: on a hit that decode was thrown away unread, and on a
-            // miss it was the runtime holding an image decoder. The cook (`TextureImporter`, run over
-            // `Assets/Textures/` at every editor start) writes the panorama's `.tex` and records the
-            // source signature in its header, so the key below needs one prefix read and no source.
-            //
-            // A MISSING COOK IS AN EMPTY ENVIRONMENT, LOUDLY — the same shape a panorama that did not
-            // load has always produced here, so the caller needs nothing new.
-            auto cooked = FindCookedPanorama( meta.Filepath );
-            if ( !cooked )
+        const std::filesystem::path radiancePath   = EnvironmentBakePath( sourceSignature, radianceBake );
+        const std::filesystem::path irradiancePath = EnvironmentBakePath( sourceSignature, irradianceBake );
+        const std::filesystem::path prefilterPath  = EnvironmentBakePath( sourceSignature, prefilterBake );
+
+        // ALL THREE OR NONE. Two cubes off the disk and one recomputed is a legal-looking
+        // environment whose halves came from different bakes; the cheapest way to make that
+        // impossible is to treat the trio as the unit it is.
+        {
+            auto cachedRadiance = LoadBakedEnvironmentCube( radiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
+                                                            kSkyEnvRadianceMips, sourceSignature, radianceBake );
+            auto cachedIrradiance =
+                 LoadBakedEnvironmentCube( irradiancePath, "EnvDiffuseIrradiance", kSkyEnvIrradianceFaceSize, 1u,
+                                           sourceSignature, irradianceBake );
+            auto cachedPrefilter =
+                 LoadBakedEnvironmentCube( prefilterPath, "EnvPrefiltered", kSkyEnvPrefilterFaceSize,
+                                           kSkyEnvPrefilterMips, sourceSignature, prefilterBake );
+
+            if ( cachedRadiance.IsSuccess() && cachedIrradiance.IsSuccess() && cachedPrefilter.IsSuccess() )
             {
-                LOG_ERROR( "[SceneEnvironment] the skybox '{}' gets NO environment (no radiance, no irradiance, "
-                           "no prefiltered specular): {}",
-                           meta.Filepath.string(), cooked.GetError() );
-                return {};
-            }
-            const std::filesystem::path panoramaPath    = cooked.GetValue().Path;
-            const uint64_t              sourceSignature = cooked.GetValue().SourceSignature;
-
-            const uint64_t radianceBake = EnvironmentBakeSignature( BakedEnvironmentCube::Radiance,
-                                                                    kSkyEnvCubeFaceSize, kSkyEnvRadianceMips );
-            const uint64_t irradianceBake =
-                 EnvironmentBakeSignature( BakedEnvironmentCube::Irradiance, kSkyEnvIrradianceFaceSize, 1u );
-            const uint64_t prefilterBake = EnvironmentBakeSignature(
-                 BakedEnvironmentCube::Prefiltered, kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips );
-
-            const std::filesystem::path radiancePath   = EnvironmentBakePath( sourceSignature, radianceBake );
-            const std::filesystem::path irradiancePath = EnvironmentBakePath( sourceSignature, irradianceBake );
-            const std::filesystem::path prefilterPath  = EnvironmentBakePath( sourceSignature, prefilterBake );
-
-            // ALL THREE OR NONE. Two cubes off the disk and one recomputed is a legal-looking
-            // environment whose halves came from different bakes; the cheapest way to make that
-            // impossible is to treat the trio as the unit it is.
-            {
-                auto cachedRadiance =
-                     LoadBakedEnvironmentCube( radiancePath, "EnvRadiance", kSkyEnvCubeFaceSize,
-                                               kSkyEnvRadianceMips, sourceSignature, radianceBake );
-                auto cachedIrradiance =
-                     LoadBakedEnvironmentCube( irradiancePath, "EnvDiffuseIrradiance", kSkyEnvIrradianceFaceSize,
-                                               1u, sourceSignature, irradianceBake );
-                auto cachedPrefilter =
-                     LoadBakedEnvironmentCube( prefilterPath, "EnvPrefiltered", kSkyEnvPrefilterFaceSize,
-                                               kSkyEnvPrefilterMips, sourceSignature, prefilterBake );
-
-                if ( cachedRadiance.IsSuccess() && cachedIrradiance.IsSuccess() && cachedPrefilter.IsSuccess() )
-                {
-                    LOG_INFO(
-                         "[SceneEnvironment] '{}' was loaded from its baked IBL chain in {:.1f} ms; the "
-                         "panorama was not read and the three compute passes did not run.",
-                         meta.Filepath.string(),
-                         std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
-                              .count() );
-                    return { meta.Filepath,
-                             imageService->Register( cachedRadiance.ExtractValue(),
-                                                     Runtime::ImageHandle::Type::ImageCube ),
-                             imageService->Register( cachedIrradiance.ExtractValue(),
-                                                     Runtime::ImageHandle::Type::ImageCube ),
-                             imageService->Register( cachedPrefilter.ExtractValue(),
-                                                     Runtime::ImageHandle::Type::ImageCube ) };
-                }
-
-                LOG_INFO( "[SceneEnvironment] '{}' is being baked: {} / {} / {}", meta.Filepath.string(),
-                          cachedRadiance.IsSuccess() ? std::string( "radiance ready" ) : cachedRadiance.GetError(),
-                          cachedIrradiance.IsSuccess() ? std::string( "irradiance ready" )
-                                                       : cachedIrradiance.GetError(),
-                          cachedPrefilter.IsSuccess() ? std::string( "prefilter ready" )
-                                                      : cachedPrefilter.GetError() );
-            }
-
-            // ONLY A MISS READS THE PIXELS, and it reads them out of the container as they are. The bake
-            // samples level 0 alone (`PanoramaToCubemap` in a compute stage, `DiffuseIrradiance` with an
-            // explicit LOD 0), so the chain the cook built on the CPU and the one the old path blitted on
-            // the GPU cannot disagree anywhere the bake looks.
-            auto panorama = Texture2D::CreateFromAsset( panoramaPath );
-            if ( !panorama )
-            {
-                LOG_ERROR( "[SceneEnvironment] the cooked panorama '{}' of skybox '{}' did not load, so this "
-                           "scene gets NO environment: {}",
-                           panoramaPath.string(), meta.Filepath.string(), panorama.GetError() );
-                return {};
-            }
-            const std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
-
-            // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
-            auto        radianceCube   = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle() );
-            const auto  radianceHandle = imageService->Register( std::move( radianceCube ),
-                                                                 Runtime::ImageHandle::Type::ImageCube );
-
-            // 2) Diffuse irradiance (from the panorama directly).
-            auto       diffuseIrradiance       = CreateDiffuseIrradiance( imagePanorama->GetImageHandle() );
-            const auto diffuseIrradianceHandle = imageService->Register(
-                 std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
-
-            // 3) Prefiltered specular (real GGX per-mip convolution of the radiance cube).
-            auto       prefiltered       = CreatePrefilteredMap( radianceHandle );
-            const auto prefilteredHandle = imageService->Register(
-                 std::move( prefiltered ), Runtime::ImageHandle::Type::ImageCube );
-
-            // The two halves of a miss are timed apart because they answer different questions: the
-            // convolutions are GPU work every bake repeats, the write below is a CPU block encode paid
-            // once per panorama. One total hid which of them a change had moved.
-            const auto convolvedAt = std::chrono::steady_clock::now();
-
-            // ── AND THEN IT IS WRITTEN, ONCE ─────────────────────────────────────────────────────
-            //
-            // The write happens AFTER the three cubes exist and reads them back off the device, so what
-            // is cached is exactly what this run computed rather than a second computation of it. A
-            // failure here costs the cache and nothing else: the environment in hand is complete, and
-            // the next load simply bakes again with the reason in the log.
-            {
-                const std::string sourceKey = Common::AssetHandle::StableKeyForPath( meta.Filepath );
-                const struct
-                {
-                    Runtime::ImageHandle         Handle;
-                    const std::filesystem::path& Path;
-                    uint64_t                     Bake;
-                } toWrite[] = { { radianceHandle, radiancePath, radianceBake },
-                                { diffuseIrradianceHandle, irradiancePath, irradianceBake },
-                                { prefilteredHandle, prefilterPath, prefilterBake } };
-
-                for ( const auto& entry : toWrite )
-                {
-                    auto* image = imageService->Resolve( entry.Handle );
-                    auto* cube  = dynamic_cast<ImageCube*>( image );
-                    if ( !cube )
-                        continue;
-                    if ( const auto written = WriteBakedEnvironmentCube( entry.Path, *cube, sourceKey,
-                                                                         sourceSignature, entry.Bake );
-                         !written )
-                    {
-                        LOG_ERROR( "[SceneEnvironment] '{}' was baked but not cached to '{}': {}",
-                                   meta.Filepath.string(), entry.Path.string(), written.GetError() );
-                    }
-                }
+                LOG_INFO( "[SceneEnvironment] '{}' was loaded from its baked IBL chain in {:.1f} ms; the "
+                          "panorama was not read and the three compute passes did not run.",
+                          meta.Filepath.string(),
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt )
+                               .count() );
+                return { meta.Filepath,
+                         imageService->Register( cachedRadiance.ExtractValue(),
+                                                 Runtime::ImageHandle::Type::ImageCube ),
+                         imageService->Register( cachedIrradiance.ExtractValue(),
+                                                 Runtime::ImageHandle::Type::ImageCube ),
+                         imageService->Register( cachedPrefilter.ExtractValue(),
+                                                 Runtime::ImageHandle::Type::ImageCube ) };
             }
 
             LOG_INFO(
-                 "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, "
-                 "{:.1f} ms "
-                 "caching) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
-                 meta.Filepath.string(),
-                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
-                 std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),
-                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt )
-                      .count(),
-                 kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
-                 kSkyEnvPrefilterMips,
-                 static_cast<double>( SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
-                                      SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) +
-                                      SkyEnvironmentCubeBytes( kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips ) ) /
-                      ( 1024.0 * 1024.0 ) );
-
-            return { meta.Filepath, radianceHandle, diffuseIrradianceHandle, prefilteredHandle };
+                 "[SceneEnvironment] '{}' is being baked: {} / {} / {}", meta.Filepath.string(),
+                 cachedRadiance.IsSuccess() ? std::string( "radiance ready" ) : cachedRadiance.GetError(),
+                 cachedIrradiance.IsSuccess() ? std::string( "irradiance ready" ) : cachedIrradiance.GetError(),
+                 cachedPrefilter.IsSuccess() ? std::string( "prefilter ready" ) : cachedPrefilter.GetError() );
         }
 
-        return {};
+        // ONLY A MISS READS THE PIXELS, and it reads them out of the container as they are. The bake
+        // samples level 0 alone (`PanoramaToCubemap` in a compute stage, `DiffuseIrradiance` with an
+        // explicit LOD 0), so the chain the cook built on the CPU and the one the old path blitted on
+        // the GPU cannot disagree anywhere the bake looks.
+        auto panorama = Texture2D::CreateFromAsset( panoramaPath );
+        if ( !panorama )
+        {
+            LOG_ERROR( "[SceneEnvironment] the cooked panorama '{}' of skybox '{}' did not load, so this "
+                       "scene gets NO environment: {}",
+                       panoramaPath.string(), meta.Filepath.string(), panorama.GetError() );
+            return {};
+        }
+        const std::shared_ptr<Texture2D> imagePanorama = panorama.ExtractValue();
+
+        // 1) Radiance cube (sharp environment) — also the source the prefilter convolves.
+        auto       radianceCube = ConvertPanoramaToRadianceCube( imagePanorama->GetImageHandle() );
+        const auto radianceHandle =
+             imageService->Register( std::move( radianceCube ), Runtime::ImageHandle::Type::ImageCube );
+
+        // 2) Diffuse irradiance (from the panorama directly).
+        auto       diffuseIrradiance = CreateDiffuseIrradiance( imagePanorama->GetImageHandle() );
+        const auto diffuseIrradianceHandle =
+             imageService->Register( std::move( diffuseIrradiance ), Runtime::ImageHandle::Type::ImageCube );
+
+        // 3) Prefiltered specular (real GGX per-mip convolution of the radiance cube).
+        auto       prefiltered = CreatePrefilteredMap( radianceHandle );
+        const auto prefilteredHandle =
+             imageService->Register( std::move( prefiltered ), Runtime::ImageHandle::Type::ImageCube );
+
+        // The two halves of a miss are timed apart because they answer different questions: the
+        // convolutions are GPU work every bake repeats, the write below is a CPU block encode paid
+        // once per panorama. One total hid which of them a change had moved.
+        const auto convolvedAt = std::chrono::steady_clock::now();
+
+        // ── AND THEN IT IS WRITTEN, ONCE ─────────────────────────────────────────────────────
+        //
+        // The write happens AFTER the three cubes exist and reads them back off the device, so what
+        // is cached is exactly what this run computed rather than a second computation of it. A
+        // failure here costs the cache and nothing else: the environment in hand is complete, and
+        // the next load simply bakes again with the reason in the log.
+        {
+            const std::string sourceKey = Common::AssetHandle::StableKeyForPath( meta.Filepath );
+            const struct
+            {
+                Runtime::ImageHandle         Handle;
+                const std::filesystem::path& Path;
+                uint64_t                     Bake;
+            } toWrite[] = { { radianceHandle, radiancePath, radianceBake },
+                            { diffuseIrradianceHandle, irradiancePath, irradianceBake },
+                            { prefilteredHandle, prefilterPath, prefilterBake } };
+
+            for ( const auto& entry : toWrite )
+            {
+                auto* image = imageService->Resolve( entry.Handle );
+                auto* cube  = dynamic_cast<ImageCube*>( image );
+                if ( !cube )
+                    continue;
+                if ( const auto written =
+                          WriteBakedEnvironmentCube( entry.Path, *cube, sourceKey, sourceSignature, entry.Bake );
+                     !written )
+                {
+                    LOG_ERROR( "[SceneEnvironment] '{}' was baked but not cached to '{}': {}",
+                               meta.Filepath.string(), entry.Path.string(), written.GetError() );
+                }
+            }
+        }
+
+        LOG_INFO(
+             "[SceneEnvironment] '{}' computed its IBL chain in {:.1f} ms ({:.1f} ms reading and convolving, "
+             "{:.1f} ms "
+             "caching) (radiance {}^2 x{}, irradiance {}^2, prefilter {}^2 x{}) = {:.1f} MiB resident.",
+             meta.Filepath.string(),
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - startedAt ).count(),
+             std::chrono::duration<double, std::milli>( convolvedAt - startedAt ).count(),
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - convolvedAt ).count(),
+             kSkyEnvCubeFaceSize, kSkyEnvRadianceMips, kSkyEnvIrradianceFaceSize, kSkyEnvPrefilterFaceSize,
+             kSkyEnvPrefilterMips,
+             static_cast<double>( SkyEnvironmentCubeBytes( kSkyEnvCubeFaceSize, kSkyEnvRadianceMips ) +
+                                  SkyEnvironmentCubeBytes( kSkyEnvIrradianceFaceSize, 1u ) +
+                                  SkyEnvironmentCubeBytes( kSkyEnvPrefilterFaceSize, kSkyEnvPrefilterMips ) ) /
+                  ( 1024.0 * 1024.0 ) );
+
+        return { meta.Filepath, radianceHandle, diffuseIrradianceHandle, prefilteredHandle };
     }
 
     std::shared_ptr<Desert::Graphic::ImageCube>
