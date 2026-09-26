@@ -5,8 +5,10 @@
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Shader/ShaderAsset.hpp>
 
 #include <gtest/gtest.h>
 
@@ -145,6 +147,71 @@ TEST( MaterialDocumentOpen, AnUnknownHandleIsRefusedByNumber )
     const auto folder = Editor::Core::AssetFolderFor( nullptr, Assets::AssetHandle( 0xBADC0DEULL ) );
     ASSERT_FALSE( folder.IsSuccess() );
     EXPECT_NE( folder.GetError().find( "000000000badc0de" ), std::string::npos );
+}
+
+// MS1: the Material Editor's OWN route has to resolve the shader, not inherit a resolution the thumbnail
+// sweep happened to do first. `EnsureMaterialLoaded` used to call the bare `AssetBase::Load()`, which
+// re-parses the file but hands `SurfaceMaterialAsset`'s resolve step no `AssetManager`, so the shader GUID
+// was never looked up and `GetShaderName()` stayed EMPTY - which is what
+// `MaterialEditorPanel::PreviewUnavailableReason` then reported as "the shader '' is not loaded". The
+// sweep hid it whenever it had already resolved the same shared asset object, so this test opens the
+// material the way a by-handle open does, with nothing having touched it first.
+TEST( MaterialDocumentOpen, TheEditorsOwnRouteResolvesAnEngineShaderByGuid )
+{
+    // Derived from this file's path, not the working directory: the suite binary runs from
+    // build/Bin/Tests/<Config>/. Desert/Tests/Editor/MaterialDocumentOpen -> four directories up.
+    const std::filesystem::path here      = std::filesystem::path( __FILE__ ).parent_path();
+    const std::filesystem::path editorDir = std::filesystem::weakly_canonical(
+         here / ".." / ".." / ".." / ".." / "Editor" );
+    const std::filesystem::path material = editorDir / "Resources" / "Assets" / "Materials" / "M_CubemapCheck.demat";
+    ASSERT_TRUE( std::filesystem::exists( material ) ) << material.string();
+
+    // `Common::Constants::Path::RESOURCE_PATH` is a literal relative to the working directory and is
+    // deliberately never remapped, so a test that wants the real engine content must sit in Editor/.
+    struct WorkingDirectoryGuard
+    {
+        std::filesystem::path Previous = std::filesystem::current_path();
+        explicit WorkingDirectoryGuard( const std::filesystem::path& next )
+        {
+            std::filesystem::current_path( next );
+        }
+        ~WorkingDirectoryGuard()
+        {
+            std::error_code ec;
+            std::filesystem::current_path( Previous, ec );
+        }
+    } const cwdGuard( editorDir );
+
+    const auto gathered = Assets::ContentRegistry::Gather();
+    ASSERT_TRUE( gathered ) << gathered.GetError();
+
+    Assets::AssetManager manager;
+
+    // Shaders first, exactly as AssetPreloader::PreloadShaders does at boot - a material cannot resolve a
+    // GUID to a shader that is not in the database yet.
+    std::size_t shaderCount = 0;
+    for ( const std::filesystem::path& shaderPath :
+          Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ) )
+    {
+        if ( manager.CreateAsset<Assets::ShaderAsset>( Assets::AssetPriority::Medium, shaderPath ) )
+            ++shaderCount;
+    }
+    ASSERT_GT( shaderCount, 0u ) << "no .shader registered - the content roots did not resolve";
+
+    // A shell, as AssetPreloader registers every `.demat`: present in the database, not parsed.
+    auto shell = manager.CreateAsset<Assets::SurfaceMaterialAsset>( Assets::AssetPriority::Medium,
+                                                                    Common::Filepath( material ), false );
+    ASSERT_TRUE( shell ) << "M_CubemapCheck did not create as a shell";
+    ASSERT_FALSE( shell->IsReadyForUse() );
+
+    const auto ready = EnsureMaterialLoaded( manager, shell->GetMetadata().Handle );
+    ASSERT_TRUE( ready.IsSuccess() ) << ready.GetError();
+
+    const Assets::MaterialData& data = ready.GetValue()->Data();
+    ASSERT_TRUE( data.Shader.has_value() ) << "fixture changed: M_CubemapCheck names no shader any more";
+    EXPECT_FALSE( ready.GetValue()->GetShaderName().empty() )
+         << "shader GUID " << data.Shader->Guid << " ('" << data.Shader->Path
+         << "') did not resolve to a name, so the Material Editor would report the shader '' is not loaded";
 }
 
 int main( int argc, char** argv )
