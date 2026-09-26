@@ -93,7 +93,8 @@ done
 [ "$total" -eq 0 ] && { red+=("no test binaries in $BIN — build the suites first"); fail=1; }
 
 # (b) repo-only includes
-if bash scripts/CI/RepoOnlyIncludes.sh --require-replacements >"$LOG/includes.log" 2>&1; then inc=ok; else inc=RED; fail=1; fi
+if bash scripts/CI/RepoOnlyIncludes.sh --require-replacements >"$LOG/includes.log" 2>&1 \
+   && bash scripts/CI/MeshCoreIncludes.sh >>"$LOG/includes.log" 2>&1; then inc=ok; else inc=RED; fail=1; fi
 
 # (c) clang-format 18 on the changed lines (Homebrew v22 disagrees with CI; the gate names its binary)
 if PATH="/opt/homebrew/opt/llvm@18/bin:$PATH" bash scripts/CI/CheckFormat.sh "$BASE" >"$LOG/format.log" 2>&1; then fmt=ok; else fmt=RED; fail=1; fi

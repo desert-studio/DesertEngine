@@ -49,15 +49,6 @@ namespace Desert::Editor
         return PreviewInteraction::Static;
     }
 
-    // WHO OWNS THE WHEEL over the preview: the preview, exactly when the wheel zooms it. Otherwise one
-    // notch would both zoom the model and scroll the Details panel under the cursor, and the model would
-    // slide away from the mouse mid-zoom. A Static preview and the sky dome do not zoom, so there the wheel
-    // stays the panel's and scrolls it as it would over any other row.
-    [[nodiscard]] constexpr bool PreviewOwnsWheel( PreviewInteraction mode, bool dome )
-    {
-        return mode == PreviewInteraction::Interactive && !dome;
-    }
-
     // One frame of mouse and keyboard over the preview, as ImGui reported it.
     struct PreviewInputEvents
     {
@@ -130,5 +121,28 @@ namespace Desert::Editor
         }
 
         return result;
+    }
+
+    // WHO THE WHEEL BELONGS TO over a preview: the preview, exactly when the wheel zooms it. An Interactive
+    // preview (the Material Editor, the asset viewers) zooms with it and must CLAIM it, or ImGui also scrolls
+    // the window the preview sits in: the model zooms while the whole panel slides away under the cursor. A
+    // Static preview (a Details row) never zooms, and neither does a pane with nothing to zoom (empty, or the
+    // sky dome fill), so there the wheel passes through and keeps scrolling the panel as over any other row.
+    enum class PreviewWheelOwner : uint8_t
+    {
+        PassThrough, // the parent window scrolls; the preview ignores the wheel
+        Zoom,        // the preview zooms and the caller claims the wheel from the parent (SetItemUsingMouseWheel)
+    };
+
+    // `zoomable`: the pane has content and it is not the sky dome fill (the dome orbits but never dollies).
+    // Claimed on every hovered frame, not only on a frame the wheel moves: this ImGui (1.89 WIP) reads
+    // SetItemUsingMouseWheel in the NEXT frame's wheel routing, so a claim taken on the notch's own frame
+    // arrives after the parent has already scrolled.
+    [[nodiscard]] constexpr PreviewWheelOwner WheelOwner( const PreviewInteraction mode, const bool zoomable,
+                                                          const bool hovered ) noexcept
+    {
+        if ( mode != PreviewInteraction::Interactive || !zoomable || !hovered )
+            return PreviewWheelOwner::PassThrough;
+        return PreviewWheelOwner::Zoom;
     }
 } // namespace Desert::Editor

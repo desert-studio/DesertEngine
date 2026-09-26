@@ -1,8 +1,5 @@
 #include "DynamicMeshSelection.hpp"
 
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp"
-
 #include <algorithm>
 #include <array>
 #include <vector>

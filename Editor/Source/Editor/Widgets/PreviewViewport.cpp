@@ -1,8 +1,10 @@
 #include "PreviewViewport.hpp"
+#include "PreviewPaneLayout.hpp"
 
 #include <Editor/RenderSystems/Passes/EditorCubemapPreviewPass.hpp>
 #include <Editor/RenderSystems/Passes/EditorGridPass.hpp>
 
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 
 #include "UIHelper/ImGuiUI.hpp"
@@ -36,7 +38,6 @@ namespace Desert::Editor
         constexpr float kNearPlane  = 1.0f;  // centimetres (see Common/Core/Units.hpp)
         constexpr float kFarPlane   = 100000.0f;
         constexpr float kPitchLimit = 1.45f; // just shy of straight down/up, so the orbit never gimbals
-        constexpr float kFitMargin  = 1.05f; // a little air around the fitted sphere
 
         // ── The sky dome (Fill::SkyDome) ──────────────────────────────────────────────────────────────
         //
@@ -320,6 +321,8 @@ namespace Desert::Editor
             return;
 
         const bool changed = !m_AppliedSetupValid || !( m_Setup == m_AppliedSetup );
+        if ( changed )
+            ++m_SetupRevision;
 
         // ── The key light, which is also the sun ───────────────────────────────────────────────────────
         auto& lightC          = m_Light.GetComponent<ECS::DirectionLightComponent>();
@@ -467,12 +470,16 @@ namespace Desert::Editor
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::StaticMeshComponent>() )
             return;
-        m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD = lod;
+        int& forced = m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD;
+        if ( forced != lod )
+            ++m_ContentRevision;
+        forced = lod;
     }
 
     void PreviewViewport::SetMesh( const Assets::AssetHandle&              mesh,
                                    const std::vector<Assets::AssetHandle>& materials )
     {
+        ++m_ContentRevision;
         if ( static_cast<uint64_t>( mesh ) == 0 )
         {
             Clear();
@@ -618,6 +625,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetMaterial( const Assets::AssetHandle& material, Shape shape )
     {
+        ++m_ContentRevision;
         EnsureInit();
 
         auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
@@ -653,6 +661,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetCubemapMaterial( std::function<Graphic::SampledCube()> resolveCube )
     {
+        ++m_ContentRevision;
         EnsureInit();
 
         // Nothing rides the mesh path in this mode — the ball is the external pass's draw (see the
@@ -699,6 +708,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetCubemapBackdrop( bool cubeIsBackdrop )
     {
+        ++m_ContentRevision;
         if ( m_Fill != Fill::Cubemap || !m_CubemapPass )
         {
             LOG_ERROR( "[Preview] SetCubemapBackdrop without a cubemap on show — call SetCubemapMaterial first." );
@@ -709,6 +719,7 @@ namespace Desert::Editor
 
     void PreviewViewport::SetVolumeMaterial( const Assets::AssetHandle& material )
     {
+        ++m_ContentRevision;
         EnsureInit();
         if ( !m_Inited )
             return;
@@ -790,6 +801,7 @@ namespace Desert::Editor
 
     void PreviewViewport::InvalidatePipelines( const void* shader )
     {
+        ++m_ContentRevision;
         if ( !m_Inited || !m_Renderer || !shader )
             return;
 
@@ -801,6 +813,7 @@ namespace Desert::Editor
 
     void PreviewViewport::Clear()
     {
+        ++m_ContentRevision;
         m_HasContent = false;
         m_MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Framed     = false;
@@ -836,62 +849,31 @@ namespace Desert::Editor
             m_Yaw      = kDomeDefaultYaw;
             m_Pitch    = kDomeDefaultPitch;
             m_Focus    = glm::vec3( 0.0f, kDomeEyeHeight, 0.0f );
-            m_Distance = 0.0f;
             LOG_TRACE( "[Preview] dome view reset: yaw {:.1f} deg, elevation {:.1f} deg, {:.0f} deg vertical "
                        "field (horizon, mid and zenith in one frame)",
                        glm::degrees( m_Yaw ), glm::degrees( m_Pitch ), kDomeFov );
             return;
         }
 
-        m_Yaw   = -0.6f;
-        m_Pitch = 0.4f;
+        // THE DISTANCE IS NOT SOLVED HERE: it depends on the pane's aspect, which a person changes by dragging
+        // the divider or the window long after this ran. ApplyCamera fits the subject to the pane every frame
+        // (PreviewPane::FitDistance) and m_Zoom is the person's wheel on top of that fit; resetting the view
+        // is returning to the framing orientation at exactly the fit.
+        m_Yaw   = PreviewPane::kFramingYaw;
+        m_Pitch = PreviewPane::kFramingPitch;
+        m_Zoom  = 1.0f;
 
-        const float halfFov = glm::radians( kFov ) * 0.5f;
-
-        if ( m_FrameIsRound )
-        {
-            // A ball is bounded by its own radius from every direction, so the tightest distance at which
-            // it is fully visible follows straight from the frustum: sin(fov/2) = R / d.
-            m_Distance = ( m_FrameRadius / std::sin( halfFov ) ) * kFitMargin;
-        }
-        else
-        {
-            // Everything else is fitted by the CORNERS of its box, in perspective. Fitting such a shape by
-            // its bounding sphere instead wastes the frame: a cube's sphere is 1.73x its half-size, so the
-            // camera sits ~10% further back than it needs to and the corners never reach the edges. The
-            // corner fit is exact — for the 100-unit cube it is 276 against the sphere fit's 302, and the
-            // silhouette actually touches the frame.
-            //
-            //   corner depth  = d + dot(c, forward)
-            //   inside while |dot(c, right)| <= depth * tan(fov/2)
-            //   => d >= |dot(c, right)| / tan(fov/2) - dot(c, forward)
-            const float tanHalf = std::tan( halfFov );
-
-            const float     cp = std::cos( m_Pitch );
-            const glm::vec3 eyeDir{ cp * std::sin( m_Yaw ), std::sin( m_Pitch ), cp * std::cos( m_Yaw ) };
-            const glm::vec3 forward = -eyeDir;
-            const glm::vec3 right   = glm::normalize( glm::cross(
-                 forward, std::abs( forward.y ) > 0.99f ? glm::vec3( 0, 0, 1 ) : glm::vec3( 0, 1, 0 ) ) );
-            const glm::vec3 up      = glm::normalize( glm::cross( right, forward ) );
-
-            float needed = 0.0f;
-            for ( int corner = 0; corner < 8; ++corner )
-            {
-                const glm::vec3 c( ( corner & 1 ) ? m_FrameHalfExtent.x : -m_FrameHalfExtent.x,
-                                   ( corner & 2 ) ? m_FrameHalfExtent.y : -m_FrameHalfExtent.y,
-                                   ( corner & 4 ) ? m_FrameHalfExtent.z : -m_FrameHalfExtent.z );
-
-                const float lateral = std::max( std::abs( glm::dot( c, right ) ), std::abs( glm::dot( c, up ) ) );
-                needed              = std::max( needed, lateral / tanHalf - glm::dot( c, forward ) );
-            }
-
-            // The preview is square, so one tan covers both axes. Never inside the content's own sphere.
-            m_Distance = std::max( needed * kFitMargin, m_FrameRadius );
-        }
-
-        LOG_TRACE( "[Preview] fit: {} radius {:.1f} (half-extent {:.1f} x {:.1f} x {:.1f}) -> distance {:.1f}",
+        LOG_TRACE( "[Preview] fit: {} radius {:.1f} (half-extent {:.1f} x {:.1f} x {:.1f}), distance at a square "
+                   "pane {:.1f}",
                    m_FrameIsRound ? "round," : "boxed,", m_FrameRadius, m_FrameHalfExtent.x, m_FrameHalfExtent.y,
-                   m_FrameHalfExtent.z, m_Distance );
+                   m_FrameHalfExtent.z, FittedDistance( 1.0f ) );
+    }
+
+    float PreviewViewport::FittedDistance( float aspect ) const
+    {
+        return PreviewPane::FitDistance( { m_FrameIsRound, m_FrameRadius, m_FrameHalfExtent },
+                                         PreviewPane::kFramingYaw, PreviewPane::kFramingPitch,
+                                         glm::radians( kFov ), aspect );
     }
 
     void PreviewViewport::ApplyCamera( uint32_t width, uint32_t height )
@@ -910,7 +892,8 @@ namespace Desert::Editor
         // Euler the camera wants is its own pitch, which is the opposite sign.
         const float     cp = std::cos( m_Pitch );
         const glm::vec3 offset{ cp * std::sin( m_Yaw ), std::sin( m_Pitch ), cp * std::cos( m_Yaw ) };
-        const glm::vec3 position = m_Focus + offset * m_Distance;
+        const float     aspect   = static_cast<float>( width ) / static_cast<float>( std::max( height, 1u ) );
+        const glm::vec3 position = m_Focus + offset * ( FittedDistance( aspect ) * m_Zoom );
 
         m_Camera->SetFromTransform( position, glm::vec3( -m_Pitch, m_Yaw, 0.0f ), kFov, kNearPlane, kFarPlane,
                                     width, height );
@@ -927,14 +910,21 @@ namespace Desert::Editor
         if ( !m_Framed && static_cast<uint64_t>( m_MeshHandle ) != 0 )
         {
             m_Framed = TryFrameMesh();
+            if ( m_Framed )
+                ++m_ContentRevision;
         }
 
         // Resize recreates framebuffers and idles the GPU, so only on an actual change.
         if ( width != m_Width || height != m_Height )
         {
             m_Scene->Resize( width, height );
-            m_Width  = width;
-            m_Height = height;
+            // WHAT THE VIEW NOW HOLDS, not what was asked for: a growth the view budget refuses leaves the
+            // targets at their old size (SceneRenderer::Resize), and a camera built for the asked-for aspect
+            // over those targets would draw the subject squashed. Asked again next frame, and refused again
+            // quietly, until the pane returns to a size that fits.
+            const Graphic::ViewExtent held = m_Renderer->GetViewExtent();
+            m_Width                        = held.Width;
+            m_Height                       = held.Height;
         }
 
         // The preview world, written onto the entities before the scene records. Unconditionally: see
@@ -951,7 +941,27 @@ namespace Desert::Editor
         quality.CloudQualityTier                  = Common::Settings::CloudQuality::Low;
         m_Renderer->SetQuality( quality );
 
-        ApplyCamera( width, height );
+        ApplyCamera( m_Width, m_Height );
+
+        // SKIPPED WHEN THE PICTURE WOULD NOT CHANGE (PreviewRenderGate). Everything above still runs: the resize
+        // must follow the pane, and ApplySetup/ApplyCamera are what tell the gate that something moved. A
+        // read still in flight anywhere (a texture of this material streaming in) counts as time-dependent:
+        // the picture changes when it lands, and nothing this widget holds would say so.
+        PreviewRenderGate::Inputs in;
+        in.Subject         = m_ContentRevision;
+        in.Parameters      = m_ContentFingerprint;
+        in.Setup           = m_SetupRevision;
+        in.Yaw             = m_Yaw;
+        in.Pitch           = m_Pitch;
+        in.Zoom            = m_Zoom;
+        in.Focus           = m_Focus;
+        in.Width           = m_Width;
+        in.Height          = m_Height;
+        const bool loading = Assets::AsyncAssetLoader::Get().Outstanding() > 0;
+        m_RenderedLastUpdate =
+             PreviewRenderGate::ShouldRender( m_Gate, in, IsSkyRebuilding() || loading, m_Realtime );
+        if ( !m_RenderedLastUpdate )
+            return;
 
         // Recorded into the editor's current frame command buffer, submitted when the frame ends. This is
         // why Update() must run from OnPreUpdate() and never from OnUIRender(). The scene opens and closes
@@ -980,9 +990,10 @@ namespace Desert::Editor
         const bool hovered = ImGui::IsItemHovered();
         const bool active  = ImGui::IsItemActive();
         // Claimed on the item itself, right after it is submitted (SetItemUsingMouseWheel reads the LAST
-        // item): the window under the cursor then leaves the wheel alone instead of scrolling while the
-        // preview zooms. Only with content — an empty pane does not zoom, so it must not eat the scroll.
-        if ( m_HasContent && PreviewOwnsWheel( mode, m_Fill == Fill::SkyDome ) )
+        // item), through the one wheel rule: an empty pane or the sky dome does not zoom, so it must not eat
+        // the scroll of the window around it.
+        const bool zoomable = m_HasContent && m_Fill != Fill::SkyDome;
+        if ( WheelOwner( mode, zoomable, hovered ) == PreviewWheelOwner::Zoom )
             ImGui::SetItemUsingMouseWheel();
 
         ImDrawList*  dl = ImGui::GetWindowDrawList();
@@ -1105,7 +1116,8 @@ namespace Desert::Editor
             const glm::vec3 right = glm::normalize( glm::cross( forward, glm::vec3( 0, 1, 0 ) ) );
             const glm::vec3 up    = glm::normalize( glm::cross( right, forward ) );
 
-            const float speed = m_Distance / std::max( drawSize.y, 1.0f );
+            const float distance = FittedDistance( drawSize.x / drawSize.y ) * m_Zoom;
+            const float speed    = distance / std::max( drawSize.y, 1.0f );
             m_Focus += ( -right * input.PanDelta.x + up * input.PanDelta.y ) * speed;
         }
 
@@ -1122,8 +1134,10 @@ namespace Desert::Editor
         {
             // Multiplicative so the zoom feels the same at every distance, clamped so the asset can neither
             // be swallowed by the near plane nor lost to a dot.
-            m_Distance = std::clamp( m_Distance * std::exp( -input.Wheel * 0.12f ), m_FrameRadius * 0.6f,
-                                     m_FrameRadius * 20.0f );
+            // The zoom is relative to the pane's fit, so the clamp is too: the same world-space limits as before.
+            const float fitted = std::max( FittedDistance( drawSize.x / drawSize.y ), 1e-3f );
+            m_Zoom = std::clamp( m_Zoom * std::exp( -input.Wheel * 0.12f ), m_FrameRadius * 0.6f / fitted,
+                                 m_FrameRadius * 20.0f / fitted );
         }
 
         if ( input.Reframe )

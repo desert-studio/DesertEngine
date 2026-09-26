@@ -2,7 +2,7 @@
 // splitters must cut a corner's fan into two disjoint sides that cover it, and the triangle-edge queries must
 // return UE's edge order, which BuildTerminatorVertex relies on.
 #include "Engine/Geometry/DynamicMeshRenderConversion.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/MeshIndexUtil.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshIndexUtil.hpp"
 
 #include <gtest/gtest.h>
 

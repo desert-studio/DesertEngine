@@ -5,8 +5,8 @@
 // and every mesh edge between two groups belongs to exactly one group edge.
 #include <gtest/gtest.h>
 
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -14,6 +14,7 @@
 #include <cmath>
 #include <map>
 #include <numbers>
+#include <unordered_set>
 
 using namespace Desert::Geometry;
 

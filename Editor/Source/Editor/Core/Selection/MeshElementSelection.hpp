@@ -5,8 +5,6 @@
 #include <Common/Core/UUID.hpp>
 
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/GroupTopology.hpp>
 
 #include <memory>
 #include <string>

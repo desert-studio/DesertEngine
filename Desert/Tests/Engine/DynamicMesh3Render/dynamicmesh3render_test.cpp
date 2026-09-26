@@ -8,8 +8,8 @@
 
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/EditMeshConversion.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp>
-#include <Engine/Geometry/UECore/DynamicMesh/MeshNormals.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp>
 
 #include <glm/geometric.hpp>
 

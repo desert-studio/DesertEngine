@@ -197,7 +197,7 @@ namespace Desert::Editor::Splash
             HWND window =
                  // An APP window with a minimize box, not a tool window: minimized, it has a taskbar button to
                  // come back from.
-                 CreateWindowExW( WS_EX_APPWINDOW | WS_EX_TOPMOST | WS_EX_LAYERED, kClassName, L"Desert Engine",
+                 CreateWindowExW( WS_EX_APPWINDOW | WS_EX_LAYERED, kClassName, L"Desert Engine",
                                   WS_POPUP | WS_MINIMIZEBOX, x, y, w, h, nullptr, nullptr, instance, nullptr );
             const std::wstring iconFont = UI::kIconFontFile.wstring();
             m_IconFontLoaded            = AddFontResourceExW( iconFont.c_str(), FR_PRIVATE, nullptr ) > 0;
@@ -211,7 +211,10 @@ namespace Desert::Editor::Splash
                 SetLayeredWindowAttributes( window, 0, 0, LWA_ALPHA );
                 m_ShownAt = std::chrono::steady_clock::now();
                 SetTimer( window, kFrameTimer, kFrameMs, nullptr );
-                ShowWindow( window, SW_SHOWNOACTIVATE );
+                // In front ONCE, as it appears; not TOPMOST — the owner switches to other windows while the
+                // editor loads, and a splash that stays above them is in the way.
+                ShowWindow( window, SW_SHOW );
+                SetForegroundWindow( window );
                 UpdateWindow( window );
 
                 // How early, from the kernel's record of when this process began (the macOS file says why).

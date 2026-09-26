@@ -1,6 +1,6 @@
 #include "DynamicMeshRenderConversion.hpp"
 
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMeshAttributeSet.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 
 #include <glm/geometric.hpp>
 

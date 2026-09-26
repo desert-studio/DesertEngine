@@ -1,9 +1,9 @@
 // MeshSurfacePath::EmbedSimplePath: the GeometryCore piece UE's GroupEdgeInserter uses to cut a plane path into
 // the mesh (EmbedPlaneCutPath). A path given as surface points must come out as a chain of mesh edges, with the
 // closed mesh still closed.
-#include "Engine/Geometry/UECore/Distance/DistPoint3Triangle3.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/DynamicMesh3.hpp"
-#include "Engine/Geometry/UECore/Operations/EmbedSurfacePath.hpp"
+#include "Engine/Geometry/MeshCore/Distance/DistPoint3Triangle3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/Operations/EmbedSurfacePath.hpp"
 
 #include <gtest/gtest.h>
 

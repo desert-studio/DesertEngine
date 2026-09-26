@@ -1,10 +1,10 @@
 // The UE primitives MeshBevel's chamfer needs (P13b): Line3, DistLine3Line3d, the shared inset-line solve in
 // PolyEditingEdgeUtil and the 3D ear clip in PolygonTriangulation. Each test pins a value UE's code produces, so a
 // port slip (a sign, an average, a winding) turns it red; InsetMeshRegion's own tests cover the solve in context.
-#include "Engine/Geometry/UECore/CompGeom/PolygonTriangulation.hpp"
-#include "Engine/Geometry/UECore/Distance/DistLine3Line3.hpp"
-#include "Engine/Geometry/UECore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
-#include "Engine/Geometry/UECore/VectorUtil.hpp"
+#include "Engine/Geometry/MeshCore/CompGeom/PolygonTriangulation.hpp"
+#include "Engine/Geometry/MeshCore/Distance/DistLine3Line3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/Operations/PolyEditingEdgeUtil.hpp"
+#include "Engine/Geometry/MeshCore/VectorUtil.hpp"
 
 #include <gtest/gtest.h>
 
