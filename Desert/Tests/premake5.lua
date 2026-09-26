@@ -111,14 +111,14 @@ group "Tests"
         end
 
     if os.target() == "windows" then
-        -- TWO LINES OF PAYLOAD, AND THE SHAPE OF BOTH IS DICTATED BY WHAT cmd EATS.
+        -- THREE LINES OF PAYLOAD, AND THE SHAPE OF ALL THREE IS DICTATED BY WHAT cmd EATS.
         --
         -- What this writes is a shim: it names the configuration that was just built and hands the
         -- work to scripts/Windows/RunTests.ps1, which is committed, readable, and testable. The
         -- ~1900 echo lines it replaces built the whole runner out of cmd fragments that had to
         -- survive three levels of quoting; the manifest note above records what that cost.
         --
-        -- NEITHER PAYLOAD LINE MAY END IN A DIGIT. `echo ... exit /b 1>> file` does not write the
+        -- NO PAYLOAD LINE MAY END IN A DIGIT. `echo ... exit /b 1>> file` does not write the
         -- digit: cmd reads `1>>` as a redirection of descriptor 1 and the `1` never reaches the
         -- file. That is character-for-character the 2026-08-15 defect — `set ERROR=0>>` losing its
         -- zero and leaving Windows Debug unable to report a failure — and the first draft of THIS
@@ -133,13 +133,26 @@ group "Tests"
         --
         -- `-Config %{cfg.buildcfg}` is last on that line for the same reason: it ends in a letter.
         --
-        -- `pwsh` BY NAME, NOT BY PATH. The runner image installs PowerShell 7 at
+        -- `pwsh` BY NAME, NOT BY PATH, AND WITH WINDOWS POWERSHELL 5.1 BEHIND IT. The runner image installs PowerShell 7 at
         -- `C:\Program Files\PowerShell\7\pwsh.EXE` — visible in the Windows job's own log, because
         -- ci.yml's Vulkan steps use `shell: pwsh` and GitHub resolves that name off PATH in the same
-        -- job. Hard-coding the directory would pin us to a `7` that will become an `8`. And the
-        -- failure direction is right either way: if PATH ever loses it, cmd answers "'pwsh' is not
-        -- recognized" with errorlevel 9009 and the step goes red. A missing runner cannot come back
-        -- as a pass, which is the only property this shim absolutely must have.
+        -- job. Hard-coding the directory would pin us to a `7` that will become an `8`.
+        --
+        -- A developer machine usually has no PowerShell 7 at all, and there the shim used to die
+        -- with "'pwsh' is not recognized" (errorlevel 9009) before reaching the one script that
+        -- owns the verdict, so the file CI generates could not be run locally. Windows PowerShell
+        -- 5.1 ships with the OS and runs RunTests.ps1 unchanged, so `where /q pwsh` picks the
+        -- interpreter and BOTH branches invoke the SAME script with the SAME arguments.
+        --
+        -- `where /q` and not `where pwsh >nul`: /Q prints nothing and answers in the exit code, so
+        -- the probe line carries no redirection that would have to survive echo, MSBuild's XML and
+        -- cmd's parser. `if errorlevel 1 (...) else (...)` and not `pwsh ... || powershell ...`:
+        -- with `||` a FAILING TEST RUN under pwsh would re-run every suite under 5.1 and report the
+        -- second verdict. The `if` line ends in `)`, which keeps the no-trailing-digit rule above.
+        --
+        -- The failure direction is still right: with neither interpreter on PATH cmd answers 9009
+        -- and the step goes red. A missing runner cannot come back as a pass, which is the only
+        -- property this shim absolutely must have.
         --
         -- NOTHING RUNS THE TESTS HERE. Until 2026-09-08 the last postbuild command was
         -- `call run_tests.bat`, so the suite ran once inside `msbuild` and then AGAIN in the CI job's
@@ -152,7 +165,8 @@ group "Tests"
             "if exist \"%{wks.location}\\run_tests.bat\" del \"%{wks.location}\\run_tests.bat\"",
 
             "echo @echo off > \"%{wks.location}\\run_tests.bat\"",
-            "echo pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{wks.location}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg}>> \"%{wks.location}\\run_tests.bat\"",
+            "echo where /q pwsh>> \"%{wks.location}\\run_tests.bat\"",
+            "echo if errorlevel 1 (powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{wks.location}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg}) else (pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"%{wks.location}\\scripts\\Windows\\RunTests.ps1\" -Config %{cfg.buildcfg})>> \"%{wks.location}\\run_tests.bat\"",
         }
     end
 

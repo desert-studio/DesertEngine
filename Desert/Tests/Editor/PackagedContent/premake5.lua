@@ -100,9 +100,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-
     -- Common contains Objective-C (MacOSFileSystem file dialog) — pulled in because this test
     -- references FileSystem, so the ObjC runtime + AppKit must link too.
     filter "system:macosx"

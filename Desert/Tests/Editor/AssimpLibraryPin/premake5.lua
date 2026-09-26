@@ -48,10 +48,6 @@ project(test_name)
     -- standard set and Optick is what Common's JobSystem registers its threads with.
     links { "Common", "Optick", "Assimp" }
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
-
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }

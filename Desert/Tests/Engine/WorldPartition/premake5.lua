@@ -60,8 +60,6 @@ project(test_name)
     -- Common: UUID and AssetHandle. Optick: Common's JobSystem registers its worker threads with it.
     links { "Common", "Optick" }
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
     -- The corpus census gathers the asset registry (Common/Content/ContentScan.cpp), whose
     -- file reads go through Common's FileSystem, and on macOS that object carries the Cocoa file dialogs.
     filter "system:macosx"

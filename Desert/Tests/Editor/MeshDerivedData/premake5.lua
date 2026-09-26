@@ -53,9 +53,6 @@ project(test_name)
 
     links { "Common", "Optick", "MeshOptimizer" } -- Commons JobSystem registers worker threads with Optick
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-
     -- Common contains Objective-C (the MacOS file dialog), so the ObjC runtime + AppKit link too.
     filter "system:macosx"
         links { "Cocoa.framework", "Foundation.framework" }

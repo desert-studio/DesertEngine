@@ -42,9 +42,6 @@ project(test_name)
 
     links { "Common", "Optick" } -- Commons JobSystem registers worker threads with Optick
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-
     -- ReadTextureAssetKey reads through Common::Utils::FileSystem, whose macOS half is Objective-C
     -- (MacOSFileSystem's file dialog), so the ObjC runtime + AppKit link as well.
     filter "system:macosx"

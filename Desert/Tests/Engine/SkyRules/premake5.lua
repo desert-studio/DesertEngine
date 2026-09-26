@@ -43,10 +43,6 @@ project(test_name)
         defines { "DESERT_PLATFORM_LINUX" }
     filter {}
 
-    filter "system:not windows"
-        links { "ReflectCpp" }
-    filter {}
-
     for name, path in pairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
