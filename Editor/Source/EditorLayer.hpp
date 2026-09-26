@@ -626,11 +626,11 @@ namespace Desert::Editor
         // is the dangling reference this split exists to avoid.
         struct OpenRefusal
         {
-            std::string                  AssetName;
-            std::string                  TypeName;
-            Engine::ViewBudget::Verdict  Verdict;      // RequestBytes = the document's forecast + PendingBytes
-            Engine::ViewBudget::Reading  Reading;      // the ceiling, its source and the usage it was judged on
-            uint64_t                     PendingBytes = 0; // spoken for by open documents that have not drawn yet
+            std::string                 AssetName;
+            std::string                 TypeName;
+            Engine::ViewBudget::Verdict Verdict;          // RequestBytes = the document's forecast + PendingBytes
+            Engine::ViewBudget::Reading Reading;          // the ceiling, its source and the usage it was judged on
+            uint64_t                    PendingBytes = 0; // spoken for by open documents that have not drawn yet
             std::vector<Engine::ViewBudget::HeldView> Views; // SceneRenderer::LiveHoldings at the refusal
             std::vector<ViewConsumer>                 Census;
         };

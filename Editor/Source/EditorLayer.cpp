@@ -3196,11 +3196,12 @@ namespace Desert::Editor
         {
             // The VISIBLE half of the name. The census tells a user what to close, and they close a window
             // titled "MP_GreenTint", not one titled "MP_GreenTint###docasset:2:3333333333333333333".
-            census.push_back( { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
-                                     DocumentDisplayName( document->GetName() ) + "'",
-                                document->HoldsView(), document->ClaimsView(),
-                                document->ClaimsView() && !document->HoldsView() ? document->ViewForecastBytes() : 0,
-                                document->Subject() } );
+            census.push_back(
+                 { m_SubjectEditors.TypeName( document->Subject() ) + " document '" +
+                        DocumentDisplayName( document->GetName() ) + "'",
+                   document->HoldsView(), document->ClaimsView(),
+                   document->ClaimsView() && !document->HoldsView() ? document->ViewForecastBytes() : 0,
+                   document->Subject() } );
         }
 
         return census;
@@ -3315,7 +3316,8 @@ namespace Desert::Editor
                 std::string                               census;
                 for ( const ViewConsumer& consumer : rows )
                 {
-                    std::string state = "holds no view and never will (drawn on the CPU) — closing it frees nothing";
+                    std::string state =
+                         "holds no view and never will (drawn on the CPU) — closing it frees nothing";
                     if ( consumer.HoldsView )
                         state = "holds a view";
                     else if ( consumer.ClaimsView )
@@ -3337,12 +3339,12 @@ namespace Desert::Editor
                 // The subject is named by its FILE NAME or its ENTITY NAME where one is known: "handle
                 // 3333333333333333333" is the log's identifier, not the user's.
                 m_OpenRefusal        = OpenRefusal{ RefusedSubjectName( subject ),
-                                                    m_SubjectEditors.TypeName( subject ),
-                                                    verdict,
-                                                    reading,
-                                                    pending,
-                                                    std::move( views ),
-                                                    std::move( rows ) };
+                                             m_SubjectEditors.TypeName( subject ),
+                                             verdict,
+                                             reading,
+                                             pending,
+                                             std::move( views ),
+                                             std::move( rows ) };
                 m_OpenRefusalPending = true;
                 continue;
             }
@@ -6240,9 +6242,8 @@ namespace Desert::Editor
         // WHERE THE MEMORY WENT, by view, largest first — what each open view actually holds.
         std::vector<Engine::ViewBudget::HeldView> views = m_OpenRefusal->Views;
         std::sort( views.begin(), views.end(),
-                   []( const Engine::ViewBudget::HeldView& a, const Engine::ViewBudget::HeldView& b ) {
-                       return a.Bytes > b.Bytes;
-                   } );
+                   []( const Engine::ViewBudget::HeldView& a, const Engine::ViewBudget::HeldView& b )
+                   { return a.Bytes > b.Bytes; } );
         ImGui::TextUnformatted( "Open views" );
         ImGui::Indent( 18.0f );
         for ( const Engine::ViewBudget::HeldView& view : views )
@@ -7046,13 +7047,14 @@ namespace Desert::Editor
                 ImGui::PopStyleColor();
 
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "%zu open document(s). Open views hold %s; %s; in use %s; %s more is spoken for "
-                                   "by documents that have not drawn yet. A document whose view does not fit is "
-                                   "refused.",
-                                   m_OpenDocuments.Count(), Engine::ViewBudget::FormatMiB( held ).c_str(),
-                                   Engine::ViewBudget::DescribeCeiling( reading ).c_str(),
-                                   Engine::ViewBudget::FormatMiB( reading.UsageBytes ).c_str(),
-                                   Engine::ViewBudget::FormatMiB( pending ).c_str() );
+                ImGui::SetTooltip(
+                     "%zu open document(s). Open views hold %s; %s; in use %s; %s more is spoken for "
+                     "by documents that have not drawn yet. A document whose view does not fit is "
+                     "refused.",
+                     m_OpenDocuments.Count(), Engine::ViewBudget::FormatMiB( held ).c_str(),
+                     Engine::ViewBudget::DescribeCeiling( reading ).c_str(),
+                     Engine::ViewBudget::FormatMiB( reading.UsageBytes ).c_str(),
+                     Engine::ViewBudget::FormatMiB( pending ).c_str() );
         }
 
         // Active snap state: off, or the step of the CURRENT transform tool — answers "why did it
