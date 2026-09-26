@@ -1973,13 +1973,13 @@ namespace Desert::Migration
                         if ( !stored.has_value() )
                         {
                             report.UnknownNames.push_back( site + " is " + Describe( row ) + ", not a path" );
-                            guids.push_back( rfl::Generic( std::string() ) );
+                            guids.emplace_back( std::string() );
                             continue;
                         }
                         if ( stored.value().empty() )
                         {
                             ++report.Emptied;
-                            guids.push_back( rfl::Generic( std::string() ) );
+                            guids.emplace_back( std::string() );
                             continue;
                         }
                         const auto guid = MaterialGuidOfPath( stored.value(), assetsRoot );
@@ -1987,11 +1987,11 @@ namespace Desert::Migration
                         {
                             report.UnknownNames.push_back( site + " = '" + stored.value() +
                                                            "': " + guid.GetError() );
-                            guids.push_back( rfl::Generic( std::string() ) );
+                            guids.emplace_back( std::string() );
                             continue;
                         }
                         ++report.Rewritten;
-                        guids.push_back( rfl::Generic( guid.GetValue() ) );
+                        guids.emplace_back( guid.GetValue() );
                     }
                     rfl::Generic::Object kept;
                     for ( const auto& [key, value] : fields.value() )

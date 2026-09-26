@@ -41,7 +41,7 @@ namespace Desert::Platform::MacOS
             return m_Data.Specification.Decorated;
         }
 
-        [[nodiscard]] virtual bool HasDrawableArea() const override;
+        [[nodiscard]] bool HasDrawableArea() const override;
 
         [[nodiscard]] virtual uint32_t GetWidth() const override;
         [[nodiscard]] virtual uint32_t GetHeight() const override;

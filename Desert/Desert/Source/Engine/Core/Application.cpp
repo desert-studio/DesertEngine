@@ -218,7 +218,7 @@ namespace Desert::Engine
                 std::this_thread::sleep_for( std::chrono::milliseconds( 16 ) );
                 continue;
             }
-            else if ( drawable.AnnounceResume )
+            if ( drawable.AnnounceResume )
             {
                 LOG_INFO( "[Application] the window has a drawable area again; frames resume." );
             }

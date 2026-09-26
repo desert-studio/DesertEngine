@@ -67,16 +67,14 @@ namespace
     class Client
     {
     public:
-        explicit Client( const std::string& path )
+        explicit Client( const std::string& path ) : m_Fd( Socket::Open() )
         {
-            m_Fd = Socket::Open();
             if ( m_Fd < 0 )
                 return;
 
             sockaddr_un address{};
             if ( !Socket::FillAddress( address, path ) ||
-                 ::connect( Socket::Raw( m_Fd ), reinterpret_cast<const sockaddr*>( &address ),
-                            sizeof( address ) ) != 0 )
+                 ::connect( Socket::Raw( m_Fd ), Socket::AsSockaddr( address ), sizeof( address ) ) != 0 )
             {
                 Socket::Close( m_Fd );
                 m_Fd = Socket::kInvalid;
@@ -188,8 +186,7 @@ TEST( ControlTransport, ALeftoverSocketFromADeadEditorIsCleared )
         ASSERT_GE( fd, 0 );
         sockaddr_un address{};
         ASSERT_TRUE( Socket::FillAddress( address, path ) );
-        ASSERT_EQ( ::bind( Socket::Raw( fd ), reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ),
-                   0 )
+        ASSERT_EQ( ::bind( Socket::Raw( fd ), Socket::AsSockaddr( address ), sizeof( address ) ), 0 )
              << Socket::LastErrorText();
         Socket::Close( fd ); // bound, never listened, descriptor gone: nothing is serving this path
     }

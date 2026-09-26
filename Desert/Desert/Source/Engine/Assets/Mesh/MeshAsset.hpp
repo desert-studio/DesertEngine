@@ -38,9 +38,12 @@ namespace Desert::Assets
                 return;
             const Common::Content::AssetHeaderReadContext recordOnly{ {}, true };
             const auto stated = Common::Content::ReadAssetHeaderIfStated( m_Metadata.Filepath, recordOnly );
-            if ( !stated || !stated.GetValue() || stated.GetValue()->Guid.IsNull() )
+            if ( !stated )
                 return;
-            m_Guid = stated.GetValue()->Guid;
+            const auto& header = stated.GetValue();
+            if ( !header.has_value() || header->Guid.IsNull() )
+                return;
+            m_Guid = header->Guid;
             AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( m_Guid ) ) ),
                                  Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
         }

@@ -161,7 +161,7 @@ namespace Desert::Graphic
             {
                 Runtime::ImageHandle         Handle;
                 const std::filesystem::path& Path;
-                uint64_t                     Bake;
+                uint64_t                     Bake = 0;
             } toWrite[] = { { radianceHandle, radiancePath, radianceBake },
                             { diffuseIrradianceHandle, irradiancePath, irradianceBake },
                             { prefilteredHandle, prefilterPath, prefilterBake } };
@@ -170,7 +170,7 @@ namespace Desert::Graphic
             {
                 auto* image = imageService->Resolve( entry.Handle );
                 auto* cube  = dynamic_cast<ImageCube*>( image );
-                if ( !cube )
+                if ( cube == nullptr )
                     continue;
                 if ( const auto written =
                           WriteBakedEnvironmentCube( entry.Path, *cube, sourceKey, sourceSignature, entry.Bake );

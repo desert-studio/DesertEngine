@@ -226,7 +226,7 @@ namespace Common::LocalSocket
     /// The kernel's limit on a socket path, not ours, and it is short: 104 bytes on macOS, 108 on Windows
     /// and Linux. A path one byte over would be TRUNCATED and bound as a DIFFERENT socket — success
     /// reported while listening somewhere no client looks — so both ends check it and say the number.
-    [[nodiscard]] inline constexpr std::size_t MaxPathLength() noexcept
+    [[nodiscard]] constexpr std::size_t MaxPathLength() noexcept
     {
         return sizeof( sockaddr_un::sun_path ) - 1;
     }
@@ -240,6 +240,16 @@ namespace Common::LocalSocket
         address.sun_family = AF_UNIX;
         std::memcpy( address.sun_path, path.c_str(), path.size() + 1 );
         return true;
+    }
+
+    /// @p address as the generic `sockaddr` that bind and connect take. The ONE place this cast lives:
+    /// the Berkeley API is C's polymorphism, every family's address is passed through `sockaddr*` and told
+    /// apart by its leading family field, so there is no cast-free spelling of these calls.
+    [[nodiscard]] inline const sockaddr* AsSockaddr( const sockaddr_un& address ) noexcept
+    {
+        // Required by the socket API itself (see above); sockaddr_un begins with the family field it reads.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        return reinterpret_cast<const sockaddr*>( &address );
     }
 
     /// Is there a file at @p path? Asked with the platform's plainest call on purpose: a bound AF_UNIX

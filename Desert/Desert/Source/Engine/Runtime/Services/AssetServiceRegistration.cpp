@@ -63,7 +63,7 @@ namespace Desert::Runtime
     void EnsureSkyboxRegistered( const Assets::Asset<Assets::SkyboxAsset>& skybox )
     {
         auto* service = ResourceRegistry::GetSkyboxService();
-        if ( !service || !skybox || service->Get( skybox->GetMetadata().Handle ) )
+        if ( service == nullptr || !skybox || service->Get( skybox->GetMetadata().Handle ) )
             return;
 
         // Load() is the file-existence check (SkyboxAsset::LoadFromFile) and logs its own refusal by name;

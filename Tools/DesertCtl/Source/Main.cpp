@@ -202,8 +202,7 @@ namespace
                 return Socket::kInvalid;
             }
 
-            if ( ::connect( Socket::Raw( fd ), reinterpret_cast<const sockaddr*>( &address ),
-                            sizeof( address ) ) == 0 )
+            if ( ::connect( Socket::Raw( fd ), Socket::AsSockaddr( address ), sizeof( address ) ) == 0 )
                 return fd;
 
             lastError = Socket::LastErrorText();

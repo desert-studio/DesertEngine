@@ -21,7 +21,7 @@ namespace Desert::Editor::Control
         /// The most one send() is asked to take. Winsock's send counts bytes in an `int`, and a reply that
         /// did not fit in one would otherwise be handed over as a truncated length. The loop around it
         /// already deals with a partial send, so a chunk costs nothing but the cast it removes.
-        constexpr std::size_t kMaxSendChunk = 64u * 1024u;
+        constexpr std::size_t kMaxSendChunk = std::size_t{ 64 } * 1024;
 
         /// Is something ALIVE on @p path? Asked by connecting to it, which is the only question whose
         /// answer is not a guess: a socket file outlives the process that made it, so "the file is there"
@@ -37,8 +37,8 @@ namespace Desert::Editor::Control
             if ( !Socket::FillAddress( address, path ) )
                 return true; // likewise: a path we cannot even form is not a path we may delete
 
-            const bool connected = ::connect( Socket::Raw( probe ), reinterpret_cast<const sockaddr*>( &address ),
-                                              sizeof( address ) ) == 0;
+            const bool connected =
+                 ::connect( Socket::Raw( probe ), Socket::AsSockaddr( address ), sizeof( address ) ) == 0;
             Socket::Close( probe );
             return connected;
         }
@@ -117,7 +117,7 @@ namespace Desert::Editor::Control
             return Common::MakeFormattedError<bool>( "--control-socket: socket() failed: {}",
                                                      Socket::LastErrorText() );
 
-        if ( ::bind( Socket::Raw( fd ), reinterpret_cast<const sockaddr*>( &address ), sizeof( address ) ) != 0 )
+        if ( ::bind( Socket::Raw( fd ), Socket::AsSockaddr( address ), sizeof( address ) ) != 0 )
         {
             const std::string reason = Socket::LastErrorText();
             Socket::Close( fd );
