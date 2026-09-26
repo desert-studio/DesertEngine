@@ -371,7 +371,7 @@ TEST( WorldPartitionFormat, ThePartitionBlockSurvivesASaveThroughTheDocumentMerg
     ASSERT_TRUE( sourceTree->to_object().has_value() );
 
     const rfl::Generic::Object merged = Desert::Core::Serialize::MergeSceneDocument(
-         freshTree->to_object().value(), sourceTree->to_object().value(),
+         Common::Json::Root( freshTree.value() ), Common::Json::Root( sourceTree.value() ),
          Desert::Core::Serialize::NothingIsOurs() );
 
     const auto reread = rfl::json::read<SceneSerialized>( rfl::json::write( rfl::Generic( merged ) ) );

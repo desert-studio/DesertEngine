@@ -18,8 +18,6 @@ project "WorldCook"
         "Source/**.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/SceneFormat.cpp",
-        "Source/**.cpp",
-        "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/WorldCells.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Core/Serialize/ForeignKeys.cpp",
         -- The partitioner places a landscape tile by its root's frame (LS-3); both files are pure and link
         -- only Common.

@@ -460,7 +460,9 @@ TEST( WorldSceneGenerator, TheGeneratedSceneIsUnchangedByAWholeDocumentRoundTrip
     ASSERT_FALSE( document.size() == 0 );
 
     const auto nothingIsOurs = []( const std::string& ) { return false; };
-    EXPECT_EQ( rfl::json::write( MergeSceneDocument( document, document, nothingIsOurs ) ),
+    const rfl::Generic tree( document );
+    EXPECT_EQ( rfl::json::write(
+                    MergeSceneDocument( Common::Json::Root( tree ), Common::Json::Root( tree ), nothingIsOurs ) ),
                rfl::json::write( document ) );
 }
 

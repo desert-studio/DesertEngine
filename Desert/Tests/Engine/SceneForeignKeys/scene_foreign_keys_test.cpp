@@ -89,10 +89,12 @@ namespace
     {
         const Common::Json::Value f( fresh );
         const Common::Json::Value s( source );
-        return Desert::Core::Serialize::MergeSceneDocument( Common::Json::Root( f ), Common::Json::Root( s ), ours );
+        return Desert::Core::Serialize::MergeSceneDocument( Common::Json::Root( f ), Common::Json::Root( s ),
+                                                            ours );
     }
-    void CountForeignKeysAtLevel( const Common::Json::Object& source, const Desert::Core::Serialize::KeyIsOurs& ours,
-                                  std::map<std::string, int>& into )
+    void CountForeignKeysAtLevel( const Common::Json::Object&               source,
+                                  const Desert::Core::Serialize::KeyIsOurs& ours,
+                                  std::map<std::string, int>&               into )
     {
         const Common::Json::Value s( source );
         Desert::Core::Serialize::CountForeignKeysAtLevel( Common::Json::Root( s ), ours, into );
@@ -123,6 +125,23 @@ namespace
         std::ostringstream buffer;
         buffer << in.rdbuf();
         return buffer.str();
+    }
+
+    // The first line two texts disagree on, both sides - a whole-file EXPECT_EQ on a 3 MB scene says nothing.
+    std::string FirstDifference( const std::string& a, const std::string& b )
+    {
+        std::istringstream ia( a ), ib( b );
+        std::string        la, lb;
+        for ( int line = 1;; ++line )
+        {
+            const bool ha = static_cast<bool>( std::getline( ia, la ) );
+            const bool hb = static_cast<bool>( std::getline( ib, lb ) );
+            if ( !ha && !hb )
+                return "(no difference)";
+            if ( ha != hb || la != lb )
+                return "line " + std::to_string( line ) + ":\n  written: " + ( ha ? la : "<end>" ) +
+                       "\n  on disk: " + ( hb ? lb : "<end>" );
+        }
     }
 
     std::vector<std::filesystem::path> Corpus()
@@ -463,7 +482,7 @@ TEST( ForeignKeysCorpus, EverySceneOnDiskComesBackByteIdenticalThroughTheLoaders
         const auto                               written  = Common::Json::WriteCanonical(
              Desert::Core::ComposeSceneDocument( loadable.GetValue().Scene, document, NothingIsOurs() ) );
         ASSERT_TRUE( static_cast<bool>( written ) ) << written.GetError();
-        EXPECT_EQ( written.GetValue(), bytes );
+        EXPECT_TRUE( written.GetValue() == bytes ) << FirstDifference( written.GetValue(), bytes );
     }
 }
 
@@ -509,7 +528,8 @@ TEST( SceneDocumentCensus, EveryLoadParsesTheSceneTextOnce )
     const std::string loader = ReadAll( root + "Desert/Desert/Source/Engine/Core/Serialize/SceneSerializer.cpp" );
     EXPECT_EQ( count( loader, "ParseLoadableScene(" ), 1u );
     for ( const char* token : { "json::read", "Json::Parse(", "Json::Read<" } )
-        EXPECT_EQ( count( loader, token ), 0u ) << "SceneSerializer.cpp parses scene text a second time: " << token;
+        EXPECT_EQ( count( loader, token ), 0u )
+             << "SceneSerializer.cpp parses scene text a second time: " << token;
 
     for ( const char* file : { "Editor/Source/EditorLayer.cpp", "Runtime/Source/RuntimeLayer.cpp",
                                "Desert/Desert/Source/Engine/Graphic/Render2D/UIRenderTextureCache.cpp" } )

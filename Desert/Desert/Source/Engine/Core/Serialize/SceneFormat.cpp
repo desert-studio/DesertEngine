@@ -68,9 +68,9 @@ namespace Desert::Core
             return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}': {1}. Nothing was loaded.", source, header.GetError() ) );
         if ( header.GetValue().Kind != Common::Content::ContentKind::Scene )
-            return Common::MakeError<LoadableScene>(
-                 fmt::format( "[SceneSerializer] '{0}': the header says kind '{1}', not 'Scene'. Nothing was loaded.",
-                              source, scene.Header->Kind ) );
+            return Common::MakeError<LoadableScene>( fmt::format(
+                 "[SceneSerializer] '{0}': the header says kind '{1}', not 'Scene'. Nothing was loaded.", source,
+                 scene.Header->Kind ) );
 
         return Common::MakeSuccess( LoadableScene{ document.ExtractValue(), parsed.ExtractValue() } );
     }
@@ -82,8 +82,8 @@ namespace Desert::Core
         Common::Json::Value written = Common::Json::FromStruct( fresh );
         if ( !loaded.has_value() )
             return written;
-        return Common::Json::Value( Serialize::MergeSceneDocument( Common::Json::Root( written ),
-                                                                   Common::Json::Root( *loaded ), entityKeyIsOurs ) );
+        return Common::Json::Value( Serialize::MergeSceneDocument(
+             Common::Json::Root( written ), Common::Json::Root( *loaded ), entityKeyIsOurs ) );
     }
 
 } // namespace Desert::Core

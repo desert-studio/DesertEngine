@@ -28,8 +28,8 @@
 // the run compulsory. Preservation is only ever for keys another BUILD owns. Nothing here has a list
 // of key names in it, and nothing here should ever grow one.
 //
-// PURE. No GPU, no scene, no filesystem, no globals — in: two Nodes over parsed trees; out: one object. That is what
-// lets Desert/Tests/Engine/SceneForeignKeys assert the whole class over the real corpus.
+// PURE. No GPU, no scene, no filesystem, no globals — in: two Nodes over parsed trees; out: one object. That is
+// what lets Desert/Tests/Engine/SceneForeignKeys assert the whole class over the real corpus.
 
 #include <Common/Json/Document.hpp>
 
@@ -61,8 +61,8 @@ namespace Desert::Core::Serialize
     //
     // Arrays are NOT merged element by element — a fresh array replaces the source's. Entities are the
     // one array whose elements have identity, and MergeSceneDocument below is what knows that.
-    [[nodiscard]] Common::Json::Object MergeObjects( const Common::Json::Node& fresh, const Common::Json::Node& source,
-                                                     const KeyIsOurs& ours );
+    [[nodiscard]] Common::Json::Object MergeObjects( const Common::Json::Node& fresh,
+                                                     const Common::Json::Node& source, const KeyIsOurs& ours );
 
     // The whole .desce, merged: the top level by the rule above, and `Entities` element by element,
     // matched on the record's `id`. A record in `source` whose id is not in `fresh` is DROPPED — that

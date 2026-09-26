@@ -31,8 +31,8 @@ namespace Desert::Core::Serialize
         // One level of the merge. The SOURCE's keys come first and in the source's order (that is what keeps a
         // file's bytes when nothing changed), then the keys only `fresh` states. `replacement`, when given,
         // is the value `replacedKey` takes wherever it sits - the entity array MergeSceneDocument built.
-        Object MergeLevel( const Node& fresh, const Node& source, const KeyIsOurs& ours, std::string_view replacedKey,
-                           const Value* replacement )
+        Object MergeLevel( const Node& fresh, const Node& source, const KeyIsOurs& ours,
+                           std::string_view replacedKey, const Value* replacement )
         {
             Object merged;
             source.ForEachMember(
@@ -80,8 +80,8 @@ namespace Desert::Core::Serialize
     {
         const auto freshEntities  = fresh.Find( "Entities" );
         const auto sourceEntities = source.Find( "Entities" );
-        if ( !freshEntities.has_value() || !sourceEntities.has_value() || freshEntities->GetKind() != Kind::Array ||
-             sourceEntities->GetKind() != Kind::Array )
+        if ( !freshEntities.has_value() || !sourceEntities.has_value() ||
+             freshEntities->GetKind() != Kind::Array || sourceEntities->GetKind() != Kind::Array )
             return MergeLevel( fresh, source, NothingIsOurs(), {}, nullptr );
 
         // By id, first claimant wins: a duplicate id loads onto the first record (SceneStitchRules.hpp), so
@@ -111,7 +111,8 @@ namespace Desert::Core::Serialize
                  if ( match == sourceById.end() )
                      merged.push_back( record.Raw() );
                  else
-                     merged.push_back( Value( MergeLevel( record, match->second, entityKeyIsOurs, {}, nullptr ) ) );
+                     merged.push_back(
+                          Value( MergeLevel( record, match->second, entityKeyIsOurs, {}, nullptr ) ) );
              } );
 
         const Value entities( std::move( merged ) );
