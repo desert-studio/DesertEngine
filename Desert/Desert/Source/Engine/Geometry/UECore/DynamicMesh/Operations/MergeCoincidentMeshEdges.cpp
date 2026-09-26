@@ -162,7 +162,7 @@ namespace Desert::Geometry
                     continue;
             }
             DuplicatesQueue.Insert( eid,
-                                    static_cast<int32_t>( static_cast<float>( EquivalenceSets[eid]->size() ) ) );
+                                    static_cast<float>( EquivalenceSets[eid]->size() ) );
         }
 
         // greedy merge

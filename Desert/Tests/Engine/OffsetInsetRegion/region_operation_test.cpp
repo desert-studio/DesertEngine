@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -169,7 +170,7 @@ TEST( RegionOperation, PushPullMovesEveryRegionVertexByTheSameVector )
     const ElementSelection triangles =
          ConvertSelection( *done.Mesh, topology, done.Selection, ElementMode::Triangle );
     ASSERT_EQ( triangles.Size(), 4u );
-    const double    step = 20.0 / std::sqrt( 2.0 );
+    const double    step = 20.0 / std::numbers::sqrt2;
     const glm::dvec3 move( step, 0.0, step );
     for ( int const t : triangles.Ids() )
     {
@@ -231,7 +232,7 @@ TEST( RegionOperation, WeldClosesACubeCutAlongEverySeam )
     merger.m_bWeldAttrsOnMergedEdges                    = true;
     merger.m_SplitAttributeWelder.m_UVDistSqrdThreshold = 0.01f * 0.01f;
     merger.m_SplitAttributeWelder.m_NormalVecDotThreshold =
-         std::abs( 1.f - std::cos( 0.1f * 3.14159265f / 180.f ) );
+         std::abs( 1.f - std::cos( 0.1f * std::numbers::pi_v<float> / 180.f ) );
     merger.m_SplitAttributeWelder.m_TangentVecDotThreshold = merger.m_SplitAttributeWelder.m_NormalVecDotThreshold;
     ASSERT_TRUE( merger.Apply() );
     EXPECT_EQ( merger.m_InitialNumBoundaryEdges, 36 );

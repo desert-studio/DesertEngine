@@ -278,7 +278,7 @@ namespace Desert::Geometry
                 }
                 if ( static_cast<int32_t>( FilteredTriangles.size() ) < TriRingCount )
                 {
-                    DynamicMeshInfo::VertexSplitInfo SplitInfo;
+                    DynamicMeshInfo::VertexSplitInfo SplitInfo{};
                     const MeshResult MeshResult = m_Mesh->SplitVertex( VertID, FilteredTriangles, SplitInfo );
                     if ( MeshResult != MeshResult::Ok )
                     {

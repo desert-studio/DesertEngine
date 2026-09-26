@@ -92,9 +92,9 @@ namespace
         ASSERT_GT( static_cast<int32_t>( s0.size() ), 0 );
         ASSERT_GT( static_cast<int32_t>( s1.size() ), 0 );
         std::set<int> all;
-        for ( int i : s0 )
+        for ( const int i : s0 )
             all.insert( i );
-        for ( int i : s1 )
+        for ( const int i : s1 )
             EXPECT_TRUE( all.insert( i ).second ) << "triangle " << i << " is on both sides";
         EXPECT_EQ( all, Ring( mesh, v ) );
     }

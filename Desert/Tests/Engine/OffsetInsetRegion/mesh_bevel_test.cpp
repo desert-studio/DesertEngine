@@ -671,7 +671,7 @@ namespace
                 ADD_FAILURE() << "old triangle " << t << " lost its primary UVs";
                 continue;
             }
-            std::array<glm::vec2, 3> after;
+            std::array<glm::vec2, 3> after{};
             uvs->GetTriElements( t, after[0], after[1], after[2] );
             for ( int j = 0; j < 3; ++j )
             {

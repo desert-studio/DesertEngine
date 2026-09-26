@@ -46,7 +46,9 @@ namespace
         for ( int y = 0; y < N; ++y )
             for ( int x = 0; x < N; ++x )
             {
-                const int Group = bGroups ? ( x < N / 2 ? 1 : 2 ) : 0;
+                int Group = 0;
+                if ( bGroups )
+                    Group = x < N / 2 ? 1 : 2;
                 Mesh.AppendTriangle( V( x, y ), V( x + 1, y ), V( x + 1, y + 1 ), Group );
                 Mesh.AppendTriangle( V( x, y ), V( x + 1, y + 1 ), V( x, y + 1 ), Group );
             }

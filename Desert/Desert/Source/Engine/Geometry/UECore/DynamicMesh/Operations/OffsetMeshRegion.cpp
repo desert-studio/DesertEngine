@@ -258,10 +258,14 @@ namespace Desert::Geometry
                     for ( int j = 0; j < 3; ++j )
                     {
                         const int v = Tri[j];
-                        UVTri[j]    = v == Strip.Outer[q]       ? Row0[q]
-                                      : v == Strip.Outer[q + 1] ? Row0[q + 1]
-                                      : v == Strip.Inner[q]     ? Row1[q]
-                                                                : Row1[q + 1];
+                        if ( v == Strip.Outer[q] )
+                            UVTri[j] = Row0[q];
+                        else if ( v == Strip.Outer[q + 1] )
+                            UVTri[j] = Row0[q + 1];
+                        else if ( v == Strip.Inner[q] )
+                            UVTri[j] = Row1[q];
+                        else
+                            UVTri[j] = Row1[q + 1];
                     }
                     UVOverlay->SetTriangle( tid, UVTri );
                 }

@@ -67,13 +67,13 @@ namespace
             for ( int x = 0; x <= N; ++x )
             {
                 UVLeft.push_back(
-                     UV->AppendElement( glm::vec2( x / static_cast<float>( N ), y / static_cast<float>( N ) ) ) );
-                UVRight.push_back( x == Seam ? UV->AppendElement( glm::vec2( 1.0f + x / static_cast<float>( N ),
-                                                                             y / static_cast<float>( N ) ) )
+                     UV->AppendElement( glm::vec2( static_cast<float>( x ) / static_cast<float>( N ), static_cast<float>( y ) / static_cast<float>( N ) ) ) );
+                UVRight.push_back( x == Seam ? UV->AppendElement( glm::vec2( 1.0f + static_cast<float>( x ) / static_cast<float>( N ),
+                                                                             static_cast<float>( y ) / static_cast<float>( N ) ) )
                                              : UVLeft.back() );
                 NmE.push_back( Nm->AppendElement( glm::vec3( 0, 0, 1 ) ) );
                 ClE.push_back( Cl->AppendElement(
-                     glm::vec4( x / static_cast<float>( N ), y / static_cast<float>( N ), 0, 1 ) ) );
+                     glm::vec4( static_cast<float>( x ) / static_cast<float>( N ), static_cast<float>( y ) / static_cast<float>( N ), 0, 1 ) ) );
             }
 
         for ( int y = 0; y < N; ++y )

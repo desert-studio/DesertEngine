@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <numbers>
 #include <vector>
 
 using namespace Desert;
@@ -23,7 +24,7 @@ using namespace Desert::Geometry;
 
 namespace
 {
-    constexpr float kPi = 3.14159265358979f;
+    constexpr float kPi = std::numbers::pi_v<float>;
 
     bool Valid( const DynamicMesh3& mesh )
     {
@@ -145,7 +146,7 @@ namespace
             for ( int z = 0; z <= cells; ++z )
                 for ( int x = x0; x <= x1; ++x )
                     vertices.push_back(
-                         MakeVertex( { 10.0f * x, 0.0f, 10.0f * z }, { 0, 1, 0 }, { 1, 0, 0 },
+                         MakeVertex( { 10.0f * static_cast<float>( x ), 0.0f, 10.0f * static_cast<float>( z ) }, { 0, 1, 0 }, { 1, 0, 0 },
                                      { static_cast<float>( x ) / cells, static_cast<float>( z ) / cells } ) );
             for ( int z = 0; z < cells; ++z )
                 for ( int x = 0; x < w - 1; ++x )
@@ -289,10 +290,10 @@ TEST( DynamicMesh3Render, AngleWeightingIsSymmetricAtCubeCornersAreaWeightingIsN
     {
         const glm::dvec3 angle = MeshNormals::ComputeVertexNormal( mesh, vid, false, true );
         const glm::dvec3 area  = MeshNormals::ComputeVertexNormal( mesh, vid, true, false );
-        EXPECT_NEAR( std::abs( angle.x ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        EXPECT_NEAR( std::abs( angle.y ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        EXPECT_NEAR( std::abs( angle.z ), 1.0 / std::sqrt( 3.0 ), 1e-9 );
-        areaLeans |= std::abs( std::abs( area.x ) - 1.0 / std::sqrt( 3.0 ) ) > 1e-3;
+        EXPECT_NEAR( std::abs( angle.x ), std::numbers::inv_sqrt3, 1e-9 );
+        EXPECT_NEAR( std::abs( angle.y ), std::numbers::inv_sqrt3, 1e-9 );
+        EXPECT_NEAR( std::abs( angle.z ), std::numbers::inv_sqrt3, 1e-9 );
+        areaLeans |= std::abs( std::abs( area.x ) - std::numbers::inv_sqrt3 ) > 1e-3;
     }
     EXPECT_TRUE( areaLeans );
 }
@@ -349,7 +350,7 @@ TEST( DynamicMesh3Render, NewCoreMatchesEditMeshToRenderMesh )
         {
             const glm::vec3 a = expected.Vertices[i].Bitangent;
             const glm::vec3 b = actual.Vertices[i].Bitangent;
-            bitangentDiffers += static_cast<int>( std::memcmp( &a, &b, sizeof( a ) ) != 0 );
+            bitangentDiffers += static_cast<int>( a.x != b.x || a.y != b.y || a.z != b.z );
             EXPECT_LT( glm::length( a - b ), 1e-6f );
             expected.Vertices[i].Bitangent = actual.Vertices[i].Bitangent = glm::vec3( 0.0f );
         }

@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <map>
+#include <numbers>
 
 using namespace Desert::Geometry;
 
@@ -47,7 +48,7 @@ namespace
         for ( int Ring = 0; Ring < 2; ++Ring )
             for ( int i = 0; i < N; ++i )
             {
-                const double A = 2.0 * 3.14159265358979 * i / N;
+                const double A = 2.0 * std::numbers::pi * i / N;
                 Mesh.AppendVertex( glm::dvec3( 50.0 * std::cos( A ), 50.0 * std::sin( A ), Ring * 200.0 ) );
             }
         auto B = [N]( int i ) { return i % N; };

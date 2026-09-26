@@ -1281,7 +1281,7 @@ namespace Desert::Geometry
                 const glm::dvec3 C   = Mesh.GetVertex( Tri.C );
                 // lattice point (i, j) = A + i/N (B - A) + j/N (C - A), i + j <= N
                 std::vector<int32_t> Lattice;
-                Lattice.assign( ( N + 1 ) * ( N + 1 ), -1 );
+                Lattice.assign( static_cast<size_t>( N + 1 ) * static_cast<size_t>( N + 1 ), -1 );
                 auto At = [&Lattice, N]( int32_t i, int32_t j ) -> int32_t& { return Lattice[i + j * ( N + 1 )]; };
                 for ( int32_t j = 0; j <= N; ++j )
                 {
@@ -1730,7 +1730,7 @@ namespace Desert::Geometry
         {
             // quad: a NumEdgeVerts x NumEdgeVerts grid whose border is the polygon, bilinear interior
             std::vector<int32_t> VertexGrid;
-            VertexGrid.assign( NumEdgeVerts * NumEdgeVerts, -1 );
+            VertexGrid.assign( static_cast<size_t>( NumEdgeVerts ) * static_cast<size_t>( NumEdgeVerts ), -1 );
             auto At = [&VertexGrid, NumEdgeVerts]( int32_t xi, int32_t yi ) -> int32_t&
             { return VertexGrid[xi + yi * NumEdgeVerts]; };
             int32_t PolygonIdx = 0;
