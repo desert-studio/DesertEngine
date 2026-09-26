@@ -164,6 +164,7 @@
 #include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
 #include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Editor/Core/DocumentPlacement.hpp>
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
@@ -365,11 +366,8 @@ namespace Desert::Editor
         return std::string( PanelIcon( name ) ) + "  " + label + "###" + name;
     }
 
-    // THE DOCUMENT WELL'S OWN WINDOW (layout option B.1). The occupant of the document dock node while it is
-    // open, for two reasons that are both structural rather than decorative: an empty dock node is not drawn
-    // at all, so without it the reserved area would be invisible whenever no document is open; and it is the
-    // only stable window name in that node, which is how DrawDocumentWell recovers the node's runtime id in a
-    // session that did not build the layout.
+    // THE DOCUMENT WELL'S OWN WINDOW: the index of open documents. It is not where they open — a document opens
+    // as a tab beside the level viewport (Editor/Core/DocumentPlacement.hpp).
     static constexpr const char* kDocumentWellWindow =
          ICON_MDI_FILE_DOCUMENT_MULTIPLE_OUTLINE "  Documents###documentwell";
 
@@ -3795,7 +3793,9 @@ namespace Desert::Editor
             // ### suffix, changing every window's ImGui ID), old imgui.ini bindings stop matching and panels
             // scatter. Bump kDockLayoutVersion to force a single clean rebuild for everyone, then persist it.
             // 3: the centre is split and documents get a node of their own (layout option B.1).
-            constexpr int kDockLayoutVersion = 3;
+            // 4: the centre is the level's alone again; documents open as tabs beside it (DocumentPlacement)
+            //    and the Documents index moves to the bottom drawer.
+            constexpr int kDockLayoutVersion = 4;
             if ( EditorPreferences::Get().DockLayoutVersion < kDockLayoutVersion )
             {
                 // SAID OUT LOUD. Every existing imgui.ini is rebuilt once here, and a layout that changes
@@ -3804,8 +3804,9 @@ namespace Desert::Editor
                 // collapse. One line naming the old and new versions is the difference between "my layout
                 // was reset by the update" and "my layout is gone".
                 LOG_INFO( "[Editor] Docking layout rebuilt once: saved layout is version {}, this build lays "
-                          "out version {} (the centre column now holds the level on the left and a Documents "
-                          "area on the right). Your named layouts under View -> Layouts are untouched.",
+                          "out version {} (asset documents now open as tabs beside the level viewport, and the "
+                          "Documents index is a tab in the bottom drawer). Your named layouts under View -> "
+                          "Layouts are untouched.",
                           EditorPreferences::Get().DockLayoutVersion, kDockLayoutVersion );
 
                 m_ResetDefaultLayout = true;
@@ -3841,30 +3842,21 @@ namespace Desert::Editor
                                                                     ? dockSize
                                                                     : ::ImGui::GetMainViewport()->Size );
 
-                //  ┌───────────┬────────────────┬───────────┬──────────────┐
-                //  │ Scene     │                │           │ Details      │
-                //  │ Outliner  │ Scene(viewport)│ Documents ├──────────────┤
-                //  ├───────────┤                │           │ SceneSettings│
-                //  │Collections├────────────────┴───────────┤ / Profiler   │
-                //  │           │ Assets / Logs              │ / Foliage    │
+                //  ┌───────────┬────────────────────────────┬──────────────┐
+                //  │ Scene     │ Scene (viewport) + a tab   │ Details      │
+                //  │ Outliner  │ per open asset document    ├──────────────┤
+                //  ├───────────┤ (DocumentPlacement)        │ SceneSettings│
+                //  │Collections├────────────────────────────┤ / Profiler   │
+                //  │           │ Assets / Logs / Documents  │ / Foliage    │
                 //  └───────────┴────────────────────────────┴──────────────┘
                 //
-                // THE DOCUMENT AREA IS A NODE, NOT A SET OF FLOATING WINDOWS (option B.1). The level never
-                // leaves the screen: change a roughness in a material document and the crate in the viewport
-                // beside it re-renders. It is paid for out of the centre's width permanently, whether or not
-                // anything is open, and that permanence is the feature — an area that appeared and vanished
-                // with the last document would resize the viewport under the user's cursor, which is what
-                // people report as "the editor lost my panel". The splitter between the two is draggable
-                // like every other, so a session that wants the width back can take it.
-                ImGuiID center = dockspace_id;
+                // THE CENTRE IS WHOLE. An asset document is a tab beside the level, the way Unreal opens an
+                // asset editor: it gets the full work area while it is the active tab. The split-off
+                // document column this replaced (layout option B.1) left a Material Editor ~400 px wide.
                 ImGuiID right  = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.20f, nullptr, &center );
                 ImGuiID left   = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Left, 0.22f, nullptr, &center );
                 ImGuiID bottom = ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Down, 0.28f, nullptr, &center );
-                m_BottomDockId = bottom; // remembered so the drawer can be collapsed/restored later
-                // Split AFTER the bottom drawer, so Assets/Logs still span the whole centre rather than
-                // only the level's half of it.
-                ImGuiID documents =
-                     ::ImGui::DockBuilderSplitNode( center, ImGuiDir_Right, 0.44f, nullptr, &center );
+                m_BottomDockId     = bottom; // remembered so the drawer can be collapsed/restored later
                 ImGuiID leftBottom = ::ImGui::DockBuilderSplitNode( left, ImGuiDir_Down, 0.40f, nullptr, &left );
                 ImGuiID rightBottom =
                      ::ImGui::DockBuilderSplitNode( right, ImGuiDir_Down, 0.50f, nullptr, &right );
@@ -3898,11 +3890,10 @@ namespace Desert::Editor
                 // tallest node that is not the level, so the map gets a near-square canvas beside the Outliner.
                 ::ImGui::DockBuilderDockWindow( PanelDisplayTitle( "World Partition" ).c_str(), left );
 
-                // The well itself. It is what makes the document node FINDABLE: a dock node with nothing in
-                // it is not drawn at all, so without a permanent occupant the area would exist in the
-                // layout and be invisible on screen the whole time no document was open. It is also where
-                // every document reads its dock id from at runtime — see DrawDocumentWell.
-                ::ImGui::DockBuilderDockWindow( kDocumentWellWindow, documents );
+                // The well is the INDEX of open documents, not where they open: a document opens as a tab
+                // beside the level viewport (DocumentPlacement), so the well is a tab in the drawer and
+                // the centre stays whole for the level and the documents.
+                ::ImGui::DockBuilderDockWindow( kDocumentWellWindow, bottom );
                 m_DocumentWell.ShowWindow(); // the default layout has the well open
 
                 ::ImGui::DockBuilderFinish( dockspace_id );
@@ -5847,12 +5838,6 @@ namespace Desert::Editor
 
         ImGui::Begin( kDocumentWellWindow, &m_DocumentWell.WindowOpenFlag(), ImGuiWindowFlags_NoCollapse );
 
-        // READ BACK, not remembered. The id is only known at DockBuilder time in the ONE session that built
-        // the layout; every later session loads it from imgui.ini and a captured value would be 0 — which is
-        // the bug the bottom drawer's own m_BottomDockId still has. Asking the window where it is docked
-        // gives the same answer in every session, including after the user drags the well somewhere else.
-        m_DocumentDockId = ImGui::GetWindowDockID();
-
         if ( m_OpenDocuments.Empty() )
         {
             // THE EMPTY STATE SAYS WHAT THE AREA IS FOR. A reserved column that is blank most of the time
@@ -5994,16 +5979,34 @@ namespace Desert::Editor
         std::vector<SubjectId> closeRequests;
         SubjectId              focused;
 
+        // The level viewport's node, READ BACK from its window every frame rather than remembered from the
+        // frame the layout was built: a layout loaded from imgui.ini never passes through DockBuilder, and a
+        // captured id would be 0 for the whole of every such session.
+        ImGuiID mainDockId = 0;
+        if ( const ::ImGuiWindow* scene = ImGui::FindWindowByName( PanelDisplayTitle( "Scene###scene" ).c_str() ) )
+            mainDockId = scene->DockId;
+        const ImGuiViewport*               work      = ImGui::GetMainViewport();
+        const DocumentPlacement::Placement placement = DocumentPlacement::Place(
+             mainDockId, mainDockId != 0 && ImGui::DockBuilderGetNode( mainDockId ),
+             glm::vec2( work->WorkPos.x, work->WorkPos.y ), glm::vec2( work->WorkSize.x, work->WorkSize.y ) );
+
         for ( const auto& document : m_OpenDocuments )
         {
             const SubjectId subject = document->Subject();
 
-            // A DOCKED DOCUMENT, not a floating one. Before this they opened as a cascade of floating
-            // windows stepped 32 px down-right from each other, which is what an application does when it
-            // has nowhere to put them; option B.1 gives them somewhere. FirstUseEver, so a document the user
-            // has since dragged out stays where they put it.
-            if ( m_DocumentDockId != 0 )
-                ImGui::SetNextWindowDockID( m_DocumentDockId, ImGuiCond_FirstUseEver );
+            // OPENED AS A TAB IN THE MAIN WORK AREA, beside the level viewport, the way Unreal opens an asset
+            // editor (Editor/Core/DocumentPlacement.hpp). Appearing, not FirstUseEver: FirstUseEver is
+            // skipped for any window imgui.ini has an entry for, so a document first opened under an older
+            // layout kept reopening as the small floating window that entry recorded. Appearing places the
+            // first frame of each opening only; a tab the person moves stays moved while it is open.
+            if ( placement.Docked() )
+                ImGui::SetNextWindowDockID( placement.DockId, ImGuiCond_Appearing );
+            else
+            {
+                ImGui::SetNextWindowDockID( 0, ImGuiCond_Appearing );
+                ImGui::SetNextWindowPos( ImVec2( placement.Pos.x, placement.Pos.y ), ImGuiCond_Appearing );
+                ImGui::SetNextWindowSize( ImVec2( placement.Size.x, placement.Size.y ), ImGuiCond_Appearing );
+            }
             if ( const glm::vec2 defSize = document->GetDefaultSize(); defSize.x > 0.0f && defSize.y > 0.0f )
                 ImGui::SetNextWindowSize( ImVec2( defSize.x, defSize.y ), ImGuiCond_FirstUseEver );
 

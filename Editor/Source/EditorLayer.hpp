@@ -604,11 +604,6 @@ namespace Desert::Editor
         // second press would come straight back to where the first started; the order is committed once Ctrl
         // is released, which is the behaviour every alt-tab ring has.
         bool m_CyclingDocuments = false;
-        // The dock node the documents live in (layout option B.1): the centre column is split, the level
-        // keeps the left node, documents get the right one. Read back from the well window's own dock id
-        // every frame rather than remembered from the one frame the layout was built — a value captured at
-        // build time is 0 for the whole of every later session.
-        ImGuiID m_DocumentDockId = 0;
         // What the layout file last said about the well's window; a difference marks imgui.ini dirty.
         bool m_DocumentWellOpenInLayout = true;
         void RegisterDocumentWellLayoutHandler();
