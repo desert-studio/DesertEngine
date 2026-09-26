@@ -12,7 +12,11 @@
 
 namespace Desert::Graphic::System
 {
-    // Screen-space reflections, three passes:
+    // Screen-space reflections. A tile classification, then three passes drawn over the marked tiles only:
+    //  0) CLASSIFY: one texel per kTileSize x kTileSize screen tile, 1 where any pixel passes the trace's
+    //     G-buffer gate (sky / too rough - Common/SSRGate.glslh). The three passes below draw a grid of tile
+    //     quads whose vertex stage drops unmarked tiles (Common/SSRTiles.glslh), so their cost follows the
+    //     reflecting share of the screen. UE does the same with its roughness-classified SSR tiles.
     //  1) TRACE: fullscreen jittered ray march through the G-buffer into the trace buffer
     //     (rgb = reflected colour, a = reflectance). The jitter seed changes EVERY frame.
     //  2) RESOLVE (the denoiser): 5x5 alpha-weighted spatial filter + TEMPORAL accumulation — this
@@ -36,10 +40,11 @@ namespace Desert::Graphic::System
         virtual Common::BoolResultStr Initialize() override
         {
             m_TraceShader     = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
-            m_ResolveShader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRResolve" );
+            m_ResolveShader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRResolveTiled" );
             m_CompositeShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRComposite" );
-            if ( !m_TraceShader || !m_ResolveShader || !m_CompositeShader )
-                return Common::MakeError( "SSR shaders not found" );
+            m_ClassifyShader  = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSRTileClassify" );
+            if ( !m_TraceShader || !m_ResolveShader || !m_CompositeShader || !m_ClassifyShader )
+                return Common::MakeError( "SSR shaders not found (SSR, SSRResolveTiled, SSRComposite, SSRTileClassify)" );
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !m_TraceBuffer )
@@ -56,6 +61,24 @@ namespace Desert::Graphic::System
                                       m_TraceBuffer->GetFramebufferHeight() );
             }
 
+            FramebufferSpecification maskSpec;
+            maskSpec.DebugName = "SSRTileMask";
+            maskSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSSRTileMask );
+            m_TileMaskFB = Framebuffer::Create( maskSpec );
+            m_TileMaskFB->Resize( TileGrid( m_TraceBuffer->GetFramebufferWidth() ),
+                                  TileGrid( m_TraceBuffer->GetFramebufferHeight() ) );
+
+            GraphicsPipelineSpecification classifySpec;
+            classifySpec.DebugName         = "SSRTileClassify";
+            classifySpec.Framebuffer       = m_TileMaskFB;
+            classifySpec.Shader            = m_ClassifyShader;
+            classifySpec.DepthTestEnabled  = false;
+            classifySpec.DepthWriteEnabled = false;
+            const auto classifyPipeline    = Graphic::GraphicsPipeline::Create( classifySpec );
+            if ( !classifyPipeline )
+                return Common::MakeError( classifyPipeline.GetError() );
+            m_ClassifyPipeline = classifyPipeline.GetValue();
+
             GraphicsPipelineSpecification traceSpec;
             traceSpec.DebugName         = "SSRTrace";
             traceSpec.Framebuffer       = m_TraceBuffer;
@@ -68,7 +91,7 @@ namespace Desert::Graphic::System
             m_TracePipeline = tracePipeline.GetValue();
 
             GraphicsPipelineSpecification resolveSpec;
-            resolveSpec.DebugName         = "SSRResolve";
+            resolveSpec.DebugName         = "SSRResolveTiled";
             resolveSpec.Framebuffer       = m_AccumFB[0]; // render-pass compatible with both accum targets
             resolveSpec.Shader            = m_ResolveShader;
             resolveSpec.DepthTestEnabled  = false;
@@ -92,7 +115,8 @@ namespace Desert::Graphic::System
             m_CompositePipeline = compPipeline.GetValue();
 
             m_Material          = std::make_unique<MaterialSSR>();
-            m_ResolveMaterial   = std::make_unique<MaterialSSRResolve>();
+            m_ResolveMaterial   = std::make_unique<MaterialSSRResolve>( SSRResolveVariant::Tiled );
+            m_ClassifyMaterial  = std::make_unique<MaterialSSRTileClassify>();
             m_CompositeMaterial = std::make_unique<MaterialSSRComposite>();
             return BOOLSUCCESS;
         }
@@ -119,7 +143,8 @@ namespace Desert::Graphic::System
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target || !gbuffer || !sceneColor || !m_TracePipeline || !m_ResolvePipeline ||
                  !m_CompositePipeline || !m_Material || !m_ResolveMaterial || !m_CompositeMaterial ||
-                 !m_TraceBuffer || !m_AccumFB[0] || !m_AccumFB[1] )
+                 !m_TraceBuffer || !m_AccumFB[0] || !m_AccumFB[1] || !m_ClassifyPipeline || !m_ClassifyMaterial ||
+                 !m_TileMaskFB )
                 return;
 
             auto& renderer = Renderer::GetInstance();
@@ -133,13 +158,33 @@ namespace Desert::Graphic::System
                 m_AccumFB[1]->Resize( w, h );
                 m_HistoryValid = false;
             }
+            const uint32_t gridW = TileGrid( w );
+            const uint32_t gridH = TileGrid( h );
+            if ( m_TileMaskFB->GetFramebufferWidth() != gridW || m_TileMaskFB->GetFramebufferHeight() != gridH )
+                m_TileMaskFB->Resize( gridW, gridH );
+            // Six vertices per tile; SSRTiles.glslh collapses the unmarked ones.
+            const uint32_t tileVertices = gridW * gridH * 6u;
+            const auto&    tileMask     = m_TileMaskFB->GetColorAttachmentImage( 0 );
+
+            // --- Pass 0: which tiles hold a pixel the trace can write. ---
+            {
+                DESERT_PROFILE_PASS( "SSR: Classify" );
+                RenderPassSpecification rp;
+                rp.TargetFramebuffer = m_TileMaskFB;
+                rp.DebugName         = "SSRTileClassifyPass";
+                rp.ClearColor.Color  = glm::vec4( 0.0f );
+                auto pass            = RenderPass::Create( rp );
+
+                renderer.BeginRenderPass( pass.get() );
+                m_ClassifyMaterial->BindInputs( gbuffer->GetColorAttachmentImage( 1 ), gridW, gridH );
+                renderer.SubmitFullscreenQuad( m_ClassifyPipeline.get(), m_ClassifyMaterial->GetMaterialExecutor() );
+                renderer.EndRenderPass();
+            }
 
             // --- Pass 1: jittered trace into the trace buffer (cleared to 0 = "no reflection"). ---
             {
-                // Each of the three passes is timed on its own because EnableSSR's default is a budget
-                // decision (SceneSettings.hpp), and the whole-pass line cannot say which part to cut. The
-                // trace early-outs on rough pixels; the resolve and composite below do not - they are
-                // full-screen RGBA32F passes whatever fraction of the screen actually reflects.
+                // Each pass is timed on its own because EnableSSR's default is a budget decision
+                // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
                 DESERT_PROFILE_PASS( "SSR: Trace" );
                 RenderPassSpecification rp;
                 rp.TargetFramebuffer = m_TraceBuffer;
@@ -152,7 +197,8 @@ namespace Desert::Graphic::System
                      gbuffer->GetColorAttachmentImage( 0 ), gbuffer->GetColorAttachmentImage( 1 ),
                      gbuffer->GetColorAttachmentImage( 2 ), sceneColor, viewProj, cameraPos, maxSteps, maxDistance,
                      intensity, thickness, static_cast<float>( m_FrameIndex % 1024u ) );
-                renderer.SubmitFullscreenQuad( m_TracePipeline.get(), m_Material->GetMaterialExecutor() );
+                m_Material->BindTileMask( tileMask );
+                renderer.SubmitVertices( m_TracePipeline.get(), tileVertices, m_Material->GetMaterialExecutor() );
                 renderer.EndRenderPass();
             }
 
@@ -172,8 +218,9 @@ namespace Desert::Graphic::System
                 m_ResolveMaterial->BindInputs(
                      m_TraceBuffer->GetColorAttachmentImage( 0 ), m_AccumFB[prv]->GetColorAttachmentImage( 0 ),
                      gbuffer->GetColorAttachmentImage( 2 ), m_PrevViewProj, texel, m_HistoryValid ? 0.88f : 0.0f );
-                renderer.SubmitFullscreenQuad( m_ResolvePipeline.get(),
-                                               m_ResolveMaterial->GetMaterialExecutor() );
+                m_ResolveMaterial->BindTileMask( tileMask );
+                renderer.SubmitVertices( m_ResolvePipeline.get(), tileVertices,
+                                         m_ResolveMaterial->GetMaterialExecutor() );
                 renderer.EndRenderPass();
             }
 
@@ -182,6 +229,7 @@ namespace Desert::Graphic::System
                 DESERT_PROFILE_PASS( "SSR: Composite" );
                 m_CompositeMaterial->BindInputs( m_AccumFB[cur]->GetColorAttachmentImage( 0 ),
                                                  gbuffer->GetColorAttachmentImage( 1 ), texel );
+                m_CompositeMaterial->BindTileMask( tileMask );
 
                 RenderPassSpecification rp;
                 rp.TargetFramebuffer = target;
@@ -189,8 +237,8 @@ namespace Desert::Graphic::System
                 auto pass            = RenderPass::Create( rp );
 
                 renderer.BeginRenderPass( pass.get(), false ); // LOAD: blend over the scene
-                renderer.SubmitFullscreenQuad( m_CompositePipeline.get(),
-                                               m_CompositeMaterial->GetMaterialExecutor() );
+                renderer.SubmitVertices( m_CompositePipeline.get(), tileVertices,
+                                         m_CompositeMaterial->GetMaterialExecutor() );
                 renderer.EndRenderPass();
             }
 
@@ -212,6 +260,18 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // Screen pixels per tile edge. The grid is ceil(size / kTileSize) and SSRTiles.glslh stretches the
+        // tiles over the target, so every pixel belongs to exactly one tile.
+        static constexpr uint32_t kTileSize = 8;
+        static uint32_t           TileGrid( uint32_t pixels )
+        {
+            return ( pixels + kTileSize - 1u ) / kTileSize;
+        }
+
+        std::shared_ptr<Shader>                  m_ClassifyShader;
+        std::shared_ptr<GraphicsPipeline>        m_ClassifyPipeline;
+        std::unique_ptr<MaterialSSRTileClassify> m_ClassifyMaterial;
+        std::shared_ptr<Framebuffer>             m_TileMaskFB;
         std::shared_ptr<Shader>               m_TraceShader;
         std::shared_ptr<Shader>               m_ResolveShader;
         std::shared_ptr<Shader>               m_CompositeShader;

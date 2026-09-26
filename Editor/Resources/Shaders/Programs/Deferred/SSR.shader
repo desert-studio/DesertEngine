@@ -6,20 +6,23 @@ Shader "SSR"
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
+        // Drawn over the SSR tiles only (Common/SSRTiles.glslh): the tiles whose own pixels can reflect,
+        // because a pixel outside them early-outs to 0, the value the trace target is cleared to.
         #include <Common/QuadTextureCoords.glslh>
+        #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
-        	v_TexCoord  = QUAD_TEXTURE_COORDINATES[gl_VertexIndex];
-        	gl_Position = vec4(QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0);
+        	gl_Position = SSRTileVertex(0, v_TexCoord);
         }
     }
 
     Fragment
     {
+        #include <Common/SSRGate.glslh>
+
         // Screen-space reflections (SSR). For smooth opaque pixels, reflects the view ray off the surface, marches
         // it through the G-buffer in world space (projecting each step to screen) and samples the composited scene
         // colour where it hits — so mirrors/metal/polished floors reflect the on-screen room.
@@ -84,10 +87,8 @@ Shader "SSR"
 
         	float metallic   = texture(u_GBufferAlbedo, v_TexCoord).a;
         	float roughness  = gb.a;
-        	float smoothness = 1.0 - roughness;
-        	// Rough surfaces reflect too diffusely for a sharp SSR ray — fade them out early (soft gate, not a
-        	// metal-only cutoff: a smooth dielectric floor still gets its Fresnel reflection like in UE).
-        	float smoothFade = smoothstep(0.4, 0.7, smoothness);
+        	// The G-buffer gate the tile classification shares (Common/SSRGate.glslh).
+        	float smoothFade = SSRSmoothFade(roughness);
         	if (smoothFade < 0.01) { oColor = vec4(0.0); return; }
 
         	N = normalize(N);

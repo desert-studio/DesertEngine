@@ -1,27 +1,25 @@
-// DesertAsset {"Kind":"Shader","Guid":"427c3aa249fa0efeada3b23f641960fb","Versions":{"SHDR":1},"Dependencies":[]}
-Shader "SSRResolve"
+// DesertAsset {"Kind":"Shader","Guid":"a607db1b6c40417bbe22f774e11ba5bd","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "SSRResolveTiled"
 {
-    // Shared denoiser for the 1-sample-per-pixel jittered estimates: used by SSR (trace) and by the
-    // RSM-GI gather. Spatial 5x5 alpha-weighted tent + AABB-clamped temporal accumulation.
+    // SSR's resolve: the shared denoiser (Common/SSRDenoise.glslh) drawn only over the tiles next to a pixel the
+    // trace can write (Common/SSRTiles.glslh). Everywhere else its output would be exactly 0, which is what the
+    // accumulation target is cleared to.
 
     Vertex
     {
-        #include <Common/QuadPositions.glslh>
         #include <Common/QuadTextureCoords.glslh>
+        #include <Common/SSRTiles.glslh>
 
         Out(0) vec2 v_TexCoord;
 
         void main()
         {
-        	v_TexCoord  = QUAD_TEXTURE_COORDINATES[gl_VertexIndex];
-        	gl_Position = vec4(QUAD_POSITIONS[gl_VertexIndex], 0.0, 1.0);
+        	gl_Position = SSRTileVertex(1, v_TexCoord);
         }
     }
 
     Fragment
     {
-        // Fullscreen: the GI gather writes every pixel, so its resolve has nothing to skip. SSR draws the same
-        // body over its reflecting tiles only (SSRResolveTiled.shader).
         #include <Common/SSRDenoise.glslh>
 
         In(0) vec2 v_TexCoord;

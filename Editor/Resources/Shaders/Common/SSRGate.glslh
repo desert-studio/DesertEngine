@@ -1,0 +1,18 @@
+// Which pixels screen-space reflections may write at all. ONE statement, read by the trace (SSR.shader) and by
+// the tile classification that decides where the trace, resolve and composite are drawn
+// (SSRTileClassify.shader): if the two disagreed, a pixel the trace would reflect could sit in a tile nobody
+// draws, and its reflection would silently vanish.
+
+// Rough surfaces reflect too diffusely for a sharp SSR ray, so they fade out early (a soft gate, not a
+// metal-only cutoff: a smooth dielectric floor still gets its Fresnel reflection, as in UE).
+float SSRSmoothFade(float roughness)
+{
+	return smoothstep(0.4, 0.7, 1.0 - roughness);
+}
+
+// The trace's own early-outs that depend on the G-buffer alone: sky (no normal) or too rough to reflect.
+// A pixel failing this is written 0 by the trace.
+bool SSRPixelCanReflect(vec4 gbufferNormal)
+{
+	return dot(gbufferNormal.rgb, gbufferNormal.rgb) > 0.001 && SSRSmoothFade(gbufferNormal.a) >= 0.01;
+}

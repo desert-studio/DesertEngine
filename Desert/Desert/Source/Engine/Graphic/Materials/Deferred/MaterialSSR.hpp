@@ -18,6 +18,14 @@ namespace Desert::Graphic
             m_Normal     = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
             m_WorldPos   = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferWorldPos" ).get();
             m_SceneColor = m_MaterialExecutor->GetTexture2DProperty( "u_SceneColor" ).get();
+            m_TileMask   = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();
+        }
+
+        // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
+        void BindTileMask( const std::shared_ptr<Image2D>& mask )
+        {
+            if ( m_TileMask && mask )
+                m_TileMask->SetImage( mask.get() );
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& albedo, const std::shared_ptr<Image2D>& normal,
@@ -53,18 +61,38 @@ namespace Desert::Graphic
         Texture2DProperty* m_Normal     = nullptr;
         Texture2DProperty* m_WorldPos   = nullptr;
         Texture2DProperty* m_SceneColor = nullptr;
+        Texture2DProperty* m_TileMask   = nullptr;
     };
 
-    // Temporal + spatial resolve (the SSR denoiser): blends this frame's jittered trace with the
-    // reprojected previous result into the accumulation target. Drives SSRResolve.glsl.frag. Header-only.
+    // Which program draws the shared denoiser (Common/SSRDenoise.glslh): the GI gather writes every pixel and
+    // resolves fullscreen; SSR's trace writes only where the tile mask says, and resolves over those tiles.
+    enum class SSRResolveVariant
+    {
+        Fullscreen, // SSRResolve.shader (GI)
+        Tiled,      // SSRResolveTiled.shader (SSR) - needs BindTileMask
+    };
+
+    // Temporal + spatial resolve (the shared denoiser): blends this frame's jittered estimate with the
+    // reprojected previous result into the accumulation target. Header-only.
     class MaterialSSRResolve final : public Material
     {
     public:
-        MaterialSSRResolve() : Material( "MaterialSSRResolve", "SSRResolve" )
+        explicit MaterialSSRResolve( SSRResolveVariant variant )
+            : Material( "MaterialSSRResolve",
+                        variant == SSRResolveVariant::Tiled ? "SSRResolveTiled" : "SSRResolve" )
         {
+            if ( variant == SSRResolveVariant::Tiled )
+                m_TileMask = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();
             m_Trace    = m_MaterialExecutor->GetTexture2DProperty( "u_Trace" ).get();
             m_History  = m_MaterialExecutor->GetTexture2DProperty( "u_History" ).get();
             m_WorldPos = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferWorldPos" ).get();
+        }
+
+        // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
+        void BindTileMask( const std::shared_ptr<Image2D>& mask )
+        {
+            if ( m_TileMask && mask )
+                m_TileMask->SetImage( mask.get() );
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& trace, const std::shared_ptr<Image2D>& history,
@@ -94,6 +122,7 @@ namespace Desert::Graphic
         Texture2DProperty* m_Trace    = nullptr;
         Texture2DProperty* m_History  = nullptr;
         Texture2DProperty* m_WorldPos = nullptr;
+        Texture2DProperty* m_TileMask = nullptr; // Tiled variant only
     };
 
     // Composite half of SSR: blurs the traced reflection buffer (radius scaled by G-buffer roughness)
@@ -104,7 +133,15 @@ namespace Desert::Graphic
         MaterialSSRComposite() : Material( "MaterialSSRComposite", "SSRComposite" )
         {
             m_SSR    = m_MaterialExecutor->GetTexture2DProperty( "u_SSR" ).get();
-            m_Normal = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
+            m_Normal   = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
+            m_TileMask = m_MaterialExecutor->GetTexture2DProperty( "u_SSRTileMask" ).get();
+        }
+
+        // The SSR tile mask (SSRTileClassify): its vertex stage draws only the tiles it marks.
+        void BindTileMask( const std::shared_ptr<Image2D>& mask )
+        {
+            if ( m_TileMask && mask )
+                m_TileMask->SetImage( mask.get() );
         }
 
         void BindInputs( const std::shared_ptr<Image2D>& ssr, const std::shared_ptr<Image2D>& normal,
@@ -121,7 +158,32 @@ namespace Desert::Graphic
         }
 
     private:
-        Texture2DProperty* m_SSR    = nullptr;
+        Texture2DProperty* m_SSR      = nullptr;
+        Texture2DProperty* m_Normal   = nullptr;
+        Texture2DProperty* m_TileMask = nullptr;
+    };
+
+    // SSR tile classification: one texel per screen tile, 1 where a pixel of the tile passes the trace's
+    // G-buffer gate. Drives SSRTileClassify.shader. Header-only.
+    class MaterialSSRTileClassify final : public Material
+    {
+    public:
+        MaterialSSRTileClassify() : Material( "MaterialSSRTileClassify", "SSRTileClassify" )
+        {
+            m_Normal = m_MaterialExecutor->GetTexture2DProperty( "u_GBufferNormal" ).get();
+        }
+
+        void BindInputs( const std::shared_ptr<Image2D>& normal, uint32_t gridWidth, uint32_t gridHeight )
+        {
+            if ( m_Normal && normal )
+                m_Normal->SetImage( normal.get() );
+
+            const glm::vec4 grid( static_cast<float>( gridWidth ), static_cast<float>( gridHeight ), 0.0f, 0.0f );
+            if ( auto* ub = Get<UniformBufferProperty>( "SSRTileClassifyUB" ) )
+                ub->SetRawData( reinterpret_cast<const std::byte*>( &grid ), sizeof( grid ) );
+        }
+
+    private:
         Texture2DProperty* m_Normal = nullptr;
     };
 } // namespace Desert::Graphic
