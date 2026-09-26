@@ -11,6 +11,7 @@
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 #include <Editor/Core/AssetFileOps.hpp>
+#include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
 #include <Editor/Panels/NodeGraph/NodeGraphPanel.hpp>
@@ -30,6 +31,7 @@
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailSweep.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -71,12 +73,40 @@ namespace Desert::Editor
 
     namespace
     {
-        // Cross-platform move into a destination DIRECTORY (std::filesystem, with a copy+remove fallback
-        // across volumes). Replaces the old Windows-only `system("move ...")` that no-op'd on macOS.
+        // THE ONE ROUTE FOR A RENAME OR A MOVE (AF10c). Content the registry has a row for moves through it:
+        // a redirector stays at the old path, so every scene still naming that path keeps loading, and the
+        // move lands on the undo stack. A folder moves the same way for every row inside it, all or nothing,
+        // as one undo step. Only a loose file the registry does not know (a source image, a note) is a plain
+        // file operation - nothing names it by path through the registry.
+        bool MoveOrRename( const std::string& src, const std::filesystem::path& dst, const char* label,
+                           std::string& error )
+        {
+            std::error_code ec;
+            const bool      folder = std::filesystem::is_directory( src, ec );
+            if ( folder || Assets::ContentRegistry::HasRow( src ) )
+            {
+                const auto moved =
+                     folder ? MoveFolderWithUndo( src, dst, label ) : MoveAssetWithUndo( src, dst, label );
+                if ( !moved )
+                    error = moved.GetError();
+                return static_cast<bool>( moved );
+            }
+            std::string newPath;
+            return dst.parent_path() == std::filesystem::path( src ).parent_path()
+                        ? AssetFileOps::Rename( src, dst.filename().string(), newPath, error )
+                        : AssetFileOps::Move( src, dst.parent_path().string(), newPath, error );
+        }
+
+        // A drag onto a folder: the file keeps its name in the destination DIRECTORY.
         bool MoveFile( const std::string& filePath, const std::string& movePath )
         {
-            std::string newPath, error;
-            return AssetFileOps::Move( filePath, movePath, newPath, error );
+            std::string error;
+            const bool  moved = MoveOrRename(
+                 filePath, std::filesystem::path( movePath ) / std::filesystem::path( filePath ).filename(),
+                 "Move", error );
+            if ( !moved )
+                LOG_ERROR( "[Assets] move '{}' -> '{}': {}", filePath, movePath, error );
+            return moved;
         }
 
         std::string ToLowerCopy( std::string s )
@@ -933,11 +963,7 @@ namespace Desert::Editor
         {
             if ( ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
             {
-                m_RenamePath = m_CurrentSelected->AssetPath;
-                std::snprintf(
-                     m_RenameBuf, sizeof( m_RenameBuf ), "%s",
-                     std::filesystem::path( m_CurrentSelected->AssetPath ).filename().string().c_str() );
-                m_ShowRenamePopup = true;
+                static_cast<void>( RenameSelected() );
             }
             if ( ImGui::IsKeyPressed( ImGuiKey_Delete, false ) )
             {
@@ -1610,27 +1636,24 @@ namespace Desert::Editor
         // Cache PNG path: <versioned thumbnail dir>/<sanitized source path>.png (persists across restarts).
         const std::string pngPath = ThumbnailKey::DiskPath( entry->AssetPath );
 
-        // Stale if the material was edited after the cached thumbnail was written (regenerate then).
-        // Through Editor/Widgets/ThumbnailFreshness.hpp, which is the same rule ThumbnailService::ShouldQueue
-        // applies — this used to be a hand-written copy of it, and the two answers disagreed for exactly the
-        // assets that needed re-rendering: this panel would not draw them and the service would not queue
-        // them, so they showed a colour swatch permanently.
-        const bool haveFresh =
-             ThumbnailFreshness::Judge( ThumbnailFreshness::Observe( pngPath, entry->AssetPath ) ) ==
-             ThumbnailFreshness::Verdict::Show;
-        if ( !haveFresh )
-            m_Thumbnails->Invalidate( pngPath ); // drop the stale decoded image so the new PNG is reloaded
-
-        // Rendered material-on-sphere preview ready + fresh -> show it. (Only Get() once the file exists so
-        // the cache never stores a null for this path.)
-        if ( haveFresh )
+        // Through Editor/Widgets/ThumbnailFreshness.hpp, the same rule ThumbnailService::ShouldQueue applies:
+        // Judge says whether a capture is owed, Choose says what to draw meanwhile. The PNG is drawn FIRST,
+        // before the material is resolved or loaded — a card whose picture is on disk never waits for the
+        // asset, and an outdated picture stays on screen until its replacement lands (ThumbnailCache::Get
+        // re-decodes the rewritten file), instead of a flat albedo swatch for the whole queue.
+        const ThumbnailFreshness::Observation seen = ThumbnailFreshness::Observe( pngPath, entry->AssetPath );
+        const bool owed = ThumbnailFreshness::Judge( seen ) == ThumbnailFreshness::Verdict::Capture;
+        bool       drew = false;
+        if ( ThumbnailFreshness::Choose( seen ) == ThumbnailFreshness::Picture::CachedPng )
         {
             if ( auto img = m_Thumbnails->Get( pngPath ) )
             {
                 m_UIHelper->ImageButton( "##thumb", img, size );
-                return true;
+                drew = true;
             }
         }
+        if ( drew && !owed )
+            return true;
 
         // Resolve material -> handle (load + register so the offscreen render can use it). Through
         // Editor/Widgets/ThumbnailSubject.hpp, which is the SAME resolution the background sweep uses —
@@ -1638,18 +1661,20 @@ namespace Desert::Editor
         // subsystem has already answered twice and differently once.
         const auto subject = ThumbnailSubject::ResolveMaterial( *m_AssetManager, entry->AssetPath );
         if ( !subject )
-            return false;
+            return drew;
 
         auto a = m_AssetManager->FindByPath<Assets::SurfaceMaterialAsset>( entry->AssetPath );
         if ( !a )
-            return false;
+            return drew;
 
         // Queue through the editor-wide service: it owns the one renderer, deduplicates against what other
         // panels already asked for, skips anything already on disk and never retries an asset that failed.
         ThumbnailService::Get().RequestMaterial( subject.GetValue().Handle, entry->AssetPath,
                                                  subject.GetValue().How );
+        if ( drew )
+            return true;
 
-        // Until the PNG exists, show the albedo colour as a placeholder swatch.
+        // No picture of this material exists yet: the albedo colour is the placeholder.
         const glm::vec3 albedo =
              glm::vec3( a->Data().GetParam( "AlbedoColor", glm::vec4( 0.8f, 0.8f, 0.8f, 1.0f ) ) );
         ImGui::ColorButton( "##matswatch", ImVec4( albedo.r, albedo.g, albedo.b, 1.0f ),
@@ -1944,9 +1969,8 @@ namespace Desert::Editor
         ImGui::Separator();
         if ( count <= 1 && ImGui::MenuItem( "Rename", "F2" ) )
         {
-            m_RenamePath = entry.AssetPath;
-            std::snprintf( m_RenameBuf, sizeof( m_RenameBuf ), "%s", name.c_str() );
-            m_ShowRenamePopup = true;
+            m_CurrentSelected = &entry;
+            static_cast<void>( RenameSelected() );
         }
         if ( ImGui::MenuItem( count > 1 ? "Duplicate selection" : "Duplicate" ) )
         {
@@ -2008,13 +2032,31 @@ namespace Desert::Editor
             if ( ImGui::IsWindowAppearing() )
                 ImGui::SetKeyboardFocusHere( -1 );
 
+            if ( !m_RenameReferrers.empty() )
+            {
+                ImGui::Spacing();
+                ImGui::TextColored( ImVec4( 1.0f, 0.8f, 0.3f, 1.0f ),
+                                    "%zu asset(s) reference it and keep loading through a redirector:",
+                                    m_RenameReferrers.size() );
+                ImGui::BeginChild( "##renamerefs", ImVec2( 360.0f, 90.0f ), true );
+                for ( const auto& r : m_RenameReferrers )
+                    ImGui::BulletText( "%s", r.c_str() );
+                ImGui::EndChild();
+            }
+
             if ( ImGui::Button( "Rename", ImVec2( 110.0f, 0.0f ) ) || submit )
             {
-                std::string np, err;
-                if ( AssetFileOps::Rename( m_RenamePath, m_RenameBuf, np, err ) )
-                    QueueRefresh();
-                else
-                    m_FileOpStatus = "Rename failed: " + err;
+                const std::filesystem::path from = m_RenamePath;
+                std::string                 err;
+                if ( m_RenameBuf[0] == '\0' )
+                    m_FileOpStatus = "Rename failed: the name cannot be empty";
+                else if ( from.filename() != std::filesystem::path( m_RenameBuf ) )
+                {
+                    if ( MoveOrRename( m_RenamePath, from.parent_path() / m_RenameBuf, "Rename", err ) )
+                        QueueRefresh();
+                    else
+                        m_FileOpStatus = "Rename failed: " + err;
+                }
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
@@ -2115,6 +2157,51 @@ namespace Desert::Editor
         m_CurrentSelected = entry;
     }
 
+    std::vector<std::string> FileExplorerPanel::ShownEntries( bool folders ) const
+    {
+        std::vector<std::string> shown;
+        if ( m_CurrentDir != nullptr )
+            for ( const DirectoryInformation* child : m_CurrentDir->Children )
+                if ( !child->Hidden && child->IsFile != folders )
+                    shown.push_back( child->AssetPath );
+        return shown;
+    }
+
+    Common::BoolResultStr FileExplorerPanel::SelectEntry( const std::string& path )
+    {
+        if ( m_CurrentDir != nullptr )
+            for ( DirectoryInformation* child : m_CurrentDir->Children )
+                if ( child->AssetPath == path )
+                {
+                    m_Selection            = { path };
+                    m_CurrentSelected      = child;
+                    m_SelectionAnchorShown = -1;
+                    return Common::MakeSuccess( true );
+                }
+        return Common::MakeError( "select: '" + path + "' is not shown in the Assets window's current folder" );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::OpenFolder( const std::string& path )
+    {
+        NavigateToPath( path );
+        if ( m_CurrentDir == nullptr || m_CurrentDir->AssetPath != path )
+            return Common::MakeError( "open folder: the Assets window could not open '" + path + "'" );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::RenameSelected()
+    {
+        if ( m_CurrentSelected == nullptr )
+            return Common::MakeError( "rename: no asset is selected in the Assets window" );
+        m_RenamePath = m_CurrentSelected->AssetPath;
+        std::snprintf( m_RenameBuf, sizeof( m_RenameBuf ), "%s",
+                       std::filesystem::path( m_RenamePath ).filename().string().c_str() );
+        // What the dialog lists before the user confirms: the registry's edges, not a text scan.
+        m_RenameReferrers = Assets::ContentRegistry::Referrers( m_RenamePath );
+        m_ShowRenamePopup = true;
+        return Common::MakeSuccess( true );
+    }
+
     void FileExplorerPanel::PasteClipboard()
     {
         if ( m_Clipboard.empty() || !m_CurrentDir )
@@ -2122,9 +2209,11 @@ namespace Desert::Editor
         for ( const auto& src : m_Clipboard )
         {
             std::string np, err;
-            const bool  ok = m_ClipboardCut
-                                 ? AssetFileOps::Move( src, m_CurrentDir->AssetPath, np, err )
-                                 : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
+            const bool  ok = m_ClipboardCut ? MoveOrRename( src,
+                                                            std::filesystem::path( m_CurrentDir->AssetPath ) /
+                                                                 std::filesystem::path( src ).filename(),
+                                                            "Move", err )
+                                            : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
             if ( !ok )
                 m_FileOpStatus = "Paste failed: " + err;
         }
