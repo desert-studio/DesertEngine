@@ -480,7 +480,9 @@ jobs:
       # would ship the debug instruments the Shipping configuration exists to cut.
       - name: Package the sandbox game
         if: matrix.config == 'Shipping'
-        run: ./build/Bin/Shipping/GamePackager Editor/Desert.deproj --config Shipping --out dist/Game
+        # `--out` is ABSOLUTE: GamePackager changes into the project folder (Editor/) before it writes,
+        # so a relative one produced Editor/dist/Game and the upload below found nothing.
+        run: ./build/Bin/Shipping/GamePackager Editor/Desert.deproj --config Shipping --out "$GITHUB_WORKSPACE/dist/Game"
 
       - name: Upload the game
         if: matrix.config == 'Shipping'
@@ -818,9 +820,11 @@ jobs:
         shell: bash
         run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Editor/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
 
-      # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable, no UCRT installer. The
-      # workspace links the CRT statically (BuildScripts/PlatformWindows.lua); this reads the packaged
-      # binary's own import table and refuses any DLL outside scripts/CI/windows_allowed_dlls.txt.
+      # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable installed. The workspace
+      # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc/spirv-cross are MD_DynamicRelease) and
+      # GamePackager copies the VC++ runtime DLLs Runtime.exe imports next to it. This reads the packaged
+      # binaries' own import tables, refuses any DLL outside scripts/CI/windows_allowed_dlls.txt, and
+      # refuses an `app-local` DLL that is imported but not present in the package.
       - name: Packaged game imports only allowed DLLs
         if: matrix.config != 'Debug'
         shell: bash

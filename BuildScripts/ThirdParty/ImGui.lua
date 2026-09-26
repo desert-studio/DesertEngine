@@ -30,7 +30,7 @@ project "ImGui"
 	filter "system:windows"
 		systemversion "latest"
 		cppdialect "C++17"
-		-- staticruntime: the workspace's decision on Windows (BuildScripts/PlatformWindows.lua).
+		staticruntime "On"
 
 	filter "system:linux"
 		pic "On"

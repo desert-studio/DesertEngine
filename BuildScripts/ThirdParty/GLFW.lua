@@ -8,7 +8,7 @@ local root = _MAIN_SCRIPT_DIR .. "/ThirdParty/GLFW"
 project "GLFW"
 	kind "StaticLib"
 	language "C"
-	-- No `staticruntime` here: the CRT is the workspace's decision (BuildScripts/PlatformWindows.lua).
+	staticruntime "off"
 	location ( root )
 
 	files

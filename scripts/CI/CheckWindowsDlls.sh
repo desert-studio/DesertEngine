@@ -50,8 +50,8 @@ findDumpbin() {
 
 dumpbin="$(findDumpbin)"
 
-# Allowed names, upper-cased, comments and blank lines dropped.
-allowed="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$allowList" | grep -v '^$' | tr '[:lower:]' '[:upper:]')"
+# Allow-list rows as "PATTERN FLAG" (FLAG = app-local | system), comments and blank lines dropped.
+allowed="$(sed -e 's/#.*//' "$allowList" | awk 'NF { print $1, ( $2 == "app-local" ? "app-local" : "system" ) }')"
 
 # The DLL names from a `dumpbin /dependents` listing: the indented lines under "Image has the following
 # [delay load ]dependencies:" up to the "Summary" block.
@@ -67,40 +67,76 @@ parseDependents() {
     '
 }
 
+# Prints the flag of the first allow-list row whose pattern matches $1 (case-insensitive), or nothing.
+allowFlag() {
+    local dll="$1" pattern flag
+    shopt -s nocasematch
+    while read -r pattern flag; do
+        # shellcheck disable=SC2053 # the pattern IS a glob
+        if [[ "$dll" == $pattern ]]; then
+            shopt -u nocasematch
+            echo "$flag"
+            return 0
+        fi
+    done <<< "$allowed"
+    shopt -u nocasematch
+}
+
+# Is a file named $2 (case-insensitive) in directory $1?
+presentIn() {
+    find "$1" -maxdepth 1 -type f -iname "$2" | grep -q .
+}
+
 status=0
+checkBinary() {
+    local bin="$1" gameDir="$2"
+    local listing deps refused="" missing="" count flag
+    listing="$("$dumpbin" /nologo /dependents "$bin" | tr -d '\r')"
+    deps="$(printf '%s\n' "$listing" | parseDependents | sort -u -f)"
+    if [ -z "$deps" ]; then
+        echo "CheckWindowsDlls: '$bin' — parsed ZERO imported DLLs; the dumpbin output was not understood:" >&2
+        printf '%s\n' "$listing" >&2
+        status=1
+        return
+    fi
+    while IFS= read -r dll; do
+        flag="$(allowFlag "$dll")"
+        if [ -z "$flag" ]; then
+            refused="$refused $dll"
+        elif [ "$flag" = "app-local" ] && ! presentIn "$gameDir" "$dll"; then
+            missing="$missing $dll"
+        fi
+    done <<< "$deps"
+
+    count="$(printf '%s\n' "$deps" | wc -l | tr -d ' ')"
+    if [ -n "$refused" ]; then
+        echo "CheckWindowsDlls: '$bin' imports DLL(s) outside $allowList:$refused" >&2
+        echo "  all $count imports: $(printf '%s ' $deps)" >&2
+        echo "  A *D.dll / ucrtbased entry is the debug CRT (never shipped); anything else needs a reason in" >&2
+        echo "  the allow-list or must go." >&2
+        status=1
+    fi
+    if [ -n "$missing" ]; then
+        echo "CheckWindowsDlls: '$bin' imports app-local DLL(s) that are NOT in the package ($gameDir):$missing" >&2
+        echo "  the player's machine has no such file; GamePackager must ship it next to the exe." >&2
+        status=1
+    fi
+    if [ -z "$refused" ] && [ -z "$missing" ]; then
+        echo "CheckWindowsDlls: '$bin' — $count imports, all allowed and present: $(printf '%s ' $deps)"
+    fi
+}
+
 for exe in "$@"; do
     if [ ! -f "$exe" ]; then
         echo "CheckWindowsDlls: '$exe' does not exist" >&2
         status=1
         continue
     fi
-    listing="$("$dumpbin" /nologo /dependents "$exe" | tr -d '\r')"
-    deps="$(printf '%s\n' "$listing" | parseDependents | sort -u -f)"
-    if [ -z "$deps" ]; then
-        echo "CheckWindowsDlls: '$exe' — parsed ZERO imported DLLs; the dumpbin output was not understood:" >&2
-        printf '%s\n' "$listing" >&2
-        status=1
-        continue
-    fi
-
-    refused=""
+    gameDir="$(dirname "$exe")"
+    checkBinary "$exe" "$gameDir"
     while IFS= read -r dll; do
-        upper="$(printf '%s' "$dll" | tr '[:lower:]' '[:upper:]')"
-        if ! printf '%s\n' "$allowed" | grep -qxF "$upper"; then
-            refused="$refused $dll"
-        fi
-    done <<< "$deps"
-
-    count="$(printf '%s\n' "$deps" | wc -l | tr -d ' ')"
-    if [ -n "$refused" ]; then
-        echo "CheckWindowsDlls: '$exe' imports DLL(s) outside $allowList:$refused" >&2
-        echo "  all $count imports: $(printf '%s ' $deps)" >&2
-        echo "  A VCRUNTIME*/MSVCP*/ucrtbase*/api-ms-win-crt-* entry means some project or prebuilt library" >&2
-        echo "  is on the DLL CRT (/MD); anything else needs a reason in the allow-list or must go." >&2
-        status=1
-    else
-        echo "CheckWindowsDlls: '$exe' — $count imports, all allowed: $(printf '%s ' $deps)"
-    fi
+        [ -n "$dll" ] && checkBinary "$dll" "$gameDir"
+    done <<< "$(find "$gameDir" -maxdepth 1 -type f -iname '*.dll' | sort)"
 done
 
 exit "$status"

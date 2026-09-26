@@ -19,24 +19,4 @@ filter "system:windows"
     -- showed on MSVC.
     buildoptions { "/utf-8" }
 
-    -- THE STATIC CRT (/MT, /MTd), WORKSPACE-WIDE, BECAUSE THE PLAYER HAS TO START ON A CLEAN MACHINE.
-    -- With /MD the packaged Runtime.exe imports VCRUNTIME140.dll, MSVCP140.dll and friends, and a Windows
-    -- install that never ran the Visual C++ Redistributable refuses to start it with a system dialog the
-    -- game cannot catch or explain. /MT links that code into the executable instead.
-    --
-    -- WHY EVERY PROJECT AND NOT ONLY THE RUNTIME. All modules in one link must agree on the CRT (MSVC
-    -- stamps each object with /FAILIFMISMATCH:RuntimeLibrary=...), and Common, Desert, GLFW, Jolt, Lua,
-    -- Optick, MeshOptimizer and ReflectCpp are ONE project each, shared by the Runtime, the Editor, the
-    -- tools and every test suite. Giving the Runtime its own CRT would mean a second copy of each of those
-    -- projects per configuration; one setting here is the whole change, and the Editor loses nothing by
-    -- carrying its CRT inside its own binary. Projects must NOT set `staticruntime` themselves on Windows —
-    -- a project-level "off" silently wins over this line (GLFW and ImGuiNodeEditor used to say "off").
-    --
-    -- PREBUILT LIBRARIES ARE THE ONE THING THIS LINE CANNOT REACH. The Vulkan SDK's shaderc and
-    -- spirv-cross .lib files (Desert/Dependencies.lua) were compiled by LunarG with whatever CRT LunarG
-    -- chose; if that is /MD the link fails with LNK2038 and those libraries have to be built from source
-    -- like Assimp and ReflectCpp. vulkan-1.lib is an import library (no CRT) and is unaffected.
-    -- scripts/CI/CheckWindowsDlls.sh is the proof on the shipped binary.
-    staticruntime "On"
-
 filter {}
