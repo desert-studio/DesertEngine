@@ -70,9 +70,10 @@ namespace Desert::Geometry
              : m_CurBlock( Moved.m_CurBlock ), m_CurBlockUsed( Moved.m_CurBlockUsed ),
                m_Blocks( std::move( Moved.m_Blocks ) )
         {
+            // A move steals the blocks and allocates nothing: the source is left holding no block at all, a state
+            // every mutator accepts (Add/Resize/Clear allocate the first block on demand).
             Moved.m_CurBlock     = 0;
             Moved.m_CurBlockUsed = 0;
-            Moved.AddAllocatedBlock();
         }
 
         DynamicVector& operator=( const DynamicVector& Copy )
@@ -100,10 +101,10 @@ namespace Desert::Geometry
                 m_CurBlock     = Moved.m_CurBlock;
                 m_CurBlockUsed = Moved.m_CurBlockUsed;
                 m_Blocks       = std::move( Moved.m_Blocks );
+                Moved.m_Blocks.clear(); // move-assignment leaves the source unspecified; make it the blockless state
 
                 Moved.m_CurBlock     = 0;
                 Moved.m_CurBlockUsed = 0;
-                Moved.AddAllocatedBlock();
             }
             return *this;
         }
@@ -233,7 +234,7 @@ namespace Desert::Geometry
             }
             bool operator==( const Iterator& Itr2 ) const
             {
-                return m_DVector == Itr2.DVector && m_Idx == Itr2.Idx;
+                return m_DVector == Itr2.m_DVector && m_Idx == Itr2.m_Idx;
             }
             bool operator!=( const Iterator& Itr2 ) const
             {
@@ -283,11 +284,11 @@ namespace Desert::Geometry
             }
             bool operator==( const ConstIterator& Itr2 ) const
             {
-                return m_DVector == Itr2.DVector && m_Idx == Itr2.Idx;
+                return m_DVector == Itr2.m_DVector && m_Idx == Itr2.m_Idx;
             }
             bool operator!=( const ConstIterator& Itr2 ) const
             {
-                return m_DVector != Itr2.DVector || m_Idx != Itr2.Idx;
+                return m_DVector != Itr2.m_DVector || m_Idx != Itr2.m_Idx;
             }
 
         private:
@@ -650,7 +651,12 @@ namespace Desert::Geometry
     void DynamicVector<Type, BlockSize>::Add( const Type& Data )
     {
         assert( size_t( std::numeric_limits<uint32_t>::max() ) >= GetLength() + 1 );
-        if ( m_CurBlockUsed == BlockSize )
+        if ( m_Blocks.empty() )
+        {
+            // Moved-from vector: it gave its blocks away, so the first element needs a fresh one.
+            AddAllocatedBlock();
+        }
+        else if ( m_CurBlockUsed == BlockSize )
         {
             if ( m_CurBlock == static_cast<unsigned int>( static_cast<int32_t>( m_Blocks.size() ) - 1 ) )
             {
@@ -765,6 +771,10 @@ namespace Desert::Geometry
     template <typename Func>
     void DynamicVector<Type, BlockSize>::Apply( const Func& ApplyFunc )
     {
+        if ( IsEmpty() )
+        {
+            return; // a moved-from vector holds no block to read
+        }
         for ( uint32_t BlockIndex = 0; BlockIndex <= m_CurBlock; ++BlockIndex )
         {
             Block*         Block       = m_Blocks[BlockIndex].get();

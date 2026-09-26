@@ -380,8 +380,8 @@ namespace Desert::Geometry
         {
             const bool bIsSet = m_ElementTriangles[3 * TID] >= 0;
             // we require that triangle elements either be all set or all unset
-            assert( m_ElementTriangles[3 * TID + 1] >= 0 == bIsSet );
-            assert( m_ElementTriangles[3 * TID + 2] >= 0 == bIsSet );
+            assert( ( m_ElementTriangles[3 * TID + 1] >= 0 ) == bIsSet );
+            assert( ( m_ElementTriangles[3 * TID + 2] >= 0 ) == bIsSet );
             return bIsSet;
         }
 

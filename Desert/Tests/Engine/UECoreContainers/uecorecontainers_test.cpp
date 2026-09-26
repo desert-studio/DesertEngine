@@ -125,6 +125,75 @@ TEST( UECoreDynamicVector, CopyMoveAndEqualityAcrossBlockSizes )
     EXPECT_EQ( A.Num(), 1u );
 }
 
+// A move hands the blocks over and allocates nothing: the destination keeps the very storage the source had, and the
+// source is left holding no block at all (GetByteCount 0), yet every mutator still works on it.
+TEST( UECoreDynamicVector, MoveStealsTheBlocksAndAllocatesNothing )
+{
+    DynamicVector<int, 4> A;
+    for ( int i = 0; i < 6; ++i )
+        A.Add( i );
+    const int* const FirstElement = &A[0];
+    const int* const LastElement  = &A[5];
+
+    DynamicVector<int, 4> Moved( std::move( A ) );
+    EXPECT_EQ( &Moved[0], FirstElement );
+    EXPECT_EQ( &Moved[5], LastElement );
+    // Reading the source after the move is the contract under test.
+    EXPECT_TRUE( A.IsEmpty() );            // NOLINT(bugprone-use-after-move)
+    EXPECT_EQ( A.GetByteCount(), 0u );     // no replacement block was allocated
+    A.Apply( []( int& ) { FAIL() << "a moved-from vector has no element to visit"; } );
+
+    DynamicVector<int, 4> Assigned;
+    Assigned.Add( 42 );
+    Assigned = std::move( Moved );
+    EXPECT_EQ( &Assigned[0], FirstElement );
+    EXPECT_EQ( Assigned[5], 5 );
+    EXPECT_EQ( Moved.GetByteCount(), 0u ); // NOLINT(bugprone-use-after-move)
+
+    // Both blockless vectors are still fully usable.
+    A.Add( 7 );
+    ASSERT_EQ( A.Num(), 1u );
+    EXPECT_EQ( A[0], 7 );
+    Moved.Resize( 5, 3 );
+    EXPECT_EQ( Moved.Num(), 5u );
+    EXPECT_EQ( Moved[4], 3 );
+    DynamicVector<int, 4> Drained( std::move( Assigned ) );
+    Assigned.Clear(); // NOLINT(bugprone-use-after-move)
+    EXPECT_TRUE( Assigned.IsEmpty() );
+    const DynamicVector<int, 4> Final( std::move( Drained ) );
+    EXPECT_TRUE( Final != Assigned );
+    EXPECT_EQ( Final[0], 0 );
+}
+
+// Iterator equality compares the vector and the position; a range-for only needs !=, so == was never instantiated.
+TEST( UECoreDynamicVector, IteratorEqualityComparesVectorAndPosition )
+{
+    DynamicVector<int, 4> A;
+    DynamicVector<int, 4> B;
+    for ( int i = 0; i < 3; ++i )
+    {
+        A.Add( i );
+        B.Add( i );
+    }
+    EXPECT_TRUE( A.begin() == A.begin() );
+    EXPECT_FALSE( A.begin() == A.end() );
+    EXPECT_FALSE( A.begin() == B.begin() );
+    auto It = A.begin();
+    ++It;
+    ++It;
+    ++It;
+    EXPECT_TRUE( It == A.end() );
+
+    const DynamicVector<int, 4>& ConstA = A;
+    EXPECT_TRUE( ConstA.begin() == ConstA.begin() );
+    EXPECT_FALSE( ConstA.begin() == ConstA.end() );
+    EXPECT_TRUE( ConstA.begin() != ConstA.end() );
+    int Sum = 0;
+    for ( const int Value : ConstA )
+        Sum += Value;
+    EXPECT_EQ( Sum, 3 );
+}
+
 TEST( UECoreDynamicVector, VectorNStoresTuplesPerId )
 {
     // DynamicMesh3 stores triangles as DynamicVector<Index3i>; the N-wide variant carries raw tuples.
