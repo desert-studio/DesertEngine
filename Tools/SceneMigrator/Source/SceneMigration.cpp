@@ -58,6 +58,25 @@ namespace Desert::Migration
 {
     namespace
     {
+        // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
+        // the file sends the next reader back to the file anyway.
+        std::string Describe( const rfl::Generic& g )
+        {
+            if ( const auto b = g.to_bool(); b.has_value() )
+                return b.value() ? "true" : "false";
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return std::to_string( i.value() );
+            if ( const auto d = g.to_double(); d.has_value() )
+                return std::to_string( d.value() );
+            if ( const auto s = g.to_string(); s.has_value() )
+                return "\"" + s.value() + "\"";
+            if ( const auto a = g.to_array(); a.has_value() )
+                return "an array of " + std::to_string( a.value().size() ) + " element(s)";
+            if ( g.to_object().has_value() )
+                return "an object";
+            return "null";
+        }
+
         // The project a mesh block's `meshPath` is relative to (the nearest ancestor of `assetsRoot` under
         // which that file exists) and the file itself. An error string names why there is none.
         struct MeshFileLocation
@@ -238,6 +257,13 @@ namespace Desert::Migration
         // The refusal a file gets when its stated pair is one this tool has no route from: the numbers it
         // states, the numbers this tool knows, and what to do instead. Built here rather than at each
         // site so a scene and a prefab are refused in the same words.
+        // THE WAY OUT for a file older than v31, named in the refusal itself: the legacy steps were deleted
+        // (LEG1), so the only tool that still raises such a file is the SceneMigrator of a build from before
+        // them - dev 869cde331 is the last one - and the command is spelled out so nobody has to guess it.
+        constexpr const char* kOlderThanSupported =
+             "The oldest this tool reads is v31/v1 - older files are not supported. Raise it with a build from "
+             "before LEG1: `git checkout 869cde331 && scripts/Dev/migrate.sh --write <file>`.";
+
         std::string RefuseGeneration( const char* what, int statedSceneVersion, int statedUnitVersion,
                                       const char* why )
         {
@@ -320,8 +346,7 @@ namespace Desert::Migration
         if ( !scene.Header || statedSceneVersion < kSceneVersionShaderGuids || statedUnitVersion != kUnitVersion )
         {
             report.Refused = RefuseGeneration( "scene", statedSceneVersion, statedUnitVersion,
-                                               "the oldest this tool reads is v31/v1 - older files are not "
-                                               "supported." );
+                                               kOlderThanSupported );
             return report;
         }
 
@@ -369,8 +394,7 @@ namespace Desert::Migration
              outcome.FoundUnitVersion != kUnitVersion )
         {
             outcome.Refused = RefuseGeneration( "prefab", outcome.FoundSceneVersion, outcome.FoundUnitVersion,
-                                                "the oldest this tool reads is v31/v1 - older files are not "
-                                                "supported." );
+                                                kOlderThanSupported );
             return outcome;
         }
 

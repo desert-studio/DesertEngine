@@ -67,12 +67,12 @@ _LEGACY_IDS = None
 
 
 def legacy_material_ids():
-    """The MATL 1 -> 2 register (Tools/SceneMigrator LegacyMaterialIds): old MaterialId -> GUID text."""
+    """The MATL 1 -> 2 register the retired migrator step used: old MaterialId -> GUID text. LEG1 deleted it
+    from the tree, so it is read from the last commit that carried it - it only ever explains history."""
     global _LEGACY_IDS
     if _LEGACY_IDS is None:
-        root = git("rev-parse", "--show-toplevel").decode().strip()
-        with open(os.path.join(root, "Editor", "Resources", "LegacyMaterialIds.json")) as f:
-            _LEGACY_IDS = {row["MaterialId"]: row["Guid"] for row in json.load(f)["Ids"]}
+        text = git("show", "869cde331:Editor/Resources/LegacyMaterialIds.json").decode()
+        _LEGACY_IDS = {row["MaterialId"]: row["Guid"] for row in json.loads(text)["Ids"]}
     return _LEGACY_IDS
 
 
