@@ -4,7 +4,9 @@
 
 #include <Engine/Core/EngineContext.hpp>
 
+#include <format>
 #include <functional>
+#include <string>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -218,6 +220,70 @@ namespace Desert::Graphic::API::Vulkan
     CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer )
     {
         return FlushOneShot( commandBuffer, m_GraphicsQueue );
+    }
+
+    Common::ResultStr<CommandBufferAllocator::Submitted>
+    CommandBufferAllocator::RT_SubmitCommandBufferGraphic( VkCommandBuffer commandBuffer )
+    {
+        const auto entry = m_OneShotPools.find( commandBuffer );
+        if ( entry == m_OneShotPools.end() )
+            return Common::MakeFormattedError<Submitted>(
+                 "command buffer {} was not allocated by CommandBufferAllocator (or was already submitted); "
+                 "it cannot be submitted here.",
+                 static_cast<const void*>( commandBuffer ) );
+        Submitted submitted{ .Buffer = commandBuffer, .Pool = entry->second };
+        m_OneShotPools.erase( entry );
+
+        // EVERY REFUSAL BELOW FREES THE BUFFER. Its row is gone from m_OneShotPools, so nothing else would
+        // ever free it: a refusal that only returned would leak the buffer (and the fence, once created)
+        // for the life of its pool. A buffer that was never submitted is not pending, so freeing it is legal.
+        const auto refuse = [&]( const std::string& reason ) -> Common::ResultStr<Submitted>
+        {
+            if ( submitted.Fence != VK_NULL_HANDLE )
+                vkDestroyFence( m_LogicalDevice, submitted.Fence, nullptr );
+            vkFreeCommandBuffers( m_LogicalDevice, submitted.Pool, 1, &submitted.Buffer );
+            return Common::MakeError<Submitted>( reason );
+        };
+        if ( !Graphic::DeviceLost::AllowWork() )
+            return refuse( "the device is lost; the one-off command buffer is dropped rather than submitted." );
+
+        if ( const VkResult ended = vkEndCommandBuffer( commandBuffer ); ended != VK_SUCCESS )
+            return refuse( std::format( "vkEndCommandBuffer failed: {}", VkResultToString( ended ) ) );
+        const VkFenceCreateInfo fenceInfo = {
+             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0 };
+        if ( const VkResult created = vkCreateFence( m_LogicalDevice, &fenceInfo, nullptr, &submitted.Fence );
+             created != VK_SUCCESS )
+        {
+            submitted.Fence = VK_NULL_HANDLE;
+            return refuse( std::format( "vkCreateFence failed: {}", VkResultToString( created ) ) );
+        }
+        const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                          .pNext                = nullptr,
+                                          .waitSemaphoreCount   = 0,
+                                          .pWaitSemaphores      = nullptr,
+                                          .pWaitDstStageMask    = nullptr,
+                                          .commandBufferCount   = 1,
+                                          .pCommandBuffers      = &commandBuffer,
+                                          .signalSemaphoreCount = 0,
+                                          .pSignalSemaphores    = nullptr };
+        if ( const VkResult result = vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
+             result != VK_SUCCESS )
+            return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( result ) ) );
+        return Common::MakeSuccess( submitted );
+    }
+
+    bool CommandBufferAllocator::IsComplete( const Submitted& submitted ) const
+    {
+        return vkGetFenceStatus( m_LogicalDevice, submitted.Fence ) == VK_SUCCESS;
+    }
+
+    void CommandBufferAllocator::RT_ReleaseSubmitted( const Submitted& submitted )
+    {
+        // The buffer may still be executing only if the caller gives up early (teardown); waiting here is
+        // what makes freeing it legal.
+        VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, 1, &submitted.Fence, VK_TRUE, UINT64_MAX ) );
+        vkDestroyFence( m_LogicalDevice, submitted.Fence, nullptr );
+        vkFreeCommandBuffers( m_LogicalDevice, submitted.Pool, 1, &submitted.Buffer );
     }
 
     Common::ResultStr<VkCommandBuffer>

@@ -29,7 +29,7 @@
 #include <Editor/Widgets/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
-#include <Editor/Widgets/ThumbnailSweep.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
@@ -266,7 +266,6 @@ namespace Desert::Editor
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
         m_Thumbnails = std::make_unique<ThumbnailCache>();
-        m_Sweeper    = std::make_unique<ThumbnailSweeper>();
         ThumbnailCache::PurgeOldVersions(); // drop stale-renderer thumbnails so they regenerate cleanly
 
         // NO LOAD STEP FOR THE PINNED FOLDERS ANY MORE (К5). They are read out of EditorPreferences where
@@ -367,14 +366,6 @@ namespace Desert::Editor
         // future nobody polls is a thread whose result is thrown away at shutdown.
         PollCloudAssetBake();
 
-        // THE BACKGROUND SWEEP, ahead of the throttle below and unconditional. It has a period of its
-        // own (ThumbnailSweeper::kFramesBetweenScans) and paces itself; putting it behind this panel's
-        // directory-poll throttle would make one background rate depend on another for no reason, and
-        // putting it after the `!m_CurrentDir` return would stop the whole project's previews the moment
-        // the browser had no directory selected.
-        if ( m_Sweeper )
-            m_Sweeper->Tick( m_AssetManager, m_BasePath );
-
         // Throttle to ~every 30 frames (~0.5s @60fps) — directory_iterator is cheap but not free.
         if ( ++m_PollCounter < 30 )
             return;
@@ -386,6 +377,7 @@ namespace Desert::Editor
         const size_t sig = DirectorySignature( m_CurrentDir->AssetPath );
         if ( sig != m_DirSignature )
         {
+            LOG_DEBUG( "[FileExplorer] '{}' changed on disk — rescanning.", m_CurrentDir->AssetPath );
             m_DirSignature = sig;
             QueueRefresh();
         }
@@ -405,6 +397,13 @@ namespace Desert::Editor
             ProcessDirectory( m_CurrentDir->AssetPath, m_CurrentDir->Parent, true );
         }
 
+        PrefetchCurrentFolderThumbnails();
+
+        // THE POLL'S BASELINE IS THE FOLDER JUST ENTERED. Left at the previous folder's signature, the first
+        // poll after every navigation saw a "change" and rescanned a folder that had just been read (TH3).
+        m_DirSignature = DirectorySignature( m_CurrentDir->AssetPath );
+        m_PollCounter  = 0;
+
         // Record in the back/forward history, unless this navigation IS a back/forward.
         if ( !m_NavigatingHistory )
         {
@@ -416,6 +415,43 @@ namespace Desert::Editor
                 m_NavPos = static_cast<int>( m_NavHistory.size() ) - 1;
             }
         }
+    }
+
+    void FileExplorerPanel::PrefetchCurrentFolderThumbnails()
+    {
+        if ( m_CurrentDir == nullptr )
+            return;
+
+        // The same picture each Draw*Thumbnail below will pass to ThumbnailCache::Get, and the same
+        // freshness subject it judges — a mismatch here would only cost a wasted decode (Get takes nothing
+        // it was not asked for), never a wrong picture.
+        std::vector<ThumbnailPrefetch::Item> items;
+        for ( const DirectoryInformation* entry : m_CurrentDir->Children )
+        {
+            if ( entry == nullptr || !entry->IsFile || entry->Hidden )
+                continue;
+            switch ( entry->Type )
+            {
+                case FileType::Texture:
+                    items.push_back( { entry->AssetPath, {} } );
+                    break;
+                case FileType::Material:
+                case FileType::Cloud:
+                case FileType::UITheme:
+                case FileType::Cubemap:
+                    items.push_back( { ThumbnailKey::DiskPath( entry->AssetPath ), entry->AssetPath } );
+                    break;
+                case FileType::Model:
+                {
+                    const std::string cooked = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
+                    items.push_back( { ThumbnailKey::DiskPath( cooked ), cooked } );
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        ThumbnailPrefetch::Get().Request( std::move( items ) );
     }
 
     bool FileExplorerPanel::NavigateToPath( const std::string& path )
@@ -2472,8 +2508,11 @@ namespace Desert::Editor
 
     void FileExplorerPanel::RefreshCurrentDirectory()
     {
-        if ( m_Thumbnails )
-            m_Thumbnails->Clear();
+        // The thumbnail cache is NOT cleared here: it checks each picture's file stamp on every Get, so a
+        // rewritten picture is re-read anyway, and this runs on every rescan — including the one the
+        // directory poll makes ~0.5 s after a folder is opened. Clearing here dropped every picture on screen
+        // and put all of them back through the decoder at once (the Materials folder's 36-42 main-thread
+        // decodes, TH2).
         if ( !m_CurrentDir )
             return;
 

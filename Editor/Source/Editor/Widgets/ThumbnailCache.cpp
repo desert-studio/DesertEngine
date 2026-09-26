@@ -1,6 +1,7 @@
 #include "ThumbnailCache.hpp"
 
 #include <Editor/Widgets/ThumbnailKey.hpp>
+#include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/Constants.hpp>
@@ -9,12 +10,13 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
-#include <stb_image/stb_image.h>
-
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <thread>
 #include <vector>
 
 namespace Desert::Editor
@@ -55,14 +57,17 @@ namespace Desert::Editor
 
     std::shared_ptr<Graphic::Image2D> ThumbnailCache::Get( const std::string& sourcePath )
     {
-        std::error_code stampEc;
-        const auto      stamp = std::filesystem::last_write_time( sourcePath, stampEc );
+        std::error_code                   stampEc;
+        const auto                        stamp = std::filesystem::last_write_time( sourcePath, stampEc );
+        std::shared_ptr<Graphic::Image2D> previous;
         if ( const auto it = m_Cache.find( sourcePath ); it != m_Cache.end() )
         {
             const auto seen = m_Stamps.find( sourcePath );
             if ( stampEc || ( seen != m_Stamps.end() && seen->second == stamp ) )
                 return it->second; // may be null (decode previously failed)
-            m_Cache.erase( it );   // the file was rewritten since it was decoded
+            // The file was rewritten since it was decoded (a capture landed): the old picture stays on
+            // screen until the worker has the new one, instead of the icon for those frames.
+            previous = it->second;
         }
 
         if ( m_Cache.size() >= kMaxEntries )
@@ -71,63 +76,41 @@ namespace Desert::Editor
             m_Stamps.clear();
         }
 
-        std::shared_ptr<Graphic::Image2D> result;
-
-        // THE CACHE-HIT PATH IS NOT FREE, and it was the only part of the thumbnail system that had never
-        // been timed. This runs on the main thread inside the ImGui pass, once per PNG per session, and it
-        // is what a user sees as "it is computing it again" even when nothing is being rendered at all.
-        const auto began = std::chrono::steady_clock::now();
-
-        int      w = 0, h = 0, ch = 0;
-        stbi_uc* pixels = stbi_load( sourcePath.c_str(), &w, &h, &ch, 4 );
-        const auto decoded = std::chrono::steady_clock::now();
-        if ( pixels && w > 0 && h > 0 )
+        // NOTHING IS DECODED HERE, IN ANY CASE. The decode (file read, stb, box filter: ~24 ms for a 512px
+        // PNG) is always a worker's: ThumbnailPrefetch::Acquire hands over pixels a worker finished from the
+        // file as it is now, or queues the file and this tile draws `previous` (or its icon) for the frames
+        // that takes. What is left on the main thread is the upload. Measured before this rule, the Materials
+        // folder put 36-42 such decodes on the main thread ~1.5 s after it was opened — a rescan cleared this
+        // cache, and every picture a capture rewrote was read back here — about a second of stalled frames.
+        const auto                  began = std::chrono::steady_clock::now();
+        ThumbnailPrefetch::Acquired acquired;
+        if ( !stampEc )
         {
-            // Box-average downscale to <= kThumbMaxDim. Rendered thumbnails are written AT that size since
-            // v9, so this is a straight copy for them; it still earns its place for the other images this
-            // cache decodes — textures and video posters the browser previews at their authored size,
-            // where nearest-neighbour would alias and shimmer.
-            const int maxSide = std::max( w, h );
-            const int tw      = maxSide > kThumbMaxDim ? std::max( 1, w * kThumbMaxDim / maxSide ) : w;
-            const int th      = maxSide > kThumbMaxDim ? std::max( 1, h * kThumbMaxDim / maxSide ) : h;
+            acquired = ThumbnailPrefetch::Get().Acquire( sourcePath, stamp );
+            if ( !acquired.Pixels && !acquired.Undecodable )
+                return previous;
+        }
 
-            std::vector<unsigned char> dst( static_cast<size_t>( tw ) * th * 4 );
-            for ( int y = 0; y < th; ++y )
-            {
-                const int sy0 = y * h / th;
-                const int sy1 = std::max( sy0 + 1, ( y + 1 ) * h / th );
-                for ( int x = 0; x < tw; ++x )
-                {
-                    const int sx0 = x * w / tw;
-                    const int sx1 = std::max( sx0 + 1, ( x + 1 ) * w / tw );
-
-                    uint32_t acc[4] = { 0, 0, 0, 0 };
-                    uint32_t n      = 0;
-                    for ( int yy = sy0; yy < sy1; ++yy )
-                        for ( int xx = sx0; xx < sx1; ++xx )
-                        {
-                            const unsigned char* s = pixels + ( static_cast<size_t>( yy ) * w + xx ) * 4;
-                            acc[0] += s[0]; acc[1] += s[1]; acc[2] += s[2]; acc[3] += s[3];
-                            ++n;
-                        }
-                    const uint32_t   div = std::max( 1u, n );
-                    unsigned char*   d   = dst.data() + ( static_cast<size_t>( y ) * tw + x ) * 4;
-                    d[0] = static_cast<unsigned char>( acc[0] / div );
-                    d[1] = static_cast<unsigned char>( acc[1] / div );
-                    d[2] = static_cast<unsigned char>( acc[2] / div );
-                    d[3] = static_cast<unsigned char>( acc[3] / div );
-                }
-            }
-
-            Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
-                 .Width      = static_cast<uint32_t>( tw ),
-                 .Height     = static_cast<uint32_t>( th ),
-                 .Format     = Core::Formats::ImageFormat::RGBA8F,
-                 .Mips       = 1u,
-                 .Data       = std::move( dst ),
-                 .Usage      = Core::Formats::Image2DUsage::Image2D,
-                 .Properties = Core::Formats::Sample,
+        std::shared_ptr<Graphic::Image2D> result;
+        std::optional<ThumbnailPixels>&   decoded = acquired.Pixels;
+        const std::string failure = stampEc ? stampEc.message() : std::string( "a worker could not decode it" );
+        if ( decoded.has_value() )
+        {
+            const int                                 w        = decoded->SourceWidth;
+            const int                                 h        = decoded->SourceHeight;
+            const int                                 tw       = decoded->Width;
+            const int                                 th       = decoded->Height;
+            const double                              decodeMs = decoded->DecodeMs;
+            const bool                                onMain   = decoded->DecodedOn == std::this_thread::get_id();
+            const Core::Formats::Image2DSpecification spec     = {
+                     .Tag        = "Thumb_" + std::filesystem::path( sourcePath ).filename().string(),
+                     .Width      = static_cast<uint32_t>( tw ),
+                     .Height     = static_cast<uint32_t>( th ),
+                     .Format     = Core::Formats::ImageFormat::RGBA8F,
+                     .Mips       = 1u,
+                     .Data       = std::move( decoded->Rgba ),
+                     .Usage      = Core::Formats::Image2DUsage::Image2D,
+                     .Properties = Core::Formats::Sample,
             };
             // THIS IMAGE HAS AN OWNER, AND IT SAYS SO. Every thumbnail in the editor is created on this
             // one line — the browser grid, the Collections cards, both Details slots, the drag ghost —
@@ -144,13 +127,26 @@ namespace Desert::Editor
             const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::EditorTool );
             result = Graphic::Image2D::Create( spec );
 
-            const auto ms = []( auto from, auto to )
-            { return std::chrono::duration<double, std::milli>( to - from ).count(); };
-            LOG_DEBUG( "[Thumbnails] decoded '{}' {}x{} -> {}x{} in {:.0f} ms (png decode {:.0f}, "
-                       "box filter + upload {:.0f})",
-                       std::filesystem::path( sourcePath ).filename().string(), w, h, tw, th,
-                       ms( began, std::chrono::steady_clock::now() ), ms( began, decoded ),
-                       ms( decoded, std::chrono::steady_clock::now() ) );
+            const double mainMs =
+                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count();
+            const std::string name = std::filesystem::path( sourcePath ).filename().string();
+            LOG_DEBUG( "[Thumbnails] '{}' {}x{} -> {}x{}: {:.0f} ms on the main thread ({}, decode {:.0f} ms)",
+                       name, w, h, tw, th, mainMs, onMain ? "decoded on the main thread" : "decoded on a worker",
+                       decodeMs );
+            if ( onMain )
+                LOG_WARN(
+                     "[Thumbnails] '{}' was decoded on the main thread ({:.0f} ms): decoded on main thread: {}",
+                     name, decodeMs, ThumbnailPrefetch::Get().DecodedOnTheTakingThread() );
+
+            // The one line "window shown -> first picture" is read from (TH2's measurement): its timestamp
+            // against [Startup] reveal.
+            static bool s_FirstUploaded = false;
+            if ( !s_FirstUploaded )
+            {
+                s_FirstUploaded = true;
+                LOG_INFO( "[Thumbnails] first picture uploaded: '{}' ({}, {:.0f} ms on the main thread)", name,
+                          onMain ? "decoded on the main thread" : "decoded on a worker", mainMs );
+            }
         }
         else if ( IsOurGeneratedThumbnail( sourcePath ) )
         {
@@ -171,8 +167,7 @@ namespace Desert::Editor
             // unguarded remove() here would delete an artist's .png because stb could not read it.
             std::error_code removeEc;
             const bool      removed = std::filesystem::remove( sourcePath, removeEc );
-            LOG_ERROR( "[Thumbnails] the cached thumbnail '{}' could not be decoded ({}); {}", sourcePath,
-                       stbi_failure_reason() ? stbi_failure_reason() : "no reason given",
+            LOG_ERROR( "[Thumbnails] the cached thumbnail '{}' could not be decoded ({}); {}", sourcePath, failure,
                        removed ? "it was deleted and will be rendered again."
                                : "it could NOT be deleted (" + removeEc.message() +
                                       "), so this asset will show its type icon." );
@@ -183,11 +178,8 @@ namespace Desert::Editor
             // never touch the file.
             LOG_ERROR( "[Thumbnails] '{}' could not be decoded ({}); the asset will show its type icon "
                        "instead of a preview.",
-                       sourcePath, stbi_failure_reason() ? stbi_failure_reason() : "no reason given" );
+                       sourcePath, failure );
         }
-        if ( pixels )
-            stbi_image_free( pixels );
-
         m_Cache[sourcePath] = result; // cache success or failure (null)
         if ( !stampEc )
             m_Stamps[sourcePath] = stamp;
@@ -238,7 +230,8 @@ namespace Desert::Editor
             cache->Clear();
         }
 
-        LOG_INFO( "[Thumbnails] released {} cached image(s) from {} cache(s) on shutdown.", images,
-                  Live().size() );
+        LOG_INFO(
+             "[Thumbnails] released {} cached image(s) from {} cache(s) on shutdown; decoded on main thread: {}.",
+             images, Live().size(), ThumbnailPrefetch::Get().DecodedOnTheTakingThread() );
     }
 } // namespace Desert::Editor
