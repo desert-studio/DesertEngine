@@ -225,20 +225,20 @@ namespace Desert::Geometry
         /** UE's FInterpCurveVector with two CIM_CurveUser points at parameters 0 and 1: a cubic Hermite. */
         struct FArcSplineCurve
         {
-            FVector3d Pos0, Pos1;         // points at T = 0 and T = 1
-            FVector3d Tangent0, Tangent1; // their (arrive == leave) tangents
-            FVector3d Eval( double T ) const;
+            FVector3d               Pos0, Pos1;         // points at T = 0 and T = 1
+            FVector3d               Tangent0, Tangent1; // their (arrive == leave) tangents
+            [[nodiscard]] FVector3d Eval( double T ) const;
         };
         /** Hermite approximation of the arc from PosA to PosB tangent to the planes (PosA, NormalA) and (PosB,
          *  NormalB); tangents scaled by |RoundWeight| * sqrt(2), and swapped for a negative RoundWeight. */
-        FArcSplineCurve MakeArcSplineCurve( const FVector3d& PosA, const FVector3d& NormalA, const FVector3d& PosB,
-                                            const FVector3d& NormalB ) const;
+        [[nodiscard]] FArcSplineCurve MakeArcSplineCurve( const FVector3d& PosA, const FVector3d& NormalA,
+                                                          const FVector3d& PosB, const FVector3d& NormalB ) const;
         /** Deform the finished multi-segment topology into the round profile: each strip column onto its arc,
          *  then each 4-sided junction patch by blending its four border arcs, each 3-sided one as the PN
          *  triangle of its three and each larger one by mean-value blending of its border frames. */
         void ApplyProfileShape_Round( FDynamicMesh3& Mesh );
         /** RoundWeight is non-zero beyond the tolerance (the profile is flat otherwise). */
-        bool HasRoundProfile() const;
+        [[nodiscard]] bool HasRoundProfile() const;
 
         /** Per-vertex normals within each new vertex polygon and each strip; no-op without attributes. */
         void ComputeNormals( FDynamicMesh3& Mesh );

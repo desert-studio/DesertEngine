@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <limits>
 #include <string>
 
@@ -1280,8 +1281,9 @@ namespace Desert::Geometry
                             At( i, j ) = EdgePoint( Tri.B, Tri.C, j );
                         else
                         {
-                            const double WA = static_cast<double>( k ) / N, WB = static_cast<double>( i ) / N,
-                                         WC = static_cast<double>( j ) / N;
+                            const double WA = static_cast<double>( k ) / N;
+                            const double WB = static_cast<double>( i ) / N;
+                            const double WC = static_cast<double>( j ) / N;
                             At( i, j )      = Out.AppendVertex( WA * A + WB * B + WC * C );
                             Bary.Add( WA * Bary[Tri.A] + WB * Bary[Tri.B] + WC * Bary[Tri.C] );
                         }
@@ -2087,7 +2089,7 @@ namespace Desert::Geometry
         FArcSplineCurve Curve;
         Curve.Pos0                = PosA;
         Curve.Pos1                = PosB;
-        const double TangentScale = std::abs( RoundWeight ) * std::sqrt( 2.0 );
+        const double TangentScale = std::abs( RoundWeight ) * std::numbers::sqrt2;
         if ( RoundWeight >= 0 )
         {
             Curve.Tangent0 = TangentScale * TangentA;
@@ -2151,7 +2153,8 @@ namespace Desert::Geometry
                             std::to_string( A ) + " to " + std::to_string( B ) + " is no unlinked vertex pair" );
                     return;
                 }
-                const FVector3d PosA = Mesh.GetVertex( A ), PosB = Mesh.GetVertex( B );
+                const FVector3d PosA = Mesh.GetVertex( A );
+                const FVector3d PosB = Mesh.GetVertex( B );
                 // the section plane through the original vertex and its two inset positions
                 const FVector3d InitialPosition = Loop.InitialPositions[Side.Index];
                 const FVector3d PlaneNormal     = Normalized(
@@ -2187,7 +2190,8 @@ namespace Desert::Geometry
                             std::to_string( B ) + " is no unlinked vertex pair" );
                     return;
                 }
-                const FVector3d PosA = Mesh.GetVertex( A ), PosB = Mesh.GetVertex( B );
+                const FVector3d PosA               = Mesh.GetVertex( A );
+                const FVector3d PosB               = Mesh.GetVertex( B );
                 const FVector3d InitialPosition    = Edge.InitialPositions[Side.Index];
                 FVector3d       SectionPlaneNormal = Normalized(
                      Normalized( PosA - InitialPosition ).Cross( Normalized( PosB - InitialPosition ) ) );
@@ -2256,14 +2260,18 @@ namespace Desert::Geometry
                 // PN triangle (UE B:3527-3585): the cubic Bezier triangle whose edge control points come from
                 // the three border curves' end tangents (a Hermite tangent is 3x the Bezier leg, hence 1/3) and
                 // whose centre point b111 is pushed out of the corner plane by RoundWeight.
-                const int32            i300 = Vertex.InteriorBorderLoop[0], i030 = Vertex.InteriorBorderLoop[1];
-                const int32            i003 = Vertex.InteriorBorderLoop[2];
-                const FVector3d        b300 = Mesh.GetVertex( i300 ), b030 = Mesh.GetVertex( i030 );
+                const int32            i300       = Vertex.InteriorBorderLoop[0];
+                const int32            i030       = Vertex.InteriorBorderLoop[1];
+                const int32            i003       = Vertex.InteriorBorderLoop[2];
+                const FVector3d        b300       = Mesh.GetVertex( i300 );
+                const FVector3d        b030       = Mesh.GetVertex( i030 );
                 const FVector3d        b003       = Mesh.GetVertex( i003 );
-                bool                   bReversedA = false, bReversedB = false, bReversedC = false;
-                const FArcSplineCurve* CurveA = BorderCurve( i300, i030, bReversedA );
-                const FArcSplineCurve* CurveB = BorderCurve( i030, i003, bReversedB );
-                const FArcSplineCurve* CurveC = BorderCurve( i003, i300, bReversedC );
+                bool                   bReversedA = false;
+                bool                   bReversedB = false;
+                bool                   bReversedC = false;
+                const FArcSplineCurve* CurveA     = BorderCurve( i300, i030, bReversedA );
+                const FArcSplineCurve* CurveB     = BorderCurve( i030, i003, bReversedB );
+                const FArcSplineCurve* CurveC     = BorderCurve( i003, i300, bReversedC );
                 if ( CurveA == nullptr || CurveB == nullptr || CurveC == nullptr )
                 {
                     Refuse( Where + ": a side of its 3-sided patch is no bevel strip end column" );
@@ -2285,7 +2293,8 @@ namespace Desert::Geometry
                 const FVector3d b111 = E + RoundWeight * ( E - V ) / 2.0;
                 for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
                 {
-                    const double w = InteriorVtx.BorderFrameWeight[0].X, u = InteriorVtx.BorderFrameWeight[0].Y;
+                    const double w = InteriorVtx.BorderFrameWeight[0].X;
+                    const double u = InteriorVtx.BorderFrameWeight[0].Y;
                     const double v = InteriorVtx.BorderFrameWeight[0].Z;
                     Mesh.SetVertex( InteriorVtx.VertexID,
                                     b300 * ( w * w * w ) + b030 * ( u * u * u ) + b003 * ( v * v * v ) +
@@ -2351,13 +2360,18 @@ namespace Desert::Geometry
             //   c01  X2   c11      ty = 1
             //    Y1 |  XInterp | Y2
             //   c00  X1   c10      ty = 0;   tx = 0 at Y1, 1 at Y2
-            const int32 c00 = Vertex.InteriorBorderLoop[0], c10 = Vertex.InteriorBorderLoop[1];
-            const int32            c01 = Vertex.InteriorBorderLoop[2], c11 = Vertex.InteriorBorderLoop[3];
-            bool bReversedY1 = false, bReversedY2 = false, bReversedX1 = false, bReversedX2 = false;
-            const FArcSplineCurve* CurveY1 = BorderCurve( c00, c01, bReversedY1 );
-            const FArcSplineCurve* CurveY2 = BorderCurve( c10, c11, bReversedY2 );
-            const FArcSplineCurve* CurveX1 = BorderCurve( c00, c10, bReversedX1 );
-            const FArcSplineCurve* CurveX2 = BorderCurve( c01, c11, bReversedX2 );
+            const int32            c00         = Vertex.InteriorBorderLoop[0];
+            const int32            c10         = Vertex.InteriorBorderLoop[1];
+            const int32            c01         = Vertex.InteriorBorderLoop[2];
+            const int32            c11         = Vertex.InteriorBorderLoop[3];
+            bool                   bReversedY1 = false;
+            bool                   bReversedY2 = false;
+            bool                   bReversedX1 = false;
+            bool                   bReversedX2 = false;
+            const FArcSplineCurve* CurveY1     = BorderCurve( c00, c01, bReversedY1 );
+            const FArcSplineCurve* CurveY2     = BorderCurve( c10, c11, bReversedY2 );
+            const FArcSplineCurve* CurveX1     = BorderCurve( c00, c10, bReversedX1 );
+            const FArcSplineCurve* CurveX2     = BorderCurve( c01, c11, bReversedX2 );
             if ( CurveY1 == nullptr || CurveY2 == nullptr || CurveX1 == nullptr || CurveX2 == nullptr )
             {
                 Refuse( Where + ": a side of its 4-sided patch is no bevel strip end column" );
@@ -2370,7 +2384,8 @@ namespace Desert::Geometry
             const FVector3d Tangent11 = bReversedX2 ? -CurveX2->Tangent0 : CurveX2->Tangent1;
             for ( const FBevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
             {
-                const double    tx = InteriorVtx.BorderFrameWeight[0].X, ty = InteriorVtx.BorderFrameWeight[0].Y;
+                const double    tx = InteriorVtx.BorderFrameWeight[0].X;
+                const double    ty = InteriorVtx.BorderFrameWeight[0].Y;
                 FArcSplineCurve InterpolatedXCurve;
                 InterpolatedXCurve.Pos0     = CurveY1->Eval( bReversedY1 ? 1.0 - ty : ty );
                 InterpolatedXCurve.Pos1     = CurveY2->Eval( bReversedY2 ? 1.0 - ty : ty );

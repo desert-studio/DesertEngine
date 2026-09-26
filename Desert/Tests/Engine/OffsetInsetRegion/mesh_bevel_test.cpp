@@ -19,6 +19,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <set>
 #include <string>
 #include <utility>
@@ -1224,12 +1225,12 @@ namespace
     // UE's arc Hermite (tangents sqrt(2) x the right-angle square's sides) stays inside the true arc: radius r at
     // the ends, r (sqrt(2)/2 + 1/4) = 0.957 r at the middle.
     constexpr double kArcInnerRatio = 0.70710678118654752 + 0.25;
-    constexpr double kPi            = 3.14159265358979323846;
+    constexpr double kPi            = std::numbers::pi;
 
     struct FRoundRun
     {
         FDynamicMesh3   Mesh;
-        FMeshBevelProbe Bevel;
+        FMeshBevelProbe Bevel{};
         bool            bApplied = false;
     };
 
@@ -1259,7 +1260,8 @@ namespace
         for ( const int v : a.VertexIndicesItr() )
         {
             ASSERT_TRUE( b.IsVertex( v ) );
-            const FVector3d pa = a.GetVertex( v ), pb = b.GetVertex( v );
+            const FVector3d pa = a.GetVertex( v );
+            const FVector3d pb = b.GetVertex( v );
             EXPECT_EQ( pa.X, pb.X ) << "vertex " << v;
             EXPECT_EQ( pa.Y, pb.Y ) << "vertex " << v;
             EXPECT_EQ( pa.Z, pb.Z ) << "vertex " << v;
@@ -1374,7 +1376,8 @@ TEST( MeshBevel, RoundFourEdgeJunctionPatchStaysOnTheCylinder )
             ASSERT_EQ( v.InteriorVertices.Num(), N * N );
             // the X curves run along the cylinder axis (the flat strips): a patch vertex stays strictly between
             // the corners' x, or an end tangent of the blended X curve points the wrong way
-            double cornerMinX = std::numeric_limits<double>::max(), cornerMaxX = -cornerMinX;
+            double cornerMinX = std::numeric_limits<double>::max();
+            double cornerMaxX = -cornerMinX;
             for ( const int corner : v.InteriorBorderLoop )
             {
                 cornerMinX = std::min( cornerMinX, run.Mesh.GetVertex( corner ).X );
@@ -1414,9 +1417,9 @@ TEST( MeshBevel, RoundCubeCornerPatchesLieNearTheSphere )
     const double chamfer = ChamferVolume( base, allEdges );
     // PN centre (w = u = v = 1/3) for three unit corners and sqrt(2)-scaled right-angle border tangents:
     // b300/27 + 3 (sum of edge points)/27 + 6 b111/27 per axis, times sqrt(3)
-    const double edgeSum     = 2.0 + 2.0 * std::sqrt( 2.0 ) / 3.0;
-    const double b111        = 1.0 / 3.0 + 1.5 * std::sqrt( 2.0 ) / 9.0;
-    const double centreRatio = std::sqrt( 3.0 ) * ( 1.0 / 27.0 + 3.0 * edgeSum / 27.0 + 6.0 * b111 / 27.0 );
+    const double edgeSum     = 2.0 + 2.0 * std::numbers::sqrt2 / 3.0;
+    const double b111        = 1.0 / 3.0 + 1.5 * std::numbers::sqrt2 / 9.0;
+    const double centreRatio = std::numbers::sqrt3 * ( 1.0 / 27.0 + 3.0 * edgeSum / 27.0 + 6.0 * b111 / 27.0 );
     double       previous    = chamfer;
     for ( const int N : { 1, 2, 3, 5, 8 } )
     {
@@ -1537,7 +1540,8 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
         const double original = SignedVolume( base );
         const double chamfer  = ChamferVolume( base, lateral );
         // outward normals of two neighbouring lateral faces (edge midpoints at angles pi/n and 3 pi/n)
-        const double H = 75.0, a = 50.0 * std::cos( kPi / n );
+        const double H          = 75.0;
+        const double a          = 50.0 * std::cos( kPi / n );
         auto         faceNormal = [&]( double angle )
         { return Normalized( FVector3d( H * std::cos( angle ), H * std::sin( angle ), a ) ); };
         const double    theta = kPi - std::acos( faceNormal( kPi / n ).Dot( faceNormal( 3.0 * kPi / n ) ) );
@@ -1547,7 +1551,9 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
         for ( const int N : { 1, 2, 3, 5 } )
         {
             SCOPED_TRACE( std::to_string( N ) + " subdivisions" );
-            FRoundRun run{ base }, flat{ base }, tiny{ base };
+            FRoundRun run{ base };
+            FRoundRun flat{ base };
+            FRoundRun tiny{ base };
             RunRound( run, lateral, N, 1.0 );
             RunRound( flat, lateral, N, 0.0 );
             RunRound( tiny, lateral, N, 1e-9 );
@@ -1568,15 +1574,17 @@ TEST( MeshBevel, RoundFiveAndSixEdgeApexPatchesBulgeAroundTheInsetApex )
             ASSERT_FALSE( apex->InteriorVertices.IsEmpty() );
             for ( const FMeshBevel::FOneRingWedge& w : apex->Wedges )
                 EXPECT_NEAR( Distance( run.Mesh.GetVertex( w.WedgeVertex ), centre ), rho, 1e-6 );
-            double borderLow = std::numeric_limits<double>::max(), borderHigh = 0.0;
+            double borderLow  = std::numeric_limits<double>::max();
+            double borderHigh = 0.0;
             for ( const int b : apex->InteriorBorderLoop )
             {
                 const double r = Distance( run.Mesh.GetVertex( b ), centre );
                 borderLow      = std::min( borderLow, r );
                 borderHigh     = std::max( borderHigh, r );
             }
-            double onAxis = std::numeric_limits<double>::max(), low = std::numeric_limits<double>::max(),
-                   high = 0.0;
+            double onAxis = std::numeric_limits<double>::max();
+            double low    = std::numeric_limits<double>::max();
+            double high   = 0.0;
             for ( const FMeshBevel::FBevelVertex_InteriorVertex& iv : apex->InteriorVertices )
             {
                 const FVector3d p = run.Mesh.GetVertex( iv.VertexID );
@@ -1663,7 +1671,7 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
     // column's Hermite points and B = (50 - 5 sqrt 2, 50). Tangents per MakeArcSplineCurve: A->B with its X part
     // removed, B->A with its Y part removed, both scaled by RoundWeight sqrt 2 (T1 negated). The flat run keeps
     // the triangle {corner, A, B} (area 25) for every N.
-    const double s = 5.0 * std::sqrt( 2.0 );
+    const double s = 5.0 * std::numbers::sqrt2;
     for ( const int N : { 1, 2, 3 } )
     {
         for ( const double w : { 0.0, 1.0 } )
@@ -1678,9 +1686,10 @@ TEST( MeshBevel, RoundValenceFiveJunctionOnAFlatFaceStaysFlat )
                 EXPECT_NEAR( std::max( { std::abs( p.X ), std::abs( p.Y ), std::abs( p.Z ) } ), 50.0, 1e-9 )
                      << "vertex " << vid << " left the cube";
             }
-            const FVector3d        A( 50.0, 50.0 - s, 50.0 ), B( 50.0 - s, 50.0, 50.0 );
-            const FVector3d        T0 = w * std::sqrt( 2.0 ) * FVector3d( 0.0, s, 0.0 );
-            const FVector3d        T1 = -w * std::sqrt( 2.0 ) * FVector3d( s, 0.0, 0.0 );
+            const FVector3d        A( 50.0, 50.0 - s, 50.0 );
+            const FVector3d        B( 50.0 - s, 50.0, 50.0 );
+            const FVector3d        T0 = w * std::numbers::sqrt2 * FVector3d( 0.0, s, 0.0 );
+            const FVector3d        T1 = -w * std::numbers::sqrt2 * FVector3d( s, 0.0, 0.0 );
             std::vector<FVector3d> base{ FVector3d( 50.0, 50.0, 50.0 ) };
             for ( int k = 0; k <= N + 1; ++k )
             {

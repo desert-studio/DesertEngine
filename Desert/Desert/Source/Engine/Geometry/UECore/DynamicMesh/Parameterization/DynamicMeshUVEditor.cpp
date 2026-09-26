@@ -295,7 +295,8 @@ namespace Desert::Geometry
                 BoundsMin = FVector2f( std::min( BoundsMin.X, UV[j].X ), std::min( BoundsMin.Y, UV[j].Y ) );
                 BoundsMax = FVector2f( std::max( BoundsMax.X, UV[j].X ), std::max( BoundsMax.Y, UV[j].Y ) );
             }
-            const FVector2f E1 = UV[1] - UV[0], E2 = UV[2] - UV[0];
+            const FVector2f E1 = UV[1] - UV[0];
+            const FVector2f E2 = UV[2] - UV[0];
             Area2D += 0.5 * std::abs( static_cast<double>( E1.X ) * E2.Y - static_cast<double>( E1.Y ) * E2.X );
         }
         if ( Elements.empty() || std::abs( Area2D ) < FMathf::Epsilon || !std::isfinite( Area2D ) )

@@ -575,11 +575,14 @@ TEST( PointerOwnership, TheScanFindsTheCensusedPopulation )
     //   held for the one call that moves them into a view).
     //   AV1b +1 Raw +1 Unique: TextureViewerDocument::m_Assets (row in the register) and its m_UIHelper,
     //   the ImGui texture cache the document alone owns: 453 / 354 / 145 / 42 = 994.
-    EXPECT_EQ( CountOf( Form::Raw ), 453 );
+    //   AV1e +1 Raw +2 Unique: SkyboxViewerDocument::m_Assets (row in the register), its m_Preview (the
+    //   PreviewViewport whose destruction returns the renderer slot) and m_UIHelper, each owned by the
+    //   document alone: 454 / 354 / 147 / 42 = 997.
+    EXPECT_EQ( CountOf( Form::Raw ), 454 );
     EXPECT_EQ( CountOf( Form::Shared ), 354 );
-    EXPECT_EQ( CountOf( Form::Unique ), 145 );
+    EXPECT_EQ( CountOf( Form::Unique ), 147 );
     EXPECT_EQ( CountOf( Form::Weak ), 42 );
-    EXPECT_EQ( (int)Members().size(), 994 )
+    EXPECT_EQ( (int)Members().size(), 997 )
          << "the population moved. That is not a number to adjust -- it means a pointer member was added "
             "or removed, and the two questions at the top of this file are owed an answer for it.";
 }

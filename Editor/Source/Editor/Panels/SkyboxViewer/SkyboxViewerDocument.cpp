@@ -68,7 +68,8 @@ namespace Desert::Editor
         auto&                     skyboxes = *Runtime::ResourceRegistry::GetSkyboxService();
         if ( !skyboxes.Get( handle ) )
         {
-            const auto asset = m_Assets ? m_Assets->FindByHandle<Assets::SkyboxAsset>( handle ) : nullptr;
+            const auto asset =
+                 m_Assets != nullptr ? m_Assets->FindByHandle<Assets::SkyboxAsset>( handle ) : nullptr;
             if ( !asset )
             {
                 m_Unavailable = "This skybox is not registered with the asset manager — nothing to show.";

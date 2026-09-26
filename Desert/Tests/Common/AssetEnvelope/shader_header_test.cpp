@@ -73,7 +73,8 @@ TEST( ShaderCommentHeader, AHeaderlessShaderIsClaimedByNoFormatAndRefusedByTheRe
 
 TEST( ShaderCommentHeader, AClaimedButMalformedHeaderIsAnErrorNamingTheFormatNotAnUnheadedFile )
 {
-    const auto file   = Write( "Broken.shader", std::string( kShaderHeaderPrefix ) + "{\"Kind\":\n" + kSource );
+    const auto file =
+         Write( "Broken.shader", std::string( kShaderHeaderPrefix ) + R"({"Kind":)" + "\n" + kSource );
     const auto stated = ReadAssetHeaderIfStated( file, AssetHeaderReadContext{ kKnown } );
     ASSERT_TRUE( !stated );
     EXPECT_NE( stated.GetError().find( "shader comment header" ), std::string::npos ) << stated.GetError();

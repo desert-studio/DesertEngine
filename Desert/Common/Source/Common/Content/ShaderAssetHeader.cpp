@@ -1,6 +1,6 @@
 #include "ShaderAssetHeader.hpp"
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -47,7 +47,7 @@ namespace Common::Content
 
     std::string WriteShaderHeaderLine( const TextAssetHeaderSerialized& header )
     {
-        return std::string( kShaderHeaderPrefix ) + rfl::json::write( header ) + "\n";
+        return std::string( kShaderHeaderPrefix ) + Json::Write( header ) + "\n";
     }
 
     ResultStr<std::string> ReadShaderHeaderObject( std::istream& in )
