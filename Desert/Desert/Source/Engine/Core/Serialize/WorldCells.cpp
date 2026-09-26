@@ -334,6 +334,9 @@ namespace Desert::Core::WorldCells
 
         const Rules::WorldPartitionPlan plan =
              Rules::PlanWorldPartition( records, *scene.WorldPartition, BoundsFrom( registries ) );
+        // Values of the wrong type were read as the loader reads them (default kept); the cook goes on and
+        // names every one of them once, after the reference walk below has added its own.
+        Common::Json::Issues issues = plan.Issues;
         const std::size_t unitCount = Rules::ResidencyUnitCount( plan );
 
         CookedWorld cooked;
@@ -389,9 +392,10 @@ namespace Desert::Core::WorldCells
         for ( std::size_t record = 0; record < records.size(); ++record )
             for ( const Rules::EntityReferenceRow& reference : Rules::kEntityReferences )
             {
-                const auto   block = Rules::Detail::BlockOf( records[record], reference.ComponentKey );
+                const auto   block = Rules::Detail::BlockOf( records[record], reference.ComponentKey, issues );
                 Common::UUID target;
-                if ( !block.has_value() || !Rules::Detail::ReadReference( *block, reference.Field, target ) ||
+                if ( !block.has_value() ||
+                     !Rules::Detail::ReadReference( *block, reference.Field, target, issues ) ||
                      target.IsNull() )
                     continue;
                 const auto found = byId.find( target );
@@ -409,6 +413,8 @@ namespace Desert::Core::WorldCells
                        static_cast<std::uint32_t>( unitOf[found->second] ), std::string( reference.ComponentKey ),
                        std::string( reference.Field ) } );
             }
+
+        Common::Json::ReportIssues( issues, scene.SceneName );
 
         // One file per distinct name, in the order the units first name them: the always-loaded file (if any)
         // holds every always-loaded unit, a cell file holds its one cell.

@@ -1750,6 +1750,24 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
     EXPECT_GT( instancesSeen, 0u ) << "no InstancedStaticMesh instance was checked, so the ISM half is vacuous";
 }
 
+// A WRONG TYPE IS NEVER SILENT. A tile whose TileX is a string is read as the loader reads it — the default
+// coordinate is kept, so the tile is placed — and the planner names the value by its full path. Before the
+// facade it was silently dropped into UnplacedLandscapeTiles with nothing to say why.
+TEST( WorldPartitionLandscape, ATileCoordinateOfTheWrongTypeIsAnIssueAndKeepsItsDefault )
+{
+    std::vector<EntityData> records;
+    records.push_back( Record( 1, "Root", { 0.0f, 0.0f, 0.0f } ) );
+    records.push_back( Record( 2, "Tile", { 0.0f, 0.0f, 0.0f } ) );
+    With( records[0], "Landscape", "{}" );
+    With( records[1], "LandscapeTile", R"({"Landscape":"1","TileX":"one","TileZ":0})" );
+
+    const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( 10000.0f ) );
+    ASSERT_EQ( plan.Issues.size(), 1u );
+    EXPECT_EQ( plan.Issues[0].Path, "Entities[id=2].LandscapeTile.TileX" );
+    EXPECT_EQ( plan.Issues[0].Expected.rfind( "integer", 0 ), 0u ) << plan.Issues[0].Expected;
+    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+}
+
 int main( int argc, char** argv )
 {
     ::testing::InitGoogleTest( &argc, argv );
