@@ -85,9 +85,9 @@ namespace Desert::Geometry
 
         struct BevelLoop
         {
-            std::vector<int32_t>  MeshVertices; // sequential list of mesh vertex IDs along edge loop
-            std::vector<int32_t>  MeshEdges;    // sequential list of mesh edge IDs along edge loop
-            std::vector<Index2i>  MeshEdgeTris; // the one or two triangles of each MeshEdges element in the input
+            std::vector<int32_t> MeshVertices; // sequential list of mesh vertex IDs along edge loop
+            std::vector<int32_t> MeshEdges;    // sequential list of mesh edge IDs along edge loop
+            std::vector<Index2i> MeshEdgeTris; // the one or two triangles of each MeshEdges element in the input
             std::vector<glm::dvec3> InitialPositions; // initial vertex positions
             std::vector<int32_t>
                  NewMeshVertices; // vertices on the "other" side of the unlinked edge, 1-1 w/ MeshVertices
@@ -107,11 +107,11 @@ namespace Desert::Geometry
         struct BevelEdge
         {
             int32_t           EdgeIndex = -1; // index of this BevelEdge in Edges
-            std::vector<int32_t>  MeshVertices;   // sequential list of mesh vertex IDs along edge
-            std::vector<int32_t>  MeshEdges;      // sequential list of mesh edge IDs along edge
-            std::vector<Index2i>  MeshEdgeTris; // the one or two triangles of each MeshEdges element in the input
+            std::vector<int32_t> MeshVertices;   // sequential list of mesh vertex IDs along edge
+            std::vector<int32_t> MeshEdges;      // sequential list of mesh edge IDs along edge
+            std::vector<Index2i> MeshEdgeTris;   // the one or two triangles of each MeshEdges element in the input
             bool             bEndpointBoundaryFlag[2] = { false, false }; // start/end vertex was a boundary vertex
-            std::vector<glm::dvec3> InitialPositions;                          // initial vertex positions
+            std::vector<glm::dvec3> InitialPositions;                         // initial vertex positions
             Index2i                 BevelVertices; // indices of the Bevel Vertices at either end of the Bevel Edge
             std::vector<int32_t>
                  NewMeshVertices; // vertices on the "other" side of the unlinked edge, 1-1 w/ MeshVertices
@@ -175,8 +175,8 @@ namespace Desert::Geometry
             // multi-segment junction polygon: its added interior vertices, and its corners in the order c00, c10,
             // c01, c11 (quad) or in wedge order (triangle), or for 5+ corners (round profile only) its whole
             // border loop; read by the round profile
-            std::vector<BevelVertex_InteriorVertex>  InteriorVertices;
-            std::vector<int32_t>                     InteriorBorderLoop;
+            std::vector<BevelVertex_InteriorVertex> InteriorVertices;
+            std::vector<int32_t>                    InteriorBorderLoop;
         };
 
     protected:

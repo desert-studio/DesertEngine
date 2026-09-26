@@ -126,9 +126,9 @@ namespace Desert::Geometry
          * in the mesh, and was ignored because we do not support duplicate triangles */
         constexpr static int DuplicateTriangleID = -3;
 
-        const static glm::dvec3   InvalidVertex;
-        constexpr static Index3i  InvalidTriangle{ InvalidID, InvalidID, InvalidID };
-        constexpr static Index2i  InvalidEdge{ InvalidID, InvalidID };
+        const static glm::dvec3  InvalidVertex;
+        constexpr static Index3i InvalidTriangle{ InvalidID, InvalidID, InvalidID };
+        constexpr static Index2i InvalidEdge{ InvalidID, InvalidID };
 
     protected:
         /** List of vertex positions */

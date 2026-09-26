@@ -726,13 +726,13 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEdge( int eid, bool* bIsNo
         return ( bASet || bBSet ); // consider it a seam if only one is unset
     }
 
-    Index3i Triangle0 = GetTriangle( et.A );
+    Index3i  Triangle0 = GetTriangle( et.A );
     Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
                             m_ParentVertices[Triangle0.C] );
     int      idx_base_a0 = BaseTriangle0.IndexOf( base_a );
     int      idx_base_b0 = BaseTriangle0.IndexOf( base_b );
 
-    Index3i Triangle1 = GetTriangle( et.B );
+    Index3i  Triangle1 = GetTriangle( et.B );
     Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
                             m_ParentVertices[Triangle1.C] );
     int      idx_base_a1 = BaseTriangle1.IndexOf( base_a );
@@ -808,13 +808,13 @@ bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamEndEdge( int eid ) const
         return false;
     }
 
-    Index3i Triangle0 = GetTriangle( et.A );
+    Index3i  Triangle0 = GetTriangle( et.A );
     Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
                             m_ParentVertices[Triangle0.C] );
     int      idx_base_a0 = BaseTriangle0.IndexOf( base_a );
     int      idx_base_b0 = BaseTriangle0.IndexOf( base_b );
 
-    Index3i Triangle1 = GetTriangle( et.B );
+    Index3i  Triangle1 = GetTriangle( et.B );
     Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
                             m_ParentVertices[Triangle1.C] );
     int      idx_base_a1 = BaseTriangle1.IndexOf( base_a );
@@ -1230,7 +1230,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnRemoveTriangle( int TriangleID
 template <typename RealType, int ElementSize>
 void DynamicMeshOverlay<RealType, ElementSize>::OnReverseTriOrientation( int TriangleID )
 {
-    Index3i  Triangle       = GetTriangle( TriangleID );
+    Index3i  Triangle         = GetTriangle( TriangleID );
     int      i              = 3 * TriangleID;
     m_ElementTriangles[i]     = Triangle[1]; // mirrors order in DynamicMesh3::ReverseTriOrientationInternal
     m_ElementTriangles[i + 1] = Triangle[0];
@@ -1362,7 +1362,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
     int base_d = FlipInfo.OpposingVerts.B;
 
     // look up triangle 0
-    Index3i Triangle0 = GetTriangle( orig_t0 );
+    Index3i  Triangle0 = GetTriangle( orig_t0 );
     Index3i  BaseTriangle0( m_ParentVertices[Triangle0.A], m_ParentVertices[Triangle0.B],
                             m_ParentVertices[Triangle0.C] );
     int      idx_base_a1 = BaseTriangle0.IndexOf( base_a );
@@ -1370,7 +1370,7 @@ void DynamicMeshOverlay<RealType, ElementSize>::OnFlipEdge( const DynamicMesh3::
     int      idx_base_c  = IndexUtil::GetOtherTriIndex( idx_base_a1, idx_base_b1 );
 
     // look up triangle 1 (must exist because base mesh would never flip a boundary edge)
-    Index3i Triangle1 = GetTriangle( orig_t1 );
+    Index3i  Triangle1 = GetTriangle( orig_t1 );
     Index3i  BaseTriangle1( m_ParentVertices[Triangle1.A], m_ParentVertices[Triangle1.B],
                             m_ParentVertices[Triangle1.C] );
     int      idx_base_a2 = BaseTriangle1.IndexOf( base_a );

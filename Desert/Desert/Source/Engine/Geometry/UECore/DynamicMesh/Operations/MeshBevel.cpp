@@ -515,8 +515,8 @@ namespace Desert::Geometry
         // neighbour.
         for ( OneRingWedge& Wedge : Vertex.Wedges )
         {
-            const int32_t  NumWedgeTris = static_cast<int32_t>( Wedge.Triangles.size() );
-            const Index2i  VtxEdges0    = FindVertexEdgesInTriangle( Mesh, Wedge.Triangles[0], Vertex.VertexID );
+            const int32_t NumWedgeTris = static_cast<int32_t>( Wedge.Triangles.size() );
+            const Index2i VtxEdges0    = FindVertexEdgesInTriangle( Mesh, Wedge.Triangles[0], Vertex.VertexID );
             if ( NumWedgeTris == 1 )
             {
                 Wedge.BorderEdges.A = VtxEdges0.A;
@@ -609,8 +609,8 @@ namespace Desert::Geometry
 
     void MeshBevel::UnlinkBevelEdgeInterior( DynamicMesh3& Mesh, BevelEdge& BevelEdge )
     {
-        const int32_t             N = static_cast<int32_t>( BevelEdge.MeshVertices.size() );
-        std::vector<VertexSplit>  SplitsToProcess;
+        const int32_t            N = static_cast<int32_t>( BevelEdge.MeshVertices.size() );
+        std::vector<VertexSplit> SplitsToProcess;
         SplitsToProcess.resize( N );
         const std::string Where = "bevel edge " + std::to_string( BevelEdge.EdgeIndex );
 
@@ -671,8 +671,8 @@ namespace Desert::Geometry
 
     void MeshBevel::UnlinkBevelLoop( DynamicMesh3& Mesh, BevelLoop& BevelLoop )
     {
-        const int32_t             N = static_cast<int32_t>( BevelLoop.MeshVertices.size() );
-        std::vector<VertexSplit>  SplitsToProcess;
+        const int32_t            N = static_cast<int32_t>( BevelLoop.MeshVertices.size() );
+        std::vector<VertexSplit> SplitsToProcess;
         SplitsToProcess.resize( N );
         for ( int32_t k = 0; k < N; ++k )
         {
@@ -807,9 +807,9 @@ namespace Desert::Geometry
             // Re-point the span's end vertices at the wedge vertices that now own its end edges.
             for ( int32_t j = 0; j < 2; ++j )
             {
-                const int32_t       vi = ( j == 0 ) ? 0 : ( static_cast<int32_t>( Edge.MeshVertices.size() ) - 1 );
-                const int32_t       ei = ( j == 0 ) ? 0 : ( static_cast<int32_t>( Edge.MeshEdges.size() ) - 1 );
-                const BevelVertex*  BevelVertex = GetBevelVertexFromVertexID( Edge.MeshVertices[vi] );
+                const int32_t      vi = ( j == 0 ) ? 0 : ( static_cast<int32_t>( Edge.MeshVertices.size() ) - 1 );
+                const int32_t      ei = ( j == 0 ) ? 0 : ( static_cast<int32_t>( Edge.MeshEdges.size() ) - 1 );
+                const BevelVertex* BevelVertex = GetBevelVertexFromVertexID( Edge.MeshVertices[vi] );
                 if ( BevelVertex == nullptr )
                 {
                     Refuse( "bevel edge " + std::to_string( Edge.EdgeIndex ) + ": end vertex " +
@@ -925,19 +925,18 @@ namespace Desert::Geometry
                     const glm::dvec3 BaseInsetDir      = Normalized( InsetLinePosition - CurPos );
                     double          MaxDot            = -1;
                     Line3d           MaxDotEdgeLine;
-                    Mesh.EnumerateVertexVertices( Wedge.WedgeVertex,
-                                                  [&]( int32_t othervid )
-                                                  {
-                                                      const Line3d EdgeLine = Line3d::FromPoints(
-                                                           CurPos, Mesh.GetVertex( othervid ) );
-                                                      const double DirDot =
-                                                           glm::dot( EdgeLine.Direction, BaseInsetDir );
-                                                      if ( DirDot > MaxDot )
-                                                      {
-                                                          MaxDot         = DirDot;
-                                                          MaxDotEdgeLine = EdgeLine;
-                                                      }
-                                                  } );
+                    Mesh.EnumerateVertexVertices(
+                         Wedge.WedgeVertex,
+                         [&]( int32_t othervid )
+                         {
+                             const Line3d EdgeLine = Line3d::FromPoints( CurPos, Mesh.GetVertex( othervid ) );
+                             const double DirDot   = glm::dot( EdgeLine.Direction, BaseInsetDir );
+                             if ( DirDot > MaxDot )
+                             {
+                                 MaxDot         = DirDot;
+                                 MaxDotEdgeLine = EdgeLine;
+                             }
+                         } );
                     if ( MaxDot > -1 )
                     {
                         DistLine3Line3d LineIntersection( SolveLines[0], MaxDotEdgeLine );
@@ -1855,9 +1854,9 @@ namespace Desert::Geometry
         if ( bMeanValuePatch )
         {
             Tess.EnableAttributes();
-            DynamicMeshUVOverlay*  UVOverlay = Tess.Attributes()->PrimaryUV();
-            DynamicMeshUVEditor    UVEditor( &Tess, UVOverlay );
-            std::vector<int32_t>   AllTriangles;
+            DynamicMeshUVOverlay* UVOverlay = Tess.Attributes()->PrimaryUV();
+            DynamicMeshUVEditor   UVEditor( &Tess, UVOverlay );
+            std::vector<int32_t>  AllTriangles;
             for ( const int32_t TriangleID : Tess.TriangleIndicesItr() )
                 AllTriangles.push_back( TriangleID );
             std::vector<int32_t> TessToUV;
@@ -2195,13 +2194,13 @@ namespace Desert::Geometry
 
         // Edges likewise, keeping each column's curve by its end-vertex pair for the junction patches, and summing
         // the surface normal at every column vertex (UE's DeformNormals, B:3377-3518) for the 5+-sided patches.
-        std::unordered_map<Index2i, ArcSplineCurve>   BorderCurves;
-        std::vector<glm::dvec3>                       DeformNormals;
+        std::unordered_map<Index2i, ArcSplineCurve> BorderCurves;
+        std::vector<glm::dvec3>                     DeformNormals;
         DeformNormals.assign( Mesh.MaxVertexID(), glm::dvec3( 0 ) );
         for ( BevelEdge& Edge : m_Edges )
         {
-            const QuadGridPatch&  Patch  = Edge.StripQuadPatch;
-            const int32_t         NumVtx = static_cast<int32_t>( Edge.MeshVertices.size() );
+            const QuadGridPatch& Patch  = Edge.StripQuadPatch;
+            const int32_t        NumVtx = static_cast<int32_t>( Edge.MeshVertices.size() );
             for ( int32_t Col = 0; Col < Patch.NumVertexCols(); ++Col )
             {
                 std::vector<int32_t> ColVerts;
@@ -2410,9 +2409,9 @@ namespace Desert::Geometry
             const glm::dvec3 Tangent11 = bReversedX2 ? -CurveX2->Tangent0 : CurveX2->Tangent1;
             for ( const BevelVertex_InteriorVertex& InteriorVtx : Vertex.InteriorVertices )
             {
-                const double    tx = InteriorVtx.BorderFrameWeight[0].x;
-                const double    ty = InteriorVtx.BorderFrameWeight[0].y;
-                ArcSplineCurve  InterpolatedXCurve;
+                const double   tx = InteriorVtx.BorderFrameWeight[0].x;
+                const double   ty = InteriorVtx.BorderFrameWeight[0].y;
+                ArcSplineCurve InterpolatedXCurve;
                 InterpolatedXCurve.Pos0     = CurveY1->Eval( bReversedY1 ? 1.0 - ty : ty );
                 InterpolatedXCurve.Pos1     = CurveY2->Eval( bReversedY2 ? 1.0 - ty : ty );
                 InterpolatedXCurve.Tangent0 = -Lerp( Tangent00, Tangent01, ty );

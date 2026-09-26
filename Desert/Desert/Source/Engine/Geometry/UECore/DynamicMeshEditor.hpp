@@ -21,10 +21,10 @@ namespace Desert::Geometry
 {
     struct DynamicMeshEditResult
     {
-        std::vector<int>      NewVertices;
-        std::vector<int>      NewTriangles;
-        std::vector<Index2i>  NewQuads;
-        std::vector<int>      NewGroups;
+        std::vector<int>     NewVertices;
+        std::vector<int>     NewTriangles;
+        std::vector<Index2i> NewQuads;
+        std::vector<int>     NewGroups;
 
         void Reset()
         {

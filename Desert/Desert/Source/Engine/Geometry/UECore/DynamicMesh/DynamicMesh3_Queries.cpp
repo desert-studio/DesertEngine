@@ -709,8 +709,8 @@ glm::dvec3 DynamicMesh3::GetEdgeNormal( int eID ) const
 {
     if ( m_EdgeRefCounts.IsValid( eID ) )
     {
-        const Index2i  Tris = m_Edges[eID].Tri;
-        glm::dvec3     n    = GetTriNormal( Tris[0] );
+        const Index2i Tris = m_Edges[eID].Tri;
+        glm::dvec3    n    = GetTriNormal( Tris[0] );
         if ( Tris[1] != InvalidID )
         {
             n += GetTriNormal( Tris[1] );

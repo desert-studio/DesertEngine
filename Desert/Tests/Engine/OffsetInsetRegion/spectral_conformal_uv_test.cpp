@@ -72,10 +72,10 @@ namespace
         std::vector<double> ratios;
         for ( const int t : mesh.TriangleIndicesItr() )
         {
-            const Index3i  v = mesh.GetTriangle( t );
-            const Index3i  e = uvs.GetTriangle( t );
-            glm::dvec3     p[3]{};
-            glm::dvec3     q[3]{};
+            const Index3i v = mesh.GetTriangle( t );
+            const Index3i e = uvs.GetTriangle( t );
+            glm::dvec3    p[3]{};
+            glm::dvec3    q[3]{};
             for ( int j = 0; j < 3; ++j )
             {
                 p[j]               = mesh.GetVertex( v[j] );
@@ -115,10 +115,10 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
 {
     for ( const bool preserveIrregularity : { false, true } )
     {
-        DynamicMesh3           mesh = Grid( 0.0 );
-        DynamicMeshUVOverlay&  uvs  = *mesh.Attributes()->PrimaryUV();
-        DynamicMeshUVEditor    editor( &mesh, &uvs );
-        UVEditResult           result;
+        DynamicMesh3          mesh = Grid( 0.0 );
+        DynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
+        DynamicMeshUVEditor   editor( &mesh, &uvs );
+        UVEditResult          result;
         ASSERT_TRUE( editor.SetTriangleUVsFromFreeBoundarySpectralConformal( AllTriangles( mesh ), false,
                                                                              preserveIrregularity, &result ) );
         EXPECT_EQ( static_cast<int32_t>( result.NewUVElements.size() ), mesh.VertexCount() );
@@ -134,9 +134,9 @@ TEST( SpectralConformalUV, FlatIrregularSquareMapsToASimilarityWithFreeCorners )
 TEST( SpectralConformalUV, SphericalCapInPlaceKeepsOrientationAndAngles )
 {
     // the bevel's call: existing UV topology, irregularity preserved
-    DynamicMesh3           mesh = Grid( 120.0 );
-    DynamicMeshUVOverlay&  uvs  = *mesh.Attributes()->PrimaryUV();
-    DynamicMeshUVEditor    editor( &mesh, &uvs );
+    DynamicMesh3          mesh = Grid( 120.0 );
+    DynamicMeshUVOverlay& uvs  = *mesh.Attributes()->PrimaryUV();
+    DynamicMeshUVEditor   editor( &mesh, &uvs );
     ASSERT_TRUE( editor.SetTriangleUVsFromExpMap( AllTriangles( mesh ) ) );
     const int     elementsBefore = uvs.ElementCount();
     UVEditResult  result;

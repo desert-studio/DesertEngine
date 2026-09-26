@@ -80,9 +80,9 @@ namespace Desert::Geometry
         struct Group
         {
             int                    GroupID = 0;
-            std::vector<int>            Triangles;
-            std::vector<GroupBoundary>  Boundaries;
-            std::vector<int>            NeighbourGroupIDs;
+            std::vector<int>           Triangles;
+            std::vector<GroupBoundary> Boundaries;
+            std::vector<int>           NeighbourGroupIDs;
         };
         std::vector<Group> m_Groups;
 

@@ -23,10 +23,10 @@ namespace Desert::Geometry
         // (normal element, tangent element, sign) a corner uses, valued cross(N, T) * sign.
         void RebuildBitangentsFromSigns( DynamicMesh3& mesh, const Ser::MeshAssetData& data )
         {
-            DynamicMeshAttributeSet&         attributes = *mesh.Attributes();
-            const DynamicMeshNormalOverlay&  normals    = *attributes.PrimaryNormals();
-            const DynamicMeshNormalOverlay&  tangents   = *attributes.PrimaryTangents();
-            DynamicMeshNormalOverlay&        bitangents = *attributes.PrimaryBiTangents();
+            DynamicMeshAttributeSet&        attributes = *mesh.Attributes();
+            const DynamicMeshNormalOverlay& normals    = *attributes.PrimaryNormals();
+            const DynamicMeshNormalOverlay& tangents   = *attributes.PrimaryTangents();
+            DynamicMeshNormalOverlay&       bitangents = *attributes.PrimaryBiTangents();
             bitangents.ClearElements();
 
             // Mesh corner j of triangle k is render corner kRenderCorner[j] of file face k (the winding swap

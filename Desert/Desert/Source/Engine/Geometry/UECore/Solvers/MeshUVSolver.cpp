@@ -32,10 +32,10 @@ namespace Desert::Geometry
 
             CotanTriangleData( const DynamicMesh3& Mesh, int32_t TriID )
             {
-                const Index3i  EdgeIds = Mesh.GetTriEdges( TriID );
-                glm::dvec3     VertA{};
-                glm::dvec3     VertB{};
-                glm::dvec3     VertC{};
+                const Index3i EdgeIds = Mesh.GetTriEdges( TriID );
+                glm::dvec3    VertA{};
+                glm::dvec3    VertB{};
+                glm::dvec3    VertC{};
                 Mesh.GetTriVertices( TriID, VertA, VertB, VertC );
                 const glm::dvec3 EdgeAB( VertB - VertA );
                 const glm::dvec3 EdgeAC( VertC - VertA );
@@ -81,9 +81,9 @@ namespace Desert::Geometry
                                            const std::vector<int32_t>& ToIndex, CotangentWeightMode WeightMode,
                                            std::vector<Triplet>& Triplets )
         {
-            const int32_t                   NumVerts = static_cast<int32_t>( ToVertex.size() );
-            std::vector<CotanTriangleData>  TriData;
-            std::vector<int32_t>            ToTriIdx( Mesh.MaxTriangleID(), DynamicMesh3::InvalidID );
+            const int32_t                  NumVerts = static_cast<int32_t>( ToVertex.size() );
+            std::vector<CotanTriangleData> TriData;
+            std::vector<int32_t>           ToTriIdx( Mesh.MaxTriangleID(), DynamicMesh3::InvalidID );
             for ( const int32_t tid : Mesh.TriangleIndicesItr() )
             {
                 ToTriIdx[tid] = static_cast<int32_t>( TriData.size() );

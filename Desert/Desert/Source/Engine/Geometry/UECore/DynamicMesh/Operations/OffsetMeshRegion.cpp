@@ -201,8 +201,8 @@ namespace Desert::Geometry
         // (row 1, the offset loop) - UE's QuadGridPatch after its second ReverseRows, NumSubdivisions = 0.
         struct Strip
         {
-            std::vector<int32_t>  Outer, Inner; // Columns + 1 vertices each
-            std::vector<Index2i>  Quads;
+            std::vector<int32_t> Outer, Inner; // Columns + 1 vertices each
+            std::vector<Index2i> Quads;
         };
 
         void ComputeUVIslandForStrip( DynamicMesh3& Mesh, const Strip& Strip, double UVScaleFactor )

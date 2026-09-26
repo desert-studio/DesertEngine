@@ -89,11 +89,11 @@ namespace Desert::Geometry
         if ( m_InitialNumBoundaryEdges > 100000 )
             hashN = 512;
 
-        const AxisAlignedBox3d  Bounds   = m_Mesh->GetBounds();
-        const double            MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
-                                                     std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
-        const double CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
-        PointHashGrid3          MidpointsHash( CellSize );
+        const AxisAlignedBox3d Bounds   = m_Mesh->GetBounds();
+        const double           MaxDim   = std::max( Bounds.Max.x - Bounds.Min.x,
+                                                    std::max( Bounds.Max.y - Bounds.Min.y, Bounds.Max.z - Bounds.Min.z ) );
+        const double           CellSize = std::max( ZeroTolerance<double>, MaxDim / static_cast<double>( hashN ) );
+        PointHashGrid3         MidpointsHash( CellSize );
         UseMergeSearchTol = std::min( CellSize, UseMergeSearchTol );
 
         glm::dvec3           A{}, B{}, C{}, D{};

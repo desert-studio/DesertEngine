@@ -357,8 +357,8 @@ TEST( DynamicMesh3Render, CorruptedOverlayIsCaughtByCheckValidity )
     // element whose parent is another vertex.
     DynamicMesh3 mesh = Import( HardCube( 50.0f ) );
     ASSERT_TRUE( Valid( mesh ) );
-    DynamicMeshNormalOverlay&  normals = *mesh.Attributes()->PrimaryNormals();
-    const Index3i              tri     = normals.GetTriangle( 0 );
+    DynamicMeshNormalOverlay& normals = *mesh.Attributes()->PrimaryNormals();
+    const Index3i             tri     = normals.GetTriangle( 0 );
     ASSERT_NE( normals.GetParentVertex( tri.A ), normals.GetParentVertex( tri.B ) );
     OverlayAccess::Triangles( normals )[0] = tri.B;
     EXPECT_FALSE( normals.CheckValidity( true, ValidityCheckFailMode::ReturnOnly ) );

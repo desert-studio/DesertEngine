@@ -331,9 +331,9 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::SetQuadNormals( const Index2i& QuadTris, const glm::vec3& Normal )
     {
-        DynamicMeshNormalOverlay*  Normals   = m_Mesh->Attributes()->PrimaryNormals();
-        Index3i                    Triangle1 = m_Mesh->GetTriangle( QuadTris.A );
-        Index3i                    NormalTriangle1;
+        DynamicMeshNormalOverlay* Normals   = m_Mesh->Attributes()->PrimaryNormals();
+        Index3i                   Triangle1 = m_Mesh->GetTriangle( QuadTris.A );
+        Index3i                   NormalTriangle1;
         for ( int j = 0; j < 3; ++j )
             NormalTriangle1[j] = Normals->AppendElement( Normal );
         Normals->SetTriangle( QuadTris.A, NormalTriangle1 );
@@ -352,8 +352,8 @@ namespace Desert::Geometry
 
     void DynamicMeshEditor::SetTriangleNormals( const std::vector<int>& Triangles )
     {
-        DynamicMeshNormalOverlay*  Normals = m_Mesh->Attributes()->PrimaryNormals();
-        std::unordered_set<int>    TriangleSet( Triangles.begin(), Triangles.end() );
+        DynamicMeshNormalOverlay* Normals = m_Mesh->Attributes()->PrimaryNormals();
+        std::unordered_set<int>   TriangleSet( Triangles.begin(), Triangles.end() );
         auto TrianglePredicate = [&]( int32_t TriangleID ) { return TriangleSet.contains( TriangleID ); };
         std::unordered_map<int, int> Vertices;
         for ( int tid : Triangles )
@@ -423,8 +423,8 @@ namespace Desert::Geometry
         DynamicMeshAttributeSet* Attr = m_Mesh->Attributes();
         for ( int k = 0; k < Attr->NumNormalLayers(); ++k )
         {
-            DynamicMeshNormalOverlay*  Normals = Attr->GetNormalLayer( k );
-            std::unordered_set<int>    Done;
+            DynamicMeshNormalOverlay* Normals = Attr->GetNormalLayer( k );
+            std::unordered_set<int>   Done;
             for ( int tid : Triangles )
             {
                 if ( !Normals->IsSetTriangle( tid ) )

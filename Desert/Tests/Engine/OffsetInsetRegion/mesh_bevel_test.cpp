@@ -799,7 +799,7 @@ TEST( MeshBevel, ApplyOneEdgeAssignsMaterialsPerMode )
         SetFaceMaterials( mesh );
         const GroupTopology  topology( &mesh, true );
         FMeshBevelProbe      bevel;
-        bevel.m_MaterialIDMode      = mode;
+        bevel.m_MaterialIDMode        = mode;
         bevel.m_SetConstantMaterialID = 7;
         ASSERT_TRUE(
              bevel.InitializeFromGroupTopologyEdges( mesh, topology, { GroupEdgeBetween( topology, 1, 3 ) } ) )
@@ -1293,10 +1293,10 @@ TEST( MeshBevel, RoundEdgeColumnsLieOnTheArcAndVolumeGrowsWithSegments )
         ASSERT_TRUE( run.bApplied ) << run.Bevel.m_FailureReason;
         EXPECT_EQ( CountBoundaryEdges( run.Mesh ), 0 );
         EXPECT_TRUE( run.Mesh.CheckValidity() );
-        const MeshBevel::BevelEdge&   edge  = run.Bevel.m_Edges[0];
-        const glm::dvec3              e0    = edge.InitialPositions[0];
-        const glm::dvec3              dir   = Normalized( edge.InitialPositions.back() - e0 );
-        const QuadGridPatch&          patch = edge.StripQuadPatch;
+        const MeshBevel::BevelEdge& edge  = run.Bevel.m_Edges[0];
+        const glm::dvec3            e0    = edge.InitialPositions[0];
+        const glm::dvec3            dir   = Normalized( edge.InitialPositions.back() - e0 );
+        const QuadGridPatch&        patch = edge.StripQuadPatch;
         ASSERT_EQ( patch.NumVertexRows(), N + 2 );
         for ( int c = 0; c < patch.NumVertexCols(); ++c )
         {
