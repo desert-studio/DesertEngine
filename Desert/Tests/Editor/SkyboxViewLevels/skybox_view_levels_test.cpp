@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include <glm/glm.hpp>
 
 #include <Common/Core/GlslAsCpp.hpp>
@@ -97,6 +99,86 @@ TEST( SkyboxViewLevels, TheUnwrapIsTheInverseOfTheBakesPanoramaLookup )
         }
     // Up is the top row, as in the file.
     EXPECT_GT( PanoramaDirection( glm::vec2( 0.5f, 0.01f ) ).y, 0.99f );
+}
+
+namespace
+{
+    // Runs the action the palette would list under `label`, as the document does: over one ViewState.
+    bool RunViewAction( SV::ViewState& state, const std::string& label, uint32_t mips )
+    {
+        for ( const auto& action : SV::ViewActions( mips ) )
+            if ( action.Label == label )
+            {
+                action.Apply( state );
+                return true;
+            }
+        return false;
+    }
+} // namespace
+
+TEST( SkyboxViewLevels, EveryLevelIsAnActionAndTheDiffuseActionPicksIrradiance )
+{
+    constexpr uint32_t kMips = 8u; // the chain the environment cache bakes (1..7 listed, then Diffuse)
+    SV::ViewState      state;
+    int                levelActions = 0;
+    for ( const auto& action : SV::ViewActions( kMips ) )
+        levelActions += action.Label.rfind( "Level: ", 0 ) == 0 ? 1 : 0;
+    EXPECT_EQ( levelActions, SV::LevelCount( kMips ) );
+
+    ASSERT_TRUE( RunViewAction( state, "Level: Mip 5", kMips ) );
+    EXPECT_EQ( state.Level, 5 );
+    EXPECT_EQ( SV::ResolveLevel( state.Level, kMips ), ( SV::Level{ SV::Cube::Prefiltered, 5.0f } ) );
+
+    ASSERT_TRUE( RunViewAction( state, "Level: Diffuse", kMips ) );
+    EXPECT_EQ( state.Level, SV::DiffuseLevel( kMips ) );
+    EXPECT_EQ( SV::ResolveLevel( state.Level, kMips ), ( SV::Level{ SV::Cube::Irradiance, 0.0f } ) );
+
+    ASSERT_TRUE( RunViewAction( state, "Level: Mip 0", kMips ) );
+    EXPECT_EQ( SV::ResolveLevel( state.Level, kMips ), ( SV::Level{ SV::Cube::Radiance, 0.0f } ) );
+
+    // No action names a level outside the list.
+    EXPECT_FALSE( RunViewAction( state, "Level: Mip " + std::to_string( kMips + 1u ), kMips ) );
+}
+
+TEST( SkyboxViewLevels, ProjectionAndEVActionsMoveOnlyTheirField )
+{
+    SV::ViewState state;
+    ASSERT_TRUE( RunViewAction( state, "View: 2D", 8u ) );
+    EXPECT_EQ( state.View, SV::Projection::LongLat2D );
+    ASSERT_TRUE( RunViewAction( state, "EV +1", 8u ) );
+    ASSERT_TRUE( RunViewAction( state, "EV +1", 8u ) );
+    EXPECT_FLOAT_EQ( state.ExposureEV, 2.0f );
+    EXPECT_FLOAT_EQ( SV::ExposureFromEV( state.ExposureEV ), 4.0f );
+    EXPECT_EQ( state.Level, 0 );
+    for ( int i = 0; i < 30; ++i )
+        ASSERT_TRUE( RunViewAction( state, "EV +1", 8u ) );
+    EXPECT_FLOAT_EQ( state.ExposureEV, SV::kMaxEV ); // the slider's range, not beyond it
+    ASSERT_TRUE( RunViewAction( state, "EV 0", 8u ) );
+    EXPECT_FLOAT_EQ( state.ExposureEV, 0.0f );
+    ASSERT_TRUE( RunViewAction( state, "View: 3D", 8u ) );
+    EXPECT_EQ( state.View, SV::Projection::Sphere3D );
+}
+
+TEST( SkyboxViewLevels, EverySampledFieldChangesTheFingerprintSoTheGateRendersAgain )
+{
+    const SV::ViewState base;
+    SV::ViewState       turned = base;
+    ASSERT_TRUE( RunViewAction( turned, "Rotate +90 deg", 8u ) );
+    EXPECT_FLOAT_EQ( turned.RotationDegrees, 90.0f );
+    EXPECT_NE( SV::Fingerprint( turned ), SV::Fingerprint( base ) );
+
+    SV::ViewState level = base;
+    level.Level         = 1;
+    EXPECT_NE( SV::Fingerprint( level ), SV::Fingerprint( base ) );
+
+    SV::ViewState unwrapped = base;
+    unwrapped.View          = SV::Projection::LongLat2D;
+    EXPECT_NE( SV::Fingerprint( unwrapped ), SV::Fingerprint( base ) );
+
+    // Rotation wraps into the slider's range: 90 + 90 + 90 = 270 = -90.
+    ASSERT_TRUE( RunViewAction( turned, "Rotate +90 deg", 8u ) );
+    ASSERT_TRUE( RunViewAction( turned, "Rotate +90 deg", 8u ) );
+    EXPECT_NEAR( turned.RotationDegrees, -90.0f, 1e-4f );
 }
 
 int main( int argc, char** argv )

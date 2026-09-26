@@ -19,7 +19,6 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
-#include <bit>
 #include <filesystem>
 
 namespace Desert::Editor
@@ -121,7 +120,7 @@ namespace Desert::Editor
                  if ( !material )
                      return {};
                  const auto& environment = material->GetEnvironment();
-                 const auto  level       = SkyboxView::ResolveLevel( m_Level, m_PrefilteredMips );
+                 const auto  level       = SkyboxView::ResolveLevel( m_View.Level, m_PrefilteredMips );
                  if ( !level )
                      return {};
                  const Runtime::ImageHandle& key = EnvironmentCube( environment, level->Source );
@@ -135,7 +134,7 @@ namespace Desert::Editor
                  source.Lod = level->Lod;
                  // The file as authored, turned by THIS WINDOW's rotation; gain and tint stay identity (the
                  // component's knobs belong to a scene, not to the asset).
-                 source.Look.RotationDegrees = m_RotationDegrees;
+                 source.Look.RotationDegrees = m_View.RotationDegrees;
                  return source;
              } );
         m_Preview->SetCubemapBackdrop( true );
@@ -171,11 +170,15 @@ namespace Desert::Editor
 
     std::vector<ISubjectDocument::DocumentAction> SkyboxViewerDocument::Actions()
     {
-        return {
+        std::vector<DocumentAction> actions = {
              { "Look at zenith", [this]() { SetOrbitDegrees( 0.0f, kZenithPitchDegrees ); } },
              { "Look at mid sky", [this]() { SetOrbitDegrees( 0.0f, kMidSkyPitchDegrees ); } },
              { "Look at horizon", [this]() { SetOrbitDegrees( 0.0f, kHorizonPitchDegrees ); } },
         };
+        for ( auto& mode : SkyboxView::ViewActions( m_PrefilteredMips ) )
+            actions.push_back(
+                 { std::move( mode.Label ), [this, apply = std::move( mode.Apply )]() { apply( m_View ); } } );
+        return actions;
     }
 
     void SkyboxViewerDocument::OnPreUpdate()
@@ -192,13 +195,11 @@ namespace Desert::Editor
             return;
 
         m_PrefilteredMips = PrefilteredMipsOf( Assets::AssetHandle( Subject().Owner ) );
-        m_Preview->SetCubemapProjection( m_Projection == SkyboxView::Projection::LongLat2D );
+        m_Preview->SetCubemapProjection( m_View.View == SkyboxView::Projection::LongLat2D );
         // Level, projection and rotation are sampled inside the resolver, where the render gate cannot see
         // them; the fingerprint is how a change to any of them asks for a frame.
-        m_Preview->SetContentFingerprint(
-             static_cast<uint64_t>( m_Level ) | ( static_cast<uint64_t>( m_Projection ) << 8u ) |
-             ( static_cast<uint64_t>( std::bit_cast<uint32_t>( m_RotationDegrees ) ) << 16u ) );
-        m_Preview->Setup().Exposure = SkyboxView::ExposureFromEV( m_ExposureEV );
+        m_Preview->SetContentFingerprint( SkyboxView::Fingerprint( m_View ) );
+        m_Preview->Setup().Exposure = SkyboxView::ExposureFromEV( m_View.ExposureEV );
         m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
     }
 
@@ -208,26 +209,27 @@ namespace Desert::Editor
         m_DrewThisFrame = true;
 
         // UE's TextureCube editor row: 3D/2D, the level picker, EV. All read the cached cubes at sampling time.
-        int projection = static_cast<int>( m_Projection );
+        int projection = static_cast<int>( m_View.View );
         ImGui::RadioButton( "3D", &projection, static_cast<int>( SkyboxView::Projection::Sphere3D ) );
         ImGui::SameLine();
         ImGui::RadioButton( "2D", &projection, static_cast<int>( SkyboxView::Projection::LongLat2D ) );
-        m_Projection = static_cast<SkyboxView::Projection>( projection );
+        m_View.View = static_cast<SkyboxView::Projection>( projection );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 210.0f );
-        if ( ImGui::BeginCombo( "Level", SkyboxView::LevelLabel( m_Level, m_PrefilteredMips ).c_str() ) )
+        if ( ImGui::BeginCombo( "Level", SkyboxView::LevelLabel( m_View.Level, m_PrefilteredMips ).c_str() ) )
         {
             for ( int i = 0; i < SkyboxView::LevelCount( m_PrefilteredMips ); ++i )
-                if ( ImGui::Selectable( SkyboxView::LevelLabel( i, m_PrefilteredMips ).c_str(), i == m_Level ) )
-                    m_Level = i;
+                if ( ImGui::Selectable( SkyboxView::LevelLabel( i, m_PrefilteredMips ).c_str(),
+                                        i == m_View.Level ) )
+                    m_View.Level = i;
             ImGui::EndCombo();
         }
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 140.0f );
-        ImGui::SliderFloat( "EV", &m_ExposureEV, -10.0f, 10.0f, "%+.1f" );
+        ImGui::SliderFloat( "EV", &m_View.ExposureEV, SkyboxView::kMinEV, SkyboxView::kMaxEV, "%+.1f" );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 200.0f );
-        ImGui::SliderFloat( "Rotation", &m_RotationDegrees, -180.0f, 180.0f, "%.0f deg" );
+        ImGui::SliderFloat( "Rotation", &m_View.RotationDegrees, -180.0f, 180.0f, "%.0f deg" );
         ImGui::SameLine();
         ImGui::TextDisabled( "(viewing only — not saved)" );
 

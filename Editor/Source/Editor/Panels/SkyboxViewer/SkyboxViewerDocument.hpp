@@ -68,8 +68,9 @@ namespace Desert::Editor
         }
         void SetPreviewViewpoint( const PreviewViewpoint& viewpoint ) override;
 
-        // "Look at zenith / mid sky / horizon" — the three elevations a sky has to be checked at, reachable from
-        // the palette because macOS refuses synthetic input and a headless shot cannot drag.
+        // "Look at zenith / mid sky / horizon" — the three elevations a sky has to be checked at — and the
+        // viewing modes (SkyboxView::ViewActions: 3D/2D, level, EV, rotation), reachable from the palette
+        // because macOS refuses synthetic input and a headless shot cannot drag.
         [[nodiscard]] std::vector<DocumentAction> Actions() override;
 
     private:
@@ -85,13 +86,9 @@ namespace Desert::Editor
         // An orbit asked for before the preview exists (the palette can aim a window that has not drawn yet).
         std::optional<glm::vec2> m_PendingOrbitDegrees;
 
-        // The window's own viewing knobs (see the class comment).
-        float m_ExposureEV = 0.0f;
-        // The picker (SkyboxViewLevels.hpp): which cube/mip, and ball or unwrap. Viewing state, never saved.
-        int                    m_Level           = 0;
-        SkyboxView::Projection m_Projection      = SkyboxView::Projection::Sphere3D;
-        uint32_t               m_PrefilteredMips = 0; // read off the cached chain each frame
-        float m_RotationDegrees = 0.0f;
+        // The window's own viewing knobs (see the class comment and SkyboxViewLevels.hpp). Never saved.
+        SkyboxView::ViewState m_View;
+        uint32_t              m_PrefilteredMips = 0; // read off the cached chain each frame
     };
 
     // The `.detex` path opener for SKYBOX panoramas: NotMine unless the file's header says ContentKind::Skybox,
