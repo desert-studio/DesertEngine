@@ -251,13 +251,13 @@ bool FMeshRegionBoundaryLoops::GetLoopOverlayMap( const FEdgeLoop&              
                                                   const TDynamicMeshOverlay<StorageType, ElementSize>& Overlay,
                                                   VidOverlayMap<ElementType>& LoopVidsToOverlayElementsOut ) const
 {
-    for ( int32 i = 0; i < LoopIn.Vertices.Num(); ++i )
+    for ( int32_t i = 0; i < LoopIn.Vertices.Num(); ++i )
     {
-        const int32 Vid = LoopIn.Vertices[i];
+        const int32_t Vid = LoopIn.Vertices[i];
 
         // the inner triangle of the edge going forward from this vertex
-        int32 TidInside  = IndexConstants::InvalidID;
-        int32 TidOutside = IndexConstants::InvalidID;
+        int32_t TidInside  = IndexConstants::InvalidID;
+        int32_t TidOutside = IndexConstants::InvalidID;
         if ( !IsEdgeOnBoundary( LoopIn.Edges[i], TidInside, TidOutside ) ||
              TidInside == IndexConstants::InvalidID )
         {
@@ -265,14 +265,14 @@ bool FMeshRegionBoundaryLoops::GetLoopOverlayMap( const FEdgeLoop&              
         }
 
         const FIndex3i TriangleVerts = Mesh->GetTriangle( TidInside );
-        const int32    VidTriIndex   = TriangleVerts.IndexOf( Vid );
+        const int32_t  VidTriIndex   = TriangleVerts.IndexOf( Vid );
         if ( VidTriIndex < 0 )
         {
             return false;
         }
 
         const FIndex3i TriangleElements = Overlay.GetTriangle( TidInside );
-        const int32    UVElementID      = TriangleElements[VidTriIndex];
+        const int32_t  UVElementID      = TriangleElements[VidTriIndex];
         if ( !Overlay.IsElement( UVElementID ) )
         {
             return false;

@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
         "Dependencies": ["3facba2f99300a42b32d1af712ab96e9"]
     },
@@ -32,6 +32,5 @@
             "Path": "assets:Textures/T_Checker.detex"
         }
     ],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

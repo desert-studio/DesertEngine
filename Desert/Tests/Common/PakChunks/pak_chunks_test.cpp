@@ -16,6 +16,7 @@
 //     built and mounted. That is what makes a failed update recoverable, and nothing else in the
 //     tree asserts it about a CHUNKED layout.
 
+#include <Common/Content/ChunkSchemeSession.hpp>
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
@@ -398,7 +399,7 @@ TEST( PakChunks, EveryWayOfAskingForAnEmptyOrAmbiguousChunkIsRefusedByName )
     EXPECT_FALSE( Refused( registry, good ) );
 }
 
-TEST( PakChunks, TheSchemeRoundTripsAndAnEmptyFileIsAProjectThatWasNeverDivided )
+TEST( PakChunks, TheSchemeRoundTripsAndABlankOrHalfWrittenFileIsRefused )
 {
     ChunkScheme scheme;
     scheme.Chunks.emplace_back( ChunkRule{ "North", { "assets:A.demat", "assets:B.demat" } } );
@@ -428,6 +429,67 @@ TEST( PakChunks, TheSchemeRoundTripsAndAnEmptyFileIsAProjectThatWasNeverDivided 
 
     const auto rubbish = ParseChunkScheme( "{ this is not json" );
     EXPECT_FALSE( rubbish.IsSuccess() );
+}
+
+TEST( PakChunks, AnAbsentSchemeIsARefusalThatNamesThePathAndTheWayOut )
+{
+    const fs::path dir     = MakeTempDir( "absent" );
+    const fs::path missing = dir / "ContentChunks.json";
+
+    const auto loaded = LoadChunkScheme( missing );
+    ASSERT_FALSE( loaded.IsSuccess() ) << "an absent scheme must not package as one archive by default";
+    EXPECT_NE( loaded.GetError().find( missing.string() ), std::string::npos ) << loaded.GetError();
+    EXPECT_NE( loaded.GetError().find( "Create default ContentChunks.json" ), std::string::npos )
+         << loaded.GetError();
+
+    // A broken file is refused by its path too, not treated as absent.
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( missing, R"({ "Chunks": 7 })" ) );
+    const auto broken = LoadChunkScheme( missing );
+    ASSERT_FALSE( broken.IsSuccess() );
+    EXPECT_NE( broken.GetError().find( missing.string() ), std::string::npos ) << broken.GetError();
+}
+
+TEST( PakChunks, TheDefaultSchemeIsAnExplicitSingleArchiveAndNeverOverwritesOne )
+{
+    const fs::path dir  = MakeTempDir( "default" );
+    const fs::path path = dir / "ContentChunks.json";
+
+    const auto written = WriteDefaultChunkScheme( path );
+    ASSERT_TRUE( written ) << written.GetError();
+
+    const auto loaded = LoadChunkScheme( path );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    EXPECT_TRUE( loaded.GetValue().Chunks.empty() );
+
+    const AssetRegistry registry = RegistryOf( { Row( "assets:A.demat", {} ), Row( "assets:B.demat", {} ) } );
+    const auto          plan     = BuildChunkPlan( registry, loaded.GetValue() );
+    ASSERT_TRUE( plan ) << plan.GetError();
+    ASSERT_EQ( plan.GetValue().Count(), 1u );
+    EXPECT_EQ( plan.GetValue().Names().front(), BASE_CHUNK_NAME );
+
+    // A second call must refuse rather than replace whatever is there now.
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic(
+         path, WriteChunkScheme( ChunkScheme{ { ChunkRule{ "North", { "assets:A.demat" } } }, {} } ) ) );
+    EXPECT_FALSE( WriteDefaultChunkScheme( path ).IsSuccess() );
+    const auto kept = LoadChunkScheme( path );
+    ASSERT_TRUE( kept ) << kept.GetError();
+    EXPECT_EQ( kept.GetValue().Chunks.size(), 1u );
+}
+
+TEST( PakChunks, TheDesertProjectStatesItsDivisionInItsOwnFile )
+{
+    // Through ChunkSchemePath(), exactly as the packager asks, so the committed file is proven to sit
+    // where packaging looks and not merely to parse.
+    const fs::path root = RepoRoot();
+    ASSERT_FALSE( root.empty() ) << "the repository root could not be found from the test's cwd";
+    const SandboxProject project( root );
+    ASSERT_TRUE( project.Opened() ) << "Editor/Desert.deproj could not be read";
+    const auto loaded = LoadChunkScheme( ChunkSchemePath() );
+    ASSERT_TRUE( loaded ) << loaded.GetError();
+    const auto gathered = GatherProjectRegistry();
+    ASSERT_TRUE( gathered ) << gathered.GetError();
+    const auto plan = BuildChunkPlan( gathered.GetValue(), loaded.GetValue() );
+    ASSERT_TRUE( plan ) << plan.GetError();
 }
 
 TEST( PakChunks, TheChunkListSurvivesTheHostThatWroteIt )
@@ -747,6 +809,194 @@ TEST( PakChunks, ADeclaredChunkThatReceivesNoFileIsARefusalAndNotAnEmptyArchive 
     // the wrong place. Asserting only the chunk's name passed against both, i.e. proved nothing:
     // deleting the check left this test green (mutation, 2026-09-22).
     EXPECT_NE( written.GetError().find( "received no files" ), std::string::npos ) << written.GetError();
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// THE EDITOR'S ONE STATE (PK2) — every action on the scheme goes through ChunkSchemeSession
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+TEST( PakChunks, TheSessionWalksMissingCreatedLoadedEditedSavedAndSaysWhatEachStepDid )
+{
+    const fs::path      dir      = MakeTempDir( "session" );
+    const fs::path      path     = dir / "ContentChunks.json";
+    const AssetRegistry registry = RegistryOf( { Row( "assets:A.demat", { "assets:B.demat" } ),
+                                                 Row( "assets:B.demat", {} ), Row( "assets:C.demat", {} ) } );
+
+    // MISSING: the refusal is LoadChunkScheme's own text, path included, and no edit is possible.
+    ChunkSchemeSession session( path );
+    EXPECT_EQ( session.GetStatus(), ChunkSchemeSession::Status::Missing );
+    EXPECT_NE( session.LoadMessage().find( path.string() ), std::string::npos ) << session.LoadMessage();
+    EXPECT_FALSE( session.AddChunk( "North" ).IsSuccess() );
+    EXPECT_NE( session.LastAction().find( path.string() ), std::string::npos ) << session.LastAction();
+    EXPECT_FALSE( Common::Utils::FileSystem::Exists( path ) ) << "a refused edit must not create the file";
+
+    // CREATED -> LOADED, in one action, and the last action names the file.
+    ASSERT_TRUE( session.CreateDefault() ) << session.LastAction();
+    EXPECT_EQ( session.GetStatus(), ChunkSchemeSession::Status::Loaded ) << session.LoadMessage();
+    EXPECT_NE( session.LastAction().find( path.string() ), std::string::npos );
+    EXPECT_TRUE( session.Draft().Chunks.empty() );
+    EXPECT_FALSE( session.Dirty() );
+
+    // A second create is refused BY THE SAME OBJECT and says so; the file is not replaced.
+    EXPECT_FALSE( session.CreateDefault().IsSuccess() );
+    EXPECT_NE( session.LastAction().find( "already exists" ), std::string::npos ) << session.LastAction();
+
+    // EDITED: an invalid name is refused by name and the draft is untouched — nothing is corrected.
+    EXPECT_FALSE( session.AddChunk( "North Wing" ).IsSuccess() );
+    EXPECT_NE( session.LastAction().find( "North Wing" ), std::string::npos ) << session.LastAction();
+    EXPECT_FALSE( session.AddChunk( std::string( BASE_CHUNK_NAME ) ).IsSuccess() );
+    EXPECT_FALSE( session.Dirty() );
+
+    ASSERT_TRUE( session.AddChunk( "North" ) ) << session.LastAction();
+    EXPECT_FALSE( session.AddChunk( "North" ).IsSuccess() ) << "two chunks with one name";
+    EXPECT_TRUE( session.Dirty() );
+
+    // A rootless chunk is a legal draft and an illegal save; the file keeps its bytes.
+    const std::string before = ReadBytes( path );
+    EXPECT_FALSE( session.Save( registry ).IsSuccess() );
+    EXPECT_NE( session.LastAction().find( "names no roots" ), std::string::npos ) << session.LastAction();
+    EXPECT_EQ( ReadBytes( path ), before );
+
+    // A root the registry does not have is the packager's refusal, surfaced at save.
+    ASSERT_TRUE( session.AddRoot( 0, "assets:Typo.demat" ) );
+    EXPECT_FALSE( session.Save( registry ).IsSuccess() );
+    EXPECT_NE( session.LastAction().find( "assets:Typo.demat" ), std::string::npos ) << session.LastAction();
+    EXPECT_EQ( ReadBytes( path ), before );
+    EXPECT_TRUE( session.Dirty() ) << "a refused save keeps the draft for the author to fix";
+
+    // SAVED: fixed draft, written through the facade, reloaded, clean.
+    ASSERT_TRUE( session.RemoveRoot( 0, 0 ) );
+    ASSERT_TRUE( session.AddRoot( 0, "assets:A.demat" ) );
+    ASSERT_TRUE( session.AddPin( "assets:C.demat" ) );
+    ASSERT_TRUE( session.Save( registry ) ) << session.LastAction();
+    EXPECT_FALSE( session.Dirty() );
+    EXPECT_NE( session.LastAction().find( path.string() ), std::string::npos );
+    ASSERT_EQ( session.Saved().Chunks.size(), 1u );
+
+    // The file is the canonical, multi-line layout every hand-edited text asset has, and a fresh
+    // session — the next editor start — reads back exactly what was saved.
+    EXPECT_NE( ReadBytes( path ).find( '\n' ), ReadBytes( path ).size() - 1 ) << ReadBytes( path );
+    const ChunkSchemeSession reopened( path );
+    ASSERT_EQ( reopened.GetStatus(), ChunkSchemeSession::Status::Loaded ) << reopened.LoadMessage();
+    ASSERT_EQ( reopened.Saved().Chunks.size(), 1u );
+    EXPECT_EQ( reopened.Saved().Chunks[0].Name, "North" );
+    EXPECT_EQ( reopened.Saved().Chunks[0].Roots, std::vector<std::string>{ "assets:A.demat" } );
+    EXPECT_EQ( reopened.Saved().AlwaysBase, std::vector<std::string>{ "assets:C.demat" } );
+
+    // What was saved is what the packager derives.
+    const auto plan = BuildChunkPlan( registry, reopened.Saved() );
+    ASSERT_TRUE( plan ) << plan.GetError();
+    EXPECT_EQ( plan.GetValue().ChunkFor( "assets:B.demat" ), 1u );
+}
+
+TEST( PakChunks, TheSessionRenamesRemovesAndRevertsWithoutTouchingTheFile )
+{
+    const fs::path dir  = MakeTempDir( "session_edit" );
+    const fs::path path = dir / "ContentChunks.json";
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic(
+         path, WriteChunkScheme( ChunkScheme{
+                    { ChunkRule{ "North", { "assets:A.demat" } }, ChunkRule{ "South", { "assets:B.demat" } } },
+                    {} } ) ) );
+    ChunkSchemeSession session( path );
+    ASSERT_EQ( session.GetStatus(), ChunkSchemeSession::Status::Loaded ) << session.LoadMessage();
+    const std::string before = ReadBytes( path );
+
+    EXPECT_FALSE( session.RenameChunk( 0, "South" ).IsSuccess() ) << "renaming onto another chunk's name";
+    EXPECT_TRUE( session.RenameChunk( 0, "North" ) ) << "renaming a chunk to its own name is not a clash";
+    ASSERT_TRUE( session.RenameChunk( 0, "Highlands" ) ) << session.LastAction();
+    EXPECT_FALSE( session.RemoveChunk( 5 ).IsSuccess() );
+    ASSERT_TRUE( session.RemoveChunk( 1 ) );
+    EXPECT_FALSE( session.AddRoot( 0, "assets:A.demat" ).IsSuccess() ) << "a root named twice";
+    EXPECT_TRUE( session.Dirty() );
+    EXPECT_EQ( ReadBytes( path ), before ) << "edits live in the draft until Save";
+
+    session.Revert();
+    EXPECT_FALSE( session.Dirty() );
+    ASSERT_EQ( session.Draft().Chunks.size(), 2u );
+    EXPECT_EQ( session.Draft().Chunks[0].Name, "North" );
+}
+
+TEST( PakChunks, ABlankSchemeFileIsUnreadableNotMissingAndNotOneArchive )
+{
+    const fs::path dir  = MakeTempDir( "session_blank" );
+    const fs::path path = dir / "ContentChunks.json";
+    ASSERT_TRUE( Common::Utils::FileSystem::WriteContentToFileAtomic( path, "  \n" ) );
+
+    ChunkSchemeSession session( path );
+    EXPECT_EQ( session.GetStatus(), ChunkSchemeSession::Status::Unreadable );
+    EXPECT_NE( session.LoadMessage().find( path.string() ), std::string::npos ) << session.LoadMessage();
+    EXPECT_FALSE( session.CreateDefault().IsSuccess() ) << "the default never replaces a file";
+    EXPECT_FALSE( session.AddPin( "assets:A.demat" ).IsSuccess() );
+}
+
+// THE PANEL'S FOLDER VIEW IS THE ARCHIVES' DIVISION. The real project's content, a real chunk, the
+// real writer: every file's archive is read back out of the written paks and tallied per folder, and
+// the tally must equal SummarizeChunkFolders over the same rows. A panel with its own copy of the rule
+// would pass every other test and disagree here.
+TEST( PakChunks, TheFolderSummaryIsTheDivisionTheWrittenArchivesHave )
+{
+    const fs::path repo = RepoRoot();
+    ASSERT_FALSE( repo.empty() );
+    const SandboxProject project( repo );
+    ASSERT_TRUE( project.Opened() );
+
+    const auto registry = GatherProjectRegistry();
+    ASSERT_TRUE( registry ) << registry.GetError();
+    std::vector<fs::path> tree;
+    ASSERT_NO_FATAL_FAILURE( WalkAndProveItCoveredTheGatheredRegistry( registry.GetValue(), tree ) );
+    std::map<std::string, fs::path> byKind;
+    const std::vector<fs::path>     corpus = OneOfEveryKindAndEveryOtherExtension( tree, byKind );
+
+    const std::string materialKey = Common::AssetHandle::StableKeyForPath( byKind.at( "Material" ) );
+    ChunkScheme       scheme;
+    scheme.Chunks.emplace_back( ChunkRule{ "Region", { materialKey } } );
+    const auto plan = BuildChunkPlan( registry.GetValue(), scheme );
+    ASSERT_TRUE( plan ) << plan.GetError();
+
+    // The rows the corpus covers — the summary is asked about exactly the files the writer is given.
+    AssetRegistry                                 rows;
+    std::vector<std::pair<std::string, fs::path>> files;
+    for ( const fs::path& file : corpus )
+    {
+        const AssetRegistryEntry* row =
+             registry.GetValue().FindByKey( Common::AssetHandle::StableKeyForPath( file ) );
+        if ( row == nullptr )
+            continue;
+        ASSERT_TRUE( rows.Insert( *row ) );
+        files.emplace_back( ArchiveKey( file ), file );
+    }
+    ASSERT_GE( files.size(), 2u );
+
+    const fs::path dir     = MakeTempDir( "folders" );
+    const auto     written = WriteChunkedPaks( dir / "Content.dpak", plan.GetValue(), files );
+    ASSERT_TRUE( written ) << written.GetError();
+    std::vector<std::unique_ptr<PakReader>> archives;
+    for ( const fs::path& archive : written.GetValue().Archives )
+        archives.push_back( std::make_unique<PakReader>( archive ) );
+
+    std::map<std::string, std::vector<std::size_t>> fromArchives;
+    for ( const auto& [key, source] : files )
+    {
+        const std::string stable = Common::AssetHandle::StableKeyForPath( source );
+        const std::size_t slash  = stable.rfind( '/' );
+        const std::string folder =
+             slash == std::string::npos ? stable.substr( 0, stable.find( ':' ) + 1 ) : stable.substr( 0, slash );
+        auto& tally = fromArchives[folder];
+        tally.resize( plan.GetValue().Count(), 0 );
+        for ( std::size_t i = 0; i < archives.size(); ++i )
+            tally[i] += archives[i]->Contains( key ) ? 1 : 0;
+    }
+
+    std::map<std::string, std::vector<std::size_t>> fromSummary;
+    for ( const ChunkFolderRow& row : SummarizeChunkFolders( rows, plan.GetValue() ) )
+        fromSummary[row.Folder] = row.FilesPerChunk;
+
+    EXPECT_EQ( fromSummary, fromArchives );
+    // Not vacuous: something landed outside the base.
+    std::size_t inRegion = 0;
+    for ( const auto& [folder, tally] : fromSummary )
+        inRegion += tally[1];
+    EXPECT_GT( inRegion, 0u );
 }
 
 int main( int argc, char** argv )

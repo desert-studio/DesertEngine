@@ -105,7 +105,7 @@ namespace Common::Content
         namespace P = Constants::Path;
         namespace E = Constants::Extensions;
         return { {
-             /* StaticMesh           */ { "StaticMesh", E::STATIC_MESH, &P::MESH_PATH_COOKED },
+             /* StaticMesh           */ { "StaticMesh", E::STATIC_MESH, &P::ASSETS_PATH },
              /* SkinnedMesh          */ { "SkinnedMesh", E::SKINNED_MESH, &P::MESH_PATH_COOKED },
              /* Skeleton             */ { "Skeleton", ".skeleton", &P::MESH_PATH_COOKED },
              /* Animation            */ { "Animation", ".anim", &P::MESH_PATH_COOKED },

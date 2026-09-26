@@ -11,7 +11,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -50,7 +50,7 @@ namespace Desert::Assets
     [[nodiscard]] inline Common::ResultStr<std::string> WriteMaterialJson( const MaterialData& material )
     {
         return Common::Content::CanonicalJsonTextOfWriterOutput(
-             rfl::json::write( StampMaterialHeader( material ) ) );
+             Common::Json::Write( StampMaterialHeader( material ) ) );
     }
 
     // WriteMaterialJson, written to `file` atomically (WriteCanonicalJsonFileAtomic).
@@ -66,10 +66,12 @@ namespace Desert::Assets
     namespace Detail
     {
         // The header alone: read FIRST, so a file of another schema generation is refused by its stated
-        // version and not by whichever payload member its older shape lacks (rfl ignores the rest).
+        // version and not by whichever payload member its older shape lacks.
         struct MaterialHeaderProbe
         {
             std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            // The rest of the document, which the typed read takes: the probe refuses none of it.
+            Common::Json::KeyedValues Rest;
         };
 
         // A slot's GUID: empty (an authored empty slot), or a non-null GUID the header states as a Dependency.
@@ -99,37 +101,37 @@ namespace Desert::Assets
     } // namespace Detail
 
     // `json` as a material, or a refusal naming `source`: no header (a file from before the header), a schema
-    // generation other than this build's (v1: a MaterialId beside the GUID; v2: slots by path-derived number -
-    // Tools/SceneMigrator raises both), unreadable, a malformed header or one naming another kind, a Parent or
-    // a slot GUID that is malformed or not among the header's Dependencies, or a slot with a path and no GUID.
+    // generation other than this build's (v1: a MaterialId beside the GUID; v2: slots by path-derived number;
+    // v3: the shader by name - Tools/SceneMigrator raises all three), unreadable, a malformed header or one
+    // naming another kind, a Parent, Shader or slot GUID that is malformed or not among the header's
+    // Dependencies, a Shader stated with no GUID, or a slot with a path and no GUID.
     [[nodiscard]] inline Common::ResultStr<MaterialData> ParseMaterialJson( std::string_view   source,
                                                                             const std::string& json )
     {
-        const auto probe = rfl::json::read<Detail::MaterialHeaderProbe>( json );
+        const auto probe = Common::Json::Read<Detail::MaterialHeaderProbe>( json );
         if ( !probe )
             return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
-                                                    "' is not a readable material file: " + probe.error().what() );
+                                                    "' is not a readable material file: " + probe.GetError() );
         const auto wrongSchema = [&source]( int stated )
         {
             return Common::MakeError<MaterialData>(
                  "[Material] '" + std::string( source ) + "' states material schema v" + std::to_string( stated ) +
                  " and this engine reads v" + std::to_string( kMaterialSchemaVersion ) +
                  " only (v0 = no header, v1 = a MaterialId beside the GUID, v2 = texture and cloud slots by "
-                 "path-derived number: run Tools/SceneMigrator over it once)" );
+                 "path-derived number, v3 = the shader by name: run Tools/SceneMigrator over it once)" );
         };
         // No header at all is schema v0: refused here, by name, before anything reads the header.
-        if ( !probe.value().Header.has_value() )
+        if ( !probe.GetValue().Header.has_value() )
             return wrongSchema( 0 );
-        const int stated = StatedVersion( probe.value().Header, kMaterialSchemaTag );
+        const int stated = StatedVersion( probe.GetValue().Header, kMaterialSchemaTag );
         if ( stated != static_cast<int>( kMaterialSchemaVersion ) )
             return wrongSchema( stated );
 
-        auto parsed = rfl::json::read<MaterialData>( json );
+        auto parsed = Common::Json::Read<MaterialData>( json );
         if ( !parsed )
-            return Common::MakeError<MaterialData>(
-                 "[Material] '" + std::string( source ) +
-                 "' is not a readable material file: " + parsed.error().what() );
-        const MaterialData& material = parsed.value();
+            return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) +
+                                                    "' is not a readable material file: " + parsed.GetError() );
+        const MaterialData& material = parsed.GetValue();
         // The probe above read the same text, but this is a second parse: its header is asked again
         // rather than assumed, so a disagreement between the two reads is a refusal and not a crash.
         if ( !material.Header.has_value() )
@@ -156,12 +158,23 @@ namespace Desert::Assets
                 return Common::MakeError<MaterialData>( "[Material] '" + std::string( source ) + "': Parent '" +
                                                         parentText + "' is not among the header's Dependencies" );
         }
+        // A stated Shader is never an empty slot: the default surface is said by stating none.
+        if ( material.Shader.has_value() )
+        {
+            if ( material.Shader->Guid.empty() )
+                return Common::MakeError<MaterialData>(
+                     "[Material] '" + std::string( source ) + "': Shader states no GUID (path '" +
+                     material.Shader->Path + "'); leave Shader out for the standard surface" );
+            const MaterialAssetRef shaderRef{ "Shader", material.Shader->Guid, material.Shader->Path };
+            if ( const auto ok = Detail::CheckStatedRef( source, "shader", shaderRef, deps ); !ok )
+                return Common::MakeError<MaterialData>( ok.GetError() );
+        }
         for ( const auto& ref : material.Textures )
             if ( const auto ok = Detail::CheckStatedRef( source, "texture", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
-        return Common::MakeSuccess( std::move( parsed.value() ) );
+        return Common::MakeSuccess( parsed.ExtractValue() );
     }
 } // namespace Desert::Assets

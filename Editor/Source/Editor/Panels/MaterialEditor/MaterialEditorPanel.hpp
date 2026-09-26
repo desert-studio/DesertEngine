@@ -232,7 +232,7 @@ namespace Desert::Editor
         // so the rows a person sees, the list a client is offered and the names a write is checked
         // against are one walk of one declaration. Three resolutions would be three lists.
         //
-        // An INSTANCE resolves through its parent, because EffectiveShaderName() does.
+        // An INSTANCE resolves through its parent, because DrawnShaderName() does.
         [[nodiscard]] const ::Desert::Core::Formats::ShaderProgramMeta* Schema() const;
 
         // THE MERGED SCHEMA'S STORAGE, and it exists because Schema() answers a POINTER that outlives the
@@ -345,7 +345,7 @@ namespace Desert::Editor
         // why it is shown no picker. Reading the child's own name gave "StaticMeshPBR", the default a
         // material with no name reports, so an instance window watched rebuilds of a shader it does not
         // draw with and kept its pipelines from before the parent shader's recompile.
-        [[nodiscard]] std::string EffectiveShaderName() const;
+        [[nodiscard]] std::string DrawnShaderName() const;
 
         std::shared_ptr<Assets::AssetManager> m_AssetManager;
 
@@ -417,7 +417,7 @@ namespace Desert::Editor
         // Invalidate, and nothing enforces that. Recording the identity that WAS pushed makes the re-push
         // condition DERIVED, so a future path that changes subject, shape or shader announces itself by
         // differing rather than by being remembered. Empty shader name means "nothing pushed yet".
-        // Costs nothing per frame: EffectiveShaderName() is already resolved in the same function for the
+        // Costs nothing per frame: DrawnShaderName() is already resolved in the same function for the
         // rebuild counter below.
         struct PushedIdentity
         {

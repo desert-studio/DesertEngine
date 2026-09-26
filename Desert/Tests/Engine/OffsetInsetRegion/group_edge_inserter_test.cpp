@@ -121,7 +121,7 @@ TEST( GroupEdgeInserter, EdgeLoopAcrossTheCubeSplitsTheFourFacesAroundY )
     params.SortedInputLengths = &proportions;
     params.StartCornerID      = topology.Edges[groupEdge].EndpointCorners.A;
 
-    TSet<int32>                               newEids;
+    TSet<int32_t>                             newEids;
     FGroupEdgeInserter::FOptionalOutputParams out;
     out.NewEidsOut = &newEids;
     ASSERT_TRUE( FGroupEdgeInserter::InsertEdgeLoops( params, out ) );

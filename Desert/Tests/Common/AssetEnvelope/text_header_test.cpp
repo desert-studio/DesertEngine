@@ -4,6 +4,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
+#include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <gtest/gtest.h>
@@ -56,7 +57,8 @@ TEST( TextAssetHeader, IsTheSecondRegisteredFormatAfterTheBinaryEnvelope )
     // The registry is pinned by NAME: a format added or dropped fails here with the list, not with a count
     // that can be edited to match.
     const std::vector<const IAssetHeaderFormat*> expected = { &BinaryEnvelopeHeaderFormat(), &TextHeaderFormat(),
-                                                              &MeshBinaryHeaderFormat() };
+                                                              &MeshBinaryHeaderFormat(),
+                                                              &ShaderCommentHeaderFormat() };
     const auto formats = AssetHeaderFormats();
     EXPECT_EQ( std::vector<const IAssetHeaderFormat*>( formats.begin(), formats.end() ), expected );
 }

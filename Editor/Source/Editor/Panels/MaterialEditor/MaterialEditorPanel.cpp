@@ -39,6 +39,7 @@
 #include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
@@ -168,7 +169,7 @@ namespace Desert::Editor
     {
         // Start level with the world: a rebuild that happened before this window existed left nothing here to
         // invalidate, and treating it as pending would drop pipelines that were never built.
-        m_SeenRebuildCount = MaterialShaderRebuild::CountFor( EffectiveShaderName() );
+        m_SeenRebuildCount = MaterialShaderRebuild::CountFor( DrawnShaderName() );
     }
 
     // Written out rather than left to the members' reverse-declaration order. The two objects have to go in
@@ -323,10 +324,10 @@ namespace Desert::Editor
         // A SHADER change is not a re-valuing. The runtime material's CLASS follows the shader, so the
         // cached one cannot be handed the new values — it has to be dropped and rebuilt from the asset.
         // Read BEFORE the copy, because afterwards the two names agree by construction.
-        const bool shaderChanged =
-             subject->Data().EffectiveShaderName() != m_WorkingCopy->Data().EffectiveShaderName();
+        const bool shaderChanged = subject->GetShaderName() != m_WorkingCopy->GetShaderName();
 
         MaterialEdit::CopyAuthoredValues( subject->Data(), m_WorkingCopy->Data() );
+        subject->ResolveDependencies( *m_AssetManager );
 
         if ( shaderChanged )
         {
@@ -346,10 +347,10 @@ namespace Desert::Editor
         if ( !m_WorkingCopy || !subject )
             return false;
 
-        const bool shaderChanged =
-             subject->Data().EffectiveShaderName() != m_WorkingCopy->Data().EffectiveShaderName();
+        const bool shaderChanged = subject->GetShaderName() != m_WorkingCopy->GetShaderName();
 
         MaterialEdit::CopyAuthoredValues( m_WorkingCopy->Data(), subject->Data() );
+        m_WorkingCopy->ResolveDependencies( *m_AssetManager );
 
         // The same distinction Apply makes, one audience over: the preview's own runtime material is the
         // one that has to be dropped when the shader moved back, and merely re-valued when it did not.
@@ -365,18 +366,18 @@ namespace Desert::Editor
         return true;
     }
 
-    std::string MaterialEditorPanel::EffectiveShaderName() const
+    std::string MaterialEditorPanel::DrawnShaderName() const
     {
         auto asset = DrawnMaterial();
         if ( !asset )
             return {};
 
-        // Through the parent for an instance — see the header. MaterialData::EffectiveShaderName() answers
+        // Through the parent for an instance — see the header. SurfaceMaterialAsset::GetShaderName() answers
         // "StaticMeshPBR" for a material that names none, which is right for a base asset and wrong for a
         // child, whose shader is simply somewhere else.
         if ( auto parent = ResolveParent( *asset ) )
-            return parent->Data().EffectiveShaderName();
-        return asset->Data().EffectiveShaderName();
+            return parent->GetShaderName();
+        return asset->GetShaderName();
     }
 
     std::string MaterialEditorPanel::PreviewUnavailableReason( const std::string& shaderName ) const
@@ -490,7 +491,7 @@ namespace Desert::Editor
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return std::nullopt;
-        const auto shader = shaderService->GetByName( EffectiveShaderName() );
+        const auto shader = shaderService->GetByName( DrawnShaderName() );
         if ( !shader )
             return std::nullopt;
         return shader->GetProgramMeta().Domain;
@@ -509,10 +510,11 @@ namespace Desert::Editor
         // An instance's textures come from its parent (the same v1 rule DrawParameters states: no
         // per-instance texture descriptors yet), so the slot is read off the parent's data.
         const auto  parent = ResolveParent( *asset );
-        const auto& data   = parent ? parent->Data() : asset->Data();
+        const auto& owner  = parent ? *parent : *asset;
+        const auto& data   = owner.Data();
 
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
-        auto  shader        = shaderService ? shaderService->GetByName( data.EffectiveShaderName() ) : nullptr;
+        auto  shader = shaderService != nullptr ? shaderService->GetByName( owner.GetShaderName() ) : nullptr;
         if ( !shader )
             return {};
 
@@ -659,8 +661,7 @@ namespace Desert::Editor
         if ( !drawn )
             return;
 
-        if ( const PushedIdentity wanted{ drawn->GetMetadata().Handle, m_Shape, EffectiveShaderName(),
-                                          m_PreviewMesh };
+        if ( const PushedIdentity wanted{ drawn->GetMetadata().Handle, m_Shape, DrawnShaderName(), m_PreviewMesh };
              !( wanted == m_Pushed ) )
         {
             const auto domain = EffectiveDomain();
@@ -691,7 +692,7 @@ namespace Desert::Editor
         // The shader behind this material was rebuilt: drop the pipelines THIS renderer cached from the old
         // modules. Without it the window keeps drawing the old shader after a recompile — see the note in
         // MaterialShaderRebuild.hpp.
-        const std::string shaderName = EffectiveShaderName();
+        const std::string shaderName = DrawnShaderName();
         if ( const uint64_t rebuilds = MaterialShaderRebuild::CountFor( shaderName );
              rebuilds != m_SeenRebuildCount )
         {
@@ -807,7 +808,6 @@ namespace Desert::Editor
                 working->Data().Params.clear();
                 working->Data().Textures.clear();
                 working->Data().CloudAssets.clear();
-                working->Data().ShaderRefs.clear();
                 PublishToRuntime( *working, /*isInstance=*/true );
             }
             if ( ImGui::IsItemHovered() )
@@ -872,7 +872,7 @@ namespace Desert::Editor
             return false;
         }
 
-        const std::string current = asset.Data().EffectiveShaderName();
+        const std::string current = asset.GetShaderName();
 
         // THE DOMAIN COMES FROM THE MATERIAL, and everything below follows from it. See the header for
         // what the hardcoded `Surface` filter did to a Terrain material.
@@ -950,12 +950,26 @@ namespace Desert::Editor
                 {
                     // Params always belong to a shader's schema — a switch clears them; the
                     // schema editor reseeds defaults on the next draw.
-                    asset.Data().ShaderName = name;
-                    asset.Data().Params.clear();
-                    asset.Data().Textures.clear();
-                    asset.Data().CloudAssets.clear();
-                    asset.Data().ShaderRefs.clear();
-                    shaderChanged = true;
+                    // By GUID (MATL 4): the picked shader's header GUID and stable path, resolved back to the
+                    // name GetShaderName answers.
+                    if ( m_AssetManager == nullptr )
+                    {
+                        LOG_ERROR( "[MaterialEditor] cannot state shader '{}': no asset manager", name );
+                    }
+                    else if ( const auto stated = Assets::SurfaceMaterialAsset::StateShaderByName(
+                                   asset.Data(), *m_AssetManager, name );
+                              !stated )
+                    {
+                        LOG_ERROR( "[MaterialEditor] cannot state shader: {}", stated.GetError() );
+                    }
+                    else
+                    {
+                        asset.Data().Params.clear();
+                        asset.Data().Textures.clear();
+                        asset.Data().CloudAssets.clear();
+                        asset.ResolveDependencies( *m_AssetManager );
+                        shaderChanged = true;
+                    }
                 }
                 if ( selected )
                     ImGui::SetItemDefaultFocus();
@@ -1074,7 +1088,7 @@ namespace Desert::Editor
         const ::Desert::Core::Formats::ShaderProgramMeta* meta = Schema();
         if ( !meta )
         {
-            ImGui::TextDisabled( "Shader '%s' is not loaded", EffectiveShaderName().c_str() );
+            ImGui::TextDisabled( "Shader '%s' is not loaded", DrawnShaderName().c_str() );
             return false;
         }
 
@@ -1547,9 +1561,8 @@ namespace Desert::Editor
         bool       changed  = false;
         const bool isType   = p.AssetKind == "CloudTypeAsset";
         const bool isLayout = p.AssetKind == "CloudLayoutAsset";
-        // Each kind in its own list (MATL 3): cloud assets by GUID, shaders by path.
-        const uint64_t handle =
-             p.AssetKind == "ShaderAsset" ? data.GetShaderRef( p.Name ) : data.GetCloudAsset( p.Name );
+        // Every cloud slot, the Medium shader included (MATL 4), names its asset by header GUID.
+        const uint64_t handle = data.GetCloudAsset( p.Name );
 
         // ---- THE AUTHORED MEDIUM ---------------------------------------------------------------------
         //
@@ -1578,7 +1591,7 @@ namespace Desert::Editor
             {
                 if ( ImGui::Selectable( "Engine default", handle == 0 ) && handle != 0 )
                 {
-                    data.SetShaderRef( p.Name, {} );
+                    data.SetCloudAsset( p.Name, {}, {} );
                     changed = true;
                 }
                 if ( m_AssetManager )
@@ -1613,8 +1626,9 @@ namespace Desert::Editor
                         const auto label    = name;
                         if ( ImGui::Selectable( label.c_str(), selected ) )
                         {
-                            data.SetShaderRef(
-                                 p.Name, Common::AssetHandle::StableKeyForPath( shader->GetMetadata().Filepath ) );
+                            const auto& file = shader->GetMetadata().Filepath;
+                            data.SetCloudAsset( p.Name, Assets::ReadShaderHeaderGuid( file ),
+                                                Common::AssetHandle::StableKeyForPath( file ) );
                             changed = true;
                         }
                         if ( selected )
@@ -2169,7 +2183,7 @@ namespace Desert::Editor
     const ::Desert::Core::Formats::ShaderProgramMeta* MaterialEditorPanel::Schema() const
     {
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
-        auto  shader        = shaderService ? shaderService->GetByName( EffectiveShaderName() ) : nullptr;
+        auto  shader        = shaderService != nullptr ? shaderService->GetByName( DrawnShaderName() ) : nullptr;
         if ( !shader )
             return nullptr;
 
@@ -2193,7 +2207,7 @@ namespace Desert::Editor
         if ( !drawn || own.Domain != ::Desert::Core::Formats::ShaderDomain::Volume )
             return &own;
 
-        const uint64_t mediumHandle = drawn->Data().GetShaderRef( Graphic::kCloudMediumSlotName );
+        const uint64_t mediumHandle = drawn->Data().GetCloudAsset( Graphic::kCloudMediumSlotName );
         const auto*    mediumSchema = mediumHandle != 0 && shaderService
                                            ? shaderService->MediumSchemaOf( Assets::AssetHandle( mediumHandle ) )
                                            : nullptr;
@@ -2293,7 +2307,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>(
                  "shader '{}' is not loaded, so this document has no declaration to check '{}' against. A "
                  "name checked against nothing is a name written and never read.",
-                 EffectiveShaderName(), name );
+                 DrawnShaderName(), name );
         }
 
         std::string                                 refusal;
@@ -2389,7 +2403,7 @@ namespace Desert::Editor
         // Decided HERE, once, for both the pane below and next frame's OnPreUpdate — which is the only
         // place allowed to build or destroy the renderer. Resolving it twice is how the window would come
         // to hold a slot while telling the artist it has no preview, or the reverse.
-        m_PreviewUnavailable = drawn ? PreviewUnavailableReason( EffectiveShaderName() )
+        m_PreviewUnavailable = drawn ? PreviewUnavailableReason( DrawnShaderName() )
                                      : std::string( "No preview: this material is no longer loaded." );
 
         DrawToolbar( working, isInstance );
@@ -2440,7 +2454,7 @@ namespace Desert::Editor
         // recorded — the editor has been bitten by exactly that.
         if ( m_PreviewUnavailable.empty() && m_Preview && m_UIHelper && m_Preview->HasContent() )
         {
-            m_Preview->Draw( *m_UIHelper, ImVec2( imageSide, imageSide ) );
+            m_Preview->Draw( *m_UIHelper, ImVec2( imageSide, imageSide ), PreviewInteraction::Interactive );
         }
         else
         {

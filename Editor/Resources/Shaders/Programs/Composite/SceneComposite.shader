@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"725394a9dea88871b2f1e4b25639df77","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SceneComposite"
 {
     Fragment

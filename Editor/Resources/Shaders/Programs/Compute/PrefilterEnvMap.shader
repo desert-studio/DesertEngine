@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"9816eea35c20be82a13058002c5ef19b","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "PrefilterEnvMap"
 {
     Compute

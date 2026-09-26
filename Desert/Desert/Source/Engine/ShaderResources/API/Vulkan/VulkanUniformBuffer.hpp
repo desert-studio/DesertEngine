@@ -18,6 +18,8 @@ namespace Desert::ShaderResources::API::Vulkan
                                                           uint32_t offset = 0 ) override;
 
         NO_DISCARD virtual Common::BoolResultStr EnsureMapped() override;
+        NO_DISCARD uint64_t                      ActiveAppliedVersion() const override;
+        void                                     NoteActiveApplied( uint64_t version ) override;
 
         // The descriptor for (@p frameIndex x ACTIVE VIEW): the buffer, and the id of the copy it belongs to
         // (ViewCopyBinding). The view is resolved here rather than passed in: every caller wants the copy

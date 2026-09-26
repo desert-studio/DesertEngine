@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
+
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/UUID.hpp>
@@ -8,8 +10,7 @@
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/ExtraFields.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <optional>
 #include <vector>
@@ -105,9 +106,12 @@ namespace Desert::Assets
         std::string Path;
     };
 
+    // SCNE 31 (T7i): the shader by its header GUID with the stable key as a locator, the `.demat`'s own
+    // spelling (MATL 4) - it used to be `ShaderName`, the file stem, which a rename silently broke. Absent =
+    // no shader (the component's ShaderName stays empty).
     struct MaterialComponentSer
     {
-        std::string                                    ShaderName;
+        std::optional<AssetGuidRef>                    Shader;
         std::optional<std::vector<MaterialParamSer>>   Params;
         std::optional<std::vector<MaterialTextureSer>> Textures;
     };
@@ -209,7 +213,7 @@ namespace Desert::Assets
 
         // Only the component keys whose payload differs from the base record's. Spread at this record's
         // top level by ExtraFields, exactly as EntityData spreads its own components.
-        rfl::ExtraFields<rfl::Generic> Components;
+        Common::Json::KeyedValues Components;
     };
 
     struct EntityData
@@ -238,7 +242,7 @@ namespace Desert::Assets
         // keys on read — so the on-disk shape matches the original per-component layout (full back/forward
         // compatibility). Reflected blocks are filled by ReflectionSerializer; asset-bearing ones by
         // custom handlers in ComponentRegistry.
-        rfl::ExtraFields<rfl::Generic> Components;
+        Common::Json::KeyedValues Components;
 
         // Set ONLY on a record that carries a PrefabPath: how this instance differs from the file it
         // names. Absent means "identical to the source", which is what every instance is at birth.

@@ -205,20 +205,20 @@ namespace Desert::Geometry
             ParentVertices.Resize( ElementCount() );
 
             // Remap and compact triangle element indices.
-            int32 MaxNewTID = -1;
+            int32_t MaxNewTID = -1;
             for ( int TID = 0, OldMaxTID = ElementTriangles.Num() / 3; TID < OldMaxTID; TID++ )
             {
-                const int32 OldStart = TID * 3;
-                const int32 NewTID   = CompactMaps.GetTriangleMapping( TID );
+                const int32_t OldStart = TID * 3;
+                const int32_t NewTID   = CompactMaps.GetTriangleMapping( TID );
                 if ( NewTID == IndexConstants::InvalidID )
                 {
                     // skip if there's no mapping
                     continue;
                 }
 
-                MaxNewTID = FMath::Max( NewTID, MaxNewTID );
+                MaxNewTID = std::max( NewTID, MaxNewTID );
 
-                const int32 NewStart = NewTID * 3;
+                const int32_t NewStart = NewTID * 3;
                 if ( ElementTriangles[OldStart] == IndexConstants::InvalidID )
                 {
                     // triangle was not set; copy back InvalidID
@@ -252,12 +252,12 @@ namespace Desert::Geometry
             }
             UE_CHECK( ToAppend.ElementTriangles.Num() == AppendInfo.NumTriangle * 3 );
 
-            int32 ElementIDOffset        = ElementsRefCounts.GetMaxIndex();
-            int32 ElementTrianglesOffset = ElementTriangles.Num();
+            int32_t ElementIDOffset        = ElementsRefCounts.GetMaxIndex();
+            int32_t ElementTrianglesOffset = ElementTriangles.Num();
             ElementTriangles.Add( ToAppend.ElementTriangles );
-            for ( int32 Idx = ElementTrianglesOffset, N = ElementTriangles.Num(); Idx < N; ++Idx )
+            for ( int32_t Idx = ElementTrianglesOffset, N = ElementTriangles.Num(); Idx < N; ++Idx )
             {
-                int32& ElID = ElementTriangles[Idx];
+                int32_t& ElID = ElementTriangles[Idx];
                 if ( ElID != IndexConstants::InvalidID )
                 {
                     ElID += ElementIDOffset;
@@ -267,9 +267,9 @@ namespace Desert::Geometry
             UE_CHECK_SLOW( ElementIDOffset ==
                            ParentVertices.Num() ); // ParentVertices must be 1:1 with Element IDs
             ParentVertices.Add( ToAppend.ParentVertices );
-            for ( int32 Idx = 0; Idx < ToAppend.ParentVertices.Num(); ++Idx )
+            for ( int32_t Idx = 0; Idx < ToAppend.ParentVertices.Num(); ++Idx )
             {
-                int32& Parent = ParentVertices[Idx + ElementIDOffset];
+                int32_t& Parent = ParentVertices[Idx + ElementIDOffset];
                 if ( Parent != IndexConstants::InvalidID )
                 {
                     Parent += AppendInfo.VertexOffset;
@@ -294,7 +294,7 @@ namespace Desert::Geometry
         template <typename EnumerableIntType>
         void ClearElements( const EnumerableIntType& Triangles )
         {
-            for ( int32 TriID : Triangles )
+            for ( int32_t TriID : Triangles )
             {
                 UnsetTriangle( TriID );
             }
@@ -393,7 +393,7 @@ namespace Desert::Geometry
         bool IsTriangleStorageValid() const
         {
             return ParentMesh != nullptr &&
-                   static_cast<int32>( ElementTriangles.Num() ) >= 3 * ParentMesh->MaxTriangleID();
+                   static_cast<int32_t>( ElementTriangles.Num() ) >= 3 * ParentMesh->MaxTriangleID();
         }
 
         /**
@@ -405,8 +405,8 @@ namespace Desert::Geometry
          * @param InitElementValue Initial element value, copied into all created elements
          */
         void CreateFromPredicate(
-             TFunctionRef<bool( int ParentVertexIdx, int TriIDA, int TriIDB )> TrisCanShareVertexPredicate,
-             RealType                                                          InitElementValue );
+             const std::function<bool( int ParentVertexIdx, int TriIDA, int TriIDB )>& TrisCanShareVertexPredicate,
+             RealType                                                                  InitElementValue );
 
         /**
          * Build overlay topology with one element per vertex.
@@ -427,8 +427,8 @@ namespace Desert::Geometry
          * @param GetNewElementValue function to assign a new value to any element that is split out
          */
         void SplitVerticesWithPredicate(
-             TFunctionRef<bool( int ElementIdx, int TriID )>                     ShouldSplitOutVertex,
-             TFunctionRef<void( int ElementIdx, int TriID, RealType* FillVect )> GetNewElementValue );
+             const std::function<bool( int ElementIdx, int TriID )>&              ShouldSplitOutVertex,
+             std::function<void( int ElementIdx, int TriID, RealType* FillVect )> GetNewElementValue );
 
         /**
          * Collapse SourceElementID into TargetElementID, resulting in connecting any containing triangles and
@@ -472,7 +472,7 @@ namespace Desert::Geometry
          * @param NewElementIDs If not null, newly created element IDs are placed here. Note that this array is
          *   intentionally not cleared before appending to it.
          */
-        void SplitBowtiesAtVertex( int32 Vid, TArray<int32>* NewElementIDs = nullptr );
+        void SplitBowtiesAtVertex( int32_t VertexID, TArray<int32_t>* NewElementIDs = nullptr );
 
         /**
          * Refine an existing overlay topology by splitting any bowties
@@ -620,7 +620,7 @@ namespace Desert::Geometry
         bool IsSeamVertex( int VertexID, bool bBoundaryIsSeam = true ) const;
         /** Returns true if the parent-mesh vertex is at a seam 'intersection' -- i.e., the end of a seam, or the
          * intersection w/ another seam. */
-        bool IsSeamIntersectionVertex( int32 VertexID ) const;
+        [[nodiscard]] bool IsSeamIntersectionVertex( int32_t VertexID ) const;
 
         /**
          * Determines whether the base-mesh vertex has "bowtie" topology in the Overlay.
@@ -628,7 +628,7 @@ namespace Desert::Geometry
          * UV-components.
          * @return true if the base-mesh vertex has "bowtie" topology in the overlay
          */
-        bool IsBowtieInOverlay( int32 VertexID ) const;
+        [[nodiscard]] bool IsBowtieInOverlay( int32_t VertexID ) const;
 
         /** @return true if the two triangles are connected, ie shared edge exists and is not a seam edge */
         bool AreTrianglesConnected( int TriangleID0, int TriangleID1 ) const;
@@ -656,7 +656,7 @@ namespace Desert::Geometry
          * @param OutElementID Will be set to the found element ID, or FDynamicMesh3::InvalidID if none found
          * @return true if an element ID was found, false otherwise
          */
-        bool FindAnyElementIDAtVertex( int32 VertexID, int32& OutElementID ) const;
+        bool FindAnyElementIDAtVertex( int32_t VertexID, int32_t& OutElementID ) const;
 
         /** @return true if overlay has any interior seam edges. This requires an O(N) search unless it early-outs.
          */
@@ -669,15 +669,15 @@ namespace Desert::Geometry
          * @param DataOut resulting interpolated overlay parameter value (of size ElementSize)
          */
         template <typename AsType>
-        void GetTriBaryInterpolate( int32 TriangleID, const AsType* BaryCoords, AsType* DataOut ) const
+        void GetTriBaryInterpolate( int32_t TriangleID, const AsType* BaryCoords, AsType* DataOut ) const
         {
-            int32        TriIndex   = 3 * TriangleID;
-            int32        ElemIndex0 = ElementTriangles[TriIndex] * ElementSize;
-            int32        ElemIndex1 = ElementTriangles[TriIndex + 1] * ElementSize;
-            int32        ElemIndex2 = ElementTriangles[TriIndex + 2] * ElementSize;
+            int32_t const TriIndex   = 3 * TriangleID;
+            int32_t       ElemIndex0 = ElementTriangles[TriIndex] * ElementSize;
+            int32_t       ElemIndex1 = ElementTriangles[TriIndex + 1] * ElementSize;
+            int32_t       ElemIndex2 = ElementTriangles[TriIndex + 2] * ElementSize;
             const AsType Bary0 = (AsType)BaryCoords[0], Bary1 = (AsType)BaryCoords[1],
                          Bary2 = (AsType)BaryCoords[2];
-            for ( int32 i = 0; i < ElementSize; ++i )
+            for ( int32_t i = 0; i < ElementSize; ++i )
             {
                 DataOut[i] = Bary0 * (AsType)Elements[ElemIndex0 + i] + Bary1 * (AsType)Elements[ElemIndex1 + i] +
                              Bary2 * (AsType)Elements[ElemIndex2 + i];
@@ -695,7 +695,7 @@ namespace Desert::Geometry
          */
         bool IsSameAs( const TDynamicMeshOverlay<RealType, ElementSize>& Other, bool bIgnoreDataLayout ) const;
 
-        SIZE_T GetByteCount() const
+        [[nodiscard]] size_t GetByteCount() const
         {
             return ElementsRefCounts.GetByteCount() + Elements.GetByteCount() + ParentVertices.GetByteCount() +
                    ElementTriangles.GetByteCount();
@@ -816,7 +816,7 @@ namespace Desert::Geometry
          * Get the Element associated with a vertex of a triangle
          * @param TriVertexIndex index of vertex in triangle, valid values are 0,1,2
          */
-        inline void GetTriElement( int TriangleID, int32 TriVertexIndex, VectorType& Value ) const
+        void GetTriElement( int TriangleID, int32_t TriVertexIndex, VectorType& Value ) const
         {
             UE_CHECK_SLOW( TriVertexIndex >= 0 && TriVertexIndex <= 2 );
             GetElement( BaseType::ElementTriangles[( 3 * TriangleID ) + TriVertexIndex], Value );
@@ -851,8 +851,8 @@ namespace Desert::Geometry
          * @return true if at least one valid Element was found, ie if ProcessFunc was called at least one time
          */
         bool EnumerateVertexElements(
-             int                                                                          VertexID,
-             TFunctionRef<bool( int TriangleID, int ElementID, const VectorType& Value )> ProcessFunc,
+             int                                                                           VertexID,
+             std::function<bool( int TriangleID, int ElementID, const VectorType& Value )> ProcessFunc,
              bool bFindUniqueElements = true ) const;
     };
 

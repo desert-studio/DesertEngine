@@ -32,14 +32,15 @@ namespace Desert::Geometry
         };
 
         FDynamicMesh3* Mesh;
-        TArray<int32>  Triangles;
+        TArray<int32_t> Triangles;
 
-        TFunction<FVector3d( const FVector3d& Position, const FVector3d& VertexVector, int Vid )>
+        std::function<FVector3d( const FVector3d& Position, const FVector3d& VertexVector, int Vid )>
              OffsetPositionFunc = [this]( const FVector3d& Position, const FVector3d& VertexVector, int )
         { return Position + VertexVector * this->DefaultOffsetDistance; };
         double                                    DefaultOffsetDistance        = 1.0;
         EVertexExtrusionVectorType                ExtrusionVectorType          = EVertexExtrusionVectorType::Zero;
-        TFunction<bool( int32 Eid1, int32 Eid2 )> LoopEdgesShouldHaveSameGroup = [this]( int32 Eid1, int32 Eid2 )
+        std::function<bool( int32_t Eid1, int32_t Eid2 )> LoopEdgesShouldHaveSameGroup =
+             [this]( int32_t Eid1, int32_t Eid2 )
         { return EdgesSeparateSameGroupsAndAreColinearAtBorder( Mesh, Eid1, Eid2, true ); };
         float  UVScaleFactor                        = 1.0f;
         bool   bOffsetFullComponentsAsSolids        = true;
@@ -52,16 +53,16 @@ namespace Desert::Geometry
 
         struct FOffsetInfo
         {
-            TArray<int32>         OffsetTids;
-            TArray<int32>         OffsetGroups;
+            TArray<int32_t>         OffsetTids;
+            TArray<int32_t>         OffsetGroups;
             bool                  bIsSolid = false;
             TArray<FEdgeLoop>     BaseLoops;
             TArray<FEdgeLoop>     OffsetLoops;
-            TArray<TArray<int32>> StitchTriangles;
-            TArray<TArray<int32>> StitchPolygonIDs;
+            TArray<TArray<int32_t>> StitchTriangles;
+            TArray<TArray<int32_t>> StitchPolygonIDs;
         };
         TArray<FOffsetInfo> OffsetRegions;
-        TArray<int32>       AllModifiedAndNewTriangles;
+        TArray<int32_t>     AllModifiedAndNewTriangles;
         // Why Apply returned false, naming the region and the step. Empty on success.
         std::string FailureReason;
 
@@ -71,7 +72,7 @@ namespace Desert::Geometry
 
         bool Apply();
 
-        static bool EdgesSeparateSameGroupsAndAreColinearAtBorder( FDynamicMesh3* Mesh, int32 Eid1, int32 Eid2,
+        static bool EdgesSeparateSameGroupsAndAreColinearAtBorder( FDynamicMesh3* Mesh, int32_t Eid1, int32_t Eid2,
                                                                    bool bCheckColinearityAtBorder );
 
     protected:
@@ -79,10 +80,11 @@ namespace Desert::Geometry
     };
 
     // The connected components of @p Triangles (edge adjacency), each in ascending order.
-    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const TArray<int32>& Triangles,
-                                          TArray<TArray<int32>>& ComponentsOut );
+    void FindConnectedTriangleComponents( const FDynamicMesh3& Mesh, const TArray<int32_t>& Triangles,
+                                          TArray<TArray<int32_t>>& ComponentsOut );
     // UE ComputeNewGroupIDsAlongEdgeLoop (PolyEditingEdgeUtil.cpp:108).
-    void ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const TArray<int32>& LoopEdgeIDs,
-                                          TArray<int32>& NewLoopEdgeGroupIDs, TArray<int32>& NewGroupIDsOut,
-                                          const TFunction<bool( int32, int32 )>& EdgesShouldHaveSameGroupFunc );
+    void
+    ComputeNewGroupIDsAlongEdgeLoop( FDynamicMesh3& Mesh, const TArray<int32_t>& LoopEdgeIDs,
+                                     TArray<int32_t>& NewLoopEdgeGroupIDs, TArray<int32_t>& NewGroupIDsOut,
+                                     const std::function<bool( int32_t, int32_t )>& EdgesShouldHaveSameGroupFunc );
 } // namespace Desert::Geometry

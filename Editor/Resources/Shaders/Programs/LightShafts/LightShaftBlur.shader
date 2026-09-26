@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"c2f1a96e5a86b31899cfd81b09efb640","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "LightShaftBlur"
 {
     Compute

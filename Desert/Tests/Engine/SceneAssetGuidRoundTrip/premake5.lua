@@ -8,17 +8,21 @@ project(test_name)
     targetdir ("%{wks.location}/build/Bin/Tests/%{cfg.buildcfg}")
     objdir ("%{wks.location}/build/Tests/Intermediates/%{cfg.buildcfg}")
 
+
     files {
         test_files,
-        -- Unit under test (pure CPU data transform; depends only on the serialization struct header).
-        "%{wks.location}/Editor/Source/Editor/Import/LODFold.cpp",
-        "%{wks.location}/Desert/Common/Source/Common/Core/UUID.cpp", -- SubmeshData holds a Common::UUID
+        -- THE RULE ALONE. ComponentRegistry.cpp and ShaderAsset.cpp (the two callers) link the asset manager
+        -- and through it the renderer (~50 undefined symbols when T7i3 tried), so the {Guid, Path} rule was
+        -- extracted into this TU and both call it; the suite pins the rule, not a copy of it.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
     }
 
     includedirs {
         "%{wks.location}/Desert/Common/Source",
         "%{wks.location}/Desert/Desert/Source",
-        "%{wks.location}/Editor/Source",
+    }
+    externalincludedirs {
+        "%{wks.location}/ThirdParty/reflect-cpp/include",
     }
 
     for name, path in pairs(deps.Common.IncludeDir) do
@@ -33,6 +37,20 @@ project(test_name)
         defines { define }
     end
 
+    filter "system:windows"
+        defines { "DESERT_PLATFORM_WINDOWS" }
+    filter "system:macosx"
+        defines { "DESERT_PLATFORM_MACOS" }
+    filter "system:linux"
+        defines { "DESERT_PLATFORM_LINUX" }
+    filter {}
+
+    links { "Common", "Optick" }
+
+    filter "system:not windows"
+        links { "ReflectCpp" }
+    filter {}
+
     filter "configurations:Debug"
         for name, path in pairs(deps.TestSpecific.Libraries.Debug) do
             links { path }
@@ -43,6 +61,10 @@ project(test_name)
             links { path }
         end
 
+    filter {}
+
+    filter "system:macosx"
+        links { "Cocoa.framework" }
     filter {}
 
 print("Configured test project: " .. test_name)

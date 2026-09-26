@@ -15,8 +15,8 @@ namespace Desert::Geometry
     public:
         struct FSeedPoint
         {
-            int32  ExternalID    = -1;
-            int32  PointID       = 0;
+            int32_t ExternalID    = -1;
+            int32_t PointID       = 0;
             double StartDistance = 0;
         };
 
@@ -29,9 +29,9 @@ namespace Desert::Geometry
         {
             MaxGraphDistance        = 0.0;
             MaxGraphDistancePointID = -1;
-            for ( int32 SeedIndex = 0; SeedIndex < SeedPointsIn.Num(); ++SeedIndex )
+            for ( int32_t SeedIndex = 0; SeedIndex < SeedPointsIn.Num(); ++SeedIndex )
             {
-                const int32 PointID = SeedPointsIn[SeedIndex].PointID;
+                const int32_t PointID = SeedPointsIn[SeedIndex].PointID;
                 if ( Queue.Contains( PointID ) )
                     continue; // UE ensure()s on a repeated seed and skips it
                 FGraphNode& Node   = AllocatedNodes[GetNodeIndex( PointID, true )];
@@ -42,7 +42,7 @@ namespace Desert::Geometry
             }
             while ( Queue.GetCount() > 0 )
             {
-                const int32 NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
+                const int32_t NodeIndex = GetNodeIndex( Queue.Dequeue(), false );
                 FGraphNode& Node      = AllocatedNodes[NodeIndex];
                 MaxGraphDistance      = TMathUtil<double>::Max( Node.GraphDistance, MaxGraphDistance );
                 if ( MaxGraphDistance > ComputeToMaxDistanceIn )
@@ -56,7 +56,7 @@ namespace Desert::Geometry
         {
             return MaxGraphDistance;
         }
-        [[nodiscard]] int32 GetMaxGraphDistancePointID() const
+        [[nodiscard]] int32_t GetMaxGraphDistancePointID() const
         {
             return MaxGraphDistancePointID;
         }
@@ -64,36 +64,36 @@ namespace Desert::Geometry
     private:
         struct FGraphNode
         {
-            int32  PointID;
-            int32  ParentPointID;
-            int32  SeedPointID;
+            int32_t PointID;
+            int32_t ParentPointID;
+            int32_t SeedPointID;
             double GraphDistance;
             bool   bFrozen;
         };
         const PointSetType* PointSet;
-        TMap<int32, int32>  IDToNodeIndexMap;
+        TMap<int32_t, int32_t> IDToNodeIndexMap;
         TArray<FGraphNode>  AllocatedNodes;
         FIndexPriorityQueue Queue;
         double              MaxGraphDistance        = 0.0;
-        int32               MaxGraphDistancePointID = -1;
+        int32_t                MaxGraphDistancePointID = -1;
 
-        int32 GetNodeIndex( int32 PointSetID, bool bCreateIfMissing )
+        int32_t GetNodeIndex( int32_t PointSetID, bool bCreateIfMissing )
         {
-            if ( const int32* Found = IDToNodeIndexMap.Find( PointSetID ) )
+            if ( const int32_t* Found = IDToNodeIndexMap.Find( PointSetID ) )
                 return *Found;
             if ( !bCreateIfMissing )
                 return -1;
-            const int32 NewIndex = AllocatedNodes.Add( FGraphNode{ PointSetID, -1, 0, 0.0, false } );
+            const int32_t NewIndex = AllocatedNodes.Add( FGraphNode{ PointSetID, -1, 0, 0.0, false } );
             IDToNodeIndexMap.Add( PointSetID, NewIndex );
             return NewIndex;
         }
-        void UpdateNeighboursSparse( int32 ParentIndex )
+        void UpdateNeighboursSparse( int32_t ParentIndex )
         {
-            const int32     ParentID   = AllocatedNodes[ParentIndex].PointID;
-            const int32     ParentSeed = AllocatedNodes[ParentIndex].SeedPointID;
+            const int32_t   ParentID   = AllocatedNodes[ParentIndex].PointID;
+            const int32_t   ParentSeed = AllocatedNodes[ParentIndex].SeedPointID;
             const double    ParentDist = AllocatedNodes[ParentIndex].GraphDistance;
             const FVector3d ParentPos  = PointSet->GetVertex( ParentID );
-            for ( const int32 NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
+            for ( const int32_t NbrPointID : PointSet->VtxVerticesItr( ParentID ) )
             {
                 FGraphNode& Nbr = AllocatedNodes[GetNodeIndex( NbrPointID, true )];
                 if ( Nbr.bFrozen )

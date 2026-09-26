@@ -26,7 +26,7 @@ namespace Desert::Editor
     class MaterialShaderRebuild
     {
     public:
-        // @p shaderName as the material names it (SurfaceMaterialData::EffectiveShaderName).
+        // @p shaderName as the material names it (SurfaceMaterialAsset::GetShaderName).
         static void Publish( const std::string& shaderName )
         {
             ++Counts()[shaderName];

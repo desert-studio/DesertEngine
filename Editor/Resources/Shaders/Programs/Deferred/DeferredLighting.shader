@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"0de6e7b591a1fa8e26876c3c40dfc363","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "DeferredLighting"
 {
     // Deferred lighting + G-buffer debug visualization (fullscreen). Consumes the scene renderer's MRT G-buffer.

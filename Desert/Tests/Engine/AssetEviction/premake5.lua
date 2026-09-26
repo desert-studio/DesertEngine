@@ -28,6 +28,9 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Retarget/ModelPose.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Animation/Solvers/TwoBoneIK.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/StaticMeshAsset.cpp",
+        -- StaticMeshAsset loads its render form through the mesh DDC (AF4d), which reads the source asset.
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshDerivedData.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/MeshSourceAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SkinnedMeshAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Serialization/MeshBinary.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Mesh/SkeletonAsset.cpp",
@@ -39,6 +42,7 @@ project(test_name)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp", -- TextureAsset reads the asset's DDC key through it (AF7)
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Skybox/SkyboxAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/Shader/ShaderAsset.cpp",
+        "%{wks.location}/Desert/Desert/Source/Engine/Assets/AssetRefSerialization.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolumeAsset.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudNoiseVolume.cpp",
         "%{wks.location}/Desert/Desert/Source/Engine/Assets/CloudTypeAsset.cpp",

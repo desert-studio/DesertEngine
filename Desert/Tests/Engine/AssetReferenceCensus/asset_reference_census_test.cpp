@@ -49,6 +49,7 @@
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
+#include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -128,8 +129,8 @@ namespace
     // One asset reference, with everything a failure message needs to be actionable.
     struct AssetReference
     {
-        std::string File; // the `.demat`, as a repository-relative name
-        std::string Slot; // the schema parameter it fills
+        std::string File; // the `.demat` or mesh source asset, as a name relative to the root it was found under
+        std::string Slot; // the schema parameter it fills, or the mesh's material slot
         uint64_t    Handle = 0;
     };
 
@@ -146,7 +147,7 @@ namespace
             const auto parsed = rfl::json::read<MaterialData>( ReadAll( entry.path() ) );
             if ( !parsed )
             {
-                if ( parseError && parseError->empty() )
+                if ( parseError != nullptr && parseError->empty() )
                     *parseError = entry.path().string() + ": " + parsed.error().what();
                 continue;
             }
@@ -167,6 +168,49 @@ namespace
         return out;
     }
 
+    // Every reference every mesh source asset under `contentRoot` makes: its material slots, each a header
+    // GUID the runtime folds through HandleForGuid exactly as a material's slot is. A mesh is found by the
+    // kind its header states, not by extension, and read through the engine's own ReadMeshSourceAssetFile;
+    // a mesh that does not read is reported through `parseError`, never skipped. A null slot material is an
+    // authored "no material" and is not a reference.
+    std::vector<AssetReference> MeshReferencesUnder( const fs::path& contentRoot, std::string* parseError,
+                                                     int* meshesRead )
+    {
+        namespace CC = Common::Content;
+        std::vector<AssetReference> out;
+        for ( const auto& entry : fs::recursive_directory_iterator( contentRoot ) )
+        {
+            if ( !entry.is_regular_file() )
+                continue;
+            const auto stated =
+                 CC::ReadAssetHeaderIfStated( entry.path(), CC::AssetHeaderReadContext{ {}, true } );
+            if ( !stated.IsSuccess() || !stated.GetValue().has_value() )
+                continue; // not an asset with a header: HandleOfContentFile reports a header that does not read
+            const auto&           header = stated.GetValue();
+            const CC::ContentKind kind   = header.value().Kind;
+            if ( kind != CC::ContentKind::StaticMesh && kind != CC::ContentKind::SkinnedMesh )
+                continue;
+
+            const std::string name  = fs::relative( entry.path(), contentRoot ).generic_string();
+            const auto        asset = Desert::Assets::ReadMeshSourceAssetFile( entry.path() );
+            if ( !asset.IsSuccess() )
+            {
+                if ( parseError != nullptr && parseError->empty() )
+                    *parseError = name + ": " + asset.GetError();
+                continue;
+            }
+            if ( meshesRead != nullptr )
+                ++*meshesRead;
+            for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
+            {
+                if ( slot.Material.IsNull() )
+                    continue;
+                out.push_back( { name, slot.Name, static_cast<uint64_t>( CC::HandleForGuid( slot.Material ) ) } );
+            }
+        }
+        return out;
+    }
+
     // The subsystem versions this census reads a header under: the formats of the kinds whose handle is
     // their header GUID (below), each one the constant its own reader uses. A kind that states a header but
     // whose subsystem is missing here is refused by name ("subsystem 'X' is unknown to this build") rather
@@ -178,6 +222,9 @@ namespace
             std::vector<Common::Content::SubsystemVersion> out = {
                  { Desert::Assets::kTextureAssetSubsystemTag, Desert::Assets::kTextureAssetSubsystemVersion },
                  { Desert::Assets::kCloudLayoutSubsystemTag, Desert::Assets::kCloudLayoutContainerVersion },
+                 // A mesh is a MeshSourceAsset (AF4d): its header is read under the same subsystem the
+                 // engine's own MeshAssetHeaderReadContext states, not a copy of the number.
+                 { Desert::Assets::kMeshAssetSubsystemTag, Desert::Assets::kMeshAssetSubsystemVersion },
             };
             for ( const auto& v : Desert::Assets::CloudTypeTextSubsystems() )
                 out.push_back( v );
@@ -286,6 +333,16 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
     const auto  references = ReferencesUnder( materials, &parseError );
     EXPECT_TRUE( parseError.empty() ) << "a shipped material does not parse: " << parseError;
 
+    // A mesh names its slot materials by header GUID too, and resolves them by the same fold, so its
+    // references are asked the same question as a material's.
+    std::string meshError;
+    int         meshesRead     = 0;
+    const auto  meshReferences = MeshReferencesUnder( content, &meshError, &meshesRead );
+    EXPECT_TRUE( meshError.empty() ) << "a shipped mesh source asset does not read: " << meshError;
+    // The shipped StaticProbe is a mesh source asset; finding none means the sweep no longer recognises the
+    // kind, and every mesh reference would pass vacuously.
+    EXPECT_GE( meshesRead, 1 ) << "no mesh source asset was read under " << content.string();
+
     // A sweep that found nothing passes vacuously, and the two ways that happens — a wrong root, and a
     // rename of the materials directory — are both silent. The floor is asserted rather than assumed.
     ASSERT_GT( references.size(), 20u )
@@ -293,16 +350,19 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
          << " asset references were found across the shipped materials. The sweep is not looking where the "
             "materials are, so it is asserting nothing.";
 
-    const auto derived    = DerivedHandlesUnder( content );
-    const auto unresolved = Unresolved( references, derived );
+    const auto derived = DerivedHandlesUnder( content );
+
+    std::vector<AssetReference> all = references;
+    all.insert( all.end(), meshReferences.begin(), meshReferences.end() );
+    const auto unresolved = Unresolved( all, derived );
 
     std::string report;
     for ( const auto& reference : unresolved )
         report += "\n" + Describe( reference );
 
     EXPECT_TRUE( unresolved.empty() )
-         << unresolved.size() << " of " << references.size()
-         << " asset references in the shipped materials name no file in the project:" << report
+         << unresolved.size() << " of " << all.size()
+         << " asset references in the shipped materials and meshes name no file in the project:" << report
          << "\n\nA material names its assets by number alone — there is no path in the record — so each of "
             "these draws as an unassigned slot with no filename anywhere in the log. The number is "
             "HandleForGuid of the header GUID for a mesh, material, texture, cloud type or cloud layout, and "
@@ -355,7 +415,7 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
         out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
             << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
             << R"(","Path":""},{"Name":"u_NormalTexture","Guid":")" << Common::Content::AssetGuidToText( badGuid )
-            << R"(","Path":""}],"CloudAssets":[],"ShaderRefs":[]})";
+            << R"(","Path":""}],"CloudAssets":[]})";
     }
 
     std::string parseError;

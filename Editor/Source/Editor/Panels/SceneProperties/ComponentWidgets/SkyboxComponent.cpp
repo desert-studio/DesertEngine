@@ -31,7 +31,7 @@ namespace Desert::Editor
     // WHAT THE OWNER ASKED FOR AND WHY IT IS SHAPED LIKE A MESH'S MATERIAL SECTION. The report was that
     // "an HDR skybox has no material with parameters and no preview on a sphere, unlike a mesh". The
     // second half is literal and is answered literally: the Details preview viewport — the same one the
-    // Static Mesh row borrows — now accepts a CUBEMAP, drawn as an orbitable ball by the very pass the
+    // Static Mesh row borrows — now accepts a CUBEMAP, drawn as a ball by the very pass the
     // Material Editor's cubemap pane uses. The first half is answered by giving the sky the three knobs
     // it was missing, laid out as the property rows a material's are.
     //
@@ -85,12 +85,11 @@ namespace Desert::Editor
                   constexpr float kPreview = 96.0f;
                   const bool      drewLive = ctx.Preview && ctx.Preview->HasContent() &&
                                         ctx.Preview->GetFill() == PreviewViewport::Fill::Cubemap &&
-                                        ctx.DrawPreview( ImVec2( kPreview, kPreview ) );
-                  if ( drewLive )
-                  {
-                      Utils::ImGuiUtilities::Tooltip( "Live preview — drag to orbit, wheel to zoom" );
-                  }
-                  else
+                                        ctx.DrawPreview( ImVec2( kPreview, kPreview ),
+                                                         static_cast<uint64_t>( skybox.SkyboxHandle ) );
+                  // The live ball is Static (DrawPreview): it keeps one angle and its double-click opens the
+                  // skybox, with its own "Double-click to open" tooltip.
+                  if ( !drewLive )
                   {
                       // THREE STATES, NOT TWO. "no asset", "the panel was lent no renderer" and "the
                       // cubes are not baked yet" are different facts, and a single grey box for all

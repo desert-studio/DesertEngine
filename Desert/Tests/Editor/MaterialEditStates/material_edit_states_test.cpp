@@ -54,7 +54,10 @@ namespace
     MaterialData Authored( const char* shader, std::initializer_list<std::pair<const char*, float>> params )
     {
         MaterialData data;
-        data.ShaderName = shader;
+        // "StaticMeshPBR" is the standard surface, which MATL 4 states by absence (StateShaderByName).
+        if ( std::string_view( shader ) != "StaticMeshPBR" )
+            data.SetShader( Common::Content::AssetGuid{ 0x5ull, std::hash<std::string_view>{}( shader ) },
+                            std::string( "engine:Shaders/" ) + shader + ".shader" );
         for ( const auto& [name, value] : params )
             data.SetParam( name, glm::vec4( value, 0.0f, 0.0f, 0.0f ) );
         return data;
@@ -179,7 +182,7 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     applied.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 1234u }, "" );
 
     MaterialData working = applied;
-    working.ShaderName   = "SomeGraphShader";
+    working.SetShader( Common::Content::AssetGuid{ 0x5ull, 0x6ull }, "engine:Shaders/SomeGraphShader.shader" );
     working.SetParam( "RoughnessFactor", glm::vec4( 0.0f ) );
     working.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ); // a NEW row
     working.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 5678u }, "" );
@@ -190,7 +193,7 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     MaterialEdit::CopyAuthoredValues( working, applied );
 
     EXPECT_FALSE( MaterialEdit::EvaluateDirty( working, applied, applied ).Unapplied );
-    EXPECT_EQ( working.EffectiveShaderName(), "StaticMeshPBR" );
+    EXPECT_FALSE( working.Shader.has_value() ) << "the picked shader survived the discard";
     EXPECT_EQ( working.Params.size(), applied.Params.size() ) << "the added row must be gone, not zeroed";
     EXPECT_EQ( working.GetTexture( "u_AlbedoTexture" ),
                static_cast<uint64_t>( MaterialData::HandleOf( Common::Content::AssetGuid{ 0, 1234u } ) ) );
@@ -248,15 +251,15 @@ TEST( MaterialEditStates, EqualityIsAboutTheValuesAndNotTheirOrder )
          << "MaterialData stores parameters in first-written order; comparing positionally would report a "
             "document as permanently unapplied after a Discard";
 
-    // An absent shader name IS "StaticMeshPBR" -- a .demat saved before the field existed must not read as
-    // differing from the one the editor just wrote.
+    // The shader compares by GUID (MATL 4): the same GUID under another locator is the same shader, another
+    // GUID or none at all is a difference.
     MaterialData unnamed;
     MaterialData named;
-    named.ShaderName = "StaticMeshPBR";
-    EXPECT_TRUE( MaterialEdit::AuthoredValuesEqual( unnamed, named ) );
-
-    named.ShaderName = "SkinnedMeshPBR";
+    named.SetShader( Common::Content::AssetGuid{ 0x7ull, 0x8ull }, "engine:Shaders/SkinnedMeshPBR.shader" );
     EXPECT_FALSE( MaterialEdit::AuthoredValuesEqual( unnamed, named ) );
+    MaterialData moved;
+    moved.SetShader( Common::Content::AssetGuid{ 0x7ull, 0x8ull }, "engine:Shaders/Moved/SkinnedMeshPBR.shader" );
+    EXPECT_TRUE( MaterialEdit::AuthoredValuesEqual( moved, named ) );
 
     // And a difference of one component of one parameter is a difference.
     MaterialData c = a;

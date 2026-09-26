@@ -89,4 +89,20 @@ namespace Desert::Geometry::Bridge
     {
         return ToMeshAssetData( mesh, slotMaterials );
     }
+
+    // The mesh importer's two crossings (AF4d): an imported LOD arrives as render buffers, is lifted onto the
+    // EditMesh to renumber its material ids by the shared slot table, and is stored as the saved form a
+    // MeshSourceAsset keeps. Inline for the same reason as the deriver's pair: the importer's suite compiles
+    // the geometry it runs, not the ECS behind the rest of this bridge. Refused with FromMeshAssetData's
+    // reason. removed by the card that moves the importer onto the ported core; the functions themselves by P8b.
+    [[nodiscard]] inline Common::ResultStr<EditMesh>
+    EditMeshFromMeshAssetData( const Assets::Serialization::MeshAssetData& data )
+    {
+        return FromMeshAssetData( data );
+    }
+
+    [[nodiscard]] inline EditMeshSer SavedFormFromEditMesh( const EditMesh& mesh )
+    {
+        return ToSerialized( mesh );
+    }
 } // namespace Desert::Geometry::Bridge

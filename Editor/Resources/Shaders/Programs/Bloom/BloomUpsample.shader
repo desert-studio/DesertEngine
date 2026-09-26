@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"2c2d1ef42e4d8ba0ae40a7a05a73aa74","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "BloomUpsample"
 {
     Compute

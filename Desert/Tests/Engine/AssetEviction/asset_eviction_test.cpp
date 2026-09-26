@@ -22,6 +22,7 @@
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <gtest/gtest.h>
 
+#include "../../TestSupport/cooked_static_mesh.hpp"
 #include "../SettingConsumers/setting_consumers_reader.hpp"
 
 #include <Engine/Assets/AssetEviction.hpp>
@@ -229,10 +230,11 @@ namespace
         return path.generic_string();
     }
 
-    // A STATIC mesh whose one submesh names `material`. The static half of the pair above, and it
-    // exists because the mesh -> material edge had no test at all — see the block of tests below.
-    std::string WriteProbeStaticMesh( const std::filesystem::path&      path,
-                                      const Common::Content::AssetGuid& material )
+    // A STATIC mesh whose one submesh names `material`; returns its DDC entry for the caller to remove. The static
+    // half of the pair above, and it exists because the mesh -> material edge had no test at all — see the block
+    // of tests below.
+    std::filesystem::path WriteProbeStaticMesh( const std::filesystem::path&      path,
+                                                const Common::Content::AssetGuid& material )
     {
         Desert::Assets::Serialization::MeshAssetData data;
         data.IsSkinned = false;
@@ -261,10 +263,9 @@ namespace
         submesh.MaterialGuid    = material;
         data.Submeshes.push_back( submesh );
 
-        // Same reason as the skinned fixture above.
-        std::ofstream out( path, std::ios::binary | std::ios::trunc );
-        out << Desert::Assets::Serialization::EncodeMeshBinary( data );
-        return path.generic_string();
+        // A static mesh on disk is its source asset; the render form above is what the cook put in the DDC.
+        return Desert::TestSupport::WriteCookedStaticMesh(
+             path, Desert::Assets::Serialization::EncodeMeshBinary( data ) );
     }
 } // namespace
 
@@ -697,7 +698,7 @@ namespace
         const char* KeyedOn;
     };
 
-    constexpr std::array<ResolverRow, 4> kDependencyResolvers = {
+    constexpr std::array<ResolverRow, 5> kDependencyResolvers = {
          ResolverRow{ "Desert/Desert/Source/Engine/Assets/AssetBase.hpp",
                       "nothing. The base's empty body, which is what an asset that names no other asset "
                       "inherits." },
@@ -722,6 +723,12 @@ namespace
                       "are exactly the pair a retarget exists to bridge. A signature-keyed lookup could "
                       "therefore bind the TARGET's own rig as the source and the retarget would silently "
                       "become the identity." },
+         ResolverRow{ "Desert/Desert/Source/Engine/Assets/Mesh/SurfaceMaterialAsset.cpp",
+                      "a shader, by the NAME the material's own data states — nothing is looked up in the "
+                      "manager, so no target can be released under it. The name is read from the material's "
+                      "payload, and that is safe for the opposite reason from the skinned mesh: Unload "
+                      "clears the data AND re-resolves the name, and every Load resolves it again, so the "
+                      "name never outlives the data it came from." },
     };
 
     // A DEFINITION, not a call and not a declaration: the name, its parameter list, whatever trailing
@@ -808,7 +815,8 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
     ASSERT_TRUE( material );
 
     ASSERT_FALSE( material->Data().Guid().IsNull() ) << "the probe material states no GUID for the mesh to name";
-    WriteProbeStaticMesh( meshPath, material->Data().Guid() );
+    const std::filesystem::path derived = WriteProbeStaticMesh( meshPath, material->Data().Guid() );
+    ASSERT_FALSE( derived.empty() );
     auto mesh = manager.CreateAsset<StaticMeshAsset>( AssetPriority::Medium, Common::Filepath( meshPath ) );
     ASSERT_TRUE( mesh );
     ASSERT_TRUE( mesh->IsReadyForUse() ) << "the probe mesh did not load; the edge cannot be tested";
@@ -825,6 +833,7 @@ TEST( AssetEviction, AMeshsMaterialSurvivesBecauseASubmeshNamesIt )
          << " asset(s) where the mesh alone names one more. Every surface in every scene is dressed "
             "through this edge.";
 
+    std::filesystem::remove( derived );
     std::filesystem::remove_all( dir );
 }
 

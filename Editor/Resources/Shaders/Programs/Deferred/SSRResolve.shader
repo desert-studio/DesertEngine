@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"427c3aa249fa0efeada3b23f641960fb","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "SSRResolve"
 {
     // Shared denoiser for the 1-sample-per-pixel jittered estimates: used by SSR (trace) and by the

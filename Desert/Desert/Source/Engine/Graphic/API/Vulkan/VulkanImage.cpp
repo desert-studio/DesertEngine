@@ -12,9 +12,38 @@
 #include <Common/Utilities/String.hpp>
 
 #include <algorithm>
+#include <limits>
 
 namespace Desert::Graphic::API::Vulkan
 {
+    namespace
+    {
+        // The clear value of a UINT/SINT image is read as integers; every other colour format reads floats.
+        bool IsIntegerColourFormat( VkFormat format )
+        {
+            switch ( format )
+            {
+                case VK_FORMAT_R8_UINT:
+                case VK_FORMAT_R8_SINT:
+                case VK_FORMAT_R8G8_UINT:
+                case VK_FORMAT_R8G8B8A8_UINT:
+                case VK_FORMAT_R8G8B8A8_SINT:
+                case VK_FORMAT_R16_UINT:
+                case VK_FORMAT_R16_SINT:
+                case VK_FORMAT_R16G16_UINT:
+                case VK_FORMAT_R16G16B16A16_UINT:
+                case VK_FORMAT_R32_UINT:
+                case VK_FORMAT_R32_SINT:
+                case VK_FORMAT_R32G32_UINT:
+                case VK_FORMAT_R32G32B32A32_UINT:
+                case VK_FORMAT_R32G32B32A32_SINT:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    } // namespace
+
     namespace Utils
     {
         static VkImageLayout GetDefaultLayout( Core::Formats::ImageFormat format, Core::Formats::ImageProperties props )
@@ -246,6 +275,17 @@ namespace Desert::Graphic::API::Vulkan
         m_Resource.LayerCount = 1;
         m_Resource.Layout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
+        const bool zeroOnCreate = m_Specification.InitialContent == Core::Formats::ImageInitialContent::Zero;
+        if ( zeroOnCreate && Core::Formats::HasData( m_Specification.Data ) )
+            return Common::MakeFormattedError<bool>(
+                 "Image2D '{}' supplies pixel data AND asks for a zero initial content; the data is the content.",
+                 m_Specification.Tag );
+        if ( zeroOnCreate && m_Specification.Samples > 1 )
+            return Common::MakeFormattedError<bool>(
+                 "Image2D '{}' is multisampled ({} samples) and asks for a zero initial content; a multisampled "
+                 "image carries no transfer usage and is only ever read through its resolve.",
+                 m_Specification.Tag, m_Specification.Samples );
+
         // The complete mip chain for these dimensions is floor(log2(max(w,h)))+1 levels.
         uint32_t maxChainDim = std::max( m_Specification.Width, m_Specification.Height );
         uint32_t maxMipLevels = 1;
@@ -452,6 +492,51 @@ namespace Desert::Graphic::API::Vulkan
         }
         else
         {
+            // DESERT_POISON_NEW_MEMORY (VulkanAllocator.hpp): stand in for a driver that does not zero new
+            // memory, so a read before the first write shows up as NaN here instead of only on Windows.
+            // Multisampled images carry no transfer usage and are only ever read through their resolve.
+            // An image that declared a zero initial content (Image2DSpecification::InitialContent) is cleared
+            // to zero instead, poison or not: it is read in frames that do not write it, by contract.
+            if ( zeroOnCreate )
+            {
+                TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+                const VkImageSubresourceRange range{ aspect, 0, m_Resource.MipLevels, 0, 1 };
+                if ( aspect == VK_IMAGE_ASPECT_DEPTH_BIT )
+                {
+                    const VkClearDepthStencilValue zero{ 0.0f, 0 };
+                    vkCmdClearDepthStencilImage( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 &zero, 1, &range );
+                }
+                else
+                {
+                    const VkClearColorValue zero{};
+                    vkCmdClearColorImage( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1,
+                                          &range );
+                }
+            }
+            else if ( VulkanAllocator::PoisonNewMemory() && ( info.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT ) != 0 )
+            {
+                TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+                const VkImageSubresourceRange range{ aspect, 0, m_Resource.MipLevels, 0, 1 };
+                if ( aspect == VK_IMAGE_ASPECT_DEPTH_BIT )
+                {
+                    // Depth must stay in [0, 1]; mid-range is the value least likely to look cleared.
+                    const VkClearDepthStencilValue depth{ 0.5f, 0 };
+                    vkCmdClearDepthStencilImage( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                 &depth, 1, &range );
+                }
+                else
+                {
+                    VkClearColorValue garbage{};
+                    if ( IsIntegerColourFormat( m_Resource.Format ) )
+                        std::fill( std::begin( garbage.uint32 ), std::end( garbage.uint32 ), 0xCDCDCDCDu );
+                    else
+                        std::fill( std::begin( garbage.float32 ), std::end( garbage.float32 ),
+                                   std::numeric_limits<float>::quiet_NaN() );
+                    vkCmdClearColorImage( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &garbage, 1,
+                                          &range );
+                }
+            }
             TransitionLayout( cmd, finalDefaultLayout );
         }
 

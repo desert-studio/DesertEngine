@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"4df6032e07eb331a9b4c25ef18780bb5","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "DebugLine"
 {
     Vertex

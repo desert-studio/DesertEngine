@@ -678,6 +678,8 @@ namespace Desert::Graphic::System
         // work the frame is about to do anyway a few lines later — and nothing at all in a scene with no
         // cloud component, which is what every asset thumbnail and mesh preview is.
         const CloudEnvironmentBake clouds = m_SceneRenderer->BuildCloudEnvironmentBake();
+        if ( SkyEnvironmentBakeWaitsForClouds( explicitRequest, clouds.InputsPending ) )
+            return;
 
         // THE SKY'S OWN INPUTS, as the bake will read them. Formed from the same PackSky the parameter
         // buffer is filled from, so the number cannot describe a sky the dispatch will not see.

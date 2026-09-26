@@ -1,14 +1,19 @@
-// Where GPU timestamps live in the query pool, and whether a breakdown built from them adds up.
+// Where GPU timestamps live in a frame's query pool, how that pool grows, and whether a breakdown built
+// from them adds up.
 //
-// Two relations, both of which have already been wrong in this engine:
+// Four relations, the first three new with the pool-per-frame profiler and the last one already wrong once:
 //
-//   1. A query belongs to exactly one (frame x renderer slot). This is Docs/RENDERER_FRAME_STATE.md's
-//      rule applied to a new per-frame GPU resource. The editor runs several live SceneRenderers into a
-//      single command buffer, so a pool keyed by frame alone would have the asset preview's
-//      "VolumetricClouds" overwrite the viewport's — the exact shape of the bug that document exists
-//      because of, and one that shows up as a plausible wrong number rather than an error.
+//   1. Linear hand-out. Scope i owns queries 2+2i and 3+2i; the whole-frame bracket owns 0 and 1. No two
+//      scopes and no scope and the bracket share a query, however many views record into the frame —
+//      there is no view dimension in the layout, so there is no ceiling on views.
 //
-//   2. Self times partition the root. Passes nest, so summing the INCLUSIVE column counts a parent's
+//   2. Growth by high-water mark. The pool fits the busiest frame so far, never shrinks, and grows
+//      geometrically so a creeping scope count does not reallocate every frame.
+//
+//   3. Parents never cross views. Views' scopes interleave in one list; a preview's pass must not become
+//      the child of the viewport's open scope, or the viewport's self time would lose the preview's cost.
+//
+//   4. Self times partition the root. Passes nest, so summing the INCLUSIVE column counts a parent's
 //      microseconds again in every child: the first breakdown this feature ever printed came to 159 % of
 //      its own frame. Subtracting direct children makes the remainder a partition.
 //
@@ -19,102 +24,215 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <string>
 #include <vector>
 
-using Desert::Graphic::GpuDecodeFrame;
-using Desert::Graphic::GpuDecodeSlot;
-using Desert::Graphic::GpuFrameTotalQueryBase;
-using Desert::Graphic::GpuQueriesPerFrame;
-using Desert::Graphic::GpuQueriesPerSlot;
+using Desert::Graphic::GpuGrownQueryCount;
+using Desert::Graphic::GpuQueriesForScopes;
+using Desert::Graphic::GpuScopeCapacity;
+using Desert::Graphic::GpuScopeQueryBase;
+using Desert::Graphic::GpuScopeRecorder;
 using Desert::Graphic::GpuSelfTimes;
-using Desert::Graphic::GpuSlotQueryBase;
+using Desert::Graphic::GpuViewScopeName;
+using Desert::Graphic::kGpuFrameTotalQuery;
+using Desert::Graphic::kGpuInitialScopeCapacity;
 using Desert::Graphic::kGpuNoParent;
+using Desert::Graphic::kGpuQueryGranularity;
+
+// --- 1. linear hand-out --------------------------------------------------------------------------------
+
+// Every query a pool of N scopes can be asked for is claimed exactly once, and the last one is inside the
+// pool GpuQueriesForScopes sized.
+TEST( GpuTimestampLayout, EveryQueryBelongsToExactlyOneScopeOrTheFrameBracket )
+{
+    constexpr uint32_t kScopes = 300; // eight views of ~30 passes, and then some
+
+    std::set<uint32_t> seen{ kGpuFrameTotalQuery, kGpuFrameTotalQuery + 1 };
+    for ( uint32_t scope = 0; scope < kScopes; ++scope )
+    {
+        const uint32_t begin = GpuScopeQueryBase( scope );
+        EXPECT_TRUE( seen.insert( begin ).second ) << "scope " << scope << " begin collides";
+        EXPECT_TRUE( seen.insert( begin + 1 ).second ) << "scope " << scope << " end collides";
+    }
+
+    EXPECT_EQ( seen.size(), static_cast<size_t>( GpuQueriesForScopes( kScopes ) ) );
+    EXPECT_EQ( *seen.rbegin(), GpuQueriesForScopes( kScopes ) - 1 ); // dense: nothing wasted, nothing past the end
+}
+
+TEST( GpuTimestampLayout, CapacityInvertsTheQueryCount )
+{
+    for ( uint32_t scopes = 0; scopes < 1000; ++scopes )
+        EXPECT_EQ( GpuScopeCapacity( GpuQueriesForScopes( scopes ) ), scopes );
+
+    // A pool too small for even the bracket times no scope, rather than underflowing to four billion.
+    EXPECT_EQ( GpuScopeCapacity( 0 ), 0u );
+    EXPECT_EQ( GpuScopeCapacity( 1 ), 0u );
+    // An odd leftover query is not half a scope.
+    EXPECT_EQ( GpuScopeCapacity( GpuQueriesForScopes( 5 ) + 1 ), 5u );
+}
+
+// --- 2. growth ---------------------------------------------------------------------------------------
+
+TEST( GpuTimestampLayout, TheFirstPoolFitsTheInitialCapacity )
+{
+    const uint32_t first = GpuGrownQueryCount( 0, kGpuInitialScopeCapacity );
+    EXPECT_GE( GpuScopeCapacity( first ), kGpuInitialScopeCapacity );
+    EXPECT_EQ( first % kGpuQueryGranularity, 0u );
+}
+
+// The relation growth exists for: after growing to a high-water mark, every scope of that frame fits.
+TEST( GpuTimestampLayout, GrownPoolFitsTheHighWaterMark )
+{
+    uint32_t queries = GpuGrownQueryCount( 0, kGpuInitialScopeCapacity );
+    for ( const uint32_t highWater : { 10u, 64u, 65u, 97u, 240u, 241u, 1000u, 5000u } )
+    {
+        queries = GpuGrownQueryCount( queries, highWater );
+        EXPECT_GE( GpuScopeCapacity( queries ), highWater ) << "high water " << highWater;
+        EXPECT_EQ( queries % kGpuQueryGranularity, 0u ) << "high water " << highWater;
+    }
+}
+
+// A frame with fewer scopes than the pool holds (a view closed) keeps the pool: shrinking would make the
+// next frame with that view drop scopes and grow all over again.
+TEST( GpuTimestampLayout, PoolNeverShrinks )
+{
+    const uint32_t big = GpuGrownQueryCount( 0, 1000 );
+    EXPECT_EQ( GpuGrownQueryCount( big, 0 ), big );
+    EXPECT_EQ( GpuGrownQueryCount( big, 1 ), big );
+    EXPECT_EQ( GpuGrownQueryCount( big, GpuScopeCapacity( big ) ), big ); // exactly full still fits
+}
+
+// Opening views one at a time raises the high-water mark by ~30 scopes a step. The pool must not be
+// replaced on every step: geometric growth bounds the replacements by a logarithm of the final size.
+TEST( GpuTimestampLayout, CreepingDemandReallocatesLogarithmically )
+{
+    uint32_t queries      = GpuGrownQueryCount( 0, kGpuInitialScopeCapacity );
+    uint32_t reallocation = 0;
+    for ( uint32_t highWater = 1; highWater <= 4096; ++highWater )
+    {
+        const uint32_t grown = GpuGrownQueryCount( queries, highWater );
+        if ( grown != queries )
+        {
+            EXPECT_GE( grown, queries + queries / 2 ) << "grew by less than half at high water " << highWater;
+            ++reallocation;
+        }
+        queries = grown;
+    }
+    EXPECT_LE( reallocation, 12u ); // 192 -> ~8200 queries at x1.5 is ten steps; one scope per step would be 4000
+}
+
+// --- 3. per-view nesting in one list -------------------------------------------------------------------
 
 namespace
 {
-    // The shipping shape: kMaxRendererSlots = 6, kMaxScopesPerFrameSlot = 64, 3 frames in flight on this
-    // swapchain. Deliberately not read from the engine headers — a test that follows the constant it is
-    // checking cannot notice the constant changing underneath it.
-    constexpr uint32_t kSlots  = 6;
-    constexpr uint32_t kScopes = 64;
-    constexpr uint32_t kFrames = 3;
+    // Stand-ins for two ViewResources and the frame context: the recorder only compares the addresses.
+    int kViewport = 0;
+    int kPreview  = 0;
+    int kFrameCtx = 0;
 } // namespace
 
-// --- 1. the (frame x slot) partition -----------------------------------------------------------------
-
-// THE relation. Every query index reachable by any (frame, slot, scope) must be reachable by exactly one
-// of them, or two renderers share a timestamp and the numbers silently belong to the wrong view.
-TEST( GpuTimestampLayout, EveryQueryBelongsToExactlyOneFrameAndSlot )
+// Two views record one after the other into the same frame, each with nested passes; the frame context's
+// UI scope is open around both. No parent may point into another owner's scopes.
+TEST( GpuTimestampLayout, ParentsNeverCrossViews )
 {
-    std::set<uint32_t> seen;
+    GpuScopeRecorder rec;
+    rec.Reset( 64 );
 
-    for ( uint32_t frame = 0; frame < kFrames; ++frame )
+    const int32_t ui       = rec.Begin( "UI", &kFrameCtx );
+    const int32_t vpUpdate = rec.Begin( "OnUpdate", &kViewport );
+    const int32_t vpClouds = rec.Begin( "VolumetricClouds", &kViewport );
+    // The preview opens while the viewport's two scopes are still open (a phase that records another view
+    // from inside its own) — it must start a root of its own, not become the viewport's grandchild.
+    const int32_t pvUpdate = rec.Begin( "OnUpdate", &kPreview );
+    const int32_t pvClouds = rec.Begin( "VolumetricClouds", &kPreview );
+    rec.End( pvClouds );
+    rec.End( pvUpdate );
+    rec.End( vpClouds );
+    const int32_t vpPost = rec.Begin( "PostProcess", &kViewport );
+    rec.End( vpPost );
+    rec.End( vpUpdate );
+    rec.End( ui );
+
+    const auto& scopes = rec.Scopes();
+    ASSERT_EQ( scopes.size(), 6u );
+    EXPECT_EQ( scopes[ui].Parent, kGpuNoParent );
+    EXPECT_EQ( scopes[vpUpdate].Parent, kGpuNoParent ) << "a view's root must not hang under the frame context";
+    EXPECT_EQ( scopes[vpClouds].Parent, vpUpdate );
+    EXPECT_EQ( scopes[pvUpdate].Parent, kGpuNoParent ) << "the preview became a child of the viewport";
+    EXPECT_EQ( scopes[pvClouds].Parent, pvUpdate );
+    EXPECT_EQ( scopes[vpPost].Parent, vpUpdate ) << "closing the preview's scopes disturbed the viewport's stack";
+
+    for ( size_t i = 0; i < scopes.size(); ++i )
+        if ( scopes[i].Parent != kGpuNoParent )
+            EXPECT_LT( scopes[i].Parent, static_cast<int32_t>( i ) ) << "GpuSelfTimes needs parents first";
+}
+
+// A full pool refuses the extra scopes but COUNTS them — the count is the high-water mark the pool grows
+// to — and a refused scope's -1 does not disturb the nesting of the ones that were timed.
+TEST( GpuTimestampLayout, RefusedScopesRaiseTheHighWaterAndLeaveNestingAlone )
+{
+    GpuScopeRecorder rec;
+    rec.Reset( 2 );
+
+    const int32_t outer   = rec.Begin( "outer", &kViewport );
+    const int32_t inner   = rec.Begin( "inner", &kViewport );
+    const int32_t refused = rec.Begin( "refused", &kViewport );
+    EXPECT_EQ( refused, -1 );
+    rec.End( refused );
+    rec.End( inner );
+
+    EXPECT_EQ( rec.Scopes().size(), 2u );
+    EXPECT_EQ( rec.Requested(), 3u );
+    EXPECT_EQ( rec.Scopes()[inner].Parent, outer );
+
+    // The next frame at the grown size takes all three.
+    rec.Reset( GpuScopeCapacity( GpuGrownQueryCount( GpuQueriesForScopes( 2 ), rec.Requested() ) ) );
+    EXPECT_GE( rec.Begin( "outer", &kViewport ), 0 );
+    EXPECT_GE( rec.Begin( "inner", &kViewport ), 0 );
+    EXPECT_GE( rec.Begin( "refused", &kViewport ), 0 );
+}
+
+// The acceptance shape without a device: eight views of thirty passes each. After one growth every view's
+// every pass has its own row name and its own query pair.
+TEST( GpuTimestampLayout, EightViewsAllGetRowsAfterOneGrowth )
+{
+    constexpr uint32_t kViews  = 8;
+    constexpr uint32_t kPasses = 30;
+    int                views[kViews]{};
+
+    uint32_t         queries = GpuGrownQueryCount( 0, kGpuInitialScopeCapacity );
+    GpuScopeRecorder rec;
+
+    const auto recordFrame = [&]
     {
-        for ( uint32_t slot = 0; slot < kSlots; ++slot )
-        {
-            for ( uint32_t scope = 0; scope < kScopes; ++scope )
-            {
-                const uint32_t begin = GpuSlotQueryBase( frame, slot, kSlots, kScopes ) + scope * 2;
-                EXPECT_TRUE( seen.insert( begin ).second )
-                     << "begin query " << begin << " is claimed twice (frame " << frame << ", slot " << slot
-                     << ", scope " << scope << ")";
-                EXPECT_TRUE( seen.insert( begin + 1 ).second ) << "end query " << begin + 1 << " is claimed twice";
-            }
-        }
+        rec.Reset( GpuScopeCapacity( queries ) );
+        for ( uint32_t v = 0; v < kViews; ++v )
+            for ( uint32_t p = 0; p < kPasses; ++p )
+                rec.End(
+                     rec.Begin( GpuViewScopeName( "view " + std::to_string( v ), "pass " + std::to_string( p ) ),
+                                &views[v] ) );
+    };
 
-        const uint32_t total = GpuFrameTotalQueryBase( frame, kSlots, kScopes );
-        EXPECT_TRUE( seen.insert( total ).second ) << "frame-total begin collides with a slot's queries";
-        EXPECT_TRUE( seen.insert( total + 1 ).second ) << "frame-total end collides";
-    }
+    recordFrame();
+    EXPECT_LT( rec.Scopes().size(), kViews * kPasses ) << "the first pool should be too small for eight views";
+    queries = GpuGrownQueryCount( queries, rec.Requested() );
 
-    // And nothing was allocated that the pool does not cover.
-    EXPECT_EQ( seen.size(), static_cast<size_t>( kFrames ) * GpuQueriesPerFrame( kSlots, kScopes ) );
-    EXPECT_LT( *seen.rbegin(), kFrames * GpuQueriesPerFrame( kSlots, kScopes ) );
+    recordFrame();
+    ASSERT_EQ( rec.Scopes().size(), kViews * kPasses );
+    std::set<std::string> rows;
+    for ( const auto& scope : rec.Scopes() )
+        rows.insert( scope.Name );
+    EXPECT_EQ( rows.size(), static_cast<size_t>( kViews * kPasses ) ) << "two views' passes share a profiler row";
+    EXPECT_LE( GpuScopeQueryBase( kViews * kPasses - 1 ) + 1, queries - 1 );
 }
 
-// A scope closes by decoding its own handle, so the decode must invert the encode for every scope a slot
-// can hold. If it does not, EndScope pops the wrong slot's nesting stack and the self times go with it.
-TEST( GpuTimestampLayout, DecodeInvertsEncode )
+TEST( GpuTimestampLayout, FrameContextScopesKeepTheirBareName )
 {
-    for ( uint32_t frame = 0; frame < kFrames; ++frame )
-        for ( uint32_t slot = 0; slot < kSlots; ++slot )
-            for ( uint32_t scope = 0; scope < kScopes; ++scope )
-            {
-                const uint32_t query = GpuSlotQueryBase( frame, slot, kSlots, kScopes ) + scope * 2;
-                EXPECT_EQ( GpuDecodeFrame( query, kSlots, kScopes ), frame );
-                EXPECT_EQ( GpuDecodeSlot( query, kSlots, kScopes ), slot );
-                // The END query decodes to the same owner as its begin — they are one scope.
-                EXPECT_EQ( GpuDecodeFrame( query + 1, kSlots, kScopes ), frame );
-                EXPECT_EQ( GpuDecodeSlot( query + 1, kSlots, kScopes ), slot );
-            }
+    EXPECT_EQ( GpuViewScopeName( "", "UI" ), "UI" );
+    EXPECT_EQ( GpuViewScopeName( "Viewport", "VolumetricClouds" ), "Viewport | VolumetricClouds" );
 }
 
-// The frame bracket belongs to no renderer. Decoding it as slot 0's would let the whole-frame time be
-// mistaken for a pass of the main viewport — which is precisely the row a breakdown must not sum.
-TEST( GpuTimestampLayout, FrameTotalDecodesOutsideEverySlot )
-{
-    for ( uint32_t frame = 0; frame < kFrames; ++frame )
-    {
-        const uint32_t total = GpuFrameTotalQueryBase( frame, kSlots, kScopes );
-        EXPECT_EQ( GpuDecodeFrame( total, kSlots, kScopes ), frame );
-        EXPECT_EQ( GpuDecodeSlot( total, kSlots, kScopes ), kSlots ) << "must be out of slot range";
-    }
-}
-
-// A slot's block must not run into the next slot's, whatever the scope budget is.
-TEST( GpuTimestampLayout, SlotBlocksAreContiguousAndDoNotOverlap )
-{
-    for ( uint32_t slot = 0; slot + 1 < kSlots; ++slot )
-    {
-        const uint32_t here = GpuSlotQueryBase( 0, slot, kSlots, kScopes );
-        const uint32_t next = GpuSlotQueryBase( 0, slot + 1, kSlots, kScopes );
-        EXPECT_EQ( next - here, GpuQueriesPerSlot( kScopes ) );
-        // The last query this slot can write stays below the next slot's first.
-        EXPECT_LT( here + ( kScopes - 1 ) * 2 + 1, next );
-    }
-}
-
-// --- 2. self times partition the root ----------------------------------------------------------------
+// --- 4. self times partition the root ----------------------------------------------------------------
 
 namespace
 {

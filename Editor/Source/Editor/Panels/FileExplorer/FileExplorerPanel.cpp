@@ -11,6 +11,7 @@
 #include <Editor/Panels/FileExplorer/NewCloudAsset.hpp>
 #include <Editor/Panels/MaterialEditor/MaterialDocumentOpen.hpp>
 #include <Editor/Core/AssetFileOps.hpp>
+#include <Editor/Core/Commands/AssetMoveCommand.hpp>
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/EditorPreferences.hpp> // the pinned folders live in editor.json (К5)
 #include <Editor/Panels/NodeGraph/NodeGraphPanel.hpp>
@@ -30,6 +31,7 @@
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Widgets/ThumbnailSweep.hpp>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -71,12 +73,40 @@ namespace Desert::Editor
 
     namespace
     {
-        // Cross-platform move into a destination DIRECTORY (std::filesystem, with a copy+remove fallback
-        // across volumes). Replaces the old Windows-only `system("move ...")` that no-op'd on macOS.
+        // THE ONE ROUTE FOR A RENAME OR A MOVE (AF10c). Content the registry has a row for moves through it:
+        // a redirector stays at the old path, so every scene still naming that path keeps loading, and the
+        // move lands on the undo stack. A folder moves the same way for every row inside it, all or nothing,
+        // as one undo step. Only a loose file the registry does not know (a source image, a note) is a plain
+        // file operation - nothing names it by path through the registry.
+        bool MoveOrRename( const std::string& src, const std::filesystem::path& dst, const char* label,
+                           std::string& error )
+        {
+            std::error_code ec;
+            const bool      folder = std::filesystem::is_directory( src, ec );
+            if ( folder || Assets::ContentRegistry::HasRow( src ) )
+            {
+                const auto moved =
+                     folder ? MoveFolderWithUndo( src, dst, label ) : MoveAssetWithUndo( src, dst, label );
+                if ( !moved )
+                    error = moved.GetError();
+                return static_cast<bool>( moved );
+            }
+            std::string newPath;
+            return dst.parent_path() == std::filesystem::path( src ).parent_path()
+                        ? AssetFileOps::Rename( src, dst.filename().string(), newPath, error )
+                        : AssetFileOps::Move( src, dst.parent_path().string(), newPath, error );
+        }
+
+        // A drag onto a folder: the file keeps its name in the destination DIRECTORY.
         bool MoveFile( const std::string& filePath, const std::string& movePath )
         {
-            std::string newPath, error;
-            return AssetFileOps::Move( filePath, movePath, newPath, error );
+            std::string error;
+            const bool  moved = MoveOrRename(
+                 filePath, std::filesystem::path( movePath ) / std::filesystem::path( filePath ).filename(),
+                 "Move", error );
+            if ( !moved )
+                LOG_ERROR( "[Assets] move '{}' -> '{}': {}", filePath, movePath, error );
+            return moved;
         }
 
         std::string ToLowerCopy( std::string s )
@@ -933,11 +963,7 @@ namespace Desert::Editor
         {
             if ( ImGui::IsKeyPressed( ImGuiKey_F2, false ) )
             {
-                m_RenamePath = m_CurrentSelected->AssetPath;
-                std::snprintf(
-                     m_RenameBuf, sizeof( m_RenameBuf ), "%s",
-                     std::filesystem::path( m_CurrentSelected->AssetPath ).filename().string().c_str() );
-                m_ShowRenamePopup = true;
+                static_cast<void>( RenameSelected() );
             }
             if ( ImGui::IsKeyPressed( ImGuiKey_Delete, false ) )
             {
@@ -1560,8 +1586,8 @@ namespace Desert::Editor
                     // written since M10 moved a mesh's thumbnail onto its cooked `.stmesh`. The ghost has
                     // been silently falling back to the type icon for every mesh ever since, which is
                     // exactly the kind of "it still works, just worse" a re-read site decays into.
-                    img = m_Thumbnails->Get( ThumbnailKey::DiskPath(
-                         CookPaths::CookedMesh( assetPath, ".stmesh" ).generic_string() ) );
+                    img = m_Thumbnails->Get(
+                         ThumbnailKey::DiskPath( CookPaths::MeshAsset( assetPath ).generic_string() ) );
                 }
             }
 
@@ -1680,10 +1706,10 @@ namespace Desert::Editor
         // a stale picture called fresh, and touching an FBX without re-cooking threw away a picture that
         // still matched the geometry exactly.
         //
-        // The mapping is a pure path computation (CookPaths::CookedMesh — fs::relative, no stat), so
+        // The mapping is a pure path computation (CookPaths::MeshAsset — an extension swap, no stat), so
         // hoisting it above the freshness check costs nothing; the `exists()` gate that decides "not cooked
         // -> icon" stays where it was, below, because that one IS a filesystem question.
-        const std::string cookedStr = CookPaths::CookedMesh( entry->AssetPath, ".stmesh" ).generic_string();
+        const std::string cookedStr = CookPaths::MeshAsset( entry->AssetPath ).generic_string();
 
         const std::string pngPath = ThumbnailKey::DiskPath( cookedStr );
 
@@ -1943,9 +1969,8 @@ namespace Desert::Editor
         ImGui::Separator();
         if ( count <= 1 && ImGui::MenuItem( "Rename", "F2" ) )
         {
-            m_RenamePath = entry.AssetPath;
-            std::snprintf( m_RenameBuf, sizeof( m_RenameBuf ), "%s", name.c_str() );
-            m_ShowRenamePopup = true;
+            m_CurrentSelected = &entry;
+            static_cast<void>( RenameSelected() );
         }
         if ( ImGui::MenuItem( count > 1 ? "Duplicate selection" : "Duplicate" ) )
         {
@@ -2007,13 +2032,31 @@ namespace Desert::Editor
             if ( ImGui::IsWindowAppearing() )
                 ImGui::SetKeyboardFocusHere( -1 );
 
+            if ( !m_RenameReferrers.empty() )
+            {
+                ImGui::Spacing();
+                ImGui::TextColored( ImVec4( 1.0f, 0.8f, 0.3f, 1.0f ),
+                                    "%zu asset(s) reference it and keep loading through a redirector:",
+                                    m_RenameReferrers.size() );
+                ImGui::BeginChild( "##renamerefs", ImVec2( 360.0f, 90.0f ), true );
+                for ( const auto& r : m_RenameReferrers )
+                    ImGui::BulletText( "%s", r.c_str() );
+                ImGui::EndChild();
+            }
+
             if ( ImGui::Button( "Rename", ImVec2( 110.0f, 0.0f ) ) || submit )
             {
-                std::string np, err;
-                if ( AssetFileOps::Rename( m_RenamePath, m_RenameBuf, np, err ) )
-                    QueueRefresh();
-                else
-                    m_FileOpStatus = "Rename failed: " + err;
+                const std::filesystem::path from = m_RenamePath;
+                std::string                 err;
+                if ( m_RenameBuf[0] == '\0' )
+                    m_FileOpStatus = "Rename failed: the name cannot be empty";
+                else if ( from.filename() != std::filesystem::path( m_RenameBuf ) )
+                {
+                    if ( MoveOrRename( m_RenamePath, from.parent_path() / m_RenameBuf, "Rename", err ) )
+                        QueueRefresh();
+                    else
+                        m_FileOpStatus = "Rename failed: " + err;
+                }
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
@@ -2114,6 +2157,51 @@ namespace Desert::Editor
         m_CurrentSelected = entry;
     }
 
+    std::vector<std::string> FileExplorerPanel::ShownEntries( bool folders ) const
+    {
+        std::vector<std::string> shown;
+        if ( m_CurrentDir != nullptr )
+            for ( const DirectoryInformation* child : m_CurrentDir->Children )
+                if ( !child->Hidden && child->IsFile != folders )
+                    shown.push_back( child->AssetPath );
+        return shown;
+    }
+
+    Common::BoolResultStr FileExplorerPanel::SelectEntry( const std::string& path )
+    {
+        if ( m_CurrentDir != nullptr )
+            for ( DirectoryInformation* child : m_CurrentDir->Children )
+                if ( child->AssetPath == path )
+                {
+                    m_Selection            = { path };
+                    m_CurrentSelected      = child;
+                    m_SelectionAnchorShown = -1;
+                    return Common::MakeSuccess( true );
+                }
+        return Common::MakeError( "select: '" + path + "' is not shown in the Assets window's current folder" );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::OpenFolder( const std::string& path )
+    {
+        NavigateToPath( path );
+        if ( m_CurrentDir == nullptr || m_CurrentDir->AssetPath != path )
+            return Common::MakeError( "open folder: the Assets window could not open '" + path + "'" );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::RenameSelected()
+    {
+        if ( m_CurrentSelected == nullptr )
+            return Common::MakeError( "rename: no asset is selected in the Assets window" );
+        m_RenamePath = m_CurrentSelected->AssetPath;
+        std::snprintf( m_RenameBuf, sizeof( m_RenameBuf ), "%s",
+                       std::filesystem::path( m_RenamePath ).filename().string().c_str() );
+        // What the dialog lists before the user confirms: the registry's edges, not a text scan.
+        m_RenameReferrers = Assets::ContentRegistry::Referrers( m_RenamePath );
+        m_ShowRenamePopup = true;
+        return Common::MakeSuccess( true );
+    }
+
     void FileExplorerPanel::PasteClipboard()
     {
         if ( m_Clipboard.empty() || !m_CurrentDir )
@@ -2121,9 +2209,11 @@ namespace Desert::Editor
         for ( const auto& src : m_Clipboard )
         {
             std::string np, err;
-            const bool  ok = m_ClipboardCut
-                                 ? AssetFileOps::Move( src, m_CurrentDir->AssetPath, np, err )
-                                 : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
+            const bool  ok = m_ClipboardCut ? MoveOrRename( src,
+                                                            std::filesystem::path( m_CurrentDir->AssetPath ) /
+                                                                 std::filesystem::path( src ).filename(),
+                                                            "Move", err )
+                                            : AssetFileOps::CopyInto( src, m_CurrentDir->AssetPath, np, err );
             if ( !ok )
                 m_FileOpStatus = "Paste failed: " + err;
         }

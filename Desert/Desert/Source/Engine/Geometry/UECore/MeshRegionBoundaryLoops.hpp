@@ -69,9 +69,9 @@ namespace Desert::Geometry
         bool Compute();
 
         template <typename ElementType>
-        using ElementIDAndValue = TPair<int32, ElementType>;
+        using ElementIDAndValue = TPair<int32_t, ElementType>;
         template <typename ElementType>
-        using VidOverlayMap = TMap<int32, ElementIDAndValue<ElementType>>;
+        using VidOverlayMap = TMap<int32_t, ElementIDAndValue<ElementType>>;
 
         /**
          * Maps each loop vertex to the overlay element (ID and value) it has in the region triangle whose edge

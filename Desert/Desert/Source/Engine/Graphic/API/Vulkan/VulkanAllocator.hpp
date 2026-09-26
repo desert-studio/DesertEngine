@@ -47,6 +47,12 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t     FrameIndex;
     };
 
+    struct QueryPoolDeletionEntry
+    {
+        VkQueryPool QueryPool;
+        uint32_t    FrameIndex;
+    };
+
     struct DescriptorPoolDeletionEntry
     {
         VkDescriptorPool DescriptorPool;
@@ -64,6 +70,15 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VmaAllocation> RT_AllocateImage( const std::string&       tag,
                                                         const VkImageCreateInfo& imageCreateInfo,
                                                         VmaMemoryUsage usage, VkImage& outImage );
+
+        /// THE "NEW MEMORY IS GARBAGE" DEBUG MODE (DESERT_POISON_NEW_MEMORY=1, Debug builds only).
+        /// MoltenVK hands out fresh memory zeroed, Windows drivers hand out whatever the last owner left,
+        /// so a target read before its first write looks right on this machine and speckled on the
+        /// owner's. With the variable set, every host-visible buffer is filled with 0xCD on allocation and
+        /// every 2D image without initial data is cleared to NaN (float formats) / 0xCD (integer formats),
+        /// which makes a read-before-write visible here. Announced once in the log when active; always
+        /// false in Release, where getenv is never consulted.
+        [[nodiscard]] static bool PoisonNewMemory();
 
         Common::ResultStr<VmaAllocation> RT_AllocateBuffer( const std::string&        tag,
                                                          const VkBufferCreateInfo& bufferCreateInfo,
@@ -84,6 +99,9 @@ namespace Desert::Graphic::API::Vulkan
                               const std::vector<VkImageView>& mipImageViews = {} );
         void RT_DestroyFramebuffer( VkFramebuffer framebuffer );
         void RT_DestroyRenderPass( VkRenderPass renderPass );
+        // A timestamp pool the GPU profiler outgrew: the frame that last wrote into it may still be in
+        // flight, so it waits for that frame like any other per-frame object.
+        void RT_DestroyQueryPool( VkQueryPool queryPool );
         // Takes every set allocated from the pool with it, so it waits for the frame that last bound one of
         // them exactly as a buffer does: a material or a view destroyed mid-session may still have its sets
         // in a command buffer the GPU has not finished.
@@ -141,6 +159,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
+        std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
     };
 } // namespace Desert::Graphic::API::Vulkan

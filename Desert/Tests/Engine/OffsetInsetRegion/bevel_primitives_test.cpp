@@ -24,7 +24,7 @@ namespace
     }
 
     // A 100 x 100 cm square in the XY plane, two triangles, counter-clockwise corners 0..3 from the origin.
-    FDynamicMesh3 Square( TArray<int32>& CornersOut )
+    FDynamicMesh3 Square( TArray<int32_t>& CornersOut )
     {
         FDynamicMesh3 Mesh;
         CornersOut.Reset();
@@ -108,10 +108,10 @@ TEST( BevelPrimitives, InsetPairIsMidpointOfClosestPoints )
 
 TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 {
-    TArray<int32>       Corners;
+    TArray<int32_t>     Corners;
     const FDynamicMesh3 Mesh = Square( Corners );
-    TArray<int32>       Edges;
-    for ( int32 i = 0; i < 4; ++i )
+    TArray<int32_t>     Edges;
+    for ( int32_t i = 0; i < 4; ++i )
         Edges.Add( Mesh.FindEdge( Corners[i], Corners[( i + 1 ) % 4] ) );
 
     TArray<FLine3d> Lines;
@@ -132,7 +132,7 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
     ExpectNear( Loop[3], FVector3d( 10, 90, 0 ), "loop corner 3" );
 
     // An open span 0-1-2 over edges 0 and 1: the ends are projected onto their one line.
-    const TArray<int32>   SpanVertices = { Corners[0], Corners[1], Corners[2] };
+    const TArray<int32_t> SpanVertices = { Corners[0], Corners[1], Corners[2] };
     const TArray<FLine3d> SpanLines    = { Lines[0], Lines[1] };
     TArray<FVector3d>     Span;
     SolveInsetVertexPositionsFromInsetLines( Mesh, SpanLines, SpanVertices, Span, false );
@@ -144,10 +144,10 @@ TEST( BevelPrimitives, InsetLinesOfASquareLoopSolveToTheInnerSquare )
 
 TEST( BevelPrimitives, InsetLineOfAMissingEdgeIsTheDefaultLine )
 {
-    TArray<int32>       Corners;
+    TArray<int32_t>     Corners;
     const FDynamicMesh3 Mesh = Square( Corners );
     TArray<FLine3d>     Lines;
-    ComputeInsetLineSegmentsFromEdges( Mesh, TArray<int32>{ 12345 }, 10.0, Lines );
+    ComputeInsetLineSegmentsFromEdges( Mesh, TArray<int32_t>{ 12345 }, 10.0, Lines );
     ASSERT_EQ( Lines.Num(), 1 );
     ExpectNear( Lines[0].Origin, FVector3d( 0, 0, 0 ), "default origin" );
     ExpectNear( Lines[0].Direction, FVector3d( 1, 0, 0 ), "default direction" );

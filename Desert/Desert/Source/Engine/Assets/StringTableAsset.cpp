@@ -23,10 +23,9 @@ namespace Desert::Assets
         // THE TABLE'S IDENTITY IS ITS HEADER GUID (format 2), adopted HERE rather than in the load because the
         // asset manager keys its handle lookup at creation. A file with no readable header keeps the
         // path-derived handle - the load refuses a version-1 file by name, so none is ever READY under it.
-        const Common::Content::AssetGuid guid = ReadTextHeaderGuid( m_Metadata.Filepath );
-        if ( !guid.IsNull() )
-            AdoptHandleFromFile( Common::UUID( static_cast<uint64_t>( Common::Content::HandleForGuid( guid ) ) ),
-                                 Common::AssetHandle::StableKeyForPath( m_Metadata.Filepath ) );
+        if ( const TextAssetIdentity identity = ReadTextAssetIdentity( m_Metadata.Filepath );
+             !identity.Guid.IsNull() )
+            AdoptHandleFromFile( identity.Handle(), identity.StableKey() );
     }
 
     std::string StringTableAsset::PublishId() const
@@ -36,21 +35,22 @@ namespace Desert::Assets
 
     Common::BoolResultStr StringTableAsset::LoadFromFile()
     {
-        const std::string path = m_Metadata.Filepath.string();
+        // The old path of a moved table reads the table where it now lives, through the registry.
+        const std::filesystem::path file = ContentRegistry::FileToOpen( m_Metadata.Filepath );
+        const std::string           path = file.string();
 
         // Through the VFS first, so a packaged build reads its translations out of the `.dpak` exactly
         // like every other asset, then off the disk for a loose file the pak does not carry.
         std::string text;
-        if ( const auto packed = Common::Utils::VFS::Exists( m_Metadata.Filepath )
-                                      ? Common::Utils::VFS::ReadFile( m_Metadata.Filepath )
-                                      : std::nullopt;
+        if ( const auto packed =
+                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
              packed.has_value() )
         {
             text = packed.value();
         }
         else
         {
-            if ( auto read = Common::Utils::FileSystem::ReadFileContent( m_Metadata.Filepath ); read )
+            if ( auto read = Common::Utils::FileSystem::ReadFileContent( file ); read )
             {
                 text = read.ExtractValue();
             }

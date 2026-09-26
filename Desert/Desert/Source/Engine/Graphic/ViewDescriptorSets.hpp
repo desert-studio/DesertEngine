@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
@@ -64,11 +65,9 @@ namespace Desert::Graphic
      *
      *   - FALLBACKS FIRST. A set is never bound with an undefined descriptor: the initializer writes a
      *     fallback into every declared binding the moment the set is made.
-     *   - THEN THE SEEDS. A texture is written only while its property is dirty, and that window closes after
-     *     a few frames. A view opened after it would keep the fallback — the "black material in a preview
-     *     opened later" defect. So every image write also records a SEED (how to write the property's current
-     *     image), and each new set replays every seed after its fallbacks. Buffers need no seed: their
-     *     bindings are re-checked on every apply against BoundCopies, which a fresh set starts empty.
+     *   - THEN THE PROPERTIES' OWN WRITES. Every binding is checked on every apply against BoundCopies (the
+     *     resource and the property version it was written with), which a fresh set starts empty — so a view
+     *     opened long after a one-off texture write still takes it on its first apply.
      *
      * A write never touches another view's set: the active view's copy is the only one resolved.
      */
@@ -106,7 +105,7 @@ namespace Desert::Graphic
         }
 
         // The active view's sets for `frameIndex`, made through `make` the first time, then given
-        // `initialize` (the fallbacks) and every seed, in that order.
+        // `initialize` (the fallbacks).
         [[nodiscard]] Common::BoolResultStr Resolve( const uint32_t frameIndex, const SetMaker& make,
                                                      const SetWriter& initialize, IViewDescriptorSetCopy*& out )
         {
@@ -130,20 +129,7 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             out = static_cast<IViewDescriptorSetCopy*>( &view.Acquire( m_Key, frameIndex, handOver ) );
             initialize( frameIndex );
-            for ( const auto& [binding, seed] : m_Seeds )
-                seed( frameIndex );
             return Common::MakeSuccess( true );
-        }
-
-        // Records how to write `binding`'s current image into a new set; replaces the previous seed.
-        void Seed( const uint32_t binding, SetWriter write )
-        {
-            m_Seeds[binding] = std::move( write );
-        }
-
-        [[nodiscard]] std::size_t SeedCount() const noexcept
-        {
-            return m_Seeds.size();
         }
 
     private:
@@ -165,7 +151,88 @@ namespace Desert::Graphic
 
         ViewResourceKey m_Key = ViewResourceKey::Allocate();
         // Ordered by binding so the replay order is deterministic.
-        std::map<uint32_t, SetWriter> m_Seeds;
+    };
+
+    /**
+     * @brief What one allocation takes out of a descriptor pool: the sets themselves, and the descriptors by
+     * type.
+     *
+     * Device-free on purpose -- the type is a VkDescriptorType's underlying integer rather than the enum --
+     * because the rule it feeds ("has this block room?") is arithmetic and has to be testable without a
+     * device.
+     */
+    struct DescriptorRequest
+    {
+        uint32_t Sets = 0;
+        // VkDescriptorType (as its underlying integer) -> how many descriptors of that type are needed.
+        std::map<uint32_t, uint32_t> Descriptors;
+    };
+
+    /**
+     * @brief One descriptor pool's remaining room, counted the way the driver counts it.
+     *
+     * WHY THIS EXISTS. The chain below used to discover that a pool was full BY ALLOCATING FROM IT AND
+     * FAILING: vkAllocateDescriptorSets answers VK_ERROR_OUT_OF_POOL_MEMORY, the chain reads that as "open
+     * the next block" and carries on. But it is still a FAILED Vulkan call, and the validation layer reports
+     * every one of them as an error ("Unable to allocate N descriptors of type ... this pool only has M
+     * remaining"); with the debug callback breaking into the debugger, an entirely routine block turnover
+     * stopped the editor on Windows. On MoltenVK that branch almost never ran, which is how it shipped.
+     *
+     * Counting the room here means the block is chosen BEFORE the driver is asked, so a turnover makes no
+     * failed call and produces no validation message.
+     *
+     * A TYPE THE POOL WAS NOT CREATED WITH HAS NO ROOM, and answering false for it is the point: a shader
+     * that declares a descriptor type the block sizes never listed is a gap in those sizes, and it now says
+     * so by name instead of failing once per draw somewhere inside the driver.
+     */
+    class DescriptorBudget
+    {
+    public:
+        DescriptorBudget() = default;
+        DescriptorBudget( const uint32_t sets, std::map<uint32_t, uint32_t> descriptors )
+             : m_Sets( sets ), m_Descriptors( std::move( descriptors ) )
+        {
+        }
+
+        [[nodiscard]] bool CanHold( const DescriptorRequest& request ) const
+        {
+            if ( request.Sets > m_Sets )
+                return false;
+            return std::ranges::all_of( request.Descriptors,
+                                        [this]( const auto& entry )
+                                        {
+                                            const auto room = m_Descriptors.find( entry.first );
+                                            return room != m_Descriptors.end() && entry.second <= room->second;
+                                        } );
+        }
+
+        // Takes the request out of the budget, or leaves the budget UNTOUCHED and answers false. All or
+        // nothing: a partial take would leave the block short of the sets it had just promised, and the
+        // shortfall would surface as the same failed allocation this class exists to avoid.
+        [[nodiscard]] bool Reserve( const DescriptorRequest& request )
+        {
+            if ( !CanHold( request ) )
+                return false;
+            m_Sets -= request.Sets;
+            for ( const auto& [type, count] : request.Descriptors )
+                m_Descriptors[type] -= count;
+            return true;
+        }
+
+        [[nodiscard]] uint32_t RemainingSets() const noexcept
+        {
+            return m_Sets;
+        }
+
+        [[nodiscard]] uint32_t Remaining( const uint32_t descriptorType ) const
+        {
+            const auto room = m_Descriptors.find( descriptorType );
+            return room == m_Descriptors.end() ? 0U : room->second;
+        }
+
+    private:
+        uint32_t                     m_Sets = 0;
+        std::map<uint32_t, uint32_t> m_Descriptors;
     };
 
     /// What one allocation attempt from one pool came to.
@@ -192,9 +259,13 @@ namespace Desert::Graphic
     public:
         using CreatePool  = std::function<Common::BoolResultStr( uint32_t ordinal, std::shared_ptr<Pool>& out )>;
         using TryAllocate = std::function<PoolAllocation( Pool& pool, std::string& why )>;
+        // Takes the request out of the pool's own budget, or answers false without changing it. Asked BEFORE
+        // TryAllocate, so a full block is left alone instead of being allocated from and failed -- see
+        // DescriptorBudget for what that failed call costs on Windows.
+        using Reserve = std::function<bool( Pool& pool )>;
 
-        [[nodiscard]] Common::BoolResultStr Allocate( const CreatePool& create, const TryAllocate& tryAllocate,
-                                                      std::shared_ptr<Pool>& from )
+        [[nodiscard]] Common::BoolResultStr Allocate( const CreatePool& create, const Reserve& reserve,
+                                                      const TryAllocate& tryAllocate, std::shared_ptr<Pool>& from )
         {
             bool fresh = false;
             if ( m_Pools.empty() )
@@ -206,22 +277,37 @@ namespace Desert::Graphic
             }
             for ( ;; )
             {
-                std::string          why;
-                const PoolAllocation outcome = tryAllocate( *m_Pools.back(), why );
-                if ( outcome == PoolAllocation::Allocated )
+                std::string why;
+                // THE BLOCK IS CHOSEN FROM OUR OWN ACCOUNTING, and the driver is asked only once a block is
+                // known to have room. Letting vkAllocateDescriptorSets be the one to say "full" made every
+                // routine turnover a failed Vulkan call, which the validation layer reports as an error and
+                // the debug callback turns into a break.
+                if ( reserve( *m_Pools.back() ) )
                 {
-                    from = m_Pools.back();
-                    return Common::MakeSuccess( true );
+                    const PoolAllocation outcome = tryAllocate( *m_Pools.back(), why );
+                    if ( outcome == PoolAllocation::Allocated )
+                    {
+                        from = m_Pools.back();
+                        return Common::MakeSuccess( true );
+                    }
+                    if ( outcome == PoolAllocation::Failed )
+                        return Common::MakeFormattedError<bool>( "descriptor pool #{} of {}: {}",
+                                                                 m_Pools.size() - 1, m_Pools.size(), why );
+                    // RESERVED AND STILL REFUSED: the driver's accounting and ours disagree. The chain moves
+                    // on to a new block so the frame survives, but the reason is carried into the refusal
+                    // below -- this branch is a defect in the block sizes, not a normal turnover.
+                    why = "the block's budget said it fit and the driver refused it anyway -- " + why;
                 }
-                if ( outcome == PoolAllocation::Failed )
-                    return Common::MakeFormattedError<bool>( "descriptor pool {} of {}: {}", m_Pools.size(),
-                                                             m_Pools.size(), why );
+                else
+                {
+                    why = "the block has no room left for this request";
+                }
                 // A pool that was opened for this very request and still cannot hold it never will; a
                 // third pool would fail the same way, and so on without end.
                 if ( fresh )
                     return Common::MakeFormattedError<bool>( "a fresh descriptor pool (#{}) cannot hold one "
                                                              "material's sets: {}",
-                                                             m_Pools.size(), why );
+                                                             m_Pools.size() - 1, why );
                 auto opened = Open( create );
                 if ( !opened.IsSuccess() )
                     return opened;

@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "e940f495ab97979f2f7f08320f94b2a8",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["a210ced5741f721e9e8fb6a007fd6b76"]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "a210ced5741f721e9e8fb6a007fd6b76"]
     },
-    "ShaderName": "CloudRaymarch",
+    "Shader": {
+        "Guid": "e5f5868d2f307814ec90df16057f3698",
+        "Path": "engine:Shaders/Programs/Clouds/CloudRaymarch.shader"
+    },
     "Params": [
         {
             "Name": "Coverage",
@@ -129,6 +132,5 @@
             "Guid": "a210ced5741f721e9e8fb6a007fd6b76",
             "Path": "assets:Clouds/Types/Cumulus_Congestus.decloudtype"
         }
-    ],
-    "ShaderRefs": []
+    ]
 }

@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"64f9177362be2afe7482dbc79746037e","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "GenerateMipMap_2D"
 {
     Compute

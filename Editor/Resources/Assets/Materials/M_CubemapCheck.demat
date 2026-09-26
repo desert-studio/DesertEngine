@@ -3,11 +3,14 @@
         "Kind": "Material",
         "Guid": "a01d82f279125104155bb44907dd93a5",
         "Versions": {
-            "MATL": 3
+            "MATL": 4
         },
-        "Dependencies": ["e0ee3c11f6a10cf2edd3474d72613488"]
+        "Dependencies": ["ff6a2128878c91093023d2e4786d87db", "e0ee3c11f6a10cf2edd3474d72613488"]
     },
-    "ShaderName": "Skybox",
+    "Shader": {
+        "Guid": "ff6a2128878c91093023d2e4786d87db",
+        "Path": "engine:Shaders/Programs/Skybox/Skybox.shader"
+    },
     "Params": [],
     "Textures": [
         {
@@ -16,6 +19,5 @@
             "Path": "assets:Textures/HDR/PreviewCheck.detex"
         }
     ],
-    "CloudAssets": [],
-    "ShaderRefs": []
+    "CloudAssets": []
 }

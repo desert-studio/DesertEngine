@@ -1,7 +1,6 @@
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 
-#include <rflcpp/rfl/DefaultIfMissing.hpp>
-#include <rflcpp/rfl/json.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <format>
 
@@ -9,20 +8,19 @@ namespace Desert::Assets::Serialization::ShaderGraph
 {
     std::string Serialize( const Document& doc )
     {
-        return rfl::json::write( doc );
+        return Common::Json::Write( doc );
     }
 
     Common::ResultStr<Document> ParseShaderGraph( const std::string& json )
     {
-        // `DefaultIfMissing` and not a strict read: a graph written before a field existed must still
-        // open, and every field on this document has a value that means what the old build meant by its
-        // absence. What is NOT tolerated is malformed JSON — that is a file somebody is about to lose
-        // work over, and the message is reflect-cpp's own so it names the offending member.
-        auto parsed = rfl::json::read<Document, rfl::DefaultIfMissing>( json );
+        // STRICT (owner rule: a missing field is an error, not a fallback): a graph that lacks a field or
+        // states one this build does not know is refused with the field's path, instead of opening with a
+        // value nobody authored. A field added later is std::optional or moved into the files by migration.
+        auto parsed = Common::Json::Read<Document>( json );
         if ( !parsed )
-            return Common::MakeError<Document>( std::format( "bad .dgraph: {}", parsed.error().what() ) );
+            return Common::MakeError<Document>( std::format( "bad .dgraph: {}", parsed.GetError() ) );
 
-        return Common::MakeSuccess( std::move( parsed.value() ) );
+        return Common::MakeSuccess( parsed.ExtractValue() );
     }
 
 } // namespace Desert::Assets::Serialization::ShaderGraph

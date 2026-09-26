@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"7dd4e86463c76a0cbeb1504f63caf9e2","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "CloudShadowMap"
 {
     Compute

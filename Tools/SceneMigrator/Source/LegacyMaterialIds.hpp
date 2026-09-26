@@ -166,11 +166,18 @@ namespace Desert::Migration
     // header GUID + key. Refuses an unreadable header and two files reaching one number, by name.
     Common::ResultStr<LegacyAssetRefMap> LoadLegacyAssetRefs( const std::filesystem::path& assetsRoot );
 
-    // One MATL 2 material raised to MATL 3: CloudType1..4 / LayoutPattern / LayoutMask -> CloudAssets,
-    // Medium -> ShaderRefs, every other slot -> Textures; a number becomes {GUID, locator} through `refs`, a 0
-    // an authored empty slot. The header is left for StampMaterialHeader (WriteMaterialJson) to raise and fill
-    // with Dependencies. Refuses, naming `source`, the slot and the number: a number `refs` does not know, a
-    // number naming an asset of another kind than the slot takes, and a material with no header.
+    // THE SHADER A MATL 2/3 `ShaderName` meant, as MATL 4 states it: the one `.shader` in `refs` whose file stem
+    // is `shaderName` -> {its header GUID, its "engine:Shaders/..." key}. Refuses, naming `source` and the shader:
+    // no such file, two files with that stem, and a file with no header GUID.
+    Common::ResultStr<Assets::AssetGuidRef> ShaderRefByName( std::string_view source, std::string_view shaderName,
+                                                             const LegacyAssetRefMap& refs );
+
+    // One MATL 2 material raised to MATL 4: ShaderName -> Shader (ShaderRefByName), CloudType1..4 /
+    // LayoutPattern / LayoutMask / Medium -> CloudAssets, every other slot -> Textures; a number becomes
+    // {GUID, locator} through `refs`, a 0 an authored empty slot. The header is left for StampMaterialHeader
+    // (WriteMaterialJson) to raise and fill with Dependencies. Refuses, naming `source`, the slot and the number:
+    // a number `refs` does not know, a number naming an asset of another kind than the slot takes, an asset
+    // with no header GUID, and a material with no header.
     Common::ResultStr<Assets::MaterialData>
-    RaiseMaterialToV3( std::string_view source, const MaterialDataV2& material, const LegacyAssetRefMap& refs );
+    RaiseMaterialV2ToV4( std::string_view source, const MaterialDataV2& material, const LegacyAssetRefMap& refs );
 } // namespace Desert::Migration

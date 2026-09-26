@@ -26,7 +26,7 @@ namespace Desert::Editor::ThumbnailSubject
         if ( shaders == nullptr )
             return Common::MakeFormattedError<Preview>( "there is no shader service, so no domain to ask" );
 
-        const std::string shaderName = asset.Data().EffectiveShaderName();
+        const std::string shaderName = asset.GetShaderName();
         const auto        shader     = shaders->GetByName( shaderName );
         if ( !shader )
         {
@@ -76,7 +76,7 @@ namespace Desert::Editor::ThumbnailSubject
         // used to sit inside the create branch above, so a material the PRELOADER had already registered
         // never got one — and `AssetPreloader::PreloadCookedAssetsAndMaterials` registers every `.demat`
         // under MATERIAL_PATH with `loadAfterCreate=false`, i.e. as an unparsed shell. A shell states no
-        // ShaderName, `MaterialData::EffectiveShaderName()` answers "StaticMeshPBR", and every question
+        // ShaderName, `SurfaceMaterialAsset::GetShaderName()` answers "StaticMeshPBR", and every question
         // below was then answered about a material that does not exist.
         //
         // MEASURED, because this is what it cost: on a clean start of this repository the sweep resolved
@@ -106,10 +106,10 @@ namespace Desert::Editor::ThumbnailSubject
 
     Common::ResultStr<Mesh> ResolveMesh( Assets::AssetManager& manager, const std::string& sourcePath )
     {
-        // A PURE PATH COMPUTATION, hoisted above every filesystem question: CookPaths::CookedMesh is
-        // fs::relative and a string replace, no stat. The `exists` check below is the filesystem question
+        // A PURE PATH COMPUTATION, hoisted above every filesystem question: CookPaths::MeshAsset is
+        // an extension swap, no stat. The `exists` check below is the filesystem question
         // and it stays where it is.
-        const std::string cooked = CookPaths::CookedMesh( sourcePath, ".stmesh" ).generic_string();
+        const std::string cooked = CookPaths::MeshAsset( sourcePath ).generic_string();
 
         std::error_code ec;
         if ( !std::filesystem::exists( cooked, ec ) )

@@ -34,7 +34,7 @@ namespace Desert::Geometry
         }
         constexpr static FIndex2i Max()
         {
-            return FIndex2i( TNumericLimits<int>::Max(), TNumericLimits<int>::Max() );
+            return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max() };
         }
         constexpr static FIndex2i Invalid()
         {
@@ -87,7 +87,7 @@ namespace Desert::Geometry
 
         inline void Swap()
         {
-            ::Desert::Geometry::Swap( A, B );
+            std::swap( A, B );
         }
 
         inline void Sort()
@@ -121,7 +121,8 @@ namespace Desert::Geometry
         }
         constexpr static FIndex3i Max()
         {
-            return FIndex3i( TNumericLimits<int>::Max(), TNumericLimits<int>::Max(), TNumericLimits<int>::Max() );
+            return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
+                     std::numeric_limits<int>::max() };
         }
         constexpr static FIndex3i Invalid()
         {
@@ -160,20 +161,20 @@ namespace Desert::Geometry
         {
             if ( A > B )
             {
-                Swap( A, B );
+                std::swap( A, B );
             }
             if ( B > C )
             {
-                Swap( B, C );
+                std::swap( B, C );
                 if ( A > B )
                 {
-                    Swap( A, B );
+                    std::swap( A, B );
                 }
             }
         }
 
         /** @return offset triplet, with the OffsetIndicesBy value added to each index */
-        [[nodiscard]] FIndex3i GetOffsetBy( int32 OffsetIndicesBy ) const
+        [[nodiscard]] FIndex3i GetOffsetBy( int32_t OffsetIndicesBy ) const
         {
             return FIndex3i( A + OffsetIndicesBy, B + OffsetIndicesBy, C + OffsetIndicesBy );
         }
@@ -181,7 +182,7 @@ namespace Desert::Geometry
         /**
          * @return shifted triplet such that A=WantIndex0Value, and B,C values maintain the same relative ordering
          */
-        FIndex3i GetCycled( int32 WantIndex0Value ) const
+        [[nodiscard]] FIndex3i GetCycled( int32_t WantIndex0Value ) const
         {
             if ( B == WantIndex0Value )
             {
@@ -219,8 +220,8 @@ namespace Desert::Geometry
         }
         static FIndex4i Max()
         {
-            return FIndex4i( TNumericLimits<int>::Max(), TNumericLimits<int>::Max(), TNumericLimits<int>::Max(),
-                             TNumericLimits<int>::Max() );
+            return { std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
+                     std::numeric_limits<int>::max(), std::numeric_limits<int>::max() };
         }
         static FIndex4i Invalid()
         {
