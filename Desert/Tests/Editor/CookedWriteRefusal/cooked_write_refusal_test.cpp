@@ -94,7 +94,7 @@ TEST( CookedWriteRefusal, CookedJsonThatCannotBeWrittenIsARefusalNamingTheFile )
 {
     const fs::path    dir      = Scratch();
     const fs::path    file     = dir / "thing.stmesh";
-    const std::string previous = BlockTemp( file, "{\"the\":\"metadata that was already cooked\"}" );
+    const std::string previous = BlockTemp( file, R"({"the":"metadata that was already cooked"})" );
 
     const auto written = Desert::Editor::WriteCookedJson( CookedThing{ "mesh", 3 }, file );
     EXPECT_FALSE( written ) << "cooked metadata that was never written reported success";

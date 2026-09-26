@@ -22,13 +22,12 @@
 // 977 sites would be a list of exceptions longer than the list of hits. So it is refused, here, in
 // writing — see the report.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Localization/LocalizedText.hpp>
 #include <Engine/Localization/StringTable.hpp>
-
-#include <rflcpp/rfl/Generic.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -182,9 +181,9 @@ namespace
 
     void CollectFromFile( const fs::path& path, std::vector<Authored>& out )
     {
-        const auto tree = rfl::json::read<rfl::Generic>( ReadFile( path ) );
+        const auto tree = Common::Json::Parse( ReadFile( path ) );
         ASSERT_TRUE( tree ) << path.string() << " does not parse as JSON";
-        const auto root = tree.value().to_object();
+        const auto root = tree.GetValue().to_object();
         ASSERT_TRUE( root ) << path.string() << " is not a JSON object";
 
         const auto entities = root.value().get( "Entities" );

@@ -118,7 +118,7 @@ TEST( SceneSaveOutcome, AFailedWriteKeepsTheSceneDirtyAndAliveAndSaysSo )
     EditorState state;
     ASSERT_TRUE( state.ShowsUnsavedStar() ) << "the fixture has to start dirty or it asserts nothing";
 
-    const bool mayOpenAnother = ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, "{\"new\":true}" ) );
+    const bool mayOpenAnother = ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, R"({"new":true})" ) );
 
     EXPECT_FALSE( mayOpenAnother )
          << "\"Save and Open\" would have gone on to LoadScene over a scene that was never written";
@@ -148,14 +148,14 @@ TEST( SceneSaveOutcome, ASuccessfulWriteClearsTheStarAndReleasesTheScene )
     const fs::path scene = dir / "Subject.desce";
 
     EditorState state;
-    const bool  mayOpenAnother = ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, "{\"new\":true}" ) );
+    const bool  mayOpenAnother = ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, R"({"new":true})" ) );
 
     EXPECT_TRUE( mayOpenAnother );
     EXPECT_FALSE( state.SceneInMemory ) << "the pending open never ran after a save that did land";
     EXPECT_FALSE( state.ShowsUnsavedStar() );
     EXPECT_FALSE( state.LastToastWasError );
     EXPECT_NE( state.LastToast.find( "Subject" ), std::string::npos ) << state.LastToast;
-    EXPECT_EQ( ReadRaw( scene ), "{\"new\":true}" );
+    EXPECT_EQ( ReadRaw( scene ), R"({"new":true})" );
 
     fs::remove_all( dir );
 }
@@ -173,15 +173,15 @@ TEST( SceneSaveOutcome, ARetryAfterAFailureStillSaves )
     fs::create_directories( temp );
 
     EditorState state;
-    ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, "{\"first\":true}" ) );
+    ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, R"({"first":true})" ) );
     ASSERT_TRUE( state.ShowsUnsavedStar() );
 
     fs::remove_all( temp ); // whatever was holding the path is gone; the user presses Ctrl+S again
-    ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, "{\"second\":true}" ) );
+    ApplyVerdictAndOpenAnother( state, SaveSceneText( scene, R"({"second":true})" ) );
 
     EXPECT_FALSE( state.ShowsUnsavedStar() );
     EXPECT_FALSE( state.LastToastWasError );
-    EXPECT_EQ( ReadRaw( scene ), "{\"second\":true}" );
+    EXPECT_EQ( ReadRaw( scene ), R"({"second":true})" );
 
     fs::remove_all( dir );
 }

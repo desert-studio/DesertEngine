@@ -28,7 +28,6 @@
 
 // Same serialization environment as SurfaceMaterialAsset.cpp: glm/UUID adapters + json backend.
 #include <Common/Core/Serialization/GlmReflection.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -213,7 +212,7 @@ TEST( MaterialIdentity, TheParserRefusesAParentThatIsNotAStatedGuid )
          << "a MATL 1 number in Parent is not a GUID";
 
     std::string v1 = good;
-    v1.replace( v1.find( "\"MATL\":4" ), 8, "\"MATL\":1" );
+    v1.replace( v1.find( R"("MATL":4)" ), 8, R"("MATL":1)" );
     EXPECT_FALSE( Desert::Assets::ParseMaterialJson( "v1", v1 ) ) << "a MATL 1 file must be refused";
 }
 

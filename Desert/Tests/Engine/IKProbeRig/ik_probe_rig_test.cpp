@@ -38,7 +38,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <rflcpp/rfl.hpp>
-#include <rflcpp/rfl/json.hpp>
 
 #include <cmath>
 #include <fstream>
@@ -162,10 +161,9 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kCookedDir + "IKProbe.skeleton" );
         EXPECT_FALSE( raw.empty() ) << "could not read IKProbe.skeleton";
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        return data.has_value() ? data.value() : Desert::Assets::Serialization::SkeletonAssetData{};
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() );
+        return data.IsSuccess() ? data.GetValue() : Desert::Assets::Serialization::SkeletonAssetData{};
     }
 
     Desert::Assets::Serialization::MeshAssetData LoadMeshData()
@@ -183,14 +181,13 @@ namespace
     {
         const std::string raw = ReadFile( RepoRoot() + kCookedDir + "IKProbe_Swing.anim" );
         EXPECT_FALSE( raw.empty() ) << "could not read IKProbe_Swing.anim";
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
-        if ( !data.has_value() )
+        auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() );
+        if ( !data.IsSuccess() )
         {
             return {};
         }
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.value() );
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
         EXPECT_TRUE( built.IsSuccess() ) << ( built.IsSuccess() ? "" : built.GetError() );
         return built.IsSuccess() ? built.ExtractValue() : Desert::Animation::AnimationClip{};
     }
@@ -261,7 +258,7 @@ TEST( IKProbeRig, TheShippedRigIsTheChainThisSuiteDescribes )
     {
         const std::string text = ReadFile( RepoRoot() + scene );
         ASSERT_FALSE( text.empty() ) << "could not read " << scene;
-        EXPECT_NE( text.find( "\"MeshGuid\": \"" + meshGuidText + "\"" ), std::string::npos )
+        EXPECT_NE( text.find( R"("MeshGuid": ")" + meshGuidText + "\"" ), std::string::npos )
              << scene << " does not name the probe mesh by its header GUID " << meshGuidText
              << ", so the scene that places the rig would resolve to no mesh at all.";
     }
@@ -356,9 +353,9 @@ TEST( IKProbeRig, TheScenesGoalIsThePostBonesPositionAndItIsInsideTheReach )
     // the two agree, and a frame showing the hand beside the post would look like a solver bug either way.
     const std::string scene = ReadFile( RepoRoot() + kWitness );
     ASSERT_FALSE( scene.empty() );
-    EXPECT_NE( scene.find( "\"Goal\": [90.0, 150.0, 0.0]" ), std::string::npos )
+    EXPECT_NE( scene.find( R"("Goal": [90.0, 150.0, 0.0])" ), std::string::npos )
          << "the witness scene's authored goal is not the post bone's position any more.";
-    EXPECT_NE( scene.find( std::string( "\"EndBone\": \"" ) + kHand + "\"" ), std::string::npos );
+    EXPECT_NE( scene.find( std::string( R"("EndBone": ")" ) + kHand + "\"" ), std::string::npos );
     EXPECT_NEAR( glm::length( post - glm::vec3( 90.0F, 150.0F, 0.0F ) ), 0.0F, 1e-3F );
 
     // "REACHED, NOT CLAMPED": strictly inside the shell, with room either side, so the shots show the

@@ -2,8 +2,6 @@
 
 #include <Common/Content/AssetRedirector.hpp>
 
-#include <rflcpp/rfl/json.hpp>
-
 #include <spdlog/fmt/fmt.h>
 
 namespace Desert::Core
@@ -38,38 +36,61 @@ namespace Desert::Core
                                    Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) );
     }
 
-    Common::ResultStr<SceneSerialized> ParseLoadableScene( std::string_view source, const std::string& json )
+    Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view source, const std::string& json )
     {
         // Opened by path, the old path of a moved scene holds a redirector: name it, not "unreadable JSON".
         // By GUID here (this gate links no registry); the editor's open names the new path before calling.
         if ( auto moved = Common::Content::RefuseRedirectorBytes( source, json ); !moved )
-            return Common::MakeError<SceneSerialized>(
+            return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] {0}. Nothing was loaded.", moved.GetError() ) );
 
-        auto parsed = rfl::json::read<SceneSerialized>( json );
-        if ( !parsed )
-        {
-            return Common::MakeError<SceneSerialized>(
+        auto document = Common::Json::TextDocument::Parse( json );
+        if ( !document )
+            return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}' is not a readable scene file: {1}. Nothing was loaded.",
-                              source, parsed.error().what() ) );
-        }
+                              source, document.GetError() ) );
 
-        if ( !SceneIsAtCurrentVersion( parsed.value() ) )
-            return Common::MakeError<SceneSerialized>( RefuseSceneVersion( source, parsed.value() ) );
+        auto parsed = document.GetValue().AsDocument<SceneSerialized>();
+        if ( !parsed )
+            return Common::MakeError<LoadableScene>(
+                 fmt::format( "[SceneSerializer] '{0}' is not a readable scene file: {1}. Nothing was loaded.",
+                              source, parsed.GetError() ) );
+
+        const SceneSerialized& scene = parsed.GetValue();
+        if ( !SceneIsAtCurrentVersion( scene ) )
+            return Common::MakeError<LoadableScene>( RefuseSceneVersion( source, scene ) );
 
         // The header is the file's identity as well as its versions: a malformed one, or one naming another
         // kind, is refused here rather than half-believed (the AF1 gate: header kind == kind of the extension).
+        if ( !scene.Header.has_value() )
+            return Common::MakeError<LoadableScene>(
+                 fmt::format( "[SceneSerializer] '{0}' states no header. Nothing was loaded.", source ) );
         const Common::Content::AssetHeaderReadContext context{ SceneTextSubsystems() };
-        const auto header = Common::Content::TextHeaderToAssetHeader( *parsed.value().Header, context );
+        const auto header = Common::Content::TextHeaderToAssetHeader( *scene.Header, context );
         if ( !header )
-            return Common::MakeError<SceneSerialized>(
+            return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}': {1}. Nothing was loaded.", source, header.GetError() ) );
         if ( header.GetValue().Kind != Common::Content::ContentKind::Scene )
-            return Common::MakeError<SceneSerialized>( fmt::format(
+            return Common::MakeError<LoadableScene>( fmt::format(
                  "[SceneSerializer] '{0}': the header says kind '{1}', not 'Scene'. Nothing was loaded.", source,
-                 parsed.value().Header->Kind ) );
+                 scene.Header->Kind ) );
 
-        return Common::MakeSuccess( std::move( parsed.value() ) );
+        return Common::MakeSuccess( LoadableScene{ document.ExtractValue(), parsed.ExtractValue() } );
+    }
+
+    Common::ResultStr<Common::Json::TextDocument>
+    ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
+                          const Serialize::KeyIsOurs& entityKeyIsOurs )
+    {
+        auto written = Common::Json::TextDocument::Parse( Common::Json::Write( fresh ) );
+        if ( !written )
+            return Common::MakeError<Common::Json::TextDocument>(
+                 fmt::format( "[SceneSerializer] '{0}': the typed writer's output is not JSON ({1})",
+                              fresh.SceneName, written.GetError() ) );
+        if ( !loaded.has_value() )
+            return written;
+        return Common::MakeSuccess(
+             Serialize::MergeSceneDocument( written.GetValue(), *loaded, entityKeyIsOurs ) );
     }
 
 } // namespace Desert::Core

@@ -177,9 +177,9 @@ namespace Desert::Editor
                     error = "cooking the worlds: " + scene.GetError();
                     return false;
                 }
-                if ( !scene.GetValue().WorldPartition.has_value() )
+                if ( !scene.GetValue().Scene.WorldPartition.has_value() )
                     continue;
-                auto cooked = Core::WorldCells::CookWorld( scene.GetValue(),
+                auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene,
                                                            std::span( &Assets::ContentRegistry::Get(), 1 ) );
                 if ( !cooked )
                 {

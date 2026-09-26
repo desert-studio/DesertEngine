@@ -200,7 +200,7 @@ namespace
     {
         const fs::path path = Desert::Editor::TextureIntentPath( source );
         std::ofstream  out( path, std::ios::binary );
-        out << "{\"Intent\": \"" << intent << "\"}";
+        out << R"({"Intent": ")" << intent << "\"}";
     }
 
     std::string ReadAll( const fs::path& path )

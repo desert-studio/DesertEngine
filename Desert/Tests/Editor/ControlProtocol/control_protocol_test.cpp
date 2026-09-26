@@ -23,6 +23,8 @@
 //   6. STATE SECTIONS. An unknown section is refused rather than omitted: omitted, it comes back empty,
 //      which reads exactly like a section that exists and is empty. One of those two readings is a lie.
 
+#include <Common/Json/Document.hpp>
+#include <Common/Json/Json.hpp>
 #include <Editor/Core/Control/ControlProtocol.hpp>
 #include <Editor/Core/Control/ControlState.hpp>
 
@@ -68,18 +70,18 @@ namespace
 
     // The reply, read back as JSON. The whole point of the format tests is that a CLIENT can read what
     // this writes, so they assert against a parse rather than against a substring where they can.
-    rfl::Generic::Object ReadBack( const Response& response )
+    Common::Json::Object ReadBack( const Response& response )
     {
-        const auto parsed = rfl::json::read<rfl::Generic>( FormatResponse( response ) );
+        const auto parsed = Common::Json::Parse( FormatResponse( response ) );
         EXPECT_TRUE( parsed ) << "a response that is not readable JSON is not a response";
         if ( !parsed )
             return {};
-        const auto object = parsed.value().to_object();
+        const auto object = parsed.GetValue().to_object();
         EXPECT_TRUE( object );
-        return object ? object.value() : rfl::Generic::Object{};
+        return object ? object.value() : Common::Json::Object{};
     }
 
-    std::string StringField( const rfl::Generic::Object& object, const char* key )
+    std::string StringField( const Common::Json::Object& object, const char* key )
     {
         const auto field = object.get( key );
         if ( !field )
@@ -88,7 +90,7 @@ namespace
         return text ? text.value() : std::string{};
     }
 
-    bool BoolField( const rfl::Generic::Object& object, const char* key, bool fallback )
+    bool BoolField( const Common::Json::Object& object, const char* key, bool fallback )
     {
         const auto field = object.get( key );
         if ( !field )
@@ -319,11 +321,11 @@ TEST( ControlProtocol, AShotNeedsSomewhereToWrite )
 
 TEST( ControlProtocol, EveryResponseCarriesItsOutcome )
 {
-    const rfl::Generic::Object success = ReadBack( Response::Success( 3 ) );
+    const Common::Json::Object success = ReadBack( Response::Success( 3 ) );
     EXPECT_TRUE( BoolField( success, "ok", false ) );
     EXPECT_TRUE( success.get( "id" ) ) << "a client that pipelines cannot match a reply without one";
 
-    const rfl::Generic::Object failure = ReadBack( Response::Failure( 4, "the scene has no camera" ) );
+    const Common::Json::Object failure = ReadBack( Response::Failure( 4, "the scene has no camera" ) );
     EXPECT_FALSE( BoolField( failure, "ok", true ) );
     EXPECT_EQ( StringField( failure, "error" ), "the scene has no camera" );
 }
@@ -333,7 +335,7 @@ TEST( ControlProtocol, EveryResponseCarriesItsOutcome )
 // as the fault, because that is what it is. Loud and wrong beats silent and wrong: somebody reads it.
 TEST( ControlProtocol, ARefusalWithNoReasonBlamesTheChannelRatherThanSayingNothing )
 {
-    const rfl::Generic::Object failure = ReadBack( Response::Failure( 5, "" ) );
+    const Common::Json::Object failure = ReadBack( Response::Failure( 5, "" ) );
 
     EXPECT_FALSE( BoolField( failure, "ok", true ) );
     const std::string reason = StringField( failure, "error" );
@@ -346,12 +348,12 @@ TEST( ControlProtocol, ARefusalWithNoReasonBlamesTheChannelRatherThanSayingNothi
 // success.
 TEST( ControlProtocol, APayloadCannotOverwriteTheOutcome )
 {
-    rfl::Generic::Object payload;
-    payload["ok"]    = rfl::Generic( false );
-    payload["id"]    = rfl::Generic( 999.0 );
-    payload["error"] = rfl::Generic( std::string( "not really" ) );
+    Common::Json::Object payload;
+    payload["ok"]    = Common::Json::Value( false );
+    payload["id"]    = Common::Json::Value( 999.0 );
+    payload["error"] = Common::Json::Value( std::string( "not really" ) );
 
-    const rfl::Generic::Object written = ReadBack( Response::Success( 11, payload ) );
+    const Common::Json::Object written = ReadBack( Response::Success( 11, payload ) );
     EXPECT_TRUE( BoolField( written, "ok", false ) );
     EXPECT_FALSE( written.get( "error" ) ) << "a success must not carry an error field";
 }
@@ -360,8 +362,8 @@ TEST( ControlProtocol, APayloadCannotOverwriteTheOutcome )
 // and the second half would be read as the answer to the NEXT request.
 TEST( ControlProtocol, AResponseIsOneLine )
 {
-    rfl::Generic::Object payload;
-    payload["message"] = rfl::Generic( std::string( "first\nsecond\r\nthird" ) );
+    Common::Json::Object payload;
+    payload["message"] = Common::Json::Value( std::string( "first\nsecond\r\nthird" ) );
 
     const std::string written = FormatResponse( Response::Success( 1, payload ) );
     EXPECT_EQ( written.find( '\n' ), std::string::npos );
@@ -443,7 +445,7 @@ TEST( ControlProtocol, EverySectionInTheTableIsActuallySerialised )
 
     for ( const char* section : kStateSections )
     {
-        const rfl::Generic::Object json = ToJson( snapshot, { section } );
+        const Common::Json::Object json = ToJson( snapshot, { section } );
         EXPECT_TRUE( json.get( section ) )
              << "'" << section << "' is offered by ValidateSections and produced no output";
     }
@@ -454,7 +456,7 @@ TEST( ControlProtocol, AskingForOneSectionDoesNotReturnTheOthers )
     EditorSnapshot snapshot;
     snapshot.SceneName = "Clouds_Protocol";
 
-    const rfl::Generic::Object json = ToJson( snapshot, { "scene" } );
+    const Common::Json::Object json = ToJson( snapshot, { "scene" } );
     EXPECT_TRUE( json.get( "scene" ) );
     EXPECT_FALSE( json.get( "documents" ) );
     EXPECT_FALSE( json.get( "panels" ) );
@@ -474,7 +476,7 @@ TEST( ControlProtocol, TheDocumentsSectionCarriesBothTheOpenOnesAndTheClosedOnes
                                     .Focused            = true } );
     snapshot.RecentlyClosed.push_back( { .Name = "M_Barrel", .Type = "SurfaceMaterial", .Subject = "2222" } );
 
-    const rfl::Generic::Object json      = ToJson( snapshot, { "documents" } );
+    const Common::Json::Object json      = ToJson( snapshot, { "documents" } );
     const auto                 documents = json.get( "documents" );
     ASSERT_TRUE( documents );
 

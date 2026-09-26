@@ -154,13 +154,12 @@ namespace
         const std::string raw  = ReadFile( path );
         EXPECT_FALSE( raw.empty() ) << "could not read the corpus clip " << path;
 
-        const auto data =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() ) << path << ": " << ( data.has_value() ? "" : data.error().what() );
-        if ( !data.has_value() )
+        const auto data = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() ) << path << ": " << ( data.IsSuccess() ? "" : data.GetError() );
+        if ( !data.IsSuccess() )
             return {};
 
-        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.value() );
+        auto built = Desert::Assets::Serialization::BuildClipFromAssetData( data.GetValue() );
         EXPECT_TRUE( built.IsSuccess() ) << path << ": " << ( built.IsSuccess() ? "" : built.GetError() );
         if ( !built.IsSuccess() )
             return {};
@@ -176,13 +175,12 @@ namespace
         const std::string raw = ReadFile( RepoRoot() + kProbeRig );
         EXPECT_FALSE( raw.empty() ) << "could not read " << kProbeRig;
 
-        auto data =
-             rfl::json::read<Desert::Assets::Serialization::SkeletonAssetData, rfl::DefaultIfMissing>( raw );
-        EXPECT_TRUE( data.has_value() );
+        auto data = Common::Json::Read<Desert::Assets::Serialization::SkeletonAssetData>( raw );
+        EXPECT_TRUE( data.IsSuccess() );
 
         std::vector<Desert::Animation::BoneInfo> bones;
-        if ( data.has_value() )
-            bones = data.value().Bones;
+        if ( data.IsSuccess() )
+            bones = data.GetValue().Bones;
         return Desert::Animation::Skeleton( std::move( bones ) );
     }
 
@@ -349,11 +347,10 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositoryIsAtTheCurrentGeneration )
     {
         ++seen;
         const auto data =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>(
-                  ReadFile( path ) );
-        ASSERT_TRUE( data.has_value() ) << path << " does not parse as a `.anim` at all";
+             Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( ReadFile( path ) );
+        ASSERT_TRUE( data.IsSuccess() ) << path << " does not parse as a `.anim` at all";
         const int stated =
-             Desert::Assets::StatedVersion( data.value().Header, Desert::Assets::kAnimationSchemaTag );
+             Desert::Assets::StatedVersion( data.GetValue().Header, Desert::Assets::kAnimationSchemaTag );
         EXPECT_EQ( stated, Desert::Assets::Serialization::kAnimationVersion )
              << path << " is at `.anim` generation " << stated << " and this build reads "
              << Desert::Assets::Serialization::kAnimationVersion
@@ -445,10 +442,9 @@ TEST( AnimationClipCorpus, EveryClipInTheRepositorySTATESTheSectionItsValuesAreR
 
         const std::string raw = ReadFile( clipPath );
         ASSERT_FALSE( raw.empty() ) << clipPath;
-        const auto parsed =
-             rfl::json::read<Desert::Assets::Serialization::AnimationAssetData, rfl::DefaultIfMissing>( raw );
-        ASSERT_TRUE( parsed.has_value() ) << clipPath;
-        const auto& data = parsed.value();
+        const auto parsed = Common::Json::Read<Desert::Assets::Serialization::AnimationAssetData>( raw );
+        ASSERT_TRUE( parsed.IsSuccess() ) << clipPath;
+        const auto& data = parsed.GetValue();
 
         ASSERT_FALSE( data.Sections.empty() )
              << clipPath

@@ -420,7 +420,7 @@ TEST( WorldSceneGenerator, TheGeneratedSceneIsOneTheLoaderACCEPTS )
 
     const auto loadable = ParseLoadableScene( out.string(), bytes );
     ASSERT_TRUE( static_cast<bool>( loadable ) ) << loadable.GetError();
-    EXPECT_TRUE( SceneIsAtCurrentVersion( loadable.GetValue() ) );
+    EXPECT_TRUE( SceneIsAtCurrentVersion( loadable.GetValue().Scene ) );
 }
 
 // And it STATES both integers rather than defaulting into them - the second corpus rule, and the one that
@@ -460,7 +460,9 @@ TEST( WorldSceneGenerator, TheGeneratedSceneIsUnchangedByAWholeDocumentRoundTrip
     ASSERT_FALSE( document.size() == 0 );
 
     const auto nothingIsOurs = []( const std::string& ) { return false; };
-    EXPECT_EQ( rfl::json::write( MergeSceneDocument( document, document, nothingIsOurs ) ),
+    const auto tree          = Common::Json::TextDocument::Parse( rfl::json::write( document ) );
+    ASSERT_TRUE( static_cast<bool>( tree ) ) << tree.GetError();
+    EXPECT_EQ( MergeSceneDocument( tree.GetValue(), tree.GetValue(), nothingIsOurs ).Text(),
                rfl::json::write( document ) );
 }
 
