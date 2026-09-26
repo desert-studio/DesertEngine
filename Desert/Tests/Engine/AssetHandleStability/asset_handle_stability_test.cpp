@@ -1475,6 +1475,19 @@ TEST( AssetHandleStability, ARetargetHandleIsHandleForGuidOfItsHeader )
     std::filesystem::remove_all( file.parent_path() );
 }
 
+// AF4f: a mesh saved as a DAST envelope (MeshSourceAsset) states its GUID in the envelope header, not after
+// a MeshBinary header. The constructor read only the MeshBinary prefix, so StaticProbe.stmesh took the
+// path-derived handle while the content registry folded the envelope's GUID - "[ContentRegistry] ... loaded
+// as handle a13e0c785ba23e46, but its header GUID folds to fa66b0912ef124f2". The corpus file itself, so a
+// change of its container is what this test sees.
+TEST( AssetHandleStability, AnEnvelopeMeshHandleIsHandleForGuidOfItsHeader )
+{
+    const auto file =
+         CopyCorpusFile( "Editor/Resources/Assets/Meshes/StaticProbe.stmesh", "AF4fEnvelopeMeshHandle" );
+    ExpectHeaderGuidIdentity<Desert::Assets::StaticMeshAsset>( file, Common::Content::ContentKind::StaticMesh );
+    std::filesystem::remove_all( file.parent_path() );
+}
+
 // AF10d/AF10e: an asset still named by its OLD path after a rename (a scene's UIText, a saved slot, a rig
 // reference) opens the moved file - the loader follows the registry past the redirector the move left - and
 // it is the SAME asset: the handle is the moved file's header GUID, not the redirector's, so the two
