@@ -173,7 +173,8 @@ namespace
     // kind its header states, not by extension, and read through the engine's own ReadMeshSourceAssetFile;
     // a mesh that does not read is reported through `parseError`, never skipped. A null slot material is an
     // authored "no material" and is not a reference.
-    std::vector<AssetReference> MeshReferencesUnder( const fs::path& contentRoot, std::string* parseError )
+    std::vector<AssetReference> MeshReferencesUnder( const fs::path& contentRoot, std::string* parseError,
+                                                     int* meshesRead )
     {
         namespace CC = Common::Content;
         std::vector<AssetReference> out;
@@ -197,6 +198,8 @@ namespace
                     *parseError = name + ": " + asset.GetError();
                 continue;
             }
+            if ( meshesRead )
+                ++*meshesRead;
             for ( const auto& slot : asset.GetValue().Source.MaterialSlots )
             {
                 if ( slot.Material.IsNull() )
@@ -332,8 +335,12 @@ TEST( AssetReferenceCensus, EveryReferenceAShippedMaterialMakesNamesAFileInThePr
     // A mesh names its slot materials by header GUID too, and resolves them by the same fold, so its
     // references are asked the same question as a material's.
     std::string meshError;
-    const auto  meshReferences = MeshReferencesUnder( content, &meshError );
+    int         meshesRead     = 0;
+    const auto  meshReferences = MeshReferencesUnder( content, &meshError, &meshesRead );
     EXPECT_TRUE( meshError.empty() ) << "a shipped mesh source asset does not read: " << meshError;
+    // The shipped StaticProbe is a mesh source asset; finding none means the sweep no longer recognises the
+    // kind, and every mesh reference would pass vacuously.
+    EXPECT_GE( meshesRead, 1 ) << "no mesh source asset was read under " << content.string();
 
     // A sweep that found nothing passes vacuously, and the two ways that happens — a wrong root, and a
     // rename of the materials directory — are both silent. The floor is asserted rather than assumed.
